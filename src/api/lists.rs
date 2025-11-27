@@ -1,10 +1,6 @@
 use crate::api::auth::AuthenticatedUser;
-use crate::api::browse::{AlbumResponse, SongResponse};
+use crate::api::browse::{song_to_response, AlbumResponse, SongResponse};
 use crate::api::response::{format_ok_empty, FormatResponse};
-use crate::api::xml::{
-    XmlAlbum, XmlAlbumList2Inner, XmlAlbumList2Response, XmlRandomSongsInner,
-    XmlRandomSongsResponse, XmlSong,
-};
 use crate::api::AppState;
 use crate::error::Result;
 use axum::extract::{Query, State};
@@ -28,20 +24,20 @@ pub struct AlbumListParams {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumList2Response {
-    album_list2: AlbumList2Content,
+    pub album_list2: AlbumList2Content,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumList2Content {
-    album: Vec<AlbumResponse>,
+    pub album: Vec<AlbumResponse>,
 }
 
 pub async fn get_album_list2(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<AlbumListParams>,
-) -> Result<FormatResponse<AlbumList2Response, XmlAlbumList2Response>> {
+) -> Result<FormatResponse<AlbumList2Response>> {
     let size = params.size.unwrap_or(10).min(500) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
 
@@ -199,28 +195,9 @@ pub async fn get_album_list2(
         _ => Vec::new(),
     };
 
-    let json_albums: Vec<AlbumResponse> = albums
-        .iter()
-        .map(|album| AlbumResponse {
-            id: album.id.clone(),
-            name: album.name.clone(),
-            artist: album.artist_name.clone(),
-            artist_id: album.artist_id.clone(),
-            cover_art: Some(album.id.clone()),
-            song_count: album.song_count,
-            duration: album.duration,
-            year: album.year,
-            genre: album.genre.clone(),
-            created: album
-                .created_at
-                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                .to_string(),
-        })
-        .collect();
-
-    let xml_albums: Vec<XmlAlbum> = albums
+    let album_responses: Vec<AlbumResponse> = albums
         .into_iter()
-        .map(|album| XmlAlbum {
+        .map(|album| AlbumResponse {
             id: album.id.clone(),
             name: album.name,
             artist: album.artist_name,
@@ -237,13 +214,11 @@ pub async fn get_album_list2(
         })
         .collect();
 
-    let json = AlbumList2Response {
-        album_list2: AlbumList2Content { album: json_albums },
+    let response = AlbumList2Response {
+        album_list2: AlbumList2Content { album: album_responses },
     };
 
-    let xml = XmlAlbumList2Response::ok(XmlAlbumList2Inner { album: xml_albums });
-
-    Ok(FormatResponse::new(user.format, json, xml))
+    Ok(FormatResponse::new(user.format, response))
 }
 
 #[derive(Deserialize)]
@@ -259,20 +234,20 @@ pub struct RandomSongsParams {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RandomSongsResponse {
-    random_songs: RandomSongsContent,
+    pub random_songs: RandomSongsContent,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RandomSongsContent {
-    song: Vec<SongResponse>,
+    pub song: Vec<SongResponse>,
 }
 
 pub async fn get_random_songs(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<RandomSongsParams>,
-) -> Result<FormatResponse<RandomSongsResponse, XmlRandomSongsResponse>> {
+) -> Result<FormatResponse<RandomSongsResponse>> {
     let size = params.size.unwrap_or(10).min(500) as i64;
 
     let mut query = "SELECT * FROM songs WHERE 1=1".to_string();
@@ -294,8 +269,7 @@ pub async fn get_random_songs(
         .fetch_all(&state.pool)
         .await?;
 
-    let mut json_songs = Vec::new();
-    let mut xml_songs = Vec::new();
+    let mut song_responses = Vec::new();
 
     for song in songs {
         let album = if let Some(album_id) = &song.album_id {
@@ -304,78 +278,14 @@ pub async fn get_random_songs(
             None
         };
 
-        let content_type = match song.file_format.as_str() {
-            "mp3" => "audio/mpeg",
-            "flac" => "audio/flac",
-            "ogg" | "opus" => "audio/ogg",
-            "m4a" | "mp4" | "aac" => "audio/mp4",
-            "wav" => "audio/wav",
-            _ => "application/octet-stream",
-        };
-
-        let created = song.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-
-        json_songs.push(SongResponse {
-            id: song.id.clone(),
-            title: song.title.clone(),
-            album: album.as_ref().map(|a| a.name.clone()),
-            album_id: song.album_id.clone(),
-            artist: "Unknown".to_string(),
-            artist_id: song.artist_id.clone(),
-            track: song.track_number,
-            disc_number: Some(song.disc_number),
-            year: song.year,
-            genre: song.genre.clone(),
-            cover_art: Some(
-                album
-                    .as_ref()
-                    .map(|a| a.id.clone())
-                    .unwrap_or_else(|| song.id.clone()),
-            ),
-            size: song.file_size,
-            content_type: content_type.to_string(),
-            suffix: song.file_format.clone(),
-            duration: song.duration,
-            bit_rate: song.bitrate,
-            path: song.file_path.clone(),
-            created: created.clone(),
-            media_type: "music".to_string(),
-        });
-
-        xml_songs.push(XmlSong {
-            id: song.id.clone(),
-            title: song.title,
-            album: album.as_ref().map(|a| a.name.clone()),
-            album_id: song.album_id,
-            artist: "Unknown".to_string(),
-            artist_id: song.artist_id,
-            track: song.track_number,
-            disc_number: Some(song.disc_number),
-            year: song.year,
-            genre: song.genre,
-            cover_art: Some(album.as_ref().map(|a| a.id.clone()).unwrap_or(song.id)),
-            size: song.file_size,
-            content_type: content_type.to_string(),
-            suffix: song.file_format,
-            duration: song.duration,
-            bit_rate: song.bitrate,
-            path: song.file_path,
-            created,
-            media_type: "music".to_string(),
-        });
+        song_responses.push(song_to_response(song, album.as_ref()));
     }
 
-    let json_response = RandomSongsResponse {
-        random_songs: RandomSongsContent { song: json_songs },
+    let response = RandomSongsResponse {
+        random_songs: RandomSongsContent { song: song_responses },
     };
 
-    let xml_response = XmlRandomSongsResponse::ok(XmlRandomSongsInner { song: xml_songs });
-
-    Ok(FormatResponse::new(
-        user.format,
-        json_response,
-        xml_response,
-    ))
+    Ok(FormatResponse::new(user.format, response))
 }
 
 #[derive(Deserialize)]

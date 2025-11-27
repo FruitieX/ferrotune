@@ -1,7 +1,12 @@
 //! XML response types for Subsonic API compatibility.
-//! 
-//! These structs mirror the JSON response types but use quick-xml's attribute
-//! naming convention (`@field`) for XML serialization.
+//!
+//! This module provides:
+//! - `ToXml` trait for converting JSON response types to XML
+//! - XML struct definitions for serialization with quick-xml
+//! - Helper functions for XML serialization
+//!
+//! The `ToXml` trait allows API handlers to construct only JSON response types,
+//! while `FormatResponse` automatically handles XML conversion when needed.
 
 use serde::Serialize;
 
@@ -22,7 +27,7 @@ impl ResponseFormat {
             _ => ResponseFormat::Xml,
         }
     }
-    
+
     pub fn content_type(&self) -> &'static str {
         match self {
             ResponseFormat::Xml => "application/xml; charset=utf-8",
@@ -31,9 +36,20 @@ impl ResponseFormat {
     }
 }
 
-/// XML wrapper for subsonic-response element
-/// Note: quick-xml doesn't support #[serde(flatten)] with complex types,
-/// so we use specific response types for each endpoint instead of a generic wrapper.
+/// Trait for converting JSON response types to their XML equivalents.
+///
+/// Implementations should return a complete XML response struct that can be
+/// serialized directly to XML (including the subsonic-response wrapper).
+pub trait ToXml {
+    /// The XML response type (must include the full subsonic-response wrapper)
+    type XmlType: Serialize;
+
+    /// Convert this JSON response to its XML equivalent
+    fn to_xml(&self) -> Self::XmlType;
+}
+
+// Note: quick-xml doesn't support #[serde(flatten)] with complex types,
+// so we use specific response types for each endpoint instead of a generic wrapper.
 
 /// Serialize to XML string with declaration
 pub fn to_xml_string<T: Serialize>(value: &T) -> Result<String, quick_xml::se::SeError> {
@@ -933,4 +949,347 @@ pub struct XmlPlayQueueInner {
     pub changed_by: Option<String>,
     #[serde(rename = "entry", default)]
     pub entry: Vec<XmlSong>,
+}
+
+// =============================================================================
+// ToXml implementations for JSON response types
+// =============================================================================
+//
+// These implementations convert JSON response structs to their XML equivalents.
+// Each implementation handles the mapping from JSON field conventions (camelCase)
+// to XML attribute conventions (@prefixed), and constructs the full XML response
+// including the subsonic-response wrapper.
+
+use crate::api::browse::{
+    AlbumDetailResponse, AlbumResponse, ArtistDetailResponse, ArtistResponse, ArtistsResponse,
+    GenresResponse, SongDetailResponse, SongResponse,
+};
+use crate::api::lists::{AlbumList2Response, RandomSongsResponse};
+use crate::api::playlists::{PlaylistWithSongsResponse, PlaylistsResponse};
+use crate::api::playqueue::PlayQueueResponse;
+use crate::api::search::SearchResult3;
+use crate::api::starring::{Starred2Response, StarredResponse};
+use crate::api::system::{License, MusicFolders, OpenSubsonicExtensions};
+
+// --- Helper conversion functions ---
+
+/// Convert a JSON ArtistResponse to XmlArtist
+fn artist_to_xml(artist: &ArtistResponse) -> XmlArtist {
+    XmlArtist {
+        id: artist.id.clone(),
+        name: artist.name.clone(),
+        album_count: artist.album_count,
+        cover_art: artist.cover_art.clone(),
+    }
+}
+
+/// Convert a JSON AlbumResponse to XmlAlbum
+fn album_to_xml(album: &AlbumResponse) -> XmlAlbum {
+    XmlAlbum {
+        id: album.id.clone(),
+        name: album.name.clone(),
+        artist: album.artist.clone(),
+        artist_id: album.artist_id.clone(),
+        cover_art: album.cover_art.clone(),
+        song_count: album.song_count,
+        duration: album.duration,
+        year: album.year,
+        genre: album.genre.clone(),
+        created: album.created.clone(),
+    }
+}
+
+/// Convert a JSON SongResponse to XmlSong
+fn song_to_xml(song: &SongResponse) -> XmlSong {
+    XmlSong {
+        id: song.id.clone(),
+        title: song.title.clone(),
+        album: song.album.clone(),
+        album_id: song.album_id.clone(),
+        artist: song.artist.clone(),
+        artist_id: song.artist_id.clone(),
+        track: song.track,
+        disc_number: song.disc_number,
+        year: song.year,
+        genre: song.genre.clone(),
+        cover_art: song.cover_art.clone(),
+        size: song.size,
+        content_type: song.content_type.clone(),
+        suffix: song.suffix.clone(),
+        duration: song.duration,
+        bit_rate: song.bit_rate,
+        path: song.path.clone(),
+        created: song.created.clone(),
+        media_type: song.media_type.clone(),
+    }
+}
+
+// --- system.rs ToXml implementations ---
+
+impl ToXml for License {
+    type XmlType = XmlLicenseResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlLicenseResponse::ok(XmlLicenseInner {
+            valid: self.valid,
+            email: self.email.clone(),
+            license_expires: self.license_expires.clone(),
+        })
+    }
+}
+
+impl ToXml for OpenSubsonicExtensions {
+    type XmlType = XmlOpenSubsonicExtensionsResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        let extensions = self
+            .open_subsonic_extensions
+            .iter()
+            .map(|ext| XmlExtension {
+                name: ext.name.clone(),
+                versions: ext
+                    .versions
+                    .iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            })
+            .collect();
+        XmlOpenSubsonicExtensionsResponse::ok(extensions)
+    }
+}
+
+impl ToXml for MusicFolders {
+    type XmlType = XmlMusicFoldersResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        let folders = self
+            .music_folders
+            .music_folder
+            .iter()
+            .map(|f| XmlMusicFolder {
+                id: f.id,
+                name: f.name.clone(),
+            })
+            .collect();
+        XmlMusicFoldersResponse::ok(XmlMusicFoldersInner {
+            music_folder: folders,
+        })
+    }
+}
+
+// --- browse.rs ToXml implementations ---
+
+impl ToXml for ArtistsResponse {
+    type XmlType = XmlArtistsResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        let indexes = self
+            .artists
+            .index
+            .iter()
+            .map(|idx| XmlArtistIndex {
+                name: idx.name.clone(),
+                artist: idx.artist.iter().map(artist_to_xml).collect(),
+            })
+            .collect();
+
+        XmlArtistsResponse::ok(XmlArtistsInner {
+            ignored_articles: "The El La Los Las Le Les".to_string(),
+            index: indexes,
+        })
+    }
+}
+
+impl ToXml for ArtistDetailResponse {
+    type XmlType = XmlArtistWithAlbumsResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlArtistWithAlbumsResponse::ok(XmlArtistDetail {
+            id: self.artist.id.clone(),
+            name: self.artist.name.clone(),
+            album_count: self.artist.album_count,
+            cover_art: self.artist.cover_art.clone(),
+            album: self.artist.album.iter().map(album_to_xml).collect(),
+        })
+    }
+}
+
+impl ToXml for AlbumDetailResponse {
+    type XmlType = XmlAlbumDetailResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlAlbumDetailResponse::ok(XmlAlbumDetail {
+            id: self.album.id.clone(),
+            name: self.album.name.clone(),
+            artist: self.album.artist.clone(),
+            artist_id: self.album.artist_id.clone(),
+            cover_art: self.album.cover_art.clone(),
+            song_count: self.album.song_count,
+            duration: self.album.duration,
+            year: self.album.year,
+            genre: self.album.genre.clone(),
+            created: self.album.created.clone(),
+            song: self.album.song.iter().map(song_to_xml).collect(),
+        })
+    }
+}
+
+impl ToXml for SongDetailResponse {
+    type XmlType = XmlSongDetailResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlSongDetailResponse::ok(song_to_xml(&self.song))
+    }
+}
+
+impl ToXml for GenresResponse {
+    type XmlType = XmlGenresResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        let genres = self
+            .genres
+            .genre
+            .iter()
+            .map(|g| XmlGenre {
+                name: g.name.clone(),
+                song_count: g.song_count,
+                album_count: g.album_count,
+            })
+            .collect();
+        XmlGenresResponse::ok(XmlGenresInner { genre: genres })
+    }
+}
+
+// --- lists.rs ToXml implementations ---
+
+impl ToXml for AlbumList2Response {
+    type XmlType = XmlAlbumList2Response;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlAlbumList2Response::ok(XmlAlbumList2Inner {
+            album: self.album_list2.album.iter().map(album_to_xml).collect(),
+        })
+    }
+}
+
+impl ToXml for RandomSongsResponse {
+    type XmlType = XmlRandomSongsResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlRandomSongsResponse::ok(XmlRandomSongsInner {
+            song: self.random_songs.song.iter().map(song_to_xml).collect(),
+        })
+    }
+}
+
+// --- search.rs ToXml implementations ---
+
+impl ToXml for SearchResult3 {
+    type XmlType = XmlSearchResult3Response;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlSearchResult3Response::ok(XmlSearchResult3Inner {
+            artist: self
+                .search_result3
+                .artist
+                .iter()
+                .map(artist_to_xml)
+                .collect(),
+            album: self.search_result3.album.iter().map(album_to_xml).collect(),
+            song: self.search_result3.song.iter().map(song_to_xml).collect(),
+        })
+    }
+}
+
+// --- starring.rs ToXml implementations ---
+
+impl ToXml for Starred2Response {
+    type XmlType = XmlStarred2Response;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlStarred2Response::ok(XmlStarredInner {
+            artist: self.starred2.artist.iter().map(artist_to_xml).collect(),
+            album: self.starred2.album.iter().map(album_to_xml).collect(),
+            song: self.starred2.song.iter().map(song_to_xml).collect(),
+        })
+    }
+}
+
+impl ToXml for StarredResponse {
+    type XmlType = XmlStarredResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlStarredResponse::ok(XmlStarredInner {
+            artist: self.starred.artist.iter().map(artist_to_xml).collect(),
+            album: self.starred.album.iter().map(album_to_xml).collect(),
+            song: self.starred.song.iter().map(song_to_xml).collect(),
+        })
+    }
+}
+
+// --- playlists.rs ToXml implementations ---
+
+impl ToXml for PlaylistsResponse {
+    type XmlType = XmlPlaylistsResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        let playlists = self
+            .playlists
+            .playlist
+            .iter()
+            .map(|p| XmlPlaylist {
+                id: p.id.clone(),
+                name: p.name.clone(),
+                comment: p.comment.clone(),
+                owner: p.owner.clone(),
+                public: p.public,
+                song_count: p.song_count,
+                duration: p.duration,
+                created: p.created.clone(),
+                changed: p.changed.clone(),
+                cover_art: p.cover_art.clone(),
+            })
+            .collect();
+        XmlPlaylistsResponse::ok(XmlPlaylistsInner {
+            playlist: playlists,
+        })
+    }
+}
+
+impl ToXml for PlaylistWithSongsResponse {
+    type XmlType = XmlPlaylistWithSongsResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlPlaylistWithSongsResponse::ok(XmlPlaylistDetail {
+            id: self.playlist.id.clone(),
+            name: self.playlist.name.clone(),
+            comment: self.playlist.comment.clone(),
+            owner: self.playlist.owner.clone(),
+            public: self.playlist.public,
+            song_count: self.playlist.song_count,
+            duration: self.playlist.duration,
+            created: self.playlist.created.clone(),
+            changed: self.playlist.changed.clone(),
+            cover_art: self.playlist.cover_art.clone(),
+            entry: self.playlist.entry.iter().map(song_to_xml).collect(),
+        })
+    }
+}
+
+// --- playqueue.rs ToXml implementations ---
+
+impl ToXml for PlayQueueResponse {
+    type XmlType = XmlPlayQueueResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlPlayQueueResponse::ok(XmlPlayQueueInner {
+            current: self.play_queue.current.clone(),
+            position: self.play_queue.position,
+            username: self.play_queue.username.clone(),
+            changed: self.play_queue.changed.clone(),
+            changed_by: self.play_queue.changed_by.clone(),
+            entry: self.play_queue.entry.iter().map(song_to_xml).collect(),
+        })
+    }
 }
