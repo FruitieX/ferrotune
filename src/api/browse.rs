@@ -90,17 +90,17 @@ pub async fn get_artists(
                 id: artist.id.clone(),
                 name: artist.name.clone(),
                 album_count: Some(artist.album_count),
-                cover_art: artist.cover_art_id.clone(),
+                cover_art: Some(artist.id.clone()),
             });
 
         xml_grouped
             .entry(index_name)
             .or_insert_with(Vec::new)
             .push(XmlArtist {
-                id: artist.id,
-                name: artist.name,
+                id: artist.id.clone(),
+                name: artist.name.clone(),
                 album_count: Some(artist.album_count),
-                cover_art: artist.cover_art_id,
+                cover_art: Some(artist.id),
             });
     }
 
@@ -199,10 +199,7 @@ pub async fn get_artist(
             name: album.name.clone(),
             artist: album.artist_name.clone(),
             artist_id: album.artist_id.clone(),
-            cover_art: album
-                .cover_art_id
-                .clone()
-                .or_else(|| Some(album.id.clone())),
+            cover_art: Some(album.id.clone()),
             song_count: album.song_count,
             duration: album.duration,
             year: album.year,
@@ -217,16 +214,12 @@ pub async fn get_artist(
     let xml_albums: Vec<XmlAlbum> = albums
         .into_iter()
         .map(|album| {
-            let cover_art = album
-                .cover_art_id
-                .clone()
-                .or_else(|| Some(album.id.clone()));
             XmlAlbum {
-                id: album.id,
+                id: album.id.clone(),
                 name: album.name,
                 artist: album.artist_name,
                 artist_id: album.artist_id,
-                cover_art,
+                cover_art: Some(album.id),
                 song_count: album.song_count,
                 duration: album.duration,
                 year: album.year,
@@ -244,16 +237,16 @@ pub async fn get_artist(
             id: artist.id.clone(),
             name: artist.name.clone(),
             album_count: Some(artist.album_count),
-            cover_art: artist.cover_art_id.clone(),
+            cover_art: Some(artist.id.clone()),
             album: album_responses,
         },
     };
 
     let xml = XmlArtistWithAlbumsResponse::ok(XmlArtistDetail {
-        id: artist.id,
+        id: artist.id.clone(),
         name: artist.name,
         album_count: Some(artist.album_count),
-        cover_art: artist.cover_art_id,
+        cover_art: Some(artist.id),
         album: xml_albums,
     });
 
@@ -341,10 +334,7 @@ pub async fn get_album(
         .map(|song| song_to_xml(song, Some(&album)))
         .collect();
 
-    let album_cover = album
-        .cover_art_id
-        .clone()
-        .or_else(|| Some(album.id.clone()));
+    let album_cover = Some(album.id.clone());
 
     let json = AlbumDetailResponse {
         album: AlbumDetail {
@@ -497,7 +487,7 @@ fn song_to_response(song: Song, album: Option<&Album>) -> SongResponse {
     };
 
     SongResponse {
-        id: song.id,
+        id: song.id.clone(),
         title: song.title,
         album: album.map(|a| a.name.clone()),
         album_id: song.album_id,
@@ -507,9 +497,7 @@ fn song_to_response(song: Song, album: Option<&Album>) -> SongResponse {
         disc_number: Some(song.disc_number),
         year: song.year,
         genre: song.genre,
-        cover_art: song
-            .cover_art_id
-            .or_else(|| album.map(|a| a.cover_art_id.clone().unwrap_or_else(|| a.id.clone()))),
+        cover_art: Some(album.map(|a| a.id.clone()).unwrap_or(song.id)),
         size: song.file_size,
         content_type: content_type.to_string(),
         suffix: song.file_format.clone(),
@@ -533,7 +521,7 @@ fn song_to_xml(song: Song, album: Option<&Album>) -> XmlSong {
     };
 
     XmlSong {
-        id: song.id,
+        id: song.id.clone(),
         title: song.title,
         album: album.map(|a| a.name.clone()),
         album_id: song.album_id.clone(),
@@ -543,9 +531,7 @@ fn song_to_xml(song: Song, album: Option<&Album>) -> XmlSong {
         disc_number: Some(song.disc_number),
         year: song.year,
         genre: song.genre,
-        cover_art: song
-            .cover_art_id
-            .or_else(|| album.map(|a| a.cover_art_id.clone().unwrap_or_else(|| a.id.clone()))),
+        cover_art: Some(album.map(|a| a.id.clone()).unwrap_or(song.id)),
         size: song.file_size,
         content_type: content_type.to_string(),
         suffix: song.file_format.clone(),

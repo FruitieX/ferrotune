@@ -4,12 +4,18 @@ pub mod coverart;
 pub mod lists;
 pub mod playlists;
 pub mod playqueue;
+pub mod query;
 pub mod response;
 pub mod search;
 pub mod starring;
 pub mod stream;
 pub mod system;
 pub mod xml;
+
+pub use query::QsQuery;
+pub use query::string_or_seq;
+pub use query::first_string_or_none;
+pub use query::first_string;
 
 use axum::{routing::get, Router};
 use serde::Deserialize;

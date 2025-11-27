@@ -1,7 +1,10 @@
 use crate::api::auth::AuthenticatedUser;
 use crate::api::browse::{AlbumResponse, SongResponse};
 use crate::api::response::{format_ok_empty, FormatResponse};
-use crate::api::xml::{XmlAlbum, XmlAlbumList2Inner, XmlAlbumList2Response, XmlRandomSongsInner, XmlRandomSongsResponse, XmlSong};
+use crate::api::xml::{
+    XmlAlbum, XmlAlbumList2Inner, XmlAlbumList2Response, XmlRandomSongsInner,
+    XmlRandomSongsResponse, XmlSong,
+};
 use crate::api::AppState;
 use crate::error::Result;
 use axum::extract::{Query, State};
@@ -203,12 +206,15 @@ pub async fn get_album_list2(
             name: album.name.clone(),
             artist: album.artist_name.clone(),
             artist_id: album.artist_id.clone(),
-            cover_art: album.cover_art_id.clone().or_else(|| Some(album.id.clone())),
+            cover_art: Some(album.id.clone()),
             song_count: album.song_count,
             duration: album.duration,
             year: album.year,
             genre: album.genre.clone(),
-            created: album.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            created: album
+                .created_at
+                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string(),
         })
         .collect();
 
@@ -219,24 +225,23 @@ pub async fn get_album_list2(
             name: album.name,
             artist: album.artist_name,
             artist_id: album.artist_id,
-            cover_art: album.cover_art_id.or_else(|| Some(album.id.clone())),
+            cover_art: Some(album.id),
             song_count: album.song_count,
             duration: album.duration,
             year: album.year,
             genre: album.genre,
-            created: album.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            created: album
+                .created_at
+                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string(),
         })
         .collect();
 
     let json = AlbumList2Response {
-        album_list2: AlbumList2Content {
-            album: json_albums,
-        },
+        album_list2: AlbumList2Content { album: json_albums },
     };
 
-    let xml = XmlAlbumList2Response::ok(XmlAlbumList2Inner {
-        album: xml_albums,
-    });
+    let xml = XmlAlbumList2Response::ok(XmlAlbumList2Inner { album: xml_albums });
 
     Ok(FormatResponse::new(user.format, json, xml))
 }
@@ -291,7 +296,7 @@ pub async fn get_random_songs(
 
     let mut json_songs = Vec::new();
     let mut xml_songs = Vec::new();
-    
+
     for song in songs {
         let album = if let Some(album_id) = &song.album_id {
             crate::db::queries::get_album_by_id(&state.pool, album_id).await?
@@ -307,7 +312,7 @@ pub async fn get_random_songs(
             "wav" => "audio/wav",
             _ => "application/octet-stream",
         };
-        
+
         let created = song.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
         json_songs.push(SongResponse {
@@ -321,7 +326,12 @@ pub async fn get_random_songs(
             disc_number: Some(song.disc_number),
             year: song.year,
             genre: song.genre.clone(),
-            cover_art: song.cover_art_id.clone().or_else(|| album.as_ref().and_then(|a| a.cover_art_id.clone())),
+            cover_art: Some(
+                album
+                    .as_ref()
+                    .map(|a| a.id.clone())
+                    .unwrap_or_else(|| song.id.clone()),
+            ),
             size: song.file_size,
             content_type: content_type.to_string(),
             suffix: song.file_format.clone(),
@@ -331,9 +341,9 @@ pub async fn get_random_songs(
             created: created.clone(),
             media_type: "music".to_string(),
         });
-        
+
         xml_songs.push(XmlSong {
-            id: song.id,
+            id: song.id.clone(),
             title: song.title,
             album: album.as_ref().map(|a| a.name.clone()),
             album_id: song.album_id,
@@ -343,7 +353,7 @@ pub async fn get_random_songs(
             disc_number: Some(song.disc_number),
             year: song.year,
             genre: song.genre,
-            cover_art: song.cover_art_id.or_else(|| album.as_ref().and_then(|a| a.cover_art_id.clone())),
+            cover_art: Some(album.as_ref().map(|a| a.id.clone()).unwrap_or(song.id)),
             size: song.file_size,
             content_type: content_type.to_string(),
             suffix: song.file_format,
@@ -356,16 +366,16 @@ pub async fn get_random_songs(
     }
 
     let json_response = RandomSongsResponse {
-        random_songs: RandomSongsContent {
-            song: json_songs,
-        },
+        random_songs: RandomSongsContent { song: json_songs },
     };
-    
-    let xml_response = XmlRandomSongsResponse::ok(XmlRandomSongsInner {
-        song: xml_songs,
-    });
 
-    Ok(FormatResponse::new(user.format, json_response, xml_response))
+    let xml_response = XmlRandomSongsResponse::ok(XmlRandomSongsInner { song: xml_songs });
+
+    Ok(FormatResponse::new(
+        user.format,
+        json_response,
+        xml_response,
+    ))
 }
 
 #[derive(Deserialize)]
@@ -382,15 +392,14 @@ pub async fn scrobble(
 ) -> Result<impl axum::response::IntoResponse> {
     let submission = params.submission.unwrap_or(true);
     let played_at = if let Some(timestamp) = params.time {
-        chrono::DateTime::from_timestamp(timestamp, 0)
-            .unwrap_or_else(Utc::now)
+        chrono::DateTime::from_timestamp(timestamp, 0).unwrap_or_else(Utc::now)
     } else {
         Utc::now()
     };
 
     sqlx::query(
         "INSERT INTO scrobbles (user_id, song_id, played_at, submission) 
-         VALUES (?, ?, ?, ?)"
+         VALUES (?, ?, ?, ?)",
     )
     .bind(user.user_id)
     .bind(&params.id)

@@ -26,7 +26,6 @@ pub struct Artist {
     pub name: String,
     pub sort_name: Option<String>,
     pub album_count: i64,
-    pub cover_art_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -37,7 +36,6 @@ pub struct Album {
     pub artist_name: String,
     pub year: Option<i32>,
     pub genre: Option<String>,
-    pub cover_art_id: Option<String>,
     pub song_count: i64,
     pub duration: i64,
     pub created_at: DateTime<Utc>,
@@ -58,7 +56,6 @@ pub struct Song {
     pub file_path: String,
     pub file_size: i64,
     pub file_format: String,
-    pub cover_art_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

@@ -1,17 +1,22 @@
 use crate::api::auth::AuthenticatedUser;
 use crate::api::response::{format_ok_empty, FormatResponse};
 use crate::api::xml::{XmlPlayQueueInner, XmlPlayQueueResponse};
+use crate::api::QsQuery;
+use crate::api::{string_or_seq, first_string_or_none};
 use crate::api::AppState;
 use crate::error::Result;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SavePlayQueueParams {
-    id: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "string_or_seq")]
+    id: Vec<String>,
+    #[serde(default, deserialize_with = "first_string_or_none")]
     current: Option<String>,
+    #[serde(default, deserialize_with = "crate::api::query::first_i64_or_none")]
     position: Option<i64>,
 }
 
@@ -41,7 +46,7 @@ pub struct PlayQueueContent {
 pub async fn save_play_queue(
     user: AuthenticatedUser,
     State(_state): State<Arc<AppState>>,
-    Query(_params): Query<SavePlayQueueParams>,
+    QsQuery(_params): QsQuery<SavePlayQueueParams>,
 ) -> Result<impl axum::response::IntoResponse> {
     // TODO: Implement play queue persistence
     // For now, just return success without saving

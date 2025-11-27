@@ -1,7 +1,9 @@
 use crate::api::auth::AuthenticatedUser;
 use crate::api::browse::{AlbumResponse, ArtistResponse, SongResponse};
 use crate::api::response::FormatResponse;
-use crate::api::xml::{XmlAlbum, XmlArtist, XmlSearchResult3Inner, XmlSearchResult3Response, XmlSong};
+use crate::api::xml::{
+    XmlAlbum, XmlArtist, XmlSearchResult3Inner, XmlSearchResult3Response, XmlSong,
+};
 use crate::api::AppState;
 use crate::error::Result;
 use axum::extract::{Query, State};
@@ -56,7 +58,7 @@ pub async fn search3(
         "SELECT * FROM artists 
          WHERE name LIKE ? COLLATE NOCASE 
          ORDER BY name 
-         LIMIT ? OFFSET ?"
+         LIMIT ? OFFSET ?",
     )
     .bind(&search_term)
     .bind(artist_count)
@@ -71,13 +73,13 @@ pub async fn search3(
             id: artist.id.clone(),
             name: artist.name.clone(),
             album_count: Some(artist.album_count),
-            cover_art: artist.cover_art_id.clone(),
+            cover_art: Some(artist.id.clone()),
         });
         xml_artists.push(XmlArtist {
-            id: artist.id,
+            id: artist.id.clone(),
             name: artist.name,
             album_count: Some(artist.album_count),
-            cover_art: artist.cover_art_id,
+            cover_art: Some(artist.id),
         });
     }
 
@@ -88,7 +90,7 @@ pub async fn search3(
          INNER JOIN artists ar ON a.artist_id = ar.id 
          WHERE a.name LIKE ? COLLATE NOCASE 
          ORDER BY a.name 
-         LIMIT ? OFFSET ?"
+         LIMIT ? OFFSET ?",
     )
     .bind(&search_term)
     .bind(album_count)
@@ -99,13 +101,16 @@ pub async fn search3(
     let mut json_albums = Vec::new();
     let mut xml_albums = Vec::new();
     for album in albums {
-        let created = album.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let created = album
+            .created_at
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
         json_albums.push(AlbumResponse {
             id: album.id.clone(),
             name: album.name.clone(),
             artist: album.artist_name.clone(),
             artist_id: album.artist_id.clone(),
-            cover_art: album.cover_art_id.clone(),
+            cover_art: Some(album.id.clone()),
             song_count: album.song_count,
             duration: album.duration,
             year: album.year,
@@ -113,11 +118,11 @@ pub async fn search3(
             created: created.clone(),
         });
         xml_albums.push(XmlAlbum {
-            id: album.id,
+            id: album.id.clone(),
             name: album.name,
             artist: album.artist_name,
             artist_id: album.artist_id,
-            cover_art: album.cover_art_id,
+            cover_art: Some(album.id),
             song_count: album.song_count,
             duration: album.duration,
             year: album.year,
@@ -126,19 +131,23 @@ pub async fn search3(
         });
     }
 
-    // Search songs using FTS5
-    let songs: Vec<crate::db::models::Song> = sqlx::query_as(
-        "SELECT s.* FROM songs s 
-         INNER JOIN songs_fts fts ON s.id = fts.song_id 
-         WHERE songs_fts MATCH ? 
-         ORDER BY s.title 
-         LIMIT ? OFFSET ?"
-    )
-    .bind(&params.query)
-    .bind(song_count)
-    .bind(song_offset)
-    .fetch_all(&state.pool)
-    .await?;
+    // Search songs using FTS5 (only if query is not empty)
+    let songs: Vec<crate::db::models::Song> = if params.query.is_empty() {
+        vec![]
+    } else {
+        sqlx::query_as(
+            "SELECT s.* FROM songs s 
+             INNER JOIN songs_fts fts ON s.id = fts.song_id 
+             WHERE songs_fts MATCH ? 
+             ORDER BY s.title 
+             LIMIT ? OFFSET ?",
+        )
+        .bind(&params.query)
+        .bind(song_count)
+        .bind(song_offset)
+        .fetch_all(&state.pool)
+        .await?
+    };
 
     let mut json_songs = Vec::new();
     let mut xml_songs = Vec::new();
@@ -157,7 +166,7 @@ pub async fn search3(
             "wav" => "audio/wav",
             _ => "application/octet-stream",
         };
-        
+
         let created = song.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
         json_songs.push(SongResponse {
@@ -171,7 +180,12 @@ pub async fn search3(
             disc_number: Some(song.disc_number),
             year: song.year,
             genre: song.genre.clone(),
-            cover_art: song.cover_art_id.clone().or_else(|| album.as_ref().and_then(|a| a.cover_art_id.clone())),
+            cover_art: Some(
+                album
+                    .as_ref()
+                    .map(|a| a.id.clone())
+                    .unwrap_or_else(|| song.id.clone()),
+            ),
             size: song.file_size,
             content_type: content_type.to_string(),
             suffix: song.file_format.clone(),
@@ -181,9 +195,9 @@ pub async fn search3(
             created: created.clone(),
             media_type: "music".to_string(),
         });
-        
+
         xml_songs.push(XmlSong {
-            id: song.id,
+            id: song.id.clone(),
             title: song.title,
             album: album.as_ref().map(|a| a.name.clone()),
             album_id: song.album_id,
@@ -193,7 +207,7 @@ pub async fn search3(
             disc_number: Some(song.disc_number),
             year: song.year,
             genre: song.genre,
-            cover_art: song.cover_art_id.or_else(|| album.as_ref().and_then(|a| a.cover_art_id.clone())),
+            cover_art: Some(album.as_ref().map(|a| a.id.clone()).unwrap_or(song.id)),
             size: song.file_size,
             content_type: content_type.to_string(),
             suffix: song.file_format,
@@ -212,12 +226,16 @@ pub async fn search3(
             song: json_songs,
         },
     };
-    
+
     let xml_response = XmlSearchResult3Response::ok(XmlSearchResult3Inner {
         artist: xml_artists,
         album: xml_albums,
         song: xml_songs,
     });
 
-    Ok(FormatResponse::new(user.format, json_response, xml_response))
+    Ok(FormatResponse::new(
+        user.format,
+        json_response,
+        xml_response,
+    ))
 }
