@@ -51,6 +51,10 @@ enum Commands {
         /// Music folder ID to scan (default: all folders)
         #[arg(long)]
         folder: Option<i64>,
+
+        /// Show what would be removed without actually deleting
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Create a new user
@@ -130,11 +134,19 @@ async fn main() -> Result<()> {
 
     // Handle subcommands
     match cli.command {
-        Some(Commands::Scan { full, folder }) => {
+        Some(Commands::Scan {
+            full,
+            folder,
+            dry_run,
+        }) => {
             // Initialize music folders before scanning
             init_music_folders(&pool, &config).await?;
-            tracing::info!("Starting music library scan...");
-            scanner::scan_library(&pool, &config, full, folder).await?;
+            if dry_run {
+                tracing::info!("Starting music library scan (dry-run mode)...");
+            } else {
+                tracing::info!("Starting music library scan...");
+            }
+            scanner::scan_library(&pool, &config, full, folder, dry_run).await?;
             tracing::info!("Scan completed successfully");
             return Ok(());
         }
