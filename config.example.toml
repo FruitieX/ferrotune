@@ -1,0 +1,25 @@
+[server]
+host = "127.0.0.1"
+port = 4040
+name = "Ferrotune"
+admin_user = "admin"
+admin_password = "your-secure-password"
+
+[database]
+path = "~/.local/share/ferrotune/ferrotune.db"
+
+[music]
+readonly_tags = true
+
+[[music.folders]]
+name = "Music"
+path = "~/ferrotune-library"
+
+# Add more folders as needed
+# [[music.folders]]
+# name = "More Music"
+# path = "/path/to/more/music"
+
+[cache]
+path = "~/.cache/ferrotune"
+max_cover_size = 1024

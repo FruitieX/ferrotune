@@ -1,0 +1,4 @@
+# Build dependencies with optimizations for better runtime performance
+# while keeping the main crate in debug mode for faster compile times
+[profile.dev.package."*"]
+opt-level = 3
