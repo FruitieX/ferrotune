@@ -1,4 +1,4 @@
-use crate::api::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::AppState;
 use crate::error::{Error, Result};
 use axum::{

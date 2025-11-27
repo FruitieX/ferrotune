@@ -1,5 +1,5 @@
-use crate::api::auth::AuthenticatedUser;
-use crate::api::response::{FormatEmptyResponse, FormatResponse};
+use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::response::{FormatEmptyResponse, FormatResponse};
 use crate::api::QsQuery;
 use crate::api::{first_string, first_string_or_none, string_or_seq};
 use crate::api::AppState;
@@ -35,11 +35,11 @@ pub struct UpdatePlaylistParams {
     name: Option<String>,
     #[serde(default, deserialize_with = "first_string_or_none")]
     comment: Option<String>,
-    #[serde(default, deserialize_with = "crate::api::query::first_bool_or_none")]
+    #[serde(default, deserialize_with = "crate::api::subsonic::query::first_bool_or_none")]
     public: Option<bool>,
     #[serde(default, deserialize_with = "string_or_seq")]
     song_id_to_add: Vec<String>,
-    #[serde(default, deserialize_with = "crate::api::query::u32_or_seq")]
+    #[serde(default, deserialize_with = "crate::api::subsonic::query::u32_or_seq")]
     song_index_to_remove: Vec<u32>,
 }
 
@@ -91,7 +91,7 @@ pub struct PlaylistDetailResponse {
     pub changed: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
-    pub entry: Vec<crate::api::browse::SongResponse>,
+    pub entry: Vec<crate::api::subsonic::browse::SongResponse>,
 }
 
 /// GET /rest/getPlaylists - Get all playlists

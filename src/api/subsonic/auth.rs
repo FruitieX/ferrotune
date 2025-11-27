@@ -1,4 +1,4 @@
-use crate::api::xml::ResponseFormat;
+use crate::api::subsonic::xml::ResponseFormat;
 use crate::api::CommonParams;
 use crate::db::queries;
 use crate::error::{Error, Result};
