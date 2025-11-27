@@ -1,5 +1,5 @@
-use crate::api::auth::AuthenticatedUser;
-use crate::api::response::{format_ok_empty, FormatResponse};
+use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
 use crate::api::QsQuery;
 use crate::api::{first_string_or_none, string_or_seq};
 use crate::api::AppState;
@@ -15,7 +15,7 @@ pub struct SavePlayQueueParams {
     id: Vec<String>,
     #[serde(default, deserialize_with = "first_string_or_none")]
     current: Option<String>,
-    #[serde(default, deserialize_with = "crate::api::query::first_i64_or_none")]
+    #[serde(default, deserialize_with = "crate::api::subsonic::query::first_i64_or_none")]
     position: Option<i64>,
 }
 
@@ -38,7 +38,7 @@ pub struct PlayQueueContent {
     pub changed: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub changed_by: Option<String>,
-    pub entry: Vec<crate::api::browse::SongResponse>,
+    pub entry: Vec<crate::api::subsonic::browse::SongResponse>,
 }
 
 /// GET /rest/savePlayQueue - Save the current play queue

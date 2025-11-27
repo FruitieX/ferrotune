@@ -18,8 +18,10 @@ static TEST_INSTANCE_COUNTER: AtomicU16 = AtomicU16::new(0);
 pub struct TestServer {
     /// The child process running ferrotune
     process: Option<Child>,
-    /// The port the server is running on
+    /// The port the OpenSubsonic API is running on
     pub port: u16,
+    /// The port the Ferrotune Admin API is running on
+    pub admin_port: u16,
     /// Temporary directory containing test data
     pub temp_dir: PathBuf,
     /// Path to the test database
@@ -62,8 +64,9 @@ impl TestServer {
     pub fn with_config(config: TestServerConfig) -> Result<Self, TestServerError> {
         let instance_id = TEST_INSTANCE_COUNTER.fetch_add(1, Ordering::SeqCst);
 
-        // Find an available port
+        // Find available ports for both APIs
         let port = find_available_port()?;
+        let admin_port = find_available_port()?;
 
         // Create temporary directory structure
         let temp_dir = std::env::temp_dir().join(format!("ferrotune_test_{}", instance_id));
@@ -101,6 +104,7 @@ impl TestServer {
         // Generate config file
         let config_content = generate_config(
             port,
+            admin_port,
             &db_path,
             &music_dir,
             &cache_dir,
@@ -115,6 +119,7 @@ impl TestServer {
         let mut server = TestServer {
             process: None,
             port,
+            admin_port,
             temp_dir,
             db_path,
             config_path,
@@ -333,6 +338,7 @@ pub fn fixtures_dir() -> PathBuf {
 /// Generate a test configuration file.
 fn generate_config(
     port: u16,
+    admin_port: u16,
     db_path: &Path,
     music_dir: &Path,
     cache_dir: &Path,
@@ -344,6 +350,7 @@ fn generate_config(
         r#"[server]
 host = "127.0.0.1"
 port = {port}
+admin_port = {admin_port}
 name = "Ferrotune Test"
 admin_user = "{admin_user}"
 admin_password = "{admin_password}"
@@ -363,6 +370,7 @@ path = "{cache_dir}"
 max_cover_size = 512
 "#,
         port = port,
+        admin_port = admin_port,
         admin_user = admin_user,
         admin_password = admin_password,
         db_path = db_path.display(),

@@ -1,6 +1,6 @@
-use crate::api::auth::AuthenticatedUser;
-use crate::api::browse::{song_to_response, AlbumResponse, SongResponse};
-use crate::api::response::{format_ok_empty, FormatResponse};
+use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::browse::{song_to_response, AlbumResponse, SongResponse};
+use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
 use crate::api::AppState;
 use crate::error::Result;
 use axum::extract::{Query, State};

@@ -1,6 +1,6 @@
-use crate::api::auth::AuthenticatedUser;
-use crate::api::browse::{song_to_response, AlbumResponse, ArtistResponse, SongResponse};
-use crate::api::response::{format_ok_empty, FormatResponse};
+use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::browse::{song_to_response, AlbumResponse, ArtistResponse, SongResponse};
+use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
 use crate::api::string_or_seq;
 use crate::api::AppState;
 use crate::api::QsQuery;

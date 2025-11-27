@@ -182,7 +182,16 @@ async fn main() -> Result<()> {
 }
 
 async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()> {
-    tracing::info!("Server: {}:{}", config.server.host, config.server.port);
+    tracing::info!(
+        "OpenSubsonic API: {}:{}",
+        config.server.host,
+        config.server.port
+    );
+    tracing::info!(
+        "Ferrotune Admin API: {}:{}",
+        config.server.host,
+        config.server.admin_port
+    );
 
     // Check if we need to create initial admin user
     let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
@@ -202,14 +211,14 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
     // Initialize music folders
     init_music_folders(&pool, &config).await?;
 
-    // Create app state
+    // Create shared app state
     let state = Arc::new(api::AppState {
         pool,
         config: config.clone(),
     });
 
-    // Build router with request logging
-    let app = api::create_router(state).layer(
+    // Build OpenSubsonic API router with request logging
+    let subsonic_app = api::subsonic::create_router(state.clone()).layer(
         TraceLayer::new_for_http()
             .make_span_with(|request: &axum::http::Request<_>| {
                 let uri = request.uri();
@@ -219,7 +228,7 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
                     .map(|p| format!("{}@{}", p.u.unwrap_or_default(), p.c))
                     .unwrap_or_else(|| "unknown".to_string());
                 tracing::info_span!(
-                    "request",
+                    "subsonic",
                     method = %request.method(),
                     path = %uri.path(),
                     client = %client,
@@ -258,13 +267,51 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
             ),
     );
 
-    // Create listener
-    let addr = format!("{}:{}", config.server.host, config.server.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!("Listening on http://{}", addr);
+    // Build Ferrotune Admin API router
+    let admin_app = api::ferrotune::create_router(state).layer(
+        TraceLayer::new_for_http()
+            .make_span_with(|request: &axum::http::Request<_>| {
+                tracing::info_span!(
+                    "admin",
+                    method = %request.method(),
+                    path = %request.uri().path(),
+                )
+            })
+            .on_request(|request: &axum::http::Request<_>, _span: &tracing::Span| {
+                tracing::info!("→ {} {}", request.method(), request.uri().path());
+            })
+            .on_response(
+                |response: &axum::http::Response<_>,
+                 latency: std::time::Duration,
+                 _span: &tracing::Span| {
+                    tracing::info!("← {} {:?}", response.status(), latency);
+                },
+            ),
+    );
 
-    // Start server
-    axum::serve(listener, app).await?;
+    // Create listeners for both servers
+    let subsonic_addr = format!("{}:{}", config.server.host, config.server.port);
+    let admin_addr = format!("{}:{}", config.server.host, config.server.admin_port);
+
+    let subsonic_listener = tokio::net::TcpListener::bind(&subsonic_addr).await?;
+    let admin_listener = tokio::net::TcpListener::bind(&admin_addr).await?;
+
+    tracing::info!("OpenSubsonic API listening on http://{}", subsonic_addr);
+    tracing::info!("Ferrotune Admin API listening on http://{}", admin_addr);
+
+    // Run both servers concurrently
+    tokio::select! {
+        result = axum::serve(subsonic_listener, subsonic_app) => {
+            if let Err(e) = result {
+                tracing::error!("OpenSubsonic API server error: {}", e);
+            }
+        }
+        result = axum::serve(admin_listener, admin_app) => {
+            if let Err(e) = result {
+                tracing::error!("Ferrotune Admin API server error: {}", e);
+            }
+        }
+    }
 
     Ok(())
 }

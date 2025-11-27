@@ -31,6 +31,9 @@ pub struct ServerConfig {
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
+    /// Port for the Ferrotune Admin API (separate from OpenSubsonic API)
+    #[serde(default = "default_admin_port")]
+    pub admin_port: u16,
     #[serde(default = "default_name")]
     pub name: String,
     /// Default admin username (created on first run if no users exist)
@@ -74,6 +77,10 @@ fn default_host() -> String {
 
 fn default_port() -> u16 {
     4040
+}
+
+fn default_admin_port() -> u16 {
+    4041
 }
 
 fn default_name() -> String {
@@ -152,6 +159,7 @@ impl Config {
             server: ServerConfig {
                 host: "127.0.0.1".to_string(),
                 port: 4040,
+                admin_port: 4041,
                 name: "Ferrotune".to_string(),
                 admin_user: "admin".to_string(),
                 admin_password: "changeme".to_string(),

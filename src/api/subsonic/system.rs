@@ -1,5 +1,5 @@
-use crate::api::auth::AuthenticatedUser;
-use crate::api::response::{format_ok_empty, FormatResponse};
+use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
 use crate::api::AppState;
 use axum::extract::State;
 use serde::Serialize;

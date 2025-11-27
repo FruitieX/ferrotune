@@ -960,16 +960,16 @@ pub struct XmlPlayQueueInner {
 // to XML attribute conventions (@prefixed), and constructs the full XML response
 // including the subsonic-response wrapper.
 
-use crate::api::browse::{
+use crate::api::subsonic::browse::{
     AlbumDetailResponse, AlbumResponse, ArtistDetailResponse, ArtistResponse, ArtistsResponse,
     GenresResponse, SongDetailResponse, SongResponse,
 };
-use crate::api::lists::{AlbumList2Response, RandomSongsResponse};
-use crate::api::playlists::{PlaylistWithSongsResponse, PlaylistsResponse};
-use crate::api::playqueue::PlayQueueResponse;
-use crate::api::search::SearchResult3;
-use crate::api::starring::{Starred2Response, StarredResponse};
-use crate::api::system::{License, MusicFolders, OpenSubsonicExtensions};
+use crate::api::subsonic::lists::{AlbumList2Response, RandomSongsResponse};
+use crate::api::subsonic::playlists::{PlaylistWithSongsResponse, PlaylistsResponse};
+use crate::api::subsonic::playqueue::PlayQueueResponse;
+use crate::api::subsonic::search::SearchResult3;
+use crate::api::subsonic::starring::{Starred2Response, StarredResponse};
+use crate::api::subsonic::system::{License, MusicFolders, OpenSubsonicExtensions};
 
 // --- Helper conversion functions ---
 

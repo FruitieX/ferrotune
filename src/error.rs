@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::api::xml::{self, ResponseFormat, XmlError, XmlErrorResponse};
+use crate::api::subsonic::xml::{self, ResponseFormat, XmlError, XmlErrorResponse};
 
 pub type Result<T> = std::result::Result<T, Error>;
 

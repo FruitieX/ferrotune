@@ -1,5 +1,5 @@
-use crate::api::auth::AuthenticatedUser;
-use crate::api::response::FormatResponse;
+use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
 use crate::db::models::{Album, Song};
 use axum::extract::{Query, State};
