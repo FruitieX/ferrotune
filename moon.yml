@@ -1,0 +1,279 @@
+# Moon project configuration for ferrotune
+# https://moonrepo.dev/docs/config/project
+
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+# Project metadata
+project:
+  name: 'ferrotune'
+  description: 'A Subsonic-compatible music server written in Rust'
+  channel: '#ferrotune'
+
+# File groups for task inputs
+fileGroups:
+  sources:
+    - 'src/**/*'
+    - 'Cargo.toml'
+    - 'Cargo.lock'
+  tests:
+    - 'tests/**/*'
+  fixtures:
+    - 'tests/fixtures/**/*'
+  hurl:
+    - 'tests/hurl/**/*.hurl'
+
+# Tasks
+tasks:
+  # ============================================================================
+  # BUILD TASKS
+  # ============================================================================
+  
+  build:
+    command: 'cargo build'
+    inputs:
+      - '@group(sources)'
+    outputs:
+      - 'target/debug/ferrotune'
+
+  build-release:
+    command: 'cargo build --release'
+    inputs:
+      - '@group(sources)'
+    outputs:
+      - 'target/release/ferrotune'
+
+  # ============================================================================
+  # TEST TASKS
+  # ============================================================================
+
+  test:
+    command: 'cargo test'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+    deps:
+      - 'build'
+
+  test-unit:
+    command: 'cargo test --lib'
+    inputs:
+      - '@group(sources)'
+    deps:
+      - 'build'
+
+  # ============================================================================
+  # FIXTURE GENERATION
+  # ============================================================================
+
+  generate-fixtures:
+    command: 'bash scripts/generate-test-fixtures.sh'
+    inputs:
+      - 'scripts/generate-test-fixtures.sh'
+    outputs:
+      - 'tests/fixtures/music/**/*'
+    options:
+      # Allow running in CI as it's a test dependency
+      runInCI: true
+
+  # ============================================================================
+  # INTEGRATION TESTS
+  # ============================================================================
+
+  test-integration:
+    command: 'cargo test --test integration'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - '@group(hurl)'
+      - '@group(fixtures)'
+    deps:
+      - 'build'
+      - 'generate-fixtures'
+    options:
+      # Integration tests take longer
+      timeout: 300
+
+  test-integration-full:
+    command: 'cargo test --test integration -- --ignored'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - '@group(hurl)'
+      - '@group(fixtures)'
+    deps:
+      - 'build'
+      - 'generate-fixtures'
+    options:
+      timeout: 600
+
+  # ============================================================================
+  # INDIVIDUAL HURL TEST SCRIPTS
+  # ============================================================================
+
+  hurl-system:
+    command: 'cargo test --test integration test_system_endpoints -- --nocapture'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - 'tests/hurl/01_system.hurl'
+    deps:
+      - 'build'
+
+  hurl-auth:
+    command: 'cargo test --test integration test_auth_endpoints -- --nocapture'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - 'tests/hurl/02_auth.hurl'
+    deps:
+      - 'build'
+
+  hurl-browse:
+    command: 'cargo test --test integration test_browse_endpoints -- --nocapture'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - 'tests/hurl/03_browse.hurl'
+      - '@group(fixtures)'
+    deps:
+      - 'build'
+      - 'generate-fixtures'
+
+  hurl-streaming:
+    command: 'cargo test --test integration test_streaming_endpoints -- --nocapture'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - 'tests/hurl/04_streaming.hurl'
+      - '@group(fixtures)'
+    deps:
+      - 'build'
+      - 'generate-fixtures'
+
+  hurl-search:
+    command: 'cargo test --test integration test_search_endpoints -- --nocapture'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - 'tests/hurl/05_search.hurl'
+      - '@group(fixtures)'
+    deps:
+      - 'build'
+      - 'generate-fixtures'
+
+  hurl-starring:
+    command: 'cargo test --test integration test_starring_endpoints -- --nocapture'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - 'tests/hurl/06_starring.hurl'
+      - '@group(fixtures)'
+    deps:
+      - 'build'
+      - 'generate-fixtures'
+
+  hurl-playlists:
+    command: 'cargo test --test integration test_playlist_endpoints -- --nocapture'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - 'tests/hurl/07_playlists.hurl'
+      - '@group(fixtures)'
+    deps:
+      - 'build'
+      - 'generate-fixtures'
+
+  hurl-lists:
+    command: 'cargo test --test integration test_list_endpoints -- --nocapture'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - 'tests/hurl/08_lists.hurl'
+      - '@group(fixtures)'
+    deps:
+      - 'build'
+      - 'generate-fixtures'
+
+  hurl-playqueue:
+    command: 'cargo test --test integration test_playqueue_endpoints -- --nocapture'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - 'tests/hurl/09_playqueue.hurl'
+      - '@group(fixtures)'
+    deps:
+      - 'build'
+      - 'generate-fixtures'
+
+  # ============================================================================
+  # DIRECT HURL EXECUTION (for debugging)
+  # ============================================================================
+
+  hurl-run:
+    command: 'hurl --test --variable base_url=http://127.0.0.1:4040 --variable username=admin --variable password=admin --variable password_hex=61646d696e tests/hurl/*.hurl'
+    inputs:
+      - '@group(hurl)'
+    options:
+      runInCI: false
+      # This runs against an already-running server, not the test harness
+
+  # ============================================================================
+  # CODE QUALITY
+  # ============================================================================
+
+  lint:
+    command: 'cargo clippy -- -D warnings'
+    inputs:
+      - '@group(sources)'
+
+  fmt:
+    command: 'cargo fmt'
+    inputs:
+      - '@group(sources)'
+    options:
+      runInCI: false
+
+  fmt-check:
+    command: 'cargo fmt -- --check'
+    inputs:
+      - '@group(sources)'
+
+  # ============================================================================
+  # UTILITIES
+  # ============================================================================
+
+  clean:
+    command: 'cargo clean'
+    options:
+      cache: false
+      runInCI: false
+
+  serve:
+    command: 'cargo run -- serve'
+    inputs:
+      - '@group(sources)'
+    deps:
+      - 'build'
+    options:
+      persistent: true
+      runInCI: false
+
+  scan:
+    command: 'cargo run -- scan'
+    inputs:
+      - '@group(sources)'
+    deps:
+      - 'build'
+    options:
+      runInCI: false
+
+  # ============================================================================
+  # CI PIPELINE
+  # ============================================================================
+
+  ci:
+    deps:
+      - 'fmt-check'
+      - 'lint'
+      - 'test'
+      - 'test-integration'
