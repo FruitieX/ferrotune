@@ -67,7 +67,7 @@ pub async fn create_music_folder(
 // Artist queries
 pub async fn get_artists(pool: &SqlitePool) -> sqlx::Result<Vec<Artist>> {
     sqlx::query_as::<_, Artist>(
-        "SELECT id, name, sort_name, album_count, cover_art_id 
+        "SELECT id, name, sort_name, album_count 
          FROM artists 
          ORDER BY COALESCE(sort_name, name) COLLATE NOCASE"
     )

@@ -114,12 +114,17 @@ async fn get_song_cover_art(state: &AppState, song_id: &str) -> Result<Vec<u8>> 
         .await?
         .ok_or_else(|| Error::NotFound(format!("Song {} not found", song_id)))?;
 
-    // Try embedded cover art first
+    // Try external cover art first (folder.jpg, cover.jpg in song's directory)
+    if let Ok(cover_data) = find_external_cover_art(state, &song.file_path).await {
+        return Ok(cover_data);
+    }
+
+    // Try embedded cover art
     if let Ok(cover_data) = extract_embedded_cover_art(state, &song.file_path).await {
         return Ok(cover_data);
     }
 
-    // Try album cover art
+    // Try album cover art as fallback
     if let Some(album_id) = song.album_id {
         if let Ok(cover_data) = get_album_cover_art(state, &album_id).await {
             return Ok(cover_data);
@@ -135,17 +140,17 @@ async fn get_album_cover_art(state: &AppState, album_id: &str) -> Result<Vec<u8>
         .await?
         .ok_or_else(|| Error::NotFound(format!("Album {} not found", album_id)))?;
 
-    // Get a song from this album to extract cover art
+    // Get a song from this album to find the album directory
     let songs = crate::db::queries::get_songs_by_album(&state.pool, album_id).await?;
     
     if let Some(song) = songs.first() {
-        // Try embedded cover art
-        if let Ok(cover_data) = extract_embedded_cover_art(state, &song.file_path).await {
+        // Try external cover art files first (folder.jpg, cover.jpg, etc.)
+        if let Ok(cover_data) = find_external_cover_art(state, &song.file_path).await {
             return Ok(cover_data);
         }
 
-        // Try external cover art files (folder.jpg, cover.jpg, etc.)
-        if let Ok(cover_data) = find_external_cover_art(state, &song.file_path).await {
+        // Fall back to embedded cover art from first song
+        if let Ok(cover_data) = extract_embedded_cover_art(state, &song.file_path).await {
             return Ok(cover_data);
         }
     }

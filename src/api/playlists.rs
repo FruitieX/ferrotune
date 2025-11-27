@@ -1,6 +1,8 @@
 use crate::api::auth::AuthenticatedUser;
 use crate::api::response::{FormatEmptyResponse, FormatResponse};
 use crate::api::xml::{XmlPlaylistWithSongsResponse, XmlPlaylistsInner, XmlPlaylistsResponse};
+use crate::api::QsQuery;
+use crate::api::{string_or_seq, first_string_or_none, first_string};
 use crate::api::AppState;
 use crate::error::Result;
 use axum::extract::State;
@@ -10,26 +12,36 @@ use std::sync::Arc;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistParams {
+    #[serde(default, deserialize_with = "first_string_or_none")]
     id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreatePlaylistParams {
+    #[serde(default, deserialize_with = "first_string_or_none")]
     playlist_id: Option<String>,
+    #[serde(default, deserialize_with = "first_string_or_none")]
     name: Option<String>,
-    song_id: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "string_or_seq")]
+    song_id: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePlaylistParams {
+    #[serde(deserialize_with = "first_string")]
     playlist_id: String,
+    #[serde(default, deserialize_with = "first_string_or_none")]
     name: Option<String>,
+    #[serde(default, deserialize_with = "first_string_or_none")]
     comment: Option<String>,
+    #[serde(default, deserialize_with = "crate::api::query::first_bool_or_none")]
     public: Option<bool>,
-    song_id_to_add: Option<Vec<String>>,
-    song_index_to_remove: Option<Vec<u32>>,
+    #[serde(default, deserialize_with = "string_or_seq")]
+    song_id_to_add: Vec<String>,
+    #[serde(default, deserialize_with = "crate::api::query::u32_or_seq")]
+    song_index_to_remove: Vec<u32>,
 }
 
 // Response types
@@ -120,7 +132,7 @@ pub async fn get_playlist(
 pub async fn create_playlist(
     State(_state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
-    axum::extract::Query(_params): axum::extract::Query<CreatePlaylistParams>,
+    QsQuery(_params): QsQuery<CreatePlaylistParams>,
 ) -> Result<FormatResponse<PlaylistWithSongsResponse, XmlPlaylistWithSongsResponse>> {
     // TODO: Implement playlist creation
     Err(crate::error::Error::InvalidRequest("Playlist creation not yet implemented".to_string()))
@@ -130,7 +142,7 @@ pub async fn create_playlist(
 pub async fn update_playlist(
     State(_state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
-    axum::extract::Query(_params): axum::extract::Query<UpdatePlaylistParams>,
+    QsQuery(_params): QsQuery<UpdatePlaylistParams>,
 ) -> Result<FormatEmptyResponse> {
     // TODO: Implement playlist update
     Err(crate::error::Error::InvalidRequest("Playlist update not yet implemented".to_string()))
