@@ -1,10 +1,7 @@
 use crate::api::auth::AuthenticatedUser;
-use crate::api::browse::{AlbumResponse, ArtistResponse, SongResponse};
+use crate::api::browse::{song_to_response, AlbumResponse, ArtistResponse, SongResponse};
 use crate::api::response::{format_ok_empty, FormatResponse};
 use crate::api::string_or_seq;
-use crate::api::xml::{
-    XmlAlbum, XmlArtist, XmlSong, XmlStarred2Response, XmlStarredInner, XmlStarredResponse,
-};
 use crate::api::AppState;
 use crate::api::QsQuery;
 use crate::error::Result;
@@ -114,38 +111,31 @@ pub async fn unstar(
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Starred2Response {
-    starred2: Starred2Content,
+    pub starred2: Starred2Content,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StarredResponse {
-    starred: Starred2Content,
+    pub starred: Starred2Content,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Starred2Content {
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    artist: Vec<ArtistResponse>,
+    pub artist: Vec<ArtistResponse>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    album: Vec<AlbumResponse>,
+    pub album: Vec<AlbumResponse>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    song: Vec<SongResponse>,
+    pub song: Vec<SongResponse>,
 }
 
 /// Helper to fetch starred content (shared by getStarred and getStarred2)
 async fn fetch_starred_content(
     pool: &sqlx::SqlitePool,
     user_id: i64,
-) -> Result<(
-    Vec<ArtistResponse>,
-    Vec<AlbumResponse>,
-    Vec<SongResponse>,
-    Vec<XmlArtist>,
-    Vec<XmlAlbum>,
-    Vec<XmlSong>,
-)> {
+) -> Result<(Vec<ArtistResponse>, Vec<AlbumResponse>, Vec<SongResponse>)> {
     // Get starred artists
     let starred_artist_ids: Vec<String> = sqlx::query_scalar(
         "SELECT item_id FROM starred WHERE user_id = ? AND item_type = 'artist' ORDER BY starred_at DESC"
@@ -154,17 +144,10 @@ async fn fetch_starred_content(
     .fetch_all(pool)
     .await?;
 
-    let mut json_artists = Vec::new();
-    let mut xml_artists = Vec::new();
+    let mut artist_responses = Vec::new();
     for id in starred_artist_ids {
         if let Some(artist) = crate::db::queries::get_artist_by_id(pool, &id).await? {
-            json_artists.push(ArtistResponse {
-                id: artist.id.clone(),
-                name: artist.name.clone(),
-                album_count: Some(artist.album_count),
-                cover_art: Some(artist.id.clone()),
-            });
-            xml_artists.push(XmlArtist {
+            artist_responses.push(ArtistResponse {
                 id: artist.id.clone(),
                 name: artist.name,
                 album_count: Some(artist.album_count),
@@ -181,27 +164,14 @@ async fn fetch_starred_content(
     .fetch_all(pool)
     .await?;
 
-    let mut json_albums = Vec::new();
-    let mut xml_albums = Vec::new();
+    let mut album_responses = Vec::new();
     for id in starred_album_ids {
         if let Some(album) = crate::db::queries::get_album_by_id(pool, &id).await? {
             let created = album
                 .created_at
                 .format("%Y-%m-%dT%H:%M:%S%.3fZ")
                 .to_string();
-            json_albums.push(AlbumResponse {
-                id: album.id.clone(),
-                name: album.name.clone(),
-                artist: album.artist_name.clone(),
-                artist_id: album.artist_id.clone(),
-                cover_art: Some(album.id.clone()),
-                song_count: album.song_count,
-                duration: album.duration,
-                year: album.year,
-                genre: album.genre.clone(),
-                created: created.clone(),
-            });
-            xml_albums.push(XmlAlbum {
+            album_responses.push(AlbumResponse {
                 id: album.id.clone(),
                 name: album.name,
                 artist: album.artist_name,
@@ -224,8 +194,7 @@ async fn fetch_starred_content(
     .fetch_all(pool)
     .await?;
 
-    let mut json_songs = Vec::new();
-    let mut xml_songs = Vec::new();
+    let mut song_responses = Vec::new();
     for id in starred_song_ids {
         if let Some(song) = crate::db::queries::get_song_by_id(pool, &id).await? {
             let album = if let Some(album_id) = &song.album_id {
@@ -233,132 +202,46 @@ async fn fetch_starred_content(
             } else {
                 None
             };
-
-            let content_type = match song.file_format.as_str() {
-                "mp3" => "audio/mpeg",
-                "flac" => "audio/flac",
-                "ogg" | "opus" => "audio/ogg",
-                "m4a" | "mp4" | "aac" => "audio/mp4",
-                "wav" => "audio/wav",
-                _ => "application/octet-stream",
-            };
-
-            let created = song.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-
-            json_songs.push(SongResponse {
-                id: song.id.clone(),
-                title: song.title.clone(),
-                album: album.as_ref().map(|a| a.name.clone()),
-                album_id: song.album_id.clone(),
-                artist: "Unknown".to_string(),
-                artist_id: song.artist_id.clone(),
-                track: song.track_number,
-                disc_number: Some(song.disc_number),
-                year: song.year,
-                genre: song.genre.clone(),
-                cover_art: Some(
-                    album
-                        .as_ref()
-                        .map(|a| a.id.clone())
-                        .unwrap_or_else(|| song.id.clone()),
-                ),
-                size: song.file_size,
-                content_type: content_type.to_string(),
-                suffix: song.file_format.clone(),
-                duration: song.duration,
-                bit_rate: song.bitrate,
-                path: song.file_path.clone(),
-                created: created.clone(),
-                media_type: "music".to_string(),
-            });
-
-            xml_songs.push(XmlSong {
-                id: song.id.clone(),
-                title: song.title,
-                album: album.as_ref().map(|a| a.name.clone()),
-                album_id: song.album_id,
-                artist: "Unknown".to_string(),
-                artist_id: song.artist_id,
-                track: song.track_number,
-                disc_number: Some(song.disc_number),
-                year: song.year,
-                genre: song.genre,
-                cover_art: Some(album.as_ref().map(|a| a.id.clone()).unwrap_or(song.id)),
-                size: song.file_size,
-                content_type: content_type.to_string(),
-                suffix: song.file_format,
-                duration: song.duration,
-                bit_rate: song.bitrate,
-                path: song.file_path,
-                created,
-                media_type: "music".to_string(),
-            });
+            song_responses.push(song_to_response(song, album.as_ref()));
         }
     }
 
-    Ok((
-        json_artists,
-        json_albums,
-        json_songs,
-        xml_artists,
-        xml_albums,
-        xml_songs,
-    ))
+    Ok((artist_responses, album_responses, song_responses))
 }
 
 pub async fn get_starred2(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> Result<FormatResponse<Starred2Response, XmlStarred2Response>> {
-    let (json_artists, json_albums, json_songs, xml_artists, xml_albums, xml_songs) =
+) -> Result<FormatResponse<Starred2Response>> {
+    let (artist_responses, album_responses, song_responses) =
         fetch_starred_content(&state.pool, user.user_id).await?;
 
-    let json_response = Starred2Response {
+    let response = Starred2Response {
         starred2: Starred2Content {
-            artist: json_artists,
-            album: json_albums,
-            song: json_songs,
+            artist: artist_responses,
+            album: album_responses,
+            song: song_responses,
         },
     };
 
-    let xml_response = XmlStarred2Response::ok(XmlStarredInner {
-        artist: xml_artists,
-        album: xml_albums,
-        song: xml_songs,
-    });
-
-    Ok(FormatResponse::new(
-        user.format,
-        json_response,
-        xml_response,
-    ))
+    Ok(FormatResponse::new(user.format, response))
 }
 
 /// GET /rest/getStarred - Old API, returns same as getStarred2 but with different wrapper
 pub async fn get_starred(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> Result<FormatResponse<StarredResponse, XmlStarredResponse>> {
-    let (json_artists, json_albums, json_songs, xml_artists, xml_albums, xml_songs) =
+) -> Result<FormatResponse<StarredResponse>> {
+    let (artist_responses, album_responses, song_responses) =
         fetch_starred_content(&state.pool, user.user_id).await?;
 
-    let json_response = StarredResponse {
+    let response = StarredResponse {
         starred: Starred2Content {
-            artist: json_artists,
-            album: json_albums,
-            song: json_songs,
+            artist: artist_responses,
+            album: album_responses,
+            song: song_responses,
         },
     };
 
-    let xml_response = XmlStarredResponse::ok(XmlStarredInner {
-        artist: xml_artists,
-        album: xml_albums,
-        song: xml_songs,
-    });
-
-    Ok(FormatResponse::new(
-        user.format,
-        json_response,
-        xml_response,
-    ))
+    Ok(FormatResponse::new(user.format, response))
 }

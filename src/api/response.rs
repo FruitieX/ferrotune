@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Serialize;
 
-use super::xml::{self, ResponseFormat, XmlEmptyResponse};
+use super::xml::{self, ResponseFormat, ToXml, XmlEmptyResponse};
 
 /// JSON wrapper for subsonic-response
 #[derive(Serialize)]
@@ -59,28 +59,25 @@ pub fn ok_empty() -> SubsonicResponse<EmptyResponse> {
 }
 
 /// A format-aware response that serializes to JSON or XML.
-/// X must be a complete subsonic-response XML struct (not a partial data struct).
-pub struct FormatResponse<J: Serialize, X: Serialize> {
+///
+/// The type `T` must implement both `Serialize` (for JSON) and `ToXml` (for XML).
+/// When the format is XML, `T::to_xml()` is called to get the XML representation.
+pub struct FormatResponse<T: Serialize + ToXml> {
     pub format: ResponseFormat,
-    pub json_data: J,
-    pub xml_response: X, // This is the FULL XML response, not just the data
+    pub data: T,
 }
 
-impl<J: Serialize, X: Serialize> FormatResponse<J, X> {
-    pub fn new(format: ResponseFormat, json_data: J, xml_response: X) -> Self {
-        Self {
-            format,
-            json_data,
-            xml_response,
-        }
+impl<T: Serialize + ToXml> FormatResponse<T> {
+    pub fn new(format: ResponseFormat, data: T) -> Self {
+        Self { format, data }
     }
 }
 
-impl<J: Serialize, X: Serialize> IntoResponse for FormatResponse<J, X> {
+impl<T: Serialize + ToXml> IntoResponse for FormatResponse<T> {
     fn into_response(self) -> Response {
         match self.format {
             ResponseFormat::Json | ResponseFormat::Jsonp => {
-                let json_response = SubsonicResponse::ok(self.json_data);
+                let json_response = SubsonicResponse::ok(self.data);
                 (
                     [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
                     Json(json_response),
@@ -88,8 +85,8 @@ impl<J: Serialize, X: Serialize> IntoResponse for FormatResponse<J, X> {
                     .into_response()
             }
             ResponseFormat::Xml => {
-                // xml_response is already a complete subsonic-response struct
-                match xml::to_xml_string(&self.xml_response) {
+                let xml_response = self.data.to_xml();
+                match xml::to_xml_string(&xml_response) {
                     Ok(xml_str) => (
                         StatusCode::OK,
                         [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],

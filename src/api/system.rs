@@ -1,9 +1,5 @@
 use crate::api::auth::AuthenticatedUser;
 use crate::api::response::{format_ok_empty, FormatResponse};
-use crate::api::xml::{
-    XmlExtension, XmlLicenseInner, XmlLicenseResponse, XmlMusicFolder, XmlMusicFoldersInner,
-    XmlMusicFoldersResponse, XmlOpenSubsonicExtensionsResponse,
-};
 use crate::api::AppState;
 use axum::extract::State;
 use serde::Serialize;
@@ -16,100 +12,81 @@ pub async fn ping(user: AuthenticatedUser) -> impl axum::response::IntoResponse 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct License {
-    valid: bool,
-    email: String,
-    license_expires: String,
+    pub valid: bool,
+    pub email: String,
+    pub license_expires: String,
 }
 
-pub async fn get_license(user: AuthenticatedUser) -> FormatResponse<License, XmlLicenseResponse> {
-    let json = License {
+pub async fn get_license(user: AuthenticatedUser) -> FormatResponse<License> {
+    let response = License {
         valid: true,
         email: "opensource@ferrotune.org".to_string(),
         license_expires: "2099-12-31T00:00:00".to_string(),
     };
-    let xml = XmlLicenseResponse::ok(XmlLicenseInner {
-        valid: true,
-        email: "opensource@ferrotune.org".to_string(),
-        license_expires: "2099-12-31T00:00:00".to_string(),
-    });
-    FormatResponse::new(user.format, json, xml)
+    FormatResponse::new(user.format, response)
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenSubsonicExtensions {
-    open_subsonic_extensions: Vec<OpenSubsonicExtension>,
+    pub open_subsonic_extensions: Vec<OpenSubsonicExtension>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenSubsonicExtension {
-    name: String,
-    versions: Vec<i32>,
+    pub name: String,
+    pub versions: Vec<i32>,
 }
 
 pub async fn get_opensubsonic_extensions(
     user: AuthenticatedUser,
-) -> FormatResponse<OpenSubsonicExtensions, XmlOpenSubsonicExtensionsResponse> {
-    let json = OpenSubsonicExtensions {
+) -> FormatResponse<OpenSubsonicExtensions> {
+    let response = OpenSubsonicExtensions {
         open_subsonic_extensions: vec![OpenSubsonicExtension {
             name: "apiKeyAuthentication".to_string(),
             versions: vec![1],
         }],
     };
-    let xml = XmlOpenSubsonicExtensionsResponse::ok(vec![XmlExtension {
-        name: "apiKeyAuthentication".to_string(),
-        versions: "1".to_string(),
-    }]);
-    FormatResponse::new(user.format, json, xml)
+    FormatResponse::new(user.format, response)
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MusicFolders {
-    music_folders: MusicFoldersInner,
+    pub music_folders: MusicFoldersInner,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MusicFoldersInner {
-    music_folder: Vec<MusicFolderResponse>,
+    pub music_folder: Vec<MusicFolderResponse>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MusicFolderResponse {
-    id: i64,
-    name: String,
+    pub id: i64,
+    pub name: String,
 }
 
 pub async fn get_music_folders(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> crate::error::Result<FormatResponse<MusicFolders, XmlMusicFoldersResponse>> {
+) -> crate::error::Result<FormatResponse<MusicFolders>> {
     let folders = crate::db::queries::get_music_folders(&state.pool).await?;
 
-    let json = MusicFolders {
+    let response = MusicFolders {
         music_folders: MusicFoldersInner {
             music_folder: folders
-                .iter()
+                .into_iter()
                 .map(|f| MusicFolderResponse {
                     id: f.id,
-                    name: f.name.clone(),
+                    name: f.name,
                 })
                 .collect(),
         },
     };
 
-    let xml = XmlMusicFoldersResponse::ok(XmlMusicFoldersInner {
-        music_folder: folders
-            .into_iter()
-            .map(|f| XmlMusicFolder {
-                id: f.id,
-                name: f.name,
-            })
-            .collect(),
-    });
-
-    Ok(FormatResponse::new(user.format, json, xml))
+    Ok(FormatResponse::new(user.format, response))
 }

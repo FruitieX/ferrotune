@@ -1,8 +1,7 @@
 use crate::api::auth::AuthenticatedUser;
 use crate::api::response::{format_ok_empty, FormatResponse};
-use crate::api::xml::{XmlPlayQueueInner, XmlPlayQueueResponse};
 use crate::api::QsQuery;
-use crate::api::{string_or_seq, first_string_or_none};
+use crate::api::{first_string_or_none, string_or_seq};
 use crate::api::AppState;
 use crate::error::Result;
 use axum::extract::State;
@@ -23,23 +22,23 @@ pub struct SavePlayQueueParams {
 #[derive(Serialize)]
 pub struct PlayQueueResponse {
     #[serde(rename = "playQueue")]
-    play_queue: PlayQueueContent,
+    pub play_queue: PlayQueueContent,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayQueueContent {
     #[serde(skip_serializing_if = "Option::is_none")]
-    current: Option<String>,
+    pub current: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    position: Option<i64>,
+    pub position: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    username: Option<String>,
+    pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    changed: Option<String>,
+    pub changed: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    changed_by: Option<String>,
-    entry: Vec<crate::api::browse::SongResponse>,
+    pub changed_by: Option<String>,
+    pub entry: Vec<crate::api::browse::SongResponse>,
 }
 
 /// GET /rest/savePlayQueue - Save the current play queue
@@ -57,8 +56,8 @@ pub async fn save_play_queue(
 pub async fn get_play_queue(
     user: AuthenticatedUser,
     State(_state): State<Arc<AppState>>,
-) -> Result<FormatResponse<PlayQueueResponse, XmlPlayQueueResponse>> {
-    let json_response = PlayQueueResponse {
+) -> Result<FormatResponse<PlayQueueResponse>> {
+    let response = PlayQueueResponse {
         play_queue: PlayQueueContent {
             current: None,
             position: None,
@@ -68,15 +67,6 @@ pub async fn get_play_queue(
             entry: vec![],
         },
     };
-    
-    let xml_response = XmlPlayQueueResponse::ok(XmlPlayQueueInner {
-        current: None,
-        position: None,
-        username: None,
-        changed: None,
-        changed_by: None,
-        entry: vec![],
-    });
-    
-    Ok(FormatResponse::new(user.format, json_response, xml_response))
+
+    Ok(FormatResponse::new(user.format, response))
 }

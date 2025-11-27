@@ -1,8 +1,7 @@
 use crate::api::auth::AuthenticatedUser;
 use crate::api::response::{FormatEmptyResponse, FormatResponse};
-use crate::api::xml::{XmlPlaylistWithSongsResponse, XmlPlaylistsInner, XmlPlaylistsResponse};
 use crate::api::QsQuery;
-use crate::api::{string_or_seq, first_string_or_none, first_string};
+use crate::api::{first_string, first_string_or_none, string_or_seq};
 use crate::api::AppState;
 use crate::error::Result;
 use axum::extract::State;
@@ -47,71 +46,65 @@ pub struct UpdatePlaylistParams {
 // Response types
 #[derive(Serialize)]
 pub struct PlaylistsResponse {
-    playlists: PlaylistsWrapper,
+    pub playlists: PlaylistsWrapper,
 }
 
 #[derive(Serialize)]
 pub struct PlaylistsWrapper {
-    playlist: Vec<PlaylistResponse>,
+    pub playlist: Vec<PlaylistResponse>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistResponse {
-    id: String,
-    name: String,
+    pub id: String,
+    pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    comment: Option<String>,
-    owner: String,
-    public: bool,
-    song_count: i64,
-    duration: i64,
-    created: String,
-    changed: String,
+    pub comment: Option<String>,
+    pub owner: String,
+    pub public: bool,
+    pub song_count: i64,
+    pub duration: i64,
+    pub created: String,
+    pub changed: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    cover_art: Option<String>,
+    pub cover_art: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct PlaylistWithSongsResponse {
-    playlist: PlaylistDetailResponse,
+    pub playlist: PlaylistDetailResponse,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistDetailResponse {
-    id: String,
-    name: String,
+    pub id: String,
+    pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    comment: Option<String>,
-    owner: String,
-    public: bool,
-    song_count: i64,
-    duration: i64,
-    created: String,
-    changed: String,
+    pub comment: Option<String>,
+    pub owner: String,
+    pub public: bool,
+    pub song_count: i64,
+    pub duration: i64,
+    pub created: String,
+    pub changed: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    cover_art: Option<String>,
-    entry: Vec<crate::api::browse::SongResponse>,
+    pub cover_art: Option<String>,
+    pub entry: Vec<crate::api::browse::SongResponse>,
 }
 
 /// GET /rest/getPlaylists - Get all playlists
 pub async fn get_playlists(
     State(_state): State<Arc<AppState>>,
     user: AuthenticatedUser,
-) -> Result<FormatResponse<PlaylistsResponse, XmlPlaylistsResponse>> {
+) -> Result<FormatResponse<PlaylistsResponse>> {
     // Return empty playlists for now
-    let json_response = PlaylistsResponse {
-        playlists: PlaylistsWrapper {
-            playlist: vec![],
-        },
+    let response = PlaylistsResponse {
+        playlists: PlaylistsWrapper { playlist: vec![] },
     };
-    
-    let xml_response = XmlPlaylistsResponse::ok(XmlPlaylistsInner {
-        playlist: vec![],
-    });
-    
-    Ok(FormatResponse::new(user.format, json_response, xml_response))
+
+    Ok(FormatResponse::new(user.format, response))
 }
 
 /// GET /rest/getPlaylist - Get a specific playlist
@@ -119,13 +112,16 @@ pub async fn get_playlist(
     State(_state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
     axum::extract::Query(params): axum::extract::Query<PlaylistParams>,
-) -> Result<FormatResponse<PlaylistWithSongsResponse, XmlPlaylistWithSongsResponse>> {
+) -> Result<FormatResponse<PlaylistWithSongsResponse>> {
     let id = params.id.ok_or_else(|| {
         crate::error::Error::InvalidRequest("Missing required parameter: id".to_string())
     })?;
 
     // For now, return not found since we don't have playlists yet
-    Err(crate::error::Error::NotFound(format!("Playlist not found: {}", id)))
+    Err(crate::error::Error::NotFound(format!(
+        "Playlist not found: {}",
+        id
+    )))
 }
 
 /// GET /rest/createPlaylist - Create or update a playlist
@@ -133,9 +129,11 @@ pub async fn create_playlist(
     State(_state): State<Arc<AppState>>,
     _user: AuthenticatedUser,
     QsQuery(_params): QsQuery<CreatePlaylistParams>,
-) -> Result<FormatResponse<PlaylistWithSongsResponse, XmlPlaylistWithSongsResponse>> {
+) -> Result<FormatResponse<PlaylistWithSongsResponse>> {
     // TODO: Implement playlist creation
-    Err(crate::error::Error::InvalidRequest("Playlist creation not yet implemented".to_string()))
+    Err(crate::error::Error::InvalidRequest(
+        "Playlist creation not yet implemented".to_string(),
+    ))
 }
 
 /// GET /rest/updatePlaylist - Update a playlist
@@ -145,7 +143,9 @@ pub async fn update_playlist(
     QsQuery(_params): QsQuery<UpdatePlaylistParams>,
 ) -> Result<FormatEmptyResponse> {
     // TODO: Implement playlist update
-    Err(crate::error::Error::InvalidRequest("Playlist update not yet implemented".to_string()))
+    Err(crate::error::Error::InvalidRequest(
+        "Playlist update not yet implemented".to_string(),
+    ))
 }
 
 /// GET /rest/deletePlaylist - Delete a playlist
@@ -159,5 +159,8 @@ pub async fn delete_playlist(
     })?;
 
     // For now, return not found
-    Err(crate::error::Error::NotFound(format!("Playlist not found: {}", id)))
+    Err(crate::error::Error::NotFound(format!(
+        "Playlist not found: {}",
+        id
+    )))
 }
