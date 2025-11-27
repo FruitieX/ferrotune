@@ -32,8 +32,7 @@ CREATE TABLE IF NOT EXISTS artists (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     sort_name TEXT,
-    album_count INTEGER NOT NULL DEFAULT 0,
-    cover_art_id TEXT
+    album_count INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name COLLATE NOCASE);
@@ -46,7 +45,6 @@ CREATE TABLE IF NOT EXISTS albums (
     artist_id TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
     year INTEGER,
     genre TEXT,
-    cover_art_id TEXT,
     song_count INTEGER NOT NULL DEFAULT 0,
     duration INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -72,7 +70,6 @@ CREATE TABLE IF NOT EXISTS songs (
     file_path TEXT UNIQUE NOT NULL,
     file_size INTEGER NOT NULL,
     file_format TEXT NOT NULL,
-    cover_art_id TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

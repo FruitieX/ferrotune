@@ -26,9 +26,14 @@
             pkgs.openssl
             pkgs.nodejs
             pkgs.docker-compose
+            # Testing tools
+            pkgs.hurl
+            pkgs.ffmpeg
+            pkgs.moon  # moon task runner
           ];
           shellHook = ''
             echo "Loaded ferrotune dev shell (server + ui)"
+            echo "Test tools: hurl, ffmpeg, moon available"
           '';
         };
       };

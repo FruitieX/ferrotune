@@ -1,0 +1,28 @@
+# Moon workspace configuration
+# https://moonrepo.dev/docs/config/workspace
+
+$schema: 'https://moonrepo.dev/schemas/workspace.json'
+
+# Extend from a shared configuration (optional)
+# extends: './shared/workspace.yml'
+
+# Project detection and organization
+projects:
+  - '.'
+
+# Version control
+vcs:
+  manager: 'git'
+  defaultBranch: 'main'
+
+# Node.js settings (if needed for tooling)
+# node:
+#   version: '20.0.0'
+
+# Task runner settings
+runner:
+  # Enable caching for faster subsequent runs
+  cacheLifetime: '7 days'
+  
+  # Log level
+  logRunningCommand: true

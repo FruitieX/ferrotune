@@ -60,3 +60,9 @@ serde_urlencoded = "0.7"
 
 # UUID
 uuid = { version = "1.11", features = ["v4", "serde"] }
+urlencoding = "2.1.3"
+
+# Testing
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+which = "7.0"
