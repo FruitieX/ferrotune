@@ -1,0 +1,62 @@
+[package]
+name = "ferrotune"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Web framework
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
+hyper = { version = "1.5", features = ["full"] }
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "migrate", "chrono"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+quick-xml = { version = "0.37", features = ["serialize"] }
+
+# Audio metadata
+lofty = "0.21"
+
+# File system
+walkdir = "2.5"
+ignore = "0.4"
+
+# Image processing
+image = "0.25"
+
+# Configuration
+config = "0.14"
+toml = "0.8"
+dirs = "5.0"
+
+# Security
+argon2 = "0.5"
+md5 = "0.7"
+rand = "0.8"
+hex = "0.4"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# URL encoding
+serde_urlencoded = "0.7"
+
+# UUID
+uuid = { version = "1.11", features = ["v4", "serde"] }
