@@ -30,6 +30,7 @@
             pkgs.hurl
             pkgs.ffmpeg
             pkgs.moon  # moon task runner
+            pkgs.sqlite  # for database inspection
           ];
           shellHook = ''
             echo "Loaded ferrotune dev shell (server + ui)"
