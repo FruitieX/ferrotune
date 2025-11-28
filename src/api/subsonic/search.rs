@@ -115,7 +115,8 @@ pub async fn search3(
         vec![]
     } else {
         sqlx::query_as(
-            "SELECT s.* FROM songs s 
+            "SELECT s.*, ar.name as artist_name FROM songs s 
+             INNER JOIN artists ar ON s.artist_id = ar.id
              INNER JOIN songs_fts fts ON s.id = fts.song_id 
              WHERE songs_fts MATCH ? 
              ORDER BY s.title 

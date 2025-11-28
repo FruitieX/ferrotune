@@ -111,9 +111,11 @@ pub async fn get_album_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option
 // Song queries
 pub async fn get_songs_by_album(pool: &SqlitePool, album_id: &str) -> sqlx::Result<Vec<Song>> {
     sqlx::query_as::<_, Song>(
-        "SELECT * FROM songs 
-         WHERE album_id = ? 
-         ORDER BY disc_number, track_number, title"
+        "SELECT s.*, ar.name as artist_name 
+         FROM songs s
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         WHERE s.album_id = ? 
+         ORDER BY s.disc_number, s.track_number, s.title"
     )
     .bind(album_id)
     .fetch_all(pool)
@@ -121,8 +123,13 @@ pub async fn get_songs_by_album(pool: &SqlitePool, album_id: &str) -> sqlx::Resu
 }
 
 pub async fn get_song_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<Song>> {
-    sqlx::query_as::<_, Song>("SELECT * FROM songs WHERE id = ?")
-        .bind(id)
-        .fetch_optional(pool)
-        .await
+    sqlx::query_as::<_, Song>(
+        "SELECT s.*, ar.name as artist_name 
+         FROM songs s
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         WHERE s.id = ?"
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
 }
