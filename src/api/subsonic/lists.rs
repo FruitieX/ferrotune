@@ -1,5 +1,7 @@
 use crate::api::subsonic::auth::AuthenticatedUser;
-use crate::api::subsonic::browse::{song_to_response, AlbumResponse, SongResponse};
+use crate::api::subsonic::browse::{
+    get_ratings_map, get_starred_map, song_to_response, AlbumResponse, SongResponse,
+};
 use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
 use crate::api::AppState;
 use crate::error::Result;
@@ -195,6 +197,11 @@ pub async fn get_album_list2(
         _ => Vec::new(),
     };
 
+    // Get starred status and ratings for albums
+    let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
+    let starred_map = get_starred_map(&state.pool, user.user_id, "album", &album_ids).await?;
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, "album", &album_ids).await?;
+
     let album_responses: Vec<AlbumResponse> = albums
         .into_iter()
         .map(|album| AlbumResponse {
@@ -202,7 +209,7 @@ pub async fn get_album_list2(
             name: album.name,
             artist: album.artist_name,
             artist_id: album.artist_id,
-            cover_art: Some(album.id),
+            cover_art: Some(album.id.clone()),
             song_count: album.song_count,
             duration: album.duration,
             year: album.year,
@@ -211,11 +218,15 @@ pub async fn get_album_list2(
                 .created_at
                 .format("%Y-%m-%dT%H:%M:%S%.3fZ")
                 .to_string(),
+            starred: starred_map.get(&album.id).cloned(),
+            user_rating: ratings_map.get(&album.id).copied(),
         })
         .collect();
 
     let response = AlbumList2Response {
-        album_list2: AlbumList2Content { album: album_responses },
+        album_list2: AlbumList2Content {
+            album: album_responses,
+        },
     };
 
     Ok(FormatResponse::new(user.format, response))
@@ -269,6 +280,11 @@ pub async fn get_random_songs(
         .fetch_all(&state.pool)
         .await?;
 
+    // Get starred status and ratings for songs
+    let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
+    let starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
+
     let mut song_responses = Vec::new();
 
     for song in songs {
@@ -278,11 +294,15 @@ pub async fn get_random_songs(
             None
         };
 
-        song_responses.push(song_to_response(song, album.as_ref()));
+        let starred = starred_map.get(&song.id).cloned();
+        let user_rating = ratings_map.get(&song.id).copied();
+        song_responses.push(song_to_response(song, album.as_ref(), starred, user_rating));
     }
 
     let response = RandomSongsResponse {
-        random_songs: RandomSongsContent { song: song_responses },
+        random_songs: RandomSongsContent {
+            song: song_responses,
+        },
     };
 
     Ok(FormatResponse::new(user.format, response))

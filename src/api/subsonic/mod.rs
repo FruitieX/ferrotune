@@ -53,6 +53,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Annotation/starring endpoints
         .route("/rest/star", get(starring::star))
         .route("/rest/unstar", get(starring::unstar))
+        .route("/rest/setRating", get(starring::set_rating))
         .route("/rest/getStarred", get(starring::get_starred))
         .route("/rest/getStarred2", get(starring::get_starred2))
         .route("/rest/scrobble", get(lists::scrobble))

@@ -1,5 +1,7 @@
 use crate::api::subsonic::auth::AuthenticatedUser;
-use crate::api::subsonic::browse::{song_to_response, AlbumResponse, ArtistResponse, SongResponse};
+use crate::api::subsonic::browse::{
+    get_ratings_map, get_starred_map, song_to_response, AlbumResponse, ArtistResponse, SongResponse,
+};
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
 use crate::error::Result;
@@ -63,13 +65,22 @@ pub async fn search3(
     .fetch_all(&state.pool)
     .await?;
 
+    // Get starred status and ratings for artists
+    let artist_ids: Vec<String> = artists.iter().map(|a| a.id.clone()).collect();
+    let artist_starred_map =
+        get_starred_map(&state.pool, user.user_id, "artist", &artist_ids).await?;
+    let artist_ratings_map =
+        get_ratings_map(&state.pool, user.user_id, "artist", &artist_ids).await?;
+
     let artist_responses: Vec<ArtistResponse> = artists
         .into_iter()
         .map(|artist| ArtistResponse {
             id: artist.id.clone(),
             name: artist.name,
             album_count: Some(artist.album_count),
-            cover_art: Some(artist.id),
+            cover_art: Some(artist.id.clone()),
+            starred: artist_starred_map.get(&artist.id).cloned(),
+            user_rating: artist_ratings_map.get(&artist.id).copied(),
         })
         .collect();
 
@@ -88,6 +99,11 @@ pub async fn search3(
     .fetch_all(&state.pool)
     .await?;
 
+    // Get starred status and ratings for albums
+    let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
+    let album_starred_map = get_starred_map(&state.pool, user.user_id, "album", &album_ids).await?;
+    let album_ratings_map = get_ratings_map(&state.pool, user.user_id, "album", &album_ids).await?;
+
     let album_responses: Vec<AlbumResponse> = albums
         .into_iter()
         .map(|album| {
@@ -100,12 +116,14 @@ pub async fn search3(
                 name: album.name,
                 artist: album.artist_name,
                 artist_id: album.artist_id,
-                cover_art: Some(album.id),
+                cover_art: Some(album.id.clone()),
                 song_count: album.song_count,
                 duration: album.duration,
                 year: album.year,
                 genre: album.genre,
                 created,
+                starred: album_starred_map.get(&album.id).cloned(),
+                user_rating: album_ratings_map.get(&album.id).copied(),
             }
         })
         .collect();
@@ -129,6 +147,11 @@ pub async fn search3(
         .await?
     };
 
+    // Get starred status and ratings for songs
+    let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
+    let song_starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
+    let song_ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
+
     let mut song_responses = Vec::new();
     for song in songs {
         let album = if let Some(album_id) = &song.album_id {
@@ -136,7 +159,9 @@ pub async fn search3(
         } else {
             None
         };
-        song_responses.push(song_to_response(song, album.as_ref()));
+        let starred = song_starred_map.get(&song.id).cloned();
+        let user_rating = song_ratings_map.get(&song.id).copied();
+        song_responses.push(song_to_response(song, album.as_ref(), starred, user_rating));
     }
 
     let response = SearchResult3 {

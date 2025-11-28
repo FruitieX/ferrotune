@@ -48,6 +48,10 @@ pub struct ArtistResponse {
     pub album_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_rating: Option<i32>,
 }
 
 pub async fn get_artists(
@@ -56,6 +60,11 @@ pub async fn get_artists(
     Query(_params): Query<MusicFolderParam>,
 ) -> crate::error::Result<FormatResponse<ArtistsResponse>> {
     let artists = crate::db::queries::get_artists(&state.pool).await?;
+
+    // Get starred status and ratings for all artists
+    let artist_ids: Vec<String> = artists.iter().map(|a| a.id.clone()).collect();
+    let starred_map = get_starred_map(&state.pool, user.user_id, "artist", &artist_ids).await?;
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, "artist", &artist_ids).await?;
 
     // Group artists by first letter
     let mut grouped: HashMap<String, Vec<ArtistResponse>> = HashMap::new();
@@ -77,6 +86,9 @@ pub async fn get_artists(
             "#".to_string()
         };
 
+        let starred = starred_map.get(&artist.id).cloned();
+        let user_rating = ratings_map.get(&artist.id).copied();
+
         grouped
             .entry(index_name)
             .or_insert_with(Vec::new)
@@ -85,6 +97,8 @@ pub async fn get_artists(
                 name: artist.name.clone(),
                 album_count: Some(artist.album_count),
                 cover_art: Some(artist.id),
+                starred,
+                user_rating,
             });
     }
 
@@ -126,6 +140,10 @@ pub struct ArtistDetail {
     pub album_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_rating: Option<i32>,
     pub album: Vec<AlbumResponse>,
 }
 
@@ -145,6 +163,10 @@ pub struct AlbumResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub genre: Option<String>,
     pub created: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_rating: Option<i32>,
 }
 
 pub async fn get_artist(
@@ -157,6 +179,17 @@ pub async fn get_artist(
         .ok_or_else(|| crate::error::Error::NotFound(format!("Artist {} not found", params.id)))?;
 
     let albums = crate::db::queries::get_albums_by_artist(&state.pool, &params.id).await?;
+
+    // Get starred status and ratings for albums
+    let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
+    let starred_map = get_starred_map(&state.pool, user.user_id, "album", &album_ids).await?;
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, "album", &album_ids).await?;
+
+    // Get starred status and rating for the artist itself
+    let artist_starred_map =
+        get_starred_map(&state.pool, user.user_id, "artist", &[params.id.clone()]).await?;
+    let artist_ratings_map =
+        get_ratings_map(&state.pool, user.user_id, "artist", &[params.id.clone()]).await?;
 
     let album_responses: Vec<AlbumResponse> = albums
         .iter()
@@ -174,6 +207,8 @@ pub async fn get_artist(
                 .created_at
                 .format("%Y-%m-%dT%H:%M:%S%.3fZ")
                 .to_string(),
+            starred: starred_map.get(&album.id).cloned(),
+            user_rating: ratings_map.get(&album.id).copied(),
         })
         .collect();
 
@@ -182,7 +217,9 @@ pub async fn get_artist(
             id: artist.id.clone(),
             name: artist.name,
             album_count: Some(artist.album_count),
-            cover_art: Some(artist.id),
+            cover_art: Some(artist.id.clone()),
+            starred: artist_starred_map.get(&artist.id).cloned(),
+            user_rating: artist_ratings_map.get(&artist.id).copied(),
             album: album_responses,
         },
     };
@@ -278,6 +315,10 @@ pub struct AlbumDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub genre: Option<String>,
     pub created: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_rating: Option<i32>,
     pub song: Vec<SongResponse>,
 }
 
@@ -309,6 +350,10 @@ pub struct SongResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bit_rate: Option<i32>,
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_rating: Option<i32>,
     pub created: String,
     #[serde(rename = "type")]
     pub media_type: String,
@@ -325,9 +370,27 @@ pub async fn get_album(
 
     let songs = crate::db::queries::get_songs_by_album(&state.pool, &params.id).await?;
 
+    // Get starred status and ratings for songs
+    let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
+    let starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
+
+    // Get starred status and rating for the album itself
+    let album_starred_map =
+        get_starred_map(&state.pool, user.user_id, "album", &[params.id.clone()]).await?;
+    let album_ratings_map =
+        get_ratings_map(&state.pool, user.user_id, "album", &[params.id.clone()]).await?;
+
     let song_responses: Vec<SongResponse> = songs
         .iter()
-        .map(|song| song_to_response(song.clone(), Some(&album)))
+        .map(|song| {
+            song_to_response(
+                song.clone(),
+                Some(&album),
+                starred_map.get(&song.id).cloned(),
+                ratings_map.get(&song.id).copied(),
+            )
+        })
         .collect();
 
     let album_cover = Some(album.id.clone());
@@ -347,6 +410,8 @@ pub async fn get_album(
                 .created_at
                 .format("%Y-%m-%dT%H:%M:%S%.3fZ")
                 .to_string(),
+            starred: album_starred_map.get(&album.id).cloned(),
+            user_rating: album_ratings_map.get(&album.id).copied(),
             song: song_responses,
         },
     };
@@ -378,8 +443,16 @@ pub async fn get_song(
         None
     };
 
+    // Get starred status and rating
+    let starred_map =
+        get_starred_map(&state.pool, user.user_id, "song", &[params.id.clone()]).await?;
+    let starred = starred_map.get(&params.id).cloned();
+    let ratings_map =
+        get_ratings_map(&state.pool, user.user_id, "song", &[params.id.clone()]).await?;
+    let user_rating = ratings_map.get(&params.id).copied();
+
     let response = SongDetailResponse {
-        song: song_to_response(song, album.as_ref()),
+        song: song_to_response(song, album.as_ref(), starred, user_rating),
     };
 
     Ok(FormatResponse::new(user.format, response))
@@ -442,7 +515,12 @@ pub async fn get_genres(
 }
 
 // Helper function to convert Song model to API response
-pub fn song_to_response(song: Song, album: Option<&Album>) -> SongResponse {
+pub fn song_to_response(
+    song: Song,
+    album: Option<&Album>,
+    starred: Option<String>,
+    user_rating: Option<i32>,
+) -> SongResponse {
     let content_type = match song.file_format.as_str() {
         "mp3" => "audio/mpeg",
         "flac" => "audio/flac",
@@ -479,7 +557,75 @@ pub fn song_to_response(song: Song, album: Option<&Album>) -> SongResponse {
         duration: song.duration,
         bit_rate: song.bitrate,
         path: song.file_path,
+        starred,
+        user_rating,
         created: song.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
         media_type: "music".to_string(),
     }
+}
+
+/// Get starred timestamps for multiple items of a given type for a user
+pub async fn get_starred_map(
+    pool: &sqlx::SqlitePool,
+    user_id: i64,
+    item_type: &str,
+    item_ids: &[String],
+) -> crate::error::Result<std::collections::HashMap<String, String>> {
+    if item_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    // Build placeholders for the IN clause
+    let placeholders: Vec<&str> = item_ids.iter().map(|_| "?").collect();
+    let query = format!(
+        "SELECT item_id, starred_at FROM starred WHERE user_id = ? AND item_type = ? AND item_id IN ({})",
+        placeholders.join(", ")
+    );
+
+    let mut query_builder = sqlx::query_as::<_, (String, chrono::DateTime<chrono::Utc>)>(&query)
+        .bind(user_id)
+        .bind(item_type);
+
+    for id in item_ids {
+        query_builder = query_builder.bind(id);
+    }
+
+    let results: Vec<(String, chrono::DateTime<chrono::Utc>)> =
+        query_builder.fetch_all(pool).await?;
+
+    Ok(results
+        .into_iter()
+        .map(|(id, ts)| (id, ts.format("%Y-%m-%dT%H:%M:%SZ").to_string()))
+        .collect())
+}
+
+/// Get ratings for multiple items of a given type for a user
+pub async fn get_ratings_map(
+    pool: &sqlx::SqlitePool,
+    user_id: i64,
+    item_type: &str,
+    item_ids: &[String],
+) -> crate::error::Result<std::collections::HashMap<String, i32>> {
+    if item_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    // Build placeholders for the IN clause
+    let placeholders: Vec<&str> = item_ids.iter().map(|_| "?").collect();
+    let query = format!(
+        "SELECT item_id, rating FROM ratings WHERE user_id = ? AND item_type = ? AND item_id IN ({})",
+        placeholders.join(", ")
+    );
+
+    let mut query_builder = sqlx::query_as::<_, (String, i32)>(&query)
+        .bind(user_id)
+        .bind(item_type);
+
+    for id in item_ids {
+        query_builder = query_builder.bind(id);
+    }
+
+    let results: Vec<(String, i32)> = query_builder.fetch_all(pool).await?;
+
+    Ok(results.into_iter().collect())
 }

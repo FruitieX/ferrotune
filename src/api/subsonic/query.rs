@@ -438,3 +438,56 @@ where
 
     deserializer.deserialize_any(FirstI64OrNone)
 }
+
+/// Deserialize an i32 from either a single value or the first element of a sequence.
+pub fn first_i32<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+
+    struct FirstI32;
+
+    impl<'de> Visitor<'de> for FirstI32 {
+        type Value = i32;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an i32, string number, or sequence")
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            i32::try_from(value).map_err(|_| de::Error::custom("value out of range for i32"))
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            i32::try_from(value).map_err(|_| de::Error::custom("value out of range for i32"))
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            value.parse::<i32>().map_err(de::Error::custom)
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            // Return the first element parsed as i32
+            if let Some(value) = seq.next_element::<String>()? {
+                value.parse::<i32>().map_err(de::Error::custom)
+            } else {
+                Err(de::Error::custom("expected at least one element"))
+            }
+        }
+    }
+
+    deserializer.deserialize_any(FirstI32)
+}
