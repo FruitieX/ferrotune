@@ -41,4 +41,3 @@ pub struct CommonParams {
 fn default_format() -> String {
     "xml".to_string()
 }
-

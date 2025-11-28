@@ -42,6 +42,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Browse endpoints
         .route("/rest/getArtists", get(browse::get_artists))
         .route("/rest/getArtist", get(browse::get_artist))
+        .route("/rest/getArtistInfo2", get(browse::get_artist_info2))
         .route("/rest/getAlbum", get(browse::get_album))
         .route("/rest/getSong", get(browse::get_song))
         .route("/rest/getGenres", get(browse::get_genres))
