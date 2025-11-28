@@ -190,6 +190,70 @@ pub async fn get_artist(
     Ok(FormatResponse::new(user.format, response))
 }
 
+// ===== getArtistInfo2 =====
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistInfoParams {
+    id: String,
+    #[allow(dead_code)]
+    count: Option<u32>,
+    #[allow(dead_code)]
+    include_not_present: Option<bool>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistInfo2Response {
+    pub artist_info2: ArtistInfo2,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistInfo2 {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub biography: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub music_brainz_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_fm_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub small_image_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub medium_image_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub large_image_url: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub similar_artist: Vec<ArtistResponse>,
+}
+
+pub async fn get_artist_info2(
+    user: AuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ArtistInfoParams>,
+) -> crate::error::Result<FormatResponse<ArtistInfo2Response>> {
+    // Verify the artist exists
+    let _artist = crate::db::queries::get_artist_by_id(&state.pool, &params.id)
+        .await?
+        .ok_or_else(|| crate::error::Error::NotFound(format!("Artist {} not found", params.id)))?;
+
+    // Return empty artist info (we don't fetch external metadata yet)
+    // In the future, this could be populated from MusicBrainz, Last.fm, etc.
+    let response = ArtistInfo2Response {
+        artist_info2: ArtistInfo2 {
+            biography: None,
+            music_brainz_id: None,
+            last_fm_url: None,
+            small_image_url: None,
+            medium_image_url: None,
+            large_image_url: None,
+            similar_artist: Vec::new(),
+        },
+    };
+
+    Ok(FormatResponse::new(user.format, response))
+}
+
 // ===== getAlbum =====
 
 #[derive(Serialize)]

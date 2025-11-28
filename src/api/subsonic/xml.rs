@@ -372,6 +372,58 @@ pub struct XmlArtistDetail {
     pub album: Vec<XmlAlbum>,
 }
 
+/// Artist info response (getArtistInfo2)
+#[derive(Serialize)]
+#[serde(rename = "subsonic-response")]
+pub struct XmlArtistInfo2Response {
+    #[serde(rename = "@xmlns")]
+    pub xmlns: &'static str,
+    #[serde(rename = "@status")]
+    pub status: String,
+    #[serde(rename = "@version")]
+    pub version: String,
+    #[serde(rename = "@type")]
+    pub response_type: String,
+    #[serde(rename = "@serverVersion")]
+    pub server_version: String,
+    #[serde(rename = "@openSubsonic")]
+    pub open_subsonic: bool,
+    #[serde(rename = "artistInfo2")]
+    pub artist_info2: XmlArtistInfo2,
+}
+
+impl XmlArtistInfo2Response {
+    pub fn ok(artist_info2: XmlArtistInfo2) -> Self {
+        Self {
+            xmlns: "http://subsonic.org/restapi",
+            status: "ok".to_string(),
+            version: "1.16.1".to_string(),
+            response_type: "ferrotune".to_string(),
+            server_version: env!("CARGO_PKG_VERSION").to_string(),
+            open_subsonic: true,
+            artist_info2,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct XmlArtistInfo2 {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub biography: Option<String>,
+    #[serde(rename = "musicBrainzId", skip_serializing_if = "Option::is_none")]
+    pub music_brainz_id: Option<String>,
+    #[serde(rename = "lastFmUrl", skip_serializing_if = "Option::is_none")]
+    pub last_fm_url: Option<String>,
+    #[serde(rename = "smallImageUrl", skip_serializing_if = "Option::is_none")]
+    pub small_image_url: Option<String>,
+    #[serde(rename = "mediumImageUrl", skip_serializing_if = "Option::is_none")]
+    pub medium_image_url: Option<String>,
+    #[serde(rename = "largeImageUrl", skip_serializing_if = "Option::is_none")]
+    pub large_image_url: Option<String>,
+    #[serde(rename = "similarArtist", default, skip_serializing_if = "Vec::is_empty")]
+    pub similar_artist: Vec<XmlArtist>,
+}
+
 /// Album response (getAlbum)
 #[derive(Serialize)]
 #[serde(rename = "subsonic-response")]
@@ -961,8 +1013,8 @@ pub struct XmlPlayQueueInner {
 // including the subsonic-response wrapper.
 
 use crate::api::subsonic::browse::{
-    AlbumDetailResponse, AlbumResponse, ArtistDetailResponse, ArtistResponse, ArtistsResponse,
-    GenresResponse, SongDetailResponse, SongResponse,
+    AlbumDetailResponse, AlbumResponse, ArtistDetailResponse, ArtistInfo2Response, ArtistResponse,
+    ArtistsResponse, GenresResponse, SongDetailResponse, SongResponse,
 };
 use crate::api::subsonic::lists::{AlbumList2Response, RandomSongsResponse};
 use crate::api::subsonic::playlists::{PlaylistWithSongsResponse, PlaylistsResponse};
@@ -1111,6 +1163,27 @@ impl ToXml for ArtistDetailResponse {
             album_count: self.artist.album_count,
             cover_art: self.artist.cover_art.clone(),
             album: self.artist.album.iter().map(album_to_xml).collect(),
+        })
+    }
+}
+
+impl ToXml for ArtistInfo2Response {
+    type XmlType = XmlArtistInfo2Response;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlArtistInfo2Response::ok(XmlArtistInfo2 {
+            biography: self.artist_info2.biography.clone(),
+            music_brainz_id: self.artist_info2.music_brainz_id.clone(),
+            last_fm_url: self.artist_info2.last_fm_url.clone(),
+            small_image_url: self.artist_info2.small_image_url.clone(),
+            medium_image_url: self.artist_info2.medium_image_url.clone(),
+            large_image_url: self.artist_info2.large_image_url.clone(),
+            similar_artist: self
+                .artist_info2
+                .similar_artist
+                .iter()
+                .map(artist_to_xml)
+                .collect(),
         })
     }
 }
