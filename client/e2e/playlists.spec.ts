@@ -4,7 +4,7 @@ test.describe("Playlists", () => {
   test("playlists page is accessible", async ({ authenticatedPage: page }) => {
     await page.goto("/playlists");
     
-    await expect(page.getByRole("heading", { name: /playlists/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Playlists", exact: true })).toBeVisible();
   });
 
   test("can open create playlist dialog", async ({ authenticatedPage: page }) => {
