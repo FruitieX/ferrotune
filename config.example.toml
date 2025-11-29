@@ -1,6 +1,7 @@
 [server]
 host = "127.0.0.1"
 port = 4040
+admin_port = 4041
 name = "Ferrotune"
 admin_user = "admin"
 admin_password = "your-secure-password"
