@@ -250,16 +250,16 @@ pub async fn get_random_songs(
 ) -> Result<FormatResponse<RandomSongsResponse>> {
     let size = params.size.unwrap_or(10).min(500) as i64;
 
-    let mut query = "SELECT * FROM songs WHERE 1=1".to_string();
+    let mut query = "SELECT s.*, ar.name as artist_name FROM songs s INNER JOIN artists ar ON s.artist_id = ar.id WHERE 1=1".to_string();
 
     if let Some(genre) = params.genre {
-        query.push_str(&format!(" AND genre = '{}'", genre.replace('\'', "''")));
+        query.push_str(&format!(" AND s.genre = '{}'", genre.replace('\'', "''")));
     }
     if let Some(from_year) = params.from_year {
-        query.push_str(&format!(" AND year >= {}", from_year));
+        query.push_str(&format!(" AND s.year >= {}", from_year));
     }
     if let Some(to_year) = params.to_year {
-        query.push_str(&format!(" AND year <= {}", to_year));
+        query.push_str(&format!(" AND s.year <= {}", to_year));
     }
 
     query.push_str(" ORDER BY RANDOM() LIMIT ?");

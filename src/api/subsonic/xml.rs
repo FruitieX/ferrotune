@@ -420,7 +420,11 @@ pub struct XmlArtistInfo2 {
     pub medium_image_url: Option<String>,
     #[serde(rename = "largeImageUrl", skip_serializing_if = "Option::is_none")]
     pub large_image_url: Option<String>,
-    #[serde(rename = "similarArtist", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "similarArtist",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub similar_artist: Vec<XmlArtist>,
 }
 

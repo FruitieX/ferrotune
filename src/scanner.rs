@@ -391,10 +391,14 @@ async fn upsert_song(pool: &SqlitePool, metadata: SongMetadata, file_path: Strin
     // Start a transaction
     let mut tx = pool.begin().await?;
 
-    // Get or create artist
-    let artist_name = metadata.album_artist.as_ref().unwrap_or(&metadata.artist);
+    // Get or create album artist (for the album)
+    // Use album_artist tag if present, otherwise fall back to track artist
+    let album_artist_name = metadata.album_artist.as_ref().unwrap_or(&metadata.artist);
+    let album_artist_id = get_or_create_artist(&mut tx, album_artist_name).await?;
 
-    let artist_id = get_or_create_artist(&mut tx, artist_name).await?;
+    // Get or create track artist (for the song)
+    // This is the actual performer of this specific track
+    let track_artist_id = get_or_create_artist(&mut tx, &metadata.artist).await?;
 
     // Get or create album if present
     let album_id = if let Some(album_name) = &metadata.album {
@@ -402,8 +406,8 @@ async fn upsert_song(pool: &SqlitePool, metadata: SongMetadata, file_path: Strin
             get_or_create_album(
                 &mut tx,
                 album_name,
-                &artist_id,
-                artist_name,
+                &album_artist_id,
+                album_artist_name,
                 metadata.year,
                 metadata.genre.as_deref(),
             )
@@ -432,7 +436,7 @@ async fn upsert_song(pool: &SqlitePool, metadata: SongMetadata, file_path: Strin
         )
         .bind(&metadata.title)
         .bind(&album_id)
-        .bind(&artist_id)
+        .bind(&track_artist_id)
         .bind(metadata.track_number.map(|n| n as i32))
         .bind(metadata.disc_number.map(|n| n as i32).unwrap_or(1))
         .bind(metadata.year)
@@ -460,7 +464,7 @@ async fn upsert_song(pool: &SqlitePool, metadata: SongMetadata, file_path: Strin
         .bind(&song_id)
         .bind(&metadata.title)
         .bind(&album_id)
-        .bind(&artist_id)
+        .bind(&track_artist_id)
         .bind(metadata.track_number.map(|n| n as i32))
         .bind(metadata.disc_number.map(|n| n as i32).unwrap_or(1))
         .bind(metadata.year)
@@ -491,14 +495,14 @@ async fn upsert_song(pool: &SqlitePool, metadata: SongMetadata, file_path: Strin
         .await?;
     }
 
-    // Update artist album count
+    // Update album artist's album count
     sqlx::query(
         "UPDATE artists SET 
-            album_count = (SELECT COUNT(DISTINCT album_id) FROM songs WHERE artist_id = ? AND album_id IS NOT NULL)
-         WHERE id = ?"
+            album_count = (SELECT COUNT(*) FROM albums WHERE artist_id = ?)
+         WHERE id = ?",
     )
-    .bind(&artist_id)
-    .bind(&artist_id)
+    .bind(&album_artist_id)
+    .bind(&album_artist_id)
     .execute(&mut *tx)
     .await?;
 

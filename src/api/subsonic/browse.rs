@@ -452,12 +452,21 @@ pub fn song_to_response(song: Song, album: Option<&Album>) -> SongResponse {
         _ => "application/octet-stream",
     };
 
+    // Use song's artist name, fall back to album artist if empty
+    let artist = if song.artist_name.is_empty() {
+        album
+            .map(|a| a.artist_name.clone())
+            .unwrap_or_else(|| "Unknown Artist".to_string())
+    } else {
+        song.artist_name.clone()
+    };
+
     SongResponse {
         id: song.id.clone(),
         title: song.title,
         album: album.map(|a| a.name.clone()),
         album_id: song.album_id,
-        artist: "Unknown".to_string(), // Will be fetched separately if needed
+        artist,
         artist_id: song.artist_id,
         track: song.track_number,
         disc_number: Some(song.disc_number),
