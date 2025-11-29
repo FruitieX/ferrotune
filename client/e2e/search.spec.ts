@@ -48,35 +48,35 @@ test.describe("Search", () => {
     await expect(searchInput).toHaveValue("preloaded");
   });
 
-  test("search returns results when content exists", async ({ authenticatedPage: page }) => {
-    // First, get an artist name from the library
-    await page.goto("/library/artists");
+  test("search returns results for artists", async ({ authenticatedPage: page }) => {
+    // Navigate to the library page and switch to Artists tab
+    await page.goto("/library");
+    await page.waitForLoadState("networkidle");
+    
+    // Click the Artists tab to switch to it
+    await page.getByRole("tab", { name: /artists/i }).click();
+    
+    // Wait for artists tab to be active
+    await expect(page.getByRole("tab", { name: /artists/i })).toHaveAttribute("data-state", "active");
+    
+    // Wait for artist data to load
     await page.waitForTimeout(1000);
     
     const firstArtist = page.locator('a[href^="/library/artists/"]').first();
-    const hasArtist = await firstArtist.isVisible().catch(() => false);
-    
-    if (!hasArtist) {
-      // No artists in library, skip this test
-      test.skip();
-      return;
-    }
+    await expect(firstArtist).toBeVisible({ timeout: 5000 });
     
     // Get artist name
     const artistName = await firstArtist.textContent();
-    if (!artistName) {
-      test.skip();
-      return;
-    }
+    expect(artistName).toBeTruthy();
     
     // Search for the artist
     await page.goto("/search");
     await page.waitForTimeout(500);
-    await searchFor(page, artistName);
+    await searchFor(page, artistName!);
     await page.waitForTimeout(1500);
     
     // Should show artist in results
-    const result = page.getByText(artistName).first();
+    const result = page.getByText(artistName!).first();
     await expect(result).toBeVisible();
   });
 

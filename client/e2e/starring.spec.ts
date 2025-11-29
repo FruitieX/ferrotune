@@ -84,8 +84,7 @@ test.describe("Starring and Ratings", () => {
   });
 
   test.describe("Ratings", () => {
-    // Skip context menu rating test as it's flaky on mobile
-    test.skip("can rate song from context menu", async ({ authenticatedPage: page }) => {
+    test("can rate song from menu", async ({ authenticatedPage: page }, testInfo) => {
       await page.goto("/library");
       await page.waitForSelector("article", { timeout: 10000 });
       await page.getByText("Test Album").click();
@@ -93,23 +92,39 @@ test.describe("Starring and Ratings", () => {
       await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
       await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
       
-      // Right-click first track using specific selector
       const firstSongRow = page.locator('[data-testid="song-row"]').first();
-      await firstSongRow.click({ button: "right" });
+      const isMobile = testInfo.project.name.includes("mobile");
       
-      // Look for rate option
-      const rateOption = page.getByRole("menuitem", { name: /rate|rating/i });
+      // Use dropdown menu for both - it's more reliable than context menu
+      // The dropdown button is always present but only visible on hover (desktop) or always visible (mobile)
+      await firstSongRow.hover(); // Make actions visible
+      await page.waitForTimeout(200); // Wait for hover effects
       
-      if (await rateOption.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await rateOption.hover();
-        await page.waitForTimeout(300);
+      const moreButton = firstSongRow.getByRole("button", { name: /more options/i });
+      await expect(moreButton).toBeVisible({ timeout: 2000 });
+      await moreButton.click();
+      
+      // Wait for dropdown menu to appear
+      await page.waitForTimeout(300);
+      
+      // Click on "Rate" to open submenu
+      const rateOption = page.getByRole("menuitem", { name: /^rate$/i });
+      await expect(rateOption).toBeVisible({ timeout: 2000 });
+      
+      // Click to open the rate submenu
+      await rateOption.click();
+      
+      // Wait for submenu to appear
+      await page.waitForTimeout(300);
+      
+      // Click 5-star rating - look for the filled star icons
+      const fiveStarOption = page.locator('[role="menuitem"]').filter({ has: page.locator('svg.fill-yellow-500') }).first();
+      
+      if (await fiveStarOption.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await fiveStarOption.click();
         
-        // Click a star rating
-        const fiveStars = page.getByRole("menuitem", { name: /5/i });
-        if (await fiveStars.isVisible({ timeout: 1000 }).catch(() => false)) {
-          await fiveStars.click();
-          await page.waitForTimeout(500);
-        }
+        // Verify toast appeared
+        await expect(page.locator('[data-sonner-toast]').filter({ hasText: /rated/i })).toBeVisible({ timeout: 3000 });
       }
       
       expect(page.url()).toBeTruthy();
