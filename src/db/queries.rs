@@ -1,5 +1,5 @@
-use sqlx::SqlitePool;
 use crate::db::models::*;
+use sqlx::SqlitePool;
 
 // User queries
 pub async fn get_user_by_username(pool: &SqlitePool, username: &str) -> sqlx::Result<Option<User>> {
@@ -13,7 +13,7 @@ pub async fn get_user_by_api_key(pool: &SqlitePool, token: &str) -> sqlx::Result
     sqlx::query_as::<_, User>(
         "SELECT u.* FROM users u 
          INNER JOIN api_keys a ON u.id = a.user_id 
-         WHERE a.token = ?"
+         WHERE a.token = ?",
     )
     .bind(token)
     .fetch_optional(pool)
@@ -29,7 +29,7 @@ pub async fn create_user(
 ) -> sqlx::Result<i64> {
     let result = sqlx::query(
         "INSERT INTO users (username, password_hash, email, is_admin, created_at) 
-         VALUES (?, ?, ?, ?, datetime('now'))"
+         VALUES (?, ?, ?, ?, datetime('now'))",
     )
     .bind(username)
     .bind(password_hash)
@@ -48,18 +48,12 @@ pub async fn get_music_folders(pool: &SqlitePool) -> sqlx::Result<Vec<MusicFolde
         .await
 }
 
-pub async fn create_music_folder(
-    pool: &SqlitePool,
-    name: &str,
-    path: &str,
-) -> sqlx::Result<i64> {
-    let result = sqlx::query(
-        "INSERT INTO music_folders (name, path, enabled) VALUES (?, ?, 1)"
-    )
-    .bind(name)
-    .bind(path)
-    .execute(pool)
-    .await?;
+pub async fn create_music_folder(pool: &SqlitePool, name: &str, path: &str) -> sqlx::Result<i64> {
+    let result = sqlx::query("INSERT INTO music_folders (name, path, enabled) VALUES (?, ?, 1)")
+        .bind(name)
+        .bind(path)
+        .execute(pool)
+        .await?;
 
     Ok(result.last_insert_rowid())
 }
@@ -69,7 +63,7 @@ pub async fn get_artists(pool: &SqlitePool) -> sqlx::Result<Vec<Artist>> {
     sqlx::query_as::<_, Artist>(
         "SELECT id, name, sort_name, album_count 
          FROM artists 
-         ORDER BY COALESCE(sort_name, name) COLLATE NOCASE"
+         ORDER BY COALESCE(sort_name, name) COLLATE NOCASE",
     )
     .fetch_all(pool)
     .await
@@ -89,7 +83,7 @@ pub async fn get_albums_by_artist(pool: &SqlitePool, artist_id: &str) -> sqlx::R
          FROM albums a 
          INNER JOIN artists ar ON a.artist_id = ar.id 
          WHERE a.artist_id = ? 
-         ORDER BY a.year, a.name"
+         ORDER BY a.year, a.name",
     )
     .bind(artist_id)
     .fetch_all(pool)
@@ -101,7 +95,7 @@ pub async fn get_album_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option
         "SELECT a.*, ar.name as artist_name 
          FROM albums a 
          INNER JOIN artists ar ON a.artist_id = ar.id 
-         WHERE a.id = ?"
+         WHERE a.id = ?",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -115,7 +109,7 @@ pub async fn get_songs_by_album(pool: &SqlitePool, album_id: &str) -> sqlx::Resu
          FROM songs s
          INNER JOIN artists ar ON s.artist_id = ar.id
          WHERE s.album_id = ? 
-         ORDER BY s.disc_number, s.track_number, s.title"
+         ORDER BY s.disc_number, s.track_number, s.title",
     )
     .bind(album_id)
     .fetch_all(pool)
@@ -127,9 +121,251 @@ pub async fn get_song_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<
         "SELECT s.*, ar.name as artist_name 
          FROM songs s
          INNER JOIN artists ar ON s.artist_id = ar.id
-         WHERE s.id = ?"
+         WHERE s.id = ?",
     )
     .bind(id)
     .fetch_optional(pool)
     .await
+}
+
+// Playlist queries
+
+/// Get all playlists visible to a user (their own + public playlists)
+pub async fn get_playlists_for_user(
+    pool: &SqlitePool,
+    user_id: i64,
+) -> sqlx::Result<Vec<Playlist>> {
+    sqlx::query_as::<_, Playlist>(
+        "SELECT * FROM playlists 
+         WHERE owner_id = ? OR is_public = 1
+         ORDER BY name COLLATE NOCASE",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// Get a playlist by ID
+pub async fn get_playlist_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<Playlist>> {
+    sqlx::query_as::<_, Playlist>("SELECT * FROM playlists WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+}
+
+/// Get songs in a playlist, ordered by position
+pub async fn get_playlist_songs(pool: &SqlitePool, playlist_id: &str) -> sqlx::Result<Vec<Song>> {
+    sqlx::query_as::<_, Song>(
+        "SELECT s.*, ar.name as artist_name 
+         FROM songs s
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         INNER JOIN playlist_songs ps ON s.id = ps.song_id
+         WHERE ps.playlist_id = ?
+         ORDER BY ps.position",
+    )
+    .bind(playlist_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// Get unique album IDs from the first N songs in a playlist (for cover art)
+pub async fn get_playlist_album_ids(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    limit: i32,
+) -> sqlx::Result<Vec<String>> {
+    // Get distinct album IDs from playlist songs, maintaining order
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT DISTINCT s.album_id
+         FROM songs s
+         INNER JOIN playlist_songs ps ON s.id = ps.song_id
+         WHERE ps.playlist_id = ? AND s.album_id IS NOT NULL
+         ORDER BY ps.position
+         LIMIT ?",
+    )
+    .bind(playlist_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.into_iter().map(|(id,)| id).collect())
+}
+
+/// Create a new playlist
+pub async fn create_playlist(
+    pool: &SqlitePool,
+    id: &str,
+    name: &str,
+    owner_id: i64,
+    comment: Option<&str>,
+    is_public: bool,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO playlists (id, name, comment, owner_id, is_public, song_count, duration, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 0, 0, datetime('now'), datetime('now'))"
+    )
+    .bind(id)
+    .bind(name)
+    .bind(comment)
+    .bind(owner_id)
+    .bind(is_public)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Update playlist metadata
+pub async fn update_playlist_metadata(
+    pool: &SqlitePool,
+    id: &str,
+    name: Option<&str>,
+    comment: Option<&str>,
+    is_public: Option<bool>,
+) -> sqlx::Result<()> {
+    // Build dynamic update query based on what's provided
+    let mut updates = vec!["updated_at = datetime('now')"];
+
+    if name.is_some() {
+        updates.push("name = ?");
+    }
+    if comment.is_some() {
+        updates.push("comment = ?");
+    }
+    if is_public.is_some() {
+        updates.push("is_public = ?");
+    }
+
+    let query = format!("UPDATE playlists SET {} WHERE id = ?", updates.join(", "));
+    let mut q = sqlx::query(&query);
+
+    if let Some(n) = name {
+        q = q.bind(n);
+    }
+    if let Some(c) = comment {
+        q = q.bind(c);
+    }
+    if let Some(p) = is_public {
+        q = q.bind(p);
+    }
+    q = q.bind(id);
+
+    q.execute(pool).await?;
+    Ok(())
+}
+
+/// Add songs to end of playlist
+pub async fn add_songs_to_playlist(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    song_ids: &[String],
+) -> sqlx::Result<()> {
+    if song_ids.is_empty() {
+        return Ok(());
+    }
+
+    // Get current max position
+    let max_pos: (i64,) = sqlx::query_as(
+        "SELECT COALESCE(MAX(position), -1) FROM playlist_songs WHERE playlist_id = ?",
+    )
+    .bind(playlist_id)
+    .fetch_one(pool)
+    .await?;
+
+    let mut position = max_pos.0 + 1;
+
+    for song_id in song_ids {
+        sqlx::query("INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES (?, ?, ?)")
+            .bind(playlist_id)
+            .bind(song_id)
+            .bind(position)
+            .execute(pool)
+            .await?;
+        position += 1;
+    }
+
+    // Update playlist totals
+    update_playlist_totals(pool, playlist_id).await?;
+
+    Ok(())
+}
+
+/// Remove songs from playlist by position indices
+pub async fn remove_songs_by_position(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    positions: &[u32],
+) -> sqlx::Result<()> {
+    if positions.is_empty() {
+        return Ok(());
+    }
+
+    // Delete songs at specified positions
+    for pos in positions {
+        sqlx::query("DELETE FROM playlist_songs WHERE playlist_id = ? AND position = ?")
+            .bind(playlist_id)
+            .bind(*pos as i64)
+            .execute(pool)
+            .await?;
+    }
+
+    // Reindex positions to remove gaps
+    reindex_playlist_positions(pool, playlist_id).await?;
+
+    // Update playlist totals
+    update_playlist_totals(pool, playlist_id).await?;
+
+    Ok(())
+}
+
+/// Reindex playlist positions to be sequential (0, 1, 2, ...)
+async fn reindex_playlist_positions(pool: &SqlitePool, playlist_id: &str) -> sqlx::Result<()> {
+    // Get all songs in current order
+    let songs: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT song_id, position FROM playlist_songs WHERE playlist_id = ? ORDER BY position",
+    )
+    .bind(playlist_id)
+    .fetch_all(pool)
+    .await?;
+
+    // Update each with new sequential position
+    for (i, (song_id, _)) in songs.iter().enumerate() {
+        sqlx::query("UPDATE playlist_songs SET position = ? WHERE playlist_id = ? AND song_id = ?")
+            .bind(i as i64)
+            .bind(playlist_id)
+            .bind(song_id)
+            .execute(pool)
+            .await?;
+    }
+
+    Ok(())
+}
+
+/// Update playlist song_count and duration from its songs
+async fn update_playlist_totals(pool: &SqlitePool, playlist_id: &str) -> sqlx::Result<()> {
+    sqlx::query(
+        "UPDATE playlists SET 
+            song_count = (SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = ?),
+            duration = (SELECT COALESCE(SUM(s.duration), 0) FROM songs s 
+                        INNER JOIN playlist_songs ps ON s.id = ps.song_id 
+                        WHERE ps.playlist_id = ?),
+            updated_at = datetime('now')
+         WHERE id = ?",
+    )
+    .bind(playlist_id)
+    .bind(playlist_id)
+    .bind(playlist_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Delete a playlist (cascade deletes playlist_songs)
+pub async fn delete_playlist(pool: &SqlitePool, id: &str) -> sqlx::Result<()> {
+    sqlx::query("DELETE FROM playlists WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
