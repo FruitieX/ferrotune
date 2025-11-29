@@ -323,6 +323,10 @@ pub struct XmlArtist {
     pub album_count: Option<i64>,
     #[serde(rename = "@coverArt", skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    #[serde(rename = "@starred", skip_serializing_if = "Option::is_none")]
+    pub starred: Option<String>,
+    #[serde(rename = "@userRating", skip_serializing_if = "Option::is_none")]
+    pub user_rating: Option<i32>,
 }
 
 /// Artist detail response (getArtist)
@@ -368,6 +372,10 @@ pub struct XmlArtistDetail {
     pub album_count: Option<i64>,
     #[serde(rename = "@coverArt", skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    #[serde(rename = "@starred", skip_serializing_if = "Option::is_none")]
+    pub starred: Option<String>,
+    #[serde(rename = "@userRating", skip_serializing_if = "Option::is_none")]
+    pub user_rating: Option<i32>,
     #[serde(rename = "album", default)]
     pub album: Vec<XmlAlbum>,
 }
@@ -483,6 +491,10 @@ pub struct XmlAlbum {
     pub genre: Option<String>,
     #[serde(rename = "@created")]
     pub created: String,
+    #[serde(rename = "@starred", skip_serializing_if = "Option::is_none")]
+    pub starred: Option<String>,
+    #[serde(rename = "@userRating", skip_serializing_if = "Option::is_none")]
+    pub user_rating: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -507,6 +519,10 @@ pub struct XmlAlbumDetail {
     pub genre: Option<String>,
     #[serde(rename = "@created")]
     pub created: String,
+    #[serde(rename = "@starred", skip_serializing_if = "Option::is_none")]
+    pub starred: Option<String>,
+    #[serde(rename = "@userRating", skip_serializing_if = "Option::is_none")]
+    pub user_rating: Option<i32>,
     #[serde(rename = "song", default)]
     pub song: Vec<XmlSong>,
 }
@@ -580,6 +596,10 @@ pub struct XmlSong {
     pub bit_rate: Option<i32>,
     #[serde(rename = "@path")]
     pub path: String,
+    #[serde(rename = "@starred", skip_serializing_if = "Option::is_none")]
+    pub starred: Option<String>,
+    #[serde(rename = "@userRating", skip_serializing_if = "Option::is_none")]
+    pub user_rating: Option<i32>,
     #[serde(rename = "@created")]
     pub created: String,
     #[serde(rename = "@type")]
@@ -1036,6 +1056,8 @@ fn artist_to_xml(artist: &ArtistResponse) -> XmlArtist {
         name: artist.name.clone(),
         album_count: artist.album_count,
         cover_art: artist.cover_art.clone(),
+        starred: artist.starred.clone(),
+        user_rating: artist.user_rating,
     }
 }
 
@@ -1052,6 +1074,8 @@ fn album_to_xml(album: &AlbumResponse) -> XmlAlbum {
         year: album.year,
         genre: album.genre.clone(),
         created: album.created.clone(),
+        starred: album.starred.clone(),
+        user_rating: album.user_rating,
     }
 }
 
@@ -1075,6 +1099,8 @@ fn song_to_xml(song: &SongResponse) -> XmlSong {
         duration: song.duration,
         bit_rate: song.bit_rate,
         path: song.path.clone(),
+        starred: song.starred.clone(),
+        user_rating: song.user_rating,
         created: song.created.clone(),
         media_type: song.media_type.clone(),
     }
@@ -1166,6 +1192,8 @@ impl ToXml for ArtistDetailResponse {
             name: self.artist.name.clone(),
             album_count: self.artist.album_count,
             cover_art: self.artist.cover_art.clone(),
+            starred: self.artist.starred.clone(),
+            user_rating: self.artist.user_rating,
             album: self.artist.album.iter().map(album_to_xml).collect(),
         })
     }
@@ -1207,6 +1235,8 @@ impl ToXml for AlbumDetailResponse {
             year: self.album.year,
             genre: self.album.genre.clone(),
             created: self.album.created.clone(),
+            starred: self.album.starred.clone(),
+            user_rating: self.album.user_rating,
             song: self.album.song.iter().map(song_to_xml).collect(),
         })
     }

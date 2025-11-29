@@ -1,7 +1,11 @@
-use crate::api::subsonic::auth::AuthenticatedUser;
-use crate::api::subsonic::browse::{song_to_response, AlbumResponse, ArtistResponse, SongResponse};
-use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
+use crate::api::first_string_or_none;
 use crate::api::string_or_seq;
+use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::browse::{
+    get_ratings_map, song_to_response, AlbumResponse, ArtistResponse, SongResponse,
+};
+use crate::api::subsonic::query::first_i32;
+use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
 use crate::api::AppState;
 use crate::api::QsQuery;
 use crate::error::Result;
@@ -9,6 +13,81 @@ use axum::extract::State;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+#[derive(Deserialize)]
+pub struct RatingParams {
+    #[serde(default, deserialize_with = "first_string_or_none")]
+    id: Option<String>,
+    #[serde(deserialize_with = "first_i32")]
+    rating: i32,
+}
+
+pub async fn set_rating(
+    user: AuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    QsQuery(params): QsQuery<RatingParams>,
+) -> Result<impl axum::response::IntoResponse> {
+    let id = params.id.ok_or_else(|| {
+        crate::error::Error::InvalidRequest("Missing required parameter: id".to_string())
+    })?;
+
+    if params.rating < 0 || params.rating > 5 {
+        return Err(crate::error::Error::InvalidRequest(
+            "Rating must be between 0 and 5".to_string(),
+        ));
+    }
+
+    // Determine item type by checking which table contains this ID
+    let item_type = if crate::db::queries::get_song_by_id(&state.pool, &id)
+        .await?
+        .is_some()
+    {
+        "song"
+    } else if crate::db::queries::get_album_by_id(&state.pool, &id)
+        .await?
+        .is_some()
+    {
+        "album"
+    } else if crate::db::queries::get_artist_by_id(&state.pool, &id)
+        .await?
+        .is_some()
+    {
+        "artist"
+    } else {
+        return Err(crate::error::Error::NotFound(format!(
+            "Item {} not found",
+            id
+        )));
+    };
+
+    if params.rating == 0 {
+        // Remove rating
+        sqlx::query("DELETE FROM ratings WHERE user_id = ? AND item_type = ? AND item_id = ?")
+            .bind(user.user_id)
+            .bind(item_type)
+            .bind(&id)
+            .execute(&state.pool)
+            .await?;
+    } else {
+        // Insert or update rating
+        sqlx::query(
+            "INSERT INTO ratings (user_id, item_type, item_id, rating, rated_at) 
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(user_id, item_type, item_id) DO UPDATE SET rating = ?, rated_at = ?",
+        )
+        .bind(user.user_id)
+        .bind(item_type)
+        .bind(&id)
+        .bind(params.rating)
+        .bind(Utc::now())
+        .bind(params.rating)
+        .bind(Utc::now())
+        .execute(&state.pool)
+        .await?;
+    }
+
+    Ok(format_ok_empty(user.format))
+}
 
 #[derive(Deserialize)]
 pub struct StarParams {
@@ -136,36 +215,46 @@ async fn fetch_starred_content(
     pool: &sqlx::SqlitePool,
     user_id: i64,
 ) -> Result<(Vec<ArtistResponse>, Vec<AlbumResponse>, Vec<SongResponse>)> {
-    // Get starred artists
-    let starred_artist_ids: Vec<String> = sqlx::query_scalar(
-        "SELECT item_id FROM starred WHERE user_id = ? AND item_type = 'artist' ORDER BY starred_at DESC"
+    // Get starred artists with their starred_at timestamps
+    let starred_artists: Vec<(String, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT item_id, starred_at FROM starred WHERE user_id = ? AND item_type = 'artist' ORDER BY starred_at DESC"
     )
     .bind(user_id)
     .fetch_all(pool)
     .await?;
 
+    // Get ratings for starred artists
+    let artist_ids: Vec<String> = starred_artists.iter().map(|(id, _)| id.clone()).collect();
+    let artist_ratings = get_ratings_map(pool, user_id, "artist", &artist_ids).await?;
+
     let mut artist_responses = Vec::new();
-    for id in starred_artist_ids {
+    for (id, starred_at) in starred_artists {
         if let Some(artist) = crate::db::queries::get_artist_by_id(pool, &id).await? {
             artist_responses.push(ArtistResponse {
                 id: artist.id.clone(),
                 name: artist.name,
                 album_count: Some(artist.album_count),
-                cover_art: Some(artist.id),
+                cover_art: Some(artist.id.clone()),
+                starred: Some(starred_at.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+                user_rating: artist_ratings.get(&artist.id).copied(),
             });
         }
     }
 
-    // Get starred albums
-    let starred_album_ids: Vec<String> = sqlx::query_scalar(
-        "SELECT item_id FROM starred WHERE user_id = ? AND item_type = 'album' ORDER BY starred_at DESC"
+    // Get starred albums with their starred_at timestamps
+    let starred_albums: Vec<(String, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT item_id, starred_at FROM starred WHERE user_id = ? AND item_type = 'album' ORDER BY starred_at DESC"
     )
     .bind(user_id)
     .fetch_all(pool)
     .await?;
 
+    // Get ratings for starred albums
+    let album_ids: Vec<String> = starred_albums.iter().map(|(id, _)| id.clone()).collect();
+    let album_ratings = get_ratings_map(pool, user_id, "album", &album_ids).await?;
+
     let mut album_responses = Vec::new();
-    for id in starred_album_ids {
+    for (id, starred_at) in starred_albums {
         if let Some(album) = crate::db::queries::get_album_by_id(pool, &id).await? {
             let created = album
                 .created_at
@@ -176,33 +265,41 @@ async fn fetch_starred_content(
                 name: album.name,
                 artist: album.artist_name,
                 artist_id: album.artist_id,
-                cover_art: Some(album.id),
+                cover_art: Some(album.id.clone()),
                 song_count: album.song_count,
                 duration: album.duration,
                 year: album.year,
                 genre: album.genre,
                 created,
+                starred: Some(starred_at.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+                user_rating: album_ratings.get(&album.id).copied(),
             });
         }
     }
 
-    // Get starred songs
-    let starred_song_ids: Vec<String> = sqlx::query_scalar(
-        "SELECT item_id FROM starred WHERE user_id = ? AND item_type = 'song' ORDER BY starred_at DESC"
+    // Get starred songs with their starred_at timestamps
+    let starred_songs: Vec<(String, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT item_id, starred_at FROM starred WHERE user_id = ? AND item_type = 'song' ORDER BY starred_at DESC"
     )
     .bind(user_id)
     .fetch_all(pool)
     .await?;
 
+    // Get ratings for starred songs
+    let song_ids: Vec<String> = starred_songs.iter().map(|(id, _)| id.clone()).collect();
+    let song_ratings = get_ratings_map(pool, user_id, "song", &song_ids).await?;
+
     let mut song_responses = Vec::new();
-    for id in starred_song_ids {
+    for (id, starred_at) in starred_songs {
         if let Some(song) = crate::db::queries::get_song_by_id(pool, &id).await? {
             let album = if let Some(album_id) = &song.album_id {
                 crate::db::queries::get_album_by_id(pool, album_id).await?
             } else {
                 None
             };
-            song_responses.push(song_to_response(song, album.as_ref()));
+            let starred = Some(starred_at.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+            let user_rating = song_ratings.get(&song.id).copied();
+            song_responses.push(song_to_response(song, album.as_ref(), starred, user_rating));
         }
     }
 
