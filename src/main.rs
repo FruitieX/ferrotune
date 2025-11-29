@@ -8,6 +8,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -217,55 +218,65 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
         config: config.clone(),
     });
 
-    // Build OpenSubsonic API router with request logging
-    let subsonic_app = api::subsonic::create_router(state.clone()).layer(
-        TraceLayer::new_for_http()
-            .make_span_with(|request: &axum::http::Request<_>| {
-                let uri = request.uri();
-                let client = uri
-                    .query()
-                    .and_then(|q| serde_urlencoded::from_str::<api::CommonParams>(q).ok())
-                    .map(|p| format!("{}@{}", p.u.unwrap_or_default(), p.c))
-                    .unwrap_or_else(|| "unknown".to_string());
-                tracing::info_span!(
-                    "subsonic",
-                    method = %request.method(),
-                    path = %uri.path(),
-                    client = %client,
-                )
-            })
-            .on_request(|request: &axum::http::Request<_>, _span: &tracing::Span| {
-                let uri = request.uri();
-                tracing::info!("→ {} {}", request.method(), uri.path());
-                // Log full query string at debug level (excluding sensitive params)
-                if let Some(query) = uri.query() {
-                    // Redact password and token from logs
-                    let redacted = query
-                        .split('&')
-                        .map(|param| {
-                            if param.starts_with("p=")
-                                || param.starts_with("t=")
-                                || param.starts_with("apiKey=")
-                            {
-                                let key = param.split('=').next().unwrap_or("");
-                                format!("{}=[REDACTED]", key)
-                            } else {
-                                param.to_string()
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join("&");
-                    tracing::debug!("  query: {}", redacted);
-                }
-            })
-            .on_response(
-                |response: &axum::http::Response<_>,
-                 latency: std::time::Duration,
-                 _span: &tracing::Span| {
-                    tracing::info!("← {} {:?}", response.status(), latency);
-                },
-            ),
-    );
+    // CORS layer - must be applied first (added last) to handle preflight requests
+    // before the router rejects OPTIONS method
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    // Build OpenSubsonic API router with request logging and CORS
+    let subsonic_app = api::subsonic::create_router(state.clone())
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &axum::http::Request<_>| {
+                    let uri = request.uri();
+                    let client = uri
+                        .query()
+                        .and_then(|q| serde_urlencoded::from_str::<api::CommonParams>(q).ok())
+                        .map(|p| format!("{}@{}", p.u.unwrap_or_default(), p.c))
+                        .unwrap_or_else(|| "unknown".to_string());
+                    tracing::info_span!(
+                        "subsonic",
+                        method = %request.method(),
+                        path = %uri.path(),
+                        client = %client,
+                    )
+                })
+                .on_request(|request: &axum::http::Request<_>, _span: &tracing::Span| {
+                    let uri = request.uri();
+                    tracing::info!("→ {} {}", request.method(), uri.path());
+                    // Log full query string at debug level (excluding sensitive params)
+                    if let Some(query) = uri.query() {
+                        // Redact password and token from logs
+                        let redacted = query
+                            .split('&')
+                            .map(|param| {
+                                if param.starts_with("p=")
+                                    || param.starts_with("t=")
+                                    || param.starts_with("apiKey=")
+                                {
+                                    let key = param.split('=').next().unwrap_or("");
+                                    format!("{}=[REDACTED]", key)
+                                } else {
+                                    param.to_string()
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join("&");
+                        tracing::debug!("  query: {}", redacted);
+                    }
+                })
+                .on_response(
+                    |response: &axum::http::Response<_>,
+                     latency: std::time::Duration,
+                     _span: &tracing::Span| {
+                        tracing::info!("← {} {:?}", response.status(), latency);
+                    },
+                ),
+        )
+        // CORS must be the outermost layer to handle OPTIONS preflight before routing
+        .layer(cors);
 
     // Build Ferrotune Admin API router
     let admin_app = api::ferrotune::create_router(state).layer(

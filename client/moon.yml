@@ -1,0 +1,281 @@
+# Moon project configuration for ferrotune client
+# https://moonrepo.dev/docs/config/project
+
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+# Project metadata
+project:
+  name: 'ferrotune-client'
+  description: 'Modern web client for Ferrotune music server'
+  channel: '#ferrotune'
+
+# File groups for task inputs
+fileGroups:
+  sources:
+    - 'src/**/*'
+    - 'public/**/*'
+    - 'next.config.ts'
+    - 'tsconfig.json'
+    - 'package.json'
+  e2e:
+    - 'e2e/**/*'
+    - 'playwright.config.ts'
+  styles:
+    - 'src/**/*.css'
+    - 'postcss.config.mjs'
+    - 'components.json'
+
+# Tasks
+tasks:
+  # ============================================================================
+  # SETUP
+  # ============================================================================
+  
+  install:
+    command: 'npm install'
+    inputs:
+      - 'package.json'
+      - 'package-lock.json'
+    outputs:
+      - 'node_modules'
+
+  # ============================================================================
+  # DEVELOPMENT
+  # ============================================================================
+
+  dev:
+    command: 'npm run dev'
+    inputs:
+      - '@group(sources)'
+    deps:
+      - 'install'
+    options:
+      persistent: true
+      runInCI: false
+
+  # ============================================================================
+  # BUILD
+  # ============================================================================
+
+  build:
+    command: 'npm run build'
+    inputs:
+      - '@group(sources)'
+      - '@group(styles)'
+    outputs:
+      - '.next'
+    deps:
+      - 'install'
+
+  # ============================================================================
+  # CODE QUALITY
+  # ============================================================================
+
+  lint:
+    command: 'npm run lint'
+    inputs:
+      - '@group(sources)'
+    deps:
+      - 'install'
+
+  typecheck:
+    command: 'npx tsc --noEmit'
+    inputs:
+      - '@group(sources)'
+    deps:
+      - 'install'
+
+  # ============================================================================
+  # E2E TESTS
+  # ============================================================================
+
+  test:
+    command: 'npx playwright test'
+    inputs:
+      - '@group(sources)'
+      - '@group(e2e)'
+    deps:
+      - 'install'
+      - 'ferrotune:build'
+      - 'ferrotune:generate-fixtures'
+    env:
+      CI: 'true'
+    options:
+      timeout: 600
+
+  test-e2e:
+    command: 'npx playwright test'
+    inputs:
+      - '@group(sources)'
+      - '@group(e2e)'
+    deps:
+      - 'install'
+      - 'ferrotune:build'
+      - 'ferrotune:generate-fixtures'
+    options:
+      timeout: 600
+
+  test-e2e-ui:
+    command: 'npx playwright test --ui'
+    inputs:
+      - '@group(sources)'
+      - '@group(e2e)'
+    deps:
+      - 'install'
+      - 'ferrotune:build'
+      - 'ferrotune:generate-fixtures'
+    options:
+      runInCI: false
+      persistent: true
+
+  test-e2e-headed:
+    command: 'npx playwright test --headed'
+    inputs:
+      - '@group(sources)'
+      - '@group(e2e)'
+    deps:
+      - 'install'
+      - 'ferrotune:build'
+      - 'ferrotune:generate-fixtures'
+    options:
+      runInCI: false
+      timeout: 600
+
+  test-e2e-debug:
+    command: 'npx playwright test --debug'
+    inputs:
+      - '@group(sources)'
+      - '@group(e2e)'
+    deps:
+      - 'install'
+      - 'ferrotune:build'
+      - 'ferrotune:generate-fixtures'
+    options:
+      runInCI: false
+      persistent: true
+
+  # Individual test spec files
+  test-auth:
+    command: 'npx playwright test auth.spec.ts'
+    inputs:
+      - '@group(sources)'
+      - 'e2e/auth.spec.ts'
+      - 'e2e/fixtures.ts'
+    deps:
+      - 'install'
+      - 'ferrotune:build'
+      - 'ferrotune:generate-fixtures'
+
+  test-browse:
+    command: 'npx playwright test browse.spec.ts'
+    inputs:
+      - '@group(sources)'
+      - 'e2e/browse.spec.ts'
+      - 'e2e/fixtures.ts'
+    deps:
+      - 'install'
+      - 'ferrotune:build'
+      - 'ferrotune:generate-fixtures'
+
+  test-search:
+    command: 'npx playwright test search.spec.ts'
+    inputs:
+      - '@group(sources)'
+      - 'e2e/search.spec.ts'
+      - 'e2e/fixtures.ts'
+    deps:
+      - 'install'
+      - 'ferrotune:build'
+      - 'ferrotune:generate-fixtures'
+
+  test-playback:
+    command: 'npx playwright test playback.spec.ts'
+    inputs:
+      - '@group(sources)'
+      - 'e2e/playback.spec.ts'
+      - 'e2e/fixtures.ts'
+    deps:
+      - 'install'
+      - 'ferrotune:build'
+      - 'ferrotune:generate-fixtures'
+
+  test-queue:
+    command: 'npx playwright test queue.spec.ts'
+    inputs:
+      - '@group(sources)'
+      - 'e2e/queue.spec.ts'
+      - 'e2e/fixtures.ts'
+    deps:
+      - 'install'
+      - 'ferrotune:build'
+      - 'ferrotune:generate-fixtures'
+
+  test-starring:
+    command: 'npx playwright test starring.spec.ts'
+    inputs:
+      - '@group(sources)'
+      - 'e2e/starring.spec.ts'
+      - 'e2e/fixtures.ts'
+    deps:
+      - 'install'
+      - 'ferrotune:build'
+      - 'ferrotune:generate-fixtures'
+
+  test-playlists:
+    command: 'npx playwright test playlists.spec.ts'
+    inputs:
+      - '@group(sources)'
+      - 'e2e/playlists.spec.ts'
+      - 'e2e/fixtures.ts'
+    deps:
+      - 'install'
+      - 'ferrotune:build'
+      - 'ferrotune:generate-fixtures'
+
+  # ============================================================================
+  # PLAYWRIGHT UTILITIES
+  # ============================================================================
+
+  playwright-install:
+    command: 'npx playwright install chromium'
+    deps:
+      - 'install'
+    options:
+      runInCI: true
+
+  playwright-report:
+    command: 'npx playwright show-report'
+    options:
+      runInCI: false
+      persistent: true
+
+  # ============================================================================
+  # UTILITIES
+  # ============================================================================
+
+  clean:
+    command: 'rm -rf .next node_modules test-results playwright-report'
+    options:
+      cache: false
+      runInCI: false
+
+  start:
+    command: 'npm run start'
+    inputs:
+      - '.next'
+    deps:
+      - 'build'
+    options:
+      persistent: true
+      runInCI: false
+
+  # ============================================================================
+  # CI PIPELINE
+  # ============================================================================
+
+  ci:
+    deps:
+      - 'lint'
+      - 'typecheck'
+      - 'build'
+      - 'test-e2e'
