@@ -8,7 +8,8 @@ $schema: 'https://moonrepo.dev/schemas/workspace.json'
 
 # Project detection and organization
 projects:
-  - '.'
+  ferrotune: '.'
+  client: 'client'
 
 # Version control
 vcs:
