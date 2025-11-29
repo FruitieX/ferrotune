@@ -33,8 +33,8 @@ pub async fn get_cover_art(
         return Err(Error::NotFound("No cover art ID provided".to_string()));
     }
     
-    // The ID can be for a song, album, or artist
-    // Try to find cover art in this order: song -> album -> artist
+    // The ID can be for a song, album, artist, or playlist
+    // Try to find cover art in this order based on ID prefix
     
     let cover_art_data = if params.id.starts_with("so-") {
         // Song ID
@@ -45,12 +45,20 @@ pub async fn get_cover_art(
     } else if params.id.starts_with("ar-") {
         // Artist ID
         get_artist_cover_art(&state, &params.id).await?
+    } else if params.id.starts_with("pl-") {
+        // Playlist ID - generate tiled cover art
+        get_playlist_cover_art(&state, &params.id, params.size).await?
     } else {
         return Err(Error::InvalidRequest(format!("Invalid cover art ID: {}", params.id)));
     };
 
     // Process image (resize if requested) in blocking task
-    let max_size = params.size.map(|s| s.min(state.config.cache.max_cover_size));
+    // For playlist covers, skip resize since they're already sized
+    let max_size = if params.id.starts_with("pl-") {
+        None // Already sized in get_playlist_cover_art
+    } else {
+        params.size.map(|s| s.min(state.config.cache.max_cover_size))
+    };
     let image_data = process_image(cover_art_data, max_size).await?;
 
     Ok(Response::builder()
@@ -254,6 +262,107 @@ async fn find_external_cover_art(state: &AppState, file_path: &str) -> Result<Ve
     }
 
     Err(Error::NotFound("No external cover art found".to_string()))
+}
+
+/// Generate a 2x2 tiled cover art image from up to 4 unique album covers in a playlist
+async fn get_playlist_cover_art(state: &AppState, playlist_id: &str, size: Option<u32>) -> Result<Vec<u8>> {
+    // Get up to 4 unique album IDs from the playlist
+    let album_ids = crate::db::queries::get_playlist_album_ids(&state.pool, playlist_id, 4).await
+        .map_err(|e| Error::Internal(e.to_string()))?;
+    
+    if album_ids.is_empty() {
+        return Err(Error::NotFound("No cover art found for playlist".to_string()));
+    }
+    
+    // Collect cover art data for each album
+    let mut covers: Vec<Vec<u8>> = Vec::new();
+    for album_id in &album_ids {
+        if let Ok(cover_data) = get_album_cover_art(state, album_id).await {
+            covers.push(cover_data);
+        }
+    }
+    
+    if covers.is_empty() {
+        return Err(Error::NotFound("No cover art found for playlist".to_string()));
+    }
+    
+    // If only one cover, just return it (will be resized by caller)
+    if covers.len() == 1 {
+        return Ok(covers.remove(0));
+    }
+    
+    // Target size for the final image
+    let target_size = size.unwrap_or(600).min(state.config.cache.max_cover_size);
+    
+    // Generate tiled image in blocking task
+    let tiled_image = tokio::task::spawn_blocking(move || {
+        generate_tiled_cover(covers, target_size)
+    })
+    .await
+    .map_err(|e| Error::Internal(e.to_string()))??;
+    
+    Ok(tiled_image)
+}
+
+/// Generate a 2x2 tiled image from cover art images
+fn generate_tiled_cover(covers: Vec<Vec<u8>>, target_size: u32) -> Result<Vec<u8>> {
+    use image::{DynamicImage, RgbImage, imageops};
+    
+    let tile_size = target_size / 2;
+    
+    // Load and resize each cover image
+    let mut tiles: Vec<DynamicImage> = Vec::new();
+    for cover_data in &covers {
+        if let Ok(img) = image::load_from_memory(cover_data) {
+            // Resize to tile size, maintaining square aspect ratio
+            let resized = img.resize_to_fill(tile_size, tile_size, FilterType::Triangle);
+            tiles.push(resized);
+        }
+    }
+    
+    if tiles.is_empty() {
+        return Err(Error::NotFound("Failed to process cover images".to_string()));
+    }
+    
+    // Create the output image (target_size x target_size)
+    let mut output = RgbImage::new(target_size, target_size);
+    
+    // Fill with black initially
+    for pixel in output.pixels_mut() {
+        *pixel = image::Rgb([0, 0, 0]);
+    }
+    
+    // Position definitions for 2x2 grid
+    let positions = [
+        (0, 0),                      // Top-left
+        (tile_size, 0),              // Top-right
+        (0, tile_size),              // Bottom-left
+        (tile_size, tile_size),      // Bottom-right
+    ];
+    
+    // Place tiles - duplicate as needed to fill 4 slots
+    let tile_count = tiles.len();
+    for (i, &(x, y)) in positions.iter().enumerate() {
+        let tile_idx = match tile_count {
+            1 => 0,                              // Same image in all 4 slots
+            2 => i % 2,                          // Alternate between 2 images
+            3 => if i == 3 { 0 } else { i },     // Use first image for 4th slot
+            _ => i,                              // 4 unique images
+        };
+        
+        if tile_idx < tiles.len() {
+            let tile_rgb = tiles[tile_idx].to_rgb8();
+            imageops::overlay(&mut output, &tile_rgb, x.into(), y.into());
+        }
+    }
+    
+    // Encode as JPEG
+    let mut buffer = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(output)
+        .write_to(&mut buffer, ImageFormat::Jpeg)
+        .map_err(|e| Error::Image(e))?;
+    
+    Ok(buffer.into_inner())
 }
 
 

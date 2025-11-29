@@ -59,6 +59,9 @@ pub enum Error {
     #[error("Not found: {0}")]
     NotFound(String),
 
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+
     #[error("Invalid request: {0}")]
     InvalidRequest(String),
 
@@ -113,6 +116,7 @@ impl Error {
             ),
             Error::InvalidApiKey => (StatusCode::UNAUTHORIZED, 44, "Invalid API key".to_string()),
             Error::NotFound(msg) => (StatusCode::NOT_FOUND, 70, msg.clone()),
+            Error::Forbidden(msg) => (StatusCode::FORBIDDEN, 50, msg.clone()),
             Error::InvalidRequest(msg) => (StatusCode::BAD_REQUEST, 10, msg.clone()),
             Error::Database(ref e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

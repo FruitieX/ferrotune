@@ -224,8 +224,11 @@ export async function playFirstSong(page: Page) {
   const testAlbum = page.locator('[data-testid="album-card"], article').filter({ hasText: "Test Album" });
   await testAlbum.click();
   
+  // Wait for navigation to album detail page
+  await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
+  
   // Wait for tracks to load
-  await page.waitForSelector('[data-testid="song-row"], [role="row"]', { timeout: 5000 });
+  await page.waitForSelector('[data-testid="song-row"], [role="row"]', { timeout: 10000 });
   
   // Double-click first track to play
   const firstTrack = page.locator('[data-testid="song-row"], [role="row"]').first();
