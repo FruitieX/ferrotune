@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { motion, AnimatePresence, Reorder } from "framer-motion";
 import { X, ListMusic, Trash2, GripVertical, Play, Clock, FolderPlus, MoreHorizontal } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { queuePanelOpenAtom } from "@/lib/store/ui";
 import {
   queueAtom,
@@ -102,16 +103,21 @@ export function QueuePanel() {
         ) : (
           <ScrollArea className="flex-1">
             <div className="p-4 space-y-6">
-              {/* Now Playing */}
-              {currentTrack && playbackState !== "ended" && (
+              {/* Now Playing / Queue Ended */}
+              {currentTrack && (
                 <section>
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                    Now Playing
+                    {playbackState === "ended" ? "Queue Ended" : "Now Playing"}
                   </h3>
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="flex items-center gap-3 p-2 rounded-lg bg-primary/10 border border-primary/20 group"
+                    className={cn(
+                      "flex items-center gap-3 p-2 rounded-lg border group",
+                      playbackState === "ended" 
+                        ? "bg-muted/50 border-border" 
+                        : "bg-primary/10 border-primary/20"
+                    )}
                   >
                     <div className="relative shrink-0">
                       <CoverImage
@@ -141,7 +147,10 @@ export function QueuePanel() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate text-primary">
+                      <p className={cn(
+                        "font-medium truncate",
+                        playbackState === "ended" ? "text-foreground" : "text-primary"
+                      )}>
                         {currentTrack.title}
                       </p>
                       <p className="text-sm text-muted-foreground truncate">

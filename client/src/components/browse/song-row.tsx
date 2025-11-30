@@ -234,18 +234,21 @@ export function SongRow({
 export function SongRowSkeleton({ showCover = false }: { showCover?: boolean }) {
   return (
     <div
-      className="grid gap-4 px-4 py-2 items-center"
-      style={{
-        gridTemplateColumns: showCover ? "auto 1fr auto" : "2rem 1fr auto",
-      }}
+      className="flex items-center gap-4 px-4 pr-6 py-2"
     >
-      <Skeleton className="w-8 h-4" />
-      {showCover && <Skeleton className="w-10 h-10 rounded" />}
-      <div className="space-y-2">
-        <Skeleton className="h-4 w-32" />
-        <Skeleton className="h-3 w-24" />
+      {/* Index skeleton */}
+      <div className="w-8 text-center shrink-0">
+        <Skeleton className="h-4 w-4 mx-auto" />
       </div>
-      <Skeleton className="h-4 w-10" />
+      {/* Cover art skeleton */}
+      {showCover && <Skeleton className="w-10 h-10 rounded shrink-0" />}
+      {/* Song info skeleton */}
+      <div className="min-w-0 flex flex-col flex-1 gap-1">
+        <Skeleton className="h-4 w-40 max-w-full" />
+        <Skeleton className="h-3 w-32 max-w-[80%]" />
+      </div>
+      {/* Duration skeleton */}
+      <Skeleton className="h-4 w-10 shrink-0" />
     </div>
   );
 }

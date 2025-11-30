@@ -23,7 +23,7 @@ pub async fn scan_library(
 
     for folder in folders {
         tracing::info!("Scanning folder: {} ({})", folder.name, folder.path);
-        scan_folder(pool, config, &folder.path, full, dry_run).await?;
+        scan_folder(pool, config, folder.id, &folder.path, full, dry_run).await?;
     }
 
     Ok(())
@@ -42,6 +42,7 @@ async fn get_music_folder(pool: &SqlitePool, id: i64) -> Result<crate::db::model
 async fn scan_folder(
     pool: &SqlitePool,
     _config: &Config,
+    folder_id: i64,
     folder_path: &str,
     full: bool,
     dry_run: bool,
@@ -54,8 +55,8 @@ async fn scan_folder(
     let mut updated = 0;
     let mut errors = 0;
 
-    // First, clean up missing files
-    let removed = clean_missing_files(pool, &base_path, dry_run).await?;
+    // First, clean up missing files (only for this folder)
+    let removed = clean_missing_files(pool, folder_id, &base_path, dry_run).await?;
 
     for entry in WalkDir::new(&base_path)
         .follow_links(true)
@@ -113,7 +114,7 @@ async fn scan_folder(
 
         // Extract metadata
         match extract_metadata(path).await {
-            Ok(metadata) => match upsert_song(pool, metadata, relative_path).await {
+            Ok(metadata) => match upsert_song(pool, metadata, relative_path, folder_id).await {
                 Ok(is_new) => {
                     if is_new {
                         added += 1;
@@ -168,11 +169,19 @@ async fn scan_folder(
 
 /// Remove database entries for files that no longer exist on disk.
 /// Returns the number of songs removed (or that would be removed in dry-run mode).
-async fn clean_missing_files(pool: &SqlitePool, base_path: &Path, dry_run: bool) -> Result<usize> {
-    // Get all songs from the database
-    let songs: Vec<(String, String)> = sqlx::query_as("SELECT id, file_path FROM songs")
-        .fetch_all(pool)
-        .await?;
+/// Only checks songs belonging to the specified music folder.
+async fn clean_missing_files(
+    pool: &SqlitePool,
+    folder_id: i64,
+    base_path: &Path,
+    dry_run: bool,
+) -> Result<usize> {
+    // Get songs from this specific folder only
+    let songs: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, file_path FROM songs WHERE music_folder_id = ?")
+            .bind(folder_id)
+            .fetch_all(pool)
+            .await?;
 
     let mut missing_ids = Vec::new();
 
@@ -387,7 +396,12 @@ async fn extract_metadata(path: &Path) -> Result<SongMetadata> {
     })
 }
 
-async fn upsert_song(pool: &SqlitePool, metadata: SongMetadata, file_path: String) -> Result<bool> {
+async fn upsert_song(
+    pool: &SqlitePool,
+    metadata: SongMetadata,
+    file_path: String,
+    folder_id: i64,
+) -> Result<bool> {
     // Start a transaction
     let mut tx = pool.begin().await?;
 
@@ -430,7 +444,7 @@ async fn upsert_song(pool: &SqlitePool, metadata: SongMetadata, file_path: Strin
             "UPDATE songs SET 
                 title = ?, album_id = ?, artist_id = ?, track_number = ?, 
                 disc_number = ?, year = ?, genre = ?, duration = ?, 
-                bitrate = ?, file_size = ?, file_format = ?, 
+                bitrate = ?, file_size = ?, file_format = ?, music_folder_id = ?,
                 updated_at = datetime('now')
              WHERE id = ?",
         )
@@ -445,6 +459,7 @@ async fn upsert_song(pool: &SqlitePool, metadata: SongMetadata, file_path: Strin
         .bind(metadata.bitrate.map(|b| b as i32))
         .bind(metadata.file_size as i64)
         .bind(&metadata.file_format)
+        .bind(folder_id)
         .bind(&id)
         .execute(&mut *tx)
         .await?;
@@ -458,8 +473,8 @@ async fn upsert_song(pool: &SqlitePool, metadata: SongMetadata, file_path: Strin
             "INSERT INTO songs (
                 id, title, album_id, artist_id, track_number, disc_number,
                 year, genre, duration, bitrate, file_path, file_size, 
-                file_format, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+                file_format, music_folder_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
         )
         .bind(&song_id)
         .bind(&metadata.title)
@@ -474,6 +489,7 @@ async fn upsert_song(pool: &SqlitePool, metadata: SongMetadata, file_path: Strin
         .bind(&file_path)
         .bind(metadata.file_size as i64)
         .bind(&metadata.file_format)
+        .bind(folder_id)
         .execute(&mut *tx)
         .await?;
 
