@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { Artist } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { formatCount } from "@/lib/utils/format";
+import { ArtistContextMenu, ArtistDropdownMenu } from "./artist-context-menu";
 
 interface ArtistCardProps {
   artist: Artist;
@@ -27,65 +28,68 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
   const hasImage = coverArtUrl && !imageError;
 
   return (
-    <div
-      className={cn(
-        "group relative p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors cursor-pointer",
-        className
-      )}
-    >
-      <Link href={`/library/artists/${artist.id}`} className="block">
-        <div className="relative aspect-square rounded-full overflow-hidden bg-muted mb-4 transform-gpu transition-transform duration-200 group-hover:scale-[1.05]">
-          {hasImage ? (
-            <>
-              {/* Skeleton shown while image loads */}
-              {!imageLoaded && (
-                <Skeleton className="absolute inset-0 w-full h-full rounded-full" />
-              )}
-              <img
-                src={coverArtUrl}
-                alt={artist.name}
-                loading="lazy"
-                decoding="async"
-                className={cn(
-                  "absolute inset-0 w-full h-full object-cover transition-opacity duration-200",
-                  imageLoaded ? "opacity-100" : "opacity-0"
+    <ArtistContextMenu artist={artist}>
+      <div
+        className={cn(
+          "group relative p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors cursor-pointer",
+          className
+        )}
+      >
+        <ArtistDropdownMenu artist={artist} onPlay={onPlay} />
+        <Link href={`/library/artists/${artist.id}`} className="block">
+          <div className="relative aspect-square rounded-full overflow-hidden bg-muted mb-4 transform-gpu transition-transform duration-200 group-hover:scale-[1.05]">
+            {hasImage ? (
+              <>
+                {/* Skeleton shown while image loads */}
+                {!imageLoaded && (
+                  <Skeleton className="absolute inset-0 w-full h-full rounded-full" />
                 )}
-                onLoad={() => setImageLoaded(true)}
-                onError={() => setImageError(true)}
-              />
-            </>
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-              <User className="w-12 h-12 text-muted-foreground" />
+                <img
+                  src={coverArtUrl}
+                  alt={artist.name || "Artist image"}
+                  loading="lazy"
+                  decoding="async"
+                  className={cn(
+                    "absolute inset-0 w-full h-full object-cover transition-opacity duration-200",
+                    imageLoaded ? "opacity-100" : "opacity-0"
+                  )}
+                  onLoad={() => setImageLoaded(true)}
+                  onError={() => setImageError(true)}
+                />
+              </>
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
+                <User className="w-12 h-12 text-muted-foreground" />
+              </div>
+            )}
+            
+            {/* Play button overlay */}
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+              <Button
+                size="icon"
+                className="h-12 w-12 rounded-full shadow-lg"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onPlay?.();
+                }}
+              >
+                <Play className="w-6 h-6 ml-0.5" />
+              </Button>
             </div>
-          )}
-          
-          {/* Play button overlay */}
-          <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
-            <Button
-              size="icon"
-              className="h-12 w-12 rounded-full shadow-lg"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onPlay?.();
-              }}
-            >
-              <Play className="w-6 h-6 ml-0.5" />
-            </Button>
           </div>
-        </div>
 
-        <div className="text-center space-y-1">
-          <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-            {artist.name}
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            {formatCount(artist.albumCount, "album")}
-          </p>
-        </div>
-      </Link>
-    </div>
+          <div className="text-center space-y-1">
+            <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+              {artist.name}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {formatCount(artist.albumCount, "album")}
+            </p>
+          </div>
+        </Link>
+      </div>
+    </ArtistContextMenu>
   );
 }
 
@@ -137,7 +141,7 @@ export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompa
               )}
               <img
                 src={coverArtUrl}
-                alt={artist.name}
+                alt={artist.name || "Artist image"}
                 loading="lazy"
                 decoding="async"
                 className={cn(

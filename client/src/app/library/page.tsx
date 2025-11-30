@@ -86,24 +86,43 @@ export default function LibraryPage() {
     enabled: isReady && activeTab === "genres",
   });
 
-  // Fetch random songs for tracks tab (since there's no "all songs" endpoint)
-  const { data: songsData, isLoading: loadingSongs } = useQuery({
-    queryKey: ["randomSongs", 500],
-    queryFn: async () => {
+  // Fetch all songs by getting them from all albums (since there's no "get all songs" endpoint)
+  // We use the search endpoint with a wildcard which returns songs alphabetically
+  const {
+    data: songsData,
+    isLoading: loadingSongs,
+    fetchNextPage: fetchNextSongs,
+    hasNextPage: hasNextSongsPage,
+    isFetchingNextPage: isFetchingNextSongs,
+  } = useInfiniteQuery({
+    queryKey: ["songs", "all"],
+    queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getRandomSongs({ size: 500 });
-      // Sort by album/track number for better presentation
-      const songs = response.randomSongs.song ?? [];
-      return songs.sort((a, b) => {
-        const albumCompare = (a.album || "").localeCompare(b.album || "");
-        if (albumCompare !== 0) return albumCompare;
-        return (a.track || 0) - (b.track || 0);
+      // Use search with an empty-ish query to get all songs, paginated
+      // The search endpoint returns songs, and we request a large batch
+      const response = await client.search3({
+        query: "*", // Wildcard to match all
+        songCount: PAGE_SIZE,
+        songOffset: pageParam,
+        artistCount: 0,
+        albumCount: 0,
       });
+      const songs = response.searchResult3.song ?? [];
+      // Sort alphabetically by title
+      songs.sort((a, b) => a.title.localeCompare(b.title));
+      return {
+        songs,
+        nextOffset: songs.length === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
+      };
     },
+    getNextPageParam: (lastPage) => lastPage.nextOffset,
+    initialPageParam: 0,
     enabled: isReady && activeTab === "songs",
-    staleTime: 60000, // Cache for 1 minute
   });
+
+  // Flatten songs from all pages
+  const allSongs = songsData?.pages.flatMap((page) => page.songs) ?? [];
 
   // Flatten albums from all pages
   const allAlbums = albumsData?.pages.flatMap((page) => page.albums) ?? [];
@@ -323,26 +342,29 @@ export default function LibraryPage() {
         {/* Songs Tab */}
         <TabsContent value="songs" className="mt-0">
           <div className="p-4 lg:p-6">
-            {loadingSongs ? (
+            {loadingSongs && allSongs.length === 0 ? (
               <div className="divide-y divide-border/50">
                 {Array.from({ length: 10 }).map((_, i) => (
                   <SongRowSkeleton key={i} showCover />
                 ))}
               </div>
-            ) : songsData && songsData.length > 0 ? (
+            ) : allSongs.length > 0 ? (
               <VirtualizedList
-                items={songsData}
+                items={allSongs}
                 renderItem={(song, index) => (
                   <SongRow
                     song={song}
                     index={index}
                     showCover
-                    queueSongs={songsData}
+                    queueSongs={allSongs}
                   />
                 )}
                 renderSkeleton={() => <SongRowSkeleton showCover />}
                 getItemKey={(song) => song.id}
                 estimateItemHeight={56}
+                hasNextPage={hasNextSongsPage ?? false}
+                isFetchingNextPage={isFetchingNextSongs}
+                fetchNextPage={fetchNextSongs}
               />
             ) : (
               <EmptyState message="No songs in your library" />

@@ -88,7 +88,7 @@ export function CoverImage({
       {showImage ? (
         <Image
           src={src}
-          alt={alt}
+          alt={alt || "Cover art"}
           fill
           className="object-cover"
           sizes={

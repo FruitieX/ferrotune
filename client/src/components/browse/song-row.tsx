@@ -18,6 +18,30 @@ import { playbackStateAtom } from "@/lib/store/player";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
 
+// Audio bar visualizer for now playing indicator - uses CSS animations
+function NowPlayingBars({ className }: { className?: string }) {
+  return (
+    <div className={cn("flex items-end justify-center gap-0.5 h-3", className)}>
+      <span 
+        className="w-[3px] bg-primary rounded-sm animate-bar-1"
+        style={{ animationDuration: "0.4s" }}
+      />
+      <span 
+        className="w-[3px] bg-primary rounded-sm animate-bar-2"
+        style={{ animationDuration: "0.5s" }}
+      />
+      <span 
+        className="w-[3px] bg-primary rounded-sm animate-bar-3"
+        style={{ animationDuration: "0.35s" }}
+      />
+      <span 
+        className="w-[3px] bg-primary rounded-sm animate-bar-4"
+        style={{ animationDuration: "0.45s" }}
+      />
+    </div>
+  );
+}
+
 interface SongRowProps {
   song: Song;
   index?: number;
@@ -103,15 +127,7 @@ export function SongRow({
             isCurrentTrack && "text-primary"
           )}>
             {isCurrentTrack ? (
-              <motion.div
-                animate={{ opacity: [1, 0.5, 1] }}
-                transition={{ repeat: Infinity, duration: 1.5 }}
-                className="flex justify-center gap-0.5"
-              >
-                <span className="w-1 h-3 bg-primary rounded-full" />
-                <span className="w-1 h-4 bg-primary rounded-full" />
-                <span className="w-1 h-2 bg-primary rounded-full" />
-              </motion.div>
+              <NowPlayingBars />
             ) : (
               index + 1
             )}
@@ -140,7 +156,7 @@ export function SongRow({
           {coverArtUrl ? (
             <Image
               src={coverArtUrl}
-              alt={song.album}
+              alt={song.album || "Album cover"}
               fill
               className="object-cover"
               unoptimized
@@ -263,7 +279,7 @@ export function SongRowCompact({
         {coverArtUrl ? (
           <Image
             src={coverArtUrl}
-            alt={song.album}
+            alt={song.album || "Album cover"}
             fill
             className="object-cover"
             unoptimized

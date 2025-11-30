@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Album } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
+import { AlbumContextMenu, AlbumDropdownMenu } from "./album-context-menu";
 
 interface AlbumCardProps {
   album: Album;
@@ -26,66 +27,69 @@ export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
   const hasImage = coverArtUrl && !imageError;
 
   return (
-    <article
-      data-testid="album-card"
-      className={cn(
-        "group relative p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors cursor-pointer",
-        className
-      )}
-    >
-      <Link href={`/library/albums/${album.id}`} className="block">
-        <div className="relative aspect-square rounded-md overflow-hidden bg-muted mb-4 album-glow transform-gpu transition-transform duration-200 group-hover:scale-[1.05]">
-          {hasImage ? (
-            <>
-              {/* Skeleton shown while image loads */}
-              {!imageLoaded && (
-                <Skeleton className="absolute inset-0 w-full h-full rounded-none" />
-              )}
-              <img
-                src={coverArtUrl}
-                alt={album.name}
-                loading="lazy"
-                decoding="async"
-                className={cn(
-                  "absolute inset-0 w-full h-full object-cover transition-opacity duration-200",
-                  imageLoaded ? "opacity-100" : "opacity-0"
+    <AlbumContextMenu album={album}>
+      <article
+        data-testid="album-card"
+        className={cn(
+          "group relative p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors cursor-pointer",
+          className
+        )}
+      >
+        <AlbumDropdownMenu album={album} onPlay={onPlay} />
+        <Link href={`/library/albums/${album.id}`} className="block">
+          <div className="relative aspect-square rounded-md overflow-hidden bg-muted mb-4 album-glow transform-gpu transition-transform duration-200 group-hover:scale-[1.05]">
+            {hasImage ? (
+              <>
+                {/* Skeleton shown while image loads */}
+                {!imageLoaded && (
+                  <Skeleton className="absolute inset-0 w-full h-full rounded-none" />
                 )}
-                onLoad={() => setImageLoaded(true)}
-                onError={() => setImageError(true)}
-              />
-            </>
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-              <Disc className="w-12 h-12 text-muted-foreground" />
+                <img
+                  src={coverArtUrl}
+                  alt={album.name || "Album cover"}
+                  loading="lazy"
+                  decoding="async"
+                  className={cn(
+                    "absolute inset-0 w-full h-full object-cover transition-opacity duration-200",
+                    imageLoaded ? "opacity-100" : "opacity-0"
+                  )}
+                  onLoad={() => setImageLoaded(true)}
+                  onError={() => setImageError(true)}
+                />
+              </>
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
+                <Disc className="w-12 h-12 text-muted-foreground" />
+              </div>
+            )}
+            
+            {/* Play button overlay */}
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+              <Button
+                size="icon"
+                className="h-12 w-12 rounded-full shadow-lg"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onPlay?.();
+                }}
+              >
+                <Play className="w-6 h-6 ml-0.5" />
+              </Button>
             </div>
-          )}
-          
-          {/* Play button overlay */}
-          <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
-            <Button
-              size="icon"
-              className="h-12 w-12 rounded-full shadow-lg"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onPlay?.();
-              }}
-            >
-              <Play className="w-6 h-6 ml-0.5" />
-            </Button>
           </div>
-        </div>
 
-        <div className="space-y-1">
-          <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-            {album.name}
-          </h3>
-          <p className="text-sm text-muted-foreground truncate">
-            {album.year && `${album.year} • `}{album.artist}
-          </p>
-        </div>
-      </Link>
-    </article>
+          <div className="space-y-1">
+            <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+              {album.name}
+            </h3>
+            <p className="text-sm text-muted-foreground truncate">
+              {album.year && `${album.year} • `}{album.artist}
+            </p>
+          </div>
+        </Link>
+      </article>
+    </AlbumContextMenu>
   );
 }
 
@@ -130,7 +134,7 @@ export function AlbumCardCompact({ album, onPlay, className }: AlbumCardCompactP
           {showImage ? (
             <img
               src={coverArtUrl}
-              alt={album.name}
+              alt={album.name || "Album cover"}
               loading="lazy"
               decoding="async"
               className="absolute inset-0 w-full h-full object-cover"
