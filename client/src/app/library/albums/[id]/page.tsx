@@ -44,6 +44,7 @@ export default function AlbumPage({ params }: AlbumPageProps) {
   const playNow = useSetAtom(playNowAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+  const [coverError, setCoverError] = useState(false);
 
   // Fetch album data
   const { data: albumData, isLoading } = useQuery({
@@ -60,6 +61,8 @@ export default function AlbumPage({ params }: AlbumPageProps) {
   const coverArtUrl = albumData?.coverArt
     ? getClient()?.getCoverArtUrl(albumData.coverArt, 400)
     : null;
+
+  const showCoverImage = coverArtUrl && !coverError;
 
   const totalDuration = albumData?.song?.reduce((acc, song) => acc + song.duration, 0) ?? 0;
 
@@ -122,7 +125,7 @@ export default function AlbumPage({ params }: AlbumPageProps) {
           >
             {isLoading ? (
               <Skeleton className="w-full h-full" />
-            ) : coverArtUrl ? (
+            ) : showCoverImage ? (
               <Image
                 src={coverArtUrl}
                 alt={albumData?.name || "Album"}
@@ -130,9 +133,10 @@ export default function AlbumPage({ params }: AlbumPageProps) {
                 className="object-cover"
                 priority
                 unoptimized
+                onError={() => setCoverError(true)}
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center bg-muted">
+              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/20">
                 <span className="text-6xl">🎵</span>
               </div>
             )}

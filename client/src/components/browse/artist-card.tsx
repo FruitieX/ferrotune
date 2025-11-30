@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -18,9 +19,12 @@ interface ArtistCardProps {
 }
 
 export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
+  const [imageError, setImageError] = useState(false);
   const coverArtUrl = artist.coverArt
     ? getClient()?.getCoverArtUrl(artist.coverArt, 300)
     : null;
+
+  const showImage = coverArtUrl && !imageError;
 
   return (
     <motion.div
@@ -35,7 +39,7 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
     >
       <Link href={`/library/artists/${artist.id}`} className="block">
         <div className="relative aspect-square rounded-full overflow-hidden bg-muted mb-4">
-          {coverArtUrl ? (
+          {showImage ? (
             <Image
               src={coverArtUrl}
               alt={artist.name}
@@ -43,6 +47,7 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
               className="object-cover"
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
               unoptimized
+              onError={() => setImageError(true)}
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/20">
@@ -99,9 +104,12 @@ interface ArtistCardCompactProps {
 }
 
 export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompactProps) {
+  const [imageError, setImageError] = useState(false);
   const coverArtUrl = artist.coverArt
     ? getClient()?.getCoverArtUrl(artist.coverArt, 80)
     : null;
+
+  const showImage = coverArtUrl && !imageError;
 
   return (
     <div
@@ -115,13 +123,14 @@ export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompa
         className="flex items-center gap-3 flex-1 min-w-0"
       >
         <div className="relative w-12 h-12 rounded-full overflow-hidden bg-muted shrink-0">
-          {coverArtUrl ? (
+          {showImage ? (
             <Image
               src={coverArtUrl}
               alt={artist.name}
               fill
               className="object-cover"
               unoptimized
+              onError={() => setImageError(true)}
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/20">
