@@ -248,6 +248,15 @@ tasks:
       cache: false
       runInCI: false
 
+  dev:
+    command: 'cargo run -- serve'
+    inputs:
+      - '@group(sources)'
+    local: true
+    options:
+      persistent: true
+      runInCI: false
+
   serve:
     command: 'cargo run -- serve'
     inputs:
