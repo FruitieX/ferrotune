@@ -86,10 +86,21 @@ export function VirtualizedGrid<T>({
     return document.getElementById("main-scroll-container");
   }, []);
 
+  // Calculate dynamic estimate based on container and column count
+  // This accounts for aspect-square images + padding + text
+  const getDynamicEstimate = useCallback(() => {
+    if (!containerRef.current) return estimateItemHeight;
+    const containerWidth = containerRef.current.offsetWidth;
+    const totalGap = (columnCount - 1) * gap;
+    const columnWidth = (containerWidth - totalGap) / columnCount;
+    // Column width + top padding (16) + margin below image (16) + text area (~56) + bottom padding (16) 
+    return columnWidth + 16 + 16 + 56 + 16;
+  }, [columnCount, gap, estimateItemHeight]);
+
   const virtualizer = useVirtualizer({
     count: totalRows,
     getScrollElement,
-    estimateSize: () => estimateItemHeight,
+    estimateSize: getDynamicEstimate,
     overscan,
     gap,
   });

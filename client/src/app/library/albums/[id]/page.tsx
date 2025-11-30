@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 import {
   Play,
   Shuffle,
@@ -15,9 +16,10 @@ import {
   Clock,
   ArrowLeft,
   FolderPlus,
+  ListEnd,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { playNowAtom } from "@/lib/store/queue";
+import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
 import { isShuffledAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -42,6 +44,7 @@ export default function AlbumPage({ params }: AlbumPageProps) {
   const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const playNow = useSetAtom(playNowAtom);
+  const addToQueue = useSetAtom(addToQueueAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [coverError, setCoverError] = useState(false);
@@ -224,6 +227,18 @@ export default function AlbumPage({ params }: AlbumPageProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem 
+                onClick={() => {
+                  if (albumData?.song) {
+                    albumData.song.forEach(song => addToQueue(song, "last"));
+                    toast.success(`Added ${albumData.song.length} songs to queue`);
+                  }
+                }}
+                disabled={!albumData?.song?.length}
+              >
+                <ListEnd className="w-4 h-4 mr-2" />
+                Add all to Queue
+              </DropdownMenuItem>
               <DropdownMenuItem 
                 onClick={() => setAddToPlaylistOpen(true)}
                 disabled={!albumData?.song?.length}

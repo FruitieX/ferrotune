@@ -70,7 +70,7 @@ export function QueuePanel() {
         className="w-full sm:w-[400px] p-0 flex flex-col"
       >
         <SheetHeader className="px-4 py-3 border-b border-border">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between pr-8">
             <SheetTitle className="flex items-center gap-2">
               <ListMusic className="w-5 h-5" />
               Queue
@@ -308,7 +308,7 @@ function QueueItem({ song, queueIndex, onPlay, onRemove }: QueueItemProps) {
           </div>
         </div>
 
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={onPlay}>
+        <div className="flex-1 min-w-0 overflow-hidden cursor-pointer" onClick={onPlay}>
           <p className="text-sm font-medium truncate">{song.title}</p>
           <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
         </div>
