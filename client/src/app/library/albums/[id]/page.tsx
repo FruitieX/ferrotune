@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -14,6 +14,7 @@ import {
   MoreHorizontal,
   Clock,
   ArrowLeft,
+  FolderPlus,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { playNowAtom } from "@/lib/store/queue";
@@ -21,7 +22,14 @@ import { isShuffledAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
+import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { formatDuration, formatTotalDuration, formatCount } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +43,7 @@ export default function AlbumPage({ params }: AlbumPageProps) {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const playNow = useSetAtom(playNowAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
+  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
 
   // Fetch album data
   const { data: albumData, isLoading } = useQuery({
@@ -204,9 +213,22 @@ export default function AlbumPage({ params }: AlbumPageProps) {
           <Button variant="ghost" size="icon" className="h-10 w-10">
             <Heart className="w-5 h-5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-10 w-10">
-            <MoreHorizontal className="w-5 h-5" />
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-10 w-10">
+                <MoreHorizontal className="w-5 h-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem 
+                onClick={() => setAddToPlaylistOpen(true)}
+                disabled={!albumData?.song?.length}
+              >
+                <FolderPlus className="w-4 h-4 mr-2" />
+                Add all to Playlist
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -249,6 +271,15 @@ export default function AlbumPage({ params }: AlbumPageProps) {
 
       {/* Spacer for player bar */}
       <div className="h-24" />
+
+      {/* Add to Playlist Dialog */}
+      {albumData?.song && (
+        <AddToPlaylistDialog
+          open={addToPlaylistOpen}
+          onOpenChange={setAddToPlaylistOpen}
+          songs={albumData.song}
+        />
+      )}
     </div>
   );
 }

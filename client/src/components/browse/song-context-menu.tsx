@@ -10,11 +10,10 @@ import {
   Heart,
   Star,
   Download,
-  Share2,
   MoreHorizontal,
   User,
   Disc,
-  Music,
+  FolderPlus,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -37,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
@@ -52,6 +52,7 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!song.starred);
+  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
 
   const handlePlay = () => {
     if (queueSongs && queueSongs.length > 0) {
@@ -127,6 +128,10 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
         <ListEnd className="w-4 h-4 mr-2" />
         Add to Queue
       </ContextMenuItem>
+      <ContextMenuItem onClick={() => setAddToPlaylistOpen(true)}>
+        <FolderPlus className="w-4 h-4 mr-2" />
+        Add to Playlist
+      </ContextMenuItem>
 
       <ContextMenuSeparator />
 
@@ -183,10 +188,17 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
   );
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent className="w-56">{menuItems}</ContextMenuContent>
-    </ContextMenu>
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+        <ContextMenuContent className="w-56">{menuItems}</ContextMenuContent>
+      </ContextMenu>
+      <AddToPlaylistDialog
+        open={addToPlaylistOpen}
+        onOpenChange={setAddToPlaylistOpen}
+        songs={[song]}
+      />
+    </>
   );
 }
 
@@ -195,6 +207,7 @@ export function SongDropdownMenu({ song, queueSongs }: Omit<SongContextMenuProps
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!song.starred);
+  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
 
   const handlePlay = () => {
     if (queueSongs && queueSongs.length > 0) {
@@ -257,84 +270,95 @@ export function SongDropdownMenu({ song, queueSongs }: Omit<SongContextMenuProps
   };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <MoreHorizontal className="w-4 h-4" />
-          <span className="sr-only">More options</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuItem onClick={handlePlay}>
-          <Play className="w-4 h-4 mr-2" />
-          Play
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={handlePlayNext}>
-          <ListPlus className="w-4 h-4 mr-2" />
-          Play Next
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={handleAddToQueue}>
-          <ListEnd className="w-4 h-4 mr-2" />
-          Add to Queue
-        </DropdownMenuItem>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MoreHorizontal className="w-4 h-4" />
+            <span className="sr-only">More options</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem onClick={handlePlay}>
+            <Play className="w-4 h-4 mr-2" />
+            Play
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handlePlayNext}>
+            <ListPlus className="w-4 h-4 mr-2" />
+            Play Next
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleAddToQueue}>
+            <ListEnd className="w-4 h-4 mr-2" />
+            Add to Queue
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
+            <FolderPlus className="w-4 h-4 mr-2" />
+            Add to Playlist
+          </DropdownMenuItem>
 
-        <DropdownMenuSeparator />
+          <DropdownMenuSeparator />
 
-        <DropdownMenuItem onClick={handleStar}>
-          <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
-          {isStarred ? "Remove from Favorites" : "Add to Favorites"}
-        </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleStar}>
+            <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
+            {isStarred ? "Remove from Favorites" : "Add to Favorites"}
+          </DropdownMenuItem>
 
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <Star className="w-4 h-4 mr-2" />
-            Rate
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            {[5, 4, 3, 2, 1].map((rating) => (
-              <DropdownMenuItem key={rating} onClick={() => handleRate(rating)}>
-                {Array.from({ length: rating }).map((_, i) => (
-                  <Star key={i} className="w-3 h-3 fill-yellow-500 text-yellow-500" />
-                ))}
-                {Array.from({ length: 5 - rating }).map((_, i) => (
-                  <Star key={i} className="w-3 h-3 text-muted-foreground" />
-                ))}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Star className="w-4 h-4 mr-2" />
+              Rate
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              {[5, 4, 3, 2, 1].map((rating) => (
+                <DropdownMenuItem key={rating} onClick={() => handleRate(rating)}>
+                  {Array.from({ length: rating }).map((_, i) => (
+                    <Star key={i} className="w-3 h-3 fill-yellow-500 text-yellow-500" />
+                  ))}
+                  {Array.from({ length: 5 - rating }).map((_, i) => (
+                    <Star key={i} className="w-3 h-3 text-muted-foreground" />
+                  ))}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleRate(0)}>
+                Remove Rating
               </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => handleRate(0)}>
-              Remove Rating
-            </DropdownMenuItem>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
 
-        <DropdownMenuSeparator />
+          <DropdownMenuSeparator />
 
-        <DropdownMenuItem asChild>
-          <Link href={`/library/artists/${song.artistId}`}>
-            <User className="w-4 h-4 mr-2" />
-            Go to Artist
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href={`/library/albums/${song.albumId}`}>
-            <Disc className="w-4 h-4 mr-2" />
-            Go to Album
-          </Link>
-        </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href={`/library/artists/${song.artistId}`}>
+              <User className="w-4 h-4 mr-2" />
+              Go to Artist
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href={`/library/albums/${song.albumId}`}>
+              <Disc className="w-4 h-4 mr-2" />
+              Go to Album
+            </Link>
+          </DropdownMenuItem>
 
-        <DropdownMenuSeparator />
+          <DropdownMenuSeparator />
 
-        <DropdownMenuItem onClick={handleDownload}>
-          <Download className="w-4 h-4 mr-2" />
-          Download
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          <DropdownMenuItem onClick={handleDownload}>
+            <Download className="w-4 h-4 mr-2" />
+            Download
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <AddToPlaylistDialog
+        open={addToPlaylistOpen}
+        onOpenChange={setAddToPlaylistOpen}
+        songs={[song]}
+      />
+    </>
   );
 }

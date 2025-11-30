@@ -51,11 +51,7 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
           )}
           
           {/* Play button overlay */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            whileHover={{ opacity: 1, scale: 1 }}
-            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity"
-          >
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
             <Button
               size="icon"
               className="h-12 w-12 rounded-full shadow-lg"
@@ -67,7 +63,7 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
             >
               <Play className="w-6 h-6 ml-0.5" />
             </Button>
-          </motion.div>
+          </div>
         </div>
 
         <div className="text-center space-y-1">

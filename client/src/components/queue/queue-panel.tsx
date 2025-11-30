@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { motion, AnimatePresence, Reorder } from "framer-motion";
-import { X, ListMusic, Trash2, GripVertical, Play, Clock } from "lucide-react";
+import { X, ListMusic, Trash2, GripVertical, Play, Clock, FolderPlus, MoreHorizontal } from "lucide-react";
 import { queuePanelOpenAtom } from "@/lib/store/ui";
 import {
   queueAtom,
@@ -16,7 +17,14 @@ import { playbackStateAtom } from "@/lib/store/player";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { CoverImage } from "@/components/shared/cover-image";
+import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
@@ -36,6 +44,7 @@ export function QueuePanel() {
   const removeFromQueue = useSetAtom(removeFromQueueAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
   const setQueueIndex = useSetAtom(setQueueIndexAtom);
+  const [nowPlayingAddToPlaylist, setNowPlayingAddToPlaylist] = useState(false);
 
   const upNext = queue.slice(queueIndex + 1);
   const previousTracks = queue.slice(0, queueIndex);
@@ -104,7 +113,7 @@ export function QueuePanel() {
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="flex items-center gap-3 p-2 rounded-lg bg-primary/10 border border-primary/20"
+                    className="flex items-center gap-3 p-2 rounded-lg bg-primary/10 border border-primary/20 group"
                   >
                     <div className="relative shrink-0">
                       <CoverImage
@@ -141,6 +150,23 @@ export function QueuePanel() {
                         {currentTrack.artist}
                       </p>
                     </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground"
+                        >
+                          <MoreHorizontal className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setNowPlayingAddToPlaylist(true)}>
+                          <FolderPlus className="w-4 h-4 mr-2" />
+                          Add to Playlist
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <span className="text-sm text-muted-foreground tabular-nums">
                       {formatDuration(currentTrack.duration)}
                     </span>
@@ -165,12 +191,14 @@ export function QueuePanel() {
                     values={upNext}
                     onReorder={handleReorder}
                     className="space-y-1"
+                    layoutScroll
                   >
                     <AnimatePresence mode="popLayout">
                       {upNext.map((song, index) => (
                         <QueueItem
-                          key={`${song.id}-${queueIndex + 1 + index}`}
+                          key={song.id}
                           song={song}
+                          queueIndex={queueIndex + 1 + index}
                           onPlay={() => handlePlayTrack(queueIndex + 1 + index)}
                           onRemove={() => removeFromQueue(queueIndex + 1 + index)}
                         />
@@ -231,58 +259,94 @@ export function QueuePanel() {
           </div>
         )}
       </SheetContent>
+      {currentTrack && (
+        <AddToPlaylistDialog
+          open={nowPlayingAddToPlaylist}
+          onOpenChange={setNowPlayingAddToPlaylist}
+          songs={[currentTrack]}
+        />
+      )}
     </Sheet>
   );
 }
 
 interface QueueItemProps {
   song: Song;
+  queueIndex: number;
   onPlay: () => void;
   onRemove: () => void;
 }
 
-function QueueItem({ song, onPlay, onRemove }: QueueItemProps) {
+function QueueItem({ song, queueIndex, onPlay, onRemove }: QueueItemProps) {
+  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+
   return (
-    <Reorder.Item
-      value={song}
-      className="flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 cursor-grab active:cursor-grabbing group"
-    >
-      <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
-      
-      <div 
-        className="relative shrink-0 cursor-pointer"
-        onClick={onPlay}
-      >
-        <CoverImage
-          src={getCoverUrl(song.coverArt)}
-          alt={song.title}
-          size="sm"
-        />
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 rounded transition-opacity">
-          <Play className="w-4 h-4 text-white" fill="white" />
-        </div>
-      </div>
-
-      <div className="flex-1 min-w-0" onClick={onPlay}>
-        <p className="text-sm font-medium truncate">{song.title}</p>
-        <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
-      </div>
-
-      <span className="text-xs text-muted-foreground tabular-nums">
-        {formatDuration(song.duration)}
-      </span>
-
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
+    <>
+      <Reorder.Item
+        value={song}
+        id={song.id}
+        className="flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 cursor-grab active:cursor-grabbing group select-none"
+        dragListener={true}
+        dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
+        whileDrag={{ 
+          scale: 1.02, 
+          boxShadow: "0 10px 20px rgba(0,0,0,0.3)",
+          zIndex: 50
         }}
       >
-        <X className="w-4 h-4" />
-      </Button>
-    </Reorder.Item>
+        <GripVertical className="w-4 h-4 text-muted-foreground shrink-0 touch-none" />
+        
+        <div 
+          className="relative shrink-0 cursor-pointer"
+          onClick={onPlay}
+        >
+          <CoverImage
+            src={getCoverUrl(song.coverArt)}
+            alt={song.title}
+            size="sm"
+          />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 rounded transition-opacity">
+            <Play className="w-4 h-4 text-white" fill="white" />
+          </div>
+        </div>
+
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={onPlay}>
+          <p className="text-sm font-medium truncate">{song.title}</p>
+          <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
+        </div>
+
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {formatDuration(song.duration)}
+        </span>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
+              <FolderPlus className="w-4 h-4 mr-2" />
+              Add to Playlist
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onRemove} className="text-destructive">
+              <X className="w-4 h-4 mr-2" />
+              Remove from Queue
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </Reorder.Item>
+      <AddToPlaylistDialog
+        open={addToPlaylistOpen}
+        onOpenChange={setAddToPlaylistOpen}
+        songs={[song]}
+      />
+    </>
   );
 }

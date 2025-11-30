@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Play, MoreHorizontal } from "lucide-react";
+import { Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -45,17 +45,13 @@ export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
               unoptimized
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-muted">
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/20">
               <span className="text-4xl text-muted-foreground">🎵</span>
             </div>
           )}
           
           {/* Play button overlay */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            whileHover={{ opacity: 1, scale: 1 }}
-            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity"
-          >
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
             <Button
               size="icon"
               className="h-12 w-12 rounded-full shadow-lg"
@@ -67,7 +63,7 @@ export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
             >
               <Play className="w-6 h-6 ml-0.5" />
             </Button>
-          </motion.div>
+          </div>
         </div>
 
         <div className="space-y-1">
