@@ -45,29 +45,39 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased overflow-hidden`}
       >
         <Providers>
-          <div className="flex min-h-screen">
-            {/* Sidebar - hidden on mobile */}
-            <Sidebar />
+          <div className="h-screen flex flex-col">
+            {/* Main content row */}
+            <div className="flex flex-1 min-h-0">
+              {/* Sidebar - hidden on mobile */}
+              <Sidebar />
+              
+              {/* Main content area - scrollable within its bounds */}
+              <main 
+                id="main-scroll-container"
+                className="flex-1 lg:ml-[280px] overflow-y-auto overflow-x-hidden"
+              >
+                {children}
+              </main>
+              
+              {/* Queue panel - slide-out drawer */}
+              <QueuePanel />
+            </div>
             
-            {/* Main content area */}
-            <main className="flex-1 lg:ml-[280px] pb-[88px] lg:pb-[88px] min-h-screen">
-              {children}
-            </main>
+            {/* Player bar - fixed height at bottom */}
+            <div className="shrink-0">
+              <PlayerBar />
+            </div>
             
-            {/* Player bar - always visible */}
-            <PlayerBar />
-            
-            {/* Queue panel - slide-out drawer */}
-            <QueuePanel />
+            {/* Mobile navigation - fixed at bottom on mobile */}
+            <div className="shrink-0 lg:hidden">
+              <MobileNav />
+            </div>
             
             {/* Fullscreen player - modal overlay */}
             <FullscreenPlayer />
-            
-            {/* Mobile navigation - visible on mobile only */}
-            <MobileNav />
           </div>
         </Providers>
       </body>

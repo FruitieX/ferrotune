@@ -153,6 +153,8 @@ export interface GenresResponse {
 export interface AlbumListResponse {
   albumList2: {
     album: Album[];
+    /** Total count of albums (Ferrotune extension for pagination) */
+    total?: number;
   };
 }
 

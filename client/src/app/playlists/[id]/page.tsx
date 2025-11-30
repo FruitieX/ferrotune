@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { CoverImage } from "@/components/shared/cover-image";
 import { TrackList } from "@/components/browse/track-list";
+import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
 import { formatDuration, formatCount, formatDate } from "@/lib/utils/format";
 
 export default function PlaylistDetailPage() {
@@ -52,6 +53,7 @@ export default function PlaylistDetailPage() {
   const queryClient = useQueryClient();
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
 
   // Fetch playlist details
   const { data: playlist, isLoading } = useQuery({
@@ -222,7 +224,7 @@ export default function PlaylistDetailPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
                 <Pencil className="w-4 h-4 mr-2" />
                 Edit Playlist
               </DropdownMenuItem>
@@ -272,6 +274,13 @@ export default function PlaylistDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit playlist dialog */}
+      <EditPlaylistDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        playlist={playlist ? { id: playlist.id, name: playlist.name, comment: playlist.comment } : null}
+      />
     </div>
   );
 }

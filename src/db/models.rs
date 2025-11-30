@@ -86,8 +86,20 @@ pub struct Playlist {
     pub is_public: bool,
     pub song_count: i64,
     pub duration: i64,
+    pub folder_id: Option<String>,
+    pub position: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PlaylistFolder {
+    pub id: String,
+    pub name: String,
+    pub parent_id: Option<String>,
+    pub owner_id: i64,
+    pub position: i64,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

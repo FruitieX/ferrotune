@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
-import { Music, User, Disc } from "lucide-react";
+import { Music, User, Disc, ListMusic } from "lucide-react";
 
 interface CoverImageProps {
   src?: string | null;
@@ -12,6 +12,8 @@ interface CoverImageProps {
   size?: "sm" | "md" | "lg" | "xl" | "full";
   className?: string;
   priority?: boolean;
+  /** If true, only loads image when in viewport (default: true for non-priority) */
+  lazy?: boolean;
 }
 
 const sizeClasses = {
@@ -37,15 +39,45 @@ export function CoverImage({
   size = "md",
   className,
   priority = false,
+  lazy = !priority,
 }: CoverImageProps) {
   const [hasError, setHasError] = useState(false);
-  const Icon = type === "artist" ? User : type === "song" ? Music : Disc;
+  const [isVisible, setIsVisible] = useState(!lazy);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  const Icon = type === "artist" ? User : type === "playlist" ? ListMusic : type === "song" ? Music : Disc;
   const isRound = type === "artist";
 
-  const showImage = src && !hasError;
+  // Use IntersectionObserver for true lazy loading
+  useEffect(() => {
+    if (!lazy || isVisible) return;
+    
+    const element = containerRef.current;
+    if (!element) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      {
+        rootMargin: "100px", // Start loading slightly before entering viewport
+        threshold: 0,
+      }
+    );
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [lazy, isVisible]);
+
+  const showImage = src && !hasError && isVisible;
 
   return (
     <div
+      ref={containerRef}
       className={cn(
         "relative bg-muted overflow-hidden shrink-0",
         isRound ? "rounded-full" : "rounded-md",
@@ -73,7 +105,7 @@ export function CoverImage({
           onError={() => setHasError(true)}
         />
       ) : (
-        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/20">
+        <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
           <Icon className={cn("text-muted-foreground", iconSizes[size])} />
         </div>
       )}

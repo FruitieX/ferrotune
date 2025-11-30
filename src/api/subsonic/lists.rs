@@ -33,6 +33,9 @@ pub struct AlbumList2Response {
 #[serde(rename_all = "camelCase")]
 pub struct AlbumList2Content {
     pub album: Vec<AlbumResponse>,
+    /// Total count of albums (Ferrotune extension for pagination)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
 }
 
 pub async fn get_album_list2(
@@ -176,7 +179,7 @@ pub async fn get_album_list2(
                 .await?
         }
         "byGenre" => {
-            if let Some(genre) = params.genre {
+            if let Some(ref genre) = params.genre {
                 sqlx::query_as(
                     "SELECT a.*, ar.name as artist_name 
                      FROM albums a 
@@ -195,6 +198,48 @@ pub async fn get_album_list2(
             }
         }
         _ => Vec::new(),
+    };
+
+    // Get total count for pagination (only for list types that support it)
+    let total: Option<i64> = match params.list_type.as_str() {
+        "alphabeticalByName" | "alphabeticalByArtist" | "newest" | "highest" | "frequent" => {
+            let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM albums")
+                .fetch_one(&state.pool)
+                .await?;
+            Some(count.0)
+        }
+        "starred" => {
+            let count: (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM starred WHERE item_type = 'album' AND user_id = ?",
+            )
+            .bind(user.user_id)
+            .fetch_one(&state.pool)
+            .await?;
+            Some(count.0)
+        }
+        "byGenre" => {
+            if let Some(ref genre) = params.genre {
+                let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM albums WHERE genre = ?")
+                    .bind(genre)
+                    .fetch_one(&state.pool)
+                    .await?;
+                Some(count.0)
+            } else {
+                None
+            }
+        }
+        "byYear" => {
+            let mut query = "SELECT COUNT(*) FROM albums WHERE 1=1".to_string();
+            if let Some(from_year) = params.from_year {
+                query.push_str(&format!(" AND year >= {}", from_year));
+            }
+            if let Some(to_year) = params.to_year {
+                query.push_str(&format!(" AND year <= {}", to_year));
+            }
+            let count: (i64,) = sqlx::query_as(&query).fetch_one(&state.pool).await?;
+            Some(count.0)
+        }
+        _ => None, // random, recent don't need total
     };
 
     // Get starred status and ratings for albums
@@ -226,6 +271,7 @@ pub async fn get_album_list2(
     let response = AlbumList2Response {
         album_list2: AlbumList2Content {
             album: album_responses,
+            total,
         },
     };
 
