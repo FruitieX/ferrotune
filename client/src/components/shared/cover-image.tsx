@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { Music, User, Disc } from "lucide-react";
@@ -37,8 +38,11 @@ export function CoverImage({
   className,
   priority = false,
 }: CoverImageProps) {
+  const [hasError, setHasError] = useState(false);
   const Icon = type === "artist" ? User : type === "song" ? Music : Disc;
   const isRound = type === "artist";
+
+  const showImage = src && !hasError;
 
   return (
     <div
@@ -49,7 +53,7 @@ export function CoverImage({
         className
       )}
     >
-      {src ? (
+      {showImage ? (
         <Image
           src={src}
           alt={alt}
@@ -66,9 +70,10 @@ export function CoverImage({
           }
           priority={priority}
           unoptimized
+          onError={() => setHasError(true)}
         />
       ) : (
-        <div className="w-full h-full flex items-center justify-center bg-muted">
+        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/20">
           <Icon className={cn("text-muted-foreground", iconSizes[size])} />
         </div>
       )}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -17,9 +18,12 @@ interface AlbumCardProps {
 }
 
 export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
+  const [imageError, setImageError] = useState(false);
   const coverArtUrl = album.coverArt
     ? getClient()?.getCoverArtUrl(album.coverArt, 300)
     : null;
+
+  const showImage = coverArtUrl && !imageError;
 
   return (
     <motion.article
@@ -35,7 +39,7 @@ export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
     >
       <Link href={`/library/albums/${album.id}`} className="block">
         <div className="relative aspect-square rounded-md overflow-hidden bg-muted mb-4 album-glow">
-          {coverArtUrl ? (
+          {showImage ? (
             <Image
               src={coverArtUrl}
               alt={album.name}
@@ -43,6 +47,7 @@ export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
               className="object-cover"
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
               unoptimized
+              onError={() => setImageError(true)}
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/20">
@@ -97,9 +102,12 @@ interface AlbumCardCompactProps {
 }
 
 export function AlbumCardCompact({ album, onPlay, className }: AlbumCardCompactProps) {
+  const [imageError, setImageError] = useState(false);
   const coverArtUrl = album.coverArt
     ? getClient()?.getCoverArtUrl(album.coverArt, 80)
     : null;
+
+  const showImage = coverArtUrl && !imageError;
 
   return (
     <div
@@ -113,16 +121,17 @@ export function AlbumCardCompact({ album, onPlay, className }: AlbumCardCompactP
         className="flex items-center gap-3 flex-1 min-w-0"
       >
         <div className="relative w-12 h-12 rounded overflow-hidden bg-muted shrink-0">
-          {coverArtUrl ? (
+          {showImage ? (
             <Image
               src={coverArtUrl}
               alt={album.name}
               fill
               className="object-cover"
               unoptimized
+              onError={() => setImageError(true)}
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-muted">
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/20">
               <span className="text-lg">🎵</span>
             </div>
           )}
