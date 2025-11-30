@@ -621,3 +621,9 @@ RUST_LOG=ferrotune=trace cargo run -- serve
 - [Hurl Documentation](https://hurl.dev/)
 - [Axum Documentation](https://docs.rs/axum/latest/axum/)
 - [sqlx Documentation](https://docs.rs/sqlx/latest/sqlx/)
+
+# Development guidelines
+
+- Write integration and playwright tests for any new features
+- Update existing tests where needed
+- Run tests after implementation is complete and fix any problems

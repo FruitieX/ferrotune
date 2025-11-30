@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { motion } from "framer-motion";
 import { Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,11 +25,8 @@ export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
   const showImage = coverArtUrl && !imageError;
 
   return (
-    <motion.article
+    <article
       data-testid="album-card"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
       className={cn(
         "group relative p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors cursor-pointer",
         className
@@ -79,7 +75,7 @@ export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
           </p>
         </div>
       </Link>
-    </motion.article>
+    </article>
   );
 }
 

@@ -75,19 +75,17 @@ export function QueuePanel() {
               <ListMusic className="w-5 h-5" />
               Queue
             </SheetTitle>
-            <div className="flex items-center gap-2">
-              {queue.length > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={clearQueue}
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Clear
-                </Button>
-              )}
-            </div>
+            {queue.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearQueue}
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Clear
+              </Button>
+            )}
           </div>
         </SheetHeader>
 
