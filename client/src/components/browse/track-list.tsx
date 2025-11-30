@@ -149,7 +149,8 @@ export function TrackRow({
   const [isVisible, setIsVisible] = useState(!showCover); // Only lazy load if showing cover
   const rowRef = useRef<HTMLDivElement>(null);
 
-  const isCurrentTrack = currentTrack?.id === song.id;
+  // Don't show track as current when playback has ended
+  const isCurrentTrack = currentTrack?.id === song.id && playbackState !== "ended";
   const isPlaying = isCurrentTrack && playbackState === "playing";
 
   // Only load cover art when row is visible
@@ -223,7 +224,7 @@ export function TrackRow({
         isCurrentTrack && "bg-accent/40",
         className
       )}
-      onClick={handlePlay}
+      onDoubleClick={handlePlay}
     >
       {/* Index or Play button */}
       <div className="w-8 text-center shrink-0">

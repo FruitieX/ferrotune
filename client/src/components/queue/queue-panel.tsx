@@ -103,7 +103,7 @@ export function QueuePanel() {
           <ScrollArea className="flex-1">
             <div className="p-4 space-y-6">
               {/* Now Playing */}
-              {currentTrack && (
+              {currentTrack && playbackState !== "ended" && (
                 <section>
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                     Now Playing

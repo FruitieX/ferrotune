@@ -68,7 +68,8 @@ export function SongRow({
   const { togglePlayPause } = useAudioEngine();
   const [isStarred, setIsStarred] = useState(!!song.starred);
 
-  const isCurrentTrack = currentTrack?.id === song.id;
+  // Don't show track as current when playback has ended
+  const isCurrentTrack = currentTrack?.id === song.id && playbackState !== "ended";
   const isPlaying = isCurrentTrack && playbackState === "playing";
 
   const coverArtUrl = showCover && song.coverArt
@@ -117,7 +118,7 @@ export function SongRow({
         isCurrentTrack && "bg-accent/30",
         className
       )}
-      onClick={handlePlay}
+      onDoubleClick={handlePlay}
     >
       {/* Index or Play button */}
       {index !== undefined && (

@@ -84,7 +84,10 @@ export function PlayerBar() {
   const { repeatMode, cycleRepeatMode } = useRepeatMode();
   const { isShuffled, toggleShuffle } = useShuffle();
 
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const isEnded = playbackState === "ended";
+  const progress = isEnded ? 0 : (duration > 0 ? (currentTime / duration) * 100 : 0);
+  const displayTime = isEnded ? 0 : currentTime;
+  const displayDuration = isEnded ? 0 : duration;
   const isPlaying = playbackState === "playing";
   const isLoading = playbackState === "loading";
 
@@ -134,7 +137,7 @@ export function PlayerBar() {
       <div className="flex items-center h-full px-4 gap-4">
         {/* Now Playing Info */}
         <div className="flex items-center gap-3 w-[30%] min-w-0">
-          {currentTrack ? (
+          {currentTrack && playbackState !== "ended" ? (
             <>
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
@@ -221,7 +224,7 @@ export function PlayerBar() {
               size="icon"
               className="h-9 w-9 sm:h-10 sm:w-10 rounded-full"
               onClick={togglePlayPause}
-              disabled={!currentTrack && playbackState === "idle"}
+              disabled={playbackState === "idle"}
               aria-label={isPlaying ? "Pause" : "Play"}
             >
               {isLoading ? (
@@ -266,7 +269,7 @@ export function PlayerBar() {
           {/* Time display - hidden on mobile */}
           <div className="hidden sm:flex items-center gap-2 w-full max-w-md text-xs text-muted-foreground">
             <span className="w-10 text-right tabular-nums">
-              {formatDuration(currentTime)}
+              {formatDuration(displayTime)}
             </span>
             <Slider
               value={[progress]}
@@ -274,9 +277,10 @@ export function PlayerBar() {
               step={0.1}
               className="flex-1"
               onValueChange={([value]) => seekPercent(value)}
+              disabled={isEnded}
             />
             <span className="w-10 tabular-nums">
-              {formatDuration(duration)}
+              {formatDuration(displayDuration)}
             </span>
           </div>
         </div>
