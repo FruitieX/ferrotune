@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { motion } from "framer-motion";
 import { Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -27,10 +26,7 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
   const showImage = coverArtUrl && !imageError;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
+    <div
       className={cn(
         "group relative p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors cursor-pointer",
         className
@@ -49,7 +45,7 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
               onError={() => setImageError(true)}
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/20">
+            <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
               <span className="text-4xl">👤</span>
             </div>
           )}
@@ -79,7 +75,7 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
           </p>
         </div>
       </Link>
-    </motion.div>
+    </div>
   );
 }
 
@@ -132,7 +128,7 @@ export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompa
               onError={() => setImageError(true)}
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/20">
+            <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
               <span className="text-lg">👤</span>
             </div>
           )}

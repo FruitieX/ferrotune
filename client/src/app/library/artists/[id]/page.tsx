@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useSetAtom } from "jotai";
@@ -32,6 +32,7 @@ export default function ArtistPage({ params }: ArtistPageProps) {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const playNow = useSetAtom(playNowAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
+  const [coverError, setCoverError] = useState(false);
 
   // Fetch artist data
   const { data: artistData, isLoading } = useQuery({
@@ -48,6 +49,8 @@ export default function ArtistPage({ params }: ArtistPageProps) {
   const coverArtUrl = artistData?.coverArt
     ? getClient()?.getCoverArtUrl(artistData.coverArt, 400)
     : null;
+
+  const showCoverImage = coverArtUrl && !coverError;
 
   // Collect all songs from all albums for shuffle play
   const getAllSongs = async (): Promise<Song[]> => {
@@ -142,7 +145,7 @@ export default function ArtistPage({ params }: ArtistPageProps) {
           >
             {isLoading ? (
               <Skeleton className="w-full h-full rounded-full" />
-            ) : coverArtUrl ? (
+            ) : showCoverImage ? (
               <Image
                 src={coverArtUrl}
                 alt={artistData?.name || "Artist"}
@@ -150,9 +153,10 @@ export default function ArtistPage({ params }: ArtistPageProps) {
                 className="object-cover"
                 priority
                 unoptimized
+                onError={() => setCoverError(true)}
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center bg-muted">
+              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
                 <span className="text-6xl">👤</span>
               </div>
             )}
@@ -219,8 +223,8 @@ export default function ArtistPage({ params }: ArtistPageProps) {
       </div>
 
       {/* Albums section */}
-      <div className="p-4 lg:p-6">
-        <h2 className="text-xl font-bold mb-4">Albums</h2>
+      <div className="p-4 lg:p-6 mt-2">
+        <h2 className="text-xl font-bold mb-6">Albums</h2>
         {isLoading ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             {Array.from({ length: 6 }).map((_, i) => (
