@@ -114,7 +114,7 @@ export function PlayerBar() {
     <footer
       data-testid="player-bar"
       className={cn(
-        "z-50 lg:ml-[280px]",
+        "z-50",
         "h-[88px] bg-background/95 backdrop-blur-lg border-t border-border",
         "transition-all duration-200"
       )}
@@ -436,7 +436,7 @@ export function PlayerBar() {
 // Loading skeleton for player bar
 export function PlayerBarSkeleton() {
   return (
-    <div className="h-[88px] bg-background border-t border-border lg:ml-[280px]">
+    <div className="h-[88px] bg-background border-t border-border">
       <div className="flex items-center h-full px-4 gap-4">
         <div className="flex items-center gap-3 w-[30%]">
           <Skeleton className="w-14 h-14 rounded-md" />

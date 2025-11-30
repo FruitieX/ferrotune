@@ -177,4 +177,39 @@ test.describe("Queue End Behavior", () => {
     const activeTrackIndicator = page.locator('[data-testid="song-row"] .text-primary, [role="row"] .text-primary');
     await expect(activeTrackIndicator).toHaveCount(0);
   });
+
+  test("can play new tracks after queue ends", async ({ authenticatedPage: page }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    
+    const playerBar = page.getByTestId("player-bar");
+    
+    // Skip to last track and end queue
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(300);
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(300);
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(500);
+    
+    // Verify queue ended
+    await expect(playerBar).toContainText("Not playing");
+    
+    // Navigate to a different album and play a track
+    await page.goto("/library");
+    await page.waitForSelector('[data-testid="album-card"], article', { timeout: 10000 });
+    
+    const anotherAlbum = page.locator('[data-testid="album-card"], article').filter({ hasText: "Another Album" });
+    await anotherAlbum.click();
+    await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
+    await page.waitForSelector('[data-testid="song-row"], [role="row"]', { timeout: 10000 });
+    
+    // Double-click first track to play
+    const firstTrack = page.locator('[data-testid="song-row"], [role="row"]').first();
+    await firstTrack.dblclick();
+    await page.waitForTimeout(1000);
+    
+    // Should now be playing the new track
+    await expect(playerBar).toContainText("FLAC Track");
+  });
 });

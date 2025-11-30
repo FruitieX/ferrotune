@@ -167,8 +167,34 @@ export default function LibraryPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Skeleton className="w-32 h-8" />
+      <div>
+        {/* Header skeleton */}
+        <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
+          <div className="flex items-center justify-between h-16 px-4 lg:px-6">
+            <Skeleton className="h-8 w-24" />
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-8 w-8 rounded" />
+              <Skeleton className="h-8 w-8 rounded" />
+            </div>
+          </div>
+        </header>
+        {/* Tab skeleton */}
+        <div className="border-b border-border">
+          <div className="h-12 px-4 lg:px-6 flex items-center gap-4">
+            <Skeleton className="h-8 w-20" />
+            <Skeleton className="h-8 w-20" />
+            <Skeleton className="h-8 w-20" />
+            <Skeleton className="h-8 w-20" />
+          </div>
+        </div>
+        {/* Content skeleton */}
+        <div className="p-4 lg:p-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <AlbumCardSkeleton key={i} />
+            ))}
+          </div>
+        </div>
       </div>
     );
   }

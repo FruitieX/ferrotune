@@ -29,8 +29,12 @@ import { getClient } from "@/lib/api/client";
 let globalAudio: HTMLAudioElement | null = null;
 // Track by queue index to handle duplicate songs
 let currentLoadedQueueIndex: number = -1;
+// Track queue reference to detect when queue is replaced
+let currentLoadedQueueRef: unknown[] | null = null;
 // Flag to prevent handlePause from overwriting "ended" state
 let isEndingQueue: boolean = false;
+// Flag to indicate we're intentionally loading a new track (overrides "ended" state check)
+let isLoadingNewTrack: boolean = false;
 
 function getGlobalAudio(): HTMLAudioElement {
   if (typeof window === "undefined") {
@@ -233,12 +237,13 @@ export function useAudioEngineInit() {
     
     const handleCanPlay = () => {
       console.log("[Audio] canplay event, attempting to play");
-      // Don't auto-play if queue has ended
+      // Don't auto-play if queue has ended (unless we're loading a new track)
       const state = stateRef.current;
-      if (state.playbackState === "ended") {
+      if (state.playbackState === "ended" && !isLoadingNewTrack) {
         console.log("[Audio] Skipping auto-play because queue has ended");
         return;
       }
+      isLoadingNewTrack = false;
       // Always try to play when canplay fires - the play() call will trigger handlePlay
       // which sets state to "playing"
       audio.play().catch((err) => {
@@ -302,8 +307,15 @@ export function useAudioEngineInit() {
     const audio = globalAudio;
     const client = getClient();
     
+    // Check if queue was replaced (new queue reference)
+    const queueReplaced = queue !== currentLoadedQueueRef;
+    if (queueReplaced) {
+      currentLoadedQueueRef = queue;
+      currentLoadedQueueIndex = -1; // Force reload
+    }
+    
     // Skip if queue index hasn't changed (handles duplicate songs correctly)
-    if (queueIndex === currentLoadedQueueIndex) {
+    if (queueIndex === currentLoadedQueueIndex && !queueReplaced) {
       return;
     }
     currentLoadedQueueIndex = queueIndex;
@@ -327,6 +339,7 @@ export function useAudioEngineInit() {
     // Stop current playback
     audio.pause();
     audio.src = streamUrl;
+    isLoadingNewTrack = true; // Signal to handleCanPlay that we want to play
     setPlaybackState("loading");
     setHasScrobbled(false);
     setCurrentTime(0);
@@ -334,6 +347,7 @@ export function useAudioEngineInit() {
 
     audio.play().catch((err) => {
       console.error("Failed to play:", err);
+      isLoadingNewTrack = false;
       setPlaybackState("paused");
     });
   }, [queueIndex, queue, setPlaybackState, setHasScrobbled, setCurrentTime, setDuration]);

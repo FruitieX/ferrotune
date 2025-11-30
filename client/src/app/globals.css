@@ -46,6 +46,7 @@
 /* Ferrotune Dark Theme - Spotify-inspired with unique identity */
 :root {
   --radius: 0.5rem;
+  --sidebar-width: 280px;
   
   /* Dark mode as default - slightly brighter than pure black */
   --background: oklch(0.12 0.005 260);

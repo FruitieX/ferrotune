@@ -70,8 +70,42 @@ export default function FavoritesPage() {
 
   if (authLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Skeleton className="w-32 h-8" />
+      <div className="min-h-screen">
+        {/* Header skeleton */}
+        <div className="relative">
+          <div className="absolute inset-0 h-[300px] bg-gradient-to-b from-red-500/20 to-background" />
+          <div className="relative z-10 px-4 lg:px-6 pt-8 pb-6">
+            <div className="flex items-center gap-6">
+              <Skeleton className="w-48 h-48 rounded-lg" />
+              <div>
+                <Skeleton className="h-4 w-16 mb-2" />
+                <Skeleton className="h-12 w-48 mb-4" />
+                <Skeleton className="h-4 w-32" />
+              </div>
+            </div>
+          </div>
+        </div>
+        {/* Action buttons skeleton */}
+        <div className="px-4 lg:px-6 py-4 border-b border-border">
+          <div className="flex items-center gap-4">
+            <Skeleton className="h-12 w-28 rounded-full" />
+            <Skeleton className="h-12 w-28 rounded-full" />
+          </div>
+        </div>
+        {/* Track list skeleton */}
+        <div className="px-4 lg:px-6 py-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-4 py-2">
+              <Skeleton className="w-8 h-4" />
+              <Skeleton className="w-10 h-10 rounded" />
+              <div className="flex-1">
+                <Skeleton className="h-4 w-40 mb-1" />
+                <Skeleton className="h-3 w-32" />
+              </div>
+              <Skeleton className="h-4 w-10" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

@@ -29,6 +29,7 @@ import { playbackStateAtom, currentTimeAtom, volumeAtom, repeatModeAtom, isMuted
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
+import { SongDropdownMenu } from "@/components/browse/song-context-menu";
 
 export function FullscreenPlayer() {
   const [isOpen, setIsOpen] = useAtom(fullscreenPlayerOpenAtom);
@@ -103,6 +104,8 @@ export function FullscreenPlayer() {
     setTimeout(() => setQueuePanelOpen(true), 200);
   };
 
+  const isEnded = playbackState === "ended";
+
   if (!currentTrack) return null;
 
   return (
@@ -112,7 +115,7 @@ export function FullscreenPlayer() {
           initial={{ y: "100%" }}
           animate={{ y: 0 }}
           exit={{ y: "100%" }}
-          transition={{ type: "spring", damping: 30, stiffness: 300 }}
+          transition={{ type: "tween", duration: 0.3, ease: "easeOut" }}
           className="fixed inset-0 z-50 bg-gradient-to-b from-background/95 to-background flex flex-col"
           style={{
             backgroundImage: coverArtUrl
@@ -140,19 +143,13 @@ export function FullscreenPlayer() {
               </Button>
               <div className="text-center">
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                  Now Playing
+                  {isEnded ? "Queue Ended" : "Now Playing"}
                 </p>
                 <p className="text-sm font-medium">
                   {queueIndex + 1} / {queue.length}
                 </p>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-full"
-              >
-                <MoreHorizontal className="w-5 h-5" />
-              </Button>
+              <SongDropdownMenu song={currentTrack} />
             </div>
 
             {/* Album Art */}
@@ -202,16 +199,17 @@ export function FullscreenPlayer() {
               className="space-y-2 mb-6"
             >
               <Slider
-                value={[progress]}
+                value={[isEnded ? 0 : progress]}
                 max={duration}
                 step={1}
                 onValueChange={handleProgressChange}
                 onValueCommit={handleProgressCommit}
                 className="w-full cursor-pointer"
+                disabled={isEnded}
               />
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span className="tabular-nums">{formatDuration(Math.floor(progress))}</span>
-                <span className="tabular-nums">{formatDuration(duration)}</span>
+                <span className="tabular-nums">{formatDuration(isEnded ? 0 : Math.floor(progress))}</span>
+                <span className="tabular-nums">{formatDuration(isEnded ? 0 : duration)}</span>
               </div>
             </motion.div>
 

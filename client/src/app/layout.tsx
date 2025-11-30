@@ -57,7 +57,7 @@ export default function RootLayout({
               {/* Main content area - scrollable within its bounds */}
               <main 
                 id="main-scroll-container"
-                className="flex-1 lg:ml-[280px] overflow-y-auto overflow-x-hidden"
+                className="flex-1 lg:ml-[var(--sidebar-width,280px)] overflow-y-auto overflow-x-hidden transition-[margin] duration-200"
               >
                 {children}
               </main>

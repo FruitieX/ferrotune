@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -79,6 +80,12 @@ export function Sidebar() {
     );
   };
 
+  // Update CSS variable when collapsed state changes
+  useEffect(() => {
+    const width = collapsed ? 72 : sidebarWidth;
+    document.documentElement.style.setProperty('--sidebar-width', `${width}px`);
+  }, [collapsed, sidebarWidth]);
+
   // Don't show sidebar on login page
   if (pathname === "/login") {
     return null;
@@ -90,13 +97,13 @@ export function Sidebar() {
       animate={{ width: collapsed ? 72 : sidebarWidth }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className={cn(
-        "hidden lg:flex flex-col h-full bg-sidebar border-r border-sidebar-border",
+        "hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border",
         "fixed left-0 top-0 bottom-[88px] z-40"
       )}
     >
       {/* Logo */}
-      <div className="flex items-center h-16 px-4 gap-3">
-        <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary">
+      <div className="flex items-center h-16 px-4 gap-3 overflow-hidden">
+        <div className="flex items-center justify-center w-10 h-10 shrink-0 rounded-lg bg-primary">
           <Music2 className="w-6 h-6 text-primary-foreground" />
         </div>
         {!collapsed && (
@@ -104,7 +111,7 @@ export function Sidebar() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="font-bold text-xl text-foreground"
+            className="font-bold text-xl text-foreground whitespace-nowrap"
           >
             Ferrotune
           </motion.span>
@@ -123,7 +130,7 @@ export function Sidebar() {
               <Button
                 variant="ghost"
                 className={cn(
-                  "w-full justify-start gap-4 h-11 px-3",
+                  "w-full justify-start gap-4 h-11 px-3 overflow-hidden",
                   "hover:bg-sidebar-accent",
                   isActive && "bg-sidebar-accent text-sidebar-primary font-semibold",
                   collapsed && "justify-center px-0"
@@ -131,7 +138,7 @@ export function Sidebar() {
               >
                 <item.icon className={cn("w-5 h-5 shrink-0", isActive && "text-sidebar-primary")} />
                 {!collapsed && (
-                  <span className="truncate">{item.label}</span>
+                  <span className="truncate whitespace-nowrap">{item.label}</span>
                 )}
               </Button>
             </Link>
@@ -139,7 +146,7 @@ export function Sidebar() {
         })}
       </nav>
 
-      <Separator className="mx-4 bg-sidebar-border" />
+      <Separator className="mx-2 bg-sidebar-border" />
 
       {/* Library Section */}
       <div className="flex-1 flex flex-col min-h-0 py-4">
@@ -158,7 +165,7 @@ export function Sidebar() {
               <Button
                 variant="ghost"
                 className={cn(
-                  "w-full justify-start gap-4 h-10 px-3",
+                  "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
                   "hover:bg-sidebar-accent",
                   pathname.startsWith("/favorites") && "bg-sidebar-accent text-sidebar-primary",
                   collapsed && "justify-center px-0"
@@ -166,7 +173,7 @@ export function Sidebar() {
                 disabled={!isConnected}
               >
                 <Heart className={cn("w-5 h-5 shrink-0", pathname.startsWith("/favorites") && "text-sidebar-primary")} />
-                {!collapsed && <span className="truncate">Liked Songs</span>}
+                {!collapsed && <span className="truncate whitespace-nowrap">Liked Songs</span>}
               </Button>
             </Link>
 
@@ -177,13 +184,13 @@ export function Sidebar() {
                   <Button
                     variant="ghost"
                     className={cn(
-                      "w-full justify-start gap-4 h-10 px-3",
+                      "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
                       "hover:bg-sidebar-accent",
                       pathname.startsWith("/playlists") && "bg-sidebar-accent text-sidebar-primary"
                     )}
                   >
                     <ListMusic className={cn("w-5 h-5 shrink-0", pathname.startsWith("/playlists") && "text-sidebar-primary")} />
-                    <span className="truncate flex-1 text-left">Playlists</span>
+                    <span className="truncate whitespace-nowrap flex-1 text-left">Playlists</span>
                     <ChevronDown className={cn(
                       "w-4 h-4 shrink-0 transition-transform duration-200",
                       playlistsExpanded && "rotate-180"
