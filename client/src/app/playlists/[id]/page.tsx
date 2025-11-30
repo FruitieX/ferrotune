@@ -38,7 +38,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { CoverImage } from "@/components/shared/cover-image";
-import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
+import { TrackList } from "@/components/browse/track-list";
 import { formatDuration, formatCount, formatDate } from "@/lib/utils/format";
 
 export default function PlaylistDetailPage() {
@@ -240,33 +240,13 @@ export default function PlaylistDetailPage() {
       </div>
 
       {/* Track list */}
-      <div className="divide-y divide-border/50">
-        {isLoading ? (
-          Array.from({ length: 10 }).map((_, i) => (
-            <SongRowSkeleton key={i} showCover />
-          ))
-        ) : songs.length > 0 ? (
-          songs.map((song, index) => (
-            <SongRow
-              key={`${song.id}-${index}`}
-              song={song}
-              index={index}
-              showCover
-              queueSongs={songs}
-            />
-          ))
-        ) : (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-4">
-              <ListMusic className="w-10 h-10 text-muted-foreground" />
-            </div>
-            <p className="text-muted-foreground">This playlist is empty</p>
-            <p className="text-sm text-muted-foreground mt-2">
-              Add songs to get started
-            </p>
-          </div>
-        )}
-      </div>
+      <TrackList
+        songs={songs}
+        isLoading={isLoading}
+        showCover
+        showHeader
+        emptyMessage="This playlist is empty"
+      />
 
       {/* Spacer for player bar */}
       <div className="h-24" />

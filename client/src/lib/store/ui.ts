@@ -42,3 +42,15 @@ export const contextMenuAtom = atom<{
   id: string | null;
   position: { x: number; y: number } | null;
 }>({ type: null, id: null, position: null });
+
+// Playlist sidebar expansion state
+export const playlistsSidebarExpandedAtom = atomWithStorage<boolean>(
+  "ferrotune-playlists-expanded",
+  true
+);
+
+// Expanded playlist folders in sidebar
+export const expandedPlaylistFoldersAtom = atomWithStorage<string[]>(
+  "ferrotune-expanded-playlist-folders",
+  []
+);

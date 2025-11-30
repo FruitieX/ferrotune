@@ -59,10 +59,11 @@ fn parse_query_string(query: &str) -> HashMap<String, Vec<String>> {
         };
 
         // URL decode key and value
-        let key = urlencoding::decode(key)
+        // Replace '+' with space first (form URL encoding), then decode percent-encoding
+        let key = urlencoding::decode(&key.replace('+', " "))
             .unwrap_or_else(|_| key.into())
             .into_owned();
-        let value = urlencoding::decode(value)
+        let value = urlencoding::decode(&value.replace('+', " "))
             .unwrap_or_else(|_| value.into())
             .into_owned();
 

@@ -110,4 +110,66 @@ test.describe("Browse Library", () => {
       await expect(page).toHaveURL("/favorites");
     });
   });
+
+  test.describe("Genre Details", () => {
+    test("can navigate to genre detail page", async ({ authenticatedPage: page }) => {
+      await page.goto("/library");
+      await page.waitForLoadState("networkidle");
+      
+      // Click genres tab
+      await page.getByRole("tab", { name: /genres/i }).click();
+      await expect(page.getByRole("tab", { name: /genres/i })).toHaveAttribute("data-state", "active");
+      
+      // Wait for genres to load and click the first one
+      const genreCard = page.locator('a[href^="/library/genres/"]').first();
+      await expect(genreCard).toBeVisible({ timeout: 10000 });
+      await genreCard.click();
+      
+      // Should navigate to genre details page
+      await expect(page).toHaveURL(/\/library\/genres\//);
+    });
+
+    test("genre detail page shows header and albums", async ({ authenticatedPage: page }) => {
+      await page.goto("/library");
+      await page.waitForLoadState("networkidle");
+      
+      // Click genres tab
+      await page.getByRole("tab", { name: /genres/i }).click();
+      
+      // Get the first genre link and its text
+      const genreCard = page.locator('a[href^="/library/genres/"]').first();
+      await expect(genreCard).toBeVisible({ timeout: 10000 });
+      await genreCard.click();
+      
+      // Should show genre header
+      await expect(page.getByText("Genre", { exact: true })).toBeVisible();
+      
+      // Should show Albums section
+      await expect(page.getByRole("heading", { name: "Albums" })).toBeVisible();
+      
+      // Should show Play and Shuffle buttons in the action bar (not player bar)
+      // Use more specific locator - first play button in page (before player bar)
+      const actionButtons = page.locator('.sticky button');
+      await expect(actionButtons.filter({ hasText: "Play" }).first()).toBeVisible();
+      await expect(actionButtons.filter({ hasText: "Shuffle" }).first()).toBeVisible();
+    });
+
+    test("genre detail page has view mode toggle", async ({ authenticatedPage: page }) => {
+      await page.goto("/library");
+      await page.waitForLoadState("networkidle");
+      
+      // Click genres tab
+      await page.getByRole("tab", { name: /genres/i }).click();
+      
+      // Navigate to a genre
+      const genreCard = page.locator('a[href^="/library/genres/"]').first();
+      await expect(genreCard).toBeVisible({ timeout: 10000 });
+      await genreCard.click();
+      
+      // Should have grid and list view buttons in the action bar
+      // These are in the sticky header
+      const stickyHeader = page.locator('.sticky').first();
+      await expect(stickyHeader.locator('button').filter({ has: page.locator('[class*="lucide-grid"]') })).toBeVisible({ timeout: 5000 });
+    });
+  });
 });

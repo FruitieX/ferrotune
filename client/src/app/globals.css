@@ -47,51 +47,51 @@
 :root {
   --radius: 0.5rem;
   
-  /* Dark mode as default */
-  --background: oklch(0.07 0 0);
+  /* Dark mode as default - slightly brighter than pure black */
+  --background: oklch(0.12 0.005 260);
   --foreground: oklch(0.98 0 0);
   
-  --card: oklch(0.1 0 0);
+  --card: oklch(0.15 0.005 260);
   --card-foreground: oklch(0.98 0 0);
   
-  --popover: oklch(0.12 0 0);
+  --popover: oklch(0.17 0.005 260);
   --popover-foreground: oklch(0.98 0 0);
   
-  /* Ferrotune brand green */
-  --primary: oklch(0.75 0.18 145);
-  --primary-foreground: oklch(0.1 0 0);
+  /* Ferrotune brand - violet/purple accent */
+  --primary: oklch(0.7 0.18 280);
+  --primary-foreground: oklch(0.98 0 0);
   
-  --secondary: oklch(0.18 0 0);
+  --secondary: oklch(0.22 0.01 260);
   --secondary-foreground: oklch(0.98 0 0);
   
-  --muted: oklch(0.18 0 0);
+  --muted: oklch(0.22 0.01 260);
   --muted-foreground: oklch(0.65 0 0);
   
-  --accent: oklch(0.2 0 0);
+  --accent: oklch(0.25 0.015 260);
   --accent-foreground: oklch(0.98 0 0);
   
   --destructive: oklch(0.65 0.2 25);
   
-  --border: oklch(0.22 0 0);
-  --input: oklch(0.18 0 0);
-  --ring: oklch(0.75 0.18 145);
+  --border: oklch(0.26 0.01 260);
+  --input: oklch(0.22 0.01 260);
+  --ring: oklch(0.7 0.18 280);
   
   /* Charts */
-  --chart-1: oklch(0.75 0.18 145);
+  --chart-1: oklch(0.7 0.18 280);
   --chart-2: oklch(0.65 0.15 200);
-  --chart-3: oklch(0.7 0.15 280);
+  --chart-3: oklch(0.7 0.15 320);
   --chart-4: oklch(0.75 0.15 50);
-  --chart-5: oklch(0.6 0.2 330);
+  --chart-5: oklch(0.6 0.2 150);
   
-  /* Sidebar */
-  --sidebar: oklch(0.05 0 0);
+  /* Sidebar - slightly darker than main background */
+  --sidebar: oklch(0.09 0.005 260);
   --sidebar-foreground: oklch(0.98 0 0);
-  --sidebar-primary: oklch(0.75 0.18 145);
-  --sidebar-primary-foreground: oklch(0.1 0 0);
-  --sidebar-accent: oklch(0.15 0 0);
+  --sidebar-primary: oklch(0.7 0.18 280);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.18 0.01 260);
   --sidebar-accent-foreground: oklch(0.98 0 0);
-  --sidebar-border: oklch(0.18 0 0);
-  --sidebar-ring: oklch(0.75 0.18 145);
+  --sidebar-border: oklch(0.22 0.01 260);
+  --sidebar-ring: oklch(0.7 0.18 280);
 }
 
 /* Light mode override (optional) */
@@ -177,4 +177,44 @@
 /* Smooth transitions */
 .transition-smooth {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Now playing bar visualizer animation */
+@keyframes bar-bounce-1 {
+  0%, 100% { height: 4px; }
+  50% { height: 12px; }
+}
+
+@keyframes bar-bounce-2 {
+  0%, 100% { height: 8px; }
+  50% { height: 4px; }
+}
+
+@keyframes bar-bounce-3 {
+  0%, 100% { height: 6px; }
+  50% { height: 12px; }
+}
+
+@keyframes bar-bounce-4 {
+  0%, 100% { height: 10px; }
+  50% { height: 6px; }
+}
+
+.animate-bar-1 {
+  animation: bar-bounce-1 0.4s ease-in-out infinite;
+}
+
+.animate-bar-2 {
+  animation: bar-bounce-2 0.5s ease-in-out infinite;
+  animation-delay: 0.1s;
+}
+
+.animate-bar-3 {
+  animation: bar-bounce-3 0.35s ease-in-out infinite;
+  animation-delay: 0.2s;
+}
+
+.animate-bar-4 {
+  animation: bar-bounce-4 0.45s ease-in-out infinite;
+  animation-delay: 0.15s;
 }

@@ -326,7 +326,7 @@ function GenreCard({ genre }: { genre: Genre }) {
 
   return (
     <Link
-      href={`/search?genre=${encodeURIComponent(genre.value)}`}
+      href={`/library/genres/${encodeURIComponent(genre.value)}`}
       className="relative h-24 rounded-lg overflow-hidden cursor-pointer block hover:ring-2 hover:ring-primary/50 transition-shadow"
       style={{
         background: `linear-gradient(135deg, hsl(${hue}, 70%, 35%) 0%, hsl(${(hue + 30) % 360}, 60%, 25%) 100%)`,
