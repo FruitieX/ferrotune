@@ -51,7 +51,13 @@ export function PlayerBar() {
   const playbackState = useAtomValue(playbackStateAtom);
   const connection = useAtomValue(serverConnectionAtom);
   const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
+  const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
   const [isStarred, setIsStarred] = useState(false);
+
+  const { togglePlayPause, next, previous, seekPercent } = useAudioEngine();
+  const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
+  const { repeatMode, cycleRepeatMode } = useRepeatMode();
+  const { isShuffled, toggleShuffle } = useShuffle();
 
   // Sync starred state when track changes
   useEffect(() => {
@@ -77,12 +83,6 @@ export function PlayerBar() {
       console.error(error);
     }
   };
-  const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
-
-  const { togglePlayPause, next, previous, seekPercent } = useAudioEngine();
-  const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
-  const { repeatMode, cycleRepeatMode } = useRepeatMode();
-  const { isShuffled, toggleShuffle } = useShuffle();
 
   const isEnded = playbackState === "ended";
   const progress = isEnded ? 0 : (duration > 0 ? (currentTime / duration) * 100 : 0);

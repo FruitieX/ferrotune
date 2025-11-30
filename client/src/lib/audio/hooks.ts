@@ -24,6 +24,7 @@ import {
   playHistoryAtom,
 } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
+import { shuffleArray } from "../utils";
 
 // Singleton audio element - only one instance across the entire app
 let globalAudio: HTMLAudioElement | null = null;
@@ -479,6 +480,7 @@ export function useAudioEngine() {
     setPlayHistory,
     setPlaybackState,
     setShuffledIndices,
+    setCurrentTime,
   ]);
 
   const previous = useCallback(() => {
@@ -519,16 +521,6 @@ export function useAudioEngine() {
     previous,
     playbackState,
   };
-}
-
-// Helper function to shuffle array
-function shuffleArray<T>(array: T[]): T[] {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
 }
 
 // Hook for volume control
