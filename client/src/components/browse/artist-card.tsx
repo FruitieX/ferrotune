@@ -30,7 +30,6 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      whileHover={{ scale: 1.02 }}
       transition={{ duration: 0.2 }}
       className={cn(
         "group relative p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors cursor-pointer",
@@ -38,7 +37,7 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
       )}
     >
       <Link href={`/library/artists/${artist.id}`} className="block">
-        <div className="relative aspect-square rounded-full overflow-hidden bg-muted mb-4">
+        <div className="relative aspect-square rounded-full overflow-hidden bg-muted mb-4 transform-gpu transition-transform duration-200 group-hover:scale-[1.05]">
           {showImage ? (
             <Image
               src={coverArtUrl}
