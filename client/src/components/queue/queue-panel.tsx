@@ -13,6 +13,8 @@ import {
   removeFromQueueAtom,
   clearQueueAtom,
   setQueueIndexAtom,
+  isShuffledAtom,
+  shuffledIndicesAtom,
 } from "@/lib/store/queue";
 import { playbackStateAtom } from "@/lib/store/player";
 import { Button } from "@/components/ui/button";
@@ -45,14 +47,63 @@ export function QueuePanel() {
   const removeFromQueue = useSetAtom(removeFromQueueAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
   const setQueueIndex = useSetAtom(setQueueIndexAtom);
+  const isShuffled = useAtomValue(isShuffledAtom);
+  const shuffledIndices = useAtomValue(shuffledIndicesAtom);
   const [nowPlayingAddToPlaylist, setNowPlayingAddToPlaylist] = useState(false);
 
-  const upNext = queue.slice(queueIndex + 1);
-  const previousTracks = queue.slice(0, queueIndex);
+  // Calculate up next and previous tracks based on shuffle state
+  const getUpNextAndPrevious = () => {
+    if (isShuffled && shuffledIndices.length > 0) {
+      // Find current position in shuffled order
+      const currentShufflePosition = shuffledIndices.indexOf(queueIndex);
+      
+      if (currentShufflePosition >= 0) {
+        // Get indices that come after current in shuffle order
+        const upNextIndices = shuffledIndices.slice(currentShufflePosition + 1);
+        const upNextTracks = upNextIndices.map(idx => ({ song: queue[idx], originalIndex: idx }));
+        
+        // Get indices that came before current in shuffle order
+        const previousIndices = shuffledIndices.slice(0, currentShufflePosition);
+        const previousTracks = previousIndices.map(idx => ({ song: queue[idx], originalIndex: idx }));
+        
+        return { upNext: upNextTracks, previous: previousTracks };
+      }
+    }
+    
+    // Non-shuffled: use regular queue order
+    const upNextTracks = queue.slice(queueIndex + 1).map((song, i) => ({
+      song,
+      originalIndex: queueIndex + 1 + i,
+    }));
+    const previousTracks = queue.slice(0, queueIndex).map((song, i) => ({
+      song,
+      originalIndex: i,
+    }));
+    
+    return { upNext: upNextTracks, previous: previousTracks };
+  };
 
-  const handleReorder = (newOrder: Song[]) => {
-    // Reconstruct full queue with previous tracks, current, and reordered upcoming
-    const newQueue = [...previousTracks, currentTrack!, ...newOrder].filter(Boolean);
+  const { upNext, previous: previousTracks } = getUpNextAndPrevious();
+
+  const handleReorder = (newOrder: { song: Song; originalIndex: number }[]) => {
+    if (isShuffled && shuffledIndices.length > 0) {
+      // When shuffled, reordering affects the shuffle order, not the queue itself
+      const currentShufflePosition = shuffledIndices.indexOf(queueIndex);
+      const newShuffleOrder = [
+        ...shuffledIndices.slice(0, currentShufflePosition + 1),
+        ...newOrder.map(item => item.originalIndex),
+      ];
+      // Note: This would require adding a setShuffledIndices action
+      // For now, we disable reordering when shuffled
+      return;
+    }
+    
+    // Non-shuffled: reconstruct full queue
+    const newQueue = [
+      ...previousTracks.map(t => t.song),
+      currentTrack!,
+      ...newOrder.map(t => t.song),
+    ].filter(Boolean);
     setQueue(newQueue);
   };
 
@@ -61,7 +112,7 @@ export function QueuePanel() {
   };
 
   const totalDuration = queue.reduce((acc, song) => acc + song.duration, 0);
-  const remainingDuration = upNext.reduce((acc, song) => acc + song.duration, 0) + 
+  const remainingDuration = upNext.reduce((acc, item) => acc + item.song.duration, 0) + 
     (currentTrack?.duration ?? 0);
 
   return (
@@ -196,18 +247,20 @@ export function QueuePanel() {
                   <Reorder.Group
                     axis="y"
                     values={upNext}
-                    onReorder={handleReorder}
+                    onReorder={isShuffled ? () => {} : handleReorder}
                     className="space-y-1"
                     layoutScroll
                   >
                     <AnimatePresence mode="popLayout">
-                      {upNext.map((song, index) => (
+                      {upNext.map((item) => (
                         <QueueItem
-                          key={song.id}
-                          song={song}
-                          queueIndex={queueIndex + 1 + index}
-                          onPlay={() => handlePlayTrack(queueIndex + 1 + index)}
-                          onRemove={() => removeFromQueue(queueIndex + 1 + index)}
+                          key={`${item.song.id}-${item.originalIndex}`}
+                          item={item}
+                          song={item.song}
+                          queueIndex={item.originalIndex}
+                          onPlay={() => handlePlayTrack(item.originalIndex)}
+                          onRemove={() => removeFromQueue(item.originalIndex)}
+                          disableDrag={isShuffled}
                         />
                       ))}
                     </AnimatePresence>
@@ -222,23 +275,23 @@ export function QueuePanel() {
                     Previously Played
                   </h3>
                   <div className="space-y-1 opacity-60">
-                    {previousTracks.map((song, index) => (
+                    {previousTracks.map((item, index) => (
                       <div
-                        key={`${song.id}-${index}`}
+                        key={`${item.song.id}-${item.originalIndex}`}
                         className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 cursor-pointer group"
-                        onClick={() => handlePlayTrack(index)}
+                        onClick={() => handlePlayTrack(item.originalIndex)}
                       >
                         <CoverImage
-                          src={getCoverUrl(song.coverArt)}
-                          alt={song.title}
+                          src={getCoverUrl(item.song.coverArt)}
+                          alt={item.song.title}
                           size="sm"
                         />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">
-                            {song.title}
+                            {item.song.title}
                           </p>
                           <p className="text-xs text-muted-foreground truncate">
-                            {song.artist}
+                            {item.song.artist}
                           </p>
                         </div>
                         <Button
@@ -278,30 +331,37 @@ export function QueuePanel() {
 }
 
 interface QueueItemProps {
+  item: { song: Song; originalIndex: number };
   song: Song;
   queueIndex: number;
   onPlay: () => void;
   onRemove: () => void;
+  disableDrag?: boolean;
 }
 
-function QueueItem({ song, queueIndex, onPlay, onRemove }: QueueItemProps) {
+function QueueItem({ item, song, queueIndex, onPlay, onRemove, disableDrag }: QueueItemProps) {
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
 
   return (
     <>
       <Reorder.Item
-        value={song}
-        id={song.id}
-        className="flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 cursor-grab active:cursor-grabbing group select-none"
-        dragListener={true}
+        value={item}
+        id={`${song.id}-${queueIndex}`}
+        className={cn(
+          "flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 group select-none",
+          disableDrag ? "cursor-default" : "cursor-grab active:cursor-grabbing"
+        )}
+        dragListener={!disableDrag}
         dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
-        whileDrag={{ 
+        whileDrag={disableDrag ? {} : { 
           scale: 1.02, 
           boxShadow: "0 10px 20px rgba(0,0,0,0.3)",
           zIndex: 50
         }}
       >
-        <GripVertical className="w-4 h-4 text-muted-foreground shrink-0 touch-none" />
+        {!disableDrag && (
+          <GripVertical className="w-4 h-4 text-muted-foreground shrink-0 touch-none" />
+        )}
         
         <div 
           className="relative shrink-0 cursor-pointer"
