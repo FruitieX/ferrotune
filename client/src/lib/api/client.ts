@@ -205,13 +205,46 @@ export class SubsonicClient {
     songIdToAdd?: string[];
     songIndexToRemove?: number[];
   }): Promise<void> {
-    const urlParams: Record<string, string | number | boolean | undefined> = {
-      playlistId: params.playlistId,
-      name: params.name,
-      comment: params.comment,
-      public: params.public,
-    };
-    await this.request("updatePlaylist", urlParams);
+    // Build URL manually to handle array parameters
+    const url = new URL(`${this.serverUrl}/rest/updatePlaylist`);
+    url.searchParams.set("v", API_VERSION);
+    url.searchParams.set("c", CLIENT_NAME);
+    url.searchParams.set("f", "json");
+    
+    if (this.apiKey) {
+      url.searchParams.set("apiKey", this.apiKey);
+    } else if (this.username && this.password) {
+      url.searchParams.set("u", this.username);
+      url.searchParams.set("p", this.password);
+    }
+    
+    url.searchParams.set("playlistId", params.playlistId);
+    if (params.name !== undefined) url.searchParams.set("name", params.name);
+    if (params.comment !== undefined) url.searchParams.set("comment", params.comment);
+    if (params.public !== undefined) url.searchParams.set("public", String(params.public));
+    
+    // Handle array parameters - OpenSubsonic uses repeated params
+    if (params.songIdToAdd) {
+      for (const songId of params.songIdToAdd) {
+        url.searchParams.append("songIdToAdd", songId);
+      }
+    }
+    if (params.songIndexToRemove) {
+      for (const index of params.songIndexToRemove) {
+        url.searchParams.append("songIndexToRemove", String(index));
+      }
+    }
+    
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    if (data["subsonic-response"].status === "failed") {
+      const error = data["subsonic-response"].error;
+      throw new SubsonicApiError(error.code, error.message);
+    }
   }
 
   async deletePlaylist(id: string): Promise<void> {
