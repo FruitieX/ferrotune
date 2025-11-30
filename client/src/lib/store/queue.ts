@@ -41,10 +41,8 @@ export const addToQueueAtom = atom(
       set(queueAtom, [...queue, ...songsArray]);
     }
 
-    // If queue was empty, start playing first track
-    if (queue.length === 0 && songsArray.length > 0) {
-      set(queueIndexAtom, 0);
-    }
+    // Note: We no longer auto-start playback when adding to queue
+    // Users should use playNow if they want immediate playback
   }
 );
 

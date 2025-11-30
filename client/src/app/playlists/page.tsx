@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CoverImage } from "@/components/shared/cover-image";
 import { CreatePlaylistDialog } from "@/components/playlists/create-playlist-dialog";
+import { PlaylistContextMenu, PlaylistDropdownMenu } from "@/components/playlists/playlist-context-menu";
 import { formatDuration, formatCount, formatDate } from "@/lib/utils/format";
 import type { Playlist } from "@/lib/api/types";
 
@@ -114,39 +115,42 @@ function PlaylistCard({ playlist }: { playlist: Playlist }) {
     : undefined;
 
   return (
-    <Link
-      href={`/playlists/${playlist.id}`}
-      className="group block p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors"
-    >
-      <div className="relative mb-4">
-        <CoverImage
-          src={coverArtUrl}
-          alt={playlist.name}
-          size="full"
-          type="playlist"
-          className="rounded-md shadow-lg"
-        />
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-md flex items-center justify-center">
-          <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center shadow-xl">
-            <Music2 className="w-6 h-6 text-primary-foreground" />
+    <PlaylistContextMenu playlist={playlist}>
+      <Link
+        href={`/playlists/${playlist.id}`}
+        className="group block p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors relative"
+      >
+        <PlaylistDropdownMenu playlist={playlist} />
+        <div className="relative mb-4">
+          <CoverImage
+            src={coverArtUrl}
+            alt={playlist.name || "Playlist cover"}
+            size="full"
+            type="playlist"
+            className="rounded-md shadow-lg"
+          />
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-md flex items-center justify-center">
+            <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center shadow-xl">
+              <Music2 className="w-6 h-6 text-primary-foreground" />
+            </div>
           </div>
         </div>
-      </div>
-      <h3 className="font-semibold truncate">{playlist.name}</h3>
-      <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-        <span>{formatCount(playlist.songCount, "song")}</span>
-        <span>•</span>
-        <span className="flex items-center gap-1">
-          <Clock className="w-3 h-3" />
-          {formatDuration(playlist.duration)}
-        </span>
-      </div>
-      {playlist.comment && (
-        <p className="text-sm text-muted-foreground mt-2 line-clamp-2">
-          {playlist.comment}
-        </p>
-      )}
-    </Link>
+        <h3 className="font-semibold truncate">{playlist.name}</h3>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+          <span>{formatCount(playlist.songCount, "song")}</span>
+          <span>•</span>
+          <span className="flex items-center gap-1">
+            <Clock className="w-3 h-3" />
+            {formatDuration(playlist.duration)}
+          </span>
+        </div>
+        {playlist.comment && (
+          <p className="text-sm text-muted-foreground mt-2 line-clamp-2">
+            {playlist.comment}
+          </p>
+        )}
+      </Link>
+    </PlaylistContextMenu>
   );
 }
 

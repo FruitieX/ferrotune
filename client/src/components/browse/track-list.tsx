@@ -258,7 +258,7 @@ export function TrackRow({
           {coverArtUrl ? (
             <Image
               src={coverArtUrl}
-              alt={song.album}
+              alt={song.album || "Album cover"}
               fill
               className="object-cover"
               unoptimized

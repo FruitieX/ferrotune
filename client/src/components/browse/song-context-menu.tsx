@@ -54,6 +54,7 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!song.starred);
+  const [currentRating, setCurrentRating] = useState(song.userRating ?? 0);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
@@ -102,6 +103,7 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
 
     try {
       await client.setRating(song.id, rating);
+      setCurrentRating(rating);
       toast.success(rating > 0 ? `Rated "${song.title}" ${rating} stars` : `Removed rating from "${song.title}"`);
     } catch (error) {
       toast.error("Failed to set rating");
@@ -145,12 +147,16 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
 
       <ContextMenuSub>
         <ContextMenuSubTrigger>
-          <Star className="w-4 h-4 mr-2" />
-          Rate
+          <Star className={`w-4 h-4 mr-2 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`} />
+          Rate {currentRating > 0 && `(${currentRating})`}
         </ContextMenuSubTrigger>
         <ContextMenuSubContent>
           {[5, 4, 3, 2, 1].map((rating) => (
-            <ContextMenuItem key={rating} onClick={() => handleRate(rating)}>
+            <ContextMenuItem 
+              key={rating} 
+              onClick={() => handleRate(rating)}
+              className={currentRating === rating ? "bg-accent" : ""}
+            >
               {Array.from({ length: rating }).map((_, i) => (
                 <Star key={i} className="w-3 h-3 fill-yellow-500 text-yellow-500" />
               ))}
@@ -219,6 +225,7 @@ export function SongDropdownMenu({ song, queueSongs }: Omit<SongContextMenuProps
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!song.starred);
+  const [currentRating, setCurrentRating] = useState(song.userRating ?? 0);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
@@ -267,6 +274,7 @@ export function SongDropdownMenu({ song, queueSongs }: Omit<SongContextMenuProps
 
     try {
       await client.setRating(song.id, rating);
+      setCurrentRating(rating);
       toast.success(rating > 0 ? `Rated "${song.title}" ${rating} stars` : `Removed rating from "${song.title}"`);
     } catch (error) {
       toast.error("Failed to set rating");
@@ -323,12 +331,16 @@ export function SongDropdownMenu({ song, queueSongs }: Omit<SongContextMenuProps
 
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
-              <Star className="w-4 h-4 mr-2" />
-              Rate
+              <Star className={`w-4 h-4 mr-2 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`} />
+              Rate {currentRating > 0 && `(${currentRating})`}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               {[5, 4, 3, 2, 1].map((rating) => (
-                <DropdownMenuItem key={rating} onClick={() => handleRate(rating)}>
+                <DropdownMenuItem 
+                  key={rating} 
+                  onClick={() => handleRate(rating)}
+                  className={currentRating === rating ? "bg-accent" : ""}
+                >
                   {Array.from({ length: rating }).map((_, i) => (
                     <Star key={i} className="w-3 h-3 fill-yellow-500 text-yellow-500" />
                   ))}

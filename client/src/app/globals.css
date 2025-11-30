@@ -181,23 +181,23 @@
 
 /* Now playing bar visualizer animation */
 @keyframes bar-bounce-1 {
-  0%, 100% { height: 4px; }
+  0%, 100% { height: 6px; }
   50% { height: 12px; }
 }
 
 @keyframes bar-bounce-2 {
   0%, 100% { height: 8px; }
-  50% { height: 4px; }
+  50% { height: 5px; }
 }
 
 @keyframes bar-bounce-3 {
-  0%, 100% { height: 6px; }
+  0%, 100% { height: 5px; }
   50% { height: 12px; }
 }
 
 @keyframes bar-bounce-4 {
   0%, 100% { height: 10px; }
-  50% { height: 6px; }
+  50% { height: 5px; }
 }
 
 .animate-bar-1 {

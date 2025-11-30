@@ -78,7 +78,7 @@ function SongDetails({ song }: { song: Song }) {
             {coverArtUrl ? (
               <Image
                 src={coverArtUrl}
-                alt={song.title}
+                alt={song.title || "Song cover"}
                 fill
                 className="object-cover"
                 unoptimized
@@ -159,7 +159,7 @@ function AlbumDetails({ album }: { album: Album }) {
             {coverArtUrl ? (
               <Image
                 src={coverArtUrl}
-                alt={album.name}
+                alt={album.name || "Album cover"}
                 fill
                 className="object-cover"
                 unoptimized
@@ -231,7 +231,7 @@ function ArtistDetails({ artist }: { artist: Artist }) {
             {coverArtUrl ? (
               <Image
                 src={coverArtUrl}
-                alt={artist.name}
+                alt={artist.name || "Artist image"}
                 fill
                 className="object-cover"
                 unoptimized
@@ -300,7 +300,7 @@ function PlaylistDetails({ playlist }: { playlist: Playlist }) {
             {coverArtUrl ? (
               <Image
                 src={coverArtUrl}
-                alt={playlist.name}
+                alt={playlist.name || "Playlist cover"}
                 fill
                 className="object-cover"
                 unoptimized

@@ -107,8 +107,8 @@ test.describe("Starring and Ratings", () => {
       // Wait for dropdown menu to appear
       await page.waitForTimeout(300);
       
-      // Click on "Rate" to open submenu
-      const rateOption = page.getByRole("menuitem", { name: /^rate$/i });
+      // Click on "Rate" to open submenu - may have rating suffix like "Rate (3)"
+      const rateOption = page.getByRole("menuitem", { name: /^rate/i });
       await expect(rateOption).toBeVisible({ timeout: 2000 });
       
       // Click to open the rate submenu

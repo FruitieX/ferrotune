@@ -144,7 +144,7 @@ export function PlayerBar() {
                 {coverArtUrl ? (
                   <Image
                     src={coverArtUrl}
-                    alt={currentTrack.album}
+                    alt={currentTrack.album || "Album cover"}
                     fill
                     className="object-cover"
                     unoptimized

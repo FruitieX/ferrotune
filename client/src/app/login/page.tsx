@@ -113,7 +113,7 @@ export default function LoginPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
+            <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
               {/* Server URL */}
               <div className="space-y-2">
                 <label htmlFor="server-url" className="text-sm font-medium flex items-center gap-2">
@@ -162,6 +162,11 @@ export default function LoginPage() {
                       placeholder="Enter your password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && serverUrl && username && password && !isConnecting) {
+                          handleConnect("password");
+                        }
+                      }}
                       disabled={isConnecting}
                     />
                   </div>
@@ -194,6 +199,11 @@ export default function LoginPage() {
                       placeholder="Enter your API key"
                       value={apiKey}
                       onChange={(e) => setApiKey(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && serverUrl && apiKey && !isConnecting) {
+                          handleConnect("apikey");
+                        }
+                      }}
                       disabled={isConnecting}
                     />
                     <p className="text-xs text-muted-foreground">
@@ -229,7 +239,7 @@ export default function LoginPage() {
                   <span>{error}</span>
                 </motion.div>
               )}
-            </div>
+            </form>
           </CardContent>
         </Card>
 

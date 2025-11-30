@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Search as SearchIcon, X, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { Search as SearchIcon, X, Loader2, ListMusic, Clock } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { playNowAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
@@ -16,7 +17,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { ArtistCard, ArtistCardSkeleton } from "@/components/browse/artist-card";
 import { SongRow } from "@/components/browse/song-row";
-import type { Album, Artist } from "@/lib/api/types";
+import { CoverImage } from "@/components/shared/cover-image";
+import { formatDuration, formatCount } from "@/lib/utils/format";
+import type { Album, Artist, Playlist } from "@/lib/api/types";
 
 // Debounce hook
 function useDebounce<T>(value: T, delay: number): T {
@@ -42,7 +45,7 @@ export function SearchPageContent() {
   const playNow = useSetAtom(playNowAtom);
 
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
-  const [activeTab, setActiveTab] = useState<"all" | "artists" | "albums" | "songs">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "artists" | "albums" | "songs" | "playlists">("all");
   const debouncedQuery = useDebounce(query, 300);
 
   // Update URL when query changes
@@ -54,7 +57,7 @@ export function SearchPageContent() {
     }
   }, [debouncedQuery, router]);
 
-  // Search query
+  // Search query for songs, albums, artists
   const { data: searchResults, isLoading, isFetching } = useQuery({
     queryKey: ["search", debouncedQuery],
     queryFn: async () => {
@@ -71,6 +74,25 @@ export function SearchPageContent() {
     enabled: isReady && debouncedQuery.length >= 2,
     staleTime: 60000,
   });
+
+  // Fetch and filter playlists client-side (API doesn't have playlist search)
+  const { data: playlists } = useQuery({
+    queryKey: ["playlists"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getPlaylists();
+      return response.playlists.playlist ?? [];
+    },
+    enabled: isReady,
+    staleTime: 60000,
+  });
+
+  // Filter playlists based on search query
+  const filteredPlaylists = playlists?.filter((playlist) =>
+    debouncedQuery.length >= 2 &&
+    playlist.name.toLowerCase().includes(debouncedQuery.toLowerCase())
+  ) ?? [];
 
   const handlePlayAlbum = async (album: Album) => {
     const client = getClient();
@@ -106,7 +128,8 @@ export function SearchPageContent() {
   const hasResults = 
     (searchResults?.artist?.length ?? 0) > 0 ||
     (searchResults?.album?.length ?? 0) > 0 ||
-    (searchResults?.song?.length ?? 0) > 0;
+    (searchResults?.song?.length ?? 0) > 0 ||
+    filteredPlaylists.length > 0;
 
   return (
     <div className="min-h-screen">
@@ -165,6 +188,9 @@ export function SearchPageContent() {
               <TabsTrigger value="songs" disabled={!searchResults?.song?.length}>
                 Songs ({searchResults?.song?.length ?? 0})
               </TabsTrigger>
+              <TabsTrigger value="playlists" disabled={!filteredPlaylists.length}>
+                Playlists ({filteredPlaylists.length})
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="all" className="space-y-8">
@@ -217,6 +243,18 @@ export function SearchPageContent() {
                   </div>
                 </section>
               )}
+
+              {/* Playlists */}
+              {filteredPlaylists.length > 0 && (
+                <section>
+                  <h2 className="text-xl font-bold mb-4">Playlists</h2>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    {filteredPlaylists.slice(0, 6).map((playlist) => (
+                      <PlaylistSearchCard key={playlist.id} playlist={playlist} />
+                    ))}
+                  </div>
+                </section>
+              )}
             </TabsContent>
 
             <TabsContent value="artists">
@@ -258,6 +296,16 @@ export function SearchPageContent() {
                       showCover
                       queueSongs={searchResults.song}
                     />
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="playlists">
+              {filteredPlaylists.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                  {filteredPlaylists.map((playlist) => (
+                    <PlaylistSearchCard key={playlist.id} playlist={playlist} />
                   ))}
                 </div>
               )}
@@ -327,5 +375,43 @@ function SearchSkeleton() {
         </div>
       </section>
     </div>
+  );
+}
+
+// Playlist card for search results
+function PlaylistSearchCard({ playlist }: { playlist: Playlist }) {
+  const coverArtUrl = playlist.coverArt
+    ? getClient()?.getCoverArtUrl(playlist.coverArt, 300)
+    : undefined;
+
+  return (
+    <Link
+      href={`/playlists/${playlist.id}`}
+      className="group block p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors"
+    >
+      <div className="relative mb-4">
+        <CoverImage
+          src={coverArtUrl}
+          alt={playlist.name || "Playlist cover"}
+          size="full"
+          type="playlist"
+          className="rounded-md shadow-lg"
+        />
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-md flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center shadow-xl">
+            <ListMusic className="w-6 h-6 text-primary-foreground" />
+          </div>
+        </div>
+      </div>
+      <h3 className="font-semibold truncate">{playlist.name}</h3>
+      <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+        <span>{formatCount(playlist.songCount, "song")}</span>
+        <span>•</span>
+        <span className="flex items-center gap-1">
+          <Clock className="w-3 h-3" />
+          {formatDuration(playlist.duration)}
+        </span>
+      </div>
+    </Link>
   );
 }
