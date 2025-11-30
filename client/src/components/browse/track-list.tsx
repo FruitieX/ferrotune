@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Play, Pause, Heart, Clock } from "lucide-react";
+import { Play, Pause, Heart, Clock, Music } from "lucide-react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -146,12 +146,39 @@ export function TrackRow({
   const { togglePlayPause } = useAudioEngine();
   const [isStarred, setIsStarred] = useState(!!song.starred);
   const [coverError, setCoverError] = useState(false);
+  const [isVisible, setIsVisible] = useState(!showCover); // Only lazy load if showing cover
+  const rowRef = useRef<HTMLDivElement>(null);
 
   const isCurrentTrack = currentTrack?.id === song.id;
   const isPlaying = isCurrentTrack && playbackState === "playing";
 
+  // Only load cover art when row is visible
+  useEffect(() => {
+    if (!showCover || isVisible) return;
+    
+    const element = rowRef.current;
+    if (!element) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      {
+        rootMargin: "50px",
+        threshold: 0,
+      }
+    );
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [showCover, isVisible]);
+
   const coverArtUrl =
-    showCover && song.coverArt && !coverError
+    showCover && song.coverArt && !coverError && isVisible
       ? getClient()?.getCoverArtUrl(song.coverArt, 48)
       : null;
 
@@ -188,6 +215,7 @@ export function TrackRow({
 
   const rowContent = (
     <div
+      ref={rowRef}
       data-testid="track-row"
       className={cn(
         "group grid gap-4 px-4 py-2 rounded-md hover:bg-accent/60 transition-colors",

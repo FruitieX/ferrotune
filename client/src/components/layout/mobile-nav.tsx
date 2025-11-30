@@ -24,7 +24,7 @@ export function MobileNav() {
   return (
     <nav
       className={cn(
-        "lg:hidden fixed bottom-0 left-0 right-0 z-50",
+        "lg:hidden z-50",
         "bg-background/95 backdrop-blur-lg border-t border-border",
         "pb-safe" // Safe area for iOS
       )}

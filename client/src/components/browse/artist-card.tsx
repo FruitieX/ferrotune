@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
-import { Play } from "lucide-react";
+import { Play, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,12 +17,14 @@ interface ArtistCardProps {
 }
 
 export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
+  const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
+  
   const coverArtUrl = artist.coverArt
     ? getClient()?.getCoverArtUrl(artist.coverArt, 300)
     : null;
 
-  const showImage = coverArtUrl && !imageError;
+  const hasImage = coverArtUrl && !imageError;
 
   return (
     <div
@@ -34,19 +35,28 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
     >
       <Link href={`/library/artists/${artist.id}`} className="block">
         <div className="relative aspect-square rounded-full overflow-hidden bg-muted mb-4 transform-gpu transition-transform duration-200 group-hover:scale-[1.05]">
-          {showImage ? (
-            <Image
-              src={coverArtUrl}
-              alt={artist.name}
-              fill
-              className="object-cover"
-              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
-              unoptimized
-              onError={() => setImageError(true)}
-            />
+          {hasImage ? (
+            <>
+              {/* Skeleton shown while image loads */}
+              {!imageLoaded && (
+                <Skeleton className="absolute inset-0 w-full h-full rounded-full" />
+              )}
+              <img
+                src={coverArtUrl}
+                alt={artist.name}
+                loading="lazy"
+                decoding="async"
+                className={cn(
+                  "absolute inset-0 w-full h-full object-cover transition-opacity duration-200",
+                  imageLoaded ? "opacity-100" : "opacity-0"
+                )}
+                onLoad={() => setImageLoaded(true)}
+                onError={() => setImageError(true)}
+              />
+            </>
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-              <span className="text-4xl">👤</span>
+              <User className="w-12 h-12 text-muted-foreground" />
             </div>
           )}
           
@@ -99,12 +109,14 @@ interface ArtistCardCompactProps {
 }
 
 export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompactProps) {
+  const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
+  
   const coverArtUrl = artist.coverArt
     ? getClient()?.getCoverArtUrl(artist.coverArt, 80)
     : null;
 
-  const showImage = coverArtUrl && !imageError;
+  const hasImage = coverArtUrl && !imageError;
 
   return (
     <div
@@ -118,18 +130,27 @@ export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompa
         className="flex items-center gap-3 flex-1 min-w-0"
       >
         <div className="relative w-12 h-12 rounded-full overflow-hidden bg-muted shrink-0">
-          {showImage ? (
-            <Image
-              src={coverArtUrl}
-              alt={artist.name}
-              fill
-              className="object-cover"
-              unoptimized
-              onError={() => setImageError(true)}
-            />
+          {hasImage ? (
+            <>
+              {!imageLoaded && (
+                <Skeleton className="absolute inset-0 w-full h-full rounded-full" />
+              )}
+              <img
+                src={coverArtUrl}
+                alt={artist.name}
+                loading="lazy"
+                decoding="async"
+                className={cn(
+                  "absolute inset-0 w-full h-full object-cover transition-opacity duration-200",
+                  imageLoaded ? "opacity-100" : "opacity-0"
+                )}
+                onLoad={() => setImageLoaded(true)}
+                onError={() => setImageError(true)}
+              />
+            </>
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-              <span className="text-lg">👤</span>
+              <User className="w-5 h-5 text-muted-foreground" />
             </div>
           )}
         </div>

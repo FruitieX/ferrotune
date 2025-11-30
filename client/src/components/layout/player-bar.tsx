@@ -83,17 +83,10 @@ export function PlayerBar() {
     <footer
       data-testid="player-bar"
       className={cn(
-        "fixed left-0 right-0 z-50",
+        "z-50 lg:ml-[280px]",
         "h-[88px] bg-background/95 backdrop-blur-lg border-t border-border",
-        // On mobile, position above the mobile nav (64px + safe area)
-        "bottom-16 pb-safe",
-        // On desktop, position at bottom edge (no mobile nav)
-        "lg:bottom-0 lg:pb-0 lg:left-[var(--sidebar-width)]",
         "transition-all duration-200"
       )}
-      style={{
-        "--sidebar-width": "280px",
-      } as React.CSSProperties}
     >
       {/* Progress bar (thin line at top) */}
       <div className="absolute top-0 left-0 right-0 h-1 bg-muted group cursor-pointer"
@@ -410,7 +403,7 @@ export function PlayerBar() {
 // Loading skeleton for player bar
 export function PlayerBarSkeleton() {
   return (
-    <div className="fixed bottom-0 left-0 right-0 h-[88px] bg-background border-t border-border">
+    <div className="h-[88px] bg-background border-t border-border lg:ml-[280px]">
       <div className="flex items-center h-full px-4 gap-4">
         <div className="flex items-center gap-3 w-[30%]">
           <Skeleton className="w-14 h-14 rounded-md" />

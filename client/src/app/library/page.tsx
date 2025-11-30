@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
 import { useAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Disc, User, Music, Tag, ListMusic, Grid, List } from "lucide-react";
@@ -12,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton, AlbumCardCompact } from "@/components/browse/album-card";
 import { ArtistCard, ArtistCardSkeleton, ArtistCardCompact } from "@/components/browse/artist-card";
+import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 import { playNowAtom } from "@/lib/store/queue";
 import { useSetAtom } from "jotai";
 import Link from "next/link";
@@ -32,7 +32,6 @@ export default function LibraryPage() {
   const [activeTab, setActiveTab] = useAtom(libraryTabAtom);
   const [viewMode, setViewMode] = useAtom(albumViewModeAtom);
   const playNow = useSetAtom(playNowAtom);
-  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   // Fetch artists
   const { data: artistsData, isLoading: loadingArtists } = useQuery({
@@ -65,6 +64,7 @@ export default function LibraryPage() {
       });
       return {
         albums: response.albumList2.album ?? [],
+        total: response.albumList2.total,
         nextOffset: response.albumList2.album?.length === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
       };
     },
@@ -85,33 +85,9 @@ export default function LibraryPage() {
     enabled: isReady && activeTab === "genres",
   });
 
-  // Intersection observer for infinite scroll
-  const handleObserver = useCallback(
-    (entries: IntersectionObserverEntry[]) => {
-      const [target] = entries;
-      if (target.isIntersecting && hasNextPage && !isFetchingNextPage) {
-        fetchNextPage();
-      }
-    },
-    [fetchNextPage, hasNextPage, isFetchingNextPage]
-  );
-
-  useEffect(() => {
-    const element = loadMoreRef.current;
-    if (!element) return;
-
-    const observer = new IntersectionObserver(handleObserver, {
-      root: null,
-      rootMargin: "200px",
-      threshold: 0,
-    });
-
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [handleObserver]);
-
   // Flatten albums from all pages
   const allAlbums = albumsData?.pages.flatMap((page) => page.albums) ?? [];
+  const totalAlbums = albumsData?.pages[0]?.total ?? allAlbums.length;
 
   // Flatten artists from indexes, filter out artists with 0 albums
   const allArtists = artistsData?.flatMap((index) => index.artist).filter((a) => a.albumCount > 0) ?? [];
@@ -159,7 +135,7 @@ export default function LibraryPage() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div>
       {/* Header */}
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
         <div className="flex items-center justify-between h-16 px-4 lg:px-6">
@@ -223,28 +199,36 @@ export default function LibraryPage() {
                 ))}
               </div>
             ) : allAlbums.length > 0 ? (
-              <>
-                {viewMode === "grid" ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                    {allAlbums.map((album) => (
-                      <AlbumCard key={album.id} album={album} onPlay={() => handlePlayAlbum(album)} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {allAlbums.map((album) => (
-                      <AlbumCardCompact key={album.id} album={album} onPlay={() => handlePlayAlbum(album)} />
-                    ))}
-                  </div>
-                )}
-                {/* Infinite scroll trigger */}
-                <div ref={loadMoreRef} className="h-10" />
-                {isFetchingNextPage && (
-                  <div className="flex justify-center py-4">
-                    <Skeleton className="w-8 h-8 rounded-full" />
-                  </div>
-                )}
-              </>
+              viewMode === "grid" ? (
+                <VirtualizedGrid
+                  items={allAlbums}
+                  totalCount={totalAlbums}
+                  renderItem={(album) => (
+                    <AlbumCard album={album} onPlay={() => handlePlayAlbum(album)} />
+                  )}
+                  renderSkeleton={() => <AlbumCardSkeleton />}
+                  getItemKey={(album) => album.id}
+                  hasNextPage={hasNextPage ?? false}
+                  isFetchingNextPage={isFetchingNextPage}
+                  fetchNextPage={fetchNextPage}
+                />
+              ) : (
+                <VirtualizedList
+                  items={allAlbums}
+                  totalCount={totalAlbums}
+                  renderItem={(album) => (
+                    <AlbumCardCompact album={album} onPlay={() => handlePlayAlbum(album)} />
+                  )}
+                  renderSkeleton={() => (
+                    <div className="h-16 animate-pulse bg-muted rounded-md" />
+                  )}
+                  getItemKey={(album) => album.id}
+                  estimateItemHeight={64}
+                  hasNextPage={hasNextPage ?? false}
+                  isFetchingNextPage={isFetchingNextPage}
+                  fetchNextPage={fetchNextPage}
+                />
+              )
             ) : (
               <EmptyState message="No albums in your library" />
             )}
@@ -265,17 +249,26 @@ export default function LibraryPage() {
               </div>
             ) : allArtists.length > 0 ? (
               viewMode === "grid" ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                  {allArtists.map((artist) => (
-                    <ArtistCard key={artist.id} artist={artist} onPlay={() => handlePlayArtist(artist)} />
-                  ))}
-                </div>
+                <VirtualizedGrid
+                  items={allArtists}
+                  renderItem={(artist) => (
+                    <ArtistCard artist={artist} onPlay={() => handlePlayArtist(artist)} />
+                  )}
+                  renderSkeleton={() => <ArtistCardSkeleton />}
+                  getItemKey={(artist) => artist.id}
+                />
               ) : (
-                <div className="space-y-1">
-                  {allArtists.map((artist) => (
-                    <ArtistCardCompact key={artist.id} artist={artist} onPlay={() => handlePlayArtist(artist)} />
-                  ))}
-                </div>
+                <VirtualizedList
+                  items={allArtists}
+                  renderItem={(artist) => (
+                    <ArtistCardCompact artist={artist} onPlay={() => handlePlayArtist(artist)} />
+                  )}
+                  renderSkeleton={() => (
+                    <div className="h-16 animate-pulse bg-muted rounded-md" />
+                  )}
+                  getItemKey={(artist) => artist.id}
+                  estimateItemHeight={64}
+                />
               )
             ) : (
               <EmptyState message="No artists in your library" />
@@ -293,11 +286,14 @@ export default function LibraryPage() {
                 ))}
               </div>
             ) : genresData && genresData.length > 0 ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                {genresData.map((genre) => (
-                  <GenreCard key={genre.value} genre={genre} />
-                ))}
-              </div>
+              <VirtualizedGrid
+                items={genresData}
+                renderItem={(genre) => <GenreCard genre={genre} />}
+                renderSkeleton={() => <Skeleton className="h-24 rounded-lg" />}
+                getItemKey={(genre) => genre.value}
+                estimateItemHeight={96}
+                columns={{ default: 2, sm: 3, md: 4, lg: 4, xl: 4 }}
+              />
             ) : (
               <EmptyState message="No genres found" />
             )}
@@ -309,9 +305,6 @@ export default function LibraryPage() {
           <PlaylistsTab />
         </TabsContent>
       </Tabs>
-
-      {/* Spacer for player bar */}
-      <div className="h-24" />
     </div>
   );
 }
@@ -377,11 +370,12 @@ function PlaylistsTab() {
 
   return (
     <div className="p-4 lg:p-6">
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-        {playlists.map((playlist) => (
-          <PlaylistCard key={playlist.id} playlist={playlist} />
-        ))}
-      </div>
+      <VirtualizedGrid
+        items={playlists}
+        renderItem={(playlist) => <PlaylistCard playlist={playlist} />}
+        renderSkeleton={() => <Skeleton className="aspect-square rounded-lg" />}
+        getItemKey={(playlist) => playlist.id}
+      />
     </div>
   );
 }
