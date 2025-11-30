@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, playFirstSong, waitForPlayerReady } from "./fixtures";
 
 test.describe("Playback", () => {
   test("player bar is visible when authenticated", async ({ authenticatedPage: page }) => {
@@ -67,5 +67,114 @@ test.describe("Playback", () => {
     
     const queueButton = page.getByRole("button", { name: /queue/i });
     await expect(queueButton).toBeVisible();
+  });
+});
+
+test.describe("Queue End Behavior", () => {
+  test("clicking next on last track shows 'Not playing' state", async ({ authenticatedPage: page }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    
+    const playerBar = page.getByTestId("player-bar");
+    
+    // Skip to Third Song (last in queue)
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(300);
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(300);
+    
+    // Verify we're on the last track
+    await expect(playerBar).toContainText("Third Song");
+    
+    // Click next again - should end the queue
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(500);
+    
+    // Should show "Not playing" instead of track info
+    await expect(playerBar).toContainText("Not playing");
+  });
+
+  test("queue panel hides 'Now Playing' section when queue ends", async ({ authenticatedPage: page }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    
+    const playerBar = page.getByTestId("player-bar");
+    
+    // Skip to last track and end queue
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(300);
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(300);
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(500);
+    
+    // Open queue panel
+    const queueButton = page.locator("footer").getByRole("button", { name: /queue/i }).first();
+    await queueButton.click();
+    
+    const queuePanel = page.locator('[data-slot="sheet-content"]');
+    await expect(queuePanel).toBeVisible();
+    
+    // "Now Playing" section should not be visible
+    await expect(queuePanel.getByText(/now playing/i)).toBeHidden();
+  });
+
+  test("clicking play after queue ends restarts from first track", async ({ authenticatedPage: page }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    
+    const playerBar = page.getByTestId("player-bar");
+    
+    // Skip to last track and end queue
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(300);
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(300);
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(500);
+    
+    // Verify queue ended
+    await expect(playerBar).toContainText("Not playing");
+    
+    // Click play button
+    await playerBar.getByRole("button", { name: /play/i }).click();
+    await page.waitForTimeout(500);
+    
+    // Should restart from first track
+    await expect(playerBar).toContainText("First Song");
+  });
+
+  test("track list does not show any track as active when queue ends", async ({ authenticatedPage: page }) => {
+    // Navigate to Test Album
+    await page.goto("/library");
+    await page.waitForSelector('[data-testid="album-card"], article', { timeout: 10000 });
+    
+    const testAlbum = page.locator('[data-testid="album-card"], article').filter({ hasText: "Test Album" });
+    await testAlbum.click();
+    await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
+    await page.waitForSelector('[data-testid="song-row"], [role="row"]', { timeout: 10000 });
+    
+    // Double-click first track to play
+    const firstTrack = page.locator('[data-testid="song-row"], [role="row"]').first();
+    await firstTrack.dblclick();
+    await waitForPlayerReady(page);
+    
+    const playerBar = page.getByTestId("player-bar");
+    
+    // Skip to last track and end queue
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(300);
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(300);
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(500);
+    
+    // Verify queue ended
+    await expect(playerBar).toContainText("Not playing");
+    
+    // Check that no track row has the "now playing" indicator (primary color text)
+    // The active track typically has text-primary class
+    const activeTrackIndicator = page.locator('[data-testid="song-row"] .text-primary, [role="row"] .text-primary');
+    await expect(activeTrackIndicator).toHaveCount(0);
   });
 });

@@ -128,16 +128,27 @@ pub async fn search3(
         })
         .collect();
 
-    // Search songs using FTS5 (only if query is not empty)
-    let songs: Vec<crate::db::models::Song> = if params.query.is_empty() {
-        vec![]
+    // Search songs - handle wildcard query specially
+    let songs: Vec<crate::db::models::Song> = if params.query.is_empty() || params.query == "*" {
+        // Return all songs sorted alphabetically
+        sqlx::query_as(
+            "SELECT s.*, ar.name as artist_name FROM songs s 
+             INNER JOIN artists ar ON s.artist_id = ar.id
+             ORDER BY s.title COLLATE NOCASE
+             LIMIT ? OFFSET ?",
+        )
+        .bind(song_count)
+        .bind(song_offset)
+        .fetch_all(&state.pool)
+        .await?
     } else {
+        // Use FTS5 for actual search queries
         sqlx::query_as(
             "SELECT s.*, ar.name as artist_name FROM songs s 
              INNER JOIN artists ar ON s.artist_id = ar.id
              INNER JOIN songs_fts fts ON s.id = fts.song_id 
              WHERE songs_fts MATCH ? 
-             ORDER BY s.title 
+             ORDER BY s.title COLLATE NOCASE
              LIMIT ? OFFSET ?",
         )
         .bind(&params.query)

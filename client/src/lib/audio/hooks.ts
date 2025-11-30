@@ -27,7 +27,10 @@ import { getClient } from "@/lib/api/client";
 
 // Singleton audio element - only one instance across the entire app
 let globalAudio: HTMLAudioElement | null = null;
-let currentLoadedTrackId: string | null = null;
+// Track by queue index to handle duplicate songs
+let currentLoadedQueueIndex: number = -1;
+// Flag to prevent handlePause from overwriting "ended" state
+let isEndingQueue: boolean = false;
 
 function getGlobalAudio(): HTMLAudioElement {
   if (typeof window === "undefined") {
@@ -137,14 +140,21 @@ export function useAudioEngineInit() {
     };
     const handlePause = () => {
       console.log("[Audio] pause event fired");
+      // Don't overwrite "ended" state - that's intentional when queue finishes
+      if (isEndingQueue) {
+        isEndingQueue = false;
+        return;
+      }
       settersRef.current.setPlaybackState("paused");
     };
     
     const handleEnded = () => {
-      settersRef.current.setPlaybackState("ended");
       // Handle next track
       const state = stateRef.current;
-      if (state.queue.length === 0) return;
+      if (state.queue.length === 0) {
+        settersRef.current.setPlaybackState("idle");
+        return;
+      }
 
       if (state.currentTrack) {
         settersRef.current.setPlayHistory((prev) => [...prev, state.currentTrack!]);
@@ -167,6 +177,8 @@ export function useAudioEngineInit() {
           settersRef.current.setShuffledIndices(newShuffled);
           nextIndex = newShuffled[0];
         } else {
+          // End of queue - keep position, just mark as ended
+          settersRef.current.setCurrentTime(0);
           settersRef.current.setPlaybackState("ended");
           return;
         }
@@ -176,9 +188,18 @@ export function useAudioEngineInit() {
         } else if (state.repeatMode === "all") {
           nextIndex = 0;
         } else {
+          // End of queue - keep position, just mark as ended
+          settersRef.current.setCurrentTime(0);
           settersRef.current.setPlaybackState("ended");
           return;
         }
+      }
+
+      // Force reload if same track (duplicate in queue)
+      if (nextIndex === state.queueIndex || 
+          (state.queue[nextIndex]?.id === state.queue[state.queueIndex]?.id)) {
+        // Same track or same song ID - force reload
+        currentLoadedQueueIndex = -1;
       }
 
       settersRef.current.setQueueIndex(nextIndex);
@@ -212,6 +233,12 @@ export function useAudioEngineInit() {
     
     const handleCanPlay = () => {
       console.log("[Audio] canplay event, attempting to play");
+      // Don't auto-play if queue has ended
+      const state = stateRef.current;
+      if (state.playbackState === "ended") {
+        console.log("[Audio] Skipping auto-play because queue has ended");
+        return;
+      }
       // Always try to play when canplay fires - the play() call will trigger handlePlay
       // which sets state to "playing"
       audio.play().catch((err) => {
@@ -270,28 +297,32 @@ export function useAudioEngineInit() {
     }
   }, [effectiveVolume]);
 
-  // Load new track when currentTrack changes
+  // Load new track when queue index changes
   useEffect(() => {
     const audio = globalAudio;
     const client = getClient();
     
-    // Skip if track ID hasn't actually changed
-    const newTrackId = currentTrack?.id || null;
-    if (newTrackId === currentLoadedTrackId) {
+    // Skip if queue index hasn't changed (handles duplicate songs correctly)
+    if (queueIndex === currentLoadedQueueIndex) {
       return;
     }
-    currentLoadedTrackId = newTrackId;
+    currentLoadedQueueIndex = queueIndex;
     
-    if (!audio || !currentTrack || !client) {
-      if (audio) {
+    // Get current track from queue (don't use atom directly to avoid re-renders)
+    const track = queueIndex >= 0 && queueIndex < queue.length ? queue[queueIndex] : null;
+    
+    if (!audio || !track || !client || queueIndex < 0) {
+      if (audio && audio.src) {
         audio.pause();
         audio.src = "";
       }
-      setPlaybackState("idle");
+      if (queueIndex < 0) {
+        setPlaybackState("idle");
+      }
       return;
     }
 
-    const streamUrl = client.getStreamUrl(currentTrack.id);
+    const streamUrl = client.getStreamUrl(track.id);
     
     // Stop current playback
     audio.pause();
@@ -299,13 +330,13 @@ export function useAudioEngineInit() {
     setPlaybackState("loading");
     setHasScrobbled(false);
     setCurrentTime(0);
-    setDuration(currentTrack.duration || 0);
+    setDuration(track.duration || 0);
 
     audio.play().catch((err) => {
       console.error("Failed to play:", err);
       setPlaybackState("paused");
     });
-  }, [currentTrack?.id, setPlaybackState, setHasScrobbled, setCurrentTime, setDuration]);
+  }, [queueIndex, queue, setPlaybackState, setHasScrobbled, setCurrentTime, setDuration]);
 }
 
 /**
@@ -340,10 +371,16 @@ export function useAudioEngine() {
     } else if (playbackState === "loading") {
       // If loading, pause to cancel the pending play
       pause();
+    } else if (playbackState === "ended") {
+      // Queue finished - restart from beginning
+      if (queue.length > 0) {
+        currentLoadedQueueIndex = -1; // Force reload
+        setQueueIndex(0);
+      }
     } else {
       play();
     }
-  }, [playbackState, play, pause]);
+  }, [playbackState, play, pause, queue.length, setQueueIndex]);
 
   const seek = useCallback((time: number) => {
     if (globalAudio) {
@@ -385,6 +422,12 @@ export function useAudioEngine() {
         setShuffledIndices(newShuffled);
         nextIndex = newShuffled[0];
       } else {
+        // End of queue - stop playback and mark as ended
+        isEndingQueue = true;
+        if (globalAudio) {
+          globalAudio.pause();
+        }
+        setCurrentTime(0);
         setPlaybackState("ended");
         return;
       }
@@ -394,9 +437,20 @@ export function useAudioEngine() {
       } else if (repeatMode === "all") {
         nextIndex = 0;
       } else {
+        // End of queue - stop playback and mark as ended
+        isEndingQueue = true;
+        if (globalAudio) {
+          globalAudio.pause();
+        }
+        setCurrentTime(0);
         setPlaybackState("ended");
         return;
       }
+    }
+
+    // Force reload if same track (duplicate in queue)
+    if (queue[nextIndex]?.id === queue[queueIndex]?.id) {
+      currentLoadedQueueIndex = -1;
     }
 
     setQueueIndex(nextIndex);
