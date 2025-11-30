@@ -2,7 +2,7 @@
 
 import { useAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Disc, User, Music, Tag, ListMusic, Grid, List } from "lucide-react";
+import { Disc, User, Music, Tag, Grid, List } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { libraryTabAtom, albumViewModeAtom, type LibraryTab } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
@@ -11,11 +11,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton, AlbumCardCompact } from "@/components/browse/album-card";
 import { ArtistCard, ArtistCardSkeleton, ArtistCardCompact } from "@/components/browse/artist-card";
+import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 import { playNowAtom } from "@/lib/store/queue";
 import { useSetAtom } from "jotai";
 import Link from "next/link";
-import type { Album, Artist, Genre } from "@/lib/api/types";
+import type { Album, Artist, Genre, Song } from "@/lib/api/types";
 
 const PAGE_SIZE = 50;
 
@@ -24,7 +25,7 @@ const tabIcons: Record<LibraryTab, React.ElementType> = {
   artists: User,
   songs: Music,
   genres: Tag,
-  playlists: ListMusic,
+  playlists: Music, // unused but needed for type
 };
 
 export default function LibraryPage() {
@@ -83,6 +84,25 @@ export default function LibraryPage() {
       return response.genres.genre;
     },
     enabled: isReady && activeTab === "genres",
+  });
+
+  // Fetch random songs for tracks tab (since there's no "all songs" endpoint)
+  const { data: songsData, isLoading: loadingSongs } = useQuery({
+    queryKey: ["randomSongs", 500],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getRandomSongs({ size: 500 });
+      // Sort by album/track number for better presentation
+      const songs = response.randomSongs.song ?? [];
+      return songs.sort((a, b) => {
+        const albumCompare = (a.album || "").localeCompare(b.album || "");
+        if (albumCompare !== 0) return albumCompare;
+        return (a.track || 0) - (b.track || 0);
+      });
+    },
+    enabled: isReady && activeTab === "songs",
+    staleTime: 60000, // Cache for 1 minute
   });
 
   // Flatten albums from all pages
@@ -170,7 +190,7 @@ export default function LibraryPage() {
       >
         <div className="sticky top-16 z-20 bg-background border-b border-border">
           <TabsList className="h-12 w-full justify-start rounded-none bg-transparent px-4 lg:px-6">
-            {(["albums", "artists", "genres", "playlists"] as LibraryTab[]).map((tab) => {
+            {(["albums", "artists", "songs", "genres"] as LibraryTab[]).map((tab) => {
               const Icon = tabIcons[tab];
               return (
                 <TabsTrigger
@@ -300,9 +320,34 @@ export default function LibraryPage() {
           </div>
         </TabsContent>
 
-        {/* Playlists Tab */}
-        <TabsContent value="playlists" className="mt-0">
-          <PlaylistsTab />
+        {/* Songs Tab */}
+        <TabsContent value="songs" className="mt-0">
+          <div className="p-4 lg:p-6">
+            {loadingSongs ? (
+              <div className="divide-y divide-border/50">
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <SongRowSkeleton key={i} showCover />
+                ))}
+              </div>
+            ) : songsData && songsData.length > 0 ? (
+              <VirtualizedList
+                items={songsData}
+                renderItem={(song, index) => (
+                  <SongRow
+                    song={song}
+                    index={index}
+                    showCover
+                    queueSongs={songsData}
+                  />
+                )}
+                renderSkeleton={() => <SongRowSkeleton showCover />}
+                getItemKey={(song) => song.id}
+                estimateItemHeight={56}
+              />
+            ) : (
+              <EmptyState message="No songs in your library" />
+            )}
+          </div>
         </TabsContent>
       </Tabs>
     </div>
@@ -329,85 +374,6 @@ function GenreCard({ genre }: { genre: Genre }) {
         <h3 className="font-bold text-white truncate">{genre.value}</h3>
         <p className="text-xs text-white/80">
           {genre.albumCount} albums • {genre.songCount} songs
-        </p>
-      </div>
-    </Link>
-  );
-}
-
-// Playlists tab component
-function PlaylistsTab() {
-  const { isReady } = useAuth();
-
-  const { data: playlists, isLoading } = useQuery({
-    queryKey: ["playlists"],
-    queryFn: async () => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      const response = await client.getPlaylists();
-      return response.playlists.playlist ?? [];
-    },
-    enabled: isReady,
-  });
-
-  if (isLoading) {
-    return (
-      <div className="p-4 lg:p-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="aspect-square rounded-lg" />
-        ))}
-      </div>
-    );
-  }
-
-  if (!playlists || playlists.length === 0) {
-    return (
-      <div className="p-4 lg:p-6">
-        <EmptyState message="No playlists yet. Create one from the song menu!" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="p-4 lg:p-6">
-      <VirtualizedGrid
-        items={playlists}
-        renderItem={(playlist) => <PlaylistCard playlist={playlist} />}
-        renderSkeleton={() => <Skeleton className="aspect-square rounded-lg" />}
-        getItemKey={(playlist) => playlist.id}
-      />
-    </div>
-  );
-}
-
-// Playlist card component
-function PlaylistCard({ playlist }: { playlist: { id: string; name: string; songCount: number; coverArt?: string } }) {
-  const coverArtUrl = playlist.coverArt ? getClient()?.getCoverArtUrl(playlist.coverArt, 300) : null;
-
-  return (
-    <Link
-      href={`/playlists/${playlist.id}`}
-      className="group relative p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors cursor-pointer block"
-    >
-      <div className="relative aspect-square rounded-md overflow-hidden bg-muted mb-4">
-        {coverArtUrl ? (
-          <img
-            src={coverArtUrl}
-            alt={playlist.name}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-            <ListMusic className="w-12 h-12 text-muted-foreground" />
-          </div>
-        )}
-      </div>
-      <div className="space-y-1">
-        <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-          {playlist.name}
-        </h3>
-        <p className="text-sm text-muted-foreground truncate">
-          {playlist.songCount} songs
         </p>
       </div>
     </Link>

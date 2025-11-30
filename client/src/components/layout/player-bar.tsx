@@ -1,9 +1,11 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
+import { toast } from "sonner";
 import {
   Play,
   Pause,
@@ -49,6 +51,32 @@ export function PlayerBar() {
   const playbackState = useAtomValue(playbackStateAtom);
   const connection = useAtomValue(serverConnectionAtom);
   const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
+  const [isStarred, setIsStarred] = useState(false);
+
+  // Sync starred state when track changes
+  useEffect(() => {
+    setIsStarred(!!currentTrack?.starred);
+  }, [currentTrack?.id, currentTrack?.starred]);
+
+  const handleStar = async () => {
+    const client = getClient();
+    if (!client || !currentTrack) return;
+
+    try {
+      if (isStarred) {
+        await client.unstar({ id: currentTrack.id });
+        setIsStarred(false);
+        toast.success("Removed from favorites");
+      } else {
+        await client.star({ id: currentTrack.id });
+        setIsStarred(true);
+        toast.success("Added to favorites");
+      }
+    } catch (error) {
+      toast.error("Failed to update favorites");
+      console.error(error);
+    }
+  };
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
 
   const { togglePlayPause, next, previous, seekPercent } = useAudioEngine();
@@ -145,8 +173,9 @@ export function PlayerBar() {
                 variant="ghost"
                 size="icon"
                 className="hidden sm:flex shrink-0 h-8 w-8"
+                onClick={handleStar}
               >
-                <Heart className="w-4 h-4" />
+                <Heart className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")} />
               </Button>
             </>
           ) : (

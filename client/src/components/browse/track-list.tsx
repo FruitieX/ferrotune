@@ -218,20 +218,15 @@ export function TrackRow({
       ref={rowRef}
       data-testid="track-row"
       className={cn(
-        "group grid gap-4 px-4 py-2 rounded-md hover:bg-accent/60 transition-colors",
-        "items-center cursor-pointer",
+        "group flex items-center gap-4 px-4 pr-6 py-2 rounded-md hover:bg-accent/60 transition-colors",
+        "cursor-pointer",
         isCurrentTrack && "bg-accent/40",
         className
       )}
-      style={{
-        gridTemplateColumns: showCover
-          ? "2.5rem 1fr auto auto"
-          : "2rem 1fr auto auto",
-      }}
       onClick={handlePlay}
     >
       {/* Index or Play button */}
-      <div className="w-8 text-center">
+      <div className="w-8 text-center shrink-0">
         <span
           className={cn(
             "text-sm tabular-nums text-muted-foreground group-hover:hidden",
@@ -259,7 +254,7 @@ export function TrackRow({
 
       {/* Cover art (optional) */}
       {showCover && (
-        <div className="relative w-10 h-10 rounded overflow-hidden bg-muted shrink-0 -ml-2">
+        <div className="relative w-10 h-10 rounded overflow-hidden bg-muted shrink-0">
           {coverArtUrl ? (
             <Image
               src={coverArtUrl}
@@ -278,7 +273,7 @@ export function TrackRow({
       )}
 
       {/* Song info */}
-      <div className={cn("min-w-0 flex flex-col", showCover && "col-start-2")}>
+      <div className="min-w-0 flex flex-col flex-1">
         <span
           className={cn(
             "text-sm font-medium truncate",
@@ -291,13 +286,13 @@ export function TrackRow({
           {showArtist && (
             <Link
               href={`/library/artists/${song.artistId}`}
-              className="hover:underline hover:text-foreground"
+              className="hover:underline hover:text-foreground shrink-0"
               onClick={(e) => e.stopPropagation()}
             >
               {song.artist}
             </Link>
           )}
-          {showArtist && showAlbum && <span>•</span>}
+          {showArtist && showAlbum && <span className="shrink-0">•</span>}
           {showAlbum && (
             <Link
               href={`/library/albums/${song.albumId}`}
@@ -311,7 +306,7 @@ export function TrackRow({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
         <Button
           variant="ghost"
           size="icon"
@@ -332,7 +327,7 @@ export function TrackRow({
       </div>
 
       {/* Duration */}
-      <span className="text-sm text-muted-foreground tabular-nums">
+      <span className="text-sm text-muted-foreground tabular-nums shrink-0">
         {formatDuration(song.duration)}
       </span>
     </div>

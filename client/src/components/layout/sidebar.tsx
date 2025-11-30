@@ -11,7 +11,6 @@ import {
   Library,
   ListMusic,
   Heart,
-  Plus,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -113,7 +112,7 @@ export function Sidebar() {
       </div>
 
       {/* Main Navigation */}
-      <nav className="px-2 py-4 space-y-1">
+      <nav className="px-2 py-4 space-y-2">
         {navItems.map((item) => {
           const isActive = item.href === "/" 
             ? pathname === "/" 
@@ -145,23 +144,15 @@ export function Sidebar() {
       {/* Library Section */}
       <div className="flex-1 flex flex-col min-h-0 py-4">
         {!collapsed && (
-          <div className="px-4 mb-2 flex items-center justify-between">
+          <div className="px-4 mb-2">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Your Library
             </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 hover:bg-sidebar-accent"
-              disabled={!isConnected}
-            >
-              <Plus className="w-4 h-4" />
-            </Button>
           </div>
         )}
 
         <ScrollArea className="flex-1 px-2">
-          <div className="space-y-1">
+          <div className="space-y-2">
             {/* Liked Songs */}
             <Link href="/favorites">
               <Button
@@ -221,8 +212,7 @@ export function Sidebar() {
                     <Link href="/playlists">
                       <Button
                         variant="ghost"
-                        size="sm"
-                        className="w-full justify-start h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                        className="w-full justify-start px-2 text-muted-foreground hover:text-foreground"
                       >
                         View all playlists
                       </Button>
