@@ -14,6 +14,7 @@ import {
   User,
   Disc,
   FolderPlus,
+  Info,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -37,6 +38,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
+import { DetailsDialog } from "@/components/shared/details-dialog";
 import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
@@ -53,6 +55,7 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!song.starred);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const handlePlay = () => {
     if (queueSongs && queueSongs.length > 0) {
@@ -184,6 +187,10 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
         <Download className="w-4 h-4 mr-2" />
         Download
       </ContextMenuItem>
+      <ContextMenuItem onClick={() => setDetailsOpen(true)}>
+        <Info className="w-4 h-4 mr-2" />
+        View Details
+      </ContextMenuItem>
     </>
   );
 
@@ -198,6 +205,11 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
         onOpenChange={setAddToPlaylistOpen}
         songs={[song]}
       />
+      <DetailsDialog
+        item={{ type: "song", data: song }}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+      />
     </>
   );
 }
@@ -208,6 +220,7 @@ export function SongDropdownMenu({ song, queueSongs }: Omit<SongContextMenuProps
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!song.starred);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const handlePlay = () => {
     if (queueSongs && queueSongs.length > 0) {
@@ -352,12 +365,21 @@ export function SongDropdownMenu({ song, queueSongs }: Omit<SongContextMenuProps
             <Download className="w-4 h-4 mr-2" />
             Download
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setDetailsOpen(true)}>
+            <Info className="w-4 h-4 mr-2" />
+            View Details
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <AddToPlaylistDialog
         open={addToPlaylistOpen}
         onOpenChange={setAddToPlaylistOpen}
         songs={[song]}
+      />
+      <DetailsDialog
+        item={{ type: "song", data: song }}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
       />
     </>
   );

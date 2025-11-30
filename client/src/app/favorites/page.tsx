@@ -12,9 +12,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { ArtistCard, ArtistCardSkeleton } from "@/components/browse/artist-card";
-import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
+import { TrackList } from "@/components/browse/track-list";
 import { formatCount, formatTotalDuration } from "@/lib/utils/format";
-import type { Album, Song } from "@/lib/api/types";
+import type { Album } from "@/lib/api/types";
 
 export default function FavoritesPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
@@ -92,7 +92,7 @@ export default function FavoritesPage() {
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="w-48 h-48 rounded-lg bg-gradient-to-br from-red-500 to-red-800 flex items-center justify-center shadow-xl"
+              className="w-48 h-48 rounded-lg bg-linear-to-br from-red-500 to-red-800 flex items-center justify-center shadow-xl"
             >
               <Heart className="w-20 h-20 text-white fill-white" />
             </motion.div>
@@ -156,25 +156,13 @@ export default function FavoritesPage() {
         </div>
 
         <TabsContent value="songs" className="mt-0">
-          <div className="divide-y divide-border/50">
-            {isLoading ? (
-              Array.from({ length: 10 }).map((_, i) => (
-                <SongRowSkeleton key={i} showCover />
-              ))
-            ) : songs.length > 0 ? (
-              songs.map((song, index) => (
-                <SongRow
-                  key={song.id}
-                  song={song}
-                  index={index}
-                  showCover
-                  queueSongs={songs}
-                />
-              ))
-            ) : (
-              <EmptyState message="No liked songs yet" />
-            )}
-          </div>
+          <TrackList
+            songs={songs}
+            isLoading={isLoading}
+            showCover
+            showHeader
+            emptyMessage="No liked songs yet"
+          />
         </TabsContent>
 
         <TabsContent value="albums" className="mt-0">

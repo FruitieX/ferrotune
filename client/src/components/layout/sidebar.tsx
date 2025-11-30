@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAtom, useAtomValue } from "jotai";
+import { useQuery } from "@tanstack/react-query";
 import {
   Home,
   Search,
@@ -13,8 +14,11 @@ import {
   Plus,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Settings,
   Music2,
+  Folder,
+  FolderOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -22,10 +26,24 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   sidebarCollapsedAtom,
   sidebarWidthAtom,
+  playlistsSidebarExpandedAtom,
+  expandedPlaylistFoldersAtom,
 } from "@/lib/store/ui";
 import { isConnectedAtom } from "@/lib/store/auth";
+import { getClient } from "@/lib/api/client";
+import {
+  organizePlaylistsIntoFolders,
+  getPlaylistDisplayName,
+  type PlaylistFolder,
+} from "@/lib/utils/playlist-folders";
+import type { Playlist } from "@/lib/api/types";
 
 const navItems = [
   { href: "/", icon: Home, label: "Home" },
@@ -33,16 +51,34 @@ const navItems = [
   { href: "/library", icon: Library, label: "Library" },
 ];
 
-const libraryItems = [
-  { href: "/favorites", icon: Heart, label: "Liked Songs" },
-  { href: "/playlists", icon: ListMusic, label: "Playlists" },
-];
-
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useAtom(sidebarCollapsedAtom);
   const sidebarWidth = useAtomValue(sidebarWidthAtom);
   const isConnected = useAtomValue(isConnectedAtom);
+  const [playlistsExpanded, setPlaylistsExpanded] = useAtom(playlistsSidebarExpandedAtom);
+  const [expandedFolders, setExpandedFolders] = useAtom(expandedPlaylistFoldersAtom);
+
+  // Fetch playlists
+  const { data: playlists, isLoading: playlistsLoading } = useQuery({
+    queryKey: ["playlists"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getPlaylists();
+      return response.playlists.playlist ?? [];
+    },
+    enabled: isConnected,
+  });
+
+  // Organize playlists into folder structure
+  const playlistTree = playlists ? organizePlaylistsIntoFolders(playlists) : null;
+
+  const toggleFolder = (path: string) => {
+    setExpandedFolders((prev) =>
+      prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]
+    );
+  };
 
   // Don't show sidebar on login page
   if (pathname === "/login") {
@@ -126,35 +162,90 @@ export function Sidebar() {
 
         <ScrollArea className="flex-1 px-2">
           <div className="space-y-1">
-            {libraryItems.map((item) => {
-              const isActive = pathname.startsWith(item.href);
-              
-              return (
-                <Link key={item.href} href={item.href}>
+            {/* Liked Songs */}
+            <Link href="/favorites">
+              <Button
+                variant="ghost"
+                className={cn(
+                  "w-full justify-start gap-4 h-10 px-3",
+                  "hover:bg-sidebar-accent",
+                  pathname.startsWith("/favorites") && "bg-sidebar-accent text-sidebar-primary",
+                  collapsed && "justify-center px-0"
+                )}
+                disabled={!isConnected}
+              >
+                <Heart className={cn("w-5 h-5 shrink-0", pathname.startsWith("/favorites") && "text-sidebar-primary")} />
+                {!collapsed && <span className="truncate">Liked Songs</span>}
+              </Button>
+            </Link>
+
+            {/* Playlists Section */}
+            {!collapsed && isConnected && (
+              <Collapsible open={playlistsExpanded} onOpenChange={setPlaylistsExpanded}>
+                <CollapsibleTrigger asChild>
                   <Button
                     variant="ghost"
                     className={cn(
                       "w-full justify-start gap-4 h-10 px-3",
                       "hover:bg-sidebar-accent",
-                      isActive && "bg-sidebar-accent text-sidebar-primary",
-                      collapsed && "justify-center px-0"
+                      pathname.startsWith("/playlists") && "bg-sidebar-accent text-sidebar-primary"
                     )}
-                    disabled={!isConnected}
                   >
-                    <item.icon className={cn("w-5 h-5 shrink-0", isActive && "text-sidebar-primary")} />
-                    {!collapsed && (
-                      <span className="truncate">{item.label}</span>
-                    )}
+                    <ListMusic className={cn("w-5 h-5 shrink-0", pathname.startsWith("/playlists") && "text-sidebar-primary")} />
+                    <span className="truncate flex-1 text-left">Playlists</span>
+                    <ChevronDown className={cn(
+                      "w-4 h-4 shrink-0 transition-transform duration-200",
+                      playlistsExpanded && "rotate-180"
+                    )} />
                   </Button>
-                </Link>
-              );
-            })}
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="pl-4 mt-1 space-y-0.5">
+                    {playlistsLoading ? (
+                      <>
+                        <Skeleton className="h-8 w-full rounded" />
+                        <Skeleton className="h-8 w-full rounded" />
+                        <Skeleton className="h-8 w-full rounded" />
+                      </>
+                    ) : playlistTree ? (
+                      <PlaylistFolderTree
+                        folder={playlistTree}
+                        pathname={pathname}
+                        expandedFolders={expandedFolders}
+                        toggleFolder={toggleFolder}
+                        depth={0}
+                      />
+                    ) : null}
+                    
+                    {/* View All Playlists link */}
+                    <Link href="/playlists">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        View all playlists
+                      </Button>
+                    </Link>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
 
-            {/* Playlist placeholders */}
-            {!collapsed && isConnected && (
-              <div className="pt-2 space-y-1">
-                {/* Playlists will be loaded here */}
-              </div>
+            {/* Collapsed playlists button */}
+            {collapsed && isConnected && (
+              <Link href="/playlists">
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-center h-10 px-0",
+                    "hover:bg-sidebar-accent",
+                    pathname.startsWith("/playlists") && "bg-sidebar-accent text-sidebar-primary"
+                  )}
+                >
+                  <ListMusic className={cn("w-5 h-5 shrink-0", pathname.startsWith("/playlists") && "text-sidebar-primary")} />
+                </Button>
+              </Link>
             )}
 
             {!isConnected && !collapsed && (
@@ -208,6 +299,88 @@ export function Sidebar() {
         </Button>
       </div>
     </motion.aside>
+  );
+}
+
+// Recursive component to render playlist folder tree
+interface PlaylistFolderTreeProps {
+  folder: PlaylistFolder;
+  pathname: string;
+  expandedFolders: string[];
+  toggleFolder: (path: string) => void;
+  depth: number;
+}
+
+function PlaylistFolderTree({
+  folder,
+  pathname,
+  expandedFolders,
+  toggleFolder,
+  depth,
+}: PlaylistFolderTreeProps) {
+  return (
+    <>
+      {/* Subfolders */}
+      {folder.subfolders.map((subfolder) => {
+        const isExpanded = expandedFolders.includes(subfolder.path);
+        
+        return (
+          <Collapsible key={subfolder.path} open={isExpanded} onOpenChange={() => toggleFolder(subfolder.path)}>
+            <CollapsibleTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent"
+                style={{ paddingLeft: `${depth * 12 + 8}px` }}
+              >
+                {isExpanded ? (
+                  <FolderOpen className="w-4 h-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <Folder className="w-4 h-4 shrink-0 text-muted-foreground" />
+                )}
+                <span className="truncate text-sm">{subfolder.name}</span>
+                <ChevronDown className={cn(
+                  "w-3 h-3 shrink-0 ml-auto transition-transform duration-200",
+                  isExpanded && "rotate-180"
+                )} />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <PlaylistFolderTree
+                folder={subfolder}
+                pathname={pathname}
+                expandedFolders={expandedFolders}
+                toggleFolder={toggleFolder}
+                depth={depth + 1}
+              />
+            </CollapsibleContent>
+          </Collapsible>
+        );
+      })}
+
+      {/* Playlists in this folder */}
+      {folder.playlists.map((playlist) => {
+        const isActive = pathname === `/playlists/${playlist.id}`;
+        const displayName = getPlaylistDisplayName(playlist);
+        
+        return (
+          <Link key={playlist.id} href={`/playlists/${playlist.id}`}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
+                isActive && "bg-sidebar-accent text-sidebar-primary"
+              )}
+              style={{ paddingLeft: `${depth * 12 + 8}px` }}
+            >
+              <ListMusic className="w-4 h-4 shrink-0 text-muted-foreground" />
+              <span className="truncate text-sm">{displayName}</span>
+            </Button>
+          </Link>
+        );
+      })}
+    </>
   );
 }
 
