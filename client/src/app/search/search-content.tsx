@@ -139,14 +139,17 @@ export function SearchPageContent() {
           <div className="relative max-w-xl">
             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
-              type="search"
+              type="text"
               placeholder="Search for artists, albums, or songs..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="pl-10 pr-10 h-12 text-lg bg-secondary border-0 rounded-full"
               autoFocus
             />
-            {query && (
+            {isFetching && (
+              <Loader2 className="absolute right-12 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+            )}
+            {query && !isFetching && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -155,9 +158,6 @@ export function SearchPageContent() {
               >
                 <X className="w-4 h-4" />
               </Button>
-            )}
-            {isFetching && (
-              <Loader2 className="absolute right-12 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
             )}
           </div>
         </div>

@@ -123,60 +123,62 @@ export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompa
   const hasImage = coverArtUrl && !imageError;
 
   return (
-    <div
-      className={cn(
-        "group flex items-center gap-3 p-2 rounded-md hover:bg-accent/50 transition-colors cursor-pointer",
-        className
-      )}
-    >
-      <Link
-        href={`/library/artists/${artist.id}`}
-        className="flex items-center gap-3 flex-1 min-w-0"
+    <ArtistContextMenu artist={artist}>
+      <div
+        className={cn(
+          "group flex items-center gap-3 p-2 rounded-md hover:bg-accent/50 transition-colors cursor-pointer",
+          className
+        )}
       >
-        <div className="relative w-12 h-12 rounded-full overflow-hidden bg-muted shrink-0">
-          {hasImage ? (
-            <>
-              {!imageLoaded && (
-                <Skeleton className="absolute inset-0 w-full h-full rounded-full" />
-              )}
-              <img
-                src={coverArtUrl}
-                alt={artist.name || "Artist image"}
-                loading="lazy"
-                decoding="async"
-                className={cn(
-                  "absolute inset-0 w-full h-full object-cover transition-opacity duration-200",
-                  imageLoaded ? "opacity-100" : "opacity-0"
+        <Link
+          href={`/library/artists/${artist.id}`}
+          className="flex items-center gap-3 flex-1 min-w-0"
+        >
+          <div className="relative w-12 h-12 rounded-full overflow-hidden bg-muted shrink-0">
+            {hasImage ? (
+              <>
+                {!imageLoaded && (
+                  <Skeleton className="absolute inset-0 w-full h-full rounded-full" />
                 )}
-                onLoad={() => setImageLoaded(true)}
-                onError={() => setImageError(true)}
-              />
-            </>
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-              <User className="w-5 h-5 text-muted-foreground" />
-            </div>
-          )}
-        </div>
-        <div className="min-w-0">
-          <p className="font-medium text-sm truncate">{artist.name}</p>
-          <p className="text-xs text-muted-foreground truncate">
-            {formatCount(artist.albumCount, "album")}
-          </p>
-        </div>
-      </Link>
-      
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-        onClick={(e) => {
-          e.preventDefault();
-          onPlay?.();
-        }}
-      >
-        <Play className="w-4 h-4" />
-      </Button>
-    </div>
+                <img
+                  src={coverArtUrl}
+                  alt={artist.name || "Artist image"}
+                  loading="lazy"
+                  decoding="async"
+                  className={cn(
+                    "absolute inset-0 w-full h-full object-cover transition-opacity duration-200",
+                    imageLoaded ? "opacity-100" : "opacity-0"
+                  )}
+                  onLoad={() => setImageLoaded(true)}
+                  onError={() => setImageError(true)}
+                />
+              </>
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
+                <User className="w-5 h-5 text-muted-foreground" />
+              </div>
+            )}
+          </div>
+          <div className="min-w-0">
+            <p className="font-medium text-sm truncate">{artist.name}</p>
+            <p className="text-xs text-muted-foreground truncate">
+              {formatCount(artist.albumCount, "album")}
+            </p>
+          </div>
+        </Link>
+        
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={(e) => {
+            e.preventDefault();
+            onPlay?.();
+          }}
+        >
+          <Play className="w-4 h-4" />
+        </Button>
+      </div>
+    </ArtistContextMenu>
   );
 }

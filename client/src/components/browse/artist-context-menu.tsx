@@ -10,6 +10,7 @@ import {
   Heart,
   Shuffle,
   MoreHorizontal,
+  FolderPlus,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -26,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import type { Artist, Song } from "@/lib/api/types";
@@ -35,36 +37,40 @@ interface ArtistContextMenuProps {
   children: React.ReactNode;
 }
 
+// Helper function to fetch all songs from an artist
+async function fetchArtistSongs(artistId: string): Promise<Song[]> {
+  const client = getClient();
+  if (!client) return [];
+  
+  try {
+    const artistData = await client.getArtist(artistId);
+    if (!artistData.artist.album?.length) return [];
+    
+    // Get songs from all albums
+    const allSongs: Song[] = [];
+    for (const album of artistData.artist.album) {
+      const albumData = await client.getAlbum(album.id);
+      if (albumData.album.song) {
+        allSongs.push(...albumData.album.song);
+      }
+    }
+    return allSongs;
+  } catch (error) {
+    console.error("Failed to fetch artist songs:", error);
+    return [];
+  }
+}
+
 export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) {
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!artist.starred);
-
-  const fetchArtistSongs = async () => {
-    const client = getClient();
-    if (!client) return null;
-    try {
-      const artistData = await client.getArtist(artist.id);
-      if (!artistData.artist.album?.length) return null;
-      
-      // Get songs from all albums
-      const allSongs: Song[] = [];
-      for (const album of artistData.artist.album) {
-        const albumData = await client.getAlbum(album.id);
-        if (albumData.album.song) {
-          allSongs.push(...albumData.album.song);
-        }
-      }
-      return allSongs;
-    } catch (error) {
-      console.error("Failed to fetch artist songs:", error);
-      return null;
-    }
-  };
+  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+  const [artistSongs, setArtistSongs] = useState<Song[] | null>(null);
 
   const handlePlay = async () => {
-    const songs = await fetchArtistSongs();
-    if (songs && songs.length > 0) {
+    const songs = await fetchArtistSongs(artist.id);
+    if (songs.length > 0) {
       playNow(songs);
       toast.success(`Playing "${artist.name}"`);
     } else {
@@ -73,8 +79,8 @@ export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) 
   };
 
   const handleShuffle = async () => {
-    const songs = await fetchArtistSongs();
-    if (songs && songs.length > 0) {
+    const songs = await fetchArtistSongs(artist.id);
+    if (songs.length > 0) {
       const shuffled = [...songs].sort(() => Math.random() - 0.5);
       playNow(shuffled);
       toast.success(`Shuffling "${artist.name}"`);
@@ -84,8 +90,8 @@ export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) 
   };
 
   const handlePlayNext = async () => {
-    const songs = await fetchArtistSongs();
-    if (songs && songs.length > 0) {
+    const songs = await fetchArtistSongs(artist.id);
+    if (songs.length > 0) {
       addToQueue(songs, "next");
       toast.success(`Added "${artist.name}" songs to play next`);
     } else {
@@ -94,10 +100,20 @@ export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) 
   };
 
   const handleAddToQueue = async () => {
-    const songs = await fetchArtistSongs();
-    if (songs && songs.length > 0) {
+    const songs = await fetchArtistSongs(artist.id);
+    if (songs.length > 0) {
       addToQueue(songs, "last");
       toast.success(`Added "${artist.name}" songs to queue`);
+    } else {
+      toast.error("No songs found for this artist");
+    }
+  };
+
+  const handleAddToPlaylist = async () => {
+    const songs = await fetchArtistSongs(artist.id);
+    if (songs.length > 0) {
+      setArtistSongs(songs);
+      setAddToPlaylistOpen(true);
     } else {
       toast.error("No songs found for this artist");
     }
@@ -142,6 +158,10 @@ export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) 
         <ListEnd className="w-4 h-4 mr-2" />
         Add to Queue
       </ContextMenuItem>
+      <ContextMenuItem onClick={handleAddToPlaylist}>
+        <FolderPlus className="w-4 h-4 mr-2" />
+        Add to Playlist
+      </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onClick={handleStar}>
         <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
@@ -151,47 +171,43 @@ export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) 
   );
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent className="w-56">{menuItems}</ContextMenuContent>
-    </ContextMenu>
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+        <ContextMenuContent className="w-56">{menuItems}</ContextMenuContent>
+      </ContextMenu>
+      {artistSongs && (
+        <AddToPlaylistDialog
+          open={addToPlaylistOpen}
+          onOpenChange={setAddToPlaylistOpen}
+          songs={artistSongs}
+        />
+      )}
+    </>
   );
 }
 
-// Dropdown variant for artist cards
-export function ArtistDropdownMenu({ artist, onPlay }: { artist: Artist; onPlay?: () => void }) {
+// Dropdown variant for artist cards and header buttons
+interface ArtistDropdownMenuProps {
+  artist: Artist;
+  onPlay?: () => void;
+  onShuffle?: () => void;
+  trigger?: React.ReactNode;
+}
+
+export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: ArtistDropdownMenuProps) {
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!artist.starred);
-
-  const fetchArtistSongs = async () => {
-    const client = getClient();
-    if (!client) return null;
-    try {
-      const artistData = await client.getArtist(artist.id);
-      if (!artistData.artist.album?.length) return null;
-      
-      // Get songs from all albums
-      const allSongs: Song[] = [];
-      for (const album of artistData.artist.album) {
-        const albumData = await client.getAlbum(album.id);
-        if (albumData.album.song) {
-          allSongs.push(...albumData.album.song);
-        }
-      }
-      return allSongs;
-    } catch (error) {
-      console.error("Failed to fetch artist songs:", error);
-      return null;
-    }
-  };
+  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+  const [artistSongs, setArtistSongs] = useState<Song[] | null>(null);
 
   const handlePlay = async () => {
     if (onPlay) {
       onPlay();
     } else {
-      const songs = await fetchArtistSongs();
-      if (songs && songs.length > 0) {
+      const songs = await fetchArtistSongs(artist.id);
+      if (songs.length > 0) {
         playNow(songs);
         toast.success(`Playing "${artist.name}"`);
       } else {
@@ -201,19 +217,23 @@ export function ArtistDropdownMenu({ artist, onPlay }: { artist: Artist; onPlay?
   };
 
   const handleShuffle = async () => {
-    const songs = await fetchArtistSongs();
-    if (songs && songs.length > 0) {
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
-      toast.success(`Shuffling "${artist.name}"`);
+    if (onShuffle) {
+      onShuffle();
     } else {
-      toast.error("No songs found for this artist");
+      const songs = await fetchArtistSongs(artist.id);
+      if (songs.length > 0) {
+        const shuffled = [...songs].sort(() => Math.random() - 0.5);
+        playNow(shuffled);
+        toast.success(`Shuffling "${artist.name}"`);
+      } else {
+        toast.error("No songs found for this artist");
+      }
     }
   };
 
   const handlePlayNext = async () => {
-    const songs = await fetchArtistSongs();
-    if (songs && songs.length > 0) {
+    const songs = await fetchArtistSongs(artist.id);
+    if (songs.length > 0) {
       addToQueue(songs, "next");
       toast.success(`Added "${artist.name}" songs to play next`);
     } else {
@@ -222,10 +242,20 @@ export function ArtistDropdownMenu({ artist, onPlay }: { artist: Artist; onPlay?
   };
 
   const handleAddToQueue = async () => {
-    const songs = await fetchArtistSongs();
-    if (songs && songs.length > 0) {
+    const songs = await fetchArtistSongs(artist.id);
+    if (songs.length > 0) {
       addToQueue(songs, "last");
       toast.success(`Added "${artist.name}" songs to queue`);
+    } else {
+      toast.error("No songs found for this artist");
+    }
+  };
+
+  const handleAddToPlaylist = async () => {
+    const songs = await fetchArtistSongs(artist.id);
+    if (songs.length > 0) {
+      setArtistSongs(songs);
+      setAddToPlaylistOpen(true);
     } else {
       toast.error("No songs found for this artist");
     }
@@ -251,46 +281,90 @@ export function ArtistDropdownMenu({ artist, onPlay }: { artist: Artist; onPlay?
     }
   };
 
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 hover:bg-background z-10"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-        >
-          <MoreHorizontal className="w-4 h-4" />
-          <span className="sr-only">More options</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuItem onClick={handlePlay}>
-          <Play className="w-4 h-4 mr-2" />
-          Play
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={handleShuffle}>
-          <Shuffle className="w-4 h-4 mr-2" />
-          Shuffle
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handlePlayNext}>
-          <ListPlus className="w-4 h-4 mr-2" />
-          Play Next
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={handleAddToQueue}>
-          <ListEnd className="w-4 h-4 mr-2" />
-          Add to Queue
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleStar}>
-          <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
-          {isStarred ? "Remove from Favorites" : "Add to Favorites"}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+  const defaultTrigger = (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-8 w-8 absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 hover:bg-background z-10"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
+      <MoreHorizontal className="w-4 h-4" />
+      <span className="sr-only">More options</span>
+    </Button>
   );
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          {trigger ?? defaultTrigger}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem onClick={handlePlay}>
+            <Play className="w-4 h-4 mr-2" />
+            Play
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleShuffle}>
+            <Shuffle className="w-4 h-4 mr-2" />
+            Shuffle
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handlePlayNext}>
+            <ListPlus className="w-4 h-4 mr-2" />
+            Play Next
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleAddToQueue}>
+            <ListEnd className="w-4 h-4 mr-2" />
+            Add to Queue
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleAddToPlaylist}>
+            <FolderPlus className="w-4 h-4 mr-2" />
+            Add to Playlist
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleStar}>
+            <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
+            {isStarred ? "Remove from Favorites" : "Add to Favorites"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {artistSongs && (
+        <AddToPlaylistDialog
+          open={addToPlaylistOpen}
+          onOpenChange={setAddToPlaylistOpen}
+          songs={artistSongs}
+        />
+      )}
+    </>
+  );
+}
+
+// Hook to manage artist star state (for use in pages where we need external control)
+export function useArtistStar(initialStarred: boolean, artistId: string, artistName: string) {
+  const [isStarred, setIsStarred] = useState(initialStarred);
+
+  const handleStar = async () => {
+    const client = getClient();
+    if (!client) return;
+
+    try {
+      if (isStarred) {
+        await client.unstar({ artistId });
+        setIsStarred(false);
+        toast.success(`Removed "${artistName}" from favorites`);
+      } else {
+        await client.star({ artistId });
+        setIsStarred(true);
+        toast.success(`Added "${artistName}" to favorites`);
+      }
+    } catch (error) {
+      toast.error("Failed to update favorites");
+      console.error(error);
+    }
+  };
+
+  return { isStarred, handleStar, setIsStarred };
 }

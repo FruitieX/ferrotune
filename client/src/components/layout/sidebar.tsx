@@ -12,6 +12,7 @@ import {
   Library,
   ListMusic,
   Heart,
+  History,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -97,7 +98,7 @@ export function Sidebar() {
       animate={{ width: collapsed ? 72 : sidebarWidth }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className={cn(
-        "hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border",
+        "hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden",
         "fixed left-0 top-0 bottom-[88px] z-40"
       )}
     >
@@ -119,40 +120,42 @@ export function Sidebar() {
       </div>
 
       {/* Main Navigation */}
-      <nav className="px-2 py-4 space-y-2">
-        {navItems.map((item) => {
-          const isActive = item.href === "/" 
-            ? pathname === "/" 
-            : pathname.startsWith(item.href);
-          
-          return (
-            <Link key={item.href} href={item.href}>
-              <Button
-                variant="ghost"
-                className={cn(
-                  "w-full justify-start gap-4 h-11 px-3 overflow-hidden",
-                  "hover:bg-sidebar-accent",
-                  isActive && "bg-sidebar-accent text-sidebar-primary font-semibold",
-                  collapsed && "justify-center px-0"
-                )}
-              >
-                <item.icon className={cn("w-5 h-5 shrink-0", isActive && "text-sidebar-primary")} />
-                {!collapsed && (
-                  <span className="truncate whitespace-nowrap">{item.label}</span>
-                )}
-              </Button>
-            </Link>
-          );
-        })}
+      <nav className="px-2 py-4">
+        <div className="space-y-1">
+          {navItems.map((item) => {
+            const isActive = item.href === "/" 
+              ? pathname === "/" 
+              : pathname.startsWith(item.href);
+            
+            return (
+              <Link key={item.href} href={item.href}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-4 h-11 px-3 overflow-hidden",
+                    "hover:bg-sidebar-accent",
+                    isActive && "bg-sidebar-accent text-sidebar-primary font-semibold",
+                    collapsed && "justify-center px-0"
+                  )}
+                >
+                  <item.icon className={cn("w-5 h-5 shrink-0", isActive && "text-sidebar-primary")} />
+                  {!collapsed && (
+                    <span className="truncate whitespace-nowrap">{item.label}</span>
+                  )}
+                </Button>
+              </Link>
+            );
+          })}
+        </div>
       </nav>
 
       <Separator className="mx-2 bg-sidebar-border" />
 
       {/* Library Section */}
-      <div className="flex-1 flex flex-col min-h-0 py-4">
+      <div className="flex-1 flex flex-col min-h-0 py-4 overflow-hidden">
         {!collapsed && (
-          <div className="px-4 mb-2">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          <div className="px-4 mb-2 overflow-hidden">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
               Your Library
             </span>
           </div>
@@ -174,6 +177,23 @@ export function Sidebar() {
               >
                 <Heart className={cn("w-5 h-5 shrink-0", pathname.startsWith("/favorites") && "text-sidebar-primary")} />
                 {!collapsed && <span className="truncate whitespace-nowrap">Liked Songs</span>}
+              </Button>
+            </Link>
+
+            {/* Recently Played */}
+            <Link href="/history">
+              <Button
+                variant="ghost"
+                className={cn(
+                  "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
+                  "hover:bg-sidebar-accent",
+                  pathname.startsWith("/history") && "bg-sidebar-accent text-sidebar-primary",
+                  collapsed && "justify-center px-0"
+                )}
+                disabled={!isConnected}
+              >
+                <History className={cn("w-5 h-5 shrink-0", pathname.startsWith("/history") && "text-sidebar-primary")} />
+                {!collapsed && <span className="truncate whitespace-nowrap">Recently Played</span>}
               </Button>
             </Link>
 
@@ -267,12 +287,12 @@ export function Sidebar() {
           <Button
             variant="ghost"
             className={cn(
-              "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent",
+              "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent overflow-hidden",
               collapsed && "justify-center px-0"
             )}
           >
-            <Settings className="w-5 h-5" />
-            {!collapsed && <span>Settings</span>}
+            <Settings className="w-5 h-5 shrink-0" />
+            {!collapsed && <span className="truncate whitespace-nowrap">Settings</span>}
           </Button>
         </Link>
 
@@ -280,17 +300,17 @@ export function Sidebar() {
         <Button
           variant="ghost"
           className={cn(
-            "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent",
+            "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent overflow-hidden",
             collapsed && "justify-center px-0"
           )}
           onClick={() => setCollapsed(!collapsed)}
         >
           {collapsed ? (
-            <ChevronRight className="w-5 h-5" />
+            <ChevronRight className="w-5 h-5 shrink-0" />
           ) : (
             <>
-              <ChevronLeft className="w-5 h-5" />
-              <span>Collapse</span>
+              <ChevronLeft className="w-5 h-5 shrink-0" />
+              <span className="truncate whitespace-nowrap">Collapse</span>
             </>
           )}
         </Button>

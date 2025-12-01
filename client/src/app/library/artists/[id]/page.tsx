@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useSetAtom } from "jotai";
@@ -19,7 +19,10 @@ import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
+import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
+import { ArtistDropdownMenu, useArtistStar } from "@/components/browse/artist-context-menu";
 import { formatCount } from "@/lib/utils/format";
+import { cn } from "@/lib/utils";
 import type { Album, Song } from "@/lib/api/types";
 
 interface ArtistPageProps {
@@ -46,44 +49,60 @@ export default function ArtistPage({ params }: ArtistPageProps) {
     enabled: isReady && !!id,
   });
 
+  // Fetch all songs from all albums
+  const { data: allSongs, isLoading: songsLoading } = useQuery({
+    queryKey: ["artist-songs", id, artistData?.album?.map(a => a.id)],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client || !artistData?.album) return [];
+
+      const songs: Song[] = [];
+      for (const album of artistData.album) {
+        try {
+          const albumData = await client.getAlbum(album.id);
+          if (albumData.album.song) {
+            songs.push(...albumData.album.song);
+          }
+        } catch (error) {
+          console.error(`Failed to fetch album ${album.id}:`, error);
+        }
+      }
+      return songs;
+    },
+    enabled: isReady && !!artistData?.album && artistData.album.length > 0,
+  });
+
+  // Use the artist star hook
+  const { isStarred, handleStar, setIsStarred } = useArtistStar(
+    !!artistData?.starred,
+    id,
+    artistData?.name ?? ""
+  );
+
+  // Sync starred state when artist data changes
+  useEffect(() => {
+    if (artistData) {
+      setIsStarred(!!artistData.starred);
+    }
+  }, [artistData, setIsStarred]);
+
   const coverArtUrl = artistData?.coverArt
     ? getClient()?.getCoverArtUrl(artistData.coverArt, 400)
     : null;
 
   const showCoverImage = coverArtUrl && !coverError;
 
-  // Collect all songs from all albums for shuffle play
-  const getAllSongs = async (): Promise<Song[]> => {
-    const client = getClient();
-    if (!client || !artistData?.album) return [];
-
-    const allSongs: Song[] = [];
-    for (const album of artistData.album) {
-      try {
-        const albumData = await client.getAlbum(album.id);
-        if (albumData.album.song) {
-          allSongs.push(...albumData.album.song);
-        }
-      } catch (error) {
-        console.error(`Failed to fetch album ${album.id}:`, error);
-      }
-    }
-    return allSongs;
-  };
-
-  const handlePlayAll = async () => {
-    const songs = await getAllSongs();
-    if (songs.length > 0) {
+  const handlePlayAll = () => {
+    if (allSongs && allSongs.length > 0) {
       setIsShuffled(false);
-      playNow(songs);
+      playNow(allSongs);
     }
   };
 
-  const handleShuffle = async () => {
-    const songs = await getAllSongs();
-    if (songs.length > 0) {
+  const handleShuffle = () => {
+    if (allSongs && allSongs.length > 0) {
       setIsShuffled(true);
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
+      const shuffled = [...allSongs].sort(() => Math.random() - 0.5);
       playNow(shuffled);
     }
   };
@@ -213,12 +232,27 @@ export default function ArtistPage({ params }: ArtistPageProps) {
             <Shuffle className="w-5 h-5" />
             Shuffle
           </Button>
-          <Button variant="ghost" size="icon" className="h-10 w-10">
-            <Heart className="w-5 h-5" />
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-10 w-10"
+            onClick={handleStar}
+            disabled={!artistData}
+          >
+            <Heart className={cn("w-5 h-5", isStarred && "fill-red-500 text-red-500")} />
           </Button>
-          <Button variant="ghost" size="icon" className="h-10 w-10">
-            <MoreHorizontal className="w-5 h-5" />
-          </Button>
+          {artistData && (
+            <ArtistDropdownMenu 
+              artist={artistData}
+              onPlay={handlePlayAll}
+              onShuffle={handleShuffle}
+              trigger={
+                <Button variant="ghost" size="icon" className="h-10 w-10">
+                  <MoreHorizontal className="w-5 h-5" />
+                </Button>
+              }
+            />
+          )}
         </div>
       </div>
 
@@ -255,6 +289,50 @@ export default function ArtistPage({ params }: ArtistPageProps) {
         ) : (
           <div className="py-20 text-center text-muted-foreground">
             No albums found
+          </div>
+        )}
+      </div>
+
+      {/* Songs section */}
+      <div className="p-4 lg:p-6">
+        <h2 className="text-xl font-bold mb-6">Songs</h2>
+        {songsLoading || isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <SongRowSkeleton key={i} />
+            ))}
+          </div>
+        ) : allSongs && allSongs.length > 0 ? (
+          <motion.div 
+            className="space-y-1"
+            initial="hidden"
+            animate="visible"
+            variants={{
+              visible: { transition: { staggerChildren: 0.02 } },
+            }}
+          >
+            {allSongs.map((song, index) => (
+              <motion.div
+                key={song.id}
+                variants={{
+                  hidden: { opacity: 0, x: -10 },
+                  visible: { opacity: 1, x: 0 },
+                }}
+              >
+                <SongRow 
+                  song={song} 
+                  index={index + 1} 
+                  showAlbum={true}
+                  showArtist={false}
+                  showCover={true}
+                  queueSongs={allSongs}
+                />
+              </motion.div>
+            ))}
+          </motion.div>
+        ) : (
+          <div className="py-20 text-center text-muted-foreground">
+            No songs found
           </div>
         )}
       </div>

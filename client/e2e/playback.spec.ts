@@ -70,6 +70,38 @@ test.describe("Playback", () => {
   });
 });
 
+test.describe("Repeat Mode Behavior", () => {
+  test("repeat one only loops track on natural end, not on next click", async ({ authenticatedPage: page }, testInfo) => {
+    // Skip this test on mobile since repeat button is in a different location
+    if (testInfo.project.name === "mobile-chrome") {
+      test.skip();
+      return;
+    }
+    
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    
+    const playerBar = page.getByTestId("player-bar");
+    
+    // Verify First Song is playing
+    await expect(playerBar).toContainText("First Song");
+    
+    // Enable repeat one mode (click repeat twice: off -> all -> one)
+    const repeatButton = playerBar.getByRole("button", { name: /repeat/i });
+    await repeatButton.click(); // off -> all
+    await page.waitForTimeout(200);
+    await repeatButton.click(); // all -> one
+    await page.waitForTimeout(200);
+    
+    // Click next - should advance to Second Song (not repeat First Song)
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await page.waitForTimeout(500);
+    
+    // Should be playing Second Song, not First Song
+    await expect(playerBar).toContainText("Second Song");
+  });
+});
+
 test.describe("Queue End Behavior", () => {
   test("clicking next on last track shows 'Not playing' state", async ({ authenticatedPage: page }) => {
     await playFirstSong(page);

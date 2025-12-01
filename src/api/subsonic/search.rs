@@ -142,6 +142,11 @@ pub async fn search3(
         .fetch_all(&state.pool)
         .await?
     } else {
+        // Escape query for FTS5 - wrap in double quotes to make it a phrase query
+        // and escape any internal double quotes. This prevents SQL injection and
+        // FTS5 operator interpretation (e.g., "24-7" doesn't become "24 NOT 7")
+        let escaped_query = format!("\"{}\"", params.query.replace("\"", "\"\""));
+
         // Use FTS5 for actual search queries
         sqlx::query_as(
             "SELECT s.*, ar.name as artist_name FROM songs s 
@@ -151,7 +156,7 @@ pub async fn search3(
              ORDER BY s.title COLLATE NOCASE
              LIMIT ? OFFSET ?",
         )
-        .bind(&params.query)
+        .bind(&escaped_query)
         .bind(song_count)
         .bind(song_offset)
         .fetch_all(&state.pool)
