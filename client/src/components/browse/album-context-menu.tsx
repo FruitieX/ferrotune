@@ -13,6 +13,7 @@ import {
   User,
   FolderPlus,
   MoreHorizontal,
+  Info,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -30,6 +31,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
+import { DetailsDialog } from "@/components/shared/details-dialog";
 import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import type { Album, Song } from "@/lib/api/types";
@@ -44,6 +46,7 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!album.starred);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [albumSongs, setAlbumSongs] = useState<Song[] | null>(null);
 
   const fetchSongs = async () => {
@@ -164,6 +167,10 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
           Go to Artist
         </Link>
       </ContextMenuItem>
+      <ContextMenuItem onClick={() => setDetailsOpen(true)}>
+        <Info className="w-4 h-4 mr-2" />
+        View Details
+      </ContextMenuItem>
     </>
   );
 
@@ -180,6 +187,11 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
           songs={albumSongs}
         />
       )}
+      <DetailsDialog
+        item={{ type: "album", data: album }}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+      />
     </>
   );
 }
@@ -190,6 +202,7 @@ export function AlbumDropdownMenu({ album, onPlay }: { album: Album; onPlay?: ()
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!album.starred);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [albumSongs, setAlbumSongs] = useState<Song[] | null>(null);
 
   const fetchSongs = async () => {
@@ -330,6 +343,10 @@ export function AlbumDropdownMenu({ album, onPlay }: { album: Album; onPlay?: ()
               Go to Artist
             </Link>
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setDetailsOpen(true)}>
+            <Info className="w-4 h-4 mr-2" />
+            View Details
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       {albumSongs && (
@@ -339,6 +356,11 @@ export function AlbumDropdownMenu({ album, onPlay }: { album: Album; onPlay?: ()
           songs={albumSongs}
         />
       )}
+      <DetailsDialog
+        item={{ type: "album", data: album }}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+      />
     </>
   );
 }

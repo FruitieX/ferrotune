@@ -2,16 +2,20 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useSetAtom } from "jotai";
-import { Music2, Loader2, Server, Key, User, Lock, AlertCircle } from "lucide-react";
+import { Music2, Loader2, Server, Key, User, Lock, AlertCircle, ChevronDown, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { serverConnectionAtom, connectionStatusAtom, connectionErrorAtom } from "@/lib/store/auth";
 import { initializeClient, SubsonicApiError } from "@/lib/api/client";
 import type { ServerConnection } from "@/lib/api/types";
+
+// Default server URL based on environment
+const DEFAULT_SERVER_URL = process.env.NODE_ENV === "development" ? "http://localhost:4040" : "";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,12 +23,13 @@ export default function LoginPage() {
   const setConnectionStatus = useSetAtom(connectionStatusAtom);
   const setConnectionError = useSetAtom(connectionErrorAtom);
 
-  const [serverUrl, setServerUrl] = useState("");
+  const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
   const [apiKey, setApiKey] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const handleConnect = async (authMethod: "apikey" | "password") => {
     setIsConnecting(true);
@@ -32,11 +37,14 @@ export default function LoginPage() {
     setConnectionError(null);
 
     try {
-      // Validate server URL
+      // Validate and normalize server URL
       let url = serverUrl.trim();
+      
+      // If empty, use current origin (for embedded deployments)
       if (!url) {
-        throw new Error("Server URL is required");
+        url = typeof window !== "undefined" ? window.location.origin : "";
       }
+      
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
         url = `http://${url}`;
       }
@@ -114,21 +122,6 @@ export default function LoginPage() {
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
-              {/* Server URL */}
-              <div className="space-y-2">
-                <label htmlFor="server-url" className="text-sm font-medium flex items-center gap-2">
-                  <Server className="w-4 h-4" />
-                  Server URL
-                </label>
-                <Input
-                  id="server-url"
-                  placeholder="http://localhost:4040"
-                  value={serverUrl}
-                  onChange={(e) => setServerUrl(e.target.value)}
-                  disabled={isConnecting}
-                />
-              </div>
-
               {/* Auth method tabs */}
               <Tabs defaultValue="password" className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
@@ -163,7 +156,7 @@ export default function LoginPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && serverUrl && username && password && !isConnecting) {
+                        if (e.key === "Enter" && username && password && !isConnecting) {
                           handleConnect("password");
                         }
                       }}
@@ -174,7 +167,7 @@ export default function LoginPage() {
                   <Button
                     className="w-full"
                     onClick={() => handleConnect("password")}
-                    disabled={isConnecting || !serverUrl || !username || !password}
+                    disabled={isConnecting || !username || !password}
                   >
                     {isConnecting ? (
                       <>
@@ -200,7 +193,7 @@ export default function LoginPage() {
                       value={apiKey}
                       onChange={(e) => setApiKey(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && serverUrl && apiKey && !isConnecting) {
+                        if (e.key === "Enter" && apiKey && !isConnecting) {
                           handleConnect("apikey");
                         }
                       }}
@@ -214,7 +207,7 @@ export default function LoginPage() {
                   <Button
                     className="w-full"
                     onClick={() => handleConnect("apikey")}
-                    disabled={isConnecting || !serverUrl || !apiKey}
+                    disabled={isConnecting || !apiKey}
                   >
                     {isConnecting ? (
                       <>
@@ -239,6 +232,58 @@ export default function LoginPage() {
                   <span>{error}</span>
                 </motion.div>
               )}
+
+              {/* Advanced Settings */}
+              <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-between text-muted-foreground hover:text-foreground"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Settings className="w-4 h-4" />
+                      Advanced Settings
+                    </span>
+                    <motion.div
+                      animate={{ rotate: showAdvanced ? 180 : 0 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <ChevronDown className="w-4 h-4" />
+                    </motion.div>
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <AnimatePresence>
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="pt-2"
+                    >
+                      <div className="space-y-2">
+                        <label htmlFor="server-url" className="text-sm font-medium flex items-center gap-2">
+                          <Server className="w-4 h-4" />
+                          Server URL
+                        </label>
+                        <Input
+                          id="server-url"
+                          placeholder="Leave empty to use current origin"
+                          value={serverUrl}
+                          onChange={(e) => setServerUrl(e.target.value)}
+                          disabled={isConnecting}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          {serverUrl
+                            ? `Will connect to: ${serverUrl}`
+                            : "Will connect to current page origin"}
+                        </p>
+                      </div>
+                    </motion.div>
+                  </AnimatePresence>
+                </CollapsibleContent>
+              </Collapsible>
             </form>
           </CardContent>
         </Card>

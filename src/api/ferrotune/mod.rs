@@ -20,7 +20,9 @@
 //! - `PATCH /api/playlist-folders/:id` - Update a playlist folder
 //! - `DELETE /api/playlist-folders/:id` - Delete a playlist folder
 //! - `PATCH /api/playlists/:id/move` - Move a playlist to a folder
+//! - `DELETE /api/songs/:id` - Delete a song from the database
 
+mod media;
 mod playlists;
 mod scan;
 
@@ -58,6 +60,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             delete(playlists::delete_playlist_folder),
         )
         .route("/api/playlists/{id}/move", patch(playlists::move_playlist))
+        // Media management endpoints
+        .route("/api/songs/{id}", delete(media::delete_song))
         .with_state(state)
 }
 
