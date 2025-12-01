@@ -1,7 +1,7 @@
 "use client";
 
-import { use, useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSetAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -19,17 +19,14 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton, AlbumCardCompact } from "@/components/browse/album-card";
 import { formatCount } from "@/lib/utils/format";
-import type { Album, Song } from "@/lib/api/types";
+import type { Album } from "@/lib/api/types";
 
 const PAGE_SIZE = 50;
 
-interface GenrePageProps {
-  params: Promise<{ name: string }>;
-}
-
-export default function GenrePage({ params }: GenrePageProps) {
-  const { name: encodedName } = use(params);
-  const genreName = decodeURIComponent(encodedName);
+function GenreDetailContent() {
+  const searchParams = useSearchParams();
+  const encodedName = searchParams.get("name");
+  const genreName = encodedName ? decodeURIComponent(encodedName) : null;
   const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const playNow = useSetAtom(playNowAtom);
@@ -37,8 +34,15 @@ export default function GenrePage({ params }: GenrePageProps) {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
+  // Redirect to library if no name
+  useEffect(() => {
+    if (!genreName && !authLoading) {
+      router.replace("/library");
+    }
+  }, [genreName, authLoading, router]);
+
   // Generate color from genre name for the header gradient
-  const hash = genreName.split("").reduce((acc, char) => {
+  const hash = (genreName ?? "").split("").reduce((acc, char) => {
     return char.charCodeAt(0) + ((acc << 5) - acc);
   }, 0);
   const hue = Math.abs(hash % 360);
@@ -70,7 +74,7 @@ export default function GenrePage({ params }: GenrePageProps) {
       if (!client) throw new Error("Not connected");
       const response = await client.getAlbumList2({
         type: "byGenre",
-        genre: genreName,
+        genre: genreName!,
         size: PAGE_SIZE,
         offset: pageParam,
       });
@@ -115,7 +119,7 @@ export default function GenrePage({ params }: GenrePageProps) {
   // Get random songs from genre for shuffle play
   const handlePlayAll = async () => {
     const client = getClient();
-    if (!client) return;
+    if (!client || !genreName) return;
 
     try {
       const response = await client.getRandomSongs({ size: 100, genre: genreName });
@@ -130,7 +134,7 @@ export default function GenrePage({ params }: GenrePageProps) {
 
   const handleShuffle = async () => {
     const client = getClient();
-    if (!client) return;
+    if (!client || !genreName) return;
 
     try {
       const response = await client.getRandomSongs({ size: 100, genre: genreName });
@@ -157,6 +161,10 @@ export default function GenrePage({ params }: GenrePageProps) {
       console.error("Failed to play album:", error);
     }
   };
+
+  if (!genreName) {
+    return null;
+  }
 
   if (authLoading) {
     return (
@@ -305,5 +313,17 @@ export default function GenrePage({ params }: GenrePageProps) {
       {/* Spacer for player bar */}
       <div className="h-24" />
     </div>
+  );
+}
+
+export default function GenrePage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <Skeleton className="w-32 h-8" />
+      </div>
+    }>
+      <GenreDetailContent />
+    </Suspense>
   );
 }

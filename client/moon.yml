@@ -67,6 +67,18 @@ tasks:
     deps:
       - 'install'
 
+  build-export:
+    command: 'npm run build'
+    inputs:
+      - '@group(sources)'
+      - '@group(styles)'
+    outputs:
+      - 'out'
+    deps:
+      - 'install'
+    env:
+      NEXT_OUTPUT_STATIC: '1'
+
   # ============================================================================
   # CODE QUALITY
   # ============================================================================

@@ -42,6 +42,18 @@ tasks:
     outputs:
       - 'target/release/ferrotune'
 
+  build-release-ui:
+    command: 'bash scripts/build-release.sh'
+    inputs:
+      - '@group(sources)'
+      - 'client/src/**/*'
+      - 'client/package.json'
+    outputs:
+      - 'target/release/ferrotune'
+      - 'client/out/**/*'
+    deps:
+      - 'client:build-export'
+
   # ============================================================================
   # TEST TASKS
   # ============================================================================

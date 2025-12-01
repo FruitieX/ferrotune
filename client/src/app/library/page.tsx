@@ -109,10 +109,12 @@ export default function LibraryPage() {
         albumCount: 0,
       });
       const songs = response.searchResult3.song ?? [];
+      const total = response.searchResult3.songTotal;
       // Sort alphabetically by title
       songs.sort((a, b) => a.title.localeCompare(b.title));
       return {
         songs,
+        total,
         nextOffset: songs.length === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
       };
     },
@@ -123,6 +125,7 @@ export default function LibraryPage() {
 
   // Flatten songs from all pages
   const allSongs = songsData?.pages.flatMap((page) => page.songs) ?? [];
+  const totalSongs = songsData?.pages[0]?.total ?? allSongs.length;
 
   // Flatten albums from all pages
   const allAlbums = albumsData?.pages.flatMap((page) => page.albums) ?? [];
@@ -377,6 +380,7 @@ export default function LibraryPage() {
             ) : allSongs.length > 0 ? (
               <VirtualizedList
                 items={allSongs}
+                totalCount={totalSongs}
                 renderItem={(song, index) => (
                   <SongRow
                     song={song}
@@ -412,7 +416,7 @@ function GenreCard({ genre }: { genre: Genre }) {
 
   return (
     <Link
-      href={`/library/genres/${encodeURIComponent(genre.value)}`}
+      href={`/library/genres/details?name=${encodeURIComponent(genre.value)}`}
       className="relative h-24 rounded-lg overflow-hidden cursor-pointer block hover:ring-2 hover:ring-primary/50 transition-shadow"
       style={{
         background: `linear-gradient(135deg, hsl(${hue}, 70%, 35%) 0%, hsl(${(hue + 30) % 360}, 60%, 25%) 100%)`,

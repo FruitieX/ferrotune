@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
@@ -52,7 +52,7 @@ export function PlayerBar() {
   const duration = useAtomValue(durationAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const connection = useAtomValue(serverConnectionAtom);
-  const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
+  const [queuePanelOpen, setQueuePanelOpen] = useAtom(queuePanelOpenAtom);
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
   const [isStarred, setIsStarred] = useState(false);
   const [coverArtError, setCoverArtError] = useState(false);
@@ -169,13 +169,13 @@ export function PlayerBar() {
               </motion.div>
               <div className="min-w-0">
                 <Link
-                  href={`/library/albums/${currentTrack.albumId}`}
+                  href={`/library/albums/details?id=${currentTrack.albumId}`}
                   className="block text-sm font-medium text-foreground truncate hover:underline"
                 >
                   {currentTrack.title}
                 </Link>
                 <Link
-                  href={`/library/artists/${currentTrack.artistId}`}
+                  href={`/library/artists/details?id=${currentTrack.artistId}`}
                   className="block text-xs text-muted-foreground truncate hover:underline"
                 >
                   {currentTrack.artist}
@@ -304,7 +304,7 @@ export function PlayerBar() {
             variant="ghost"
             size="icon"
             className="h-8 w-8"
-            onClick={() => setQueuePanelOpen(true)}
+            onClick={() => setQueuePanelOpen(!queuePanelOpen)}
             aria-label="Queue"
           >
             <ListMusic className="w-4 h-4" />

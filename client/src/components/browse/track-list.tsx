@@ -286,7 +286,7 @@ export function TrackRow({
         <div className="flex items-center gap-1 text-xs text-muted-foreground truncate">
           {showArtist && (
             <Link
-              href={`/library/artists/${song.artistId}`}
+              href={`/library/artists/details?id=${song.artistId}`}
               className="hover:underline hover:text-foreground shrink-0"
               onClick={(e) => e.stopPropagation()}
             >
@@ -296,7 +296,7 @@ export function TrackRow({
           {showArtist && showAlbum && <span className="shrink-0">•</span>}
           {showAlbum && (
             <Link
-              href={`/library/albums/${song.albumId}`}
+              href={`/library/albums/details?id=${song.albumId}`}
               className="hover:underline hover:text-foreground truncate"
               onClick={(e) => e.stopPropagation()}
             >

@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAtom, useAtomValue } from "jotai";
 import { useQuery } from "@tanstack/react-query";
@@ -22,6 +22,7 @@ import {
   FolderOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useHydrated } from "@/lib/hooks/use-hydrated";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -54,6 +55,8 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const hydrated = useHydrated();
   const [collapsed, setCollapsed] = useAtom(sidebarCollapsedAtom);
   const sidebarWidth = useAtomValue(sidebarWidthAtom);
   const isConnected = useAtomValue(isConnectedAtom);
@@ -90,6 +93,12 @@ export function Sidebar() {
   // Don't show sidebar on login page
   if (pathname === "/login") {
     return null;
+  }
+
+  // Render skeleton until hydrated to prevent hydration mismatch
+  // (atomWithStorage values differ between server and client)
+  if (!hydrated) {
+    return <SidebarSkeleton />;
   }
 
   return (
@@ -229,6 +238,7 @@ export function Sidebar() {
                       <PlaylistFolderTree
                         folder={playlistTree}
                         pathname={pathname}
+                        searchParams={searchParams}
                         expandedFolders={expandedFolders}
                         toggleFolder={toggleFolder}
                         depth={0}
@@ -323,6 +333,7 @@ export function Sidebar() {
 interface PlaylistFolderTreeProps {
   folder: PlaylistFolder;
   pathname: string;
+  searchParams: URLSearchParams;
   expandedFolders: string[];
   toggleFolder: (path: string) => void;
   depth: number;
@@ -331,6 +342,7 @@ interface PlaylistFolderTreeProps {
 function PlaylistFolderTree({
   folder,
   pathname,
+  searchParams,
   expandedFolders,
   toggleFolder,
   depth,
@@ -366,6 +378,7 @@ function PlaylistFolderTree({
               <PlaylistFolderTree
                 folder={subfolder}
                 pathname={pathname}
+                searchParams={searchParams}
                 expandedFolders={expandedFolders}
                 toggleFolder={toggleFolder}
                 depth={depth + 1}
@@ -377,11 +390,11 @@ function PlaylistFolderTree({
 
       {/* Playlists in this folder */}
       {folder.playlists.map((playlist) => {
-        const isActive = pathname === `/playlists/${playlist.id}`;
+        const isActive = pathname === `/playlists/details` && searchParams.get('id') === playlist.id;
         const displayName = getPlaylistDisplayName(playlist);
         
         return (
-          <Link key={playlist.id} href={`/playlists/${playlist.id}`}>
+          <Link key={playlist.id} href={`/playlists/details?id=${playlist.id}`}>
             <Button
               variant="ghost"
               size="sm"

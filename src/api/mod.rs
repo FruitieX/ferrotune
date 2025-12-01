@@ -4,7 +4,11 @@
 //!
 //! - **`subsonic`**: OpenSubsonic-compatible API for music player clients (port 4040 by default)
 //! - **`ferrotune`**: Admin/management API for Ferrotune-specific features (port 4041 by default)
+//!
+//! Additionally, when built with embedded UI assets (client/out exists at compile time),
+//! the subsonic API will also serve the web client at the root path.
 
+pub mod embedded_ui;
 pub mod ferrotune;
 pub mod subsonic;
 

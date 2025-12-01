@@ -853,6 +853,15 @@ pub struct XmlSearchResult3Inner {
     pub album: Vec<XmlAlbum>,
     #[serde(rename = "song", default, skip_serializing_if = "Vec::is_empty")]
     pub song: Vec<XmlSong>,
+    /// Total count of matching artists (Ferrotune extension for pagination)
+    #[serde(rename = "@artistTotal", skip_serializing_if = "Option::is_none")]
+    pub artist_total: Option<i64>,
+    /// Total count of matching albums (Ferrotune extension for pagination)
+    #[serde(rename = "@albumTotal", skip_serializing_if = "Option::is_none")]
+    pub album_total: Option<i64>,
+    /// Total count of matching songs (Ferrotune extension for pagination)
+    #[serde(rename = "@songTotal", skip_serializing_if = "Option::is_none")]
+    pub song_total: Option<i64>,
 }
 
 /// Playlists response (getPlaylists)
@@ -1305,6 +1314,9 @@ impl ToXml for SearchResult3 {
                 .collect(),
             album: self.search_result3.album.iter().map(album_to_xml).collect(),
             song: self.search_result3.song.iter().map(song_to_xml).collect(),
+            artist_total: self.search_result3.artist_total,
+            album_total: self.search_result3.album_total,
+            song_total: self.search_result3.song_total,
         })
     }
 }

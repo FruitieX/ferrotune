@@ -36,6 +36,15 @@ pub struct SearchContent {
     pub album: Vec<AlbumResponse>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub song: Vec<SongResponse>,
+    /// Total count of matching artists (Ferrotune extension for pagination)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_total: Option<i64>,
+    /// Total count of matching albums (Ferrotune extension for pagination)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_total: Option<i64>,
+    /// Total count of matching songs (Ferrotune extension for pagination)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub song_total: Option<i64>,
 }
 
 pub async fn search3(
@@ -129,38 +138,78 @@ pub async fn search3(
         .collect();
 
     // Search songs - handle wildcard query specially
-    let songs: Vec<crate::db::models::Song> = if params.query.is_empty() || params.query == "*" {
-        // Return all songs sorted alphabetically
-        sqlx::query_as(
-            "SELECT s.*, ar.name as artist_name FROM songs s 
+    let (songs, song_total): (Vec<crate::db::models::Song>, Option<i64>) =
+        if params.query.is_empty() || params.query == "*" {
+            // Return all songs sorted alphabetically
+            let songs: Vec<crate::db::models::Song> = sqlx::query_as(
+                "SELECT s.*, ar.name as artist_name FROM songs s 
              INNER JOIN artists ar ON s.artist_id = ar.id
              ORDER BY s.title COLLATE NOCASE
              LIMIT ? OFFSET ?",
-        )
-        .bind(song_count)
-        .bind(song_offset)
-        .fetch_all(&state.pool)
-        .await?
-    } else {
-        // Escape query for FTS5 - wrap in double quotes to make it a phrase query
-        // and escape any internal double quotes. This prevents SQL injection and
-        // FTS5 operator interpretation (e.g., "24-7" doesn't become "24 NOT 7")
-        let escaped_query = format!("\"{}\"", params.query.replace("\"", "\"\""));
+            )
+            .bind(song_count)
+            .bind(song_offset)
+            .fetch_all(&state.pool)
+            .await?;
 
-        // Use FTS5 for actual search queries
-        sqlx::query_as(
-            "SELECT s.*, ar.name as artist_name FROM songs s 
+            // Get total count
+            let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM songs")
+                .fetch_one(&state.pool)
+                .await?;
+
+            (songs, Some(total.0))
+        } else {
+            // Escape query for FTS5 - wrap in double quotes to make it a phrase query
+            // and escape any internal double quotes. This prevents SQL injection and
+            // FTS5 operator interpretation (e.g., "24-7" doesn't become "24 NOT 7")
+            let escaped_query = format!("\"{}\"", params.query.replace("\"", "\"\""));
+
+            // Use FTS5 for actual search queries
+            let songs: Vec<crate::db::models::Song> = sqlx::query_as(
+                "SELECT s.*, ar.name as artist_name FROM songs s 
              INNER JOIN artists ar ON s.artist_id = ar.id
              INNER JOIN songs_fts fts ON s.id = fts.song_id 
              WHERE songs_fts MATCH ? 
              ORDER BY s.title COLLATE NOCASE
              LIMIT ? OFFSET ?",
-        )
-        .bind(&escaped_query)
-        .bind(song_count)
-        .bind(song_offset)
-        .fetch_all(&state.pool)
-        .await?
+            )
+            .bind(&escaped_query)
+            .bind(song_count)
+            .bind(song_offset)
+            .fetch_all(&state.pool)
+            .await?;
+
+            // Get total count for FTS search
+            let total: (i64,) =
+                sqlx::query_as("SELECT COUNT(*) FROM songs_fts WHERE songs_fts MATCH ?")
+                    .bind(&escaped_query)
+                    .fetch_one(&state.pool)
+                    .await?;
+
+            (songs, Some(total.0))
+        };
+
+    // Get totals for artists and albums (only when offset is 0 for efficiency)
+    let artist_total: Option<i64> = if artist_offset == 0 {
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM artists WHERE name LIKE ? COLLATE NOCASE")
+                .bind(&search_term)
+                .fetch_one(&state.pool)
+                .await?;
+        Some(count.0)
+    } else {
+        None
+    };
+
+    let album_total: Option<i64> = if album_offset == 0 {
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM albums WHERE name LIKE ? COLLATE NOCASE")
+                .bind(&search_term)
+                .fetch_one(&state.pool)
+                .await?;
+        Some(count.0)
+    } else {
+        None
     };
 
     // Get starred status and ratings for songs
@@ -185,6 +234,9 @@ pub async fn search3(
             artist: artist_responses,
             album: album_responses,
             song: song_responses,
+            artist_total,
+            album_total,
+            song_total,
         },
     };
 

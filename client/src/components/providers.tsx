@@ -23,10 +23,10 @@ function AccentColorProvider({ children }: { children: React.ReactNode }) {
   
   useEffect(() => {
     const html = document.documentElement;
-    // Remove all accent attributes first
+    // Remove any previous accent attribute
     html.removeAttribute("data-accent");
-    // Set new accent if not default
-    if (accentColor !== "default") {
+    // Set new accent (rust is the default, handled by CSS variables directly)
+    if (accentColor !== "rust") {
       html.setAttribute("data-accent", accentColor);
     }
   }, [accentColor]);
