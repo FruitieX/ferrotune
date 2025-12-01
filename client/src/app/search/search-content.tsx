@@ -149,7 +149,7 @@ export function SearchPageContent() {
             {isFetching && (
               <Loader2 className="absolute right-12 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
             )}
-            {query && !isFetching && (
+            {query && (
               <Button
                 variant="ghost"
                 size="icon"

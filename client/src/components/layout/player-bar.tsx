@@ -55,6 +55,7 @@ export function PlayerBar() {
   const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
   const [isStarred, setIsStarred] = useState(false);
+  const [coverArtError, setCoverArtError] = useState(false);
 
   const { togglePlayPause, next, previous, seekPercent } = useAudioEngine();
   const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
@@ -65,6 +66,11 @@ export function PlayerBar() {
   useEffect(() => {
     setIsStarred(!!currentTrack?.starred);
   }, [currentTrack?.id, currentTrack?.starred]);
+
+  // Reset cover art error when track changes
+  useEffect(() => {
+    setCoverArtError(false);
+  }, [currentTrack?.id, currentTrack?.coverArt]);
 
   const handleStar = async () => {
     const client = getClient();
@@ -146,13 +152,14 @@ export function PlayerBar() {
                 animate={{ scale: 1, opacity: 1 }}
                 className="relative w-14 h-14 rounded-md overflow-hidden bg-muted shrink-0 album-glow"
               >
-                {coverArtUrl ? (
+                {coverArtUrl && !coverArtError ? (
                   <Image
                     src={coverArtUrl}
                     alt={currentTrack.album || "Album cover"}
                     fill
                     className="object-cover"
                     unoptimized
+                    onError={() => setCoverArtError(true)}
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-muted">

@@ -19,24 +19,24 @@ import { useAudioEngine } from "@/lib/audio/hooks";
 import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
 
 // Audio bar visualizer for now playing indicator - uses CSS animations
-function NowPlayingBars({ className }: { className?: string }) {
+function NowPlayingBars({ className, isAnimating = true }: { className?: string; isAnimating?: boolean }) {
   return (
     <div className={cn("flex items-end justify-center gap-0.5 h-3", className)}>
       <span 
-        className="w-[3px] bg-primary rounded-sm animate-bar-1"
-        style={{ animationDuration: "0.4s" }}
+        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-1")}
+        style={{ animationDuration: "0.4s", height: isAnimating ? undefined : "6px" }}
       />
       <span 
-        className="w-[3px] bg-primary rounded-sm animate-bar-2"
-        style={{ animationDuration: "0.5s" }}
+        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-2")}
+        style={{ animationDuration: "0.5s", height: isAnimating ? undefined : "10px" }}
       />
       <span 
-        className="w-[3px] bg-primary rounded-sm animate-bar-3"
-        style={{ animationDuration: "0.35s" }}
+        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-3")}
+        style={{ animationDuration: "0.35s", height: isAnimating ? undefined : "6px" }}
       />
       <span 
-        className="w-[3px] bg-primary rounded-sm animate-bar-4"
-        style={{ animationDuration: "0.45s" }}
+        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-4")}
+        style={{ animationDuration: "0.45s", height: isAnimating ? undefined : "8px" }}
       />
     </div>
   );
@@ -129,7 +129,7 @@ export function SongRow({
             isCurrentTrack && "text-primary"
           )}>
             {isCurrentTrack ? (
-              <NowPlayingBars />
+              <NowPlayingBars isAnimating={isPlaying} />
             ) : (
               index + 1
             )}
