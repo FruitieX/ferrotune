@@ -31,8 +31,8 @@ import { recordPlayAtom } from "@/lib/store/history";
 let globalAudio: HTMLAudioElement | null = null;
 // Track by queue index to handle duplicate songs
 let currentLoadedQueueIndex: number = -1;
-// Track queue reference to detect when queue is replaced
-let currentLoadedQueueRef: unknown[] | null = null;
+// Track the currently loaded track ID to avoid unnecessary reloads when queue changes
+let currentLoadedTrackId: string | null = null;
 // Flag to prevent handlePause from overwriting "ended" state
 let isEndingQueue: boolean = false;
 // Flag to indicate we're intentionally loading a new track (overrides "ended" state check)
@@ -209,6 +209,7 @@ export function useAudioEngineInit() {
           (state.queue[nextIndex]?.id === state.queue[state.queueIndex]?.id)) {
         // Same track or same song ID - force reload
         currentLoadedQueueIndex = -1;
+        currentLoadedTrackId = null;
       }
 
       settersRef.current.setQueueIndex(nextIndex);
@@ -312,21 +313,17 @@ export function useAudioEngineInit() {
     const audio = globalAudio;
     const client = getClient();
     
-    // Check if queue was replaced (new queue reference)
-    const queueReplaced = queue !== currentLoadedQueueRef;
-    if (queueReplaced) {
-      currentLoadedQueueRef = queue;
-      currentLoadedQueueIndex = -1; // Force reload
-    }
-    
-    // Skip if queue index hasn't changed (handles duplicate songs correctly)
-    if (queueIndex === currentLoadedQueueIndex && !queueReplaced) {
-      return;
-    }
-    currentLoadedQueueIndex = queueIndex;
-    
     // Get current track from queue (don't use atom directly to avoid re-renders)
     const track = queueIndex >= 0 && queueIndex < queue.length ? queue[queueIndex] : null;
+    
+    // Skip if same track ID is already loaded at the same index
+    // This prevents restarts when items are added to the queue
+    if (track && track.id === currentLoadedTrackId && queueIndex === currentLoadedQueueIndex) {
+      return;
+    }
+    
+    currentLoadedQueueIndex = queueIndex;
+    currentLoadedTrackId = track?.id ?? null;
     
     if (!audio || !track || !client || queueIndex < 0) {
       if (audio && audio.src) {
@@ -397,6 +394,7 @@ export function useAudioEngine() {
       // Queue finished - restart from beginning
       if (queue.length > 0) {
         currentLoadedQueueIndex = -1; // Force reload
+        currentLoadedTrackId = null;
         setQueueIndex(0);
       }
     } else {
@@ -469,6 +467,7 @@ export function useAudioEngine() {
     // Force reload if same track (duplicate in queue)
     if (queue[nextIndex]?.id === queue[queueIndex]?.id) {
       currentLoadedQueueIndex = -1;
+      currentLoadedTrackId = null;
     }
 
     setQueueIndex(nextIndex);

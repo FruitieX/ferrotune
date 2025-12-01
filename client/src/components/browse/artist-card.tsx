@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Play, User } from "lucide-react";
+import { Play, User, Heart } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -115,12 +116,35 @@ interface ArtistCardCompactProps {
 export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompactProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [isStarred, setIsStarred] = useState(!!artist.starred);
   
   const coverArtUrl = artist.coverArt
     ? getClient()?.getCoverArtUrl(artist.coverArt, 80)
     : null;
 
   const hasImage = coverArtUrl && !imageError;
+
+  const handleStar = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const client = getClient();
+    if (!client) return;
+
+    try {
+      if (isStarred) {
+        await client.unstar({ artistId: artist.id });
+        setIsStarred(false);
+        toast.success(`Removed from favorites`);
+      } else {
+        await client.star({ artistId: artist.id });
+        setIsStarred(true);
+        toast.success(`Added to favorites`);
+      }
+    } catch (error) {
+      toast.error("Failed to update favorites");
+      console.error(error);
+    }
+  };
 
   return (
     <ArtistContextMenu artist={artist}>
@@ -167,17 +191,29 @@ export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompa
           </div>
         </Link>
         
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-          onClick={(e) => {
-            e.preventDefault();
-            onPlay?.();
-          }}
-        >
-          <Play className="w-4 h-4" />
-        </Button>
+        {/* Hover action buttons */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleStar}
+          >
+            <Heart className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={(e) => {
+              e.preventDefault();
+              onPlay?.();
+            }}
+          >
+            <Play className="w-4 h-4" />
+          </Button>
+          <ArtistDropdownMenu artist={artist} onPlay={onPlay} />
+        </div>
       </div>
     </ArtistContextMenu>
   );

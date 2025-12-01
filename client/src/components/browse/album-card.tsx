@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Play, Disc } from "lucide-react";
+import { Play, Disc, Heart } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -112,12 +113,35 @@ interface AlbumCardCompactProps {
 
 export function AlbumCardCompact({ album, onPlay, className }: AlbumCardCompactProps) {
   const [imageError, setImageError] = useState(false);
+  const [isStarred, setIsStarred] = useState(!!album.starred);
   
   const coverArtUrl = album.coverArt
     ? getClient()?.getCoverArtUrl(album.coverArt, 80)
     : null;
 
   const showImage = coverArtUrl && !imageError;
+
+  const handleStar = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const client = getClient();
+    if (!client) return;
+
+    try {
+      if (isStarred) {
+        await client.unstar({ albumId: album.id });
+        setIsStarred(false);
+        toast.success(`Removed from favorites`);
+      } else {
+        await client.star({ albumId: album.id });
+        setIsStarred(true);
+        toast.success(`Added to favorites`);
+      }
+    } catch (error) {
+      toast.error("Failed to update favorites");
+      console.error(error);
+    }
+  };
 
   return (
     <AlbumContextMenu album={album}>
@@ -153,17 +177,29 @@ export function AlbumCardCompact({ album, onPlay, className }: AlbumCardCompactP
           </div>
         </Link>
         
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-          onClick={(e) => {
-            e.preventDefault();
-            onPlay?.();
-          }}
-        >
-          <Play className="w-4 h-4" />
-        </Button>
+        {/* Hover action buttons */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleStar}
+          >
+            <Heart className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={(e) => {
+              e.preventDefault();
+              onPlay?.();
+            }}
+          >
+            <Play className="w-4 h-4" />
+          </Button>
+          <AlbumDropdownMenu album={album} onPlay={onPlay} />
+        </div>
       </div>
     </AlbumContextMenu>
   );
