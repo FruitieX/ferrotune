@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Music, User, Disc, ListMusic, Calendar, Clock, Hash, FileAudio, HardDrive, Star, Heart, Trash2, Loader2 } from "lucide-react";
+import { Music, User, Disc, ListMusic, Calendar, Clock, Hash, FileAudio, HardDrive, Star, Heart, Trash2, Loader2, Play, History } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -79,10 +79,31 @@ function DetailRow({ icon: Icon, label, value }: { icon: React.ElementType; labe
 function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }) {
   const [coverError, setCoverError] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [fullSong, setFullSong] = useState<Song>(song);
   const queryClient = useQueryClient();
-  const coverArtUrl = song.coverArt && !coverError
-    ? getClient()?.getCoverArtUrl(song.coverArt, 200)
+  const coverArtUrl = fullSong.coverArt && !coverError
+    ? getClient()?.getCoverArtUrl(fullSong.coverArt, 200)
     : null;
+
+  // Fetch full song details (including play stats) when dialog opens
+  useEffect(() => {
+    async function fetchSongDetails() {
+      const client = getClient();
+      if (!client) return;
+      
+      try {
+        const response = await client.getSong(song.id);
+        if (response.song) {
+          setFullSong(response.song);
+        }
+      } catch (error) {
+        // Use the provided song data if fetch fails
+        console.debug("Could not fetch song details:", error);
+      }
+    }
+    
+    fetchSongDetails();
+  }, [song.id]);
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
@@ -123,7 +144,7 @@ function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }
             {coverArtUrl ? (
               <Image
                 src={coverArtUrl}
-                alt={song.title || "Song cover"}
+                alt={fullSong.title || "Song cover"}
                 fill
                 className="object-cover"
                 unoptimized
@@ -136,9 +157,9 @@ function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }
             )}
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="font-bold text-lg truncate">{song.title}</h3>
-            <p className="text-sm text-muted-foreground truncate">{song.artist}</p>
-            <p className="text-sm text-muted-foreground truncate">{song.album}</p>
+            <h3 className="font-bold text-lg truncate">{fullSong.title}</h3>
+            <p className="text-sm text-muted-foreground truncate">{fullSong.artist}</p>
+            <p className="text-sm text-muted-foreground truncate">{fullSong.album}</p>
           </div>
         </div>
 
@@ -146,38 +167,45 @@ function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }
 
         {/* Details grid */}
         <div className="grid grid-cols-2 gap-x-4">
-          <DetailRow icon={User} label="Artist" value={song.artist} />
-          <DetailRow icon={Disc} label="Album" value={song.album} />
-          <DetailRow icon={Hash} label="Track" value={song.track ? `${song.track}${song.discNumber ? ` (Disc ${song.discNumber})` : ""}` : undefined} />
-          <DetailRow icon={Calendar} label="Year" value={song.year} />
-          <DetailRow icon={Clock} label="Duration" value={formatDuration(song.duration)} />
-          <DetailRow icon={Music} label="Genre" value={song.genre} />
-          <DetailRow icon={FileAudio} label="Format" value={song.suffix?.toUpperCase()} />
-          <DetailRow icon={FileAudio} label="Bitrate" value={song.bitRate ? `${song.bitRate} kbps` : undefined} />
-          <DetailRow icon={HardDrive} label="Size" value={formatFileSize(song.size)} />
-          <DetailRow icon={Calendar} label="Added" value={formatDate(song.created)} />
-          {song.starred && (
-            <DetailRow icon={Heart} label="Favorited" value={formatDate(song.starred)} />
+          <DetailRow icon={User} label="Artist" value={fullSong.artist} />
+          <DetailRow icon={Disc} label="Album" value={fullSong.album} />
+          <DetailRow icon={Hash} label="Track" value={fullSong.track ? `${fullSong.track}${fullSong.discNumber ? ` (Disc ${fullSong.discNumber})` : ""}` : undefined} />
+          <DetailRow icon={Calendar} label="Year" value={fullSong.year} />
+          <DetailRow icon={Clock} label="Duration" value={formatDuration(fullSong.duration)} />
+          <DetailRow icon={Music} label="Genre" value={fullSong.genre} />
+          <DetailRow icon={FileAudio} label="Format" value={fullSong.suffix?.toUpperCase()} />
+          <DetailRow icon={FileAudio} label="Bitrate" value={fullSong.bitRate ? `${fullSong.bitRate} kbps` : undefined} />
+          <DetailRow icon={HardDrive} label="Size" value={formatFileSize(fullSong.size)} />
+          <DetailRow icon={Calendar} label="Added" value={formatDate(fullSong.created)} />
+          {fullSong.starred && (
+            <DetailRow icon={Heart} label="Favorited" value={formatDate(fullSong.starred)} />
           )}
-          {song.userRating && (
+          {fullSong.userRating && (
             <DetailRow 
               icon={Star} 
               label="Rating" 
               value={
                 <span className="flex items-center gap-0.5">
-                  {Array.from({ length: song.userRating }).map((_, i) => (
+                  {Array.from({ length: fullSong.userRating }).map((_, i) => (
                     <Star key={i} className="w-3 h-3 fill-yellow-500 text-yellow-500" />
                   ))}
                 </span>
               } 
             />
           )}
+          {/* Play statistics */}
+          {fullSong.playCount !== undefined && fullSong.playCount > 0 && (
+            <DetailRow icon={Play} label="Play Count" value={`${fullSong.playCount} ${fullSong.playCount === 1 ? "play" : "plays"}`} />
+          )}
+          {fullSong.lastPlayed && (
+            <DetailRow icon={History} label="Last Played" value={formatDate(fullSong.lastPlayed)} />
+          )}
         </div>
 
         <Separator />
 
-        <DetailRow icon={Hash} label="Track ID" value={song.id} />
-        <DetailRow icon={HardDrive} label="File Path" value={song.path} />
+        <DetailRow icon={Hash} label="Track ID" value={fullSong.id} />
+        <DetailRow icon={HardDrive} label="File Path" value={fullSong.path} />
 
         <Separator />
 
@@ -209,7 +237,7 @@ function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }
           <AlertDialogHeader>
             <AlertDialogTitle>Remove track from database?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove &quot;{song.title}&quot; from the database, including all playlist entries, favorites, and play history. The file will remain on disk.
+              This will remove &quot;{fullSong.title}&quot; from the database, including all playlist entries, favorites, and play history. The file will remain on disk.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

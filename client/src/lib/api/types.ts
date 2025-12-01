@@ -78,6 +78,9 @@ export interface Song {
   userRating?: number;
   created: string;
   type: "music";
+  // Ferrotune extensions for play statistics
+  playCount?: number;
+  lastPlayed?: string;
 }
 
 export interface Genre {
@@ -195,6 +198,36 @@ export interface PlaylistsResponse {
 
 export interface PlaylistResponse {
   playlist: PlaylistWithSongs;
+}
+
+// Play Queue types
+export interface PlayQueueEntry extends Song {
+  // Song with play queue context
+}
+
+export interface PlayQueue {
+  entry: PlayQueueEntry[];
+  current?: string;
+  position?: number;
+  username?: string;
+  changed?: string;
+  changedBy?: string;
+}
+
+export interface PlayQueueResponse {
+  playQueue: PlayQueue;
+}
+
+// Play History types (Ferrotune extension)
+export interface PlayHistoryEntry extends Song {
+  playedAt: string;
+}
+
+export interface PlayHistoryResponse {
+  playHistory: {
+    entry: PlayHistoryEntry[];
+    total?: number;
+  };
 }
 
 // Album list types

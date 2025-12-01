@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { useState, useEffect } from "react";
 import { useAudioEngineInit, useMediaSession } from "@/lib/audio/hooks";
 import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
+import { useQueuePersistence } from "@/lib/hooks/use-queue-persistence";
 import { accentColorAtom } from "@/lib/store/ui";
 
 // Component that initializes the audio engine and media session
@@ -14,6 +15,7 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   useAudioEngineInit();
   useMediaSession();
   useKeyboardShortcuts();
+  useQueuePersistence();
   return <>{children}</>;
 }
 

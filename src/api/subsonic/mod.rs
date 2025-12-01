@@ -6,6 +6,7 @@
 pub mod auth;
 pub mod browse;
 pub mod coverart;
+pub mod history;
 pub mod lists;
 pub mod playlists;
 pub mod playqueue;
@@ -66,6 +67,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // List endpoints
         .route("/rest/getAlbumList2", get(lists::get_album_list2))
         .route("/rest/getRandomSongs", get(lists::get_random_songs))
+        // History endpoints (Ferrotune extensions)
+        .route("/rest/getPlayHistory", get(history::get_play_history))
         // Search endpoints
         .route("/rest/search3", get(search::search3))
         // Playlist endpoints
