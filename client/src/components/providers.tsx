@@ -5,11 +5,14 @@ import { Provider as JotaiProvider } from "jotai";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { useState } from "react";
-import { useAudioEngineInit } from "@/lib/audio/hooks";
+import { useAudioEngineInit, useMediaSession } from "@/lib/audio/hooks";
+import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
 
-// Component that initializes the audio engine
+// Component that initializes the audio engine and media session
 function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   useAudioEngineInit();
+  useMediaSession();
+  useKeyboardShortcuts();
   return <>{children}</>;
 }
 
@@ -32,7 +35,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
-          enableSystem={false}
+          enableSystem={true}
           disableTransitionOnChange
         >
           <AudioEngineProvider>

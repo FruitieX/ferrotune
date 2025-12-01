@@ -158,3 +158,7 @@ Read these when working on specific areas:
 - [Hurl Documentation](https://hurl.dev/)
 - [Axum Documentation](https://docs.rs/axum/latest/axum/)
 - [Playwright Documentation](https://playwright.dev/)
+
+## Further instructions
+
+- After implementing a feature, suggest a conventional commits compliant commit message summarizing the change.

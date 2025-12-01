@@ -67,12 +67,13 @@ export function SongRow({
   const addToQueue = useSetAtom(addToQueueAtom);
   const { togglePlayPause } = useAudioEngine();
   const [isStarred, setIsStarred] = useState(!!song.starred);
+  const [coverError, setCoverError] = useState(false);
 
   // Don't show track as current when playback has ended
   const isCurrentTrack = currentTrack?.id === song.id && playbackState !== "ended";
   const isPlaying = isCurrentTrack && playbackState === "playing";
 
-  const coverArtUrl = showCover && song.coverArt
+  const coverArtUrl = showCover && song.coverArt && !coverError
     ? getClient()?.getCoverArtUrl(song.coverArt, 48)
     : null;
 
@@ -161,9 +162,10 @@ export function SongRow({
               fill
               className="object-cover"
               unoptimized
+              onError={() => setCoverError(true)}
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-muted text-xs">
+            <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20 text-xs">
               🎵
             </div>
           )}
@@ -267,7 +269,9 @@ export function SongRowCompact({
   onRemove,
   className,
 }: SongRowCompactProps) {
-  const coverArtUrl = song.coverArt
+  const [coverError, setCoverError] = useState(false);
+  
+  const coverArtUrl = song.coverArt && !coverError
     ? getClient()?.getCoverArtUrl(song.coverArt, 48)
     : null;
 
@@ -287,9 +291,10 @@ export function SongRowCompact({
             fill
             className="object-cover"
             unoptimized
+            onError={() => setCoverError(true)}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-xs">🎵</div>
+          <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20 text-xs">🎵</div>
         )}
       </div>
       <div className="min-w-0 flex-1">

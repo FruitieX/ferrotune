@@ -44,6 +44,8 @@ import { serverConnectionAtom } from "@/lib/store/auth";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 
+import { SongDropdownMenu } from "@/components/browse/song-context-menu";
+
 export function PlayerBar() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const currentTime = useAtomValue(currentTimeAtom);
@@ -180,6 +182,9 @@ export function PlayerBar() {
               >
                 <Heart className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")} />
               </Button>
+              <div className="hidden sm:block">
+                <SongDropdownMenu song={currentTrack} />
+              </div>
             </>
           ) : (
             <div className="flex items-center gap-3">

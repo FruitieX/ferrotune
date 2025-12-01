@@ -1,6 +1,7 @@
 "use client";
 
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
+import { useTheme } from "next-themes";
 import { motion } from "framer-motion";
 import {
   Settings as SettingsIcon,
@@ -15,6 +16,9 @@ import {
   Music2,
   HardDrive,
   User,
+  Sun,
+  Moon,
+  Monitor,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -62,6 +66,7 @@ export default function SettingsPage() {
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
   const [isShuffled, setIsShuffled] = useAtom(isShuffledAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
+  const { theme, setTheme } = useTheme();
 
   const handleLogout = () => {
     setConnection(null);
@@ -262,21 +267,34 @@ export default function SettingsPage() {
                 <label className="font-medium">Theme</label>
                 <div className="flex gap-2">
                   <Button
-                    variant="outline"
+                    variant={theme === "light" ? "default" : "outline"}
                     size="sm"
-                    className="border-primary bg-primary/10"
-                    disabled
+                    onClick={() => setTheme("light")}
+                    className="gap-1.5"
                   >
+                    <Sun className="w-4 h-4" />
+                    Light
+                  </Button>
+                  <Button
+                    variant={theme === "dark" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setTheme("dark")}
+                    className="gap-1.5"
+                  >
+                    <Moon className="w-4 h-4" />
                     Dark
                   </Button>
-                  <Button variant="outline" size="sm" disabled>
-                    Light
+                  <Button
+                    variant={theme === "system" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setTheme("system")}
+                    className="gap-1.5"
+                  >
+                    <Monitor className="w-4 h-4" />
+                    System
                   </Button>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Light theme coming soon
-              </p>
             </CardContent>
           </Card>
         </motion.div>

@@ -234,3 +234,36 @@ HTTP 200
 header "Content-Type" contains "application/json"
 jsonpath "$.subsonic-response.status" == "ok"
 jsonpath "$.subsonic-response.searchResult3" exists
+
+# ============================================================================
+# SEARCH3 - SPECIAL CHARACTERS (FTS5 ESCAPE)
+# ============================================================================
+
+# Test: search3 - query with hyphen should not cause SQL error (was: "24-7" -> "no such column: 7")
+GET {{base_url}}/rest/search3?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&query=24-7
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.subsonic-response.status" == "ok"
+jsonpath "$.subsonic-response.searchResult3" exists
+
+# Test: search3 - query with special FTS5 operators should be escaped properly
+GET {{base_url}}/rest/search3?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&query=test%20OR%20artist
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.subsonic-response.status" == "ok"
+
+# Test: search3 - query with double quotes should be escaped
+GET {{base_url}}/rest/search3?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&query=test%22quoted%22
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.subsonic-response.status" == "ok"
+
+# Test: search3 - query with parentheses
+GET {{base_url}}/rest/search3?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&query=(test)
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.subsonic-response.status" == "ok"

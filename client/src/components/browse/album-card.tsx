@@ -120,49 +120,51 @@ export function AlbumCardCompact({ album, onPlay, className }: AlbumCardCompactP
   const showImage = coverArtUrl && !imageError;
 
   return (
-    <div
-      className={cn(
-        "group flex items-center gap-3 p-2 rounded-md hover:bg-accent/50 transition-colors cursor-pointer",
-        className
-      )}
-    >
-      <Link
-        href={`/library/albums/${album.id}`}
-        className="flex items-center gap-3 flex-1 min-w-0"
+    <AlbumContextMenu album={album}>
+      <div
+        className={cn(
+          "group flex items-center gap-3 p-2 rounded-md hover:bg-accent/50 transition-colors cursor-pointer",
+          className
+        )}
       >
-        <div className="relative w-12 h-12 rounded overflow-hidden bg-muted shrink-0">
-          {showImage ? (
-            <img
-              src={coverArtUrl}
-              alt={album.name || "Album cover"}
-              loading="lazy"
-              decoding="async"
-              className="absolute inset-0 w-full h-full object-cover"
-              onError={() => setImageError(true)}
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-              <Disc className="w-5 h-5 text-muted-foreground" />
-            </div>
-          )}
-        </div>
-        <div className="min-w-0">
-          <p className="font-medium text-sm truncate">{album.name}</p>
-          <p className="text-xs text-muted-foreground truncate">{album.artist}</p>
-        </div>
-      </Link>
-      
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-        onClick={(e) => {
-          e.preventDefault();
-          onPlay?.();
-        }}
-      >
-        <Play className="w-4 h-4" />
-      </Button>
-    </div>
+        <Link
+          href={`/library/albums/${album.id}`}
+          className="flex items-center gap-3 flex-1 min-w-0"
+        >
+          <div className="relative w-12 h-12 rounded overflow-hidden bg-muted shrink-0">
+            {showImage ? (
+              <img
+                src={coverArtUrl}
+                alt={album.name || "Album cover"}
+                loading="lazy"
+                decoding="async"
+                className="absolute inset-0 w-full h-full object-cover"
+                onError={() => setImageError(true)}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
+                <Disc className="w-5 h-5 text-muted-foreground" />
+              </div>
+            )}
+          </div>
+          <div className="min-w-0">
+            <p className="font-medium text-sm truncate">{album.name}</p>
+            <p className="text-xs text-muted-foreground truncate">{album.artist}</p>
+          </div>
+        </Link>
+        
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={(e) => {
+            e.preventDefault();
+            onPlay?.();
+          }}
+        >
+          <Play className="w-4 h-4" />
+        </Button>
+      </div>
+    </AlbumContextMenu>
   );
 }
