@@ -384,3 +384,64 @@ pub async fn delete_playlist(pool: &SqlitePool, id: &str) -> sqlx::Result<()> {
         .await?;
     Ok(())
 }
+
+/// Delete a song from the database
+/// This also:
+/// - Deletes the song from playlists (CASCADE)
+/// - Deletes scrobbles for the song (CASCADE)
+/// - Deletes starred entries for the song
+/// - Cleans up FTS entries via trigger
+/// - Updates album song_count
+pub async fn delete_song(pool: &SqlitePool, id: &str) -> sqlx::Result<bool> {
+    // Get album_id before deleting so we can update album counts
+    let album_id: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT album_id FROM songs WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+
+    // Delete starred entries for this song
+    sqlx::query("DELETE FROM starred WHERE item_type = 'song' AND item_id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+    // Delete the song (cascades to playlist_songs, scrobbles, FTS trigger)
+    let result = sqlx::query("DELETE FROM songs WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+    if result.rows_affected() == 0 {
+        return Ok(false);
+    }
+
+    // Update album song count if song had an album
+    if let Some((Some(album_id),)) = album_id {
+        sqlx::query(
+            "UPDATE albums SET 
+                song_count = (SELECT COUNT(*) FROM songs WHERE album_id = ?),
+                duration = (SELECT COALESCE(SUM(duration), 0) FROM songs WHERE album_id = ?)
+             WHERE id = ?",
+        )
+        .bind(&album_id)
+        .bind(&album_id)
+        .bind(&album_id)
+        .execute(pool)
+        .await?;
+    }
+
+    // Update all playlists that contained this song
+    sqlx::query(
+        "UPDATE playlists SET 
+            song_count = (SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = playlists.id),
+            duration = (SELECT COALESCE(SUM(s.duration), 0) FROM songs s 
+                        INNER JOIN playlist_songs ps ON s.id = ps.song_id 
+                        WHERE ps.playlist_id = playlists.id),
+            updated_at = datetime('now')"
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(true)
+}

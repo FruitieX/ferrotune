@@ -54,3 +54,7 @@ export const expandedPlaylistFoldersAtom = atomWithStorage<string[]>(
   "ferrotune-expanded-playlist-folders",
   []
 );
+
+// Accent color theme
+export type AccentColor = "default" | "emerald" | "violet" | "rose" | "ocean" | "amber";
+export const accentColorAtom = atomWithStorage<AccentColor>("ferrotune-accent-color", "default");

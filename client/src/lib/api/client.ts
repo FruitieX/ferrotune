@@ -263,6 +263,46 @@ export class SubsonicClient {
   getDownloadUrl(id: string): string {
     return this.buildUrl("download", { id });
   }
+
+  // Admin API methods
+  private buildAdminUrl(endpoint: string): string {
+    return `${this.serverUrl}${endpoint}`;
+  }
+
+  private async adminRequest<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<T> {
+    const url = this.buildAdminUrl(endpoint);
+
+    // Build auth header
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(options.headers as Record<string, string>),
+    };
+
+    if (this.username && this.password) {
+      headers["Authorization"] = `Basic ${btoa(`${this.username}:${this.password}`)}`;
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP error: ${response.status}`);
+    }
+
+    return response.json() as Promise<T>;
+  }
+
+  async deleteSongFromDatabase(id: string): Promise<{ success: boolean; message: string }> {
+    return this.adminRequest(`/api/songs/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+  }
 }
 
 // Singleton instance - will be initialized when user connects

@@ -11,6 +11,7 @@ import {
   Shuffle,
   MoreHorizontal,
   FolderPlus,
+  Info,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -28,6 +29,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
+import { DetailsDialog } from "@/components/shared/details-dialog";
 import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import type { Artist, Song } from "@/lib/api/types";
@@ -66,6 +68,7 @@ export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) 
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!artist.starred);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [artistSongs, setArtistSongs] = useState<Song[] | null>(null);
 
   const handlePlay = async () => {
@@ -167,6 +170,11 @@ export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) 
         <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
         {isStarred ? "Remove from Favorites" : "Add to Favorites"}
       </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onClick={() => setDetailsOpen(true)}>
+        <Info className="w-4 h-4 mr-2" />
+        View Details
+      </ContextMenuItem>
     </>
   );
 
@@ -183,6 +191,11 @@ export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) 
           songs={artistSongs}
         />
       )}
+      <DetailsDialog
+        item={{ type: "artist", data: artist }}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+      />
     </>
   );
 }
@@ -200,6 +213,7 @@ export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: Artis
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!artist.starred);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [artistSongs, setArtistSongs] = useState<Song[] | null>(null);
 
   const handlePlay = async () => {
@@ -329,6 +343,11 @@ export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: Artis
             <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
             {isStarred ? "Remove from Favorites" : "Add to Favorites"}
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setDetailsOpen(true)}>
+            <Info className="w-4 h-4 mr-2" />
+            View Details
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       {artistSongs && (
@@ -338,6 +357,11 @@ export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: Artis
           songs={artistSongs}
         />
       )}
+      <DetailsDialog
+        item={{ type: "artist", data: artist }}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+      />
     </>
   );
 }

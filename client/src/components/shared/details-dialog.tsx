@@ -2,18 +2,29 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { useQuery } from "@tanstack/react-query";
-import { Music, User, Disc, ListMusic, Calendar, Clock, Hash, FileAudio, HardDrive, Star, Heart } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Music, User, Disc, ListMusic, Calendar, Clock, Hash, FileAudio, HardDrive, Star, Heart, Trash2, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { getClient } from "@/lib/api/client";
 import { formatDuration, formatDate, formatFileSize } from "@/lib/utils/format";
+import { toast } from "sonner";
 import type { Song, Album, Artist, Playlist } from "@/lib/api/types";
 
 type DetailsItem =
@@ -26,15 +37,24 @@ interface DetailsDialogProps {
   item: DetailsItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSongDeleted?: () => void;
 }
 
-export function DetailsDialog({ item, open, onOpenChange }: DetailsDialogProps) {
+export function DetailsDialog({ item, open, onOpenChange, onSongDeleted }: DetailsDialogProps) {
   if (!item) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto overflow-x-hidden">
-        {item.type === "song" && <SongDetails song={item.data} />}
+        {item.type === "song" && (
+          <SongDetails 
+            song={item.data} 
+            onDeleted={() => {
+              onOpenChange(false);
+              onSongDeleted?.();
+            }} 
+          />
+        )}
         {item.type === "album" && <AlbumDetails album={item.data} />}
         {item.type === "artist" && <ArtistDetails artist={item.data} />}
         {item.type === "playlist" && <PlaylistDetails playlist={item.data} />}
@@ -56,11 +76,36 @@ function DetailRow({ icon: Icon, label, value }: { icon: React.ElementType; labe
   );
 }
 
-function SongDetails({ song }: { song: Song }) {
+function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }) {
   const [coverError, setCoverError] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const queryClient = useQueryClient();
   const coverArtUrl = song.coverArt && !coverError
     ? getClient()?.getCoverArtUrl(song.coverArt, 200)
     : null;
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.deleteSongFromDatabase(song.id);
+    },
+    onSuccess: (result) => {
+      toast.success(result.message);
+      // Invalidate queries that might contain this song
+      queryClient.invalidateQueries({ queryKey: ["album"] });
+      queryClient.invalidateQueries({ queryKey: ["albums"] });
+      queryClient.invalidateQueries({ queryKey: ["artist"] });
+      queryClient.invalidateQueries({ queryKey: ["search"] });
+      queryClient.invalidateQueries({ queryKey: ["starred"] });
+      queryClient.invalidateQueries({ queryKey: ["randomSongs"] });
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      onDeleted?.();
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to delete song");
+    },
+  });
 
   return (
     <>
@@ -133,7 +178,51 @@ function SongDetails({ song }: { song: Song }) {
 
         <DetailRow icon={Hash} label="Track ID" value={song.id} />
         <DetailRow icon={HardDrive} label="File Path" value={song.path} />
+
+        <Separator />
+
+        {/* Actions */}
+        <div className="pt-2">
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setShowDeleteConfirm(true)}
+            disabled={deleteMutation.isPending}
+            className="w-full"
+          >
+            {deleteMutation.isPending ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Trash2 className="w-4 h-4 mr-2" />
+            )}
+            Remove from Database
+          </Button>
+          <p className="text-xs text-muted-foreground mt-2 text-center">
+            This removes the track from the database. The file will remain on disk and may be re-added on the next scan.
+          </p>
+        </div>
       </div>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove track from database?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove &quot;{song.title}&quot; from the database, including all playlist entries, favorites, and play history. The file will remain on disk.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteMutation.mutate()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

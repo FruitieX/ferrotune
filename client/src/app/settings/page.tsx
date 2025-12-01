@@ -26,6 +26,7 @@ import { serverConnectionAtom } from "@/lib/store/auth";
 import { volumeAtom, repeatModeAtom } from "@/lib/store/player";
 import { isShuffledAtom } from "@/lib/store/queue";
 import { clearQueueAtom } from "@/lib/store/queue";
+import { accentColorAtom, type AccentColor } from "@/lib/store/ui";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -65,6 +66,7 @@ export default function SettingsPage() {
   const [volume, setVolume] = useAtom(volumeAtom);
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
   const [isShuffled, setIsShuffled] = useAtom(isShuffledAtom);
+  const [accentColor, setAccentColor] = useAtom(accentColorAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
   const { theme, setTheme } = useTheme();
 
@@ -293,6 +295,37 @@ export default function SettingsPage() {
                     <Monitor className="w-4 h-4" />
                     System
                   </Button>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Accent Color */}
+              <div className="space-y-2">
+                <Label className="text-sm text-muted-foreground">
+                  Accent Color
+                </Label>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      { name: "rust", color: "bg-[oklch(0.65_0.18_30)]" },
+                      { name: "emerald", color: "bg-[oklch(0.65_0.18_165)]" },
+                      { name: "violet", color: "bg-[oklch(0.65_0.18_290)]" },
+                      { name: "rose", color: "bg-[oklch(0.65_0.18_350)]" },
+                      { name: "amber", color: "bg-[oklch(0.65_0.18_80)]" },
+                    ] as const
+                  ).map((accent) => (
+                    <button
+                      key={accent.name}
+                      onClick={() => setAccentColor(accent.name)}
+                      className={`w-10 h-10 rounded-full ${accent.color} transition-all hover:scale-110 ${
+                        accentColor === accent.name
+                          ? "ring-2 ring-offset-2 ring-offset-background ring-primary"
+                          : ""
+                      }`}
+                      title={accent.name.charAt(0).toUpperCase() + accent.name.slice(1)}
+                    />
+                  ))}
                 </div>
               </div>
             </CardContent>
