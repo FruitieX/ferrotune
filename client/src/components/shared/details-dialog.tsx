@@ -33,7 +33,7 @@ export function DetailsDialog({ item, open, onOpenChange }: DetailsDialogProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto overflow-x-hidden">
         {item.type === "song" && <SongDetails song={item.data} />}
         {item.type === "album" && <AlbumDetails album={item.data} />}
         {item.type === "artist" && <ArtistDetails artist={item.data} />}
@@ -131,6 +131,7 @@ function SongDetails({ song }: { song: Song }) {
 
         <Separator />
 
+        <DetailRow icon={Hash} label="Track ID" value={song.id} />
         <DetailRow icon={HardDrive} label="File Path" value={song.path} />
       </div>
     </>

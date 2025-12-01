@@ -121,7 +121,7 @@ export function Sidebar() {
 
       {/* Main Navigation */}
       <nav className="px-2 py-4">
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           {navItems.map((item) => {
             const isActive = item.href === "/" 
               ? pathname === "/" 
@@ -162,7 +162,7 @@ export function Sidebar() {
         )}
 
         <ScrollArea className="flex-1 px-2">
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {/* Liked Songs */}
             <Link href="/favorites">
               <Button

@@ -41,7 +41,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           <AudioEngineProvider>
             {children}
           </AudioEngineProvider>
-          <Toaster position="bottom-right" richColors />
+          <Toaster position="bottom-right" richColors offset={100} />
         </ThemeProvider>
       </QueryClientProvider>
     </JotaiProvider>
