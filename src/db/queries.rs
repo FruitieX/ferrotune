@@ -116,6 +116,21 @@ pub async fn get_songs_by_album(pool: &SqlitePool, album_id: &str) -> sqlx::Resu
     .await
 }
 
+/// Get all songs by a specific artist (track artist, not album artist)
+/// This returns songs where the song's artist_id matches, including songs on compilation albums
+pub async fn get_songs_by_artist(pool: &SqlitePool, artist_id: &str) -> sqlx::Result<Vec<Song>> {
+    sqlx::query_as::<_, Song>(
+        "SELECT s.*, ar.name as artist_name 
+         FROM songs s
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         WHERE s.artist_id = ? 
+         ORDER BY s.album_id, s.disc_number, s.track_number, s.title",
+    )
+    .bind(artist_id)
+    .fetch_all(pool)
+    .await
+}
+
 pub async fn get_song_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<Song>> {
     sqlx::query_as::<_, Song>(
         "SELECT s.*, ar.name as artist_name 

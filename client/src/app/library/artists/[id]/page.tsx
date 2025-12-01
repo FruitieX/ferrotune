@@ -37,7 +37,7 @@ export default function ArtistPage({ params }: ArtistPageProps) {
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const [coverError, setCoverError] = useState(false);
 
-  // Fetch artist data
+  // Fetch artist data (includes songs from server)
   const { data: artistData, isLoading } = useQuery({
     queryKey: ["artist", id],
     queryFn: async () => {
@@ -49,28 +49,8 @@ export default function ArtistPage({ params }: ArtistPageProps) {
     enabled: isReady && !!id,
   });
 
-  // Fetch all songs from all albums
-  const { data: allSongs, isLoading: songsLoading } = useQuery({
-    queryKey: ["artist-songs", id, artistData?.album?.map(a => a.id)],
-    queryFn: async () => {
-      const client = getClient();
-      if (!client || !artistData?.album) return [];
-
-      const songs: Song[] = [];
-      for (const album of artistData.album) {
-        try {
-          const albumData = await client.getAlbum(album.id);
-          if (albumData.album.song) {
-            songs.push(...albumData.album.song);
-          }
-        } catch (error) {
-          console.error(`Failed to fetch album ${album.id}:`, error);
-        }
-      }
-      return songs;
-    },
-    enabled: isReady && !!artistData?.album && artistData.album.length > 0,
-  });
+  // Songs come directly from server response - includes songs on compilations
+  const allSongs = artistData?.song ?? [];
 
   // Use the artist star hook
   const { isStarred, handleStar, setIsStarred } = useArtistStar(
@@ -296,13 +276,13 @@ export default function ArtistPage({ params }: ArtistPageProps) {
       {/* Songs section */}
       <div className="p-4 lg:p-6">
         <h2 className="text-xl font-bold mb-6">Songs</h2>
-        {songsLoading || isLoading ? (
+        {isLoading ? (
           <div className="space-y-2">
             {Array.from({ length: 8 }).map((_, i) => (
               <SongRowSkeleton key={i} />
             ))}
           </div>
-        ) : allSongs && allSongs.length > 0 ? (
+        ) : allSongs.length > 0 ? (
           <motion.div 
             className="space-y-1"
             initial="hidden"
