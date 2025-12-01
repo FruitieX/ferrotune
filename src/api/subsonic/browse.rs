@@ -145,6 +145,8 @@ pub struct ArtistDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_rating: Option<i32>,
     pub album: Vec<AlbumResponse>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub song: Vec<SongResponse>,
 }
 
 #[derive(Serialize)]
@@ -180,10 +182,18 @@ pub async fn get_artist(
 
     let albums = crate::db::queries::get_albums_by_artist(&state.pool, &params.id).await?;
 
+    // Get all songs by this artist (track artist, includes songs on compilations)
+    let songs = crate::db::queries::get_songs_by_artist(&state.pool, &params.id).await?;
+
     // Get starred status and ratings for albums
     let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
     let starred_map = get_starred_map(&state.pool, user.user_id, "album", &album_ids).await?;
     let ratings_map = get_ratings_map(&state.pool, user.user_id, "album", &album_ids).await?;
+
+    // Get starred status and ratings for songs
+    let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
+    let song_starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
+    let song_ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
 
     // Get starred status and rating for the artist itself
     let artist_starred_map =
@@ -212,6 +222,19 @@ pub async fn get_artist(
         })
         .collect();
 
+    // Convert songs to response format
+    let song_responses: Vec<SongResponse> = songs
+        .iter()
+        .map(|song| {
+            song_to_response(
+                song.clone(),
+                None, // We don't have album info here, but song has album_id
+                song_starred_map.get(&song.id).cloned(),
+                song_ratings_map.get(&song.id).copied(),
+            )
+        })
+        .collect();
+
     let response = ArtistDetailResponse {
         artist: ArtistDetail {
             id: artist.id.clone(),
@@ -221,6 +244,7 @@ pub async fn get_artist(
             starred: artist_starred_map.get(&artist.id).cloned(),
             user_rating: artist_ratings_map.get(&artist.id).copied(),
             album: album_responses,
+            song: song_responses,
         },
     };
 

@@ -29,6 +29,7 @@ export interface Artist {
 
 export interface ArtistWithAlbums extends Artist {
   album: Album[];
+  song?: Song[];  // Songs by this artist (track artist), includes songs on compilations
 }
 
 export interface ArtistIndex {
