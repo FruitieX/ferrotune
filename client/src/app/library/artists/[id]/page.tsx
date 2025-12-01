@@ -111,15 +111,37 @@ export default function ArtistPage({ params }: ArtistPageProps) {
 
   return (
     <div className="min-h-screen">
-      {/* Header with gradient background */}
+      {/* Header with blurred background */}
       <div className="relative">
-        {/* Background gradient */}
-        <div 
-          className="absolute inset-0 h-[450px]"
-          style={{
-            background: `linear-gradient(180deg, rgba(30,215,96,0.2) 0%, rgba(10,10,10,1) 100%)`
-          }}
-        />
+        {/* Background image with blur */}
+        {showCoverImage && (
+          <div 
+            className="absolute inset-0 h-[400px] overflow-hidden"
+            style={{
+              backgroundImage: `url(${coverArtUrl})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          >
+            {/* Blur and gradient overlay */}
+            <div className="absolute inset-0 backdrop-blur-3xl bg-background/60" />
+            <div 
+              className="absolute inset-0"
+              style={{
+                background: `linear-gradient(180deg, transparent 0%, hsl(var(--background)) 100%)`
+              }}
+            />
+          </div>
+        )}
+        {/* Fallback gradient when no image */}
+        {!showCoverImage && (
+          <div 
+            className="absolute inset-0 h-[400px]"
+            style={{
+              background: `linear-gradient(180deg, rgba(30,215,96,0.2) 0%, hsl(var(--background)) 100%)`
+            }}
+          />
+        )}
 
         {/* Back button */}
         <div className="relative z-10 p-4 lg:p-6">

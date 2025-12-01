@@ -115,7 +115,12 @@ export function FullscreenPlayer() {
           initial={{ y: "100%" }}
           animate={{ y: 0 }}
           exit={{ y: "100%" }}
-          transition={{ type: "tween", duration: 0.3, ease: "easeOut" }}
+          transition={{ 
+            type: "spring", 
+            damping: 25, 
+            stiffness: 300,
+            mass: 0.8,
+          }}
           className="fixed inset-0 z-50 bg-gradient-to-b from-background/95 to-background flex flex-col"
           style={{
             backgroundImage: coverArtUrl
