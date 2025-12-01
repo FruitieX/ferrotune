@@ -14,6 +14,8 @@ import type {
   StarredResponse,
   PlaylistsResponse,
   PlaylistResponse,
+  PlayQueueResponse,
+  PlayHistoryResponse,
   AlbumListParams,
   SearchParams,
   RandomSongsParams,
@@ -249,6 +251,53 @@ export class SubsonicClient {
 
   async deletePlaylist(id: string): Promise<void> {
     await this.request("deletePlaylist", { id });
+  }
+
+  // Play Queue endpoints
+  async savePlayQueue(params: {
+    songIds: string[];
+    current?: string;
+    position?: number;
+  }): Promise<void> {
+    // Build URL manually to handle array parameters
+    const url = new URL(`${this.serverUrl}/rest/savePlayQueue`);
+    url.searchParams.set("v", API_VERSION);
+    url.searchParams.set("c", CLIENT_NAME);
+    url.searchParams.set("f", "json");
+    
+    if (this.apiKey) {
+      url.searchParams.set("apiKey", this.apiKey);
+    } else if (this.username && this.password) {
+      url.searchParams.set("u", this.username);
+      url.searchParams.set("p", this.password);
+    }
+    
+    // Add song IDs as repeated parameters
+    for (const songId of params.songIds) {
+      url.searchParams.append("id", songId);
+    }
+    if (params.current) url.searchParams.set("current", params.current);
+    if (params.position !== undefined) url.searchParams.set("position", String(params.position));
+    
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    if (data["subsonic-response"].status === "failed") {
+      const error = data["subsonic-response"].error;
+      throw new SubsonicApiError(error.code, error.message);
+    }
+  }
+
+  async getPlayQueue(): Promise<PlayQueueResponse> {
+    return this.request<PlayQueueResponse>("getPlayQueue");
+  }
+
+  // Play History endpoints (Ferrotune extensions)
+  async getPlayHistory(params: { size?: number; offset?: number } = {}): Promise<PlayHistoryResponse> {
+    return this.request<PlayHistoryResponse>("getPlayHistory", params);
   }
 
   // Media URL builders (no fetch, returns URL string)

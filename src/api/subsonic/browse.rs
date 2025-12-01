@@ -381,6 +381,11 @@ pub struct SongResponse {
     pub created: String,
     #[serde(rename = "type")]
     pub media_type: String,
+    // Ferrotune extensions for play statistics
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub play_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_played: Option<String>,
 }
 
 pub async fn get_album(
@@ -475,8 +480,17 @@ pub async fn get_song(
         get_ratings_map(&state.pool, user.user_id, "song", &[params.id.clone()]).await?;
     let user_rating = ratings_map.get(&params.id).copied();
 
+    // Get play statistics (Ferrotune extension)
+    let play_stats = get_song_play_stats(&state.pool, user.user_id, &params.id).await?;
+
     let response = SongDetailResponse {
-        song: song_to_response(song, album.as_ref(), starred, user_rating),
+        song: song_to_response_with_stats(
+            song,
+            album.as_ref(),
+            starred,
+            user_rating,
+            Some(play_stats),
+        ),
     };
 
     Ok(FormatResponse::new(user.format, response))
@@ -538,12 +552,62 @@ pub async fn get_genres(
     Ok(FormatResponse::new(user.format, response))
 }
 
+/// Play statistics for a song (Ferrotune extension)
+#[derive(Default)]
+pub struct SongPlayStats {
+    pub play_count: Option<i64>,
+    pub last_played: Option<String>,
+}
+/// Get play statistics for a song from scrobbles table
+pub async fn get_song_play_stats(
+    pool: &sqlx::SqlitePool,
+    user_id: i64,
+    song_id: &str,
+) -> crate::error::Result<SongPlayStats> {
+    let row = sqlx::query_as::<_, (Option<i64>, Option<String>)>(
+        r#"
+        SELECT 
+            COUNT(*) as play_count,
+            MAX(played_at) as last_played
+        FROM scrobbles
+        WHERE user_id = ? AND song_id = ?
+        "#,
+    )
+    .bind(user_id)
+    .bind(song_id)
+    .fetch_one(pool)
+    .await?;
+
+    // Convert zero play count to None (never played)
+    let (play_count, last_played) = if row.0 == Some(0) {
+        (None, None)
+    } else {
+        (row.0, row.1)
+    };
+
+    Ok(SongPlayStats {
+        play_count,
+        last_played,
+    })
+}
+
 // Helper function to convert Song model to API response
 pub fn song_to_response(
     song: Song,
     album: Option<&Album>,
     starred: Option<String>,
     user_rating: Option<i32>,
+) -> SongResponse {
+    song_to_response_with_stats(song, album, starred, user_rating, None)
+}
+
+// Helper function to convert Song model to API response with optional play stats
+pub fn song_to_response_with_stats(
+    song: Song,
+    album: Option<&Album>,
+    starred: Option<String>,
+    user_rating: Option<i32>,
+    play_stats: Option<SongPlayStats>,
 ) -> SongResponse {
     let content_type = match song.file_format.as_str() {
         "mp3" => "audio/mpeg",
@@ -562,6 +626,10 @@ pub fn song_to_response(
     } else {
         song.artist_name.clone()
     };
+
+    let (play_count, last_played) = play_stats
+        .map(|s| (s.play_count, s.last_played))
+        .unwrap_or((None, None));
 
     SongResponse {
         id: song.id.clone(),
@@ -585,6 +653,8 @@ pub fn song_to_response(
         user_rating,
         created: song.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
         media_type: "music".to_string(),
+        play_count,
+        last_played,
     }
 }
 

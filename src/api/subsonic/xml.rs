@@ -604,6 +604,11 @@ pub struct XmlSong {
     pub created: String,
     #[serde(rename = "@type")]
     pub media_type: String,
+    // Ferrotune extensions for play statistics
+    #[serde(rename = "@playCount", skip_serializing_if = "Option::is_none")]
+    pub play_count: Option<i64>,
+    #[serde(rename = "@lastPlayed", skip_serializing_if = "Option::is_none")]
+    pub last_played: Option<String>,
 }
 
 /// Genres response (getGenres)
@@ -1112,6 +1117,8 @@ fn song_to_xml(song: &SongResponse) -> XmlSong {
         user_rating: song.user_rating,
         created: song.created.clone(),
         media_type: song.media_type.clone(),
+        play_count: song.play_count,
+        last_played: song.last_played.clone(),
     }
 }
 
@@ -1409,6 +1416,146 @@ impl ToXml for PlayQueueResponse {
             changed: self.play_queue.changed.clone(),
             changed_by: self.play_queue.changed_by.clone(),
             entry: self.play_queue.entry.iter().map(song_to_xml).collect(),
+        })
+    }
+}
+
+// --- Play History XML types (Ferrotune extension) ---
+
+/// Play history response (getPlayHistory)
+#[derive(Serialize)]
+#[serde(rename = "subsonic-response")]
+pub struct XmlPlayHistoryResponse {
+    #[serde(rename = "@xmlns")]
+    pub xmlns: &'static str,
+    #[serde(rename = "@status")]
+    pub status: String,
+    #[serde(rename = "@version")]
+    pub version: String,
+    #[serde(rename = "@type")]
+    pub response_type: String,
+    #[serde(rename = "@serverVersion")]
+    pub server_version: String,
+    #[serde(rename = "@openSubsonic")]
+    pub open_subsonic: bool,
+    #[serde(rename = "playHistory")]
+    pub play_history: XmlPlayHistoryInner,
+}
+
+impl XmlPlayHistoryResponse {
+    pub fn ok(play_history: XmlPlayHistoryInner) -> Self {
+        Self {
+            xmlns: "http://subsonic.org/restapi",
+            status: "ok".to_string(),
+            version: "1.16.1".to_string(),
+            response_type: "ferrotune".to_string(),
+            server_version: env!("CARGO_PKG_VERSION").to_string(),
+            open_subsonic: true,
+            play_history,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct XmlPlayHistoryInner {
+    #[serde(rename = "@total", skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
+    #[serde(rename = "entry", default)]
+    pub entry: Vec<XmlPlayHistoryEntry>,
+}
+
+#[derive(Serialize)]
+pub struct XmlPlayHistoryEntry {
+    #[serde(rename = "@id")]
+    pub id: String,
+    #[serde(rename = "@title")]
+    pub title: String,
+    #[serde(rename = "@album", skip_serializing_if = "Option::is_none")]
+    pub album: Option<String>,
+    #[serde(rename = "@albumId", skip_serializing_if = "Option::is_none")]
+    pub album_id: Option<String>,
+    #[serde(rename = "@artist")]
+    pub artist: String,
+    #[serde(rename = "@artistId")]
+    pub artist_id: String,
+    #[serde(rename = "@track", skip_serializing_if = "Option::is_none")]
+    pub track: Option<i32>,
+    #[serde(rename = "@discNumber", skip_serializing_if = "Option::is_none")]
+    pub disc_number: Option<i32>,
+    #[serde(rename = "@year", skip_serializing_if = "Option::is_none")]
+    pub year: Option<i32>,
+    #[serde(rename = "@genre", skip_serializing_if = "Option::is_none")]
+    pub genre: Option<String>,
+    #[serde(rename = "@coverArt", skip_serializing_if = "Option::is_none")]
+    pub cover_art: Option<String>,
+    #[serde(rename = "@size")]
+    pub size: i64,
+    #[serde(rename = "@contentType")]
+    pub content_type: String,
+    #[serde(rename = "@suffix")]
+    pub suffix: String,
+    #[serde(rename = "@duration")]
+    pub duration: i64,
+    #[serde(rename = "@bitRate", skip_serializing_if = "Option::is_none")]
+    pub bit_rate: Option<i32>,
+    #[serde(rename = "@path")]
+    pub path: String,
+    #[serde(rename = "@starred", skip_serializing_if = "Option::is_none")]
+    pub starred: Option<String>,
+    #[serde(rename = "@userRating", skip_serializing_if = "Option::is_none")]
+    pub user_rating: Option<i32>,
+    #[serde(rename = "@created")]
+    pub created: String,
+    #[serde(rename = "@type")]
+    pub media_type: String,
+    #[serde(rename = "@playedAt")]
+    pub played_at: String,
+}
+
+/// Convert a JSON SongResponse and played_at to XmlPlayHistoryEntry
+fn play_history_entry_to_xml(song: &SongResponse, played_at: &str) -> XmlPlayHistoryEntry {
+    XmlPlayHistoryEntry {
+        id: song.id.clone(),
+        title: song.title.clone(),
+        album: song.album.clone(),
+        album_id: song.album_id.clone(),
+        artist: song.artist.clone(),
+        artist_id: song.artist_id.clone(),
+        track: song.track,
+        disc_number: song.disc_number,
+        year: song.year,
+        genre: song.genre.clone(),
+        cover_art: song.cover_art.clone(),
+        size: song.size,
+        content_type: song.content_type.clone(),
+        suffix: song.suffix.clone(),
+        duration: song.duration,
+        bit_rate: song.bit_rate,
+        path: song.path.clone(),
+        starred: song.starred.clone(),
+        user_rating: song.user_rating,
+        created: song.created.clone(),
+        media_type: song.media_type.clone(),
+        played_at: played_at.to_string(),
+    }
+}
+
+// --- history.rs ToXml implementations ---
+
+use crate::api::subsonic::history::PlayHistoryResponse;
+
+impl ToXml for PlayHistoryResponse {
+    type XmlType = XmlPlayHistoryResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlPlayHistoryResponse::ok(XmlPlayHistoryInner {
+            total: self.play_history.total,
+            entry: self
+                .play_history
+                .entry
+                .iter()
+                .map(|e| play_history_entry_to_xml(&e.song, &e.played_at))
+                .collect(),
         })
     }
 }

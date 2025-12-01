@@ -11,6 +11,7 @@ pub struct AuthenticatedUser {
     pub username: String,
     pub is_admin: bool,
     pub format: ResponseFormat,
+    pub client: String,
 }
 
 /// Extractor for just the response format (no auth required)
@@ -82,23 +83,25 @@ pub async fn authenticate_request(
         return Err(Error::ConflictingAuthParams);
     }
 
+    let client = params.c.clone();
+
     // API Key authentication (preferred)
     if let Some(ref api_key) = params.api_key {
         tracing::debug!(client = %params.c, "Attempting API key authentication");
-        return authenticate_with_api_key(pool, api_key, format).await;
+        return authenticate_with_api_key(pool, api_key, format, client).await;
     }
 
     // Token + Salt authentication
     if let (Some(ref username), Some(ref token), Some(ref salt)) = (&params.u, &params.t, &params.s)
     {
         tracing::debug!(username = %username, client = %params.c, "Attempting token authentication");
-        return authenticate_with_token(pool, username, token, salt, format).await;
+        return authenticate_with_token(pool, username, token, salt, format, client).await;
     }
 
     // Legacy password authentication (for testing only)
     if let (Some(ref username), Some(ref password)) = (&params.u, &params.p) {
         tracing::debug!(username = %username, client = %params.c, "Attempting password authentication");
-        return authenticate_with_password(pool, username, password, format).await;
+        return authenticate_with_password(pool, username, password, format, client).await;
     }
 
     tracing::warn!(client = %params.c, "No valid authentication method provided");
@@ -111,6 +114,7 @@ async fn authenticate_with_api_key(
     pool: &SqlitePool,
     token: &str,
     format: ResponseFormat,
+    client: String,
 ) -> Result<AuthenticatedUser> {
     let user = queries::get_user_by_api_key(pool, token)
         .await?
@@ -125,6 +129,7 @@ async fn authenticate_with_api_key(
         username: user.username,
         is_admin: user.is_admin,
         format,
+        client,
     })
 }
 
@@ -134,6 +139,7 @@ async fn authenticate_with_token(
     token: &str,
     salt: &str,
     format: ResponseFormat,
+    client: String,
 ) -> Result<AuthenticatedUser> {
     let user = queries::get_user_by_username(pool, username)
         .await?
@@ -160,6 +166,7 @@ async fn authenticate_with_token(
         username: user.username,
         is_admin: user.is_admin,
         format,
+        client,
     })
 }
 
@@ -168,6 +175,7 @@ async fn authenticate_with_password(
     username: &str,
     password: &str,
     format: ResponseFormat,
+    client: String,
 ) -> Result<AuthenticatedUser> {
     let password = if password.starts_with("enc:") {
         // Hex-encoded password
@@ -201,6 +209,7 @@ async fn authenticate_with_password(
         username: user.username,
         is_admin: user.is_admin,
         format,
+        client,
     })
 }
 
