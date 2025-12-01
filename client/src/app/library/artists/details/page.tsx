@@ -331,7 +331,7 @@ function ArtistDetailContent() {
               >
                 <SongRow 
                   song={song} 
-                  index={index + 1} 
+                  index={index} 
                   showAlbum={true}
                   showArtist={false}
                   showCover={true}
