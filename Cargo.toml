@@ -3,6 +3,11 @@ name = "ferrotune"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+# Enable embedded web UI - requires client/out to exist at compile time
+embedded-ui = ["dep:rust-embed", "dep:mime_guess"]
+
 [dependencies]
 # Web framework
 axum = "0.7"
@@ -61,6 +66,10 @@ serde_urlencoded = "0.7"
 # UUID
 uuid = { version = "1.11", features = ["v4", "serde"] }
 urlencoding = "2.1.3"
+
+# Static file embedding (optional, enabled with embedded-ui feature)
+rust-embed = { version = "8", features = ["mime-guess", "include-exclude"], optional = true }
+mime_guess = { version = "2", optional = true }
 
 # Testing
 [dev-dependencies]

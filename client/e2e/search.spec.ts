@@ -62,7 +62,7 @@ test.describe("Search", () => {
     // Wait for artist data to load
     await page.waitForTimeout(1000);
     
-    const firstArtist = page.locator('a[href^="/library/artists/"]').first();
+    const firstArtist = page.locator('a[href^="/library/artists/details"]').first();
     await expect(firstArtist).toBeVisible({ timeout: 5000 });
     
     // Get artist name

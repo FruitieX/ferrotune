@@ -37,7 +37,7 @@ export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
         )}
       >
         <AlbumDropdownMenu album={album} onPlay={onPlay} />
-        <Link href={`/library/albums/${album.id}`} className="block">
+        <Link href={`/library/albums/details?id=${album.id}`} className="block">
           <div className="relative aspect-square rounded-md overflow-hidden bg-muted mb-4 album-glow transform-gpu transition-transform duration-200 group-hover:scale-[1.05]">
             {hasImage ? (
               <>
@@ -152,7 +152,7 @@ export function AlbumCardCompact({ album, onPlay, className }: AlbumCardCompactP
         )}
       >
         <Link
-          href={`/library/albums/${album.id}`}
+          href={`/library/albums/details?id=${album.id}`}
           className="flex items-center gap-3 flex-1 min-w-0"
         >
           <div className="relative w-12 h-12 rounded overflow-hidden bg-muted shrink-0">

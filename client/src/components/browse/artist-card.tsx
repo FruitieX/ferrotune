@@ -37,7 +37,7 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
         )}
       >
         <ArtistDropdownMenu artist={artist} onPlay={onPlay} />
-        <Link href={`/library/artists/${artist.id}`} className="block">
+        <Link href={`/library/artists/details?id=${artist.id}`} className="block">
           <div className="relative aspect-square rounded-full overflow-hidden bg-muted mb-4 transform-gpu transition-transform duration-200 group-hover:scale-[1.05]">
             {hasImage ? (
               <>
@@ -155,7 +155,7 @@ export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompa
         )}
       >
         <Link
-          href={`/library/artists/${artist.id}`}
+          href={`/library/artists/details?id=${artist.id}`}
           className="flex items-center gap-3 flex-1 min-w-0"
         >
           <div className="relative w-12 h-12 rounded-full overflow-hidden bg-muted shrink-0">

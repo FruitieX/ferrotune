@@ -438,7 +438,7 @@ pub async fn delete_song(pool: &SqlitePool, id: &str) -> sqlx::Result<bool> {
             duration = (SELECT COALESCE(SUM(s.duration), 0) FROM songs s 
                         INNER JOIN playlist_songs ps ON s.id = ps.song_id 
                         WHERE ps.playlist_id = playlists.id),
-            updated_at = datetime('now')"
+            updated_at = datetime('now')",
     )
     .execute(pool)
     .await?;

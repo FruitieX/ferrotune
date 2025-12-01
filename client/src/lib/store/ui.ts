@@ -8,8 +8,8 @@ export const sidebarWidthAtom = atomWithStorage("ferrotune-sidebar-width", 280);
 // Mobile menu state
 export const mobileMenuOpenAtom = atom<boolean>(false);
 
-// Queue panel state
-export const queuePanelOpenAtom = atom<boolean>(false);
+// Queue panel state - persisted so sidebar stays open on reload
+export const queuePanelOpenAtom = atomWithStorage<boolean>("ferrotune-queue-panel-open", false);
 
 // Fullscreen player state
 export const fullscreenPlayerOpenAtom = atom<boolean>(false);
@@ -56,5 +56,5 @@ export const expandedPlaylistFoldersAtom = atomWithStorage<string[]>(
 );
 
 // Accent color theme
-export type AccentColor = "default" | "emerald" | "violet" | "rose" | "ocean" | "amber";
-export const accentColorAtom = atomWithStorage<AccentColor>("ferrotune-accent-color", "default");
+export type AccentColor = "rust" | "emerald" | "violet" | "rose" | "amber";
+export const accentColorAtom = atomWithStorage<AccentColor>("ferrotune-accent-color", "rust");

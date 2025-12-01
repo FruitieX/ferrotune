@@ -158,25 +158,22 @@ pub async fn get_album_list2(
             .await?
         }
         "byYear" => {
-            let mut query = "SELECT a.*, ar.name as artist_name 
+            sqlx::query_as(
+                "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
-                 WHERE 1=1".to_string();
-
-            if let Some(from_year) = params.from_year {
-                query.push_str(&format!(" AND a.year >= {}", from_year));
-            }
-            if let Some(to_year) = params.to_year {
-                query.push_str(&format!(" AND a.year <= {}", to_year));
-            }
-
-            query.push_str(" ORDER BY a.year DESC, a.name LIMIT ? OFFSET ?");
-
-            sqlx::query_as(&query)
-                .bind(size)
-                .bind(offset)
-                .fetch_all(&state.pool)
-                .await?
+                 WHERE (? IS NULL OR a.year >= ?) AND (? IS NULL OR a.year <= ?)
+                 ORDER BY a.year DESC, a.name 
+                 LIMIT ? OFFSET ?"
+            )
+            .bind(params.from_year)
+            .bind(params.from_year)
+            .bind(params.to_year)
+            .bind(params.to_year)
+            .bind(size)
+            .bind(offset)
+            .fetch_all(&state.pool)
+            .await?
         }
         "byGenre" => {
             if let Some(ref genre) = params.genre {
@@ -229,14 +226,16 @@ pub async fn get_album_list2(
             }
         }
         "byYear" => {
-            let mut query = "SELECT COUNT(*) FROM albums WHERE 1=1".to_string();
-            if let Some(from_year) = params.from_year {
-                query.push_str(&format!(" AND year >= {}", from_year));
-            }
-            if let Some(to_year) = params.to_year {
-                query.push_str(&format!(" AND year <= {}", to_year));
-            }
-            let count: (i64,) = sqlx::query_as(&query).fetch_one(&state.pool).await?;
+            let count: (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM albums 
+                 WHERE (? IS NULL OR year >= ?) AND (? IS NULL OR year <= ?)",
+            )
+            .bind(params.from_year)
+            .bind(params.from_year)
+            .bind(params.to_year)
+            .bind(params.to_year)
+            .fetch_one(&state.pool)
+            .await?;
             Some(count.0)
         }
         _ => None, // random, recent don't need total
@@ -307,24 +306,26 @@ pub async fn get_random_songs(
 ) -> Result<FormatResponse<RandomSongsResponse>> {
     let size = params.size.unwrap_or(10).min(500) as i64;
 
-    let mut query = "SELECT s.*, ar.name as artist_name FROM songs s INNER JOIN artists ar ON s.artist_id = ar.id WHERE 1=1".to_string();
-
-    if let Some(genre) = params.genre {
-        query.push_str(&format!(" AND s.genre = '{}'", genre.replace('\'', "''")));
-    }
-    if let Some(from_year) = params.from_year {
-        query.push_str(&format!(" AND s.year >= {}", from_year));
-    }
-    if let Some(to_year) = params.to_year {
-        query.push_str(&format!(" AND s.year <= {}", to_year));
-    }
-
-    query.push_str(" ORDER BY RANDOM() LIMIT ?");
-
-    let songs: Vec<crate::db::models::Song> = sqlx::query_as(&query)
-        .bind(size)
-        .fetch_all(&state.pool)
-        .await?;
+    // Use parameterized queries to prevent SQL injection
+    let songs: Vec<crate::db::models::Song> = sqlx::query_as(
+        "SELECT s.*, ar.name as artist_name 
+         FROM songs s 
+         INNER JOIN artists ar ON s.artist_id = ar.id 
+         WHERE (? IS NULL OR s.genre = ?)
+           AND (? IS NULL OR s.year >= ?)
+           AND (? IS NULL OR s.year <= ?)
+         ORDER BY RANDOM() 
+         LIMIT ?",
+    )
+    .bind(&params.genre)
+    .bind(&params.genre)
+    .bind(params.from_year)
+    .bind(params.from_year)
+    .bind(params.to_year)
+    .bind(params.to_year)
+    .bind(size)
+    .fetch_all(&state.pool)
+    .await?;
 
     // Get starred status and ratings for songs
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();

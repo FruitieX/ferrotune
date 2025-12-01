@@ -386,7 +386,7 @@ function PlaylistSearchCard({ playlist }: { playlist: Playlist }) {
 
   return (
     <Link
-      href={`/playlists/${playlist.id}`}
+      href={`/playlists/details?id=${playlist.id}`}
       className="group block p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors"
     >
       <div className="relative mb-4">

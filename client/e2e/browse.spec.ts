@@ -121,12 +121,12 @@ test.describe("Browse Library", () => {
       await expect(page.getByRole("tab", { name: /genres/i })).toHaveAttribute("data-state", "active");
       
       // Wait for genres to load and click the first one
-      const genreCard = page.locator('a[href^="/library/genres/"]').first();
+      const genreCard = page.locator('a[href^="/library/genres/details"]').first();
       await expect(genreCard).toBeVisible({ timeout: 10000 });
       await genreCard.click();
       
       // Should navigate to genre details page
-      await expect(page).toHaveURL(/\/library\/genres\//);
+      await expect(page).toHaveURL(/\/library\/genres\/details/);
     });
 
     test("genre detail page shows header and albums", async ({ authenticatedPage: page }) => {
@@ -137,7 +137,7 @@ test.describe("Browse Library", () => {
       await page.getByRole("tab", { name: /genres/i }).click();
       
       // Get the first genre link and its text
-      const genreCard = page.locator('a[href^="/library/genres/"]').first();
+      const genreCard = page.locator('a[href^="/library/genres/details"]').first();
       await expect(genreCard).toBeVisible({ timeout: 10000 });
       await genreCard.click();
       
@@ -162,7 +162,7 @@ test.describe("Browse Library", () => {
       await page.getByRole("tab", { name: /genres/i }).click();
       
       // Navigate to a genre
-      const genreCard = page.locator('a[href^="/library/genres/"]').first();
+      const genreCard = page.locator('a[href^="/library/genres/details"]').first();
       await expect(genreCard).toBeVisible({ timeout: 10000 });
       await genreCard.click();
       

@@ -1,7 +1,7 @@
 "use client";
 
-import { use, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { useSetAtom } from "jotai";
@@ -32,15 +32,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
-import { formatDuration, formatTotalDuration, formatCount } from "@/lib/utils/format";
-import { cn } from "@/lib/utils";
+import { formatTotalDuration, formatCount } from "@/lib/utils/format";
 
-interface AlbumPageProps {
-  params: Promise<{ id: string }>;
-}
-
-export default function AlbumPage({ params }: AlbumPageProps) {
-  const { id } = use(params);
+function AlbumDetailContent() {
+  const searchParams = useSearchParams();
+  const id = searchParams.get("id");
   const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const playNow = useSetAtom(playNowAtom);
@@ -49,13 +45,20 @@ export default function AlbumPage({ params }: AlbumPageProps) {
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [coverError, setCoverError] = useState(false);
 
+  // Redirect to library if no ID
+  useEffect(() => {
+    if (!id && !authLoading) {
+      router.replace("/library");
+    }
+  }, [id, authLoading, router]);
+
   // Fetch album data
   const { data: albumData, isLoading } = useQuery({
     queryKey: ["album", id],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getAlbum(id);
+      const response = await client.getAlbum(id!);
       return response.album;
     },
     enabled: isReady && !!id,
@@ -84,6 +87,10 @@ export default function AlbumPage({ params }: AlbumPageProps) {
     }
   };
 
+  if (!id) {
+    return null;
+  }
+
   if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -98,7 +105,7 @@ export default function AlbumPage({ params }: AlbumPageProps) {
       <div className="relative">
         {/* Background gradient based on cover art */}
         <div 
-          className="absolute inset-0 h-[400px] bg-gradient-to-b from-primary/20 to-background"
+          className="absolute inset-0 h-[400px] bg-linear-to-b from-primary/20 to-background"
           style={{
             background: albumData 
               ? `linear-gradient(180deg, rgba(30,215,96,0.15) 0%, rgba(10,10,10,1) 100%)`
@@ -139,7 +146,7 @@ export default function AlbumPage({ params }: AlbumPageProps) {
                 onError={() => setCoverError(true)}
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/20">
+              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
                 <span className="text-6xl">🎵</span>
               </div>
             )}
@@ -167,7 +174,7 @@ export default function AlbumPage({ params }: AlbumPageProps) {
                 </h1>
                 <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 mt-4 text-sm text-muted-foreground">
                   <Link
-                    href={`/library/artists/${albumData?.artistId}`}
+                    href={`/library/artists/details?id=${albumData?.artistId}`}
                     className="font-semibold text-foreground hover:underline"
                   >
                     {albumData?.artist}
@@ -300,5 +307,17 @@ export default function AlbumPage({ params }: AlbumPageProps) {
         />
       )}
     </div>
+  );
+}
+
+export default function AlbumDetailPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <Skeleton className="w-32 h-8" />
+      </div>
+    }>
+      <AlbumDetailContent />
+    </Suspense>
   );
 }

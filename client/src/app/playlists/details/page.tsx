@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSetAtom } from "jotai";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -12,7 +12,7 @@ import {
   Clock,
   Pencil,
   Trash2,
-  ListMusic,
+  ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -42,10 +42,10 @@ import { TrackList } from "@/components/browse/track-list";
 import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
 import { formatDuration, formatCount, formatDate } from "@/lib/utils/format";
 
-export default function PlaylistDetailPage() {
+function PlaylistDetailContent() {
   const router = useRouter();
-  const params = useParams();
-  const playlistId = params.id as string;
+  const searchParams = useSearchParams();
+  const playlistId = searchParams.get("id");
 
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const playNow = useSetAtom(playNowAtom);
@@ -55,13 +55,20 @@ export default function PlaylistDetailPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
 
+  // Redirect to playlists if no ID
+  useEffect(() => {
+    if (!playlistId && !authLoading) {
+      router.replace("/playlists");
+    }
+  }, [playlistId, authLoading, router]);
+
   // Fetch playlist details
   const { data: playlist, isLoading } = useQuery({
     queryKey: ["playlist", playlistId],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getPlaylist(playlistId);
+      const response = await client.getPlaylist(playlistId!);
       return response.playlist;
     },
     enabled: isReady && !!playlistId,
@@ -72,7 +79,7 @@ export default function PlaylistDetailPage() {
     mutationFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      await client.deletePlaylist(playlistId);
+      await client.deletePlaylist(playlistId!);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
@@ -104,6 +111,10 @@ export default function PlaylistDetailPage() {
       playNow(shuffled);
     }
   };
+
+  if (!playlistId) {
+    return null;
+  }
 
   if (authLoading) {
     return (
@@ -159,7 +170,19 @@ export default function PlaylistDetailPage() {
           }}
         />
 
-        <div className="relative z-10 px-4 lg:px-6 pt-8 pb-6">
+        {/* Back button */}
+        <div className="relative z-10 p-4 lg:p-6">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 rounded-full bg-background/50 hover:bg-background/80"
+            onClick={() => router.back()}
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+        </div>
+
+        <div className="relative z-10 px-4 lg:px-6 pb-6">
           {isLoading ? (
             <div className="flex flex-col md:flex-row items-center md:items-end gap-6">
               <Skeleton className="w-48 h-48 md:w-56 md:h-56 rounded-lg" />
@@ -311,11 +334,37 @@ export default function PlaylistDetailPage() {
       </AlertDialog>
 
       {/* Edit playlist dialog */}
-      <EditPlaylistDialog
-        open={editDialogOpen}
-        onOpenChange={setEditDialogOpen}
-        playlist={playlist ? { id: playlist.id, name: playlist.name, comment: playlist.comment } : null}
-      />
+      {playlist && (
+        <EditPlaylistDialog
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          playlist={playlist}
+        />
+      )}
     </div>
+  );
+}
+
+export default function PlaylistDetailPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen">
+        <div className="relative">
+          <div className="absolute inset-0 h-[400px] bg-gradient-to-b from-primary/20 to-background" />
+          <div className="relative z-10 px-4 lg:px-6 pt-8 pb-6">
+            <div className="flex flex-col md:flex-row items-center md:items-end gap-6">
+              <Skeleton className="w-48 h-48 md:w-56 md:h-56 rounded-lg" />
+              <div className="space-y-4 text-center md:text-left">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-10 w-64" />
+                <Skeleton className="h-4 w-48" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    }>
+      <PlaylistDetailContent />
+    </Suspense>
   );
 }

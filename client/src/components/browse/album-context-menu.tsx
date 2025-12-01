@@ -162,7 +162,7 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem asChild>
-        <Link href={`/library/artists/${album.artistId}`}>
+        <Link href={`/library/artists/details?id=${album.artistId}`}>
           <User className="w-4 h-4 mr-2" />
           Go to Artist
         </Link>
@@ -338,7 +338,7 @@ export function AlbumDropdownMenu({ album, onPlay }: { album: Album; onPlay?: ()
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
-            <Link href={`/library/artists/${album.artistId}`}>
+            <Link href={`/library/artists/details?id=${album.artistId}`}>
               <User className="w-4 h-4 mr-2" />
               Go to Artist
             </Link>

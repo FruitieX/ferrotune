@@ -175,13 +175,13 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
       <ContextMenuSeparator />
 
       <ContextMenuItem asChild>
-        <Link href={`/library/artists/${song.artistId}`}>
+        <Link href={`/library/artists/details?id=${song.artistId}`}>
           <User className="w-4 h-4 mr-2" />
           Go to Artist
         </Link>
       </ContextMenuItem>
       <ContextMenuItem asChild>
-        <Link href={`/library/albums/${song.albumId}`}>
+        <Link href={`/library/albums/details?id=${song.albumId}`}>
           <Disc className="w-4 h-4 mr-2" />
           Go to Album
         </Link>
@@ -359,13 +359,13 @@ export function SongDropdownMenu({ song, queueSongs }: Omit<SongContextMenuProps
           <DropdownMenuSeparator />
 
           <DropdownMenuItem asChild>
-            <Link href={`/library/artists/${song.artistId}`}>
+            <Link href={`/library/artists/details?id=${song.artistId}`}>
               <User className="w-4 h-4 mr-2" />
               Go to Artist
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
-            <Link href={`/library/albums/${song.albumId}`}>
+            <Link href={`/library/albums/details?id=${song.albumId}`}>
               <Disc className="w-4 h-4 mr-2" />
               Go to Album
             </Link>

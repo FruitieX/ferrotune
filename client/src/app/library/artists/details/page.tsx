@@ -1,7 +1,7 @@
 "use client";
 
-import { use, useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
@@ -23,19 +23,23 @@ import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
 import { ArtistDropdownMenu, useArtistStar } from "@/components/browse/artist-context-menu";
 import { formatCount } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
-import type { Album, Song } from "@/lib/api/types";
+import type { Album } from "@/lib/api/types";
 
-interface ArtistPageProps {
-  params: Promise<{ id: string }>;
-}
-
-export default function ArtistPage({ params }: ArtistPageProps) {
-  const { id } = use(params);
+function ArtistDetailContent() {
+  const searchParams = useSearchParams();
+  const id = searchParams.get("id");
   const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const playNow = useSetAtom(playNowAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const [coverError, setCoverError] = useState(false);
+
+  // Redirect to library if no ID
+  useEffect(() => {
+    if (!id && !authLoading) {
+      router.replace("/library");
+    }
+  }, [id, authLoading, router]);
 
   // Fetch artist data (includes songs from server)
   const { data: artistData, isLoading } = useQuery({
@@ -43,7 +47,7 @@ export default function ArtistPage({ params }: ArtistPageProps) {
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getArtist(id);
+      const response = await client.getArtist(id!);
       return response.artist;
     },
     enabled: isReady && !!id,
@@ -55,7 +59,7 @@ export default function ArtistPage({ params }: ArtistPageProps) {
   // Use the artist star hook
   const { isStarred, handleStar, setIsStarred } = useArtistStar(
     !!artistData?.starred,
-    id,
+    id ?? "",
     artistData?.name ?? ""
   );
 
@@ -100,6 +104,10 @@ export default function ArtistPage({ params }: ArtistPageProps) {
       console.error("Failed to play album:", error);
     }
   };
+
+  if (!id) {
+    return null;
+  }
 
   if (authLoading) {
     return (
@@ -342,5 +350,17 @@ export default function ArtistPage({ params }: ArtistPageProps) {
       {/* Spacer for player bar */}
       <div className="h-24" />
     </div>
+  );
+}
+
+export default function ArtistDetailPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <Skeleton className="w-32 h-8" />
+      </div>
+    }>
+      <ArtistDetailContent />
+    </Suspense>
   );
 }

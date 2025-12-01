@@ -170,6 +170,12 @@ export interface SearchResponse {
     artist?: Artist[];
     album?: Album[];
     song?: Song[];
+    /** Total count of matching artists (Ferrotune extension for pagination) */
+    artistTotal?: number;
+    /** Total count of matching albums (Ferrotune extension for pagination) */
+    albumTotal?: number;
+    /** Total count of matching songs (Ferrotune extension for pagination) */
+    songTotal?: number;
   };
 }
 

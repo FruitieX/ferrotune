@@ -1,12 +1,15 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
-import { Sidebar } from "@/components/layout/sidebar";
+import { Sidebar, SidebarSkeleton } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { PlayerBar } from "@/components/layout/player-bar";
 import { QueuePanel } from "@/components/queue/queue-panel";
+import { QueueSidebar } from "@/components/queue/queue-sidebar";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
+import { MainContent } from "@/components/layout/main-content";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -52,18 +55,22 @@ export default function RootLayout({
             {/* Main content row */}
             <div className="flex flex-1 min-h-0">
               {/* Sidebar - hidden on mobile */}
-              <Sidebar />
+              <Suspense fallback={<SidebarSkeleton />}>
+                <Sidebar />
+              </Suspense>
               
-              {/* Main content area - scrollable within its bounds */}
-              <main 
-                id="main-scroll-container"
-                className="flex-1 lg:ml-[var(--sidebar-width,280px)] overflow-y-auto overflow-x-hidden transition-[margin] duration-200"
-              >
+              {/* Main content area - uses MainContent wrapper for responsive margins */}
+              <MainContent>
                 {children}
-              </main>
+              </MainContent>
               
-              {/* Queue panel - slide-out drawer */}
-              <QueuePanel />
+              {/* Queue sidebar - desktop only, fixed right side */}
+              <QueueSidebar />
+              
+              {/* Queue panel - mobile only sheet/drawer */}
+              <div className="lg:hidden">
+                <QueuePanel />
+              </div>
             </div>
             
             {/* Player bar - fixed height at bottom */}

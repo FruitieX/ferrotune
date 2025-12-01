@@ -22,6 +22,8 @@ pub use query::first_string_or_none;
 pub use query::string_or_seq;
 pub use query::QsQuery;
 
+#[cfg(feature = "embedded-ui")]
+use crate::api::embedded_ui;
 use crate::api::AppState;
 use axum::{routing::get, Router};
 use std::sync::Arc;
@@ -29,8 +31,9 @@ use std::sync::Arc;
 /// Create the OpenSubsonic API router.
 ///
 /// All routes are prefixed with `/rest/` to match the Subsonic API specification.
+/// If embedded UI assets are available, they will be served from the root path.
 pub fn create_router(state: Arc<AppState>) -> Router {
-    Router::new()
+    let api_router = Router::new()
         // System endpoints
         .route("/rest/ping", get(system::ping))
         .route("/rest/getLicense", get(system::get_license))
@@ -71,9 +74,19 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/rest/createPlaylist", get(playlists::create_playlist))
         .route("/rest/updatePlaylist", get(playlists::update_playlist))
         .route("/rest/deletePlaylist", get(playlists::delete_playlist))
-        // Fallback for unknown endpoints
-        .fallback(fallback_handler)
-        .with_state(state)
+        .with_state(state);
+
+    // Add embedded UI fallback if assets are available
+    #[cfg(feature = "embedded-ui")]
+    {
+        if embedded_ui::has_embedded_ui() {
+            tracing::info!("Embedded UI assets found, serving web client from /");
+            return api_router.fallback(embedded_ui::serve_embedded_ui);
+        }
+    }
+
+    // Default fallback for unknown endpoints
+    api_router.fallback(fallback_handler)
 }
 
 async fn fallback_handler(uri: axum::http::Uri) -> impl axum::response::IntoResponse {

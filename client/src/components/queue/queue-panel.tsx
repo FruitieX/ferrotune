@@ -17,6 +17,7 @@ import {
   shuffledIndicesAtom,
 } from "@/lib/store/queue";
 import { playbackStateAtom } from "@/lib/store/player";
+import { useIsDesktop } from "@/lib/hooks/use-media-query";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -38,7 +39,12 @@ function getCoverUrl(coverArt?: string): string | undefined {
   return client?.getCoverArtUrl(coverArt, 100);
 }
 
+/**
+ * Mobile-only queue panel (Sheet/Drawer).
+ * On desktop, use QueueSidebar instead.
+ */
 export function QueuePanel() {
+  const isDesktop = useIsDesktop();
   const [isOpen, setIsOpen] = useAtom(queuePanelOpenAtom);
   const [queue, setQueue] = useAtom(queueAtom);
   const queueIndex = useAtomValue(queueIndexAtom);
@@ -114,6 +120,11 @@ export function QueuePanel() {
   const totalDuration = queue.reduce((acc, song) => acc + song.duration, 0);
   const remainingDuration = upNext.reduce((acc, item) => acc + item.song.duration, 0) + 
     (currentTrack?.duration ?? 0);
+
+  // Don't render the Sheet on desktop - use QueueSidebar instead
+  if (isDesktop) {
+    return null;
+  }
 
   return (
     <Sheet open={isOpen} onOpenChange={setIsOpen}>
