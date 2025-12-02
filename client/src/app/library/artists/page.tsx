@@ -58,11 +58,19 @@ export default function ArtistsPage() {
   if (authLoading) {
     return (
       <div className="p-4 lg:p-6">
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-          {Array.from({ length: 12 }).map((_, i) => (
-            <ArtistCardSkeleton key={i} />
-          ))}
-        </div>
+        {viewMode === "grid" ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <ArtistCardSkeleton key={i} />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <MediaRowSkeleton key={i} coverShape="circle" />
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -70,14 +78,19 @@ export default function ArtistsPage() {
   return (
     <div className="p-4 lg:p-6">
       {isLoading ? (
-        <div className={viewMode === "grid"
-          ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
-          : "space-y-1"
-        }>
-          {Array.from({ length: 12 }).map((_, i) => (
-            <ArtistCardSkeleton key={i} />
-          ))}
-        </div>
+        viewMode === "grid" ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <ArtistCardSkeleton key={i} />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <MediaRowSkeleton key={i} coverShape="circle" />
+            ))}
+          </div>
+        )
       ) : allArtists.length > 0 ? (
         viewMode === "grid" ? (
           <VirtualizedGrid

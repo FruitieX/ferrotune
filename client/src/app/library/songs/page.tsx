@@ -1,17 +1,20 @@
 "use client";
 
+import { useAtom } from "jotai";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
+import { albumViewModeAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
-import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
-import { VirtualizedList } from "@/components/shared/virtualized-grid";
+import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
+import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 
 const PAGE_SIZE = 50;
 
 export default function SongsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const [viewMode] = useAtom(albumViewModeAtom);
   
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
@@ -58,11 +61,19 @@ export default function SongsPage() {
   if (authLoading) {
     return (
       <div className="p-4 lg:p-6">
-        <div className="divide-y divide-border/50">
-          {Array.from({ length: 10 }).map((_, i) => (
-            <SongRowSkeleton key={i} showCover />
-          ))}
-        </div>
+        {viewMode === "grid" ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <SongCardSkeleton key={i} />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <SongRowSkeleton key={i} showCover showIndex={false} />
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -70,30 +81,53 @@ export default function SongsPage() {
   return (
     <div className="p-4 lg:p-6">
       {isLoading && allSongs.length === 0 ? (
-        <div className="divide-y divide-border/50">
-          {Array.from({ length: 10 }).map((_, i) => (
-            <SongRowSkeleton key={i} showCover />
-          ))}
-        </div>
+        viewMode === "grid" ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <SongCardSkeleton key={i} />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <SongRowSkeleton key={i} showCover showIndex={false} />
+            ))}
+          </div>
+        )
       ) : allSongs.length > 0 ? (
-        <VirtualizedList
-          items={allSongs}
-          totalCount={totalSongs}
-          renderItem={(song, index) => (
-            <SongRow
-              song={song}
-              index={index}
-              showCover
-              queueSongs={allSongs}
-            />
-          )}
-          renderSkeleton={() => <SongRowSkeleton showCover />}
-          getItemKey={(song) => song.id}
-          estimateItemHeight={56}
-          hasNextPage={hasNextPage ?? false}
-          isFetchingNextPage={isFetchingNextPage}
-          fetchNextPage={fetchNextPage}
-        />
+        viewMode === "grid" ? (
+          <VirtualizedGrid
+            items={allSongs}
+            totalCount={totalSongs}
+            renderItem={(song) => (
+              <SongCard song={song} queueSongs={allSongs} />
+            )}
+            renderSkeleton={() => <SongCardSkeleton />}
+            getItemKey={(song) => song.id}
+            hasNextPage={hasNextPage ?? false}
+            isFetchingNextPage={isFetchingNextPage}
+            fetchNextPage={fetchNextPage}
+          />
+        ) : (
+          <VirtualizedList
+            items={allSongs}
+            totalCount={totalSongs}
+            renderItem={(song, index) => (
+              <SongRow
+                song={song}
+                index={index}
+                showCover
+                queueSongs={allSongs}
+              />
+            )}
+            renderSkeleton={() => <SongRowSkeleton showCover showIndex={false} />}
+            getItemKey={(song) => song.id}
+            estimateItemHeight={56}
+            hasNextPage={hasNextPage ?? false}
+            isFetchingNextPage={isFetchingNextPage}
+            fetchNextPage={fetchNextPage}
+          />
+        )
       ) : (
         <EmptyState message="No songs in your library" />
       )}

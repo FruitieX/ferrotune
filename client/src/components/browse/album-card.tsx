@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { Album } from "@/lib/api/types";
@@ -19,11 +20,24 @@ export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
     ? getClient()?.getCoverArtUrl(album.coverArt, 300)
     : undefined;
 
+  const subtitleContent = (
+    <>
+      {album.year && <span>{album.year} • </span>}
+      <Link
+        href={`/library/artists/details?id=${album.artistId}`}
+        className="hover:underline hover:text-foreground"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {album.artist}
+      </Link>
+    </>
+  );
+
   return (
     <MediaCard
       coverArt={coverArtUrl}
       title={album.name}
-      subtitle={album.year ? `${album.year} • ${album.artist}` : album.artist}
+      subtitleContent={subtitleContent}
       href={`/library/albums/details?id=${album.id}`}
       colorSeed={album.name}
       coverType="album"
@@ -82,7 +96,15 @@ export function AlbumCardCompact({ album, onPlay, className }: AlbumCardCompactP
     <MediaRow
       coverArt={coverArtUrl}
       title={album.name}
-      subtitle={album.artist}
+      subtitleContent={
+        <Link
+          href={`/library/artists/details?id=${album.artistId}`}
+          className="hover:underline hover:text-foreground"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {album.artist}
+        </Link>
+      }
       href={`/library/albums/details?id=${album.id}`}
       colorSeed={album.name}
       coverType="album"

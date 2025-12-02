@@ -12,8 +12,10 @@ interface MediaCardProps {
   coverArt?: string;
   /** Primary text (title) */
   title: string;
-  /** Secondary text (subtitle) */
+  /** Secondary text (subtitle) - simple string */
   subtitle?: string;
+  /** Custom subtitle content (overrides subtitle) - for complex subtitles with links */
+  subtitleContent?: React.ReactNode;
   /** Navigation link */
   href: string;
   /** Cover art shape */
@@ -42,6 +44,7 @@ export function MediaCard({
   coverArt,
   title,
   subtitle,
+  subtitleContent,
   href,
   coverShape = "square",
   colorSeed,
@@ -61,8 +64,12 @@ export function MediaCard({
         className
       )}
     >
-      {/* Dropdown menu (absolute positioned for cards) */}
-      {dropdownMenu}
+      {/* Dropdown menu (absolute positioned in top-right corner) */}
+      {dropdownMenu && (
+        <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+          {dropdownMenu}
+        </div>
+      )}
 
       <Link href={href} className="block">
         {/* Cover art with play overlay */}
@@ -117,8 +124,10 @@ export function MediaCard({
           <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
             {title}
           </h3>
-          {subtitle && (
-            <p className="text-sm text-muted-foreground truncate">{subtitle}</p>
+          {(subtitleContent || subtitle) && (
+            <div className="text-sm text-muted-foreground truncate">
+              {subtitleContent ?? subtitle}
+            </div>
           )}
         </div>
       </Link>

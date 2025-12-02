@@ -27,8 +27,10 @@ interface MediaRowProps {
   coverArt?: string;
   /** Primary text (title) */
   title: string;
-  /** Secondary text (subtitle) */
+  /** Secondary text (subtitle) - simple string */
   subtitle?: string;
+  /** Custom subtitle content (overrides subtitle) - for complex subtitles with links */
+  subtitleContent?: React.ReactNode;
   /** Navigation link */
   href?: string;
   /** Cover art shape */
@@ -67,6 +69,7 @@ export function MediaRow({
   coverArt,
   title,
   subtitle,
+  subtitleContent,
   href,
   coverShape = "square",
   colorSeed,
@@ -133,8 +136,10 @@ export function MediaRow({
       >
         {title}
       </p>
-      {subtitle && (
-        <p className="text-xs text-muted-foreground truncate">{subtitle}</p>
+      {(subtitleContent || subtitle) && (
+        <div className="text-xs text-muted-foreground truncate">
+          {subtitleContent ?? subtitle}
+        </div>
       )}
     </div>
   );
