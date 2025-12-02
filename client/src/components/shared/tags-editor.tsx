@@ -320,9 +320,9 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
                 <div className="space-y-4">
                   {/* Primary tags */}
                   <div className="space-y-2">
-                    {tagsData.tags.map((tag) => (
+                    {tagsData.tags.map((tag, index) => (
                       <TagRow
-                        key={tag.key}
+                        key={`${tag.key}-${index}`}
                         tagKey={tag.key}
                         value={getCurrentValue(tag.key, tag.value)}
                         originalValue={tag.value}
@@ -421,9 +421,9 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
                         {tagsData.additionalTags.map((block) => (
                           <div key={block.tagType} className="space-y-2">
                             <Badge variant="outline">{block.tagType}</Badge>
-                            {block.tags.map((tag) => (
+                            {block.tags.map((tag, tagIndex) => (
                               <div
-                                key={tag.key}
+                                key={`${tag.key}-${tagIndex}`}
                                 className="flex items-center gap-2 p-2 rounded-md bg-muted/50 opacity-60"
                               >
                                 <Badge variant="outline" className="shrink-0 font-mono text-xs">

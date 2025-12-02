@@ -117,3 +117,13 @@ pub struct Scrobble {
     pub played_at: DateTime<Utc>,
     pub submission: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct UserPreferences {
+    pub user_id: i64,
+    pub accent_color: String,
+    pub custom_accent_hue: Option<f64>,
+    pub custom_accent_lightness: Option<f64>,
+    pub custom_accent_chroma: Option<f64>,
+    pub updated_at: DateTime<Utc>,
+}

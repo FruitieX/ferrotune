@@ -8,7 +8,7 @@ import { useState, useEffect } from "react";
 import { useAudioEngineInit, useMediaSession } from "@/lib/audio/hooks";
 import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
 import { useQueuePersistence } from "@/lib/hooks/use-queue-persistence";
-import { accentColorAtom } from "@/lib/store/ui";
+import { accentColorAtom, customAccentHueAtom, customAccentLightnessAtom, customAccentChromaAtom } from "@/lib/store/ui";
 
 // Component that initializes the audio engine and media session
 function AudioEngineProvider({ children }: { children: React.ReactNode }) {
@@ -22,16 +22,35 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
 // Component that applies accent color
 function AccentColorProvider({ children }: { children: React.ReactNode }) {
   const accentColor = useAtomValue(accentColorAtom);
+  const customHue = useAtomValue(customAccentHueAtom);
+  const customLightness = useAtomValue(customAccentLightnessAtom);
+  const customChroma = useAtomValue(customAccentChromaAtom);
   
   useEffect(() => {
     const html = document.documentElement;
     // Remove any previous accent attribute
     html.removeAttribute("data-accent");
-    // Set new accent (rust is the default, handled by CSS variables directly)
-    if (accentColor !== "rust") {
+    
+    // Clear any custom CSS variables
+    html.style.removeProperty("--primary");
+    html.style.removeProperty("--ring");
+    html.style.removeProperty("--chart-1");
+    html.style.removeProperty("--sidebar-primary");
+    html.style.removeProperty("--sidebar-ring");
+    
+    if (accentColor === "custom") {
+      // Apply custom color via inline CSS variables
+      const customColor = `oklch(${customLightness} ${customChroma} ${customHue})`;
+      html.style.setProperty("--primary", customColor);
+      html.style.setProperty("--ring", customColor);
+      html.style.setProperty("--chart-1", customColor);
+      html.style.setProperty("--sidebar-primary", customColor);
+      html.style.setProperty("--sidebar-ring", customColor);
+    } else if (accentColor !== "rust") {
+      // Set data attribute for preset themes (rust is the default, handled by CSS variables directly)
       html.setAttribute("data-accent", accentColor);
     }
-  }, [accentColor]);
+  }, [accentColor, customHue, customLightness, customChroma]);
   
   return <>{children}</>;
 }

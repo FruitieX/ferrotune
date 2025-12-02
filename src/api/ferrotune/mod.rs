@@ -23,9 +23,12 @@
 //! - `DELETE /ferrotune/songs/:id` - Delete a song from the database
 //! - `GET /ferrotune/songs/:id/tags` - Get all tags from a song file
 //! - `PATCH /ferrotune/songs/:id/tags` - Update tags in a song file
+//! - `GET /ferrotune/preferences` - Get user preferences
+//! - `PUT /ferrotune/preferences` - Update user preferences
 
 mod media;
 mod playlists;
+mod preferences;
 mod scan;
 mod tags;
 
@@ -72,6 +75,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/ferrotune/songs/{id}/tags",
             get(tags::get_tags).patch(tags::update_tags),
+        )
+        // User preferences endpoints
+        .route(
+            "/ferrotune/preferences",
+            get(preferences::get_preferences).put(preferences::update_preferences),
         )
         .with_state(state)
 }

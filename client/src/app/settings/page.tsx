@@ -27,8 +27,18 @@ import { serverConnectionAtom } from "@/lib/store/auth";
 import { volumeAtom, repeatModeAtom } from "@/lib/store/player";
 import { isShuffledAtom } from "@/lib/store/queue";
 import { clearQueueAtom } from "@/lib/store/queue";
-import { accentColorAtom, type AccentColor } from "@/lib/store/ui";
+import { 
+  accentColorAtom, 
+  customAccentHueAtom,
+  customAccentLightnessAtom,
+  customAccentChromaAtom,
+  ACCENT_PRESETS,
+  type AccentColor 
+} from "@/lib/store/ui";
 import { useRouter } from "next/navigation";
+import { useEffect, useCallback, useState } from "react";
+import { getClient } from "@/lib/api/client";
+import { parseCssColorToOklch, clampOklchToSliderRanges } from "@/lib/utils/color";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -70,8 +80,114 @@ export default function SettingsPage() {
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
   const [isShuffled, setIsShuffled] = useAtom(isShuffledAtom);
   const [accentColor, setAccentColor] = useAtom(accentColorAtom);
+  const [customHue, setCustomHue] = useAtom(customAccentHueAtom);
+  const [customLightness, setCustomLightness] = useAtom(customAccentLightnessAtom);
+  const [customChroma, setCustomChroma] = useAtom(customAccentChromaAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
   const { theme, setTheme } = useTheme();
+  
+  // Local state for OKLCH input to prevent cursor jumping while typing
+  const [oklchInputValue, setOklchInputValue] = useState("");
+  const [oklchInputFocused, setOklchInputFocused] = useState(false);
+
+  // Sync preferences to server
+  const syncPreferences = useCallback(async (color: AccentColor, hue?: number, lightness?: number, chroma?: number) => {
+    const client = getClient();
+    if (!client) return;
+    
+    try {
+      await client.updatePreferences({
+        accentColor: color,
+        customAccentHue: color === "custom" ? hue : undefined,
+        customAccentLightness: color === "custom" ? lightness : undefined,
+        customAccentChroma: color === "custom" ? chroma : undefined,
+      });
+    } catch (error) {
+      // Silently fail - preferences will be stored locally
+      console.warn("Failed to sync preferences to server:", error);
+    }
+  }, []);
+
+  // Load preferences from server on mount
+  useEffect(() => {
+    const loadPreferences = async () => {
+      const client = getClient();
+      if (!client) return;
+      
+      try {
+        const prefs = await client.getPreferences();
+        if (prefs.accentColor) {
+          setAccentColor(prefs.accentColor as AccentColor);
+        }
+        if (prefs.customAccentHue !== undefined) {
+          setCustomHue(prefs.customAccentHue);
+        }
+        if (prefs.customAccentLightness !== undefined) {
+          setCustomLightness(prefs.customAccentLightness);
+        }
+        if (prefs.customAccentChroma !== undefined) {
+          setCustomChroma(prefs.customAccentChroma);
+        }
+      } catch (error) {
+        // Silently fail - use local preferences
+        console.warn("Failed to load preferences from server:", error);
+      }
+    };
+    
+    if (isMounted && !authLoading) {
+      loadPreferences();
+    }
+  }, [isMounted, authLoading, setAccentColor, setCustomHue, setCustomLightness, setCustomChroma]);
+
+  // Compute display values: use preset values when a preset is active, custom values otherwise
+  // This ensures sliders always show correct values even before the sync effect runs
+  const displayValues = accentColor === "custom" 
+    ? { hue: customHue, lightness: customLightness, chroma: customChroma }
+    : (() => {
+        const preset = ACCENT_PRESETS.find(p => p.name === accentColor);
+        return preset 
+          ? { hue: preset.hue, lightness: 0.65, chroma: 0.18 }
+          : { hue: customHue, lightness: customLightness, chroma: customChroma };
+      })();
+
+  // Sync custom atom values to preset values when a preset is active
+  // This keeps the atoms in sync for when user switches to custom mode
+  useEffect(() => {
+    if (accentColor !== "custom") {
+      const preset = ACCENT_PRESETS.find(p => p.name === accentColor);
+      if (preset) {
+        setCustomHue(preset.hue);
+        setCustomLightness(0.65);
+        setCustomChroma(0.18);
+      }
+    }
+  }, [accentColor, setCustomHue, setCustomLightness, setCustomChroma]);
+
+  const handleAccentColorChange = (color: AccentColor) => {
+    setAccentColor(color);
+    syncPreferences(color, customHue, customLightness, customChroma);
+  };
+
+  const handleCustomHueChange = (hue: number) => {
+    setCustomHue(hue);
+    if (accentColor === "custom") {
+      syncPreferences("custom", hue, customLightness, customChroma);
+    }
+  };
+
+  const handleCustomLightnessChange = (lightness: number) => {
+    setCustomLightness(lightness);
+    if (accentColor === "custom") {
+      syncPreferences("custom", customHue, lightness, customChroma);
+    }
+  };
+
+  const handleCustomChromaChange = (chroma: number) => {
+    setCustomChroma(chroma);
+    if (accentColor === "custom") {
+      syncPreferences("custom", customHue, customLightness, chroma);
+    }
+  };
 
   const handleLogout = () => {
     setConnection(null);
@@ -269,7 +385,7 @@ export default function SettingsPage() {
                 Customize the look and feel
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-6">
               <div className="flex items-center justify-between">
                 <label className="font-medium">Theme</label>
                 <div className="flex gap-2">
@@ -306,31 +422,163 @@ export default function SettingsPage() {
               <Separator />
 
               {/* Accent Color */}
-              <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">
+              <div className="space-y-3">
+                <div className="text-sm font-medium">
                   Accent Color
-                </Label>
+                </div>
                 <div className="flex flex-wrap gap-2">
-                  {(
-                    [
-                      { name: "rust", color: "bg-[oklch(0.65_0.18_30)]" },
-                      { name: "emerald", color: "bg-[oklch(0.65_0.18_165)]" },
-                      { name: "violet", color: "bg-[oklch(0.65_0.18_290)]" },
-                      { name: "rose", color: "bg-[oklch(0.65_0.18_350)]" },
-                      { name: "amber", color: "bg-[oklch(0.65_0.18_80)]" },
-                    ] as const
-                  ).map((accent) => (
+                  {ACCENT_PRESETS.map((preset) => (
                     <button
-                      key={accent.name}
-                      onClick={() => setAccentColor(accent.name)}
-                      className={`w-10 h-10 rounded-full ${accent.color} transition-all hover:scale-110 ${
-                        accentColor === accent.name
-                          ? "ring-2 ring-offset-2 ring-offset-background ring-primary"
+                      key={preset.name}
+                      onClick={() => handleAccentColorChange(preset.name)}
+                      className={`w-10 h-10 rounded-full transition-all hover:scale-110 ${
+                        accentColor === preset.name
+                          ? "ring-2 ring-offset-2 ring-offset-background ring-foreground"
                           : ""
                       }`}
-                      title={accent.name.charAt(0).toUpperCase() + accent.name.slice(1)}
+                      style={{ backgroundColor: `oklch(0.65 0.18 ${preset.hue})` }}
+                      title={preset.label}
                     />
                   ))}
+                </div>
+                
+                <Separator />
+                
+                {/* Custom Color */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium">Custom Color</Label>
+                    <Button
+                      variant={accentColor === "custom" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => handleAccentColorChange("custom")}
+                    >
+                      {accentColor === "custom" ? "Active" : "Use Custom"}
+                    </Button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {/* Color preview swatch */}
+                    <div className="flex items-center gap-3">
+                      <div 
+                        className="w-12 h-12 rounded-full shrink-0 border border-border"
+                        style={{ backgroundColor: `oklch(${displayValues.lightness} ${displayValues.chroma} ${displayValues.hue})` }}
+                      />
+                      <input
+                        type="text"
+                        value={oklchInputFocused 
+                          ? oklchInputValue 
+                          : `oklch(${displayValues.lightness.toFixed(2)} ${displayValues.chroma.toFixed(2)} ${Math.round(displayValues.hue)})`
+                        }
+                        placeholder="#ff5500, rgb(255,85,0), hsl(20,100%,50%)"
+                        onFocus={(e) => {
+                          setOklchInputFocused(true);
+                          setOklchInputValue(e.target.value);
+                        }}
+                        onChange={(e) => {
+                          setOklchInputValue(e.target.value);
+                        }}
+                        onBlur={(e) => {
+                          setOklchInputFocused(false);
+                          const parsed = parseCssColorToOklch(e.target.value.trim());
+                          if (parsed) {
+                            const clamped = clampOklchToSliderRanges(parsed);
+                            handleCustomLightnessChange(clamped.l);
+                            handleCustomChromaChange(clamped.c);
+                            handleCustomHueChange(clamped.h);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        className="flex-1 px-3 py-1.5 text-sm font-mono bg-muted border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    </div>
+                    
+                    {/* Hue slider */}
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 shrink-0">
+                        <span className="text-xs text-muted-foreground">Hue</span>
+                      </div>
+                      <Slider
+                        value={[displayValues.hue]}
+                        onValueChange={([v]) => handleCustomHueChange(v)}
+                        min={0}
+                        max={360}
+                        step={1}
+                        className="flex-1"
+                        style={{
+                          background: `linear-gradient(to right, 
+                            oklch(${displayValues.lightness} ${displayValues.chroma} 0),
+                            oklch(${displayValues.lightness} ${displayValues.chroma} 60),
+                            oklch(${displayValues.lightness} ${displayValues.chroma} 120),
+                            oklch(${displayValues.lightness} ${displayValues.chroma} 180),
+                            oklch(${displayValues.lightness} ${displayValues.chroma} 240),
+                            oklch(${displayValues.lightness} ${displayValues.chroma} 300),
+                            oklch(${displayValues.lightness} ${displayValues.chroma} 360)
+                          )`,
+                          borderRadius: "9999px",
+                        }}
+                      />
+                      <span className="text-xs text-muted-foreground w-10 text-right">
+                        {Math.round(displayValues.hue)}°
+                      </span>
+                    </div>
+                    
+                    {/* Lightness slider */}
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 shrink-0">
+                        <span className="text-xs text-muted-foreground">Lightness</span>
+                      </div>
+                      <Slider
+                        value={[displayValues.lightness]}
+                        onValueChange={([v]) => handleCustomLightnessChange(v)}
+                        min={0.3}
+                        max={0.9}
+                        step={0.01}
+                        className="flex-1"
+                        style={{
+                          background: `linear-gradient(to right, 
+                            oklch(0.3 ${displayValues.chroma} ${displayValues.hue}),
+                            oklch(0.6 ${displayValues.chroma} ${displayValues.hue}),
+                            oklch(0.9 ${displayValues.chroma} ${displayValues.hue})
+                          )`,
+                          borderRadius: "9999px",
+                        }}
+                      />
+                      <span className="text-xs text-muted-foreground w-10 text-right">
+                        {Math.round(displayValues.lightness * 100)}%
+                      </span>
+                    </div>
+                    
+                    {/* Chroma slider */}
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 shrink-0">
+                        <span className="text-xs text-muted-foreground">Saturation</span>
+                      </div>
+                      <Slider
+                        value={[displayValues.chroma]}
+                        onValueChange={([v]) => handleCustomChromaChange(v)}
+                        min={0.01}
+                        max={0.3}
+                        step={0.01}
+                        className="flex-1"
+                        style={{
+                          background: `linear-gradient(to right, 
+                            oklch(${displayValues.lightness} 0.01 ${displayValues.hue}),
+                            oklch(${displayValues.lightness} 0.15 ${displayValues.hue}),
+                            oklch(${displayValues.lightness} 0.3 ${displayValues.hue})
+                          )`,
+                          borderRadius: "9999px",
+                        }}
+                      />
+                      <span className="text-xs text-muted-foreground w-10 text-right">
+                        {Math.round(displayValues.chroma * 100)}%
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </CardContent>

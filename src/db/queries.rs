@@ -41,6 +41,46 @@ pub async fn create_user(
     Ok(result.last_insert_rowid())
 }
 
+// User preferences queries
+pub async fn get_user_preferences(
+    pool: &SqlitePool,
+    user_id: i64,
+) -> sqlx::Result<Option<UserPreferences>> {
+    sqlx::query_as::<_, UserPreferences>("SELECT * FROM user_preferences WHERE user_id = ?")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn upsert_user_preferences(
+    pool: &SqlitePool,
+    user_id: i64,
+    accent_color: &str,
+    custom_accent_hue: Option<f64>,
+    custom_accent_lightness: Option<f64>,
+    custom_accent_chroma: Option<f64>,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO user_preferences (user_id, accent_color, custom_accent_hue, custom_accent_lightness, custom_accent_chroma, updated_at)
+         VALUES (?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(user_id) DO UPDATE SET
+           accent_color = excluded.accent_color,
+           custom_accent_hue = excluded.custom_accent_hue,
+           custom_accent_lightness = excluded.custom_accent_lightness,
+           custom_accent_chroma = excluded.custom_accent_chroma,
+           updated_at = datetime('now')",
+    )
+    .bind(user_id)
+    .bind(accent_color)
+    .bind(custom_accent_hue)
+    .bind(custom_accent_lightness)
+    .bind(custom_accent_chroma)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 // Music folder queries
 pub async fn get_music_folders(pool: &SqlitePool) -> sqlx::Result<Vec<MusicFolder>> {
     sqlx::query_as::<_, MusicFolder>("SELECT * FROM music_folders WHERE enabled = 1 ORDER BY id")
