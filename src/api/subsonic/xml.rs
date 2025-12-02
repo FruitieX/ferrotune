@@ -740,6 +740,46 @@ pub struct XmlRandomSongsInner {
     pub song: Vec<XmlSong>,
 }
 
+/// Songs by genre response (getSongsByGenre)
+#[derive(Serialize)]
+#[serde(rename = "subsonic-response")]
+pub struct XmlSongsByGenreResponse {
+    #[serde(rename = "@xmlns")]
+    pub xmlns: &'static str,
+    #[serde(rename = "@status")]
+    pub status: String,
+    #[serde(rename = "@version")]
+    pub version: String,
+    #[serde(rename = "@type")]
+    pub response_type: String,
+    #[serde(rename = "@serverVersion")]
+    pub server_version: String,
+    #[serde(rename = "@openSubsonic")]
+    pub open_subsonic: bool,
+    #[serde(rename = "songsByGenre")]
+    pub songs_by_genre: XmlSongsByGenreInner,
+}
+
+impl XmlSongsByGenreResponse {
+    pub fn ok(songs_by_genre: XmlSongsByGenreInner) -> Self {
+        Self {
+            xmlns: "http://subsonic.org/restapi",
+            status: "ok".to_string(),
+            version: "1.16.1".to_string(),
+            response_type: "ferrotune".to_string(),
+            server_version: env!("CARGO_PKG_VERSION").to_string(),
+            open_subsonic: true,
+            songs_by_genre,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct XmlSongsByGenreInner {
+    #[serde(rename = "song", default, skip_serializing_if = "Vec::is_empty")]
+    pub song: Vec<XmlSong>,
+}
+
 /// Starred response (getStarred)
 #[derive(Serialize)]
 #[serde(rename = "subsonic-response")]
@@ -1054,7 +1094,7 @@ use crate::api::subsonic::browse::{
     AlbumDetailResponse, AlbumResponse, ArtistDetailResponse, ArtistInfo2Response, ArtistResponse,
     ArtistsResponse, GenresResponse, SongDetailResponse, SongResponse,
 };
-use crate::api::subsonic::lists::{AlbumList2Response, RandomSongsResponse};
+use crate::api::subsonic::lists::{AlbumList2Response, RandomSongsResponse, SongsByGenreResponse};
 use crate::api::subsonic::playlists::{PlaylistWithSongsResponse, PlaylistsResponse};
 use crate::api::subsonic::playqueue::PlayQueueResponse;
 use crate::api::subsonic::search::SearchResult3;
@@ -1302,6 +1342,16 @@ impl ToXml for RandomSongsResponse {
     fn to_xml(&self) -> Self::XmlType {
         XmlRandomSongsResponse::ok(XmlRandomSongsInner {
             song: self.random_songs.song.iter().map(song_to_xml).collect(),
+        })
+    }
+}
+
+impl ToXml for SongsByGenreResponse {
+    type XmlType = XmlSongsByGenreResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlSongsByGenreResponse::ok(XmlSongsByGenreInner {
+            song: self.songs_by_genre.song.iter().map(song_to_xml).collect(),
         })
     }
 }

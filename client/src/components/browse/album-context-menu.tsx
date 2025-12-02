@@ -304,7 +304,6 @@ export function AlbumDropdownMenu({ album, onPlay, trigger }: AlbumDropdownMenuP
       size="icon"
       className="h-8 w-8 bg-background/80 hover:bg-background"
       onClick={(e) => {
-        e.preventDefault();
         e.stopPropagation();
       }}
     >
