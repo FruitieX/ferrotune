@@ -1,11 +1,12 @@
 "use client";
 
-import { useAtom, useSetAtom } from "jotai";
+import { useMemo } from "react";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { User } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
-import { albumViewModeAtom } from "@/lib/store/ui";
+import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
 import { playNowAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { ArtistCard, ArtistCardSkeleton, ArtistCardCompact } from "@/components/browse/artist-card";
@@ -16,6 +17,7 @@ import type { Artist } from "@/lib/api/types";
 export default function ArtistsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [viewMode] = useAtom(albumViewModeAtom);
+  const filter = useAtomValue(libraryFilterAtom);
   const playNow = useSetAtom(playNowAtom);
   
   // Virtualized scroll restoration
@@ -35,6 +37,15 @@ export default function ArtistsPage() {
 
   // Flatten artists from indexes, filter out artists with 0 albums
   const allArtists = artistsData?.flatMap((index) => index.artist).filter((a) => a.albumCount > 0) ?? [];
+  
+  // Filter artists based on search filter
+  const filteredArtists = useMemo(() => {
+    if (!filter.trim()) return allArtists;
+    const lowerFilter = filter.toLowerCase();
+    return allArtists.filter((artist) =>
+      artist.name?.toLowerCase().includes(lowerFilter)
+    );
+  }, [allArtists, filter]);
 
   // Play artist handler
   const handlePlayArtist = async (artist: Artist) => {
@@ -94,7 +105,7 @@ export default function ArtistsPage() {
       ) : allArtists.length > 0 ? (
         viewMode === "grid" ? (
           <VirtualizedGrid
-            items={allArtists}
+            items={filteredArtists}
             renderItem={(artist) => (
               <ArtistCard artist={artist} onPlay={() => handlePlayArtist(artist)} />
             )}
@@ -105,7 +116,7 @@ export default function ArtistsPage() {
           />
         ) : (
           <VirtualizedList
-            items={allArtists}
+            items={filteredArtists}
             renderItem={(artist) => (
               <ArtistCardCompact artist={artist} onPlay={() => handlePlayArtist(artist)} />
             )}

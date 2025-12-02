@@ -18,9 +18,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { ArtistCard, ArtistCardSkeleton } from "@/components/browse/artist-card";
 import { SongRow } from "@/components/browse/song-row";
+import { GenreCard, GenreCardSkeleton } from "@/components/browse/genre-card";
 import { CoverImage } from "@/components/shared/cover-image";
 import { formatDuration, formatCount } from "@/lib/utils/format";
-import type { Album, Artist, Playlist } from "@/lib/api/types";
+import type { Album, Artist, Genre, Playlist } from "@/lib/api/types";
 
 // Debounce hook
 function useDebounce<T>(value: T, delay: number): T {
@@ -49,7 +50,7 @@ export function SearchPageContent() {
   useScrollRestoration();
 
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
-  const [activeTab, setActiveTab] = useState<"all" | "artists" | "albums" | "songs" | "playlists">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "artists" | "albums" | "songs" | "genres" | "playlists">("all");
   const debouncedQuery = useDebounce(query, 300);
 
   // Update URL when query changes
@@ -92,10 +93,29 @@ export function SearchPageContent() {
     staleTime: 60000,
   });
 
+  // Fetch and filter genres client-side (API doesn't have genre search)
+  const { data: genres } = useQuery({
+    queryKey: ["genres"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getGenres();
+      return response.genres.genre ?? [];
+    },
+    enabled: isReady,
+    staleTime: 60000,
+  });
+
   // Filter playlists based on search query
   const filteredPlaylists = playlists?.filter((playlist) =>
     debouncedQuery.length >= 2 &&
     playlist.name.toLowerCase().includes(debouncedQuery.toLowerCase())
+  ) ?? [];
+
+  // Filter genres based on search query
+  const filteredGenres = genres?.filter((genre) =>
+    debouncedQuery.length >= 2 &&
+    genre.value.toLowerCase().includes(debouncedQuery.toLowerCase())
   ) ?? [];
 
   const handlePlayAlbum = async (album: Album) => {
@@ -133,7 +153,8 @@ export function SearchPageContent() {
     (searchResults?.artist?.length ?? 0) > 0 ||
     (searchResults?.album?.length ?? 0) > 0 ||
     (searchResults?.song?.length ?? 0) > 0 ||
-    filteredPlaylists.length > 0;
+    filteredPlaylists.length > 0 ||
+    filteredGenres.length > 0;
 
   return (
     <div className="min-h-screen">
@@ -192,6 +213,9 @@ export function SearchPageContent() {
               <TabsTrigger value="songs" disabled={!searchResults?.song?.length}>
                 Songs ({searchResults?.song?.length ?? 0})
               </TabsTrigger>
+              <TabsTrigger value="genres" disabled={!filteredGenres.length}>
+                Genres ({filteredGenres.length})
+              </TabsTrigger>
               <TabsTrigger value="playlists" disabled={!filteredPlaylists.length}>
                 Playlists ({filteredPlaylists.length})
               </TabsTrigger>
@@ -243,6 +267,18 @@ export function SearchPageContent() {
                         showCover
                         queueSongs={searchResults.song}
                       />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Genres */}
+              {filteredGenres.length > 0 && (
+                <section>
+                  <h2 className="text-xl font-bold mb-4">Genres</h2>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    {filteredGenres.slice(0, 6).map((genre) => (
+                      <GenreCard key={genre.value} genre={genre} />
                     ))}
                   </div>
                 </section>
@@ -300,6 +336,16 @@ export function SearchPageContent() {
                       showCover
                       queueSongs={searchResults.song}
                     />
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="genres">
+              {filteredGenres.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                  {filteredGenres.map((genre) => (
+                    <GenreCard key={genre.value} genre={genre} />
                   ))}
                 </div>
               )}
@@ -391,7 +437,7 @@ function PlaylistSearchCard({ playlist }: { playlist: Playlist }) {
   return (
     <Link
       href={`/playlists/details?id=${playlist.id}`}
-      className="group block p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors"
+      className="group block p-4 rounded-lg bg-card hover:bg-accent/70 hover:shadow-lg hover:shadow-black/20 transition-all"
     >
       <div className="relative mb-4">
         <CoverImage

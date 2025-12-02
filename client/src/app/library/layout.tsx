@@ -1,11 +1,13 @@
 "use client";
 
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { useAtom } from "jotai";
-import { Disc, User, Music, Tag, Grid, List } from "lucide-react";
-import { albumViewModeAtom } from "@/lib/store/ui";
+import { useAtom, useSetAtom } from "jotai";
+import { Disc, User, Music, Tag, Grid, List, Search, X } from "lucide-react";
+import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 const tabs = [
@@ -22,6 +24,14 @@ export default function LibraryLayout({
 }) {
   const pathname = usePathname();
   const [viewMode, setViewMode] = useAtom(albumViewModeAtom);
+  const [filter, setFilter] = useAtom(libraryFilterAtom);
+  
+  // Clear filter when navigating away from library
+  useEffect(() => {
+    return () => {
+      setFilter("");
+    };
+  }, [setFilter]);
   
   // Don't show tabs on detail pages
   const isDetailPage = pathname.includes("/details");
@@ -34,10 +44,34 @@ export default function LibraryLayout({
     <div>
       {/* Header */}
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
-        <div className="flex items-center justify-between h-16 px-4 lg:px-6">
-          <h1 className="text-2xl font-bold">Library</h1>
+        <div className="flex items-center justify-between h-16 px-4 lg:px-6 gap-4">
+          <h1 className="text-2xl font-bold shrink-0">Library</h1>
 
-          <div className="flex items-center gap-2">
+          {/* Search filter */}
+          <div className="flex-1 max-w-sm">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Filter..."
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                className="pl-9 pr-8 h-9 bg-secondary border-0 rounded-full"
+              />
+              {filter && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                  onClick={() => setFilter("")}
+                >
+                  <X className="w-3 h-3" />
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
             <Button
               variant={viewMode === "grid" ? "secondary" : "ghost"}
               size="icon"
@@ -73,7 +107,7 @@ export default function LibraryLayout({
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   isActive
                     ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/70"
                 )}
               >
                 <Icon className="w-4 h-4" />

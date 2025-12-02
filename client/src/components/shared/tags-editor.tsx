@@ -279,8 +279,8 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Tag className="w-5 h-5" />
               {readOnly ? "View Tags" : "Edit Tags"}

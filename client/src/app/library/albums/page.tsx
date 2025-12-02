@@ -1,11 +1,12 @@
 "use client";
 
-import { useAtom, useSetAtom } from "jotai";
+import { useMemo } from "react";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
-import { albumViewModeAtom } from "@/lib/store/ui";
+import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
 import { playNowAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { AlbumCard, AlbumCardSkeleton, AlbumCardCompact } from "@/components/browse/album-card";
@@ -18,6 +19,7 @@ const PAGE_SIZE = 50;
 export default function AlbumsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [viewMode] = useAtom(albumViewModeAtom);
+  const filter = useAtomValue(libraryFilterAtom);
   const playNow = useSetAtom(playNowAtom);
   
   // Virtualized scroll restoration
@@ -54,6 +56,18 @@ export default function AlbumsPage() {
   // Flatten albums from all pages
   const allAlbums = albumsData?.pages.flatMap((page) => page.albums) ?? [];
   const totalAlbums = albumsData?.pages[0]?.total ?? allAlbums.length;
+  
+  // Filter albums based on search filter
+  const filteredAlbums = useMemo(() => {
+    if (!filter.trim()) return allAlbums;
+    const lowerFilter = filter.toLowerCase();
+    return allAlbums.filter((album) =>
+      album.name?.toLowerCase().includes(lowerFilter) ||
+      album.artist?.toLowerCase().includes(lowerFilter)
+    );
+  }, [allAlbums, filter]);
+  
+  const displayCount = filter ? filteredAlbums.length : totalAlbums;
 
   // Play album handler
   const handlePlayAlbum = async (album: Album) => {
@@ -109,14 +123,14 @@ export default function AlbumsPage() {
       ) : allAlbums.length > 0 ? (
         viewMode === "grid" ? (
           <VirtualizedGrid
-            items={allAlbums}
-            totalCount={totalAlbums}
+            items={filteredAlbums}
+            totalCount={displayCount}
             renderItem={(album) => (
               <AlbumCard album={album} onPlay={() => handlePlayAlbum(album)} />
             )}
             renderSkeleton={() => <AlbumCardSkeleton />}
             getItemKey={(album) => album.id}
-            hasNextPage={hasNextPage ?? false}
+            hasNextPage={!filter && (hasNextPage ?? false)}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
             initialOffset={getInitialOffset()}
@@ -124,8 +138,8 @@ export default function AlbumsPage() {
           />
         ) : (
           <VirtualizedList
-            items={allAlbums}
-            totalCount={totalAlbums}
+            items={filteredAlbums}
+            totalCount={displayCount}
             renderItem={(album) => (
               <AlbumCardCompact album={album} onPlay={() => handlePlayAlbum(album)} />
             )}
@@ -134,7 +148,7 @@ export default function AlbumsPage() {
             )}
             getItemKey={(album) => album.id}
             estimateItemHeight={56}
-            hasNextPage={hasNextPage ?? false}
+            hasNextPage={!filter && (hasNextPage ?? false)}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
             initialOffset={getInitialOffset()}

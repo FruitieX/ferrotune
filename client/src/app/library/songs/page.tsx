@@ -1,11 +1,12 @@
 "use client";
 
-import { useAtom } from "jotai";
+import { useMemo } from "react";
+import { useAtom, useAtomValue } from "jotai";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
-import { albumViewModeAtom } from "@/lib/store/ui";
+import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
@@ -15,6 +16,7 @@ const PAGE_SIZE = 50;
 export default function SongsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [viewMode] = useAtom(albumViewModeAtom);
+  const filter = useAtomValue(libraryFilterAtom);
   
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
@@ -57,6 +59,19 @@ export default function SongsPage() {
   // Flatten songs from all pages
   const allSongs = songsData?.pages.flatMap((page) => page.songs) ?? [];
   const totalSongs = songsData?.pages[0]?.total ?? allSongs.length;
+  
+  // Filter songs based on search filter
+  const filteredSongs = useMemo(() => {
+    if (!filter.trim()) return allSongs;
+    const lowerFilter = filter.toLowerCase();
+    return allSongs.filter((song) =>
+      song.title?.toLowerCase().includes(lowerFilter) ||
+      song.artist?.toLowerCase().includes(lowerFilter) ||
+      song.album?.toLowerCase().includes(lowerFilter)
+    );
+  }, [allSongs, filter]);
+  
+  const displayCount = filter ? filteredSongs.length : totalSongs;
 
   if (authLoading) {
     return (
@@ -97,14 +112,14 @@ export default function SongsPage() {
       ) : allSongs.length > 0 ? (
         viewMode === "grid" ? (
           <VirtualizedGrid
-            items={allSongs}
-            totalCount={totalSongs}
+            items={filteredSongs}
+            totalCount={displayCount}
             renderItem={(song) => (
-              <SongCard song={song} queueSongs={allSongs} />
+              <SongCard song={song} queueSongs={filteredSongs} />
             )}
             renderSkeleton={() => <SongCardSkeleton />}
             getItemKey={(song) => song.id}
-            hasNextPage={hasNextPage ?? false}
+            hasNextPage={!filter && (hasNextPage ?? false)}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
             initialOffset={getInitialOffset()}
@@ -112,20 +127,20 @@ export default function SongsPage() {
           />
         ) : (
           <VirtualizedList
-            items={allSongs}
-            totalCount={totalSongs}
+            items={filteredSongs}
+            totalCount={displayCount}
             renderItem={(song, index) => (
               <SongRow
                 song={song}
                 index={index}
                 showCover
-                queueSongs={allSongs}
+                queueSongs={filteredSongs}
               />
             )}
             renderSkeleton={() => <SongRowSkeleton showCover showIndex={false} />}
             getItemKey={(song) => song.id}
             estimateItemHeight={56}
-            hasNextPage={hasNextPage ?? false}
+            hasNextPage={!filter && (hasNextPage ?? false)}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
             initialOffset={getInitialOffset()}

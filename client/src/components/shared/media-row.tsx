@@ -10,7 +10,8 @@ import { CoverImage } from "@/components/shared/cover-image";
 // Shared row container styles
 export const rowContainerStyles = cn(
   "group flex items-center gap-4 px-4 pr-6 py-2 rounded-md",
-  "hover:bg-accent/50 transition-colors cursor-pointer"
+  "hover:bg-accent/70 transition-all cursor-pointer",
+  "border-l-2 border-transparent hover:border-primary"
 );
 
 // Shared action button styles
@@ -128,14 +129,27 @@ export function MediaRow({
 
   const mainContent = children ?? (
     <div className="min-w-0 flex-1">
-      <p
-        className={cn(
-          "font-medium text-sm truncate",
-          isActive && "text-primary"
-        )}
-      >
-        {title}
-      </p>
+      {href ? (
+        <Link href={href} className="block" onClick={(e) => e.stopPropagation()}>
+          <p
+            className={cn(
+              "font-medium text-sm truncate hover:underline",
+              isActive && "text-primary"
+            )}
+          >
+            {title}
+          </p>
+        </Link>
+      ) : (
+        <p
+          className={cn(
+            "font-medium text-sm truncate",
+            isActive && "text-primary"
+          )}
+        >
+          {title}
+        </p>
+      )}
       {(subtitleContent || subtitle) && (
         <div className="text-xs text-muted-foreground truncate">
           {subtitleContent ?? subtitle}
@@ -156,22 +170,17 @@ export function MediaRow({
       {/* Left content (e.g., track number) */}
       {leftContent}
 
-      {/* Cover art with optional link */}
-      {href ? (
-        <Link
-          href={href}
-          className="flex items-center gap-4 flex-1 min-w-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {coverArtElement}
-          {mainContent}
-        </Link>
-      ) : (
-        <div className="flex items-center gap-4 flex-1 min-w-0">
-          {coverArtElement}
-          {mainContent}
-        </div>
-      )}
+      {/* Cover art and content */}
+      <div className="flex items-center gap-4 flex-1 min-w-0">
+        {href ? (
+          <Link href={href} onClick={(e) => e.stopPropagation()}>
+            {coverArtElement}
+          </Link>
+        ) : (
+          coverArtElement
+        )}
+        {mainContent}
+      </div>
 
       {/* Actions */}
       {actions}

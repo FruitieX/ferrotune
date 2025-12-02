@@ -218,7 +218,7 @@ export function TrackRow({
       ref={rowRef}
       data-testid="track-row"
       className={cn(
-        "group flex items-center gap-4 px-4 pr-6 py-2 rounded-md hover:bg-accent/60 transition-colors",
+        "group flex items-center gap-4 px-4 pr-6 py-2 rounded-md hover:bg-accent/70 border-l-2 border-transparent hover:border-primary transition-all",
         "cursor-pointer",
         isCurrentTrack && "bg-accent/40",
         className

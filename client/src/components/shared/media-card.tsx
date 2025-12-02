@@ -60,7 +60,8 @@ export function MediaCard({
       data-testid="media-card"
       className={cn(
         "group relative p-4 rounded-lg bg-card",
-        "hover:bg-accent/50 transition-colors cursor-pointer",
+        "hover:bg-accent/70 transition-all cursor-pointer",
+        "hover:shadow-lg hover:shadow-black/20",
         className
       )}
     >

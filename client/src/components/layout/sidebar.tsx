@@ -120,9 +120,9 @@ export function Sidebar() {
         )}
       >
         {/* Minimal skeleton content */}
-        <div className="flex items-center h-16 px-4 gap-3 overflow-hidden">
+        <div className="flex items-center h-16 px-4 gap-3 overflow-hidden shrink-0">
           <div className="flex items-center justify-center w-10 h-10 shrink-0 rounded-lg bg-primary">
-            <Music2 className="w-6 h-6 text-primary-foreground" />
+            <Music className="w-6 h-6 text-primary-foreground" />
           </div>
         </div>
       </aside>
@@ -140,9 +140,9 @@ export function Sidebar() {
       )}
     >
       {/* Logo */}
-      <div className="flex items-center h-16 px-4 gap-3 overflow-hidden">
+      <div className="flex items-center h-16 px-4 gap-3 overflow-hidden shrink-0">
         <div className="flex items-center justify-center w-10 h-10 shrink-0 rounded-lg bg-primary">
-          <Music2 className="w-6 h-6 text-primary-foreground" />
+          <Music className="w-6 h-6 text-primary-foreground" />
         </div>
         {!collapsed && (
           <motion.span
@@ -156,8 +156,10 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* Main Navigation */}
-      <nav className="px-2 py-4">
+      {/* Scrollable content - wraps nav and library section */}
+      <ScrollArea className="flex-1 min-h-0">
+        {/* Main Navigation */}
+        <nav className="px-2 py-4">
         <div className="space-y-1.5">
           {navItems.map((item) => {
             const isActive = item.href === "/" 
@@ -259,22 +261,21 @@ export function Sidebar() {
             </Link>
           )}
         </div>
-      </nav>
+        </nav>
 
-      <Separator className="mx-2 bg-sidebar-border" />
+        <Separator className="mx-2 bg-sidebar-border" />
 
-      {/* Library Section */}
-      <div className="flex-1 flex flex-col min-h-0 py-4 overflow-hidden">
-        {!collapsed && (
-          <div className="px-4 mb-2 overflow-hidden">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
-              Your Library
-            </span>
-          </div>
-        )}
+        {/* Library Section */}
+        <div className="py-4">
+          {!collapsed && (
+            <div className="px-4 mb-2 overflow-hidden">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                Your Library
+              </span>
+            </div>
+          )}
 
-        <ScrollArea className="flex-1 px-2">
-          <div className="space-y-1.5">
+          <div className="px-2 space-y-1.5">
             {/* Liked Songs */}
             <Link href="/favorites">
               <Button
@@ -395,11 +396,11 @@ export function Sidebar() {
               </div>
             )}
           </div>
-        </ScrollArea>
-      </div>
+        </div>
+      </ScrollArea>
 
       {/* Bottom Section */}
-      <div className="p-2 space-y-1 border-t border-sidebar-border">
+      <div className="p-2 space-y-1 border-t border-sidebar-border shrink-0">
         <Link href="/settings">
           <Button
             variant="ghost"
