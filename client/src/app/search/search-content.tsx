@@ -122,11 +122,9 @@ export function SearchPageContent() {
 
     try {
       const artistData = await client.getArtist(artist.id);
-      if (artistData.artist.album?.length > 0) {
-        const firstAlbum = await client.getAlbum(artistData.artist.album[0].id);
-        if (firstAlbum.album.song?.length > 0) {
-          playNow(firstAlbum.album.song);
-        }
+      // Use the song array which contains all songs by this artist
+      if (artistData.artist.song?.length) {
+        playNow(artistData.artist.song);
       }
     } catch (error) {
       console.error("Failed to play artist:", error);

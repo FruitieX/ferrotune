@@ -135,7 +135,7 @@ export function GenreRow({ genre, className }: GenreRowProps) {
 
   return (
     <GenreContextMenu genre={genre}>
-      <div className={cn(rowContainerStyles, className)}>
+      <div className={cn(rowContainerStyles, className)} onDoubleClick={handlePlay}>
         <Link
           href={`/library/genres/details?name=${encodeURIComponent(genre.value)}`}
           className="flex items-center gap-4 flex-1 min-w-0"
@@ -163,7 +163,7 @@ export function GenreRow({ genre, className }: GenreRowProps) {
 
           {/* Genre info */}
           <div className="min-w-0 flex-1">
-            <p className="font-medium text-sm truncate">{genre.value}</p>
+            <p className="font-medium text-sm truncate hover:underline">{genre.value}</p>
             <p className="text-xs text-muted-foreground truncate">
               {genre.albumCount} albums • {genre.songCount} songs
             </p>

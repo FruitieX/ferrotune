@@ -23,21 +23,17 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
+import { useAccentColor } from "@/lib/hooks/use-preferences-sync";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { volumeAtom, repeatModeAtom } from "@/lib/store/player";
 import { isShuffledAtom } from "@/lib/store/queue";
 import { clearQueueAtom } from "@/lib/store/queue";
 import { 
-  accentColorAtom, 
-  customAccentHueAtom,
-  customAccentLightnessAtom,
-  customAccentChromaAtom,
   ACCENT_PRESETS,
   type AccentColor 
 } from "@/lib/store/ui";
 import { useRouter } from "next/navigation";
-import { useEffect, useCallback, useState } from "react";
-import { getClient } from "@/lib/api/client";
+import { useEffect, useState } from "react";
 import { parseCssColorToOklch, clampOklchToSliderRanges } from "@/lib/utils/color";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -79,65 +75,24 @@ export default function SettingsPage() {
   const [volume, setVolume] = useAtom(volumeAtom);
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
   const [isShuffled, setIsShuffled] = useAtom(isShuffledAtom);
-  const [accentColor, setAccentColor] = useAtom(accentColorAtom);
-  const [customHue, setCustomHue] = useAtom(customAccentHueAtom);
-  const [customLightness, setCustomLightness] = useAtom(customAccentLightnessAtom);
-  const [customChroma, setCustomChroma] = useAtom(customAccentChromaAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
   const { theme, setTheme } = useTheme();
+  
+  // Use the centralized accent color hook that syncs with server
+  const {
+    accentColor,
+    customHue,
+    customLightness,
+    customChroma,
+    setAccentColor,
+    setCustomHue,
+    setCustomLightness,
+    setCustomChroma,
+  } = useAccentColor();
   
   // Local state for OKLCH input to prevent cursor jumping while typing
   const [oklchInputValue, setOklchInputValue] = useState("");
   const [oklchInputFocused, setOklchInputFocused] = useState(false);
-
-  // Sync preferences to server
-  const syncPreferences = useCallback(async (color: AccentColor, hue?: number, lightness?: number, chroma?: number) => {
-    const client = getClient();
-    if (!client) return;
-    
-    try {
-      await client.updatePreferences({
-        accentColor: color,
-        customAccentHue: color === "custom" ? hue : undefined,
-        customAccentLightness: color === "custom" ? lightness : undefined,
-        customAccentChroma: color === "custom" ? chroma : undefined,
-      });
-    } catch (error) {
-      // Silently fail - preferences will be stored locally
-      console.warn("Failed to sync preferences to server:", error);
-    }
-  }, []);
-
-  // Load preferences from server on mount
-  useEffect(() => {
-    const loadPreferences = async () => {
-      const client = getClient();
-      if (!client) return;
-      
-      try {
-        const prefs = await client.getPreferences();
-        if (prefs.accentColor) {
-          setAccentColor(prefs.accentColor as AccentColor);
-        }
-        if (prefs.customAccentHue !== undefined) {
-          setCustomHue(prefs.customAccentHue);
-        }
-        if (prefs.customAccentLightness !== undefined) {
-          setCustomLightness(prefs.customAccentLightness);
-        }
-        if (prefs.customAccentChroma !== undefined) {
-          setCustomChroma(prefs.customAccentChroma);
-        }
-      } catch (error) {
-        // Silently fail - use local preferences
-        console.warn("Failed to load preferences from server:", error);
-      }
-    };
-    
-    if (isMounted && !authLoading) {
-      loadPreferences();
-    }
-  }, [isMounted, authLoading, setAccentColor, setCustomHue, setCustomLightness, setCustomChroma]);
 
   // Compute display values: use preset values when a preset is active, custom values otherwise
   // This ensures sliders always show correct values even before the sync effect runs
@@ -157,6 +112,7 @@ export default function SettingsPage() {
     if (accentColor !== "custom") {
       const preset = ACCENT_PRESETS.find(p => p.name === accentColor);
       if (preset) {
+        // Update local state only, don't trigger server sync
         setCustomHue(preset.hue);
         setCustomLightness(0.65);
         setCustomChroma(0.18);
@@ -166,28 +122,18 @@ export default function SettingsPage() {
 
   const handleAccentColorChange = (color: AccentColor) => {
     setAccentColor(color);
-    syncPreferences(color, customHue, customLightness, customChroma);
   };
 
   const handleCustomHueChange = (hue: number) => {
     setCustomHue(hue);
-    if (accentColor === "custom") {
-      syncPreferences("custom", hue, customLightness, customChroma);
-    }
   };
 
   const handleCustomLightnessChange = (lightness: number) => {
     setCustomLightness(lightness);
-    if (accentColor === "custom") {
-      syncPreferences("custom", customHue, lightness, customChroma);
-    }
   };
 
   const handleCustomChromaChange = (chroma: number) => {
     setCustomChroma(chroma);
-    if (accentColor === "custom") {
-      syncPreferences("custom", customHue, customLightness, chroma);
-    }
   };
 
   const handleLogout = () => {
