@@ -1,318 +1,143 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useIsMounted } from "@/lib/hooks/use-is-mounted";
-import Link from "next/link";
-import { useSetAtom } from "jotai";
-import { useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
-import { toast } from "sonner";
-import {
-  Play,
-  Shuffle,
-  Heart,
-  MoreHorizontal,
-  Clock,
-  ArrowLeft,
-  FolderPlus,
-  ListEnd,
-} from "lucide-react";
+import { useAtom, useSetAtom } from "jotai";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { Music } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
-import { isShuffledAtom } from "@/lib/store/queue";
+import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
+import { albumViewModeAtom } from "@/lib/store/ui";
+import { playNowAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
-import { CoverImage } from "@/components/shared/cover-image";
-import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
-import { formatTotalDuration, formatCount } from "@/lib/utils/format";
+import { AlbumCard, AlbumCardSkeleton, AlbumCardCompact } from "@/components/browse/album-card";
+import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
+import type { Album } from "@/lib/api/types";
 
-function AlbumDetailContent() {
-  const searchParams = useSearchParams();
-  const id = searchParams.get("id");
-  const router = useRouter();
+const PAGE_SIZE = 50;
+
+export default function AlbumsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const [viewMode] = useAtom(albumViewModeAtom);
   const playNow = useSetAtom(playNowAtom);
-  const addToQueue = useSetAtom(addToQueueAtom);
-  const setIsShuffled = useSetAtom(isShuffledAtom);
-  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
-  const isMounted = useIsMounted();
+  
+  // Restore scroll position when navigating back to this page
+  useScrollRestoration();
 
-  // Redirect to library if no ID
-  useEffect(() => {
-    if (!id && isMounted && !authLoading) {
-      router.replace("/library");
-    }
-  }, [id, isMounted, authLoading, router]);
-
-  // Fetch album data
-  const { data: albumData, isLoading } = useQuery({
-    queryKey: ["album", id],
-    queryFn: async () => {
+  // Fetch albums with infinite scroll
+  const {
+    data: albumsData,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["albums", "alphabetical"],
+    queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getAlbum(id!);
-      return response.album;
+      const response = await client.getAlbumList2({
+        type: "alphabeticalByName",
+        size: PAGE_SIZE,
+        offset: pageParam,
+      });
+      return {
+        albums: response.albumList2.album ?? [],
+        total: response.albumList2.total,
+        nextOffset: response.albumList2.album?.length === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
+      };
     },
-    enabled: isReady && !!id,
+    getNextPageParam: (lastPage) => lastPage.nextOffset,
+    initialPageParam: 0,
+    enabled: isReady,
   });
 
-  const coverArtUrl = albumData?.coverArt
-    ? getClient()?.getCoverArtUrl(albumData.coverArt, 400)
-    : null;
+  // Flatten albums from all pages
+  const allAlbums = albumsData?.pages.flatMap((page) => page.albums) ?? [];
+  const totalAlbums = albumsData?.pages[0]?.total ?? allAlbums.length;
 
-  const totalDuration = albumData?.song?.reduce((acc, song) => acc + song.duration, 0) ?? 0;
+  // Play album handler
+  const handlePlayAlbum = async (album: Album) => {
+    const client = getClient();
+    if (!client) return;
 
-  const handlePlayAll = () => {
-    if (albumData?.song && albumData.song.length > 0) {
-      setIsShuffled(false);
-      playNow(albumData.song);
+    try {
+      const response = await client.getAlbum(album.id);
+      if (response.album.song?.length > 0) {
+        playNow(response.album.song);
+      }
+    } catch (error) {
+      console.error("Failed to play album:", error);
     }
   };
 
-  const handleShuffle = () => {
-    if (albumData?.song && albumData.song.length > 0) {
-      setIsShuffled(true);
-      const shuffled = [...albumData.song].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
-    }
-  };
-
-  // Always render the same loading state on server and during hydration
-  // This prevents hydration mismatches
-  if (!isMounted || authLoading) {
+  if (authLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Skeleton className="w-32 h-8" />
+      <div className="p-4 lg:p-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <AlbumCardSkeleton key={i} />
+          ))}
+        </div>
       </div>
     );
   }
 
-  if (!id) {
-    return null;
-  }
-
   return (
-    <div className="min-h-screen">
-      {/* Header with gradient background */}
-      <div className="relative">
-        {/* Background gradient based on cover art */}
-        <div 
-          className="absolute inset-0 h-[400px] bg-gradient-to-b from-primary/20 to-background"
-          style={{
-            background: albumData 
-              ? `linear-gradient(180deg, rgba(30,215,96,0.15) 0%, rgba(10,10,10,1) 100%)`
-              : undefined
-          }}
-        />
-
-        {/* Back button */}
-        <div className="relative z-10 p-4 lg:p-6">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-10 w-10 rounded-full bg-background/50 hover:bg-background/80"
-            onClick={() => router.back()}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
+    <div className="p-4 lg:p-6">
+      {isLoading && allAlbums.length === 0 ? (
+        <div className={viewMode === "grid" 
+          ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
+          : "space-y-1"
+        }>
+          {Array.from({ length: 12 }).map((_, i) => (
+            <AlbumCardSkeleton key={i} />
+          ))}
         </div>
-
-        {/* Album header */}
-        <div className="relative z-10 flex flex-col md:flex-row gap-6 px-4 lg:px-6 pb-6">
-          {/* Cover art */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="relative w-48 h-48 md:w-56 md:h-56 rounded-lg overflow-hidden bg-muted album-glow mx-auto md:mx-0 shrink-0"
-          >
-            {isLoading ? (
-              <Skeleton className="w-full h-full" />
-            ) : (
-              <CoverImage
-                src={coverArtUrl}
-                alt={albumData?.name || "Album"}
-                colorSeed={albumData?.name || "Album"}
-                type="album"
-                size="full"
-              />
+      ) : allAlbums.length > 0 ? (
+        viewMode === "grid" ? (
+          <VirtualizedGrid
+            items={allAlbums}
+            totalCount={totalAlbums}
+            renderItem={(album) => (
+              <AlbumCard album={album} onPlay={() => handlePlayAlbum(album)} />
             )}
-          </motion.div>
-
-          {/* Album info */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="flex flex-col justify-end text-center md:text-left"
-          >
-            <span className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-              Album
-            </span>
-            {isLoading ? (
-              <>
-                <Skeleton className="h-10 w-64 mt-2" />
-                <Skeleton className="h-5 w-32 mt-2" />
-              </>
-            ) : (
-              <>
-                <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold mt-2 text-foreground">
-                  {albumData?.name}
-                </h1>
-                <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 mt-4 text-sm text-muted-foreground">
-                  <Link
-                    href={`/library/artists?id=${albumData?.artistId}`}
-                    className="font-semibold text-foreground hover:underline"
-                  >
-                    {albumData?.artist}
-                  </Link>
-                  {albumData?.year && (
-                    <>
-                      <span>•</span>
-                      <span>{albumData.year}</span>
-                    </>
-                  )}
-                  {albumData?.genre && (
-                    <>
-                      <span>•</span>
-                      <span>{albumData.genre}</span>
-                    </>
-                  )}
-                  <span>•</span>
-                  <span>{formatCount(albumData?.songCount ?? 0, "song")}</span>
-                  <span>•</span>
-                  <span>{formatTotalDuration(totalDuration)}</span>
-                </div>
-              </>
-            )}
-          </motion.div>
-        </div>
-      </div>
-
-      {/* Action buttons */}
-      <div className="sticky top-0 z-20 bg-background/80 backdrop-blur-lg border-b border-border">
-        <div className="flex items-center gap-4 px-4 lg:px-6 py-4">
-          <Button
-            size="lg"
-            className="rounded-full gap-2 px-8"
-            onClick={handlePlayAll}
-            disabled={isLoading || !albumData?.song?.length}
-          >
-            <Play className="w-5 h-5 ml-0.5" />
-            Play
-          </Button>
-          <Button
-            variant="outline"
-            size="lg"
-            className="rounded-full gap-2"
-            onClick={handleShuffle}
-            disabled={isLoading || !albumData?.song?.length}
-          >
-            <Shuffle className="w-5 h-5" />
-            Shuffle
-          </Button>
-          <Button variant="ghost" size="icon" className="h-10 w-10">
-            <Heart className="w-5 h-5" />
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-10 w-10">
-                <MoreHorizontal className="w-5 h-5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem 
-                onClick={() => {
-                  if (albumData?.song) {
-                    albumData.song.forEach(song => addToQueue(song, "last"));
-                    toast.success(`Added ${albumData.song.length} songs to queue`);
-                  }
-                }}
-                disabled={!albumData?.song?.length}
-              >
-                <ListEnd className="w-4 h-4 mr-2" />
-                Add all to Queue
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                onClick={() => setAddToPlaylistOpen(true)}
-                disabled={!albumData?.song?.length}
-              >
-                <FolderPlus className="w-4 h-4 mr-2" />
-                Add all to Playlist
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-
-      {/* Song list header */}
-      <div className="grid gap-4 px-4 py-2 border-b border-border text-sm text-muted-foreground"
-        style={{ gridTemplateColumns: "2rem 1fr auto auto" }}
-      >
-        <span className="text-center">#</span>
-        <span>Title</span>
-        <span className="hidden sm:block">
-          <Heart className="w-4 h-4" />
-        </span>
-        <span className="flex items-center gap-1">
-          <Clock className="w-4 h-4" />
-        </span>
-      </div>
-
-      {/* Song list */}
-      <div className="divide-y divide-border/50">
-        {isLoading ? (
-          Array.from({ length: 10 }).map((_, i) => (
-            <SongRowSkeleton key={i} />
-          ))
-        ) : albumData?.song && albumData.song.length > 0 ? (
-          albumData.song.map((song, index) => (
-            <SongRow
-              key={song.id}
-              song={song}
-              index={index}
-              showAlbum={false}
-              queueSongs={albumData.song}
-            />
-          ))
+            renderSkeleton={() => <AlbumCardSkeleton />}
+            getItemKey={(album) => album.id}
+            hasNextPage={hasNextPage ?? false}
+            isFetchingNextPage={isFetchingNextPage}
+            fetchNextPage={fetchNextPage}
+          />
         ) : (
-          <div className="py-20 text-center text-muted-foreground">
-            No songs in this album
-          </div>
-        )}
-      </div>
-
-      {/* Spacer for player bar */}
-      <div className="h-24" />
-
-      {/* Add to Playlist Dialog */}
-      {albumData?.song && (
-        <AddToPlaylistDialog
-          open={addToPlaylistOpen}
-          onOpenChange={setAddToPlaylistOpen}
-          songs={albumData.song}
-        />
+          <VirtualizedList
+            items={allAlbums}
+            totalCount={totalAlbums}
+            renderItem={(album) => (
+              <AlbumCardCompact album={album} onPlay={() => handlePlayAlbum(album)} />
+            )}
+            renderSkeleton={() => (
+              <div className="h-16 animate-pulse bg-muted rounded-md" />
+            )}
+            getItemKey={(album) => album.id}
+            estimateItemHeight={64}
+            hasNextPage={hasNextPage ?? false}
+            isFetchingNextPage={isFetchingNextPage}
+            fetchNextPage={fetchNextPage}
+          />
+        )
+      ) : (
+        <EmptyState message="No albums in your library" />
       )}
     </div>
   );
 }
 
-export default function AlbumPage() {
+// Empty state component
+function EmptyState({ message }: { message: string }) {
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen">
-        <Skeleton className="w-32 h-8" />
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+      <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center mb-4">
+        <Music className="w-10 h-10 text-muted-foreground" />
       </div>
-    }>
-      <AlbumDetailContent />
-    </Suspense>
+      <p className="text-muted-foreground">{message}</p>
+    </div>
   );
 }
