@@ -101,16 +101,29 @@ test.describe("Search", () => {
     expect(page.url()).toContain("/search");
   });
 
-  test("sidebar navigation to search works", async ({ authenticatedPage: page }) => {
+  test("sidebar navigation to search works", async ({ authenticatedPage: page }, testInfo) => {
     await page.goto("/");
     await page.waitForTimeout(500);
+    
+    const isMobile = testInfo.project.name.includes("mobile");
     
     // Navigate via sidebar/nav search link if it exists
     const searchLink = page.getByRole("link", { name: /search/i }).first();
     const hasSearchLink = await searchLink.isVisible().catch(() => false);
     
     if (hasSearchLink) {
-      await searchLink.click();
+      if (isMobile) {
+        // On mobile, Next.js dev overlay can interfere with clicks
+        // Use JavaScript navigation instead
+        const href = await searchLink.getAttribute("href");
+        if (href) {
+          await page.goto(href);
+        } else {
+          await searchLink.click({ force: true });
+        }
+      } else {
+        await searchLink.click();
+      }
       await expect(page).toHaveURL("/search");
     } else {
       // No sidebar search link, navigate directly
