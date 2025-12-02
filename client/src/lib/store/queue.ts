@@ -7,7 +7,13 @@ export const queueAtom = atom<Song[]>([]);
 export const queueIndexAtom = atom<number>(-1);
 
 // Flag to indicate queue is being restored from server (don't auto-play during restore)
+// This flag stays true until the user explicitly presses play
 export const isRestoringQueueAtom = atom<boolean>(false);
+
+// Atom to clear the restoring flag (called when user explicitly presses play)
+export const clearRestoringFlagAtom = atom(null, (_get, set) => {
+  set(isRestoringQueueAtom, false);
+});
 
 // Current track derived from queue
 export const currentTrackAtom = atom((get) => {
@@ -106,6 +112,8 @@ export const moveInQueueAtom = atom(
 export const playAtIndexAtom = atom(null, (get, set, index: number) => {
   const queue = get(queueAtom);
   if (index >= 0 && index < queue.length) {
+    // Clear restore flag since user is explicitly starting playback
+    set(isRestoringQueueAtom, false);
     set(queueIndexAtom, index);
   }
 });
@@ -140,6 +148,8 @@ export const playNowAtom = atom(
   null,
   (_get, set, songs: Song | Song[], startIndex: number = 0) => {
     const songsArray = Array.isArray(songs) ? songs : [songs];
+    // Clear restore flag since user is explicitly starting playback
+    set(isRestoringQueueAtom, false);
     set(queueAtom, songsArray);
     set(queueIndexAtom, startIndex);
     set(shuffledIndicesAtom, []);
