@@ -144,10 +144,7 @@ export default function FavoritesPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
             >
-              <span className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-                Playlist
-              </span>
-              <h1 className="text-4xl lg:text-5xl font-bold mt-2">Liked Songs</h1>
+              <h1 className="text-4xl lg:text-5xl font-bold mt-2">Favorites</h1>
               <p className="mt-4 text-muted-foreground">
                 {formatCount(songs.length, "song")} • {formatTotalDuration(totalDuration)}
               </p>

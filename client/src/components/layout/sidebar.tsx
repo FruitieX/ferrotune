@@ -289,7 +289,7 @@ export function Sidebar() {
                 disabled={!isConnected}
               >
                 <Heart className={cn("w-5 h-5 shrink-0", pathname.startsWith("/favorites") && "text-sidebar-primary")} />
-                {!collapsed && <span className="truncate whitespace-nowrap">Liked Songs</span>}
+                {!collapsed && <span className="truncate whitespace-nowrap">Favorites</span>}
               </Button>
             </Link>
 

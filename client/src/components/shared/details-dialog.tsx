@@ -46,7 +46,7 @@ export function DetailsDialog({ item, open, onOpenChange, onSongDeleted }: Detai
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto overflow-x-hidden">
+      <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto overflow-x-hidden">
         {item.type === "song" && (
           <SongDetails 
             song={item.data} 
@@ -139,7 +139,7 @@ function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }
         </DialogTitle>
       </DialogHeader>
 
-      <div className="space-y-4">
+      <div className="space-y-4 overflow-hidden">
         {/* Cover and title */}
         <div className="flex gap-4">
           <CoverImage
