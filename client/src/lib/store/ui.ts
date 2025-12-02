@@ -23,10 +23,6 @@ export type ViewMode = "grid" | "list";
 export const albumViewModeAtom = atomWithStorage<ViewMode>("ferrotune-album-view", "grid");
 export const artistViewModeAtom = atomWithStorage<ViewMode>("ferrotune-artist-view", "grid");
 
-// Current library tab
-export type LibraryTab = "albums" | "artists" | "songs" | "genres" | "playlists";
-export const libraryTabAtom = atomWithStorage<LibraryTab>("ferrotune-library-tab", "albums");
-
 // Keyboard shortcuts dialog
 export const shortcutsDialogOpenAtom = atom<boolean>(false);
 
