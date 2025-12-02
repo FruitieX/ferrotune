@@ -10,6 +10,8 @@ import type {
   GenresResponse,
   AlbumListResponse,
   RandomSongsResponse,
+  SongsByGenreResponse,
+  SongsByGenreParams,
   SearchResponse,
   StarredResponse,
   PlaylistsResponse,
@@ -133,6 +135,10 @@ export class SubsonicClient {
 
   async getRandomSongs(params: RandomSongsParams = {}): Promise<RandomSongsResponse> {
     return this.request<RandomSongsResponse>("getRandomSongs", { ...params });
+  }
+
+  async getSongsByGenre(genre: string, params: SongsByGenreParams = {}): Promise<SongsByGenreResponse> {
+    return this.request<SongsByGenreResponse>("getSongsByGenre", { genre, ...params });
   }
 
   // Search endpoint

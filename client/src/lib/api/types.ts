@@ -168,6 +168,12 @@ export interface RandomSongsResponse {
   };
 }
 
+export interface SongsByGenreResponse {
+  songsByGenre: {
+    song?: Song[];
+  };
+}
+
 export interface SearchResponse {
   searchResult3: {
     artist?: Artist[];
@@ -269,6 +275,12 @@ export interface RandomSongsParams {
   genre?: string;
   fromYear?: number;
   toYear?: number;
+  musicFolderId?: number;
+}
+
+export interface SongsByGenreParams {
+  count?: number;
+  offset?: number;
   musicFolderId?: number;
 }
 

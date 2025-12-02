@@ -2,20 +2,17 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Play, Pause, Heart } from "lucide-react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { CoverImage } from "@/components/shared/cover-image";
 import type { Song } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { formatDuration } from "@/lib/utils/format";
-import { currentTrackAtom, playNowAtom, addToQueueAtom } from "@/lib/store/queue";
+import { currentTrackAtom, playNowAtom } from "@/lib/store/queue";
 import { playbackStateAtom } from "@/lib/store/player";
 import { useAudioEngine } from "@/lib/audio/hooks";
+import { MediaRow, MediaRowSkeleton, RowActions } from "@/components/shared/media-row";
 import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
 
 // Audio bar visualizer for now playing indicator - uses CSS animations
@@ -42,6 +39,30 @@ function NowPlayingBars({ className, isAnimating = true }: { className?: string;
   );
 }
 
+// Track number column - shows number or now playing indicator
+interface TrackIndexProps {
+  index: number;
+  isCurrentTrack: boolean;
+  isPlaying: boolean;
+}
+
+function TrackIndex({ index, isCurrentTrack, isPlaying }: TrackIndexProps) {
+  return (
+    <div className="w-8 text-center shrink-0">
+      <span className={cn(
+        "text-sm tabular-nums text-muted-foreground",
+        isCurrentTrack && "text-primary"
+      )}>
+        {isCurrentTrack ? (
+          <NowPlayingBars isAnimating={isPlaying} />
+        ) : (
+          index + 1
+        )}
+      </span>
+    </div>
+  );
+}
+
 interface SongRowProps {
   song: Song;
   index?: number;
@@ -64,7 +85,6 @@ export function SongRow({
   const currentTrack = useAtomValue(currentTrackAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const playNow = useSetAtom(playNowAtom);
-  const addToQueue = useSetAtom(addToQueueAtom);
   const { togglePlayPause } = useAudioEngine();
   const [isStarred, setIsStarred] = useState(!!song.starred);
 
@@ -87,7 +107,9 @@ export function SongRow({
     }
   };
 
-  const handleStar = async () => {
+  const handleStar = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     const client = getClient();
     if (!client) return;
 
@@ -107,143 +129,101 @@ export function SongRow({
     }
   };
 
-  const rowContent = (
+  // Build subtitle with clickable links
+  const subtitle = (
+    <div className="flex items-center gap-1 text-xs text-muted-foreground truncate">
+      {showArtist && (
+        <Link
+          href={`/library/artists/details?id=${song.artistId}`}
+          className="hover:underline hover:text-foreground shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {song.artist}
+        </Link>
+      )}
+      {showArtist && showAlbum && <span className="shrink-0">•</span>}
+      {showAlbum && (
+        <Link
+          href={`/library/albums/details?id=${song.albumId}`}
+          className="hover:underline hover:text-foreground truncate"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {song.album}
+        </Link>
+      )}
+    </div>
+  );
+
+  return (
     <motion.div
       data-testid="song-row"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className={cn(
-        "group flex items-center gap-4 px-4 pr-6 py-2 rounded-md hover:bg-accent/50 transition-colors",
-        "cursor-pointer",
-        isCurrentTrack && "bg-accent/30",
-        className
-      )}
-      onDoubleClick={handlePlay}
     >
-      {/* Index or Play button */}
-      {index !== undefined && (
-        <div className="w-8 text-center shrink-0">
+      <MediaRow
+        coverArt={showCover ? coverArtUrl : undefined}
+        title={song.title}
+        colorSeed={song.album}
+        coverType="song"
+        isActive={isCurrentTrack}
+        isPlaying={isPlaying}
+        onPlay={showCover ? handlePlay : undefined}
+        onDoubleClick={handlePlay}
+        leftContent={
+          index !== undefined ? (
+            <TrackIndex
+              index={index}
+              isCurrentTrack={isCurrentTrack}
+              isPlaying={isPlaying}
+            />
+          ) : undefined
+        }
+        actions={
+          <RowActions
+            onStar={handleStar}
+            isStarred={isStarred}
+            dropdownMenu={
+              <SongDropdownMenu
+                song={song}
+                queueSongs={queueSongs}
+              />
+            }
+          />
+        }
+        rightContent={
+          <span className="text-sm text-muted-foreground tabular-nums shrink-0">
+            {formatDuration(song.duration)}
+          </span>
+        }
+        contextMenu={(children) => (
+          <SongContextMenu song={song} queueSongs={queueSongs}>
+            {children}
+          </SongContextMenu>
+        )}
+        className={className}
+      >
+        {/* Custom content with clickable links */}
+        <div className="min-w-0 flex flex-col flex-1">
           <span className={cn(
-            "text-sm tabular-nums text-muted-foreground group-hover:hidden",
+            "text-sm font-medium truncate",
             isCurrentTrack && "text-primary"
           )}>
-            {isCurrentTrack ? (
-              <NowPlayingBars isAnimating={isPlaying} />
-            ) : (
-              index + 1
-            )}
+            {song.title}
           </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="hidden group-hover:flex h-6 w-6"
-            onClick={(e) => {
-              e.stopPropagation();
-              handlePlay();
-            }}
-          >
-            {isPlaying ? (
-              <Pause className="w-3 h-3" />
-            ) : (
-              <Play className="w-3 h-3 ml-0.5" />
-            )}
-          </Button>
+          {(showArtist || showAlbum) && subtitle}
         </div>
-      )}
-
-      {/* Cover art (optional) */}
-      {showCover && (
-        <div className="relative w-10 h-10 rounded overflow-hidden shrink-0">
-          <CoverImage
-            src={coverArtUrl}
-            alt={song.album || "Album cover"}
-            colorSeed={song.album}
-            type="song"
-            size="sm"
-          />
-        </div>
-      )}
-
-      {/* Song info */}
-      <div className="min-w-0 flex flex-col flex-1">
-        <span className={cn(
-          "text-sm font-medium truncate",
-          isCurrentTrack && "text-primary"
-        )}>
-          {song.title}
-        </span>
-        <div className="flex items-center gap-1 text-xs text-muted-foreground truncate">
-          {showArtist && (
-            <Link
-              href={`/library/artists/details?id=${song.artistId}`}
-              className="hover:underline hover:text-foreground shrink-0"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {song.artist}
-            </Link>
-          )}
-          {showArtist && showAlbum && <span className="shrink-0">•</span>}
-          {showAlbum && (
-            <Link
-              href={`/library/albums/details?id=${song.albumId}`}
-              className="hover:underline hover:text-foreground truncate"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {song.album}
-            </Link>
-          )}
-        </div>
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleStar();
-          }}
-        >
-          <Heart className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")} />
-        </Button>
-        <SongDropdownMenu song={song} queueSongs={queueSongs} />
-      </div>
-
-      {/* Duration */}
-      <span className="text-sm text-muted-foreground tabular-nums shrink-0">
-        {formatDuration(song.duration)}
-      </span>
+      </MediaRow>
     </motion.div>
-  );
-
-  return (
-    <SongContextMenu song={song} queueSongs={queueSongs}>
-      {rowContent}
-    </SongContextMenu>
   );
 }
 
-export function SongRowSkeleton({ showCover = false }: { showCover?: boolean }) {
+export function SongRowSkeleton({ showCover = false, showIndex = true }: { showCover?: boolean; showIndex?: boolean }) {
   return (
-    <div
-      className="flex items-center gap-4 px-4 pr-6 py-2"
-    >
-      {/* Index skeleton */}
-      <div className="w-8 text-center shrink-0">
-        <Skeleton className="h-4 w-4 mx-auto" />
-      </div>
-      {/* Cover art skeleton */}
-      {showCover && <Skeleton className="w-10 h-10 rounded shrink-0" />}
-      {/* Song info skeleton */}
-      <div className="min-w-0 flex flex-col flex-1 gap-1">
-        <Skeleton className="h-4 w-40 max-w-full" />
-        <Skeleton className="h-3 w-32 max-w-[80%]" />
-      </div>
-      {/* Duration skeleton */}
-      <Skeleton className="h-4 w-10 shrink-0" />
-    </div>
+    <MediaRowSkeleton
+      showCover={showCover}
+      showLeftContent={showIndex}
+      showRightContent={true}
+    />
   );
 }
 
@@ -251,14 +231,12 @@ export function SongRowSkeleton({ showCover = false }: { showCover?: boolean }) 
 interface SongRowCompactProps {
   song: Song;
   isCurrentTrack?: boolean;
-  onRemove?: () => void;
   className?: string;
 }
 
 export function SongRowCompact({
   song,
   isCurrentTrack,
-  onRemove,
   className,
 }: SongRowCompactProps) {
   const coverArtUrl = song.coverArt
@@ -266,34 +244,19 @@ export function SongRowCompact({
     : undefined;
 
   return (
-    <div
-      className={cn(
-        "group flex items-center gap-3 p-2 rounded-md hover:bg-accent/50 transition-colors",
-        isCurrentTrack && "bg-accent/30",
-        className
-      )}
-    >
-      <div className="relative w-10 h-10 rounded overflow-hidden shrink-0">
-        <CoverImage
-          src={coverArtUrl}
-          alt={song.album || "Album cover"}
-          colorSeed={song.album}
-          type="song"
-          size="sm"
-        />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className={cn(
-          "text-sm font-medium truncate",
-          isCurrentTrack && "text-primary"
-        )}>
-          {song.title}
-        </p>
-        <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
-      </div>
-      <span className="text-xs text-muted-foreground tabular-nums">
-        {formatDuration(song.duration)}
-      </span>
-    </div>
+    <MediaRow
+      coverArt={coverArtUrl}
+      title={song.title}
+      subtitle={song.artist}
+      colorSeed={song.album}
+      coverType="song"
+      isActive={isCurrentTrack}
+      rightContent={
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {formatDuration(song.duration)}
+        </span>
+      }
+      className={cn("gap-3 p-2 px-2", className)}
+    />
   );
 }

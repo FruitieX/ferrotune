@@ -9,6 +9,7 @@ import { albumViewModeAtom } from "@/lib/store/ui";
 import { playNowAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { ArtistCard, ArtistCardSkeleton, ArtistCardCompact } from "@/components/browse/artist-card";
+import { MediaRowSkeleton } from "@/components/shared/media-row";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 import type { Artist } from "@/lib/api/types";
 
@@ -94,10 +95,10 @@ export default function ArtistsPage() {
               <ArtistCardCompact artist={artist} onPlay={() => handlePlayArtist(artist)} />
             )}
             renderSkeleton={() => (
-              <div className="h-16 animate-pulse bg-muted rounded-md" />
+              <MediaRowSkeleton coverShape="circle" />
             )}
             getItemKey={(artist) => artist.id}
-            estimateItemHeight={64}
+            estimateItemHeight={56}
           />
         )
       ) : (

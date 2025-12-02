@@ -9,6 +9,7 @@ import { albumViewModeAtom } from "@/lib/store/ui";
 import { playNowAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { AlbumCard, AlbumCardSkeleton, AlbumCardCompact } from "@/components/browse/album-card";
+import { MediaRowSkeleton } from "@/components/shared/media-row";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 import type { Album } from "@/lib/api/types";
 
@@ -114,10 +115,10 @@ export default function AlbumsPage() {
               <AlbumCardCompact album={album} onPlay={() => handlePlayAlbum(album)} />
             )}
             renderSkeleton={() => (
-              <div className="h-16 animate-pulse bg-muted rounded-md" />
+              <MediaRowSkeleton />
             )}
             getItemKey={(album) => album.id}
-            estimateItemHeight={64}
+            estimateItemHeight={56}
             hasNextPage={hasNextPage ?? false}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
