@@ -211,7 +211,7 @@ export function useAudioEngineInit() {
 
       // Force reload if same track (duplicate in queue)
       if (nextIndex === state.queueIndex || 
-          (state.queue[nextIndex]?.id === state.queue[state.queueIndex]?.id)) {
+          (state.queue[nextIndex]?.song.id === state.queue[state.queueIndex]?.song.id)) {
         // Same track or same song ID - force reload
         currentLoadedQueueIndex = -1;
         currentLoadedTrackId = null;
@@ -332,7 +332,8 @@ export function useAudioEngineInit() {
     const client = getClient();
     
     // Get current track from queue (don't use atom directly to avoid re-renders)
-    const track = queueIndex >= 0 && queueIndex < queue.length ? queue[queueIndex] : null;
+    const queueItem = queueIndex >= 0 && queueIndex < queue.length ? queue[queueIndex] : null;
+    const track = queueItem?.song ?? null;
     
     // Skip if same track ID is already loaded at the same index
     // This prevents restarts when items are added to the queue
@@ -506,7 +507,7 @@ export function useAudioEngine() {
     }
 
     // Force reload if same track (duplicate in queue)
-    if (queue[nextIndex]?.id === queue[queueIndex]?.id) {
+    if (queue[nextIndex]?.song.id === queue[queueIndex]?.song.id) {
       currentLoadedQueueIndex = -1;
       currentLoadedTrackId = null;
     }
@@ -540,12 +541,16 @@ export function useAudioEngine() {
       const previousTrack = playHistory[playHistory.length - 1];
       setPlayHistory((prev) => prev.slice(0, -1));
       
-      const trackIndex = queue.findIndex((t) => t.id === previousTrack.id);
+      const trackIndex = queue.findIndex((t) => t.song.id === previousTrack.id);
       if (trackIndex >= 0) {
         setQueueIndex(trackIndex);
       } else {
+        // Track not in queue - add it as a new queue item
         const newQueue = [...queue];
-        newQueue.splice(queueIndex, 0, previousTrack);
+        newQueue.splice(queueIndex, 0, { 
+          queueItemId: crypto.randomUUID(), 
+          song: previousTrack 
+        });
         setQueue(newQueue);
       }
       return;
