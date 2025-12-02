@@ -276,7 +276,7 @@ FERROTUNE_TEST_PASS=${password}
       ...process.env, 
       PORT: nextPort.toString(),
       NEXT_DIST_DIR: ".next-test",  // Use separate build dir for tests
-      PLAYWRIGHT_TEST: "1",  // Disable Next.js dev overlay
+      NEXT_DISABLE_DEV_OVERLAY: "true",  // Disable Next.js dev overlay to prevent click interception
     },
     stdio: "pipe",
     detached: false,

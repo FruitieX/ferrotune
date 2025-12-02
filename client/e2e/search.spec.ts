@@ -49,15 +49,9 @@ test.describe("Search", () => {
   });
 
   test("search returns results for artists", async ({ authenticatedPage: page }) => {
-    // Navigate to the library page and switch to Artists tab
-    await page.goto("/library");
+    // Navigate to the library artists page
+    await page.goto("/library/artists");
     await page.waitForLoadState("networkidle");
-    
-    // Click the Artists tab to switch to it
-    await page.getByRole("tab", { name: /artists/i }).click();
-    
-    // Wait for artists tab to be active
-    await expect(page.getByRole("tab", { name: /artists/i })).toHaveAttribute("data-state", "active");
     
     // Wait for artist data to load
     await page.waitForTimeout(1000);
@@ -111,7 +105,7 @@ test.describe("Search", () => {
     await page.goto("/");
     await page.waitForTimeout(500);
     
-    // Navigate via sidebar search link if it exists
+    // Navigate via sidebar/nav search link if it exists
     const searchLink = page.getByRole("link", { name: /search/i }).first();
     const hasSearchLink = await searchLink.isVisible().catch(() => false);
     

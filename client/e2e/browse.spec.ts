@@ -3,7 +3,7 @@ import { test, expect } from "./fixtures";
 test.describe("Browse Library", () => {
   test.describe("Library Page", () => {
     test("displays library page with tabs", async ({ authenticatedPage: page }) => {
-      await page.goto("/library");
+      await page.goto("/library/albums");
       
       // Wait for page to be fully loaded
       await page.waitForLoadState("networkidle");
@@ -11,36 +11,38 @@ test.describe("Browse Library", () => {
       // Should show library heading
       await expect(page.getByRole("heading", { name: /library/i })).toBeVisible();
       
-      // Should show tabs for albums, artists, genres
-      await expect(page.getByRole("tab", { name: /albums/i })).toBeVisible();
-      await expect(page.getByRole("tab", { name: /artists/i })).toBeVisible();
-      await expect(page.getByRole("tab", { name: /genres/i })).toBeVisible();
+      // Should show tab links for albums, artists, songs, genres (use exact names)
+      await expect(page.getByRole("link", { name: "Albums", exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Artists", exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Songs", exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Genres", exact: true })).toBeVisible();
     });
 
     test("albums tab is active by default", async ({ authenticatedPage: page }) => {
       await page.goto("/library");
       await page.waitForLoadState("networkidle");
-      await expect(page.getByRole("tab", { name: /albums/i })).toHaveAttribute("data-state", "active");
+      // /library redirects to /library/albums
+      await expect(page).toHaveURL("/library/albums");
     });
 
     test("can switch between tabs", async ({ authenticatedPage: page }) => {
-      await page.goto("/library");
+      await page.goto("/library/albums");
       await page.waitForLoadState("networkidle");
       
-      // Wait for albums tab to be visible first
-      await expect(page.getByRole("tab", { name: /albums/i })).toBeVisible();
+      // Wait for albums link to be visible first
+      await expect(page.getByRole("link", { name: "Albums", exact: true })).toBeVisible();
       
-      // Click artists tab
-      await page.getByRole("tab", { name: /artists/i }).click();
-      await expect(page.getByRole("tab", { name: /artists/i })).toHaveAttribute("data-state", "active");
+      // Click artists tab link
+      await page.getByRole("link", { name: "Artists", exact: true }).click();
+      await expect(page).toHaveURL("/library/artists");
       
-      // Click genres tab
-      await page.getByRole("tab", { name: /genres/i }).click();
-      await expect(page.getByRole("tab", { name: /genres/i })).toHaveAttribute("data-state", "active");
+      // Click genres tab link
+      await page.getByRole("link", { name: "Genres", exact: true }).click();
+      await expect(page).toHaveURL("/library/genres");
       
       // Back to albums
-      await page.getByRole("tab", { name: /albums/i }).click();
-      await expect(page.getByRole("tab", { name: /albums/i })).toHaveAttribute("data-state", "active");
+      await page.getByRole("link", { name: "Albums", exact: true }).click();
+      await expect(page).toHaveURL("/library/albums");
     });
   });
 
@@ -80,7 +82,20 @@ test.describe("Browse Library", () => {
   });
 
   test.describe("Navigation", () => {
-    test("sidebar navigation to library works", async ({ authenticatedPage: page }) => {
+    test("sidebar navigation to library works", async ({ authenticatedPage: page }, testInfo) => {
+      // On mobile, use bottom nav instead of sidebar
+      if (testInfo.project.name === "mobile-chrome") {
+        await page.goto("/");
+        await page.waitForLoadState("networkidle");
+        
+        // Use bottom nav on mobile
+        const libraryNavItem = page.locator('nav').getByRole("link", { name: /library/i });
+        await expect(libraryNavItem).toBeVisible();
+        await libraryNavItem.click();
+        await expect(page).toHaveURL("/library");
+        return;
+      }
+      
       await page.goto("/");
       await page.waitForLoadState("networkidle");
       
@@ -113,12 +128,8 @@ test.describe("Browse Library", () => {
 
   test.describe("Genre Details", () => {
     test("can navigate to genre detail page", async ({ authenticatedPage: page }) => {
-      await page.goto("/library");
+      await page.goto("/library/genres");
       await page.waitForLoadState("networkidle");
-      
-      // Click genres tab
-      await page.getByRole("tab", { name: /genres/i }).click();
-      await expect(page.getByRole("tab", { name: /genres/i })).toHaveAttribute("data-state", "active");
       
       // Wait for genres to load and click the first one
       const genreCard = page.locator('a[href^="/library/genres/details"]').first();
@@ -130,11 +141,8 @@ test.describe("Browse Library", () => {
     });
 
     test("genre detail page shows header and albums", async ({ authenticatedPage: page }) => {
-      await page.goto("/library");
+      await page.goto("/library/genres");
       await page.waitForLoadState("networkidle");
-      
-      // Click genres tab
-      await page.getByRole("tab", { name: /genres/i }).click();
       
       // Get the first genre link and its text
       const genreCard = page.locator('a[href^="/library/genres/details"]').first();
@@ -155,11 +163,8 @@ test.describe("Browse Library", () => {
     });
 
     test("genre detail page has view mode toggle", async ({ authenticatedPage: page }) => {
-      await page.goto("/library");
+      await page.goto("/library/genres");
       await page.waitForLoadState("networkidle");
-      
-      // Click genres tab
-      await page.getByRole("tab", { name: /genres/i }).click();
       
       // Navigate to a genre
       const genreCard = page.locator('a[href^="/library/genres/details"]').first();

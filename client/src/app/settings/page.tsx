@@ -141,13 +141,14 @@ export default function SettingsPage() {
 
   // Compute display values: use preset values when a preset is active, custom values otherwise
   // This ensures sliders always show correct values even before the sync effect runs
+  // Provide defaults to handle hydration edge cases
   const displayValues = accentColor === "custom" 
-    ? { hue: customHue, lightness: customLightness, chroma: customChroma }
+    ? { hue: customHue ?? 45, lightness: customLightness ?? 0.65, chroma: customChroma ?? 0.18 }
     : (() => {
         const preset = ACCENT_PRESETS.find(p => p.name === accentColor);
         return preset 
           ? { hue: preset.hue, lightness: 0.65, chroma: 0.18 }
-          : { hue: customHue, lightness: customLightness, chroma: customChroma };
+          : { hue: customHue ?? 45, lightness: customLightness ?? 0.65, chroma: customChroma ?? 0.18 };
       })();
 
   // Sync custom atom values to preset values when a preset is active

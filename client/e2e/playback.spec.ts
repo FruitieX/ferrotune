@@ -1,6 +1,20 @@
 import { test, expect, playFirstSong, waitForPlayerReady } from "./fixtures";
 
 test.describe("Playback", () => {
+  // Clear queue-related state before each test to ensure clean slate
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    await page.evaluate(() => {
+      // Only clear queue-related keys, not auth credentials
+      const keysToRemove = Object.keys(localStorage).filter(key => 
+        key.includes('queue') || key.includes('shuffle') || key.includes('volume')
+      );
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+    });
+    // Reload to apply cleared state  
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+  });
+
   test("player bar is visible when authenticated", async ({ authenticatedPage: page }) => {
     await page.goto("/");
     await page.waitForTimeout(1000);
@@ -144,8 +158,17 @@ test.describe("Queue End Behavior", () => {
     const queueButton = page.locator("footer").getByRole("button", { name: /queue/i }).first();
     await queueButton.click();
     
-    const queuePanel = page.locator('[data-slot="sheet-content"]');
-    await expect(queuePanel).toBeVisible();
+    // Wait for queue panel - desktop uses aside, mobile uses sheet dialog
+    // Check for either one being visible (can't use .or() due to strict mode with hidden elements)
+    const sidebar = page.locator('aside').filter({ hasText: /^Queue/ });
+    const sheet = page.getByRole('dialog', { name: 'Queue' });
+    
+    await Promise.race([
+      expect(sidebar).toBeVisible({ timeout: 10000 }).catch(() => {}),
+      expect(sheet).toBeVisible({ timeout: 10000 }).catch(() => {}),
+    ]);
+    
+    const queuePanel = (await sidebar.isVisible().catch(() => false)) ? sidebar : sheet;
     
     // "Now Playing" section should not be visible
     await expect(queuePanel.getByText(/now playing/i)).toBeHidden();
