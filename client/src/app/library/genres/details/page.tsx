@@ -13,6 +13,7 @@ import {
   List,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ function GenreDetailContent() {
   const genreName = encodedName ? decodeURIComponent(encodedName) : null;
   const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const isMounted = useIsMounted();
   const playNow = useSetAtom(playNowAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
@@ -36,10 +38,10 @@ function GenreDetailContent() {
 
   // Redirect to library if no name
   useEffect(() => {
-    if (!genreName && !authLoading) {
+    if (!genreName && isMounted && !authLoading) {
       router.replace("/library");
     }
-  }, [genreName, authLoading, router]);
+  }, [genreName, isMounted, authLoading, router]);
 
   // Generate color from genre name for the header gradient
   const hash = (genreName ?? "").split("").reduce((acc, char) => {
@@ -162,16 +164,18 @@ function GenreDetailContent() {
     }
   };
 
-  if (!genreName) {
-    return null;
-  }
-
-  if (authLoading) {
+  // Always render the same loading state on server and during hydration
+  // This prevents hydration mismatches
+  if (!isMounted || authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Skeleton className="w-32 h-8" />
       </div>
     );
+  }
+
+  if (!genreName) {
+    return null;
   }
 
   return (

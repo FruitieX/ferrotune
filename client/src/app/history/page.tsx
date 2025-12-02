@@ -4,6 +4,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { motion } from "framer-motion";
 import { History, Play, Shuffle, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
 import { recentlyPlayedAtom, clearHistoryAtom } from "@/lib/store/history";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import { formatCount, formatTotalDuration } from "@/lib/utils/format";
 
 export default function HistoryPage() {
   const { isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const isMounted = useIsMounted();
   const playNow = useSetAtom(playNowAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const recentlyPlayed = useAtomValue(recentlyPlayedAtom);
@@ -40,7 +42,9 @@ export default function HistoryPage() {
     clearHistory();
   };
 
-  if (authLoading) {
+  // Always render the same loading state on server and during hydration
+  // This prevents hydration mismatches
+  if (!isMounted || authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-pulse">Loading...</div>

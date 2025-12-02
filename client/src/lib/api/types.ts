@@ -279,3 +279,43 @@ export interface ServerConnection {
   username?: string;
   password?: string;
 }
+
+// Tag editing types (Admin API)
+export interface TagEntry {
+  key: string;
+  value: string;
+}
+
+export interface AdditionalTagBlock {
+  tagType: string;
+  tags: TagEntry[];
+}
+
+export interface GetTagsResponse {
+  id: string;
+  filePath: string;
+  fileFormat: string;
+  editingEnabled: boolean;
+  tagType?: string;
+  tags: TagEntry[];
+  additionalTags?: AdditionalTagBlock[];
+}
+
+export interface UpdateTagsRequest {
+  set?: TagEntry[];
+  delete?: string[];
+}
+
+export interface TagChange {
+  key: string;
+  action: "set" | "deleted";
+  oldValue?: string;
+  newValue?: string;
+}
+
+export interface UpdateTagsResponse {
+  success: boolean;
+  message: string;
+  changes: TagChange[];
+  rescanRecommended: boolean;
+}

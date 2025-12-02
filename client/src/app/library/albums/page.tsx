@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import Image from "next/image";
 import Link from "next/link";
 import { useSetAtom } from "jotai";
@@ -44,13 +45,14 @@ function AlbumDetailContent() {
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [coverError, setCoverError] = useState(false);
+  const isMounted = useIsMounted();
 
   // Redirect to library if no ID
   useEffect(() => {
-    if (!id && !authLoading) {
+    if (!id && isMounted && !authLoading) {
       router.replace("/library");
     }
-  }, [id, authLoading, router]);
+  }, [id, isMounted, authLoading, router]);
 
   // Fetch album data
   const { data: albumData, isLoading } = useQuery({
@@ -87,16 +89,18 @@ function AlbumDetailContent() {
     }
   };
 
-  if (!id) {
-    return null;
-  }
-
-  if (authLoading) {
+  // Always render the same loading state on server and during hydration
+  // This prevents hydration mismatches
+  if (!isMounted || authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Skeleton className="w-32 h-8" />
       </div>
     );
+  }
+
+  if (!id) {
+    return null;
   }
 
   return (

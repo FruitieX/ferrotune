@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Heart, Play, Shuffle } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import type { Album } from "@/lib/api/types";
 
 export default function FavoritesPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const isMounted = useIsMounted();
   const playNow = useSetAtom(playNowAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
 
@@ -68,7 +70,9 @@ export default function FavoritesPage() {
     }
   };
 
-  if (authLoading) {
+  // Always render the same loading state on server and during hydration
+  // This prevents hydration mismatches
+  if (!isMounted || authLoading) {
     return (
       <div className="min-h-screen">
         {/* Header skeleton */}

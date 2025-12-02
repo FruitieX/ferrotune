@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useSetAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -33,13 +34,14 @@ function GenreDetailContent() {
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const isMounted = useIsMounted();
 
   // Redirect to library if no name
   useEffect(() => {
-    if (!genreName && !authLoading) {
+    if (!genreName && isMounted && !authLoading) {
       router.replace("/library");
     }
-  }, [genreName, authLoading, router]);
+  }, [genreName, isMounted, authLoading, router]);
 
   // Generate color from genre name for the header gradient
   const hash = (genreName ?? "").split("").reduce((acc, char) => {
@@ -162,16 +164,18 @@ function GenreDetailContent() {
     }
   };
 
-  if (!genreName) {
-    return null;
-  }
-
-  if (authLoading) {
+  // Always render the same loading state on server and during hydration
+  // This prevents hydration mismatches
+  if (!isMounted || authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Skeleton className="w-32 h-8" />
       </div>
     );
+  }
+
+  if (!genreName) {
+    return null;
   }
 
   return (

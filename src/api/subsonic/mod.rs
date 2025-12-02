@@ -88,11 +88,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         }
     }
 
-    // Default fallback for unknown endpoints
-    api_router.fallback(fallback_handler)
+    api_router
 }
 
-async fn fallback_handler(uri: axum::http::Uri) -> impl axum::response::IntoResponse {
+/// Fallback handler for unknown endpoints (used by main router)
+pub async fn fallback_handler(uri: axum::http::Uri) -> impl axum::response::IntoResponse {
     tracing::warn!(path = %uri.path(), "Unknown endpoint requested");
     crate::error::Error::InvalidRequest(format!("Endpoint not implemented: {}", uri.path()))
 }

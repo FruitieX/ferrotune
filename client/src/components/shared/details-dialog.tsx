@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Music, User, Disc, ListMusic, Calendar, Clock, Hash, FileAudio, HardDrive, Star, Heart, Trash2, Loader2, Play, History } from "lucide-react";
+import { Music, User, Disc, ListMusic, Calendar, Clock, Hash, FileAudio, HardDrive, Star, Heart, Trash2, Loader2, Play, History, Tag } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { getClient } from "@/lib/api/client";
 import { formatDuration, formatDate, formatFileSize } from "@/lib/utils/format";
 import { toast } from "sonner";
+import { TagsEditor } from "./tags-editor";
 import type { Song, Album, Artist, Playlist } from "@/lib/api/types";
 
 type DetailsItem =
@@ -79,6 +80,7 @@ function DetailRow({ icon: Icon, label, value }: { icon: React.ElementType; labe
 function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }) {
   const [coverError, setCoverError] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showTagsEditor, setShowTagsEditor] = useState(false);
   const [fullSong, setFullSong] = useState<Song>(song);
   const queryClient = useQueryClient();
   const coverArtUrl = fullSong.coverArt && !coverError
@@ -210,7 +212,16 @@ function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }
         <Separator />
 
         {/* Actions */}
-        <div className="pt-2">
+        <div className="pt-2 space-y-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowTagsEditor(true)}
+            className="w-full"
+          >
+            <Tag className="w-4 h-4 mr-2" />
+            View / Edit Tags
+          </Button>
           <Button
             variant="destructive"
             size="sm"
@@ -230,6 +241,13 @@ function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }
           </p>
         </div>
       </div>
+
+      {/* Tags editor dialog */}
+      <TagsEditor 
+        song={fullSong} 
+        open={showTagsEditor} 
+        onOpenChange={setShowTagsEditor} 
+      />
 
       {/* Delete confirmation dialog */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
