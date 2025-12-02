@@ -1,9 +1,9 @@
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::browse::{get_ratings_map, get_starred_map, song_to_response};
 use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
+use crate::api::AppState;
 use crate::api::QsQuery;
 use crate::api::{first_string_or_none, string_or_seq};
-use crate::api::AppState;
 use crate::error::Result;
 use axum::extract::State;
 use chrono::Utc;
@@ -17,7 +17,10 @@ pub struct SavePlayQueueParams {
     id: Vec<String>,
     #[serde(default, deserialize_with = "first_string_or_none")]
     current: Option<String>,
-    #[serde(default, deserialize_with = "crate::api::subsonic::query::first_i64_or_none")]
+    #[serde(
+        default,
+        deserialize_with = "crate::api::subsonic::query::first_i64_or_none"
+    )]
     position: Option<i64>,
 }
 
@@ -49,10 +52,14 @@ pub async fn save_play_queue(
     State(state): State<Arc<AppState>>,
     QsQuery(params): QsQuery<SavePlayQueueParams>,
 ) -> Result<impl axum::response::IntoResponse> {
+    // Use a transaction to ensure atomicity and prevent race conditions
+    // that could cause UNIQUE constraint violations on (user_id, queue_position)
+    let mut tx = state.pool.begin().await?;
+
     // Delete existing queue entries for this user
     sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ?")
         .bind(user.user_id)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
 
     // Insert new queue entries
@@ -63,7 +70,7 @@ pub async fn save_play_queue(
         .bind(user.user_id)
         .bind(song_id)
         .bind(position as i64)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
     }
 
@@ -82,8 +89,10 @@ pub async fn save_play_queue(
     .bind(params.position.unwrap_or(0))
     .bind(Utc::now())
     .bind(&user.client)
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok(format_ok_empty(user.format))
 }

@@ -32,6 +32,20 @@ HTTP 200
 header "Content-Type" contains "application/json"
 jsonpath "$.subsonic-response.status" == "ok"
 
+# Test: savePlayQueue - save same queue again (tests idempotency / no UNIQUE constraint violation)
+GET {{base_url}}/rest/savePlayQueue?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&id={{queue_song_1}}&id={{queue_song_2}}&id={{queue_song_3}}&current={{queue_song_1}}&position=0
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.subsonic-response.status" == "ok"
+
+# Test: savePlayQueue - save with different order (tests overwrite works correctly)
+GET {{base_url}}/rest/savePlayQueue?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&id={{queue_song_3}}&id={{queue_song_1}}&current={{queue_song_3}}&position=5000
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.subsonic-response.status" == "ok"
+
 # ============================================================================
 # GET PLAY QUEUE
 # ============================================================================
