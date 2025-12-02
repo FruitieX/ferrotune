@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useCallback, useRef } from "react";
-import { useAtom, useAtomValue } from "jotai";
-import { queueAtom, queueIndexAtom } from "@/lib/store/queue";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { queueAtom, queueIndexAtom, isRestoringQueueAtom } from "@/lib/store/queue";
 import { currentTimeAtom } from "@/lib/store/player";
 import { getClient } from "@/lib/api/client";
 import { useAuth } from "./use-auth";
@@ -19,6 +19,7 @@ export function useQueuePersistence() {
   const { isConnected, isLoading } = useAuth();
   const [queue, setQueue] = useAtom(queueAtom);
   const [queueIndex, setQueueIndex] = useAtom(queueIndexAtom);
+  const setIsRestoringQueue = useSetAtom(isRestoringQueueAtom);
   const currentTime = useAtomValue(currentTimeAtom);
   
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -85,6 +86,7 @@ export function useQueuePersistence() {
       
       try {
         isRestoringRef.current = true;
+        setIsRestoringQueue(true);
         const response = await client.getPlayQueue();
         
         const entries = response.playQueue?.entry;
@@ -116,9 +118,11 @@ export function useQueuePersistence() {
         console.debug("No saved play queue found:", error);
       } finally {
         isRestoringRef.current = false;
+        // Clear restoring flag after a short delay to ensure the audio hook has processed
+        setTimeout(() => setIsRestoringQueue(false), 100);
       }
     }
     
     restoreQueue();
-  }, [isConnected, isLoading]); // Only run on connection change
+  }, [isConnected, isLoading, setIsRestoringQueue]); // Only run on connection change
 }

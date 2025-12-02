@@ -84,21 +84,37 @@ export function Sidebar() {
     );
   };
 
-  // Update CSS variable when collapsed state changes
+  // Update CSS variable when collapsed state changes (after hydration)
   useEffect(() => {
+    if (!hydrated) return;
     const width = collapsed ? 72 : sidebarWidth;
     document.documentElement.style.setProperty('--sidebar-width', `${width}px`);
-  }, [collapsed, sidebarWidth]);
+  }, [hydrated, collapsed, sidebarWidth]);
 
   // Don't show sidebar on login page
   if (pathname === "/login") {
     return null;
   }
 
-  // Render skeleton until hydrated to prevent hydration mismatch
-  // (atomWithStorage values differ between server and client)
+  // Before hydration, render with CSS variable width to match the init script
+  // This prevents the sidebar from flashing between states
   if (!hydrated) {
-    return <SidebarSkeleton />;
+    return (
+      <aside
+        style={{ width: 'var(--sidebar-width)' }}
+        className={cn(
+          "hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden",
+          "fixed left-0 top-0 bottom-[88px] z-40"
+        )}
+      >
+        {/* Minimal skeleton content */}
+        <div className="flex items-center h-16 px-4 gap-3 overflow-hidden">
+          <div className="flex items-center justify-center w-10 h-10 shrink-0 rounded-lg bg-primary">
+            <Music2 className="w-6 h-6 text-primary-foreground" />
+          </div>
+        </div>
+      </aside>
+    );
   }
 
   return (
@@ -414,19 +430,8 @@ function PlaylistFolderTree({
   );
 }
 
-// Loading skeleton for sidebar
+// Loading skeleton for sidebar - renders nothing to prevent flash
+// The main layout CSS handles the initial state
 export function SidebarSkeleton() {
-  return (
-    <aside className="hidden lg:flex flex-col w-[280px] h-full bg-sidebar border-r border-sidebar-border">
-      <div className="flex items-center h-16 px-4 gap-3">
-        <Skeleton className="w-10 h-10 rounded-lg" />
-        <Skeleton className="w-24 h-6" />
-      </div>
-      <div className="px-2 py-4 space-y-2">
-        {[1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-11 rounded-md" />
-        ))}
-      </div>
-    </aside>
-  );
+  return null;
 }

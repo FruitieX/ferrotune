@@ -168,6 +168,8 @@ export function FullscreenPlayer() {
                 <CoverImage
                   src={coverArtUrl}
                   alt={currentTrack.album}
+                  colorSeed={currentTrack.album}
+                  type="song"
                   size="full"
                   className="rounded-lg shadow-2xl"
                   priority

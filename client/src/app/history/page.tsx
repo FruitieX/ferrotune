@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { History, Play, Shuffle, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
+import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
 import { recentlyPlayedAtom, clearHistoryAtom } from "@/lib/store/history";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,9 @@ export default function HistoryPage() {
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const recentlyPlayed = useAtomValue(recentlyPlayedAtom);
   const clearHistory = useSetAtom(clearHistoryAtom);
+  
+  // Restore scroll position when navigating back to this page
+  useScrollRestoration();
 
   // Extract songs from history entries
   const songs = recentlyPlayed.map((entry) => entry.song);

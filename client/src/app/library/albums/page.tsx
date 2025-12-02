@@ -3,7 +3,6 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
-import Image from "next/image";
 import Link from "next/link";
 import { useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
@@ -32,6 +31,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
+import { CoverImage } from "@/components/shared/cover-image";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { formatTotalDuration, formatCount } from "@/lib/utils/format";
 
@@ -44,7 +44,6 @@ function AlbumDetailContent() {
   const addToQueue = useSetAtom(addToQueueAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
-  const [coverError, setCoverError] = useState(false);
   const isMounted = useIsMounted();
 
   // Redirect to library if no ID
@@ -69,8 +68,6 @@ function AlbumDetailContent() {
   const coverArtUrl = albumData?.coverArt
     ? getClient()?.getCoverArtUrl(albumData.coverArt, 400)
     : null;
-
-  const showCoverImage = coverArtUrl && !coverError;
 
   const totalDuration = albumData?.song?.reduce((acc, song) => acc + song.duration, 0) ?? 0;
 
@@ -139,20 +136,14 @@ function AlbumDetailContent() {
           >
             {isLoading ? (
               <Skeleton className="w-full h-full" />
-            ) : showCoverImage ? (
-              <Image
+            ) : (
+              <CoverImage
                 src={coverArtUrl}
                 alt={albumData?.name || "Album"}
-                fill
-                className="object-cover"
-                priority
-                unoptimized
-                onError={() => setCoverError(true)}
+                colorSeed={albumData?.name || "Album"}
+                type="album"
+                size="full"
               />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/20">
-                <span className="text-6xl">🎵</span>
-              </div>
             )}
           </motion.div>
 

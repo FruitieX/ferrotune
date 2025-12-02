@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { motion, AnimatePresence, Reorder } from "framer-motion";
+import { motion, AnimatePresence, Reorder, useDragControls } from "framer-motion";
 import { X, ListMusic, Trash2, GripVertical, Play, Clock, FolderPlus, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { queuePanelOpenAtom } from "@/lib/store/ui";
@@ -185,6 +185,8 @@ export function QueuePanel() {
                       <CoverImage
                         src={getCoverUrl(currentTrack.coverArt)}
                         alt={currentTrack.title}
+                        colorSeed={currentTrack.album}
+                        type="song"
                         size="sm"
                       />
                       {playbackState === "playing" && (
@@ -295,6 +297,8 @@ export function QueuePanel() {
                         <CoverImage
                           src={getCoverUrl(item.song.coverArt)}
                           alt={item.song.title}
+                          colorSeed={item.song.album}
+                          type="song"
                           size="sm"
                         />
                         <div className="flex-1 min-w-0">
@@ -352,17 +356,16 @@ interface QueueItemProps {
 
 function QueueItem({ item, song, queueIndex, onPlay, onRemove, disableDrag }: QueueItemProps) {
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+  const dragControls = useDragControls();
 
   return (
     <>
       <Reorder.Item
         value={item}
         id={`${song.id}-${queueIndex}`}
-        className={cn(
-          "flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 group select-none",
-          disableDrag ? "cursor-default" : "cursor-grab active:cursor-grabbing"
-        )}
-        dragListener={!disableDrag}
+        className="flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 group select-none"
+        dragListener={false}
+        dragControls={disableDrag ? undefined : dragControls}
         dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
         whileDrag={disableDrag ? {} : { 
           scale: 1.02, 
@@ -371,7 +374,12 @@ function QueueItem({ item, song, queueIndex, onPlay, onRemove, disableDrag }: Qu
         }}
       >
         {!disableDrag && (
-          <GripVertical className="w-4 h-4 text-muted-foreground shrink-0 touch-none" />
+          <div
+            className="cursor-grab active:cursor-grabbing touch-none"
+            onPointerDown={(e) => dragControls.start(e)}
+          >
+            <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
+          </div>
         )}
         
         <div 
@@ -381,6 +389,8 @@ function QueueItem({ item, song, queueIndex, onPlay, onRemove, disableDrag }: Qu
           <CoverImage
             src={getCoverUrl(song.coverArt)}
             alt={song.title}
+            colorSeed={song.album}
+            type="song"
             size="sm"
           />
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 rounded transition-opacity">
@@ -388,12 +398,12 @@ function QueueItem({ item, song, queueIndex, onPlay, onRemove, disableDrag }: Qu
           </div>
         </div>
 
-        <div className="flex-1 min-w-0 overflow-hidden cursor-pointer" onClick={onPlay}>
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={onPlay}>
           <p className="text-sm font-medium truncate">{song.title}</p>
           <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
         </div>
 
-        <span className="text-xs text-muted-foreground tabular-nums">
+        <span className="text-xs text-muted-foreground tabular-nums shrink-0">
           {formatDuration(song.duration)}
         </span>
 
@@ -402,7 +412,7 @@ function QueueItem({ item, song, queueIndex, onPlay, onRemove, disableDrag }: Qu
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground"
+              className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
               onClick={(e) => e.stopPropagation()}
             >
               <MoreHorizontal className="w-4 h-4" />

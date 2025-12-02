@@ -22,6 +22,7 @@ import {
   isShuffledAtom,
   shuffledIndicesAtom,
   playHistoryAtom,
+  isRestoringQueueAtom,
 } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { shuffleArray } from "../utils";
@@ -72,6 +73,7 @@ export function useAudioEngineInit() {
   const [shuffledIndices, setShuffledIndices] = useAtom(shuffledIndicesAtom);
   const setPlayHistory = useSetAtom(playHistoryAtom);
   const recordPlay = useSetAtom(recordPlayAtom);
+  const isRestoringQueue = useAtomValue(isRestoringQueueAtom);
 
   // Track if we've initialized
   const initializedRef = useRef(false);
@@ -117,6 +119,7 @@ export function useAudioEngineInit() {
     repeatMode,
     isShuffled,
     shuffledIndices,
+    isRestoringQueue,
   });
 
   // Keep refs in sync
@@ -131,6 +134,7 @@ export function useAudioEngineInit() {
       repeatMode,
       isShuffled,
       shuffledIndices,
+      isRestoringQueue,
     };
   });
 
@@ -336,25 +340,42 @@ export function useAudioEngineInit() {
       return;
     }
 
+    // Check if this is a queue restore (don't auto-play on restore)
+    const isRestoring = stateRef.current.isRestoringQueue;
+    
     const streamUrl = client.getStreamUrl(track.id);
     
-    // Record to recently played history
-    settersRef.current.recordPlay(track);
+    // Record to recently played history (but not during restore)
+    if (!isRestoring) {
+      settersRef.current.recordPlay(track);
+    }
     
     // Stop current playback
     audio.pause();
     audio.src = streamUrl;
-    isLoadingNewTrack = true; // Signal to handleCanPlay that we want to play
-    setPlaybackState("loading");
-    setHasScrobbled(false);
-    setCurrentTime(0);
-    setDuration(track.duration || 0);
-
-    audio.play().catch((err) => {
-      console.error("Failed to play:", err);
-      isLoadingNewTrack = false;
+    
+    if (isRestoring) {
+      // During restore: load the track but don't play, set to paused state
       setPlaybackState("paused");
-    });
+      setHasScrobbled(false);
+      setCurrentTime(0);
+      setDuration(track.duration || 0);
+      // Just load metadata, don't play
+      audio.load();
+    } else {
+      // Normal playback: load and play
+      isLoadingNewTrack = true; // Signal to handleCanPlay that we want to play
+      setPlaybackState("loading");
+      setHasScrobbled(false);
+      setCurrentTime(0);
+      setDuration(track.duration || 0);
+
+      audio.play().catch((err) => {
+        console.error("Failed to play:", err);
+        isLoadingNewTrack = false;
+        setPlaybackState("paused");
+      });
+    }
   }, [queueIndex, queue, setPlaybackState, setHasScrobbled, setCurrentTime, setDuration]);
 }
 

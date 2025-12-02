@@ -6,6 +6,9 @@ import type { Song } from "@/lib/api/types";
 export const queueAtom = atom<Song[]>([]);
 export const queueIndexAtom = atom<number>(-1);
 
+// Flag to indicate queue is being restored from server (don't auto-play during restore)
+export const isRestoringQueueAtom = atom<boolean>(false);
+
 // Current track derived from queue
 export const currentTrackAtom = atom((get) => {
   const queue = get(queueAtom);

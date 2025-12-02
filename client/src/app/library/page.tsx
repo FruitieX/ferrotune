@@ -4,6 +4,7 @@ import { useAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Disc, User, Music, Tag, Grid, List } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { libraryTabAtom, albumViewModeAtom, type LibraryTab } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,9 @@ export default function LibraryPage() {
   const [activeTab, setActiveTab] = useAtom(libraryTabAtom);
   const [viewMode, setViewMode] = useAtom(albumViewModeAtom);
   const playNow = useSetAtom(playNowAtom);
+  
+  // Restore scroll position when navigating back to this page
+  useScrollRestoration();
 
   // Fetch artists
   const { data: artistsData, isLoading: loadingArtists } = useQuery({

@@ -2,7 +2,6 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Image from "next/image";
 import Link from "next/link";
 import { useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
@@ -33,6 +32,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
+import { CoverImage } from "@/components/shared/cover-image";
 import { formatTotalDuration, formatCount } from "@/lib/utils/format";
 
 function AlbumDetailContent() {
@@ -45,7 +45,6 @@ function AlbumDetailContent() {
   const addToQueue = useSetAtom(addToQueueAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
-  const [coverError, setCoverError] = useState(false);
 
   // Redirect to library if no ID
   useEffect(() => {
@@ -68,9 +67,7 @@ function AlbumDetailContent() {
 
   const coverArtUrl = albumData?.coverArt
     ? getClient()?.getCoverArtUrl(albumData.coverArt, 400)
-    : null;
-
-  const showCoverImage = coverArtUrl && !coverError;
+    : undefined;
 
   const totalDuration = albumData?.song?.reduce((acc, song) => acc + song.duration, 0) ?? 0;
 
@@ -135,24 +132,20 @@ function AlbumDetailContent() {
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="relative w-48 h-48 md:w-56 md:h-56 rounded-lg overflow-hidden bg-muted album-glow mx-auto md:mx-0 shrink-0"
+            className="w-48 h-48 md:w-56 md:h-56 album-glow mx-auto md:mx-0 shrink-0"
           >
             {isLoading ? (
-              <Skeleton className="w-full h-full" />
-            ) : showCoverImage ? (
-              <Image
+              <Skeleton className="w-full h-full rounded-lg" />
+            ) : (
+              <CoverImage
                 src={coverArtUrl}
                 alt={albumData?.name || "Album"}
-                fill
-                className="object-cover"
+                colorSeed={albumData?.name}
+                type="album"
+                size="full"
                 priority
-                unoptimized
-                onError={() => setCoverError(true)}
+                className="rounded-lg"
               />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-                <span className="text-6xl">🎵</span>
-              </div>
             )}
           </motion.div>
 

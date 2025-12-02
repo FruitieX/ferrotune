@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Play, User, Heart } from "lucide-react";
+import { Play, Heart } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CoverImage } from "@/components/shared/cover-image";
 import type { Artist } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { formatCount } from "@/lib/utils/format";
@@ -19,14 +20,9 @@ interface ArtistCardProps {
 }
 
 export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const [imageError, setImageError] = useState(false);
-  
   const coverArtUrl = artist.coverArt
     ? getClient()?.getCoverArtUrl(artist.coverArt, 300)
-    : null;
-
-  const hasImage = coverArtUrl && !imageError;
+    : undefined;
 
   return (
     <ArtistContextMenu artist={artist}>
@@ -38,34 +34,18 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
       >
         <ArtistDropdownMenu artist={artist} onPlay={onPlay} />
         <Link href={`/library/artists/details?id=${artist.id}`} className="block">
-          <div className="relative aspect-square rounded-full overflow-hidden bg-muted mb-4 transform-gpu transition-transform duration-200 group-hover:scale-[1.05]">
-            {hasImage ? (
-              <>
-                {/* Skeleton shown while image loads */}
-                {!imageLoaded && (
-                  <Skeleton className="absolute inset-0 w-full h-full rounded-full" />
-                )}
-                <img
-                  src={coverArtUrl}
-                  alt={artist.name || "Artist image"}
-                  loading="lazy"
-                  decoding="async"
-                  className={cn(
-                    "absolute inset-0 w-full h-full object-cover transition-opacity duration-200",
-                    imageLoaded ? "opacity-100" : "opacity-0"
-                  )}
-                  onLoad={() => setImageLoaded(true)}
-                  onError={() => setImageError(true)}
-                />
-              </>
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-                <User className="w-12 h-12 text-muted-foreground" />
-              </div>
-            )}
+          <div className="relative aspect-square rounded-full overflow-hidden mb-4 transform-gpu transition-transform duration-200 group-hover:scale-[1.05]">
+            <CoverImage
+              src={coverArtUrl}
+              alt={artist.name || "Artist image"}
+              colorSeed={artist.name}
+              type="artist"
+              size="full"
+              className="rounded-full"
+            />
             
             {/* Play button overlay */}
-            <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
               <Button
                 size="icon"
                 className="h-12 w-12 rounded-full shadow-lg"
@@ -114,15 +94,11 @@ interface ArtistCardCompactProps {
 }
 
 export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompactProps) {
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const [imageError, setImageError] = useState(false);
   const [isStarred, setIsStarred] = useState(!!artist.starred);
   
   const coverArtUrl = artist.coverArt
     ? getClient()?.getCoverArtUrl(artist.coverArt, 80)
-    : null;
-
-  const hasImage = coverArtUrl && !imageError;
+    : undefined;
 
   const handleStar = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -158,30 +134,15 @@ export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompa
           href={`/library/artists/details?id=${artist.id}`}
           className="flex items-center gap-3 flex-1 min-w-0"
         >
-          <div className="relative w-12 h-12 rounded-full overflow-hidden bg-muted shrink-0">
-            {hasImage ? (
-              <>
-                {!imageLoaded && (
-                  <Skeleton className="absolute inset-0 w-full h-full rounded-full" />
-                )}
-                <img
-                  src={coverArtUrl}
-                  alt={artist.name || "Artist image"}
-                  loading="lazy"
-                  decoding="async"
-                  className={cn(
-                    "absolute inset-0 w-full h-full object-cover transition-opacity duration-200",
-                    imageLoaded ? "opacity-100" : "opacity-0"
-                  )}
-                  onLoad={() => setImageLoaded(true)}
-                  onError={() => setImageError(true)}
-                />
-              </>
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-                <User className="w-5 h-5 text-muted-foreground" />
-              </div>
-            )}
+          <div className="relative w-12 h-12 rounded-full overflow-hidden shrink-0">
+            <CoverImage
+              src={coverArtUrl}
+              alt={artist.name || "Artist image"}
+              colorSeed={artist.name}
+              type="artist"
+              size="sm"
+              className="rounded-full"
+            />
           </div>
           <div className="min-w-0">
             <p className="font-medium text-sm truncate">{artist.name}</p>

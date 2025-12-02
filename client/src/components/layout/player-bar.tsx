@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { motion } from "framer-motion";
-import Image from "next/image";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -45,6 +44,7 @@ import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 
 import { SongDropdownMenu } from "@/components/browse/song-context-menu";
+import { CoverImage } from "@/components/shared/cover-image";
 
 export function PlayerBar() {
   const currentTrack = useAtomValue(currentTrackAtom);
@@ -55,7 +55,6 @@ export function PlayerBar() {
   const [queuePanelOpen, setQueuePanelOpen] = useAtom(queuePanelOpenAtom);
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
   const [isStarred, setIsStarred] = useState(false);
-  const [coverArtError, setCoverArtError] = useState(false);
 
   const { togglePlayPause, next, previous, seekPercent } = useAudioEngine();
   const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
@@ -66,11 +65,6 @@ export function PlayerBar() {
   useEffect(() => {
     setIsStarred(!!currentTrack?.starred);
   }, [currentTrack?.id, currentTrack?.starred]);
-
-  // Reset cover art error when track changes
-  useEffect(() => {
-    setCoverArtError(false);
-  }, [currentTrack?.id, currentTrack?.coverArt]);
 
   const handleStar = async () => {
     const client = getClient();
@@ -150,22 +144,16 @@ export function PlayerBar() {
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className="relative w-14 h-14 rounded-md overflow-hidden bg-muted shrink-0 album-glow"
+                className="shrink-0 album-glow"
               >
-                {coverArtUrl && !coverArtError ? (
-                  <Image
-                    src={coverArtUrl}
-                    alt={currentTrack.album || "Album cover"}
-                    fill
-                    className="object-cover"
-                    unoptimized
-                    onError={() => setCoverArtError(true)}
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-muted">
-                    <ListMusic className="w-6 h-6 text-muted-foreground" />
-                  </div>
-                )}
+                <CoverImage
+                  src={coverArtUrl}
+                  alt={currentTrack.album || "Album cover"}
+                  colorSeed={currentTrack.album || currentTrack.title}
+                  type="song"
+                  size="sm"
+                  className="w-14 h-14"
+                />
               </motion.div>
               <div className="min-w-0">
                 <Link

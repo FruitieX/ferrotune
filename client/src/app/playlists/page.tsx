@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
+import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Plus, ListMusic, Music2, Clock } from "lucide-react";
@@ -20,6 +21,9 @@ export default function PlaylistsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const isMounted = useIsMounted();
+  
+  // Restore scroll position when navigating back to this page
+  useScrollRestoration();
 
   // Fetch playlists
   const { data: playlists, isLoading } = useQuery({
