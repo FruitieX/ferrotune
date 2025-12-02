@@ -270,36 +270,16 @@ export class SubsonicClient {
     current?: string;
     position?: number;
   }): Promise<void> {
-    // Build URL manually to handle array parameters
-    const url = new URL(`${this.serverUrl}/rest/savePlayQueue`);
-    url.searchParams.set("v", API_VERSION);
-    url.searchParams.set("c", CLIENT_NAME);
-    url.searchParams.set("f", "json");
-    
-    if (this.apiKey) {
-      url.searchParams.set("apiKey", this.apiKey);
-    } else if (this.username && this.password) {
-      url.searchParams.set("u", this.username);
-      url.searchParams.set("p", this.password);
-    }
-    
-    // Add song IDs as repeated parameters
-    for (const songId of params.songIds) {
-      url.searchParams.append("id", songId);
-    }
-    if (params.current) url.searchParams.set("current", params.current);
-    if (params.position !== undefined) url.searchParams.set("position", String(params.position));
-    
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error(`HTTP error: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    if (data["subsonic-response"].status === "failed") {
-      const error = data["subsonic-response"].error;
-      throw new SubsonicApiError(error.code, error.message);
-    }
+    // Use the Ferrotune Admin API endpoint (POST with JSON body)
+    // This is more scalable than the OpenSubsonic endpoint which uses query params
+    await this.adminRequest("/ferrotune/play-queue", {
+      method: "POST",
+      body: JSON.stringify({
+        songIds: params.songIds,
+        current: params.current,
+        position: params.position,
+      }),
+    });
   }
 
   async getPlayQueue(): Promise<PlayQueueResponse> {

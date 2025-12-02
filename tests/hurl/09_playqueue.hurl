@@ -65,3 +65,68 @@ HTTP 200
 header "Content-Type" contains "application/json"
 jsonpath "$.subsonic-response.status" == "ok"
 jsonpath "$.subsonic-response.playQueue" exists
+
+# ============================================================================
+# FERROTUNE ADMIN API - SAVE PLAY QUEUE (POST JSON)
+# ============================================================================
+
+# Test: POST /ferrotune/play-queue - save a play queue with JSON body
+POST {{base_url}}/ferrotune/play-queue
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "songIds": ["{{queue_song_1}}", "{{queue_song_2}}", "{{queue_song_3}}"],
+  "current": "{{queue_song_2}}",
+  "position": 12345
+}
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.success" == true
+
+# Test: Verify the queue was saved via getPlayQueue
+GET {{base_url}}/rest/getPlayQueue?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.status" == "ok"
+jsonpath "$.subsonic-response.playQueue.entry" count == 3
+jsonpath "$.subsonic-response.playQueue.current" == "{{queue_song_2}}"
+jsonpath "$.subsonic-response.playQueue.position" == 12345
+
+# Test: POST /ferrotune/play-queue - overwrite with new order
+POST {{base_url}}/ferrotune/play-queue
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "songIds": ["{{queue_song_3}}", "{{queue_song_1}}"],
+  "current": "{{queue_song_3}}",
+  "position": 5000
+}
+HTTP 200
+[Asserts]
+jsonpath "$.success" == true
+
+# Verify the new order
+GET {{base_url}}/rest/getPlayQueue?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.playQueue.entry" count == 2
+jsonpath "$.subsonic-response.playQueue.current" == "{{queue_song_3}}"
+jsonpath "$.subsonic-response.playQueue.position" == 5000
+
+# Test: POST /ferrotune/play-queue - save empty queue
+POST {{base_url}}/ferrotune/play-queue
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "songIds": []
+}
+HTTP 200
+[Asserts]
+jsonpath "$.success" == true
+
+# Verify empty queue
+GET {{base_url}}/rest/getPlayQueue?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.playQueue.entry" count == 0

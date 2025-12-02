@@ -4,7 +4,7 @@ import { useAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { Tag } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
+import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { albumViewModeAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,8 +15,8 @@ export default function GenresPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [viewMode] = useAtom(albumViewModeAtom);
   
-  // Restore scroll position when navigating back to this page
-  useScrollRestoration();
+  // Virtualized scroll restoration
+  const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
 
   // Fetch genres
   const { data: genresData, isLoading } = useQuery({
@@ -66,6 +66,8 @@ export default function GenresPage() {
             getItemKey={(genre) => genre.value}
             estimateItemHeight={96}
             columns={{ default: 2, sm: 3, md: 4, lg: 4, xl: 4 }}
+            initialOffset={getInitialOffset()}
+            onScrollChange={saveOffset}
           />
         ) : (
           <VirtualizedList
@@ -74,6 +76,8 @@ export default function GenresPage() {
             renderSkeleton={() => <GenreRowSkeleton />}
             getItemKey={(genre) => genre.value}
             estimateItemHeight={56}
+            initialOffset={getInitialOffset()}
+            onScrollChange={saveOffset}
           />
         )
       ) : (

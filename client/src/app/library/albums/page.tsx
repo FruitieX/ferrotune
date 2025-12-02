@@ -4,7 +4,7 @@ import { useAtom, useSetAtom } from "jotai";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
+import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { albumViewModeAtom } from "@/lib/store/ui";
 import { playNowAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
@@ -20,8 +20,8 @@ export default function AlbumsPage() {
   const [viewMode] = useAtom(albumViewModeAtom);
   const playNow = useSetAtom(playNowAtom);
   
-  // Restore scroll position when navigating back to this page
-  useScrollRestoration();
+  // Virtualized scroll restoration
+  const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
 
   // Fetch albums with infinite scroll
   const {
@@ -119,6 +119,8 @@ export default function AlbumsPage() {
             hasNextPage={hasNextPage ?? false}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
+            initialOffset={getInitialOffset()}
+            onScrollChange={saveOffset}
           />
         ) : (
           <VirtualizedList
@@ -135,6 +137,8 @@ export default function AlbumsPage() {
             hasNextPage={hasNextPage ?? false}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
+            initialOffset={getInitialOffset()}
+            onScrollChange={saveOffset}
           />
         )
       ) : (

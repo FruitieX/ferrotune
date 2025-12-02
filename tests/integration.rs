@@ -17,6 +17,11 @@ fn to_hex(s: &str) -> String {
 fn run_hurl_script(server: &TestServer, script_path: &Path) -> Result<(), String> {
     let password_hex = to_hex(&server.admin_password);
 
+    // Create Base64-encoded Basic auth credential
+    use base64::{engine::general_purpose, Engine as _};
+    let auth_basic = general_purpose::STANDARD
+        .encode(format!("{}:{}", server.admin_user, server.admin_password));
+
     let output = Command::new("hurl")
         .arg("--test")
         .arg("--variable")
@@ -27,6 +32,8 @@ fn run_hurl_script(server: &TestServer, script_path: &Path) -> Result<(), String
         .arg(format!("password={}", server.admin_password))
         .arg("--variable")
         .arg(format!("password_hex={}", password_hex))
+        .arg("--variable")
+        .arg(format!("auth_basic={}", auth_basic))
         .arg(script_path)
         .output()
         .map_err(|e| format!("Failed to run hurl: {}", e))?;

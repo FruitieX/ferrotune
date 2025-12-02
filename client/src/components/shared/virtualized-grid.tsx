@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback, useMemo, useEffect, useState } from "react";
+import { useRef, useCallback, useEffect, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +29,10 @@ interface VirtualizedGridProps<T> {
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
   fetchNextPage?: () => void;
+  /** Initial scroll offset for scroll restoration */
+  initialOffset?: number;
+  /** Callback when scroll position changes */
+  onScrollChange?: (offset: number) => void;
 }
 
 export function VirtualizedGrid<T>({
@@ -45,6 +49,8 @@ export function VirtualizedGrid<T>({
   hasNextPage = false,
   isFetchingNextPage = false,
   fetchNextPage,
+  initialOffset = 0,
+  onScrollChange,
 }: VirtualizedGridProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [columnCount, setColumnCount] = useState(columns.default);
@@ -103,6 +109,12 @@ export function VirtualizedGrid<T>({
     estimateSize: getDynamicEstimate,
     overscan,
     gap,
+    initialOffset,
+    onChange: (instance) => {
+      if (onScrollChange && instance.scrollOffset !== null) {
+        onScrollChange(instance.scrollOffset);
+      }
+    },
   });
 
   const virtualRows = virtualizer.getVirtualItems();
@@ -204,6 +216,10 @@ interface VirtualizedListProps<T> {
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
   fetchNextPage?: () => void;
+  /** Initial scroll offset for scroll restoration */
+  initialOffset?: number;
+  /** Callback when scroll position changes */
+  onScrollChange?: (offset: number) => void;
 }
 
 export function VirtualizedList<T>({
@@ -218,6 +234,8 @@ export function VirtualizedList<T>({
   hasNextPage = false,
   isFetchingNextPage = false,
   fetchNextPage,
+  initialOffset = 0,
+  onScrollChange,
 }: VirtualizedListProps<T>) {
   // Get scroll element (main content area)
   const getScrollElement = useCallback(() => {
@@ -231,6 +249,12 @@ export function VirtualizedList<T>({
     getScrollElement,
     estimateSize: () => estimateItemHeight,
     overscan,
+    initialOffset,
+    onChange: (instance) => {
+      if (onScrollChange && instance.scrollOffset !== null) {
+        onScrollChange(instance.scrollOffset);
+      }
+    },
   });
 
   const virtualItems = virtualizer.getVirtualItems();

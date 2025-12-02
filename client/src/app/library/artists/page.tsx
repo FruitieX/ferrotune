@@ -4,7 +4,7 @@ import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { User } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
+import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { albumViewModeAtom } from "@/lib/store/ui";
 import { playNowAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
@@ -18,8 +18,8 @@ export default function ArtistsPage() {
   const [viewMode] = useAtom(albumViewModeAtom);
   const playNow = useSetAtom(playNowAtom);
   
-  // Restore scroll position when navigating back to this page
-  useScrollRestoration();
+  // Virtualized scroll restoration
+  const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
 
   // Fetch artists
   const { data: artistsData, isLoading } = useQuery({
@@ -100,6 +100,8 @@ export default function ArtistsPage() {
             )}
             renderSkeleton={() => <ArtistCardSkeleton />}
             getItemKey={(artist) => artist.id}
+            initialOffset={getInitialOffset()}
+            onScrollChange={saveOffset}
           />
         ) : (
           <VirtualizedList
@@ -112,6 +114,8 @@ export default function ArtistsPage() {
             )}
             getItemKey={(artist) => artist.id}
             estimateItemHeight={56}
+            initialOffset={getInitialOffset()}
+            onScrollChange={saveOffset}
           />
         )
       ) : (

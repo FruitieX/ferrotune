@@ -10,6 +10,10 @@ export const queueIndexAtom = atom<number>(-1);
 // This flag stays true until the user explicitly presses play
 export const isRestoringQueueAtom = atom<boolean>(false);
 
+// Counter that increments when an immediate save is needed (e.g., when replacing the queue)
+// This helps the persistence hook know to save immediately instead of debouncing
+export const queueSaveRequestAtom = atom<number>(0);
+
 // Atom to clear the restoring flag (called when user explicitly presses play)
 export const clearRestoringFlagAtom = atom(null, (_get, set) => {
   set(isRestoringQueueAtom, false);
@@ -146,7 +150,7 @@ export const reorderQueueAtom = atom(
 // Replace queue and start playing
 export const playNowAtom = atom(
   null,
-  (_get, set, songs: Song | Song[], startIndex: number = 0) => {
+  (get, set, songs: Song | Song[], startIndex: number = 0) => {
     const songsArray = Array.isArray(songs) ? songs : [songs];
     // Clear restore flag since user is explicitly starting playback
     set(isRestoringQueueAtom, false);
@@ -154,5 +158,7 @@ export const playNowAtom = atom(
     set(queueIndexAtom, startIndex);
     set(shuffledIndicesAtom, []);
     set(playHistoryAtom, []);
+    // Request immediate save by incrementing the counter
+    set(queueSaveRequestAtom, get(queueSaveRequestAtom) + 1);
   }
 );

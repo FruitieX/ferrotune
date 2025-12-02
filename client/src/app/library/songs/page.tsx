@@ -4,7 +4,7 @@ import { useAtom } from "jotai";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
+import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { albumViewModeAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
@@ -16,8 +16,8 @@ export default function SongsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [viewMode] = useAtom(albumViewModeAtom);
   
-  // Restore scroll position when navigating back to this page
-  useScrollRestoration();
+  // Virtualized scroll restoration
+  const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
 
   // Fetch all songs using search with wildcard
   const {
@@ -107,6 +107,8 @@ export default function SongsPage() {
             hasNextPage={hasNextPage ?? false}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
+            initialOffset={getInitialOffset()}
+            onScrollChange={saveOffset}
           />
         ) : (
           <VirtualizedList
@@ -126,6 +128,8 @@ export default function SongsPage() {
             hasNextPage={hasNextPage ?? false}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
+            initialOffset={getInitialOffset()}
+            onScrollChange={saveOffset}
           />
         )
       ) : (

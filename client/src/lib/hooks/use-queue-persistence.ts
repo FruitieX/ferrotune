@@ -2,17 +2,18 @@
 
 import { useEffect, useCallback, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { queueAtom, queueIndexAtom, isRestoringQueueAtom } from "@/lib/store/queue";
+import { queueAtom, queueIndexAtom, isRestoringQueueAtom, queueSaveRequestAtom } from "@/lib/store/queue";
 import { currentTimeAtom } from "@/lib/store/player";
 import { getClient } from "@/lib/api/client";
 import { useAuth } from "./use-auth";
 
 // Debounce time for saving queue (ms)
-const SAVE_DEBOUNCE_MS = 2000;
+const SAVE_DEBOUNCE_MS = 500; // Reduced from 2000ms for faster persistence
 
 /**
  * Hook to persist the play queue to the server.
  * - Saves the queue when it changes (debounced)
+ * - Saves immediately when a new queue replaces the old one
  * - Restores the queue on mount (if server has one)
  */
 export function useQueuePersistence() {
@@ -21,13 +22,15 @@ export function useQueuePersistence() {
   const [queueIndex, setQueueIndex] = useAtom(queueIndexAtom);
   const setIsRestoringQueue = useSetAtom(isRestoringQueueAtom);
   const currentTime = useAtomValue(currentTimeAtom);
+  const saveRequest = useAtomValue(queueSaveRequestAtom);
   
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isRestoringRef = useRef(false);
   const lastSavedRef = useRef<string>("");
+  const hasRestoredRef = useRef(false);
 
-  // Save queue to server (debounced)
-  const saveQueue = useCallback(async () => {
+  // Save queue to server
+  const saveQueue = useCallback(async (immediate: boolean = false) => {
     if (!isConnected || isRestoringRef.current) return;
     
     const client = getClient();
@@ -38,9 +41,9 @@ export function useQueuePersistence() {
       ? queue[queueIndex].id 
       : undefined;
     
-    // Create a signature to avoid redundant saves
+    // Create a signature to avoid redundant saves (but skip check for immediate saves)
     const signature = JSON.stringify({ songIds, currentSongId, position: Math.floor(currentTime) });
-    if (signature === lastSavedRef.current) return;
+    if (!immediate && signature === lastSavedRef.current) return;
     
     try {
       await client.savePlayQueue({
@@ -54,7 +57,20 @@ export function useQueuePersistence() {
     }
   }, [isConnected, queue, queueIndex, currentTime]);
 
-  // Debounced save when queue or index changes
+  // Immediate save when saveRequest changes (triggered by playNowAtom)
+  useEffect(() => {
+    if (saveRequest > 0 && !isRestoringRef.current) {
+      // Clear any pending debounced save
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      // Save immediately
+      saveQueue(true);
+    }
+  }, [saveRequest, saveQueue]);
+
+  // Debounced save when queue or index changes (for position updates, etc.)
   useEffect(() => {
     if (!isConnected || isRestoringRef.current) return;
     
@@ -63,7 +79,7 @@ export function useQueuePersistence() {
     }
     
     saveTimeoutRef.current = setTimeout(() => {
-      saveQueue();
+      saveQueue(false);
     }, SAVE_DEBOUNCE_MS);
     
     return () => {
@@ -78,11 +94,12 @@ export function useQueuePersistence() {
     async function restoreQueue() {
       if (!isConnected || isLoading) return;
       
+      // Only attempt restore once per session
+      if (hasRestoredRef.current) return;
+      hasRestoredRef.current = true;
+      
       const client = getClient();
       if (!client) return;
-      
-      // Don't restore if we already have a queue
-      if (queue.length > 0) return;
       
       try {
         isRestoringRef.current = true;
@@ -126,5 +143,5 @@ export function useQueuePersistence() {
     }
     
     restoreQueue();
-  }, [isConnected, isLoading, setIsRestoringQueue]); // Only run on connection change
+  }, [isConnected, isLoading, setIsRestoringQueue, setQueue, setQueueIndex]);
 }

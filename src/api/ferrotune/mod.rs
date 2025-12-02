@@ -25,9 +25,11 @@
 //! - `PATCH /ferrotune/songs/:id/tags` - Update tags in a song file
 //! - `GET /ferrotune/preferences` - Get user preferences
 //! - `PUT /ferrotune/preferences` - Update user preferences
+//! - `POST /ferrotune/play-queue` - Save play queue (JSON body, scalable alternative to OpenSubsonic)
 
 mod media;
 mod playlists;
+mod playqueue;
 mod preferences;
 mod scan;
 mod tags;
@@ -81,6 +83,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/preferences",
             get(preferences::get_preferences).put(preferences::update_preferences),
         )
+        // Play queue endpoints
+        .route("/ferrotune/play-queue", post(playqueue::save_play_queue))
         .with_state(state)
 }
 
