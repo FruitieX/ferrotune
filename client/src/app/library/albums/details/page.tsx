@@ -302,6 +302,7 @@ function AlbumDetailContent() {
               song={song}
               index={index}
               showAlbum={false}
+              showCover={true}
               queueSongs={albumData.song}
             />
           ))

@@ -72,8 +72,8 @@ export function MediaCard({
         </div>
       )}
 
-      <Link href={href} className="block">
-        {/* Cover art with play overlay */}
+      {/* Cover art with play overlay - wrapped in Link */}
+      <Link href={href} className="block group/cover">
         <div
           className={cn(
             "relative aspect-square overflow-hidden mb-4",
@@ -91,12 +91,12 @@ export function MediaCard({
             className={coverShape === "circle" ? "rounded-full" : undefined}
           />
 
-          {/* Play button overlay */}
+          {/* Play button overlay - only shows on cover hover */}
           {onPlay && (
             <div
               className={cn(
                 "absolute inset-0 flex items-center justify-center",
-                "bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity",
+                "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
                 coverShape === "circle" && "rounded-full"
               )}
             >
@@ -114,24 +114,26 @@ export function MediaCard({
             </div>
           )}
         </div>
+      </Link>
 
-        {/* Title and subtitle */}
-        <div
-          className={cn(
-            "space-y-1",
-            coverShape === "circle" && "text-center"
-          )}
-        >
+      {/* Title and subtitle - separate from cover link to avoid nested anchors */}
+      <div
+        className={cn(
+          "space-y-1",
+          coverShape === "circle" && "text-center"
+        )}
+      >
+        <Link href={href}>
           <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
             {title}
           </h3>
-          {(subtitleContent || subtitle) && (
-            <div className="text-sm text-muted-foreground truncate">
-              {subtitleContent ?? subtitle}
-            </div>
-          )}
-        </div>
-      </Link>
+        </Link>
+        {(subtitleContent || subtitle) && (
+          <div className="text-sm text-muted-foreground truncate">
+            {subtitleContent ?? subtitle}
+          </div>
+        )}
+      </div>
     </article>
   );
 
