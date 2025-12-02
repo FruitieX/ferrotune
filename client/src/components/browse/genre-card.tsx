@@ -245,7 +245,7 @@ function GenreContextMenu({ genre, children }: GenreContextMenuProps) {
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent className="w-56">
+      <ContextMenuContent className="w-56" onDoubleClick={(e) => e.stopPropagation()}>
         <ContextMenuItem onClick={handlePlay}>
           <Play className="w-4 h-4 mr-2" />
           Play
@@ -324,7 +324,7 @@ function GenreDropdownMenu({ genre, trigger }: GenreDropdownMenuProps) {
       <DropdownMenuTrigger asChild>
         {trigger ?? <RowDropdownTrigger />}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className="w-56" onDoubleClick={(e) => e.stopPropagation()}>
         <DropdownMenuItem onClick={handlePlay}>
           <Play className="w-4 h-4 mr-2" />
           Play

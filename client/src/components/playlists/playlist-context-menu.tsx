@@ -184,7 +184,7 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
     <>
       <ContextMenu>
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent className="w-56">{menuItems}</ContextMenuContent>
+        <ContextMenuContent className="w-56" onDoubleClick={(e) => e.stopPropagation()}>{menuItems}</ContextMenuContent>
       </ContextMenu>
 
       <EditPlaylistDialog
@@ -329,7 +329,7 @@ export function PlaylistDropdownMenu({ playlist }: { playlist: Playlist }) {
             <span className="sr-only">More options</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuContent align="end" className="w-56" onDoubleClick={(e) => e.stopPropagation()}>
           <DropdownMenuItem onClick={handlePlay}>
             <Play className="w-4 h-4 mr-2" />
             Play
