@@ -1,5 +1,6 @@
 "use client";
 
+import { forwardRef } from "react";
 import Link from "next/link";
 import { Play, Pause, Heart, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -249,23 +250,28 @@ export function RowActions({
 /**
  * Inline dropdown trigger button for use in RowActions.
  * Use this to pass as the `trigger` prop to dropdown menus in row contexts.
+ * Uses forwardRef to work with Radix UI's asChild prop.
  */
-export function RowDropdownTrigger() {
+export const RowDropdownTrigger = forwardRef<
+  HTMLButtonElement,
+  React.ComponentPropsWithoutRef<typeof Button>
+>(function RowDropdownTrigger(props, ref) {
   return (
     <Button
+      ref={ref}
       variant="ghost"
       size="icon"
       className={rowActionButtonStyles}
       onClick={(e) => {
-        e.preventDefault();
         e.stopPropagation();
       }}
+      {...props}
     >
       <MoreHorizontal className="w-4 h-4" />
       <span className="sr-only">More options</span>
     </Button>
   );
-}
+});
 
 /**
  * Skeleton loader for MediaRow

@@ -355,6 +355,79 @@ pub async fn get_random_songs(
     Ok(FormatResponse::new(user.format, response))
 }
 
+// getSongsByGenre endpoint
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SongsByGenreParams {
+    genre: String,
+    count: Option<u32>,
+    offset: Option<u32>,
+    music_folder_id: Option<i64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SongsByGenreResponse {
+    pub songs_by_genre: SongsByGenreContent,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SongsByGenreContent {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub song: Vec<SongResponse>,
+}
+
+pub async fn get_songs_by_genre(
+    user: AuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<SongsByGenreParams>,
+) -> Result<FormatResponse<SongsByGenreResponse>> {
+    let count = params.count.unwrap_or(10).min(500) as i64;
+    let offset = params.offset.unwrap_or(0) as i64;
+
+    let songs: Vec<crate::db::models::Song> = sqlx::query_as(
+        "SELECT s.*, ar.name as artist_name 
+         FROM songs s 
+         INNER JOIN artists ar ON s.artist_id = ar.id 
+         WHERE s.genre = ?
+         ORDER BY s.title COLLATE NOCASE
+         LIMIT ? OFFSET ?",
+    )
+    .bind(&params.genre)
+    .bind(count)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await?;
+
+    // Get starred status and ratings for songs
+    let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
+    let starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
+
+    let mut song_responses = Vec::new();
+
+    for song in songs {
+        let album = if let Some(album_id) = &song.album_id {
+            crate::db::queries::get_album_by_id(&state.pool, album_id).await?
+        } else {
+            None
+        };
+
+        let starred = starred_map.get(&song.id).cloned();
+        let user_rating = ratings_map.get(&song.id).copied();
+        song_responses.push(song_to_response(song, album.as_ref(), starred, user_rating));
+    }
+
+    let response = SongsByGenreResponse {
+        songs_by_genre: SongsByGenreContent {
+            song: song_responses,
+        },
+    };
+
+    Ok(FormatResponse::new(user.format, response))
+}
+
 #[derive(Deserialize)]
 pub struct ScrobbleParams {
     id: String,

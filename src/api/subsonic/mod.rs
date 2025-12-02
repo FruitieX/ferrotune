@@ -67,6 +67,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // List endpoints
         .route("/rest/getAlbumList2", get(lists::get_album_list2))
         .route("/rest/getRandomSongs", get(lists::get_random_songs))
+        .route("/rest/getSongsByGenre", get(lists::get_songs_by_genre))
         // History endpoints (Ferrotune extensions)
         .route("/rest/getPlayHistory", get(history::get_play_history))
         // Search endpoints

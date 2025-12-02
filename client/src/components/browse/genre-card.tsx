@@ -83,7 +83,6 @@ export function GenreCard({ genre, className }: GenreCardProps) {
                 size="icon"
                 className="h-8 w-8 bg-black/30 hover:bg-black/50 text-white"
                 onClick={(e) => {
-                  e.preventDefault();
                   e.stopPropagation();
                 }}
               >
@@ -144,25 +143,22 @@ export function GenreRow({ genre, className }: GenreRowProps) {
         >
           {/* Colored genre indicator with play overlay */}
           <div
-            className="relative w-10 h-10 rounded-md shrink-0 flex items-center justify-center group/cover"
+            className="group/cover relative w-10 h-10 rounded-md shrink-0 flex items-center justify-center"
             style={{ backgroundColor: `hsl(${hue}, 60%, 40%)` }}
           >
             <Tag className="w-5 h-5 text-white group-hover/cover:opacity-0 transition-opacity" />
-            {/* Play button overlay */}
-            <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-white hover:text-white hover:bg-white/20"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  handlePlay();
-                }}
-              >
-                <Play className="w-3 h-3 ml-0.5" />
-              </Button>
-            </div>
+            {/* Play button overlay - matches MediaRow styling */}
+            <button
+              type="button"
+              className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded-md cursor-pointer"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handlePlay();
+              }}
+            >
+              <Play className="w-4 h-4 ml-0.5 text-white" />
+            </button>
           </div>
 
           {/* Genre info */}
