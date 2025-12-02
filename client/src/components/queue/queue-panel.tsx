@@ -209,7 +209,7 @@ export function QueuePanel() {
           </div>
         ) : (
           <ScrollArea className="flex-1 overflow-y-auto overflow-x-hidden">
-            <div className="p-4 space-y-6 overflow-hidden">
+            <div className="p-4 space-y-6 w-full max-w-full">
               {/* Now Playing / Queue Ended */}
               {currentTrack && (
                 <section>
@@ -257,7 +257,7 @@ export function QueuePanel() {
                           </div>
                         </button>
 
-                        <div className="flex-1 min-w-0">
+                        <div className="flex-1 min-w-0 overflow-hidden">
                           <p className={cn(
                             "font-medium truncate",
                             playbackState === "ended" ? "text-foreground" : "text-primary"
@@ -268,9 +268,6 @@ export function QueuePanel() {
                             {currentTrack.artist}
                           </p>
                         </div>
-                        <span className="text-sm text-muted-foreground tabular-nums shrink-0">
-                          {formatDuration(currentTrack.duration)}
-                        </span>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -288,6 +285,9 @@ export function QueuePanel() {
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        <span className="text-sm text-muted-foreground tabular-nums shrink-0">
+                          {formatDuration(currentTrack.duration)}
+                        </span>
                       </motion.div>
                     </ContextMenuTrigger>
                     <ContextMenuContent>
@@ -464,16 +464,12 @@ function QueueItem({ item, song, queueIndex, onPlay, onRemove, onPlayNext, disab
             </button>
 
             {/* Text content - clicking does NOT start playback */}
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 overflow-hidden">
               <p className="text-sm font-medium truncate">{song.title}</p>
               <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
             </div>
 
-            {/* Duration first, then menu button */}
-            <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-              {formatDuration(song.duration)}
-            </span>
-
+            {/* Menu button first, then duration */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -489,6 +485,10 @@ function QueueItem({ item, song, queueIndex, onPlay, onRemove, onPlayNext, disab
                 {menuItems}
               </DropdownMenuContent>
             </DropdownMenu>
+
+            <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+              {formatDuration(song.duration)}
+            </span>
           </Reorder.Item>
         </ContextMenuTrigger>
         <ContextMenuContent>
@@ -555,16 +555,12 @@ function PreviouslyPlayedItem({ song, originalIndex, onPlay, onAddToQueue, onPla
             </button>
 
             {/* Text content - clicking does NOT start playback */}
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 overflow-hidden">
               <p className="text-sm font-medium truncate">{song.title}</p>
               <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
             </div>
 
-            {/* Duration first, then menu button */}
-            <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-              {formatDuration(song.duration)}
-            </span>
-
+            {/* Menu button first, then duration */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -591,6 +587,10 @@ function PreviouslyPlayedItem({ song, originalIndex, onPlay, onAddToQueue, onPla
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+              {formatDuration(song.duration)}
+            </span>
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>

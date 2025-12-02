@@ -39,6 +39,10 @@ export const metadata: Metadata = {
   title: "Ferrotune",
   description: "A modern music player for your personal library",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/icon.svg",
+    apple: "/icon.svg",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",

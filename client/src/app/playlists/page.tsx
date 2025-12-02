@@ -146,7 +146,7 @@ function PlaylistCard({ playlist }: { playlist: Playlist }) {
     <PlaylistContextMenu playlist={playlist}>
       <Link
         href={`/playlists/details?id=${playlist.id}`}
-        className="group block p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors relative"
+        className="group block p-4 rounded-lg bg-card hover:bg-accent/70 hover:shadow-lg hover:shadow-black/20 transition-all relative"
       >
         <PlaylistDropdownMenu playlist={playlist} />
         <div className="relative mb-4">

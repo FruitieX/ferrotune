@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 import { useAudioEngineInit, useMediaSession } from "@/lib/audio/hooks";
 import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
 import { useQueuePersistence } from "@/lib/hooks/use-queue-persistence";
+import { useDocumentTitle } from "@/lib/hooks/use-document-title";
 import { accentColorAtom, customAccentHueAtom, customAccentLightnessAtom, customAccentChromaAtom } from "@/lib/store/ui";
 
 // Component that initializes the audio engine and media session
@@ -16,6 +17,7 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   useMediaSession();
   useKeyboardShortcuts();
   useQueuePersistence();
+  useDocumentTitle();
   return <>{children}</>;
 }
 
@@ -82,7 +84,17 @@ export function Providers({ children }: { children: React.ReactNode }) {
               {children}
             </AudioEngineProvider>
           </AccentColorProvider>
-          <Toaster position="bottom-right" richColors offset={100} />
+          <Toaster 
+            position="bottom-right" 
+            richColors 
+            offset={100}
+            toastOptions={{
+              style: {
+                // Match right margin to bottom offset (footer height)
+                marginRight: '16px',
+              }
+            }}
+          />
         </ThemeProvider>
       </QueryClientProvider>
     </JotaiProvider>

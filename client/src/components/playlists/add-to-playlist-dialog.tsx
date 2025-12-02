@@ -144,7 +144,7 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs }: AddToPlaylist
             {!showCreateNew ? (
               <button
                 onClick={() => setShowCreateNew(true)}
-                className="flex items-center gap-3 w-full p-2 rounded-md hover:bg-accent/50 transition-colors text-left"
+                className="flex items-center gap-3 w-full p-2 rounded-md hover:bg-accent/70 transition-all text-left"
                 disabled={isPending}
               >
                 <div className="w-10 h-10 rounded-md bg-primary/20 flex items-center justify-center">
@@ -244,7 +244,7 @@ function PlaylistOption({ playlist, isSelected, isPending, onSelect, disabled }:
       disabled={disabled}
       className={cn(
         "flex items-center gap-3 w-full p-2 rounded-md transition-colors text-left",
-        "hover:bg-accent/50",
+        "hover:bg-accent/70",
         isSelected && "bg-accent/50",
         disabled && "opacity-50 cursor-not-allowed"
       )}

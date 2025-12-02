@@ -102,17 +102,37 @@ function AlbumDetailContent() {
 
   return (
     <div className="min-h-screen">
-      {/* Header with gradient background */}
+      {/* Header with blurred background */}
       <div className="relative">
-        {/* Background gradient based on cover art */}
-        <div 
-          className="absolute inset-0 h-[400px] bg-linear-to-b from-primary/20 to-background"
-          style={{
-            background: albumData 
-              ? `linear-gradient(180deg, rgba(30,215,96,0.15) 0%, rgba(10,10,10,1) 100%)`
-              : undefined
-          }}
-        />
+        {/* Background image with blur */}
+        {coverArtUrl && (
+          <div 
+            className="absolute inset-0 h-[400px] overflow-hidden"
+            style={{
+              backgroundImage: `url(${coverArtUrl})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          >
+            {/* Blur and gradient overlay */}
+            <div className="absolute inset-0 backdrop-blur-3xl bg-background/60" />
+            <div 
+              className="absolute inset-0"
+              style={{
+                background: `linear-gradient(180deg, transparent 0%, hsl(var(--background)) 100%)`
+              }}
+            />
+          </div>
+        )}
+        {/* Fallback gradient when no image */}
+        {!coverArtUrl && (
+          <div 
+            className="absolute inset-0 h-[400px]"
+            style={{
+              background: `linear-gradient(180deg, rgba(30,215,96,0.2) 0%, hsl(var(--background)) 100%)`
+            }}
+          />
+        )}
 
         {/* Back button */}
         <div className="relative z-10 p-4 lg:p-6">

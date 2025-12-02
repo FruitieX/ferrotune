@@ -1,11 +1,12 @@
 "use client";
 
-import { useAtom } from "jotai";
+import { useMemo } from "react";
+import { useAtom, useAtomValue } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { Tag } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
-import { albumViewModeAtom } from "@/lib/store/ui";
+import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
@@ -14,6 +15,7 @@ import { GenreCard, GenreCardSkeleton, GenreRow, GenreRowSkeleton } from "@/comp
 export default function GenresPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [viewMode] = useAtom(albumViewModeAtom);
+  const filter = useAtomValue(libraryFilterAtom);
   
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
@@ -29,6 +31,15 @@ export default function GenresPage() {
     },
     enabled: isReady,
   });
+  
+  // Filter genres based on search filter
+  const filteredGenres = useMemo(() => {
+    if (!filter.trim() || !genresData) return genresData ?? [];
+    const lowerFilter = filter.toLowerCase();
+    return genresData.filter((genre) =>
+      genre.value.toLowerCase().includes(lowerFilter)
+    );
+  }, [genresData, filter]);
 
   if (authLoading) {
     return (
@@ -60,7 +71,7 @@ export default function GenresPage() {
       ) : genresData && genresData.length > 0 ? (
         viewMode === "grid" ? (
           <VirtualizedGrid
-            items={genresData}
+            items={filteredGenres}
             renderItem={(genre) => <GenreCard genre={genre} />}
             renderSkeleton={() => <GenreCardSkeleton />}
             getItemKey={(genre) => genre.value}
@@ -71,7 +82,7 @@ export default function GenresPage() {
           />
         ) : (
           <VirtualizedList
-            items={genresData}
+            items={filteredGenres}
             renderItem={(genre) => <GenreRow genre={genre} />}
             renderSkeleton={() => <GenreRowSkeleton />}
             getItemKey={(genre) => genre.value}

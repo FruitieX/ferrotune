@@ -18,6 +18,9 @@ export const fullscreenPlayerOpenAtom = atom<boolean>(false);
 export const searchQueryAtom = atom<string>("");
 export const searchOpenAtom = atom<boolean>(false);
 
+// Library filter state (for filtering library views)
+export const libraryFilterAtom = atom<string>("");
+
 // View preferences
 export type ViewMode = "grid" | "list";
 export const albumViewModeAtom = atomWithStorage<ViewMode>("ferrotune-album-view", "grid");
