@@ -116,10 +116,12 @@ export function useQueuePersistence() {
       } catch (error) {
         // Queue not found or error - that's okay, start fresh
         console.debug("No saved play queue found:", error);
+        setIsRestoringQueue(false);
       } finally {
         isRestoringRef.current = false;
-        // Clear restoring flag after a short delay to ensure the audio hook has processed
-        setTimeout(() => setIsRestoringQueue(false), 100);
+        // Note: We don't clear isRestoringQueueAtom here - it stays true until
+        // the user explicitly presses play. This prevents auto-play on page load
+        // which violates browser autoplay policies.
       }
     }
     

@@ -23,6 +23,7 @@ import {
   shuffledIndicesAtom,
   playHistoryAtom,
   isRestoringQueueAtom,
+  clearRestoringFlagAtom,
 } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { shuffleArray } from "../utils";
@@ -242,13 +243,26 @@ export function useAudioEngineInit() {
 
     const handleLoadStart = () => {
       console.log("[Audio] loadstart event");
-      settersRef.current.setPlaybackState("loading");
+      // Don't set loading state during restore - we want to stay paused
+      if (!stateRef.current.isRestoringQueue) {
+        settersRef.current.setPlaybackState("loading");
+      }
     };
     
     const handleCanPlay = () => {
-      console.log("[Audio] canplay event, attempting to play");
-      // Don't auto-play if queue has ended (unless we're loading a new track)
+      console.log("[Audio] canplay event");
       const state = stateRef.current;
+      
+      // Don't auto-play if we're restoring queue from server
+      if (state.isRestoringQueue) {
+        console.log("[Audio] Skipping auto-play because queue is being restored");
+        isLoadingNewTrack = false;
+        // Set state to paused so the play button shows correctly
+        settersRef.current.setPlaybackState("paused");
+        return;
+      }
+      
+      // Don't auto-play if queue has ended (unless we're loading a new track)
       if (state.playbackState === "ended" && !isLoadingNewTrack) {
         console.log("[Audio] Skipping auto-play because queue has ended");
         return;
@@ -386,6 +400,7 @@ export function useAudioEngineInit() {
 export function useAudioEngine() {
   const [playbackState, setPlaybackState] = useAtom(playbackStateAtom);
   const setCurrentTime = useSetAtom(currentTimeAtom);
+  const clearRestoringFlag = useSetAtom(clearRestoringFlagAtom);
   
   const currentTrack = useAtomValue(currentTrackAtom);
   const [queue, setQueue] = useAtom(queueAtom);
@@ -396,8 +411,10 @@ export function useAudioEngine() {
   const [playHistory, setPlayHistory] = useAtom(playHistoryAtom);
 
   const play = useCallback(() => {
+    // Clear restore flag on explicit user interaction
+    clearRestoringFlag();
     globalAudio?.play().catch(console.error);
-  }, []);
+  }, [clearRestoringFlag]);
 
   const pause = useCallback(() => {
     globalAudio?.pause();
@@ -439,6 +456,9 @@ export function useAudioEngine() {
 
   const next = useCallback(() => {
     if (queue.length === 0) return;
+
+    // Clear restore flag on explicit user interaction
+    clearRestoringFlag();
 
     if (currentTrack) {
       setPlayHistory((prev) => [...prev, currentTrack]);
@@ -504,9 +524,13 @@ export function useAudioEngine() {
     setPlaybackState,
     setShuffledIndices,
     setCurrentTime,
+    clearRestoringFlag,
   ]);
 
   const previous = useCallback(() => {
+    // Clear restore flag on explicit user interaction
+    clearRestoringFlag();
+
     if (globalAudio && globalAudio.currentTime > 3) {
       globalAudio.currentTime = 0;
       return;
@@ -532,7 +556,7 @@ export function useAudioEngine() {
     } else if (repeatMode === "all" && queue.length > 0) {
       setQueueIndex(queue.length - 1);
     }
-  }, [queue, queueIndex, playHistory, repeatMode, setQueueIndex, setQueue, setPlayHistory]);
+  }, [queue, queueIndex, playHistory, repeatMode, setQueueIndex, setQueue, setPlayHistory, clearRestoringFlag]);
 
   return {
     play,
