@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { Search as SearchIcon, X, Loader2, ListMusic, Clock } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { playNowAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
@@ -22,23 +23,6 @@ import { GenreCard, GenreCardSkeleton } from "@/components/browse/genre-card";
 import { CoverImage } from "@/components/shared/cover-image";
 import { formatDuration, formatCount } from "@/lib/utils/format";
 import type { Album, Artist, Genre, Playlist } from "@/lib/api/types";
-
-// Debounce hook
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-}
 
 export function SearchPageContent() {
   const router = useRouter();

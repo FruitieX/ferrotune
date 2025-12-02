@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { User } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
 import { playNowAtom } from "@/lib/store/queue";
@@ -18,12 +18,13 @@ export default function ArtistsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
+  const debouncedFilter = useDebounce(filter, 300);
   const playNow = useSetAtom(playNowAtom);
   
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
 
-  // Fetch artists
+  // Fetch all artists (when no filter)
   const { data: artistsData, isLoading } = useQuery({
     queryKey: ["artists"],
     queryFn: async () => {
@@ -32,20 +33,32 @@ export default function ArtistsPage() {
       const response = await client.getArtists();
       return response.artists.index;
     },
-    enabled: isReady,
+    enabled: isReady && !debouncedFilter,
+  });
+
+  // Search artists when filter is active
+  const { data: searchData, isLoading: isSearching } = useQuery({
+    queryKey: ["artists", "search", debouncedFilter],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.search3({
+        query: debouncedFilter,
+        artistCount: 100,
+        albumCount: 0,
+        songCount: 0,
+      });
+      return response.searchResult3.artist ?? [];
+    },
+    enabled: isReady && debouncedFilter.length >= 1,
   });
 
   // Flatten artists from indexes, filter out artists with 0 albums
   const allArtists = artistsData?.flatMap((index) => index.artist).filter((a) => a.albumCount > 0) ?? [];
   
-  // Filter artists based on search filter
-  const filteredArtists = useMemo(() => {
-    if (!filter.trim()) return allArtists;
-    const lowerFilter = filter.toLowerCase();
-    return allArtists.filter((artist) =>
-      artist.name?.toLowerCase().includes(lowerFilter)
-    );
-  }, [allArtists, filter]);
+  // Use search results when filtering, otherwise use full list
+  const displayArtists = debouncedFilter ? (searchData ?? []) : allArtists;
+  const isLoadingData = debouncedFilter ? isSearching : isLoading;
 
   // Play artist handler
   const handlePlayArtist = async (artist: Artist) => {
@@ -88,7 +101,7 @@ export default function ArtistsPage() {
 
   return (
     <div className="p-4 lg:p-6">
-      {isLoading ? (
+      {isLoadingData && displayArtists.length === 0 ? (
         viewMode === "grid" ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             {Array.from({ length: 12 }).map((_, i) => (
@@ -102,10 +115,10 @@ export default function ArtistsPage() {
             ))}
           </div>
         )
-      ) : allArtists.length > 0 ? (
+      ) : displayArtists.length > 0 ? (
         viewMode === "grid" ? (
           <VirtualizedGrid
-            items={filteredArtists}
+            items={displayArtists}
             renderItem={(artist) => (
               <ArtistCard artist={artist} onPlay={() => handlePlayArtist(artist)} />
             )}
@@ -116,7 +129,7 @@ export default function ArtistsPage() {
           />
         ) : (
           <VirtualizedList
-            items={filteredArtists}
+            items={displayArtists}
             renderItem={(artist) => (
               <ArtistCardCompact artist={artist} onPlay={() => handlePlayArtist(artist)} />
             )}
@@ -130,7 +143,7 @@ export default function ArtistsPage() {
           />
         )
       ) : (
-        <EmptyState message="No artists in your library" />
+        <EmptyState message={debouncedFilter ? "No artists match your filter" : "No artists in your library"} />
       )}
     </div>
   );

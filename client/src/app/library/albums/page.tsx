@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
 import { playNowAtom } from "@/lib/store/queue";
@@ -20,12 +20,13 @@ export default function AlbumsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
+  const debouncedFilter = useDebounce(filter, 300);
   const playNow = useSetAtom(playNowAtom);
   
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
 
-  // Fetch albums with infinite scroll
+  // Fetch albums with infinite scroll (when no filter)
   const {
     data: albumsData,
     isLoading,
@@ -50,24 +51,34 @@ export default function AlbumsPage() {
     },
     getNextPageParam: (lastPage) => lastPage.nextOffset,
     initialPageParam: 0,
-    enabled: isReady,
+    enabled: isReady && !debouncedFilter,
+  });
+
+  // Search albums when filter is active
+  const { data: searchData, isLoading: isSearching } = useQuery({
+    queryKey: ["albums", "search", debouncedFilter],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.search3({
+        query: debouncedFilter,
+        albumCount: 100,
+        artistCount: 0,
+        songCount: 0,
+      });
+      return response.searchResult3.album ?? [];
+    },
+    enabled: isReady && debouncedFilter.length >= 1,
   });
 
   // Flatten albums from all pages
   const allAlbums = albumsData?.pages.flatMap((page) => page.albums) ?? [];
   const totalAlbums = albumsData?.pages[0]?.total ?? allAlbums.length;
   
-  // Filter albums based on search filter
-  const filteredAlbums = useMemo(() => {
-    if (!filter.trim()) return allAlbums;
-    const lowerFilter = filter.toLowerCase();
-    return allAlbums.filter((album) =>
-      album.name?.toLowerCase().includes(lowerFilter) ||
-      album.artist?.toLowerCase().includes(lowerFilter)
-    );
-  }, [allAlbums, filter]);
-  
-  const displayCount = filter ? filteredAlbums.length : totalAlbums;
+  // Use search results when filtering, otherwise use paginated list
+  const displayAlbums = debouncedFilter ? (searchData ?? []) : allAlbums;
+  const displayCount = debouncedFilter ? displayAlbums.length : totalAlbums;
+  const isLoadingData = debouncedFilter ? isSearching : isLoading;
 
   // Play album handler
   const handlePlayAlbum = async (album: Album) => {
@@ -106,7 +117,7 @@ export default function AlbumsPage() {
 
   return (
     <div className="p-4 lg:p-6">
-      {isLoading && allAlbums.length === 0 ? (
+      {isLoadingData && displayAlbums.length === 0 ? (
         viewMode === "grid" ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             {Array.from({ length: 12 }).map((_, i) => (
@@ -120,17 +131,17 @@ export default function AlbumsPage() {
             ))}
           </div>
         )
-      ) : allAlbums.length > 0 ? (
+      ) : displayAlbums.length > 0 ? (
         viewMode === "grid" ? (
           <VirtualizedGrid
-            items={filteredAlbums}
+            items={displayAlbums}
             totalCount={displayCount}
             renderItem={(album) => (
               <AlbumCard album={album} onPlay={() => handlePlayAlbum(album)} />
             )}
             renderSkeleton={() => <AlbumCardSkeleton />}
             getItemKey={(album) => album.id}
-            hasNextPage={!filter && (hasNextPage ?? false)}
+            hasNextPage={!debouncedFilter && (hasNextPage ?? false)}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
             initialOffset={getInitialOffset()}
@@ -138,7 +149,7 @@ export default function AlbumsPage() {
           />
         ) : (
           <VirtualizedList
-            items={filteredAlbums}
+            items={displayAlbums}
             totalCount={displayCount}
             renderItem={(album) => (
               <AlbumCardCompact album={album} onPlay={() => handlePlayAlbum(album)} />
@@ -148,7 +159,7 @@ export default function AlbumsPage() {
             )}
             getItemKey={(album) => album.id}
             estimateItemHeight={56}
-            hasNextPage={!filter && (hasNextPage ?? false)}
+            hasNextPage={!debouncedFilter && (hasNextPage ?? false)}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
             initialOffset={getInitialOffset()}
@@ -156,7 +167,7 @@ export default function AlbumsPage() {
           />
         )
       ) : (
-        <EmptyState message="No albums in your library" />
+        <EmptyState message={debouncedFilter ? "No albums match your filter" : "No albums in your library"} />
       )}
     </div>
   );

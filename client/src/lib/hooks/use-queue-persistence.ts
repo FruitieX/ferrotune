@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { queueAtom, queueIndexAtom, isRestoringQueueAtom, queueSaveRequestAtom } from "@/lib/store/queue";
 import { currentTimeAtom } from "@/lib/store/player";
@@ -8,7 +8,7 @@ import { getClient } from "@/lib/api/client";
 import { useAuth } from "./use-auth";
 
 // Debounce time for saving queue (ms)
-const SAVE_DEBOUNCE_MS = 500; // Reduced from 2000ms for faster persistence
+const SAVE_DEBOUNCE_MS = 2000;
 
 /**
  * Hook to persist the play queue to the server.
@@ -28,9 +28,15 @@ export function useQueuePersistence() {
   const isRestoringRef = useRef(false);
   const lastSavedRef = useRef<string>("");
   const hasRestoredRef = useRef(false);
+  
+  // Use refs to avoid recreating the save function on every render
+  const stateRef = useRef({ queue, queueIndex, currentTime, isConnected });
+  stateRef.current = { queue, queueIndex, currentTime, isConnected };
 
-  // Save queue to server
-  const saveQueue = useCallback(async (immediate: boolean = false) => {
+  // Core save function - uses refs to avoid stale closures
+  const saveQueueInternal = async (immediate: boolean = false) => {
+    const { queue, queueIndex, currentTime, isConnected } = stateRef.current;
+    
     if (!isConnected || isRestoringRef.current) return;
     
     const client = getClient();
@@ -42,7 +48,8 @@ export function useQueuePersistence() {
       : undefined;
     
     // Create a signature to avoid redundant saves (but skip check for immediate saves)
-    const signature = JSON.stringify({ songIds, currentSongId, position: Math.floor(currentTime) });
+    // Don't include position in signature - we only want to save on queue/index changes
+    const signature = JSON.stringify({ songIds, currentSongId });
     if (!immediate && signature === lastSavedRef.current) return;
     
     try {
@@ -55,7 +62,7 @@ export function useQueuePersistence() {
     } catch (error) {
       console.error("Failed to save play queue:", error);
     }
-  }, [isConnected, queue, queueIndex, currentTime]);
+  };
 
   // Immediate save when saveRequest changes (triggered by playNowAtom)
   useEffect(() => {
@@ -66,11 +73,11 @@ export function useQueuePersistence() {
         saveTimeoutRef.current = null;
       }
       // Save immediately
-      saveQueue(true);
+      saveQueueInternal(true);
     }
-  }, [saveRequest, saveQueue]);
+  }, [saveRequest]);
 
-  // Debounced save when queue or index changes (for position updates, etc.)
+  // Debounced save when queue or index changes (NOT on currentTime changes)
   useEffect(() => {
     if (!isConnected || isRestoringRef.current) return;
     
@@ -79,7 +86,7 @@ export function useQueuePersistence() {
     }
     
     saveTimeoutRef.current = setTimeout(() => {
-      saveQueue(false);
+      saveQueueInternal(false);
     }, SAVE_DEBOUNCE_MS);
     
     return () => {
@@ -87,7 +94,7 @@ export function useQueuePersistence() {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [isConnected, queue, queueIndex, saveQueue]);
+  }, [isConnected, queue, queueIndex]); // Removed saveQueue dependency - now uses refs
 
   // Restore queue on mount
   useEffect(() => {

@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
 import { useAtom, useAtomValue } from "jotai";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
@@ -17,11 +17,12 @@ export default function SongsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
+  const debouncedFilter = useDebounce(filter, 300);
   
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
 
-  // Fetch all songs using search with wildcard
+  // Fetch all songs using search with wildcard (when no filter)
   const {
     data: songsData,
     isLoading,
@@ -53,25 +54,36 @@ export default function SongsPage() {
     },
     getNextPageParam: (lastPage) => lastPage.nextOffset,
     initialPageParam: 0,
-    enabled: isReady,
+    enabled: isReady && !debouncedFilter,
+  });
+
+  // Search songs when filter is active
+  const { data: searchData, isLoading: isSearching } = useQuery({
+    queryKey: ["songs", "search", debouncedFilter],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.search3({
+        query: debouncedFilter,
+        songCount: 200,
+        artistCount: 0,
+        albumCount: 0,
+      });
+      const songs = response.searchResult3.song ?? [];
+      songs.sort((a, b) => a.title.localeCompare(b.title));
+      return songs;
+    },
+    enabled: isReady && debouncedFilter.length >= 1,
   });
 
   // Flatten songs from all pages
   const allSongs = songsData?.pages.flatMap((page) => page.songs) ?? [];
   const totalSongs = songsData?.pages[0]?.total ?? allSongs.length;
   
-  // Filter songs based on search filter
-  const filteredSongs = useMemo(() => {
-    if (!filter.trim()) return allSongs;
-    const lowerFilter = filter.toLowerCase();
-    return allSongs.filter((song) =>
-      song.title?.toLowerCase().includes(lowerFilter) ||
-      song.artist?.toLowerCase().includes(lowerFilter) ||
-      song.album?.toLowerCase().includes(lowerFilter)
-    );
-  }, [allSongs, filter]);
-  
-  const displayCount = filter ? filteredSongs.length : totalSongs;
+  // Use search results when filtering, otherwise use paginated list
+  const displaySongs = debouncedFilter ? (searchData ?? []) : allSongs;
+  const displayCount = debouncedFilter ? displaySongs.length : totalSongs;
+  const isLoadingData = debouncedFilter ? isSearching : isLoading;
 
   if (authLoading) {
     return (
@@ -95,7 +107,7 @@ export default function SongsPage() {
 
   return (
     <div className="p-4 lg:p-6">
-      {isLoading && allSongs.length === 0 ? (
+      {isLoadingData && displaySongs.length === 0 ? (
         viewMode === "grid" ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             {Array.from({ length: 12 }).map((_, i) => (
@@ -109,17 +121,17 @@ export default function SongsPage() {
             ))}
           </div>
         )
-      ) : allSongs.length > 0 ? (
+      ) : displaySongs.length > 0 ? (
         viewMode === "grid" ? (
           <VirtualizedGrid
-            items={filteredSongs}
+            items={displaySongs}
             totalCount={displayCount}
             renderItem={(song) => (
-              <SongCard song={song} queueSongs={filteredSongs} />
+              <SongCard song={song} queueSongs={displaySongs} />
             )}
             renderSkeleton={() => <SongCardSkeleton />}
             getItemKey={(song) => song.id}
-            hasNextPage={!filter && (hasNextPage ?? false)}
+            hasNextPage={!debouncedFilter && (hasNextPage ?? false)}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
             initialOffset={getInitialOffset()}
@@ -127,20 +139,20 @@ export default function SongsPage() {
           />
         ) : (
           <VirtualizedList
-            items={filteredSongs}
+            items={displaySongs}
             totalCount={displayCount}
             renderItem={(song, index) => (
               <SongRow
                 song={song}
                 index={index}
                 showCover
-                queueSongs={filteredSongs}
+                queueSongs={displaySongs}
               />
             )}
             renderSkeleton={() => <SongRowSkeleton showCover showIndex={false} />}
             getItemKey={(song) => song.id}
             estimateItemHeight={56}
-            hasNextPage={!filter && (hasNextPage ?? false)}
+            hasNextPage={!debouncedFilter && (hasNextPage ?? false)}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
             initialOffset={getInitialOffset()}
@@ -148,7 +160,7 @@ export default function SongsPage() {
           />
         )
       ) : (
-        <EmptyState message="No songs in your library" />
+        <EmptyState message={debouncedFilter ? "No songs match your filter" : "No songs in your library"} />
       )}
     </div>
   );
