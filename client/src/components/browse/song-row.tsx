@@ -13,6 +13,7 @@ import { currentTrackAtom, playNowAtom } from "@/lib/store/queue";
 import { playbackStateAtom } from "@/lib/store/player";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { MediaRow, MediaRowSkeleton, RowActions } from "@/components/shared/media-row";
+import { MediaCard, MediaCardSkeleton } from "@/components/shared/media-card";
 import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
 
 // Audio bar visualizer for now playing indicator - uses CSS animations
@@ -225,6 +226,74 @@ export function SongRowSkeleton({ showCover = false, showIndex = true }: { showC
       showRightContent={true}
     />
   );
+}
+
+// Song card for grid view
+interface SongCardProps {
+  song: Song;
+  queueSongs?: Song[];
+  className?: string;
+}
+
+export function SongCard({ song, queueSongs, className }: SongCardProps) {
+  const currentTrack = useAtomValue(currentTrackAtom);
+  const playbackState = useAtomValue(playbackStateAtom);
+  const playNow = useSetAtom(playNowAtom);
+  const { togglePlayPause } = useAudioEngine();
+
+  const isCurrentTrack = currentTrack?.id === song.id && playbackState !== "ended";
+
+  const coverArtUrl = song.coverArt
+    ? getClient()?.getCoverArtUrl(song.coverArt, 300)
+    : undefined;
+
+  const handlePlay = () => {
+    if (isCurrentTrack) {
+      togglePlayPause();
+    } else if (queueSongs) {
+      const songIndex = queueSongs.findIndex((s) => s.id === song.id);
+      playNow(queueSongs, songIndex >= 0 ? songIndex : 0);
+    } else {
+      playNow(song);
+    }
+  };
+
+  const subtitleContent = (
+    <>
+      <Link
+        href={`/library/artists/details?id=${song.artistId}`}
+        className="hover:underline hover:text-foreground"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {song.artist}
+      </Link>
+      <span> • {formatDuration(song.duration)}</span>
+    </>
+  );
+
+  return (
+    <MediaCard
+      coverArt={coverArtUrl}
+      title={song.title}
+      subtitleContent={subtitleContent}
+      href={`/library/albums/details?id=${song.albumId}`}
+      colorSeed={song.album}
+      coverType="song"
+      onPlay={handlePlay}
+      dropdownMenu={<SongDropdownMenu song={song} queueSongs={queueSongs} />}
+      contextMenu={(children) => (
+        <SongContextMenu song={song} queueSongs={queueSongs}>
+          {children}
+        </SongContextMenu>
+      )}
+      withGlow
+      className={className}
+    />
+  );
+}
+
+export function SongCardSkeleton() {
+  return <MediaCardSkeleton coverShape="square" />;
 }
 
 // Compact song row for queue panel

@@ -299,7 +299,7 @@ export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: Artis
     <Button
       variant="ghost"
       size="icon"
-      className="h-8 w-8 absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 hover:bg-background z-10"
+      className="h-8 w-8 bg-background/80 hover:bg-background"
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();

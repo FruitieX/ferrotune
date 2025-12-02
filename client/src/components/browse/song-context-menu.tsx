@@ -221,7 +221,13 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
 }
 
 // Dropdown variant for mobile and click-triggered menu
-export function SongDropdownMenu({ song, queueSongs }: Omit<SongContextMenuProps, "children">) {
+interface SongDropdownMenuProps {
+  song: Song;
+  queueSongs?: Song[];
+  trigger?: React.ReactNode;
+}
+
+export function SongDropdownMenu({ song, queueSongs, trigger }: SongDropdownMenuProps) {
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!song.starred);
@@ -290,19 +296,26 @@ export function SongDropdownMenu({ song, queueSongs }: Omit<SongContextMenuProps
     window.open(downloadUrl, "_blank");
   };
 
+  const defaultTrigger = (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-8 w-8 bg-background/80 hover:bg-background"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
+      <MoreHorizontal className="w-4 h-4" />
+      <span className="sr-only">More options</span>
+    </Button>
+  );
+
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MoreHorizontal className="w-4 h-4" />
-            <span className="sr-only">More options</span>
-          </Button>
+          {trigger ?? defaultTrigger}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuItem onClick={handlePlay}>

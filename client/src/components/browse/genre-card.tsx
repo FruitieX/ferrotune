@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Tag, Play, ListPlus, ListEnd, Shuffle } from "lucide-react";
+import { Tag, Play, ListPlus, ListEnd, Shuffle, MoreHorizontal } from "lucide-react";
 import { useSetAtom } from "jotai";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -65,22 +65,45 @@ export function GenreCard({ genre, className }: GenreCardProps) {
 
   return (
     <GenreContextMenu genre={genre}>
-      <Link
-        href={`/library/genres/details?name=${encodeURIComponent(genre.value)}`}
+      <div
         className={cn(
-          "relative h-24 rounded-lg overflow-hidden cursor-pointer block",
+          "group relative h-24 rounded-lg overflow-hidden cursor-pointer",
           "hover:ring-2 hover:ring-primary/50 transition-shadow",
           className
         )}
         style={{ background: gradient }}
       >
-        <div className="absolute inset-0 flex flex-col justify-end p-4">
+        {/* Dropdown menu button */}
+        <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+          <GenreDropdownMenu
+            genre={genre}
+            trigger={
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 bg-black/30 hover:bg-black/50 text-white"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              >
+                <MoreHorizontal className="w-4 h-4" />
+                <span className="sr-only">More options</span>
+              </Button>
+            }
+          />
+        </div>
+
+        <Link
+          href={`/library/genres/details?name=${encodeURIComponent(genre.value)}`}
+          className="absolute inset-0 flex flex-col justify-end p-4"
+        >
           <h3 className="font-bold text-white truncate">{genre.value}</h3>
           <p className="text-xs text-white/80">
             {genre.albumCount} albums • {genre.songCount} songs
           </p>
-        </div>
-      </Link>
+        </Link>
+      </div>
     </GenreContextMenu>
   );
 }
