@@ -11,6 +11,20 @@ import { QueueSidebar } from "@/components/queue/queue-sidebar";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import { MainContent } from "@/components/layout/main-content";
 
+// Script that runs before React hydration to set CSS variables based on localStorage
+// This prevents layout flash by ensuring the correct sidebar widths are set immediately
+const initSidebarScript = `
+(function() {
+  try {
+    var collapsed = localStorage.getItem('ferrotune-sidebar-collapsed');
+    var width = localStorage.getItem('ferrotune-sidebar-width');
+    var sidebarWidth = collapsed === 'true' ? 72 : (parseInt(width) || 280);
+    document.documentElement.style.setProperty('--sidebar-width', sidebarWidth + 'px');
+    document.documentElement.style.setProperty('--queue-sidebar-width', '0px');
+  } catch(e) {}
+})();
+`;
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -47,6 +61,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Inject script to set CSS variables before render to prevent layout flash */}
+        <script dangerouslySetInnerHTML={{ __html: initSidebarScript }} />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased overflow-hidden`}
       >
@@ -67,8 +85,8 @@ export default function RootLayout({
               {/* Queue sidebar - desktop only, fixed right side */}
               <QueueSidebar />
               
-              {/* Queue panel - mobile only sheet/drawer */}
-              <div className="lg:hidden">
+              {/* Queue panel - mobile/tablet only sheet/drawer */}
+              <div className="xl:hidden">
                 <QueuePanel />
               </div>
             </div>

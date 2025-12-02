@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { Music, User, Disc, ListMusic } from "lucide-react";
@@ -8,6 +8,8 @@ import { Music, User, Disc, ListMusic } from "lucide-react";
 interface CoverImageProps {
   src?: string | null;
   alt: string;
+  /** String to use for generating placeholder color (e.g. album name for albums, artist name for artists) */
+  colorSeed?: string;
   type?: "album" | "artist" | "song" | "playlist";
   size?: "sm" | "md" | "lg" | "xl" | "full";
   className?: string;
@@ -29,12 +31,26 @@ const iconSizes = {
   md: "w-6 h-6",
   lg: "w-10 h-10",
   xl: "w-16 h-16",
-  full: "w-1/3 h-1/3",
+  full: "w-1/5 h-1/5",
 };
+
+/**
+ * Generate a stable hue value from a string (0-360)
+ */
+function stringToHue(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash % 360);
+}
 
 export function CoverImage({
   src,
   alt,
+  colorSeed,
   type = "album",
   size = "md",
   className,
@@ -47,6 +63,9 @@ export function CoverImage({
   
   const Icon = type === "artist" ? User : type === "playlist" ? ListMusic : type === "song" ? Music : Disc;
   const isRound = type === "artist";
+
+  // Generate a unique color based on colorSeed (album/artist name) or fall back to alt
+  const placeholderHue = useMemo(() => stringToHue(colorSeed || alt || ""), [colorSeed, alt]);
 
   // Use IntersectionObserver for true lazy loading
   useEffect(() => {
@@ -105,8 +124,13 @@ export function CoverImage({
           onError={() => setHasError(true)}
         />
       ) : (
-        <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-          <Icon className={cn("text-muted-foreground", iconSizes[size])} />
+        <div 
+          className="w-full h-full flex items-center justify-center"
+          style={{
+            background: `linear-gradient(135deg, hsl(${placeholderHue}, 50%, 25%) 0%, hsl(${(placeholderHue + 40) % 360}, 45%, 18%) 100%)`,
+          }}
+        >
+          <Icon className={cn("text-white/70", iconSizes[size])} />
         </div>
       )}
     </div>

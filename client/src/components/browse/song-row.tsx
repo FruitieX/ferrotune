@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Play, Pause, Heart } from "lucide-react";
@@ -10,6 +9,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CoverImage } from "@/components/shared/cover-image";
 import type { Song } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { formatDuration } from "@/lib/utils/format";
@@ -67,15 +67,14 @@ export function SongRow({
   const addToQueue = useSetAtom(addToQueueAtom);
   const { togglePlayPause } = useAudioEngine();
   const [isStarred, setIsStarred] = useState(!!song.starred);
-  const [coverError, setCoverError] = useState(false);
 
   // Don't show track as current when playback has ended
   const isCurrentTrack = currentTrack?.id === song.id && playbackState !== "ended";
   const isPlaying = isCurrentTrack && playbackState === "playing";
 
-  const coverArtUrl = showCover && song.coverArt && !coverError
+  const coverArtUrl = showCover && song.coverArt
     ? getClient()?.getCoverArtUrl(song.coverArt, 48)
-    : null;
+    : undefined;
 
   const handlePlay = () => {
     if (isCurrentTrack) {
@@ -154,21 +153,14 @@ export function SongRow({
 
       {/* Cover art (optional) */}
       {showCover && (
-        <div className="relative w-10 h-10 rounded overflow-hidden bg-muted shrink-0">
-          {coverArtUrl ? (
-            <Image
-              src={coverArtUrl}
-              alt={song.album || "Album cover"}
-              fill
-              className="object-cover"
-              unoptimized
-              onError={() => setCoverError(true)}
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20 text-xs">
-              🎵
-            </div>
-          )}
+        <div className="relative w-10 h-10 rounded overflow-hidden shrink-0">
+          <CoverImage
+            src={coverArtUrl}
+            alt={song.album || "Album cover"}
+            colorSeed={song.album}
+            type="song"
+            size="sm"
+          />
         </div>
       )}
 
@@ -269,11 +261,9 @@ export function SongRowCompact({
   onRemove,
   className,
 }: SongRowCompactProps) {
-  const [coverError, setCoverError] = useState(false);
-  
-  const coverArtUrl = song.coverArt && !coverError
+  const coverArtUrl = song.coverArt
     ? getClient()?.getCoverArtUrl(song.coverArt, 48)
-    : null;
+    : undefined;
 
   return (
     <div
@@ -283,19 +273,14 @@ export function SongRowCompact({
         className
       )}
     >
-      <div className="relative w-10 h-10 rounded overflow-hidden bg-muted shrink-0">
-        {coverArtUrl ? (
-          <Image
-            src={coverArtUrl}
-            alt={song.album || "Album cover"}
-            fill
-            className="object-cover"
-            unoptimized
-            onError={() => setCoverError(true)}
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20 text-xs">🎵</div>
-        )}
+      <div className="relative w-10 h-10 rounded overflow-hidden shrink-0">
+        <CoverImage
+          src={coverArtUrl}
+          alt={song.album || "Album cover"}
+          colorSeed={song.album}
+          type="song"
+          size="sm"
+        />
       </div>
       <div className="min-w-0 flex-1">
         <p className={cn(

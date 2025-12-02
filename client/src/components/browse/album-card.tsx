@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Play, Disc, Heart } from "lucide-react";
+import { Play, Heart } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CoverImage } from "@/components/shared/cover-image";
 import type { Album } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { AlbumContextMenu, AlbumDropdownMenu } from "./album-context-menu";
@@ -18,14 +19,9 @@ interface AlbumCardProps {
 }
 
 export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const [imageError, setImageError] = useState(false);
-  
   const coverArtUrl = album.coverArt
     ? getClient()?.getCoverArtUrl(album.coverArt, 300)
-    : null;
-
-  const hasImage = coverArtUrl && !imageError;
+    : undefined;
 
   return (
     <AlbumContextMenu album={album}>
@@ -38,31 +34,14 @@ export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
       >
         <AlbumDropdownMenu album={album} onPlay={onPlay} />
         <Link href={`/library/albums/details?id=${album.id}`} className="block">
-          <div className="relative aspect-square rounded-md overflow-hidden bg-muted mb-4 album-glow transform-gpu transition-transform duration-200 group-hover:scale-[1.05]">
-            {hasImage ? (
-              <>
-                {/* Skeleton shown while image loads */}
-                {!imageLoaded && (
-                  <Skeleton className="absolute inset-0 w-full h-full rounded-none" />
-                )}
-                <img
-                  src={coverArtUrl}
-                  alt={album.name || "Album cover"}
-                  loading="lazy"
-                  decoding="async"
-                  className={cn(
-                    "absolute inset-0 w-full h-full object-cover transition-opacity duration-200",
-                    imageLoaded ? "opacity-100" : "opacity-0"
-                  )}
-                  onLoad={() => setImageLoaded(true)}
-                  onError={() => setImageError(true)}
-                />
-              </>
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-                <Disc className="w-12 h-12 text-muted-foreground" />
-              </div>
-            )}
+          <div className="relative aspect-square rounded-md overflow-hidden mb-4 album-glow transform-gpu transition-transform duration-200 group-hover:scale-[1.05]">
+            <CoverImage
+              src={coverArtUrl}
+              alt={album.name || "Album cover"}
+              colorSeed={album.name}
+              type="album"
+              size="full"
+            />
             
             {/* Play button overlay */}
             <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -112,14 +91,11 @@ interface AlbumCardCompactProps {
 }
 
 export function AlbumCardCompact({ album, onPlay, className }: AlbumCardCompactProps) {
-  const [imageError, setImageError] = useState(false);
   const [isStarred, setIsStarred] = useState(!!album.starred);
   
   const coverArtUrl = album.coverArt
     ? getClient()?.getCoverArtUrl(album.coverArt, 80)
-    : null;
-
-  const showImage = coverArtUrl && !imageError;
+    : undefined;
 
   const handleStar = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -155,21 +131,14 @@ export function AlbumCardCompact({ album, onPlay, className }: AlbumCardCompactP
           href={`/library/albums/details?id=${album.id}`}
           className="flex items-center gap-3 flex-1 min-w-0"
         >
-          <div className="relative w-12 h-12 rounded overflow-hidden bg-muted shrink-0">
-            {showImage ? (
-              <img
-                src={coverArtUrl}
-                alt={album.name || "Album cover"}
-                loading="lazy"
-                decoding="async"
-                className="absolute inset-0 w-full h-full object-cover"
-                onError={() => setImageError(true)}
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-                <Disc className="w-5 h-5 text-muted-foreground" />
-              </div>
-            )}
+          <div className="relative w-12 h-12 rounded overflow-hidden shrink-0">
+            <CoverImage
+              src={coverArtUrl}
+              alt={album.name || "Album cover"}
+              colorSeed={album.name}
+              type="album"
+              size="sm"
+            />
           </div>
           <div className="min-w-0">
             <p className="font-medium text-sm truncate">{album.name}</p>

@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { Search as SearchIcon, X, Loader2, ListMusic, Clock } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { playNowAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,9 @@ export function SearchPageContent() {
   const searchParams = useSearchParams();
   const { isReady } = useAuth({ redirectToLogin: true });
   const playNow = useSetAtom(playNowAtom);
+  
+  // Restore scroll position when navigating back to this page
+  useScrollRestoration();
 
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const [activeTab, setActiveTab] = useState<"all" | "artists" | "albums" | "songs" | "playlists">("all");

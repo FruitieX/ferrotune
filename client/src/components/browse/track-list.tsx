@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { Play, Pause, Heart, Clock, Music } from "lucide-react";
 import { useAtomValue, useSetAtom } from "jotai";
@@ -16,6 +15,7 @@ import { currentTrackAtom, playNowAtom } from "@/lib/store/queue";
 import { playbackStateAtom } from "@/lib/store/player";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
+import { CoverImage } from "@/components/shared/cover-image";
 
 // Audio bar visualizer for now playing indicator
 function NowPlayingBars({ className }: { className?: string }) {
@@ -145,7 +145,6 @@ export function TrackRow({
   const playNow = useSetAtom(playNowAtom);
   const { togglePlayPause } = useAudioEngine();
   const [isStarred, setIsStarred] = useState(!!song.starred);
-  const [coverError, setCoverError] = useState(false);
   const [isVisible, setIsVisible] = useState(!showCover); // Only lazy load if showing cover
   const rowRef = useRef<HTMLDivElement>(null);
 
@@ -179,7 +178,7 @@ export function TrackRow({
   }, [showCover, isVisible]);
 
   const coverArtUrl =
-    showCover && song.coverArt && !coverError && isVisible
+    showCover && song.coverArt && isVisible
       ? getClient()?.getCoverArtUrl(song.coverArt, 48)
       : null;
 
@@ -255,22 +254,14 @@ export function TrackRow({
 
       {/* Cover art (optional) */}
       {showCover && (
-        <div className="relative w-10 h-10 rounded overflow-hidden bg-muted shrink-0">
-          {coverArtUrl ? (
-            <Image
-              src={coverArtUrl}
-              alt={song.album || "Album cover"}
-              fill
-              className="object-cover"
-              unoptimized
-              onError={() => setCoverError(true)}
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20 text-xs">
-              🎵
-            </div>
-          )}
-        </div>
+        <CoverImage
+          src={coverArtUrl}
+          alt={song.album || "Album cover"}
+          colorSeed={song.album || song.title}
+          type="song"
+          size="sm"
+          className="w-10 h-10 shrink-0"
+        />
       )}
 
       {/* Song info */}

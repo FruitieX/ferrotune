@@ -3,7 +3,6 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
-import Image from "next/image";
 import { useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -22,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
 import { ArtistDropdownMenu, useArtistStar } from "@/components/browse/artist-context-menu";
+import { CoverImage } from "@/components/shared/cover-image";
 import { formatCount } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import type { Album } from "@/lib/api/types";
@@ -33,7 +33,6 @@ function ArtistDetailContent() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const playNow = useSetAtom(playNowAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
-  const [coverError, setCoverError] = useState(false);
   const isMounted = useIsMounted();
 
   // Redirect to library if no ID
@@ -75,8 +74,6 @@ function ArtistDetailContent() {
   const coverArtUrl = artistData?.coverArt
     ? getClient()?.getCoverArtUrl(artistData.coverArt, 400)
     : null;
-
-  const showCoverImage = coverArtUrl && !coverError;
 
   const handlePlayAll = () => {
     if (allSongs && allSongs.length > 0) {
@@ -126,7 +123,7 @@ function ArtistDetailContent() {
       {/* Header with blurred background */}
       <div className="relative">
         {/* Background image with blur */}
-        {showCoverImage && (
+        {coverArtUrl && (
           <div 
             className="absolute inset-0 h-[400px] overflow-hidden"
             style={{
@@ -146,7 +143,7 @@ function ArtistDetailContent() {
           </div>
         )}
         {/* Fallback gradient when no image */}
-        {!showCoverImage && (
+        {!coverArtUrl && (
           <div 
             className="absolute inset-0 h-[400px]"
             style={{
@@ -173,25 +170,18 @@ function ArtistDetailContent() {
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="relative w-48 h-48 md:w-56 md:h-56 rounded-full overflow-hidden bg-muted mx-auto md:mx-0 shrink-0"
-            style={{ boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
+            className="relative w-48 h-48 md:w-56 md:h-56 mx-auto md:mx-0 shrink-0 drop-shadow-2xl"
           >
             {isLoading ? (
               <Skeleton className="w-full h-full rounded-full" />
-            ) : showCoverImage ? (
-              <Image
+            ) : (
+              <CoverImage
                 src={coverArtUrl}
                 alt={artistData?.name || "Artist"}
-                fill
-                className="object-cover"
-                priority
-                unoptimized
-                onError={() => setCoverError(true)}
+                colorSeed={artistData?.name || "Artist"}
+                type="artist"
+                size="full"
               />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-                <span className="text-6xl">👤</span>
-              </div>
             )}
           </motion.div>
 

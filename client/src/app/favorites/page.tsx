@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { Heart, Play, Shuffle } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
+import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,9 @@ export default function FavoritesPage() {
   const isMounted = useIsMounted();
   const playNow = useSetAtom(playNowAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
+  
+  // Restore scroll position when navigating back to this page
+  useScrollRestoration();
 
   // Fetch starred items
   const { data: starredData, isLoading } = useQuery({

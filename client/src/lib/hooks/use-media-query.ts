@@ -26,10 +26,12 @@ export function useMediaQuery(query: string): boolean {
 }
 
 /**
- * Hook that returns true when viewport is desktop size (lg breakpoint: 1024px+)
+ * Hook that returns true when viewport is desktop size (xl breakpoint: 1280px+)
+ * Note: This was changed from lg (1024px) to xl (1280px) to give more space
+ * for the main content area on smaller laptops/tablets when the queue sidebar is open.
  */
 export function useIsDesktop(): boolean {
-  return useMediaQuery("(min-width: 1024px)");
+  return useMediaQuery("(min-width: 1280px)");
 }
 
 /**

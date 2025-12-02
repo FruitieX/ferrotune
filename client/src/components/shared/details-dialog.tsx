@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Music, User, Disc, ListMusic, Calendar, Clock, Hash, FileAudio, HardDrive, Star, Heart, Trash2, Loader2, Play, History, Tag } from "lucide-react";
 import {
@@ -26,6 +25,7 @@ import { getClient } from "@/lib/api/client";
 import { formatDuration, formatDate, formatFileSize } from "@/lib/utils/format";
 import { toast } from "sonner";
 import { TagsEditor } from "./tags-editor";
+import { CoverImage } from "./cover-image";
 import type { Song, Album, Artist, Playlist } from "@/lib/api/types";
 
 type DetailsItem =
@@ -69,9 +69,9 @@ function DetailRow({ icon: Icon, label, value }: { icon: React.ElementType; labe
   return (
     <div className="flex items-start gap-3 py-2">
       <Icon className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1 overflow-hidden">
         <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="text-sm font-medium wrap-break-word">{value}</p>
+        <p className="text-sm font-medium wrap-break-word whitespace-pre-wrap">{value}</p>
       </div>
     </div>
   );
@@ -142,22 +142,14 @@ function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }
       <div className="space-y-4">
         {/* Cover and title */}
         <div className="flex gap-4">
-          <div className="relative w-24 h-24 rounded-md overflow-hidden bg-muted shrink-0">
-            {coverArtUrl ? (
-              <Image
-                src={coverArtUrl}
-                alt={fullSong.title || "Song cover"}
-                fill
-                className="object-cover"
-                unoptimized
-                onError={() => setCoverError(true)}
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-                <Music className="w-8 h-8 text-muted-foreground" />
-              </div>
-            )}
-          </div>
+          <CoverImage
+              src={coverArtUrl}
+              alt={fullSong.title || "Song cover"}
+              colorSeed={fullSong.album || fullSong.title || "Song"}
+              type="song"
+              size="full"
+              className="w-24 h-24 shrink-0"
+            />
           <div className="min-w-0 flex-1">
             <h3 className="font-bold text-lg truncate">{fullSong.title}</h3>
             <p className="text-sm text-muted-foreground truncate">{fullSong.artist}</p>
@@ -274,8 +266,7 @@ function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }
 }
 
 function AlbumDetails({ album }: { album: Album }) {
-  const [coverError, setCoverError] = useState(false);
-  const coverArtUrl = album.coverArt && !coverError
+  const coverArtUrl = album.coverArt
     ? getClient()?.getCoverArtUrl(album.coverArt, 200)
     : null;
 
@@ -291,22 +282,14 @@ function AlbumDetails({ album }: { album: Album }) {
       <div className="space-y-4">
         {/* Cover and title */}
         <div className="flex gap-4">
-          <div className="relative w-24 h-24 rounded-md overflow-hidden bg-muted shrink-0">
-            {coverArtUrl ? (
-              <Image
-                src={coverArtUrl}
-                alt={album.name || "Album cover"}
-                fill
-                className="object-cover"
-                unoptimized
-                onError={() => setCoverError(true)}
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-                <Disc className="w-8 h-8 text-muted-foreground" />
-              </div>
-            )}
-          </div>
+          <CoverImage
+              src={coverArtUrl}
+              alt={album.name || "Album cover"}
+              colorSeed={album.name || "Album"}
+              type="album"
+              size="full"
+              className="w-24 h-24 shrink-0"
+            />
           <div className="min-w-0 flex-1">
             <h3 className="font-bold text-lg truncate">{album.name}</h3>
             <p className="text-sm text-muted-foreground truncate">{album.artist}</p>
@@ -346,8 +329,7 @@ function AlbumDetails({ album }: { album: Album }) {
 }
 
 function ArtistDetails({ artist }: { artist: Artist }) {
-  const [coverError, setCoverError] = useState(false);
-  const coverArtUrl = artist.coverArt && !coverError
+  const coverArtUrl = artist.coverArt
     ? getClient()?.getCoverArtUrl(artist.coverArt, 200)
     : null;
 
@@ -363,22 +345,14 @@ function ArtistDetails({ artist }: { artist: Artist }) {
       <div className="space-y-4">
         {/* Cover and title */}
         <div className="flex gap-4">
-          <div className="relative w-24 h-24 rounded-full overflow-hidden bg-muted shrink-0">
-            {coverArtUrl ? (
-              <Image
-                src={coverArtUrl}
-                alt={artist.name || "Artist image"}
-                fill
-                className="object-cover"
-                unoptimized
-                onError={() => setCoverError(true)}
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-                <User className="w-8 h-8 text-muted-foreground" />
-              </div>
-            )}
-          </div>
+          <CoverImage
+              src={coverArtUrl}
+              alt={artist.name || "Artist image"}
+              colorSeed={artist.name || "Artist"}
+              type="artist"
+              size="full"
+              className="w-24 h-24 rounded-full shrink-0"
+            />
           <div className="min-w-0 flex-1 flex flex-col justify-center">
             <h3 className="font-bold text-lg truncate">{artist.name}</h3>
             <p className="text-sm text-muted-foreground">
@@ -415,8 +389,7 @@ function ArtistDetails({ artist }: { artist: Artist }) {
 }
 
 function PlaylistDetails({ playlist }: { playlist: Playlist }) {
-  const [coverError, setCoverError] = useState(false);
-  const coverArtUrl = playlist.coverArt && !coverError
+  const coverArtUrl = playlist.coverArt
     ? getClient()?.getCoverArtUrl(playlist.coverArt, 200)
     : null;
 
@@ -432,22 +405,14 @@ function PlaylistDetails({ playlist }: { playlist: Playlist }) {
       <div className="space-y-4">
         {/* Cover and title */}
         <div className="flex gap-4">
-          <div className="relative w-24 h-24 rounded-md overflow-hidden bg-muted shrink-0">
-            {coverArtUrl ? (
-              <Image
-                src={coverArtUrl}
-                alt={playlist.name || "Playlist cover"}
-                fill
-                className="object-cover"
-                unoptimized
-                onError={() => setCoverError(true)}
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-muted to-muted-foreground/20">
-                <ListMusic className="w-8 h-8 text-muted-foreground" />
-              </div>
-            )}
-          </div>
+          <CoverImage
+              src={coverArtUrl}
+              alt={playlist.name || "Playlist cover"}
+              colorSeed={playlist.name || "Playlist"}
+              type="playlist"
+              size="full"
+              className="w-24 h-24 shrink-0"
+            />
           <div className="min-w-0 flex-1">
             <h3 className="font-bold text-lg truncate">{playlist.name}</h3>
             {playlist.comment && (
