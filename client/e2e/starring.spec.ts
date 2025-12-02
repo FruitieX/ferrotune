@@ -93,7 +93,6 @@ test.describe("Starring and Ratings", () => {
       await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
       
       const firstSongRow = page.locator('[data-testid="song-row"]').first();
-      const isMobile = testInfo.project.name.includes("mobile");
       
       // Use dropdown menu for both - it's more reliable than context menu
       // The dropdown button is always present but only visible on hover (desktop) or always visible (mobile)
@@ -117,15 +116,21 @@ test.describe("Starring and Ratings", () => {
       // Wait for submenu to appear
       await page.waitForTimeout(300);
       
-      // Click 5-star rating - look for the filled star icons
-      const fiveStarOption = page.locator('[role="menuitem"]').filter({ has: page.locator('svg.fill-yellow-500') }).first();
+      // Get the rating submenu - it's the sub-content with the star rating items
+      // Use the specific data-slot attribute for the sub-menu
+      const ratingSubmenu = page.locator('[data-slot="dropdown-menu-sub-content"]');
+      await expect(ratingSubmenu).toBeVisible({ timeout: 2000 });
       
-      if (await fiveStarOption.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await fiveStarOption.click();
-        
-        // Verify toast appeared
-        await expect(page.locator('[data-sonner-toast]').filter({ hasText: /rated/i })).toBeVisible({ timeout: 3000 });
-      }
+      // Click on the 5th rating option (5 stars) - it's the last one before the separator
+      // The rating items don't have text, just star icons - select by index
+      const ratingMenuItems = ratingSubmenu.locator('[role="menuitem"]').filter({ hasNotText: "Remove Rating" });
+      const fiveStarOption = ratingMenuItems.nth(4); // 0-indexed, so 4 = 5th item = 5 stars
+      
+      await expect(fiveStarOption).toBeVisible({ timeout: 2000 });
+      await fiveStarOption.click();
+      
+      // Verify toast appeared
+      await expect(page.locator('[data-sonner-toast]').filter({ hasText: /rated/i })).toBeVisible({ timeout: 3000 });
       
       expect(page.url()).toBeTruthy();
     });
