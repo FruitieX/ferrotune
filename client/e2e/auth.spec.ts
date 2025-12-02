@@ -7,12 +7,16 @@ test.describe("Authentication", () => {
     // Should redirect to login
     await expect(page).toHaveURL(/\/login/);
     
-    // Login form should be visible - server URL is always visible
-    await expect(page.locator("#server-url")).toBeVisible();
-    
-    // Password tab is now default, so username/password inputs should be visible
+    // Password tab is default, so username/password inputs should be visible
     await expect(page.locator("#username")).toBeVisible();
     await expect(page.locator("#password")).toBeVisible();
+    
+    // Server URL is now hidden in Advanced Settings
+    await expect(page.locator("#server-url")).not.toBeVisible();
+    
+    // Click Advanced Settings to reveal server URL
+    await page.getByRole("button", { name: /advanced settings/i }).click();
+    await expect(page.locator("#server-url")).toBeVisible();
   });
 
   test("can login with valid credentials", async ({ page }) => {
@@ -30,9 +34,12 @@ test.describe("Authentication", () => {
     
     // Password tab is now default, no need to switch
     // Fill in invalid credentials
-    await page.locator("#server-url").fill(testConfig.serverUrl);
     await page.locator("#username").fill("wronguser");
     await page.locator("#password").fill("wrongpass");
+    
+    // Open advanced settings to set server URL
+    await page.getByRole("button", { name: /advanced settings/i }).click();
+    await page.locator("#server-url").fill(testConfig.serverUrl);
     
     // Submit
     await page.getByRole("button", { name: /connect/i }).click();
@@ -60,8 +67,11 @@ test.describe("Authentication", () => {
     await page.getByRole("tab", { name: /api key/i }).click();
     
     // Fill in API key
-    await page.locator("#server-url").fill(testConfig.serverUrl);
     await page.locator("#api-key").fill(apiKey);
+    
+    // Open advanced settings to set server URL
+    await page.getByRole("button", { name: /advanced settings/i }).click();
+    await page.locator("#server-url").fill(testConfig.serverUrl);
     
     // Submit
     await page.getByRole("button", { name: /connect/i }).click();

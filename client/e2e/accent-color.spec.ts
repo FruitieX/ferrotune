@@ -10,27 +10,13 @@ test.describe("Accent Color Settings", () => {
     await page.goto("/settings");
     await page.waitForSelector('[data-testid="settings-page"], h1:has-text("Settings")');
 
-    // Find the appearance section with accent color buttons
-    const appearanceSection = page.locator("text=Accent Color").locator("..");
-
-    // Click on emerald color (second button in the grid)
-    // The colors should be in a grid with oklch background colors
-    const colorButtons = page.locator('button[title]').filter({
-      has: page.locator('[style*="oklch"]'),
-    });
-
-    // If the filter doesn't work, try finding by the visible color buttons
+    // Click on emerald color (button with title attribute)
     const emeraldButton = page.locator('button[title="Emerald"]');
-    if (await emeraldButton.isVisible()) {
-      await emeraldButton.click();
-    } else {
-      // Fallback: click the second color button in the preset grid
-      const allColorButtons = page.locator('.grid button').first();
-      await allColorButtons.click();
-    }
+    await expect(emeraldButton).toBeVisible({ timeout: 10000 });
+    await emeraldButton.click();
 
     // Verify the accent has changed by checking the data-accent attribute on html
-    await expect(page.locator("html")).toHaveAttribute("data-accent", /.+/);
+    await expect(page.locator("html")).toHaveAttribute("data-accent", "emerald");
   });
 
   test("can use custom color with hue slider", async ({ page }) => {
@@ -98,8 +84,13 @@ test.describe("Accent Color Settings", () => {
     await page.waitForSelector('h1:has-text("Settings")');
 
     // Find color buttons with titles (preset colors have title attributes)
-    const colorButtons = page.locator('button[title][style*="oklch"]');
-    const count = await colorButtons.count();
+    const colorButtons = page.locator('button[title]:not([title="Use Custom"]):not([title="Active"])').filter({
+      has: page.locator('[style*="background"]'),
+    });
+    
+    // Count buttons that are color presets (round buttons in the accent color section)
+    const roundColorButtons = page.locator('.flex.flex-wrap.gap-2 button[title]');
+    const count = await roundColorButtons.count();
     
     expect(count).toBe(10);
   });

@@ -19,8 +19,10 @@ export default defineConfig({
   globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
   
-  /* Run tests in files in parallel */
-  fullyParallel: true,
+  /* Run tests sequentially - tests share a single server instance and can interfere
+   * with each other when run in parallel (e.g., modifying playlists, queue state).
+   * TODO: Add per-worker server isolation for parallel test support */
+  fullyParallel: false,
   
   /* Fail the build on CI if you accidentally left test.only in the source code */
   forbidOnly: !!process.env.CI,
@@ -28,8 +30,8 @@ export default defineConfig({
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
   
-  /* Limit parallel workers to avoid overwhelming the server */
-  workers: process.env.CI ? 1 : 4,
+  /* Single worker to prevent test interference from shared server state */
+  workers: 1,
   
   /* Global timeout per test */
   timeout: 30_000,

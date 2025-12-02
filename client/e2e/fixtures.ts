@@ -97,14 +97,20 @@ export async function login(page: Page, options?: {
   // Go to login page
   await page.goto("/login");
   
-  // Wait for login form to be ready
-  await page.waitForSelector("#server-url", { state: "visible", timeout: 10000 });
+  // Wait for login form to be ready - username is always visible (password tab is default)
+  await page.waitForSelector("#username", { state: "visible", timeout: 10000 });
   
-  // Password tab is now the default, no need to switch
-  // Fill in credentials using specific input selectors
-  await page.locator("#server-url").fill(serverUrl);
+  // Fill in username and password
   await page.locator("#username").fill(username);
   await page.locator("#password").fill(password);
+  
+  // Open advanced settings to set server URL (it's hidden by default)
+  const advancedButton = page.getByRole("button", { name: /advanced settings/i });
+  await advancedButton.click();
+  
+  // Wait for server URL input to appear and fill it
+  await page.waitForSelector("#server-url", { state: "visible", timeout: 5000 });
+  await page.locator("#server-url").fill(serverUrl);
   
   // Click login button
   await page.getByRole("button", { name: /connect/i }).click();
@@ -188,12 +194,9 @@ export async function searchFor(page: Page, query: string) {
 /**
  * Helper to navigate to library section.
  */
-export async function goToLibrary(page: Page, section?: "albums" | "artists" | "genres") {
-  await page.goto("/library");
-  
-  if (section) {
-    await page.getByRole("tab", { name: new RegExp(section, "i") }).click();
-  }
+export async function goToLibrary(page: Page, section?: "albums" | "artists" | "songs" | "genres") {
+  const path = section ? `/library/${section}` : "/library/albums";
+  await page.goto(path);
   
   await waitForNetworkIdle(page);
 }
