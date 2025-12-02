@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Plus, ListMusic, Music2, Clock } from "lucide-react";
@@ -18,6 +19,7 @@ import type { Playlist } from "@/lib/api/types";
 export default function PlaylistsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const isMounted = useIsMounted();
 
   // Fetch playlists
   const { data: playlists, isLoading } = useQuery({
@@ -31,7 +33,9 @@ export default function PlaylistsPage() {
     enabled: isReady,
   });
 
-  if (authLoading) {
+  // Always render the same loading state on server and during hydration
+  // This prevents hydration mismatches
+  if (!isMounted || authLoading) {
     return (
       <div className="min-h-screen">
         {/* Header skeleton */}

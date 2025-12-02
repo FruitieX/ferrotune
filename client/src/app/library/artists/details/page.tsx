@@ -14,6 +14,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -30,16 +31,17 @@ function ArtistDetailContent() {
   const id = searchParams.get("id");
   const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const isMounted = useIsMounted();
   const playNow = useSetAtom(playNowAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const [coverError, setCoverError] = useState(false);
 
   // Redirect to library if no ID
   useEffect(() => {
-    if (!id && !authLoading) {
+    if (!id && isMounted && !authLoading) {
       router.replace("/library");
     }
-  }, [id, authLoading, router]);
+  }, [id, isMounted, authLoading, router]);
 
   // Fetch artist data (includes songs from server)
   const { data: artistData, isLoading } = useQuery({
@@ -105,16 +107,18 @@ function ArtistDetailContent() {
     }
   };
 
-  if (!id) {
-    return null;
-  }
-
-  if (authLoading) {
+  // Always render the same loading state on server and during hydration
+  // This prevents hydration mismatches
+  if (!isMounted || authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Skeleton className="w-32 h-8" />
       </div>
     );
+  }
+
+  if (!id) {
+    return null;
   }
 
   return (

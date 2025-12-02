@@ -184,14 +184,9 @@ async fn main() -> Result<()> {
 
 async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()> {
     tracing::info!(
-        "OpenSubsonic API: {}:{}",
+        "Starting server on {}:{}",
         config.server.host,
         config.server.port
-    );
-    tracing::info!(
-        "Ferrotune Admin API: {}:{}",
-        config.server.host,
-        config.server.admin_port
     );
 
     // Check if we need to create initial admin user
@@ -225,8 +220,13 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
         .allow_methods(Any)
         .allow_headers(Any);
 
-    // Build OpenSubsonic API router with request logging and CORS
-    let subsonic_app = api::subsonic::create_router(state.clone())
+    // Build combined API router (OpenSubsonic + Ferrotune Admin)
+    // Both APIs are served on the same port:
+    // - /rest/* - OpenSubsonic API
+    // - /api/ferrotune/* - Ferrotune Admin API
+    let app = api::subsonic::create_router(state.clone())
+        .merge(api::ferrotune::create_router(state))
+        .fallback(api::subsonic::fallback_handler)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {
@@ -237,7 +237,7 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
                         .map(|p| format!("{}@{}", p.u.unwrap_or_default(), p.c))
                         .unwrap_or_else(|| "unknown".to_string());
                     tracing::info_span!(
-                        "subsonic",
+                        "api",
                         method = %request.method(),
                         path = %uri.path(),
                         client = %client,
@@ -278,51 +278,15 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
         // CORS must be the outermost layer to handle OPTIONS preflight before routing
         .layer(cors);
 
-    // Build Ferrotune Admin API router
-    let admin_app = api::ferrotune::create_router(state).layer(
-        TraceLayer::new_for_http()
-            .make_span_with(|request: &axum::http::Request<_>| {
-                tracing::info_span!(
-                    "admin",
-                    method = %request.method(),
-                    path = %request.uri().path(),
-                )
-            })
-            .on_request(|request: &axum::http::Request<_>, _span: &tracing::Span| {
-                tracing::info!("→ {} {}", request.method(), request.uri().path());
-            })
-            .on_response(
-                |response: &axum::http::Response<_>,
-                 latency: std::time::Duration,
-                 _span: &tracing::Span| {
-                    tracing::info!("← {} {:?}", response.status(), latency);
-                },
-            ),
-    );
+    // Create listener
+    let addr = format!("{}:{}", config.server.host, config.server.port);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
 
-    // Create listeners for both servers
-    let subsonic_addr = format!("{}:{}", config.server.host, config.server.port);
-    let admin_addr = format!("{}:{}", config.server.host, config.server.admin_port);
+    tracing::info!("Ferrotune server listening on http://{}", addr);
+    tracing::info!("  OpenSubsonic API: /rest/*");
+    tracing::info!("  Ferrotune API: /ferrotune/*");
 
-    let subsonic_listener = tokio::net::TcpListener::bind(&subsonic_addr).await?;
-    let admin_listener = tokio::net::TcpListener::bind(&admin_addr).await?;
-
-    tracing::info!("OpenSubsonic API listening on http://{}", subsonic_addr);
-    tracing::info!("Ferrotune Admin API listening on http://{}", admin_addr);
-
-    // Run both servers concurrently
-    tokio::select! {
-        result = axum::serve(subsonic_listener, subsonic_app) => {
-            if let Err(e) = result {
-                tracing::error!("OpenSubsonic API server error: {}", e);
-            }
-        }
-        result = axum::serve(admin_listener, admin_app) => {
-            if let Err(e) = result {
-                tracing::error!("Ferrotune Admin API server error: {}", e);
-            }
-        }
-    }
+    axum::serve(listener, app).await?;
 
     Ok(())
 }

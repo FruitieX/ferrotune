@@ -1,7 +1,7 @@
 //! Custom query string extractor that handles duplicate keys (e.g., `id=a&id=b`)
 //! This is needed for Subsonic API compatibility.
 
-use axum::{async_trait, extract::FromRequestParts, http::request::Parts};
+use axum::{extract::FromRequestParts, http::request::Parts};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 
@@ -12,7 +12,6 @@ use std::collections::HashMap;
 /// will contain `["a", "b"]`.
 pub struct QsQuery<T>(pub T);
 
-#[async_trait]
 impl<S, T> FromRequestParts<S> for QsQuery<T>
 where
     S: Send + Sync,

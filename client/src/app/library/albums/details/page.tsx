@@ -19,6 +19,7 @@ import {
   ListEnd,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
 import { isShuffledAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
@@ -39,6 +40,7 @@ function AlbumDetailContent() {
   const id = searchParams.get("id");
   const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const isMounted = useIsMounted();
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
@@ -47,10 +49,10 @@ function AlbumDetailContent() {
 
   // Redirect to library if no ID
   useEffect(() => {
-    if (!id && !authLoading) {
+    if (!id && isMounted && !authLoading) {
       router.replace("/library");
     }
-  }, [id, authLoading, router]);
+  }, [id, isMounted, authLoading, router]);
 
   // Fetch album data
   const { data: albumData, isLoading } = useQuery({
@@ -87,16 +89,18 @@ function AlbumDetailContent() {
     }
   };
 
-  if (!id) {
-    return null;
-  }
-
-  if (authLoading) {
+  // Always render the same loading state on server and during hydration
+  // This prevents hydration mismatches
+  if (!isMounted || authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Skeleton className="w-32 h-8" />
       </div>
     );
+  }
+
+  if (!id) {
+    return null;
   }
 
   return (

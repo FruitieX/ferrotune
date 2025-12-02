@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { volumeAtom, repeatModeAtom } from "@/lib/store/player";
 import { isShuffledAtom } from "@/lib/store/queue";
@@ -63,6 +64,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 export default function SettingsPage() {
   const router = useRouter();
   const { isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const isMounted = useIsMounted();
   const [connection, setConnection] = useAtom(serverConnectionAtom);
   const [volume, setVolume] = useAtom(volumeAtom);
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
@@ -78,7 +80,9 @@ export default function SettingsPage() {
     toast.success("Logged out successfully");
   };
 
-  if (authLoading) {
+  // Always render the same loading state on server and during hydration
+  // This prevents hydration mismatches
+  if (!isMounted || authLoading) {
     return (
       <div className="p-4 lg:p-6 space-y-6">
         <Skeleton className="h-8 w-32" />

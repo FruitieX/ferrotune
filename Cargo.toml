@@ -10,7 +10,7 @@ embedded-ui = ["dep:rust-embed", "dep:mime_guess"]
 
 [dependencies]
 # Web framework
-axum = "0.7"
+axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tower = "0.5"
@@ -45,6 +45,7 @@ argon2 = "0.5"
 md5 = "0.7"
 rand = "0.8"
 hex = "0.4"
+base64 = "0.22"
 
 # Error handling
 anyhow = "1.0"

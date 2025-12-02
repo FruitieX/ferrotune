@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { use, useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import Image from "next/image";
 import { useSetAtom } from "jotai";
@@ -24,11 +24,14 @@ import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
 import { ArtistDropdownMenu, useArtistStar } from "@/components/browse/artist-context-menu";
 import { formatCount } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
-import type { Album } from "@/lib/api/types";
+import type { Album, Song } from "@/lib/api/types";
 
-function ArtistDetailContent() {
-  const searchParams = useSearchParams();
-  const id = searchParams.get("id");
+interface ArtistPageProps {
+  params: Promise<{ id: string }>;
+}
+
+export default function ArtistPage({ params }: ArtistPageProps) {
+  const { id } = use(params);
   const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const playNow = useSetAtom(playNowAtom);
@@ -36,20 +39,13 @@ function ArtistDetailContent() {
   const [coverError, setCoverError] = useState(false);
   const isMounted = useIsMounted();
 
-  // Redirect to library if no ID
-  useEffect(() => {
-    if (!id && isMounted && !authLoading) {
-      router.replace("/library");
-    }
-  }, [id, isMounted, authLoading, router]);
-
   // Fetch artist data (includes songs from server)
   const { data: artistData, isLoading } = useQuery({
     queryKey: ["artist", id],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getArtist(id!);
+      const response = await client.getArtist(id);
       return response.artist;
     },
     enabled: isReady && !!id,
@@ -61,7 +57,7 @@ function ArtistDetailContent() {
   // Use the artist star hook
   const { isStarred, handleStar, setIsStarred } = useArtistStar(
     !!artistData?.starred,
-    id ?? "",
+    id,
     artistData?.name ?? ""
   );
 
@@ -115,10 +111,6 @@ function ArtistDetailContent() {
         <Skeleton className="w-32 h-8" />
       </div>
     );
-  }
-
-  if (!id) {
-    return null;
   }
 
   return (
@@ -335,7 +327,7 @@ function ArtistDetailContent() {
               >
                 <SongRow 
                   song={song} 
-                  index={index + 1} 
+                  index={index} 
                   showAlbum={true}
                   showArtist={false}
                   showCover={true}
@@ -354,17 +346,5 @@ function ArtistDetailContent() {
       {/* Spacer for player bar */}
       <div className="h-24" />
     </div>
-  );
-}
-
-export default function ArtistPage() {
-  return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen">
-        <Skeleton className="w-32 h-8" />
-      </div>
-    }>
-      <ArtistDetailContent />
-    </Suspense>
   );
 }

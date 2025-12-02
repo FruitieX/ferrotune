@@ -12,19 +12,22 @@
 //!
 //! ## Endpoints
 //!
-//! - `GET /api/health` - Health check
-//! - `POST /api/scan` - Trigger a library scan
-//! - `GET /api/scan/status` - Get current scan status (placeholder for future async scanning)
-//! - `GET /api/playlist-folders` - Get all playlist folders and playlists
-//! - `POST /api/playlist-folders` - Create a new playlist folder
-//! - `PATCH /api/playlist-folders/:id` - Update a playlist folder
-//! - `DELETE /api/playlist-folders/:id` - Delete a playlist folder
-//! - `PATCH /api/playlists/:id/move` - Move a playlist to a folder
-//! - `DELETE /api/songs/:id` - Delete a song from the database
+//! - `GET /ferrotune/health` - Health check
+//! - `POST /ferrotune/scan` - Trigger a library scan
+//! - `GET /ferrotune/scan/status` - Get current scan status (placeholder for future async scanning)
+//! - `GET /ferrotune/playlist-folders` - Get all playlist folders and playlists
+//! - `POST /ferrotune/playlist-folders` - Create a new playlist folder
+//! - `PATCH /ferrotune/playlist-folders/:id` - Update a playlist folder
+//! - `DELETE /ferrotune/playlist-folders/:id` - Delete a playlist folder
+//! - `PATCH /ferrotune/playlists/:id/move` - Move a playlist to a folder
+//! - `DELETE /ferrotune/songs/:id` - Delete a song from the database
+//! - `GET /ferrotune/songs/:id/tags` - Get all tags from a song file
+//! - `PATCH /ferrotune/songs/:id/tags` - Update tags in a song file
 
 mod media;
 mod playlists;
 mod scan;
+mod tags;
 
 use crate::api::AppState;
 use axum::{
@@ -39,29 +42,37 @@ use std::sync::Arc;
 /// Create the Ferrotune Admin API router.
 pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/api/health", get(health))
-        .route("/api/scan", post(scan::start_scan))
-        .route("/api/scan/status", get(scan::scan_status))
+        .route("/ferrotune/health", get(health))
+        .route("/ferrotune/scan", post(scan::start_scan))
+        .route("/ferrotune/scan/status", get(scan::scan_status))
         // Playlist folder endpoints
         .route(
-            "/api/playlist-folders",
+            "/ferrotune/playlist-folders",
             get(playlists::get_playlist_folders),
         )
         .route(
-            "/api/playlist-folders",
+            "/ferrotune/playlist-folders",
             post(playlists::create_playlist_folder),
         )
         .route(
-            "/api/playlist-folders/{id}",
+            "/ferrotune/playlist-folders/{id}",
             patch(playlists::update_playlist_folder),
         )
         .route(
-            "/api/playlist-folders/{id}",
+            "/ferrotune/playlist-folders/{id}",
             delete(playlists::delete_playlist_folder),
         )
-        .route("/api/playlists/{id}/move", patch(playlists::move_playlist))
+        .route(
+            "/ferrotune/playlists/{id}/move",
+            patch(playlists::move_playlist),
+        )
         // Media management endpoints
-        .route("/api/songs/{id}", delete(media::delete_song))
+        .route("/ferrotune/songs/{id}", delete(media::delete_song))
+        // Tag management endpoints
+        .route(
+            "/ferrotune/songs/{id}/tags",
+            get(tags::get_tags).patch(tags::update_tags),
+        )
         .with_state(state)
 }
 

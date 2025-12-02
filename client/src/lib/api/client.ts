@@ -19,6 +19,9 @@ import type {
   AlbumListParams,
   SearchParams,
   RandomSongsParams,
+  GetTagsResponse,
+  UpdateTagsRequest,
+  UpdateTagsResponse,
 } from "./types";
 
 const API_VERSION = "1.16.1";
@@ -348,8 +351,20 @@ export class SubsonicClient {
   }
 
   async deleteSongFromDatabase(id: string): Promise<{ success: boolean; message: string }> {
-    return this.adminRequest(`/api/songs/${encodeURIComponent(id)}`, {
+    return this.adminRequest(`/ferrotune/songs/${encodeURIComponent(id)}`, {
       method: "DELETE",
+    });
+  }
+
+  // Tag management endpoints (Admin API)
+  async getSongTags(id: string): Promise<GetTagsResponse> {
+    return this.adminRequest(`/ferrotune/songs/${encodeURIComponent(id)}/tags`);
+  }
+
+  async updateSongTags(id: string, request: UpdateTagsRequest): Promise<UpdateTagsResponse> {
+    return this.adminRequest(`/ferrotune/songs/${encodeURIComponent(id)}/tags`, {
+      method: "PATCH",
+      body: JSON.stringify(request),
     });
   }
 }

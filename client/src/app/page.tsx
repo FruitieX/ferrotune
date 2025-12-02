@@ -1,6 +1,7 @@
 "use client";
 
 import { useSetAtom } from "jotai";
+import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Play, Clock, Sparkles, TrendingUp } from "lucide-react";
@@ -69,6 +70,7 @@ function AlbumSection({
 export default function HomePage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const playNow = useSetAtom(playNowAtom);
+  const isMounted = useIsMounted();
 
   // Fetch recently added albums
   const { data: newestAlbums, isLoading: loadingNewest } = useQuery({
@@ -133,7 +135,9 @@ export default function HomePage() {
     }
   };
 
-  if (authLoading) {
+  // Always render the same loading state on server and during hydration
+  // This prevents hydration mismatches
+  if (!isMounted || authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Skeleton className="w-32 h-8" />

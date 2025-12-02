@@ -13,8 +13,8 @@
 | Task Runner | Moon |
 
 ### Architecture
-- **OpenSubsonic API** (port 4040) - Client-facing API for Subsonic ecosystem
-- **Admin API** (port 4041) - REST API for administration
+- **OpenSubsonic API** (`/rest` port 4040) - Client-facing API for Subsonic ecosystem
+- **Admin API** (`/ferrotune` port 4040) - REST API for administration
 - **Web Client** (`client/`) - Next.js web interface
 
 ---

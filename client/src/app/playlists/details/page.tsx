@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useSetAtom } from "jotai";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -54,13 +55,14 @@ function PlaylistDetailContent() {
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const isMounted = useIsMounted();
 
   // Redirect to playlists if no ID
   useEffect(() => {
-    if (!playlistId && !authLoading) {
+    if (!playlistId && isMounted && !authLoading) {
       router.replace("/playlists");
     }
-  }, [playlistId, authLoading, router]);
+  }, [playlistId, isMounted, authLoading, router]);
 
   // Fetch playlist details
   const { data: playlist, isLoading } = useQuery({
@@ -112,11 +114,9 @@ function PlaylistDetailContent() {
     }
   };
 
-  if (!playlistId) {
-    return null;
-  }
-
-  if (authLoading) {
+  // Always render the same loading state on server and during hydration
+  // This prevents hydration mismatches
+  if (!isMounted || authLoading) {
     return (
       <div className="min-h-screen">
         {/* Header with gradient background */}
@@ -157,6 +157,10 @@ function PlaylistDetailContent() {
         </div>
       </div>
     );
+  }
+
+  if (!playlistId) {
+    return null;
   }
 
   return (

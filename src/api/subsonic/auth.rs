@@ -2,7 +2,11 @@ use crate::api::subsonic::xml::ResponseFormat;
 use crate::api::CommonParams;
 use crate::db::queries;
 use crate::error::{Error, Result};
-use axum::{async_trait, extract::FromRequestParts, http::request::Parts};
+use axum::{
+    extract::FromRequestParts,
+    http::{header::AUTHORIZATION, request::Parts},
+};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use sqlx::SqlitePool;
 use std::sync::Arc;
 
@@ -17,7 +21,6 @@ pub struct AuthenticatedUser {
 /// Extractor for just the response format (no auth required)
 pub struct RequestFormat(pub ResponseFormat);
 
-#[async_trait]
 impl<S: Send + Sync> FromRequestParts<S> for RequestFormat {
     type Rejection = std::convert::Infallible;
 
@@ -36,7 +39,6 @@ impl<S: Send + Sync> FromRequestParts<S> for RequestFormat {
     }
 }
 
-#[async_trait]
 impl FromRequestParts<Arc<crate::api::AppState>> for AuthenticatedUser {
     type Rejection = Error;
 
@@ -44,20 +46,94 @@ impl FromRequestParts<Arc<crate::api::AppState>> for AuthenticatedUser {
         parts: &mut Parts,
         state: &Arc<crate::api::AppState>,
     ) -> Result<Self> {
-        // Extract query parameters
-        let query_string = parts
-            .uri
-            .query()
-            .ok_or_else(|| Error::Auth("Missing authentication parameters".to_string()))?;
+        // Try HTTP Basic Auth first (useful for Admin API and tools like curl)
+        if let Some(user) = try_basic_auth(parts, &state.pool).await? {
+            return Ok(user);
+        }
 
-        let params: CommonParams = serde_urlencoded::from_str(query_string)
-            .map_err(|e| Error::InvalidRequest(format!("Invalid parameters: {}", e)))?;
+        // Fall back to Subsonic query parameter authentication
+        let query_string = parts.uri.query().unwrap_or("");
+
+        // Parse common params - use defaults for missing fields (for Admin API compatibility)
+        let params: CommonParams =
+            serde_urlencoded::from_str(query_string).unwrap_or_else(|_| CommonParams {
+                u: None,
+                p: None,
+                t: None,
+                s: None,
+                api_key: None,
+                v: "1.16.1".to_string(),
+                c: "unknown".to_string(),
+                f: "json".to_string(),
+            });
 
         // Extract format from params
         let format = ResponseFormat::from_param(&params.f);
 
+        // Check if we have any query-based auth
+        let has_query_auth = params.api_key.is_some()
+            || (params.u.is_some()
+                && (params.p.is_some() || (params.t.is_some() && params.s.is_some())));
+
+        if !has_query_auth {
+            return Err(Error::Auth(
+                "No valid authentication provided. Use HTTP Basic Auth, API key, or query parameters (u/p or u/t/s).".to_string(),
+            ));
+        }
+
         authenticate_request(&state.pool, &params, format).await
     }
+}
+
+/// Try to authenticate using HTTP Basic Auth header.
+async fn try_basic_auth(parts: &Parts, pool: &SqlitePool) -> Result<Option<AuthenticatedUser>> {
+    let auth_header = match parts.headers.get(AUTHORIZATION) {
+        Some(h) => h,
+        None => return Ok(None),
+    };
+
+    let auth_str = auth_header
+        .to_str()
+        .map_err(|_| Error::Auth("Invalid Authorization header".to_string()))?;
+
+    let credentials = match auth_str.strip_prefix("Basic ") {
+        Some(c) => c,
+        None => return Ok(None), // Not Basic auth, try other methods
+    };
+
+    let decoded = BASE64
+        .decode(credentials.trim())
+        .map_err(|_| Error::Auth("Invalid base64 in Authorization header".to_string()))?;
+
+    let decoded_str = String::from_utf8(decoded)
+        .map_err(|_| Error::Auth("Invalid UTF-8 in Authorization header".to_string()))?;
+
+    let (username, password) = decoded_str
+        .split_once(':')
+        .ok_or_else(|| Error::Auth("Invalid Basic auth format".to_string()))?;
+
+    // Get format from query params if available, default to JSON for Basic auth
+    let format = parts
+        .uri
+        .query()
+        .and_then(|q| q.split('&').find(|p| p.starts_with("f=")).map(|p| &p[2..]))
+        .map(ResponseFormat::from_param)
+        .unwrap_or(ResponseFormat::Json);
+
+    // Get client from query params if available
+    let client = parts
+        .uri
+        .query()
+        .and_then(|q| {
+            q.split('&')
+                .find(|p| p.starts_with("c="))
+                .map(|p| p[2..].to_string())
+        })
+        .unwrap_or_else(|| "http-basic".to_string());
+
+    authenticate_with_password(pool, username, password, format, client)
+        .await
+        .map(Some)
 }
 
 pub async fn authenticate_request(
