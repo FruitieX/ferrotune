@@ -45,6 +45,12 @@ export const playlistsSidebarExpandedAtom = atomWithStorage<boolean>(
   true
 );
 
+// Library sidebar expansion state
+export const librarySidebarExpandedAtom = atomWithStorage<boolean>(
+  "ferrotune-library-expanded",
+  true
+);
+
 // Expanded playlist folders in sidebar
 export const expandedPlaylistFoldersAtom = atomWithStorage<string[]>(
   "ferrotune-expanded-playlist-folders",

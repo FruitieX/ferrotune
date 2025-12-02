@@ -20,6 +20,10 @@ import {
   Music2,
   Folder,
   FolderOpen,
+  Disc,
+  Users,
+  Music,
+  Tag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useHydrated } from "@/lib/hooks/use-hydrated";
@@ -36,6 +40,7 @@ import {
   sidebarCollapsedAtom,
   sidebarWidthAtom,
   playlistsSidebarExpandedAtom,
+  librarySidebarExpandedAtom,
   expandedPlaylistFoldersAtom,
 } from "@/lib/store/ui";
 import { isConnectedAtom } from "@/lib/store/auth";
@@ -50,7 +55,13 @@ import type { Playlist } from "@/lib/api/types";
 const navItems = [
   { href: "/", icon: Home, label: "Home" },
   { href: "/search", icon: Search, label: "Search" },
-  { href: "/library", icon: Library, label: "Library" },
+];
+
+const librarySubItems = [
+  { href: "/library/albums", icon: Disc, label: "Albums" },
+  { href: "/library/artists", icon: Users, label: "Artists" },
+  { href: "/library/songs", icon: Music, label: "Songs" },
+  { href: "/library/genres", icon: Tag, label: "Genres" },
 ];
 
 export function Sidebar() {
@@ -61,6 +72,7 @@ export function Sidebar() {
   const sidebarWidth = useAtomValue(sidebarWidthAtom);
   const isConnected = useAtomValue(isConnectedAtom);
   const [playlistsExpanded, setPlaylistsExpanded] = useAtom(playlistsSidebarExpandedAtom);
+  const [libraryExpanded, setLibraryExpanded] = useAtom(librarySidebarExpandedAtom);
   const [expandedFolders, setExpandedFolders] = useAtom(expandedPlaylistFoldersAtom);
 
   // Fetch playlists
@@ -171,6 +183,81 @@ export function Sidebar() {
               </Link>
             );
           })}
+          
+          {/* Library Section - Expandable */}
+          {!collapsed && isConnected && (
+            <Collapsible open={libraryExpanded} onOpenChange={setLibraryExpanded}>
+              <div className="relative">
+                <Link href="/library" className="block">
+                  <Button
+                    variant="ghost"
+                    className={cn(
+                      "w-full justify-start gap-4 h-11 px-3 pr-10 overflow-hidden",
+                      "hover:bg-sidebar-accent",
+                      pathname.startsWith("/library") && "bg-sidebar-accent text-sidebar-primary font-semibold"
+                    )}
+                  >
+                    <Library className={cn("w-5 h-5 shrink-0", pathname.startsWith("/library") && "text-sidebar-primary")} />
+                    <span className="truncate whitespace-nowrap flex-1 text-left">Library</span>
+                  </Button>
+                </Link>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8",
+                      "hover:bg-sidebar-accent/80"
+                    )}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <ChevronDown className={cn(
+                      "w-4 h-4 shrink-0 transition-transform duration-200",
+                      libraryExpanded && "rotate-180"
+                    )} />
+                  </Button>
+                </CollapsibleTrigger>
+              </div>
+              <CollapsibleContent>
+                <div className="pl-4 mt-1 space-y-0.5">
+                  {librarySubItems.map((subItem) => {
+                    const isSubActive = pathname === subItem.href;
+                    return (
+                      <Link key={subItem.href} href={subItem.href}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={cn(
+                            "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
+                            isSubActive && "bg-sidebar-accent text-sidebar-primary"
+                          )}
+                        >
+                          <subItem.icon className="w-4 h-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate text-sm">{subItem.label}</span>
+                        </Button>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+
+          {/* Collapsed Library button */}
+          {collapsed && isConnected && (
+            <Link href="/library">
+              <Button
+                variant="ghost"
+                className={cn(
+                  "w-full justify-center h-11 px-0",
+                  "hover:bg-sidebar-accent",
+                  pathname.startsWith("/library") && "bg-sidebar-accent text-sidebar-primary font-semibold"
+                )}
+              >
+                <Library className={cn("w-5 h-5 shrink-0", pathname.startsWith("/library") && "text-sidebar-primary")} />
+              </Button>
+            </Link>
+          )}
         </div>
       </nav>
 
@@ -225,23 +312,37 @@ export function Sidebar() {
             {/* Playlists Section */}
             {!collapsed && isConnected && (
               <Collapsible open={playlistsExpanded} onOpenChange={setPlaylistsExpanded}>
-                <CollapsibleTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className={cn(
-                      "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
-                      "hover:bg-sidebar-accent",
-                      pathname.startsWith("/playlists") && "bg-sidebar-accent text-sidebar-primary"
-                    )}
-                  >
-                    <ListMusic className={cn("w-5 h-5 shrink-0", pathname.startsWith("/playlists") && "text-sidebar-primary")} />
-                    <span className="truncate whitespace-nowrap flex-1 text-left">Playlists</span>
-                    <ChevronDown className={cn(
-                      "w-4 h-4 shrink-0 transition-transform duration-200",
-                      playlistsExpanded && "rotate-180"
-                    )} />
-                  </Button>
-                </CollapsibleTrigger>
+                <div className="relative">
+                  <Link href="/playlists" className="block">
+                    <Button
+                      variant="ghost"
+                      className={cn(
+                        "w-full justify-start gap-4 h-10 px-3 pr-10 overflow-hidden",
+                        "hover:bg-sidebar-accent",
+                        pathname.startsWith("/playlists") && "bg-sidebar-accent text-sidebar-primary"
+                      )}
+                    >
+                      <ListMusic className={cn("w-5 h-5 shrink-0", pathname.startsWith("/playlists") && "text-sidebar-primary")} />
+                      <span className="truncate whitespace-nowrap flex-1 text-left">Playlists</span>
+                    </Button>
+                  </Link>
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8",
+                        "hover:bg-sidebar-accent/80"
+                      )}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ChevronDown className={cn(
+                        "w-4 h-4 shrink-0 transition-transform duration-200",
+                        playlistsExpanded && "rotate-180"
+                      )} />
+                    </Button>
+                  </CollapsibleTrigger>
+                </div>
                 <CollapsibleContent>
                   <div className="pl-4 mt-1 space-y-0.5">
                     {playlistsLoading ? (
@@ -260,16 +361,6 @@ export function Sidebar() {
                         depth={0}
                       />
                     ) : null}
-                    
-                    {/* View All Playlists link */}
-                    <Link href="/playlists">
-                      <Button
-                        variant="ghost"
-                        className="w-full justify-start px-2 text-muted-foreground hover:text-foreground"
-                      >
-                        View all playlists
-                      </Button>
-                    </Link>
                   </div>
                 </CollapsibleContent>
               </Collapsible>
