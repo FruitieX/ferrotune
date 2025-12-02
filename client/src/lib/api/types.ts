@@ -319,3 +319,18 @@ export interface UpdateTagsResponse {
   changes: TagChange[];
   rescanRecommended: boolean;
 }
+
+// User preferences types (Admin API)
+export interface UserPreferences {
+  accentColor: string;
+  customAccentHue?: number;
+  customAccentLightness?: number;
+  customAccentChroma?: number;
+}
+
+export interface UpdatePreferencesRequest {
+  accentColor: string;
+  customAccentHue?: number;
+  customAccentLightness?: number;
+  customAccentChroma?: number;
+}

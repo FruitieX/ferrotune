@@ -125,7 +125,25 @@
   --sidebar-ring: oklch(0.55 0.16 45);
 }
 
-/* Emerald Theme - Fresh green */
+/* Gold Theme - Yellow-gold (85°) */
+[data-accent="gold"] {
+  --primary: oklch(0.75 0.15 85);
+  --ring: oklch(0.75 0.15 85);
+  --chart-1: oklch(0.75 0.15 85);
+  --sidebar-primary: oklch(0.75 0.15 85);
+  --sidebar-ring: oklch(0.75 0.15 85);
+}
+
+/* Lime Theme - Yellow-green (125°) */
+[data-accent="lime"] {
+  --primary: oklch(0.75 0.18 125);
+  --ring: oklch(0.75 0.18 125);
+  --chart-1: oklch(0.75 0.18 125);
+  --sidebar-primary: oklch(0.75 0.18 125);
+  --sidebar-ring: oklch(0.75 0.18 125);
+}
+
+/* Emerald Theme - Green (160°) */
 [data-accent="emerald"] {
   --primary: oklch(0.65 0.18 160);
   --ring: oklch(0.65 0.18 160);
@@ -133,71 +151,59 @@
   --sidebar-primary: oklch(0.65 0.18 160);
   --sidebar-ring: oklch(0.65 0.18 160);
 }
-[data-accent="emerald"].light {
-  --primary: oklch(0.5 0.18 160);
-  --ring: oklch(0.5 0.18 160);
-  --sidebar-primary: oklch(0.5 0.18 160);
-  --sidebar-ring: oklch(0.5 0.18 160);
+
+/* Teal Theme - Cyan-green (195°) */
+[data-accent="teal"] {
+  --primary: oklch(0.7 0.15 195);
+  --ring: oklch(0.7 0.15 195);
+  --chart-1: oklch(0.7 0.15 195);
+  --sidebar-primary: oklch(0.7 0.15 195);
+  --sidebar-ring: oklch(0.7 0.15 195);
 }
 
-/* Violet Theme - Rich purple */
-[data-accent="violet"] {
-  --primary: oklch(0.65 0.18 280);
-  --ring: oklch(0.65 0.18 280);
-  --chart-1: oklch(0.65 0.18 280);
-  --sidebar-primary: oklch(0.65 0.18 280);
-  --sidebar-ring: oklch(0.65 0.18 280);
-}
-[data-accent="violet"].light {
-  --primary: oklch(0.5 0.18 280);
-  --ring: oklch(0.5 0.18 280);
-  --sidebar-primary: oklch(0.5 0.18 280);
-  --sidebar-ring: oklch(0.5 0.18 280);
-}
-
-/* Rose Theme - Warm pink */
-[data-accent="rose"] {
-  --primary: oklch(0.65 0.2 350);
-  --ring: oklch(0.65 0.2 350);
-  --chart-1: oklch(0.65 0.2 350);
-  --sidebar-primary: oklch(0.65 0.2 350);
-  --sidebar-ring: oklch(0.65 0.2 350);
-}
-[data-accent="rose"].light {
-  --primary: oklch(0.55 0.2 350);
-  --ring: oklch(0.55 0.2 350);
-  --sidebar-primary: oklch(0.55 0.2 350);
-  --sidebar-ring: oklch(0.55 0.2 350);
-}
-
-/* Ocean Theme - Deep blue */
+/* Ocean Theme - Blue (230°) */
 [data-accent="ocean"] {
-  --primary: oklch(0.6 0.16 240);
-  --ring: oklch(0.6 0.16 240);
-  --chart-1: oklch(0.6 0.16 240);
-  --sidebar-primary: oklch(0.6 0.16 240);
-  --sidebar-ring: oklch(0.6 0.16 240);
-}
-[data-accent="ocean"].light {
-  --primary: oklch(0.5 0.16 240);
-  --ring: oklch(0.5 0.16 240);
-  --sidebar-primary: oklch(0.5 0.16 240);
-  --sidebar-ring: oklch(0.5 0.16 240);
+  --primary: oklch(0.6 0.16 230);
+  --ring: oklch(0.6 0.16 230);
+  --chart-1: oklch(0.6 0.16 230);
+  --sidebar-primary: oklch(0.6 0.16 230);
+  --sidebar-ring: oklch(0.6 0.16 230);
 }
 
-/* Amber Theme - Warm gold */
-[data-accent="amber"] {
-  --primary: oklch(0.75 0.15 75);
-  --ring: oklch(0.75 0.15 75);
-  --chart-1: oklch(0.75 0.15 75);
-  --sidebar-primary: oklch(0.75 0.15 75);
-  --sidebar-ring: oklch(0.75 0.15 75);
+/* Indigo Theme - Blue-purple (265°) */
+[data-accent="indigo"] {
+  --primary: oklch(0.6 0.18 265);
+  --ring: oklch(0.6 0.18 265);
+  --chart-1: oklch(0.6 0.18 265);
+  --sidebar-primary: oklch(0.6 0.18 265);
+  --sidebar-ring: oklch(0.6 0.18 265);
 }
-[data-accent="amber"].light {
-  --primary: oklch(0.6 0.15 75);
-  --ring: oklch(0.6 0.15 75);
-  --sidebar-primary: oklch(0.6 0.15 75);
-  --sidebar-ring: oklch(0.6 0.15 75);
+
+/* Violet Theme - Purple (300°) */
+[data-accent="violet"] {
+  --primary: oklch(0.65 0.2 300);
+  --ring: oklch(0.65 0.2 300);
+  --chart-1: oklch(0.65 0.2 300);
+  --sidebar-primary: oklch(0.65 0.2 300);
+  --sidebar-ring: oklch(0.65 0.2 300);
+}
+
+/* Rose Theme - Pink-red (340°) */
+[data-accent="rose"] {
+  --primary: oklch(0.65 0.2 340);
+  --ring: oklch(0.65 0.2 340);
+  --chart-1: oklch(0.65 0.2 340);
+  --sidebar-primary: oklch(0.65 0.2 340);
+  --sidebar-ring: oklch(0.65 0.2 340);
+}
+
+/* Crimson Theme - Red (15°) */
+[data-accent="crimson"] {
+  --primary: oklch(0.6 0.22 15);
+  --ring: oklch(0.6 0.22 15);
+  --chart-1: oklch(0.6 0.22 15);
+  --sidebar-primary: oklch(0.6 0.22 15);
+  --sidebar-ring: oklch(0.6 0.22 15);
 }
 
 @layer base {

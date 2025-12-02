@@ -55,6 +55,40 @@ export const expandedPlaylistFoldersAtom = atomWithStorage<string[]>(
   []
 );
 
-// Accent color theme
-export type AccentColor = "rust" | "emerald" | "violet" | "rose" | "amber";
+// Accent color theme - 10 presets + custom option
+export type AccentColor = 
+  | "rust"     // 45° - warm orange (default)
+  | "gold"     // 85° - yellow-gold
+  | "lime"     // 125° - yellow-green  
+  | "emerald"  // 160° - green
+  | "teal"     // 195° - cyan-green
+  | "ocean"    // 230° - blue
+  | "indigo"   // 265° - blue-purple
+  | "violet"   // 300° - purple
+  | "rose"     // 340° - pink-red
+  | "crimson"  // 15° - red
+  | "custom";
+
 export const accentColorAtom = atomWithStorage<AccentColor>("ferrotune-accent-color", "rust");
+
+// Custom accent color OKLCH values
+export const customAccentHueAtom = atomWithStorage<number>("ferrotune-custom-accent-hue", 45);
+export const customAccentLightnessAtom = atomWithStorage<number>("ferrotune-custom-accent-lightness", 0.65);
+export const customAccentChromaAtom = atomWithStorage<number>("ferrotune-custom-accent-chroma", 0.18);
+
+// Flag to indicate preferences have been loaded from server
+export const preferencesLoadedAtom = atom<boolean>(false);
+
+// Accent color presets with their OKLCH hue values for display (~36° apart)
+export const ACCENT_PRESETS: { name: AccentColor; hue: number; label: string }[] = [
+  { name: "rust", hue: 45, label: "Rust" },
+  { name: "gold", hue: 85, label: "Gold" },
+  { name: "lime", hue: 125, label: "Lime" },
+  { name: "emerald", hue: 160, label: "Emerald" },
+  { name: "teal", hue: 195, label: "Teal" },
+  { name: "ocean", hue: 230, label: "Ocean" },
+  { name: "indigo", hue: 265, label: "Indigo" },
+  { name: "violet", hue: 300, label: "Violet" },
+  { name: "rose", hue: 340, label: "Rose" },
+  { name: "crimson", hue: 15, label: "Crimson" },
+];

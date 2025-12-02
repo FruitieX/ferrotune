@@ -22,6 +22,8 @@ import type {
   GetTagsResponse,
   UpdateTagsRequest,
   UpdateTagsResponse,
+  UserPreferences,
+  UpdatePreferencesRequest,
 } from "./types";
 
 const API_VERSION = "1.16.1";
@@ -364,6 +366,18 @@ export class SubsonicClient {
   async updateSongTags(id: string, request: UpdateTagsRequest): Promise<UpdateTagsResponse> {
     return this.adminRequest(`/ferrotune/songs/${encodeURIComponent(id)}/tags`, {
       method: "PATCH",
+      body: JSON.stringify(request),
+    });
+  }
+
+  // User preferences endpoints (Admin API)
+  async getPreferences(): Promise<UserPreferences> {
+    return this.adminRequest("/ferrotune/preferences");
+  }
+
+  async updatePreferences(request: UpdatePreferencesRequest): Promise<UserPreferences> {
+    return this.adminRequest("/ferrotune/preferences", {
+      method: "PUT",
       body: JSON.stringify(request),
     });
   }
