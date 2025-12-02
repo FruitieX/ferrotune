@@ -109,6 +109,7 @@ export function AlbumCardCompact({ album, onPlay, className }: AlbumCardCompactP
       colorSeed={album.name}
       coverType="album"
       onPlay={() => onPlay?.()}
+      onDoubleClick={() => onPlay?.()}
       contextMenu={(children) => (
         <AlbumContextMenu album={album}>{children}</AlbumContextMenu>
       )}

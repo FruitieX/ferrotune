@@ -130,27 +130,24 @@ export function MediaRow({
 
   const mainContent = children ?? (
     <div className="min-w-0 flex-1">
-      {href ? (
-        <Link href={href} className="block" onClick={(e) => e.stopPropagation()}>
-          <p
-            className={cn(
-              "font-medium text-sm truncate hover:underline",
-              isActive && "text-primary"
-            )}
+      <p
+        className={cn(
+          "font-medium text-sm truncate",
+          isActive && "text-primary"
+        )}
+      >
+        {href ? (
+          <Link
+            href={href}
+            className="hover:underline"
+            onClick={(e) => e.stopPropagation()}
           >
             {title}
-          </p>
-        </Link>
-      ) : (
-        <p
-          className={cn(
-            "font-medium text-sm truncate",
-            isActive && "text-primary"
-          )}
-        >
-          {title}
-        </p>
-      )}
+          </Link>
+        ) : (
+          title
+        )}
+      </p>
       {(subtitleContent || subtitle) && (
         <div className="text-xs text-muted-foreground truncate">
           {subtitleContent ?? subtitle}

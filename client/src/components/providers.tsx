@@ -9,6 +9,7 @@ import { useAudioEngineInit, useMediaSession } from "@/lib/audio/hooks";
 import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
 import { useQueuePersistence } from "@/lib/hooks/use-queue-persistence";
 import { useDocumentTitle } from "@/lib/hooks/use-document-title";
+import { usePreferencesSync } from "@/lib/hooks/use-preferences-sync";
 import { accentColorAtom, customAccentHueAtom, customAccentLightnessAtom, customAccentChromaAtom } from "@/lib/store/ui";
 
 // Component that initializes the audio engine and media session
@@ -18,6 +19,7 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   useKeyboardShortcuts();
   useQueuePersistence();
   useDocumentTitle();
+  usePreferencesSync(); // Load and sync user preferences from server
   return <>{children}</>;
 }
 
@@ -79,11 +81,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
           enableSystem={true}
           disableTransitionOnChange
         >
-          <AccentColorProvider>
-            <AudioEngineProvider>
-              {children}
-            </AudioEngineProvider>
-          </AccentColorProvider>
+            <AccentColorProvider>
+              <AudioEngineProvider>
+                {children}
+              </AudioEngineProvider>
+            </AccentColorProvider>
           <Toaster 
             position="bottom-right" 
             richColors 

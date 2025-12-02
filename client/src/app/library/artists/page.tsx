@@ -60,19 +60,16 @@ export default function ArtistsPage() {
   const displayArtists = debouncedFilter ? (searchData ?? []) : allArtists;
   const isLoadingData = debouncedFilter ? isSearching : isLoading;
 
-  // Play artist handler
+  // Play artist handler - plays all songs by this artist
   const handlePlayArtist = async (artist: Artist) => {
     const client = getClient();
     if (!client) return;
 
     try {
       const artistData = await client.getArtist(artist.id);
-      // Get first album's songs
-      if (artistData.artist.album?.length > 0) {
-        const firstAlbum = await client.getAlbum(artistData.artist.album[0].id);
-        if (firstAlbum.album.song?.length > 0) {
-          playNow(firstAlbum.album.song);
-        }
+      // Use the song array which contains all songs by this artist
+      if (artistData.artist.song?.length) {
+        playNow(artistData.artist.song);
       }
     } catch (error) {
       console.error("Failed to play artist:", error);

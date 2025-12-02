@@ -89,6 +89,7 @@ export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompa
       colorSeed={artist.name}
       coverType="artist"
       onPlay={() => onPlay?.()}
+      onDoubleClick={() => onPlay?.()}
       contextMenu={(children) => (
         <ArtistContextMenu artist={artist}>{children}</ArtistContextMenu>
       )}

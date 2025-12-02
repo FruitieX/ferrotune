@@ -1,15 +1,18 @@
 "use client";
 
+import { useState, useMemo } from "react";
 import { useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Heart, Play, Shuffle } from "lucide-react";
+import { Heart, Play, Shuffle, Search, X } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
+import { useDebounce } from "@/lib/hooks/use-debounce";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
@@ -18,11 +21,16 @@ import { TrackList } from "@/components/browse/track-list";
 import { formatCount, formatTotalDuration } from "@/lib/utils/format";
 import type { Album } from "@/lib/api/types";
 
+type TabValue = "songs" | "albums" | "artists";
+
 export default function FavoritesPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const isMounted = useIsMounted();
   const playNow = useSetAtom(playNowAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
+  const [activeTab, setActiveTab] = useState<TabValue>("songs");
+  const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebounce(searchQuery, 300);
   
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
@@ -43,19 +51,59 @@ export default function FavoritesPage() {
   const albums = starredData?.album ?? [];
   const artists = starredData?.artist ?? [];
 
-  const totalDuration = songs.reduce((acc, song) => acc + song.duration, 0);
+  // Filter items based on search query
+  const filteredSongs = useMemo(() => {
+    if (!debouncedSearch.trim()) return songs;
+    const query = debouncedSearch.toLowerCase();
+    return songs.filter(song => 
+      song.title.toLowerCase().includes(query) ||
+      song.artist?.toLowerCase().includes(query) ||
+      song.album?.toLowerCase().includes(query)
+    );
+  }, [songs, debouncedSearch]);
+
+  const filteredAlbums = useMemo(() => {
+    if (!debouncedSearch.trim()) return albums;
+    const query = debouncedSearch.toLowerCase();
+    return albums.filter(album => 
+      album.name.toLowerCase().includes(query) ||
+      album.artist?.toLowerCase().includes(query)
+    );
+  }, [albums, debouncedSearch]);
+
+  const filteredArtists = useMemo(() => {
+    if (!debouncedSearch.trim()) return artists;
+    const query = debouncedSearch.toLowerCase();
+    return artists.filter(artist => 
+      artist.name.toLowerCase().includes(query)
+    );
+  }, [artists, debouncedSearch]);
+
+  const totalDuration = filteredSongs.reduce((acc, song) => acc + song.duration, 0);
+
+  // Get the description based on active tab
+  const getSubtitle = () => {
+    switch (activeTab) {
+      case "songs":
+        return `${formatCount(filteredSongs.length, "song")} • ${formatTotalDuration(totalDuration)}`;
+      case "albums":
+        return formatCount(filteredAlbums.length, "album");
+      case "artists":
+        return formatCount(filteredArtists.length, "artist");
+    }
+  };
 
   const handlePlayAll = () => {
-    if (songs.length > 0) {
+    if (filteredSongs.length > 0) {
       setIsShuffled(false);
-      playNow(songs);
+      playNow(filteredSongs);
     }
   };
 
   const handleShuffle = () => {
-    if (songs.length > 0) {
+    if (filteredSongs.length > 0) {
       setIsShuffled(true);
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
+      const shuffled = [...filteredSongs].sort(() => Math.random() - 0.5);
       playNow(shuffled);
     }
   };
@@ -146,7 +194,7 @@ export default function FavoritesPage() {
             >
               <h1 className="text-4xl lg:text-5xl font-bold mt-2">Favorites</h1>
               <p className="mt-4 text-muted-foreground">
-                {formatCount(songs.length, "song")} • {formatTotalDuration(totalDuration)}
+                {getSubtitle()}
               </p>
             </motion.div>
           </div>
@@ -160,7 +208,7 @@ export default function FavoritesPage() {
             size="lg"
             className="rounded-full gap-2 px-8"
             onClick={handlePlayAll}
-            disabled={isLoading || songs.length === 0}
+            disabled={isLoading || filteredSongs.length === 0}
           >
             <Play className="w-5 h-5 ml-0.5" />
             Play
@@ -170,37 +218,57 @@ export default function FavoritesPage() {
             size="lg"
             className="rounded-full gap-2"
             onClick={handleShuffle}
-            disabled={isLoading || songs.length === 0}
+            disabled={isLoading || filteredSongs.length === 0}
           >
             <Shuffle className="w-5 h-5" />
             Shuffle
           </Button>
+          
+          {/* Search input */}
+          <div className="flex-1 max-w-xs ml-auto relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search favorites..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 pr-8"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Content tabs */}
-      <Tabs defaultValue="songs" className="w-full">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)} className="w-full">
         <div className="px-4 lg:px-6 pt-4">
           <TabsList>
             <TabsTrigger value="songs">
-              Songs ({songs.length})
+              Songs ({filteredSongs.length})
             </TabsTrigger>
             <TabsTrigger value="albums">
-              Albums ({albums.length})
+              Albums ({filteredAlbums.length})
             </TabsTrigger>
             <TabsTrigger value="artists">
-              Artists ({artists.length})
+              Artists ({filteredArtists.length})
             </TabsTrigger>
           </TabsList>
         </div>
 
         <TabsContent value="songs" className="mt-0">
           <TrackList
-            songs={songs}
+            songs={filteredSongs}
             isLoading={isLoading}
             showCover
             showHeader
-            emptyMessage="No liked songs yet"
+            emptyMessage={debouncedSearch ? "No songs match your search" : "No liked songs yet"}
           />
         </TabsContent>
 
@@ -212,7 +280,7 @@ export default function FavoritesPage() {
                   <AlbumCardSkeleton key={i} />
                 ))}
               </div>
-            ) : albums.length > 0 ? (
+            ) : filteredAlbums.length > 0 ? (
               <motion.div 
                 className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
                 initial="hidden"
@@ -221,7 +289,7 @@ export default function FavoritesPage() {
                   visible: { transition: { staggerChildren: 0.05 } },
                 }}
               >
-                {albums.map((album) => (
+                {filteredAlbums.map((album) => (
                   <motion.div
                     key={album.id}
                     variants={{
@@ -234,7 +302,7 @@ export default function FavoritesPage() {
                 ))}
               </motion.div>
             ) : (
-              <EmptyState message="No liked albums yet" />
+              <EmptyState message={debouncedSearch ? "No albums match your search" : "No liked albums yet"} />
             )}
           </div>
         </TabsContent>
@@ -247,7 +315,7 @@ export default function FavoritesPage() {
                   <ArtistCardSkeleton key={i} />
                 ))}
               </div>
-            ) : artists.length > 0 ? (
+            ) : filteredArtists.length > 0 ? (
               <motion.div 
                 className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
                 initial="hidden"
@@ -256,7 +324,7 @@ export default function FavoritesPage() {
                   visible: { transition: { staggerChildren: 0.05 } },
                 }}
               >
-                {artists.map((artist) => (
+                {filteredArtists.map((artist) => (
                   <motion.div
                     key={artist.id}
                     variants={{
@@ -269,7 +337,7 @@ export default function FavoritesPage() {
                 ))}
               </motion.div>
             ) : (
-              <EmptyState message="No liked artists yet" />
+              <EmptyState message={debouncedSearch ? "No artists match your search" : "No liked artists yet"} />
             )}
           </div>
         </TabsContent>

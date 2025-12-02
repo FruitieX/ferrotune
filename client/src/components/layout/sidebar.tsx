@@ -52,7 +52,7 @@ import {
 } from "@/lib/utils/playlist-folders";
 import type { Playlist } from "@/lib/api/types";
 
-const navItems = [
+const discoverItems = [
   { href: "/", icon: Home, label: "Home" },
   { href: "/search", icon: Search, label: "Search" },
 ];
@@ -158,114 +158,46 @@ export function Sidebar() {
 
       {/* Scrollable content - wraps nav and library section */}
       <ScrollArea className="flex-1 min-h-0">
-        {/* Main Navigation */}
+        {/* Discover Section */}
         <nav className="px-2 py-4">
-        <div className="space-y-1.5">
-          {navItems.map((item) => {
-            const isActive = item.href === "/" 
-              ? pathname === "/" 
-              : pathname.startsWith(item.href);
-            
-            return (
-              <Link key={item.href} href={item.href}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-4 h-11 px-3 overflow-hidden",
-                    "hover:bg-sidebar-accent",
-                    isActive && "bg-sidebar-accent text-sidebar-primary font-semibold",
-                    collapsed && "justify-center px-0"
-                  )}
-                >
-                  <item.icon className={cn("w-5 h-5 shrink-0", isActive && "text-sidebar-primary")} />
-                  {!collapsed && (
-                    <span className="truncate whitespace-nowrap">{item.label}</span>
-                  )}
-                </Button>
-              </Link>
-            );
-          })}
-          
-          {/* Library Section - Expandable */}
-          {!collapsed && isConnected && (
-            <Collapsible open={libraryExpanded} onOpenChange={setLibraryExpanded}>
-              <div className="relative">
-                <Link href="/library" className="block">
+          {!collapsed && (
+            <div className="px-2 mb-2 overflow-hidden">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                Discover
+              </span>
+            </div>
+          )}
+          <div className="space-y-1">
+            {discoverItems.map((item) => {
+              const isActive = item.href === "/" 
+                ? pathname === "/" 
+                : pathname.startsWith(item.href);
+              
+              return (
+                <Link key={item.href} href={item.href}>
                   <Button
                     variant="ghost"
                     className={cn(
-                      "w-full justify-start gap-4 h-11 px-3 pr-10 overflow-hidden",
+                      "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
                       "hover:bg-sidebar-accent",
-                      pathname.startsWith("/library") && "bg-sidebar-accent text-sidebar-primary font-semibold"
+                      isActive && "bg-sidebar-accent text-sidebar-primary font-semibold",
+                      collapsed && "justify-center px-0"
                     )}
                   >
-                    <Library className={cn("w-5 h-5 shrink-0", pathname.startsWith("/library") && "text-sidebar-primary")} />
-                    <span className="truncate whitespace-nowrap flex-1 text-left">Library</span>
+                    <item.icon className={cn("w-5 h-5 shrink-0", isActive && "text-sidebar-primary")} />
+                    {!collapsed && (
+                      <span className="truncate whitespace-nowrap">{item.label}</span>
+                    )}
                   </Button>
                 </Link>
-                <CollapsibleTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8",
-                      "hover:bg-sidebar-accent/80"
-                    )}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <ChevronDown className={cn(
-                      "w-4 h-4 shrink-0 transition-transform duration-200",
-                      libraryExpanded && "rotate-180"
-                    )} />
-                  </Button>
-                </CollapsibleTrigger>
-              </div>
-              <CollapsibleContent>
-                <div className="pl-4 mt-1 space-y-0.5">
-                  {librarySubItems.map((subItem) => {
-                    const isSubActive = pathname === subItem.href;
-                    return (
-                      <Link key={subItem.href} href={subItem.href}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className={cn(
-                            "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
-                            isSubActive && "bg-sidebar-accent text-sidebar-primary"
-                          )}
-                        >
-                          <subItem.icon className="w-4 h-4 shrink-0 text-muted-foreground" />
-                          <span className="truncate text-sm">{subItem.label}</span>
-                        </Button>
-                      </Link>
-                    );
-                  })}
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-          )}
-
-          {/* Collapsed Library button */}
-          {collapsed && isConnected && (
-            <Link href="/library">
-              <Button
-                variant="ghost"
-                className={cn(
-                  "w-full justify-center h-11 px-0",
-                  "hover:bg-sidebar-accent",
-                  pathname.startsWith("/library") && "bg-sidebar-accent text-sidebar-primary font-semibold"
-                )}
-              >
-                <Library className={cn("w-5 h-5 shrink-0", pathname.startsWith("/library") && "text-sidebar-primary")} />
-              </Button>
-            </Link>
-          )}
-        </div>
+              );
+            })}
+          </div>
         </nav>
 
         <Separator className="mx-2 bg-sidebar-border" />
 
-        {/* Library Section */}
+        {/* Your Library Section */}
         <div className="py-4">
           {!collapsed && (
             <div className="px-4 mb-2 overflow-hidden">
@@ -275,7 +207,81 @@ export function Sidebar() {
             </div>
           )}
 
-          <div className="px-2 space-y-1.5">
+          <div className="px-2 space-y-1">
+            {/* Library - Expandable */}
+            {!collapsed && isConnected && (
+              <Collapsible open={libraryExpanded} onOpenChange={setLibraryExpanded}>
+                <div className="relative">
+                  <Link href="/library" className="block">
+                    <Button
+                      variant="ghost"
+                      className={cn(
+                        "w-full justify-start gap-4 h-10 px-3 pr-10 overflow-hidden",
+                        "hover:bg-sidebar-accent",
+                        pathname.startsWith("/library") && "bg-sidebar-accent text-sidebar-primary font-semibold"
+                      )}
+                    >
+                      <Library className={cn("w-5 h-5 shrink-0", pathname.startsWith("/library") && "text-sidebar-primary")} />
+                      <span className="truncate whitespace-nowrap flex-1 text-left">Library</span>
+                    </Button>
+                  </Link>
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8",
+                        "hover:bg-sidebar-accent/80"
+                      )}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ChevronDown className={cn(
+                        "w-4 h-4 shrink-0 transition-transform duration-200",
+                        libraryExpanded && "rotate-180"
+                      )} />
+                    </Button>
+                  </CollapsibleTrigger>
+                </div>
+                <CollapsibleContent>
+                  <div className="pl-4 mt-1 space-y-0.5">
+                    {librarySubItems.map((subItem) => {
+                      const isSubActive = pathname === subItem.href;
+                      return (
+                        <Link key={subItem.href} href={subItem.href}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                              "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
+                              isSubActive && "bg-sidebar-accent text-sidebar-primary"
+                            )}
+                          >
+                            <subItem.icon className="w-4 h-4 shrink-0 text-muted-foreground" />
+                            <span className="truncate text-sm">{subItem.label}</span>
+                          </Button>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
+            {/* Collapsed Library button */}
+            {collapsed && isConnected && (
+              <Link href="/library">
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-center h-10 px-0",
+                    "hover:bg-sidebar-accent",
+                    pathname.startsWith("/library") && "bg-sidebar-accent text-sidebar-primary font-semibold"
+                  )}
+                >
+                  <Library className={cn("w-5 h-5 shrink-0", pathname.startsWith("/library") && "text-sidebar-primary")} />
+                </Button>
+              </Link>
+            )}
             {/* Liked Songs */}
             <Link href="/favorites">
               <Button
