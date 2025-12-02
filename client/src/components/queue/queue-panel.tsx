@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { motion, AnimatePresence, Reorder, useDragControls } from "framer-motion";
-import { X, ListMusic, Trash2, GripVertical, Play, Clock, FolderPlus, MoreHorizontal } from "lucide-react";
+import { X, ListMusic, Trash2, GripVertical, Play, Pause, Clock, FolderPlus, MoreHorizontal, ListEnd } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { queuePanelOpenAtom } from "@/lib/store/ui";
 import {
@@ -15,9 +15,11 @@ import {
   setQueueIndexAtom,
   isShuffledAtom,
   shuffledIndicesAtom,
+  addToQueueAtom,
 } from "@/lib/store/queue";
 import { playbackStateAtom } from "@/lib/store/player";
 import { useIsDesktop } from "@/lib/hooks/use-media-query";
+import { useAudioEngine } from "@/lib/audio/hooks";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -27,6 +29,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { CoverImage } from "@/components/shared/cover-image";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { formatDuration } from "@/lib/utils/format";
@@ -37,6 +45,26 @@ function getCoverUrl(coverArt?: string): string | undefined {
   if (!coverArt) return undefined;
   const client = getClient();
   return client?.getCoverArtUrl(coverArt, 100);
+}
+
+// Consolidated NowPlayingBars component with 3 bars
+function NowPlayingBars({ isAnimating = true }: { isAnimating?: boolean }) {
+  return (
+    <div className="flex items-end justify-center gap-0.5 h-3">
+      <span 
+        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-1")}
+        style={{ animationDuration: "0.4s", height: isAnimating ? undefined : "6px" }}
+      />
+      <span 
+        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-2")}
+        style={{ animationDuration: "0.5s", height: isAnimating ? undefined : "10px" }}
+      />
+      <span 
+        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-3")}
+        style={{ animationDuration: "0.35s", height: isAnimating ? undefined : "6px" }}
+      />
+    </div>
+  );
 }
 
 /**
@@ -53,9 +81,11 @@ export function QueuePanel() {
   const removeFromQueue = useSetAtom(removeFromQueueAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
   const setQueueIndex = useSetAtom(setQueueIndexAtom);
+  const addToQueue = useSetAtom(addToQueueAtom);
   const isShuffled = useAtomValue(isShuffledAtom);
   const shuffledIndices = useAtomValue(shuffledIndicesAtom);
   const [nowPlayingAddToPlaylist, setNowPlayingAddToPlaylist] = useState(false);
+  const { togglePlayPause } = useAudioEngine();
 
   // Calculate up next and previous tracks based on shuffle state
   const getUpNextAndPrevious = () => {
@@ -117,9 +147,24 @@ export function QueuePanel() {
     setQueueIndex(index);
   };
 
+  // Play next: move a song to the top of the "up next" queue
+  const handlePlayNext = (songIndex: number) => {
+    if (isShuffled) return;
+    
+    const song = queue[songIndex];
+    if (!song) return;
+    
+    const newQueue = queue.filter((_, i) => i !== songIndex);
+    const insertPosition = queueIndex + 1;
+    newQueue.splice(insertPosition, 0, song);
+    setQueue(newQueue);
+  };
+
   const totalDuration = queue.reduce((acc, song) => acc + song.duration, 0);
   const remainingDuration = upNext.reduce((acc, item) => acc + item.song.duration, 0) + 
     (currentTrack?.duration ?? 0);
+
+  const isPlaying = playbackState === "playing";
 
   // Don't render the Sheet on desktop - use QueueSidebar instead
   if (isDesktop) {
@@ -163,7 +208,7 @@ export function QueuePanel() {
             </p>
           </div>
         ) : (
-          <ScrollArea className="flex-1">
+          <ScrollArea className="flex-1 overflow-y-auto">
             <div className="p-4 space-y-6">
               {/* Now Playing / Queue Ended */}
               {currentTrack && (
@@ -181,7 +226,19 @@ export function QueuePanel() {
                         : "bg-primary/10 border-primary/20"
                     )}
                   >
-                    <div className="relative shrink-0">
+                    {/* Now playing animated icon */}
+                    <div className="w-4 shrink-0 flex justify-center">
+                      {playbackState !== "ended" && (
+                        <NowPlayingBars isAnimating={isPlaying} />
+                      )}
+                    </div>
+                    
+                    {/* Cover art with play/pause on click */}
+                    <button
+                      type="button"
+                      className="relative shrink-0 cursor-pointer group/cover"
+                      onClick={togglePlayPause}
+                    >
                       <CoverImage
                         src={getCoverUrl(currentTrack.coverArt)}
                         alt={currentTrack.title}
@@ -189,27 +246,15 @@ export function QueuePanel() {
                         type="song"
                         size="sm"
                       />
-                      {playbackState === "playing" && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded">
-                          <div className="flex items-end gap-0.5 h-4">
-                            {[0, 1, 2].map((i) => (
-                              <motion.div
-                                key={i}
-                                className="w-1 bg-primary rounded-full"
-                                animate={{
-                                  height: ["40%", "100%", "40%"],
-                                }}
-                                transition={{
-                                  duration: 0.8,
-                                  repeat: Infinity,
-                                  delay: i * 0.2,
-                                }}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 rounded transition-opacity">
+                        {isPlaying ? (
+                          <Pause className="w-4 h-4 text-white" />
+                        ) : (
+                          <Play className="w-4 h-4 text-white ml-0.5" />
+                        )}
+                      </div>
+                    </button>
+
                     <div className="flex-1 min-w-0">
                       <p className={cn(
                         "font-medium truncate",
@@ -221,12 +266,15 @@ export function QueuePanel() {
                         {currentTrack.artist}
                       </p>
                     </div>
+                    <span className="text-sm text-muted-foreground tabular-nums shrink-0">
+                      {formatDuration(currentTrack.duration)}
+                    </span>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground"
+                          className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
                         >
                           <MoreHorizontal className="w-4 h-4" />
                         </Button>
@@ -238,9 +286,6 @@ export function QueuePanel() {
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                    <span className="text-sm text-muted-foreground tabular-nums">
-                      {formatDuration(currentTrack.duration)}
-                    </span>
                   </motion.div>
                 </section>
               )}
@@ -273,7 +318,9 @@ export function QueuePanel() {
                           queueIndex={item.originalIndex}
                           onPlay={() => handlePlayTrack(item.originalIndex)}
                           onRemove={() => removeFromQueue(item.originalIndex)}
+                          onPlayNext={() => handlePlayNext(item.originalIndex)}
                           disableDrag={isShuffled}
+                          showPlayNext={!isShuffled}
                         />
                       ))}
                     </AnimatePresence>
@@ -288,35 +335,15 @@ export function QueuePanel() {
                     Previously Played
                   </h3>
                   <div className="space-y-1 opacity-60">
-                    {previousTracks.map((item, index) => (
-                      <div
+                    {previousTracks.map((item) => (
+                      <PreviouslyPlayedItem
                         key={`${item.song.id}-${item.originalIndex}`}
-                        className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 cursor-pointer group"
-                        onClick={() => handlePlayTrack(item.originalIndex)}
-                      >
-                        <CoverImage
-                          src={getCoverUrl(item.song.coverArt)}
-                          alt={item.song.title}
-                          colorSeed={item.song.album}
-                          type="song"
-                          size="sm"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">
-                            {item.song.title}
-                          </p>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {item.song.artist}
-                          </p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="opacity-0 group-hover:opacity-100 h-8 w-8 p-0"
-                        >
-                          <Play className="w-4 h-4" />
-                        </Button>
-                      </div>
+                        song={item.song}
+                        originalIndex={item.originalIndex}
+                        onPlay={() => handlePlayTrack(item.originalIndex)}
+                        onAddToQueue={() => addToQueue(item.song, "last")}
+                        onPlayNext={() => addToQueue(item.song, "next")}
+                      />
                     ))}
                   </div>
                 </section>
@@ -351,85 +378,226 @@ interface QueueItemProps {
   queueIndex: number;
   onPlay: () => void;
   onRemove: () => void;
+  onPlayNext?: () => void;
   disableDrag?: boolean;
+  showPlayNext?: boolean;
 }
 
-function QueueItem({ item, song, queueIndex, onPlay, onRemove, disableDrag }: QueueItemProps) {
+function QueueItem({ item, song, queueIndex, onPlay, onRemove, onPlayNext, disableDrag, showPlayNext }: QueueItemProps) {
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const dragControls = useDragControls();
 
+  const menuItems = (
+    <>
+      {showPlayNext && onPlayNext && (
+        <DropdownMenuItem onClick={onPlayNext}>
+          <ListEnd className="w-4 h-4 mr-2" />
+          Play Next
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
+        <FolderPlus className="w-4 h-4 mr-2" />
+        Add to Playlist
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={onRemove} className="text-destructive">
+        <X className="w-4 h-4 mr-2" />
+        Remove from Queue
+      </DropdownMenuItem>
+    </>
+  );
+
   return (
     <>
-      <Reorder.Item
-        value={item}
-        id={`${song.id}-${queueIndex}`}
-        className="flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 group select-none"
-        dragListener={false}
-        dragControls={disableDrag ? undefined : dragControls}
-        dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
-        whileDrag={disableDrag ? {} : { 
-          scale: 1.02, 
-          boxShadow: "0 10px 20px rgba(0,0,0,0.3)",
-          zIndex: 50
-        }}
-      >
-        {!disableDrag && (
-          <div
-            className="cursor-grab active:cursor-grabbing touch-none"
-            onPointerDown={(e) => dragControls.start(e)}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <Reorder.Item
+            value={item}
+            id={`${song.id}-${queueIndex}`}
+            className="flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 group select-none"
+            dragListener={false}
+            dragControls={disableDrag ? undefined : dragControls}
+            dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
+            whileDrag={disableDrag ? {} : { 
+              scale: 1.02, 
+              boxShadow: "0 10px 20px rgba(0,0,0,0.3)",
+              zIndex: 50
+            }}
           >
-            <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
-          </div>
-        )}
-        
-        <div 
-          className="relative shrink-0 cursor-pointer"
-          onClick={onPlay}
-        >
-          <CoverImage
-            src={getCoverUrl(song.coverArt)}
-            alt={song.title}
-            colorSeed={song.album}
-            type="song"
-            size="sm"
-          />
-          <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 rounded transition-opacity">
-            <Play className="w-4 h-4 text-white" fill="white" />
-          </div>
-        </div>
-
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={onPlay}>
-          <p className="text-sm font-medium truncate">{song.title}</p>
-          <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
-        </div>
-
-        <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-          {formatDuration(song.duration)}
-        </span>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
-              onClick={(e) => e.stopPropagation()}
+            {!disableDrag && (
+              <div
+                className="cursor-grab active:cursor-grabbing touch-none"
+                onPointerDown={(e) => dragControls.start(e)}
+              >
+                <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
+              </div>
+            )}
+            
+            {/* Cover art with play button - only cover art triggers playback */}
+            <button
+              type="button"
+              className="relative shrink-0 cursor-pointer group/cover"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPlay();
+              }}
             >
-              <MoreHorizontal className="w-4 h-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
-              <FolderPlus className="w-4 h-4 mr-2" />
-              Add to Playlist
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onRemove} className="text-destructive">
-              <X className="w-4 h-4 mr-2" />
-              Remove from Queue
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </Reorder.Item>
+              <CoverImage
+                src={getCoverUrl(song.coverArt)}
+                alt={song.title}
+                colorSeed={song.album}
+                type="song"
+                size="sm"
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 rounded transition-opacity">
+                <Play className="w-4 h-4 text-white ml-0.5" />
+              </div>
+            </button>
+
+            {/* Text content - clicking does NOT start playback */}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{song.title}</p>
+              <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
+            </div>
+
+            {/* Duration first, then menu button */}
+            <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+              {formatDuration(song.duration)}
+            </span>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {menuItems}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </Reorder.Item>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          {showPlayNext && onPlayNext && (
+            <ContextMenuItem onClick={onPlayNext}>
+              <ListEnd className="w-4 h-4 mr-2" />
+              Play Next
+            </ContextMenuItem>
+          )}
+          <ContextMenuItem onClick={() => setAddToPlaylistOpen(true)}>
+            <FolderPlus className="w-4 h-4 mr-2" />
+            Add to Playlist
+          </ContextMenuItem>
+          <ContextMenuItem onClick={onRemove} className="text-destructive">
+            <X className="w-4 h-4 mr-2" />
+            Remove from Queue
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+      <AddToPlaylistDialog
+        open={addToPlaylistOpen}
+        onOpenChange={setAddToPlaylistOpen}
+        songs={[song]}
+      />
+    </>
+  );
+}
+
+interface PreviouslyPlayedItemProps {
+  song: Song;
+  originalIndex: number;
+  onPlay: () => void;
+  onAddToQueue: () => void;
+  onPlayNext: () => void;
+}
+
+function PreviouslyPlayedItem({ song, originalIndex, onPlay, onAddToQueue, onPlayNext }: PreviouslyPlayedItemProps) {
+  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+
+  return (
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 group">
+            {/* Cover art with play button - only cover art triggers playback */}
+            <button
+              type="button"
+              className="relative shrink-0 cursor-pointer group/cover"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPlay();
+              }}
+            >
+              <CoverImage
+                src={getCoverUrl(song.coverArt)}
+                alt={song.title}
+                colorSeed={song.album}
+                type="song"
+                size="sm"
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 rounded transition-opacity">
+                <Play className="w-4 h-4 text-white ml-0.5" />
+              </div>
+            </button>
+
+            {/* Text content - clicking does NOT start playback */}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{song.title}</p>
+              <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
+            </div>
+
+            {/* Duration first, then menu button */}
+            <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+              {formatDuration(song.duration)}
+            </span>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={onPlayNext}>
+                  <ListEnd className="w-4 h-4 mr-2" />
+                  Play Next
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onAddToQueue}>
+                  <ListMusic className="w-4 h-4 mr-2" />
+                  Add to Queue
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
+                  <FolderPlus className="w-4 h-4 mr-2" />
+                  Add to Playlist
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={onPlayNext}>
+            <ListEnd className="w-4 h-4 mr-2" />
+            Play Next
+          </ContextMenuItem>
+          <ContextMenuItem onClick={onAddToQueue}>
+            <ListMusic className="w-4 h-4 mr-2" />
+            Add to Queue
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => setAddToPlaylistOpen(true)}>
+            <FolderPlus className="w-4 h-4 mr-2" />
+            Add to Playlist
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
       <AddToPlaylistDialog
         open={addToPlaylistOpen}
         onOpenChange={setAddToPlaylistOpen}
