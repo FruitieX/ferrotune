@@ -89,7 +89,7 @@ export function MediaRow({
   const coverArtElement = (
     <div
       className={cn(
-        "relative w-10 h-10 overflow-hidden shrink-0",
+        "group/cover relative w-10 h-10 overflow-hidden shrink-0",
         coverShape === "circle" ? "rounded-full" : "rounded"
       )}
     >
@@ -101,13 +101,13 @@ export function MediaRow({
         size="sm"
         className={coverShape === "circle" ? "rounded-full" : undefined}
       />
-      {/* Play button overlay on cover art - entire area is clickable */}
+      {/* Play button overlay on cover art - only shows on cover hover */}
       {onPlay && (
         <button
           type="button"
           className={cn(
             "absolute inset-0 flex items-center justify-center",
-            "bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity",
+            "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
             "cursor-pointer",
             coverShape === "circle" && "rounded-full"
           )}
