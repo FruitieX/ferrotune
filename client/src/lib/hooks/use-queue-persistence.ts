@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { queueAtom, queueIndexAtom, isRestoringQueueAtom, queueSaveRequestAtom } from "@/lib/store/queue";
+import { queueAtom, queueIndexAtom, isRestoringQueueAtom, queueSaveRequestAtom, createQueueItems } from "@/lib/store/queue";
 import { currentTimeAtom } from "@/lib/store/player";
 import { getClient } from "@/lib/api/client";
 import { useAuth } from "./use-auth";
@@ -42,9 +42,9 @@ export function useQueuePersistence() {
     const client = getClient();
     if (!client) return;
     
-    const songIds = queue.map((s) => s.id);
+    const songIds = queue.map((item) => item.song.id);
     const currentSongId = queueIndex >= 0 && queueIndex < queue.length 
-      ? queue[queueIndex].id 
+      ? queue[queueIndex].song.id 
       : undefined;
     
     // Create a signature to avoid redundant saves (but skip check for immediate saves)
@@ -115,6 +115,9 @@ export function useQueuePersistence() {
         
         const entries = response.playQueue?.entry;
         if (entries && entries.length > 0) {
+          // Convert songs to queue items with unique IDs
+          const queueItems = createQueueItems(entries);
+          
           // Find the index of the current track
           let startIndex = 0;
           if (response.playQueue.current) {
@@ -127,7 +130,7 @@ export function useQueuePersistence() {
           }
           
           // Restore the queue (but don't auto-play)
-          setQueue(entries);
+          setQueue(queueItems);
           setQueueIndex(startIndex);
           
           // Store signature to avoid immediate re-save

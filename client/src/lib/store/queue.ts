@@ -2,8 +2,29 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { Song } from "@/lib/api/types";
 
-// Queue state
-export const queueAtom = atom<Song[]>([]);
+// Queue item with unique ID for stable React keys during reordering
+export interface QueueItem {
+  /** Unique ID for this queue entry (stable across reordering) */
+  queueItemId: string;
+  /** The song data */
+  song: Song;
+}
+
+// Helper to create a queue item with a unique ID
+function createQueueItem(song: Song): QueueItem {
+  return {
+    queueItemId: crypto.randomUUID(),
+    song,
+  };
+}
+
+// Helper to create queue items from songs (exported for use in persistence)
+export function createQueueItems(songs: Song[]): QueueItem[] {
+  return songs.map(createQueueItem);
+}
+
+// Queue state - now stores QueueItem[] instead of Song[]
+export const queueAtom = atom<QueueItem[]>([]);
 export const queueIndexAtom = atom<number>(-1);
 
 // Flag to indicate queue is being restored from server (don't auto-play during restore)
@@ -19,8 +40,15 @@ export const clearRestoringFlagAtom = atom(null, (_get, set) => {
   set(isRestoringQueueAtom, false);
 });
 
-// Current track derived from queue
+// Current track derived from queue (returns the Song, not QueueItem)
 export const currentTrackAtom = atom((get) => {
+  const queue = get(queueAtom);
+  const index = get(queueIndexAtom);
+  return index >= 0 && index < queue.length ? queue[index].song : null;
+});
+
+// Current queue item (includes queueItemId)
+export const currentQueueItemAtom = atom((get) => {
   const queue = get(queueAtom);
   const index = get(queueIndexAtom);
   return index >= 0 && index < queue.length ? queue[index] : null;
@@ -40,18 +68,19 @@ export const addToQueueAtom = atom(
     const queue = get(queueAtom);
     const currentIndex = get(queueIndexAtom);
     const songsArray = Array.isArray(songs) ? songs : [songs];
+    const queueItems = createQueueItems(songsArray);
 
     if (position === "next" && currentIndex >= 0) {
       // Insert after current track
       const newQueue = [
         ...queue.slice(0, currentIndex + 1),
-        ...songsArray,
+        ...queueItems,
         ...queue.slice(currentIndex + 1),
       ];
       set(queueAtom, newQueue);
     } else {
       // Add to end
-      set(queueAtom, [...queue, ...songsArray]);
+      set(queueAtom, [...queue, ...queueItems]);
     }
 
     // Note: We no longer auto-start playback when adding to queue
@@ -130,16 +159,16 @@ export const setQueueIndexAtom = atom(null, (get, set, index: number) => {
   }
 });
 
-// Reorder the queue (for drag and drop)
+// Reorder the queue (for drag and drop) - accepts QueueItem[] to preserve IDs
 export const reorderQueueAtom = atom(
   null,
-  (get, set, newOrder: Song[]) => {
-    const currentTrack = get(currentTrackAtom);
+  (get, set, newOrder: QueueItem[]) => {
+    const currentQueueItem = get(currentQueueItemAtom);
     set(queueAtom, newOrder);
     
     // Update current index if current track is still in queue
-    if (currentTrack) {
-      const newIndex = newOrder.findIndex((s) => s.id === currentTrack.id);
+    if (currentQueueItem) {
+      const newIndex = newOrder.findIndex((item) => item.queueItemId === currentQueueItem.queueItemId);
       if (newIndex >= 0) {
         set(queueIndexAtom, newIndex);
       }
@@ -152,9 +181,10 @@ export const playNowAtom = atom(
   null,
   (get, set, songs: Song | Song[], startIndex: number = 0) => {
     const songsArray = Array.isArray(songs) ? songs : [songs];
+    const queueItems = createQueueItems(songsArray);
     // Clear restore flag since user is explicitly starting playback
     set(isRestoringQueueAtom, false);
-    set(queueAtom, songsArray);
+    set(queueAtom, queueItems);
     set(queueIndexAtom, startIndex);
     set(shuffledIndicesAtom, []);
     set(playHistoryAtom, []);
