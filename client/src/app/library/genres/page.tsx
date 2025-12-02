@@ -5,6 +5,7 @@ import { useAtom, useAtomValue } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { Tag } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
@@ -16,6 +17,7 @@ export default function GenresPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
+  const debouncedFilter = useDebounce(filter, 300);
   
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
@@ -32,14 +34,14 @@ export default function GenresPage() {
     enabled: isReady,
   });
   
-  // Filter genres based on search filter
+  // Filter genres based on search filter (client-side - API doesn't support genre search)
   const filteredGenres = useMemo(() => {
-    if (!filter.trim() || !genresData) return genresData ?? [];
-    const lowerFilter = filter.toLowerCase();
+    if (!debouncedFilter.trim() || !genresData) return genresData ?? [];
+    const lowerFilter = debouncedFilter.toLowerCase();
     return genresData.filter((genre) =>
       genre.value.toLowerCase().includes(lowerFilter)
     );
-  }, [genresData, filter]);
+  }, [genresData, debouncedFilter]);
 
   if (authLoading) {
     return (
@@ -92,7 +94,7 @@ export default function GenresPage() {
           />
         )
       ) : (
-        <EmptyState message="No genres found" />
+        <EmptyState message={debouncedFilter ? "No genres match your filter" : "No genres found"} />
       )}
     </div>
   );
