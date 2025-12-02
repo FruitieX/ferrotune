@@ -1,16 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
-import { Play, Heart } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { CoverImage } from "@/components/shared/cover-image";
 import type { Artist } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { formatCount } from "@/lib/utils/format";
+import { MediaCard, MediaCardSkeleton } from "@/components/shared/media-card";
+import { MediaRow, RowActions, RowDropdownTrigger } from "@/components/shared/media-row";
 import { ArtistContextMenu, ArtistDropdownMenu } from "./artist-context-menu";
 
 interface ArtistCardProps {
@@ -25,65 +21,26 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
     : undefined;
 
   return (
-    <ArtistContextMenu artist={artist}>
-      <div
-        className={cn(
-          "group relative p-4 rounded-lg bg-card hover:bg-accent/50 transition-colors cursor-pointer",
-          className
-        )}
-      >
-        <ArtistDropdownMenu artist={artist} onPlay={onPlay} />
-        <Link href={`/library/artists/details?id=${artist.id}`} className="block">
-          <div className="relative aspect-square rounded-full overflow-hidden mb-4 transform-gpu transition-transform duration-200 group-hover:scale-[1.05]">
-            <CoverImage
-              src={coverArtUrl}
-              alt={artist.name || "Artist image"}
-              colorSeed={artist.name}
-              type="artist"
-              size="full"
-              className="rounded-full"
-            />
-            
-            {/* Play button overlay */}
-            <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
-              <Button
-                size="icon"
-                className="h-12 w-12 rounded-full shadow-lg"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onPlay?.();
-                }}
-              >
-                <Play className="w-6 h-6 ml-0.5" />
-              </Button>
-            </div>
-          </div>
-
-          <div className="text-center space-y-1">
-            <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-              {artist.name}
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              {formatCount(artist.albumCount, "album")}
-            </p>
-          </div>
-        </Link>
-      </div>
-    </ArtistContextMenu>
+    <MediaCard
+      coverArt={coverArtUrl}
+      title={artist.name}
+      subtitle={formatCount(artist.albumCount, "album")}
+      href={`/library/artists/details?id=${artist.id}`}
+      coverShape="circle"
+      colorSeed={artist.name}
+      coverType="artist"
+      onPlay={onPlay}
+      dropdownMenu={<ArtistDropdownMenu artist={artist} onPlay={onPlay} />}
+      contextMenu={(children) => (
+        <ArtistContextMenu artist={artist}>{children}</ArtistContextMenu>
+      )}
+      className={className}
+    />
   );
 }
 
 export function ArtistCardSkeleton() {
-  return (
-    <div className="p-4 rounded-lg bg-card">
-      <Skeleton className="aspect-square rounded-full mb-4" />
-      <div className="text-center space-y-2">
-        <Skeleton className="h-5 w-3/4 mx-auto" />
-        <Skeleton className="h-4 w-1/2 mx-auto" />
-      </div>
-    </div>
-  );
+  return <MediaCardSkeleton coverShape="circle" />;
 }
 
 // Compact artist card for lists
@@ -123,59 +80,32 @@ export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompa
   };
 
   return (
-    <ArtistContextMenu artist={artist}>
-      <div
-        className={cn(
-          "group flex items-center gap-3 p-2 rounded-md hover:bg-accent/50 transition-colors cursor-pointer",
-          className
-        )}
-      >
-        <Link
-          href={`/library/artists/details?id=${artist.id}`}
-          className="flex items-center gap-3 flex-1 min-w-0"
-        >
-          <div className="relative w-12 h-12 rounded-full overflow-hidden shrink-0">
-            <CoverImage
-              src={coverArtUrl}
-              alt={artist.name || "Artist image"}
-              colorSeed={artist.name}
-              type="artist"
-              size="sm"
-              className="rounded-full"
+    <MediaRow
+      coverArt={coverArtUrl}
+      title={artist.name}
+      subtitle={formatCount(artist.albumCount, "album")}
+      href={`/library/artists/details?id=${artist.id}`}
+      coverShape="circle"
+      colorSeed={artist.name}
+      coverType="artist"
+      onPlay={() => onPlay?.()}
+      contextMenu={(children) => (
+        <ArtistContextMenu artist={artist}>{children}</ArtistContextMenu>
+      )}
+      actions={
+        <RowActions
+          onStar={handleStar}
+          isStarred={isStarred}
+          dropdownMenu={
+            <ArtistDropdownMenu
+              artist={artist}
+              onPlay={onPlay}
+              trigger={<RowDropdownTrigger />}
             />
-          </div>
-          <div className="min-w-0">
-            <p className="font-medium text-sm truncate">{artist.name}</p>
-            <p className="text-xs text-muted-foreground truncate">
-              {formatCount(artist.albumCount, "album")}
-            </p>
-          </div>
-        </Link>
-        
-        {/* Hover action buttons */}
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={handleStar}
-          >
-            <Heart className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={(e) => {
-              e.preventDefault();
-              onPlay?.();
-            }}
-          >
-            <Play className="w-4 h-4" />
-          </Button>
-          <ArtistDropdownMenu artist={artist} onPlay={onPlay} />
-        </div>
-      </div>
-    </ArtistContextMenu>
+          }
+        />
+      }
+      className={className}
+    />
   );
 }

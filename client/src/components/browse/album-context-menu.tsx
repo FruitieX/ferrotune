@@ -197,7 +197,13 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
 }
 
 // Dropdown variant for album cards
-export function AlbumDropdownMenu({ album, onPlay }: { album: Album; onPlay?: () => void }) {
+interface AlbumDropdownMenuProps {
+  album: Album;
+  onPlay?: () => void;
+  trigger?: React.ReactNode;
+}
+
+export function AlbumDropdownMenu({ album, onPlay, trigger }: AlbumDropdownMenuProps) {
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!album.starred);
@@ -292,22 +298,26 @@ export function AlbumDropdownMenu({ album, onPlay }: { album: Album; onPlay?: ()
     }
   };
 
+  const defaultTrigger = (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-8 w-8 absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 hover:bg-background"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
+      <MoreHorizontal className="w-4 h-4" />
+      <span className="sr-only">More options</span>
+    </Button>
+  );
+
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 hover:bg-background"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-          >
-            <MoreHorizontal className="w-4 h-4" />
-            <span className="sr-only">More options</span>
-          </Button>
+          {trigger ?? defaultTrigger}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuItem onClick={handlePlay}>
