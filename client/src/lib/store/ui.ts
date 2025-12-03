@@ -26,6 +26,39 @@ export type ViewMode = "grid" | "list";
 export const albumViewModeAtom = atomWithStorage<ViewMode>("ferrotune-album-view", "grid");
 export const artistViewModeAtom = atomWithStorage<ViewMode>("ferrotune-artist-view", "grid");
 
+// Library sorting
+export type SortField = "name" | "artist" | "year" | "dateAdded" | "playCount" | "duration";
+export type SortDirection = "asc" | "desc";
+
+export interface SortConfig {
+  field: SortField;
+  direction: SortDirection;
+}
+
+export const librarySortAtom = atomWithStorage<SortConfig>("ferrotune-library-sort", {
+  field: "name",
+  direction: "asc",
+});
+
+// Library column visibility
+export interface ColumnVisibility {
+  artist: boolean;
+  album: boolean;
+  duration: boolean;
+  playCount: boolean;
+  dateAdded: boolean;
+  year: boolean;
+}
+
+export const columnVisibilityAtom = atomWithStorage<ColumnVisibility>("ferrotune-column-visibility", {
+  artist: true,
+  album: true,
+  duration: true,
+  playCount: false,
+  dateAdded: false,
+  year: false,
+});
+
 // Keyboard shortcuts dialog
 export const shortcutsDialogOpenAtom = atom<boolean>(false);
 
