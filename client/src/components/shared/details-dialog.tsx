@@ -21,7 +21,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getClient } from "@/lib/api/client";
 import { formatDuration, formatDate, formatFileSize } from "@/lib/utils/format";
 import { toast } from "sonner";
@@ -101,23 +100,18 @@ function DetailRow({ icon: Icon, label, value, copyable = false }: { icon: React
         <div className="flex items-center gap-1">
           <p className="text-sm font-medium wrap-break-word whitespace-pre-wrap flex-1">{value}</p>
           {canCopy && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={handleCopy}
-                >
-                  {copied ? (
-                    <Check className="w-3 h-3 text-green-500" />
-                  ) : (
-                    <Copy className="w-3 h-3" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">Copy to clipboard</TooltipContent>
-            </Tooltip>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={handleCopy}
+            >
+              {copied ? (
+                <Check className="w-3 h-3 text-green-500" />
+              ) : (
+                <Copy className="w-3 h-3" />
+              )}
+            </Button>
           )}
         </div>
       </div>
