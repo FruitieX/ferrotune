@@ -6,6 +6,7 @@ import { Music, User, Disc, ListMusic, Calendar, Clock, Hash, FileAudio, HardDri
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -179,6 +180,9 @@ function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }
           <Music className="w-5 h-5" />
           Track Details
         </DialogTitle>
+        <DialogDescription className="sr-only">
+          Detailed information about {fullSong.title} by {fullSong.artist}
+        </DialogDescription>
       </DialogHeader>
 
       <div className="space-y-4 overflow-hidden">
@@ -319,6 +323,9 @@ function AlbumDetails({ album }: { album: Album }) {
           <Disc className="w-5 h-5" />
           Album Details
         </DialogTitle>
+        <DialogDescription className="sr-only">
+          Detailed information about {album.name} by {album.artist}
+        </DialogDescription>
       </DialogHeader>
 
       <div className="space-y-4">
@@ -382,6 +389,9 @@ function ArtistDetails({ artist }: { artist: Artist }) {
           <User className="w-5 h-5" />
           Artist Details
         </DialogTitle>
+        <DialogDescription className="sr-only">
+          Detailed information about {artist.name}
+        </DialogDescription>
       </DialogHeader>
 
       <div className="space-y-4">
@@ -442,6 +452,9 @@ function PlaylistDetails({ playlist }: { playlist: Playlist }) {
           <ListMusic className="w-5 h-5" />
           Playlist Details
         </DialogTitle>
+        <DialogDescription className="sr-only">
+          Detailed information about playlist {playlist.name}
+        </DialogDescription>
       </DialogHeader>
 
       <div className="space-y-4">
