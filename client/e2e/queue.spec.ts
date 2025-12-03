@@ -191,4 +191,138 @@ test.describe("Queue Management", () => {
     // Should show "Now Playing" section with current track
     await expect(queuePanel.getByText(/now playing/i)).toBeVisible();
   });
+
+  test("can clear queue", async ({ authenticatedPage: page }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    
+    // Open queue
+    const queueButton = page.locator("footer").getByRole("button", { name: /queue/i }).first();
+    await queueButton.click();
+    
+    const queuePanel = await waitForQueuePanel(page);
+    
+    // Click Clear button
+    const clearButton = queuePanel.getByRole("button", { name: "Clear" });
+    await expect(clearButton).toBeVisible();
+    await clearButton.click();
+    
+    // Queue should show empty state
+    await expect(queuePanel.getByRole("heading", { name: "Your queue is empty" })).toBeVisible({ timeout: 5000 });
+  });
+
+  test("queue updates when adding songs via Play Next", async ({ authenticatedPage: page }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    
+    // Open queue and note initial count
+    const queueButton = page.locator("footer").getByRole("button", { name: /queue/i }).first();
+    await queueButton.click();
+    const queuePanel = await waitForQueuePanel(page);
+    
+    // Close queue
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    
+    // Go to another album
+    await page.goto("/library/albums");
+    await page.locator('[data-testid="media-card"], article').filter({ hasText: "Another Album" }).click();
+    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
+    
+    // Add song via context menu "Play Next"
+    const songRow = page.locator('[data-testid="song-row"]').first();
+    await songRow.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Play Next" }).click();
+    
+    // Verify toast
+    await expect(page.locator('[data-sonner-toast]').filter({ hasText: /next|added/i })).toBeVisible({ timeout: 3000 });
+    
+    // Open queue again and verify song was added
+    await queueButton.click();
+    const updatedQueuePanel = await waitForQueuePanel(page);
+    
+    // Should now contain the added song
+    await expect(updatedQueuePanel.getByText("FLAC Track One")).toBeVisible({ timeout: 5000 });
+  });
+
+  test("queue updates when adding songs via Add to Queue", async ({ authenticatedPage: page }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    
+    // Go to another album
+    await page.goto("/library/albums");
+    await page.locator('[data-testid="media-card"], article').filter({ hasText: "Another Album" }).click();
+    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
+    
+    // Add song via context menu "Add to Queue"
+    const songRow = page.locator('[data-testid="song-row"]').first();
+    await songRow.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Add to Queue" }).click();
+    
+    // Verify toast
+    await expect(page.locator('[data-sonner-toast]').filter({ hasText: /added to queue/i })).toBeVisible({ timeout: 3000 });
+    
+    // Open queue and verify song is at the end
+    const queueButton = page.locator("footer").getByRole("button", { name: /queue/i }).first();
+    await queueButton.click();
+    const queuePanel = await waitForQueuePanel(page);
+    
+    await expect(queuePanel.getByText("FLAC Track One")).toBeVisible({ timeout: 5000 });
+  });
+
+  test("queue shows Up Next section", async ({ authenticatedPage: page }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    
+    // Open queue
+    const queueButton = page.locator("footer").getByRole("button", { name: /queue/i }).first();
+    await queueButton.click();
+    
+    const queuePanel = await waitForQueuePanel(page);
+    
+    // Should show "Up Next" section (when there are more songs)
+    await expect(queuePanel.getByText(/up next/i)).toBeVisible();
+  });
+
+  test("double-clicking queue item plays it", async ({ authenticatedPage: page }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+    
+    // Verify First Song is playing
+    await expect(page.locator("footer")).toContainText("First Song");
+    
+    // Open queue
+    const queueButton = page.locator("footer").getByRole("button", { name: /queue/i }).first();
+    await queueButton.click();
+    
+    const queuePanel = await waitForQueuePanel(page);
+    
+    // Double-click on Second Song
+    await queuePanel.getByText("Second Song").dblclick();
+    
+    await page.waitForTimeout(500);
+    
+    // Should now be playing Second Song
+    await expect(page.locator("footer")).toContainText("Second Song");
+  });
+
+  test("queue keyboard navigation with Escape", async ({ authenticatedPage: page }) => {
+    await page.goto("/");
+    
+    const queueButton = page.locator("footer").getByRole("button", { name: /queue/i }).first();
+    await queueButton.click();
+    
+    await waitForQueuePanel(page);
+    
+    // Press Escape to close
+    await page.keyboard.press("Escape");
+    
+    await page.waitForTimeout(300);
+    
+    // On mobile, sheet should be closed
+    // On desktop, sidebar may toggle
+    // Just verify we can open it again
+    await queueButton.click();
+    await waitForQueuePanel(page);
+  });
 });
