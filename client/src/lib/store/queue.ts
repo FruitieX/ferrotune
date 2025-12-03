@@ -31,6 +31,10 @@ export const queueIndexAtom = atom<number>(-1);
 // This flag stays true until the user explicitly presses play
 export const isRestoringQueueAtom = atom<boolean>(false);
 
+// Flag to indicate queue data is loading from the server (for skeleton UI)
+// This is set to true when restoration starts and false when the API call completes
+export const isQueueLoadingAtom = atom<boolean>(true);
+
 // Counter that increments when an immediate save is needed (e.g., when replacing the queue)
 // This helps the persistence hook know to save immediately instead of debouncing
 export const queueSaveRequestAtom = atom<number>(0);
