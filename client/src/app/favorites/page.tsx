@@ -4,28 +4,39 @@ import { useState, useMemo } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Heart, Play, Shuffle, Search, X, Music } from "lucide-react";
+import { Heart, Play, Shuffle } from "lucide-react";
+import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { useDebounce } from "@/lib/hooks/use-debounce";
-import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
-import { playlistViewModeAtom, playlistSortAtom, playlistColumnVisibilityAtom } from "@/lib/store/ui";
+import { useTrackSelection, useItemSelection } from "@/lib/hooks/use-track-selection";
+import { playNowAtom, isShuffledAtom, addToQueueAtom } from "@/lib/store/queue";
+import { 
+  playlistViewModeAtom, 
+  playlistSortAtom, 
+  playlistColumnVisibilityAtom,
+  favoritesAlbumViewModeAtom,
+  favoritesAlbumSortAtom,
+  favoritesArtistViewModeAtom,
+  favoritesArtistSortAtom,
+} from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
-import { ArtistCard, ArtistCardSkeleton } from "@/components/browse/artist-card";
+import { AlbumCard, AlbumCardSkeleton, AlbumCardCompact } from "@/components/browse/album-card";
+import { ArtistCard, ArtistCardSkeleton, ArtistCardCompact } from "@/components/browse/artist-card";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
+import { MediaRowSkeleton } from "@/components/shared/media-row";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import { MediaListToolbar } from "@/components/shared/media-list-toolbar";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { formatCount, formatTotalDuration } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
-import type { Album, Song } from "@/lib/api/types";
+import type { Album, Artist, Song } from "@/lib/api/types";
 import { sortSongs } from "@/lib/utils/sort-songs";
+import { sortAlbums, sortArtists } from "@/lib/utils/sort-media";
 
 type TabValue = "songs" | "albums" | "artists";
 
@@ -33,15 +44,30 @@ export default function FavoritesPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const isMounted = useIsMounted();
   const playNow = useSetAtom(playNowAtom);
+  const addToQueue = useSetAtom(addToQueueAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const [activeTab, setActiveTab] = useState<TabValue>("songs");
-  const [searchQuery, setSearchQuery] = useState("");
-  const debouncedSearch = useDebounce(searchQuery, 300);
+  
+  // Separate search queries for each tab
+  const [songSearchQuery, setSongSearchQuery] = useState("");
+  const [albumSearchQuery, setAlbumSearchQuery] = useState("");
+  const [artistSearchQuery, setArtistSearchQuery] = useState("");
+  const debouncedSongSearch = useDebounce(songSearchQuery, 300);
+  const debouncedAlbumSearch = useDebounce(albumSearchQuery, 300);
+  const debouncedArtistSearch = useDebounce(artistSearchQuery, 300);
   
   // View settings for songs tab
-  const [viewMode, setViewMode] = useAtom(playlistViewModeAtom);
-  const [sortConfig, setSortConfig] = useAtom(playlistSortAtom);
+  const [songViewMode, setSongViewMode] = useAtom(playlistViewModeAtom);
+  const [songSortConfig, setSongSortConfig] = useAtom(playlistSortAtom);
   const [columnVisibility, setColumnVisibility] = useAtom(playlistColumnVisibilityAtom);
+  
+  // View settings for albums tab
+  const [albumViewMode, setAlbumViewMode] = useAtom(favoritesAlbumViewModeAtom);
+  const [albumSortConfig, setAlbumSortConfig] = useAtom(favoritesAlbumSortAtom);
+  
+  // View settings for artists tab
+  const [artistViewMode, setArtistViewMode] = useAtom(favoritesArtistViewModeAtom);
+  const [artistSortConfig, setArtistSortConfig] = useAtom(favoritesArtistSortAtom);
   
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
@@ -62,57 +88,186 @@ export default function FavoritesPage() {
   const albums = starredData?.album ?? [];
   const artists = starredData?.artist ?? [];
 
-  // Filter and sort items based on search query
+  // Filter and sort songs
   const displaySongs = useMemo(() => {
     let filtered = songs;
-    if (debouncedSearch.trim()) {
-      const query = debouncedSearch.toLowerCase();
+    if (debouncedSongSearch.trim()) {
+      const query = debouncedSongSearch.toLowerCase();
       filtered = songs.filter(song => 
         song.title.toLowerCase().includes(query) ||
         song.artist?.toLowerCase().includes(query) ||
         song.album?.toLowerCase().includes(query)
       );
     }
-    return sortSongs(filtered as Song[], sortConfig.field, sortConfig.direction);
-  }, [songs, debouncedSearch, sortConfig]);
+    return sortSongs(filtered as Song[], songSortConfig.field, songSortConfig.direction);
+  }, [songs, debouncedSongSearch, songSortConfig]);
 
-  const filteredAlbums = useMemo(() => {
-    if (!debouncedSearch.trim()) return albums;
-    const query = debouncedSearch.toLowerCase();
-    return albums.filter(album => 
-      album.name.toLowerCase().includes(query) ||
-      album.artist?.toLowerCase().includes(query)
-    );
-  }, [albums, debouncedSearch]);
+  // Filter and sort albums
+  const displayAlbums = useMemo(() => {
+    let filtered = albums;
+    if (debouncedAlbumSearch.trim()) {
+      const query = debouncedAlbumSearch.toLowerCase();
+      filtered = albums.filter(album => 
+        album.name.toLowerCase().includes(query) ||
+        album.artist?.toLowerCase().includes(query)
+      );
+    }
+    return sortAlbums(filtered, albumSortConfig.field, albumSortConfig.direction);
+  }, [albums, debouncedAlbumSearch, albumSortConfig]);
 
-  const filteredArtists = useMemo(() => {
-    if (!debouncedSearch.trim()) return artists;
-    const query = debouncedSearch.toLowerCase();
-    return artists.filter(artist => 
-      artist.name.toLowerCase().includes(query)
-    );
-  }, [artists, debouncedSearch]);
+  // Filter and sort artists
+  const displayArtists = useMemo(() => {
+    let filtered = artists;
+    if (debouncedArtistSearch.trim()) {
+      const query = debouncedArtistSearch.toLowerCase();
+      filtered = artists.filter(artist => 
+        artist.name.toLowerCase().includes(query)
+      );
+    }
+    return sortArtists(filtered, artistSortConfig.field, artistSortConfig.direction);
+  }, [artists, debouncedArtistSearch, artistSortConfig]);
 
   const totalDuration = displaySongs.reduce((acc, song) => acc + song.duration, 0);
 
   // Track selection for songs tab
-  const {
-    selectedCount,
-    hasSelection,
-    isSelected,
-    handleSelect,
-    clearSelection,
-    selectAll,
-    getSelectedSongs,
-    addSelectedToQueue,
-    starSelected,
-  } = useTrackSelection(displaySongs);
+  const songSelection = useTrackSelection(displaySongs);
 
-  const handlePlaySelected = () => {
-    const selected = getSelectedSongs();
+  // Album selection
+  const albumSelection = useItemSelection(displayAlbums);
+
+  // Artist selection
+  const artistSelection = useItemSelection(displayArtists);
+
+  const handlePlaySelectedSongs = () => {
+    const selected = songSelection.getSelectedSongs();
     if (selected.length > 0) {
       playNow(selected);
-      clearSelection();
+      songSelection.clearSelection();
+    }
+  };
+
+  // Get songs from selected albums
+  const getSelectedAlbumsSongs = async (): Promise<Song[]> => {
+    const client = getClient();
+    if (!client) return [];
+    
+    const selectedAlbums = albumSelection.getSelectedItems();
+    const songsPromises = selectedAlbums.map(album => 
+      client.getAlbum(album.id).then(res => res.album.song ?? [])
+    );
+    const songsArrays = await Promise.all(songsPromises);
+    return songsArrays.flat();
+  };
+
+  // Album bulk action handlers
+  const handlePlaySelectedAlbums = async () => {
+    const songs = await getSelectedAlbumsSongs();
+    if (songs.length > 0) {
+      playNow(songs);
+      albumSelection.clearSelection();
+      toast.success(`Playing ${songs.length} songs from ${albumSelection.selectedCount} albums`);
+    }
+  };
+
+  const handleShuffleSelectedAlbums = async () => {
+    const songs = await getSelectedAlbumsSongs();
+    if (songs.length > 0) {
+      setIsShuffled(true);
+      const shuffled = [...songs].sort(() => Math.random() - 0.5);
+      playNow(shuffled);
+      albumSelection.clearSelection();
+      toast.success(`Shuffling ${songs.length} songs from ${albumSelection.selectedCount} albums`);
+    }
+  };
+
+  const handleAddSelectedAlbumsToQueue = async (position: "next" | "last") => {
+    const songs = await getSelectedAlbumsSongs();
+    if (songs.length > 0) {
+      songs.forEach(song => addToQueue(song, position));
+      albumSelection.clearSelection();
+      toast.success(`Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`);
+    }
+  };
+
+  const handleStarSelectedAlbums = async (star: boolean) => {
+    const client = getClient();
+    if (!client) return;
+    
+    const selected = albumSelection.getSelectedItems();
+    try {
+      if (star) {
+        await Promise.all(selected.map(a => client.star({ albumId: a.id })));
+        toast.success(`Added ${selected.length} albums to favorites`);
+      } else {
+        await Promise.all(selected.map(a => client.unstar({ albumId: a.id })));
+        toast.success(`Removed ${selected.length} albums from favorites`);
+      }
+      albumSelection.clearSelection();
+    } catch (error) {
+      toast.error("Failed to update favorites");
+      console.error(error);
+    }
+  };
+
+  // Artist bulk action handlers
+  const getSelectedArtistsSongs = async (): Promise<Song[]> => {
+    const client = getClient();
+    if (!client) return [];
+    
+    const selectedArtists = artistSelection.getSelectedItems();
+    const songsPromises = selectedArtists.map(artist => 
+      client.getArtist(artist.id).then(res => res.artist.song ?? [])
+    );
+    const songsArrays = await Promise.all(songsPromises);
+    return songsArrays.flat();
+  };
+
+  const handlePlaySelectedArtists = async () => {
+    const songs = await getSelectedArtistsSongs();
+    if (songs.length > 0) {
+      playNow(songs);
+      artistSelection.clearSelection();
+      toast.success(`Playing ${songs.length} songs from ${artistSelection.selectedCount} artists`);
+    }
+  };
+
+  const handleShuffleSelectedArtists = async () => {
+    const songs = await getSelectedArtistsSongs();
+    if (songs.length > 0) {
+      setIsShuffled(true);
+      const shuffled = [...songs].sort(() => Math.random() - 0.5);
+      playNow(shuffled);
+      artistSelection.clearSelection();
+      toast.success(`Shuffling ${songs.length} songs from ${artistSelection.selectedCount} artists`);
+    }
+  };
+
+  const handleAddSelectedArtistsToQueue = async (position: "next" | "last") => {
+    const songs = await getSelectedArtistsSongs();
+    if (songs.length > 0) {
+      songs.forEach(song => addToQueue(song, position));
+      artistSelection.clearSelection();
+      toast.success(`Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`);
+    }
+  };
+
+  const handleStarSelectedArtists = async (star: boolean) => {
+    const client = getClient();
+    if (!client) return;
+    
+    const selected = artistSelection.getSelectedItems();
+    try {
+      if (star) {
+        await Promise.all(selected.map(a => client.star({ artistId: a.id })));
+        toast.success(`Added ${selected.length} artists to favorites`);
+      } else {
+        await Promise.all(selected.map(a => client.unstar({ artistId: a.id })));
+        toast.success(`Removed ${selected.length} artists from favorites`);
+      }
+      artistSelection.clearSelection();
+    } catch (error) {
+      toast.error("Failed to update favorites");
+      console.error(error);
     }
   };
 
@@ -122,9 +277,9 @@ export default function FavoritesPage() {
       case "songs":
         return `${formatCount(displaySongs.length, "song")} • ${formatTotalDuration(totalDuration)}`;
       case "albums":
-        return formatCount(filteredAlbums.length, "album");
+        return formatCount(displayAlbums.length, "album");
       case "artists":
-        return formatCount(filteredArtists.length, "artist");
+        return formatCount(displayArtists.length, "artist");
     }
   };
 
@@ -157,14 +312,27 @@ export default function FavoritesPage() {
     }
   };
 
+  const handlePlayArtist = async (artist: Artist) => {
+    const client = getClient();
+    if (!client) return;
+
+    try {
+      const response = await client.getArtist(artist.id);
+      if (response.artist.song && response.artist.song.length > 0) {
+        playNow(response.artist.song);
+      }
+    } catch (error) {
+      console.error("Failed to play artist:", error);
+    }
+  };
+
   // Always render the same loading state on server and during hydration
-  // This prevents hydration mismatches
   if (!isMounted || authLoading) {
     return (
       <div className="min-h-screen">
         {/* Header skeleton */}
         <div className="relative">
-          <div className="absolute inset-0 h-[300px] bg-gradient-to-b from-red-500/20 to-background" />
+          <div className="absolute inset-0 h-[300px] bg-linear-to-b from-red-500/20 to-background" />
           <div className="relative z-10 px-4 lg:px-6 pt-8 pb-6">
             <div className="flex items-center gap-6">
               <Skeleton className="w-48 h-48 rounded-lg" />
@@ -262,38 +430,44 @@ export default function FavoritesPage() {
           {/* Song list toolbar - only show on songs tab */}
           {activeTab === "songs" && (
             <SongListToolbar
-              filter={searchQuery}
-              onFilterChange={setSearchQuery}
-              sortConfig={sortConfig}
-              onSortChange={setSortConfig}
+              filter={songSearchQuery}
+              onFilterChange={setSongSearchQuery}
+              sortConfig={songSortConfig}
+              onSortChange={setSongSortConfig}
               columnVisibility={columnVisibility}
               onColumnVisibilityChange={setColumnVisibility}
-              viewMode={viewMode}
-              onViewModeChange={setViewMode}
+              viewMode={songViewMode}
+              onViewModeChange={setSongViewMode}
               filterPlaceholder="Search favorites..."
             />
           )}
           
-          {/* Search input for albums/artists tabs */}
-          {activeTab !== "songs" && (
-            <div className="flex-1 max-w-xs ml-auto relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Search favorites..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 pr-8"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
+          {/* Albums toolbar */}
+          {activeTab === "albums" && (
+            <MediaListToolbar
+              filter={albumSearchQuery}
+              onFilterChange={setAlbumSearchQuery}
+              sortConfig={albumSortConfig}
+              onSortChange={setAlbumSortConfig}
+              viewMode={albumViewMode}
+              onViewModeChange={setAlbumViewMode}
+              mediaType="album"
+              filterPlaceholder="Search albums..."
+            />
+          )}
+          
+          {/* Artists toolbar */}
+          {activeTab === "artists" && (
+            <MediaListToolbar
+              filter={artistSearchQuery}
+              onFilterChange={setArtistSearchQuery}
+              sortConfig={artistSortConfig}
+              onSortChange={setArtistSortConfig}
+              viewMode={artistViewMode}
+              onViewModeChange={setArtistViewMode}
+              mediaType="artist"
+              filterPlaceholder="Search artists..."
+            />
           )}
         </div>
       </div>
@@ -306,32 +480,32 @@ export default function FavoritesPage() {
               Songs ({displaySongs.length})
             </TabsTrigger>
             <TabsTrigger value="albums">
-              Albums ({filteredAlbums.length})
+              Albums ({displayAlbums.length})
             </TabsTrigger>
             <TabsTrigger value="artists">
-              Artists ({filteredArtists.length})
+              Artists ({displayArtists.length})
             </TabsTrigger>
           </TabsList>
         </div>
 
         <TabsContent value="songs" className="mt-0">
-          {isLoading ? (
-            <div className="px-4 lg:px-6 py-4">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-4 py-2">
-                  <Skeleton className="w-8 h-4" />
-                  <Skeleton className="w-10 h-10 rounded" />
-                  <div className="flex-1">
-                    <Skeleton className="h-4 w-40 mb-1" />
-                    <Skeleton className="h-3 w-32" />
-                  </div>
-                  <Skeleton className="h-4 w-10" />
+          <div className={cn("p-4 lg:p-6", songSelection.hasSelection && "select-none-during-selection")}>
+            {isLoading ? (
+              songViewMode === "grid" ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                  {Array.from({ length: 12 }).map((_, i) => (
+                    <SongCardSkeleton key={i} />
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : displaySongs.length > 0 ? (
-            viewMode === "grid" ? (
-              <div className="p-4 lg:p-6">
+              ) : (
+                <div className="space-y-1">
+                  {Array.from({ length: 10 }).map((_, i) => (
+                    <SongRowSkeleton key={i} showCover showIndex />
+                  ))}
+                </div>
+              )
+            ) : displaySongs.length > 0 ? (
+              songViewMode === "grid" ? (
                 <motion.div 
                   className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
                   initial="hidden"
@@ -348,121 +522,223 @@ export default function FavoritesPage() {
                         visible: { opacity: 1, y: 0 },
                       }}
                     >
-                      <SongCard song={song} queueSongs={displaySongs} />
+                      <SongCard 
+                        song={song} 
+                        queueSongs={displaySongs}
+                        isSelected={songSelection.isSelected(song.id)}
+                        isSelectionMode={songSelection.hasSelection}
+                        onSelect={(e) => songSelection.handleSelect(song.id, e)}
+                      />
                     </motion.div>
                   ))}
                 </motion.div>
-              </div>
+              ) : (
+                <div className="space-y-1">
+                  {displaySongs.map((song, index) => (
+                    <SongRow
+                      key={song.id}
+                      song={song}
+                      index={index}
+                      showCover
+                      showAlbum={columnVisibility.album}
+                      showArtist={columnVisibility.artist}
+                      showDuration={columnVisibility.duration}
+                      showPlayCount={columnVisibility.playCount}
+                      showYear={columnVisibility.year}
+                      showDateAdded={columnVisibility.dateAdded}
+                      queueSongs={displaySongs}
+                      isSelected={songSelection.isSelected(song.id)}
+                      isSelectionMode={songSelection.hasSelection}
+                      onSelect={(e) => songSelection.handleSelect(song.id, e)}
+                    />
+                  ))}
+                </div>
+              )
             ) : (
-              <div className="px-4 lg:px-6">
-                {displaySongs.map((song, index) => (
-                  <SongRow
-                    key={song.id}
-                    song={song}
-                    index={index}
-                    showCover
-                    showAlbum={columnVisibility.album}
-                    showArtist={columnVisibility.artist}
-                    showDuration={columnVisibility.duration}
-                    showPlayCount={columnVisibility.playCount}
-                    showYear={columnVisibility.year}
-                    showDateAdded={columnVisibility.dateAdded}
-                    queueSongs={displaySongs}
-                    isSelected={isSelected(song.id)}
-                    isSelectionMode={hasSelection}
-                    onSelect={(e) => handleSelect(song.id, e)}
-                  />
-                ))}
-              </div>
-            )
-          ) : (
-            <EmptyState message={debouncedSearch ? "No songs match your search" : "No liked songs yet"} />
-          )}
+              <EmptyState message={debouncedSongSearch ? "No songs match your search" : "No liked songs yet"} />
+            )}
+          </div>
         </TabsContent>
 
         <TabsContent value="albums" className="mt-0">
-          <div className="p-4 lg:p-6">
+          <div className={cn("p-4 lg:p-6", albumSelection.hasSelection && "select-none-during-selection")}>
             {isLoading ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <AlbumCardSkeleton key={i} />
-                ))}
-              </div>
-            ) : filteredAlbums.length > 0 ? (
-              <motion.div 
-                className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
-                initial="hidden"
-                animate="visible"
-                variants={{
-                  visible: { transition: { staggerChildren: 0.05 } },
-                }}
-              >
-                {filteredAlbums.map((album) => (
-                  <motion.div
-                    key={album.id}
-                    variants={{
-                      hidden: { opacity: 0, y: 20 },
-                      visible: { opacity: 1, y: 0 },
-                    }}
-                  >
-                    <AlbumCard album={album} onPlay={() => handlePlayAlbum(album)} />
-                  </motion.div>
-                ))}
-              </motion.div>
+              albumViewMode === "grid" ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                  {Array.from({ length: 12 }).map((_, i) => (
+                    <AlbumCardSkeleton key={i} />
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {Array.from({ length: 10 }).map((_, i) => (
+                    <MediaRowSkeleton key={i} showIndex />
+                  ))}
+                </div>
+              )
+            ) : displayAlbums.length > 0 ? (
+              albumViewMode === "grid" ? (
+                <motion.div 
+                  className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
+                  initial="hidden"
+                  animate="visible"
+                  variants={{
+                    visible: { transition: { staggerChildren: 0.05 } },
+                  }}
+                >
+                  {displayAlbums.map((album) => (
+                    <motion.div
+                      key={album.id}
+                      variants={{
+                        hidden: { opacity: 0, y: 20 },
+                        visible: { opacity: 1, y: 0 },
+                      }}
+                    >
+                      <AlbumCard 
+                        album={album} 
+                        onPlay={() => handlePlayAlbum(album)}
+                        isSelected={albumSelection.isSelected(album.id)}
+                        isSelectionMode={albumSelection.hasSelection}
+                        onSelect={(e) => albumSelection.handleSelect(album.id, e)}
+                      />
+                    </motion.div>
+                  ))}
+                </motion.div>
+              ) : (
+                <div className="space-y-1">
+                  {displayAlbums.map((album, index) => (
+                    <AlbumCardCompact
+                      key={album.id}
+                      album={album}
+                      index={index}
+                      onPlay={() => handlePlayAlbum(album)}
+                      isSelected={albumSelection.isSelected(album.id)}
+                      isSelectionMode={albumSelection.hasSelection}
+                      onSelect={(e) => albumSelection.handleSelect(album.id, e)}
+                    />
+                  ))}
+                </div>
+              )
             ) : (
-              <EmptyState message={debouncedSearch ? "No albums match your search" : "No liked albums yet"} />
+              <EmptyState message={debouncedAlbumSearch ? "No albums match your search" : "No liked albums yet"} />
             )}
           </div>
         </TabsContent>
 
         <TabsContent value="artists" className="mt-0">
-          <div className="p-4 lg:p-6">
+          <div className={cn("p-4 lg:p-6", artistSelection.hasSelection && "select-none-during-selection")}>
             {isLoading ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <ArtistCardSkeleton key={i} />
-                ))}
-              </div>
-            ) : filteredArtists.length > 0 ? (
-              <motion.div 
-                className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
-                initial="hidden"
-                animate="visible"
-                variants={{
-                  visible: { transition: { staggerChildren: 0.05 } },
-                }}
-              >
-                {filteredArtists.map((artist) => (
-                  <motion.div
-                    key={artist.id}
-                    variants={{
-                      hidden: { opacity: 0, y: 20 },
-                      visible: { opacity: 1, y: 0 },
-                    }}
-                  >
-                    <ArtistCard artist={artist} />
-                  </motion.div>
-                ))}
-              </motion.div>
+              artistViewMode === "grid" ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                  {Array.from({ length: 12 }).map((_, i) => (
+                    <ArtistCardSkeleton key={i} />
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {Array.from({ length: 10 }).map((_, i) => (
+                    <MediaRowSkeleton key={i} showIndex />
+                  ))}
+                </div>
+              )
+            ) : displayArtists.length > 0 ? (
+              artistViewMode === "grid" ? (
+                <motion.div 
+                  className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
+                  initial="hidden"
+                  animate="visible"
+                  variants={{
+                    visible: { transition: { staggerChildren: 0.05 } },
+                  }}
+                >
+                  {displayArtists.map((artist) => (
+                    <motion.div
+                      key={artist.id}
+                      variants={{
+                        hidden: { opacity: 0, y: 20 },
+                        visible: { opacity: 1, y: 0 },
+                      }}
+                    >
+                      <ArtistCard 
+                        artist={artist}
+                        onPlay={() => handlePlayArtist(artist)}
+                        isSelected={artistSelection.isSelected(artist.id)}
+                        isSelectionMode={artistSelection.hasSelection}
+                        onSelect={(e) => artistSelection.handleSelect(artist.id, e)}
+                      />
+                    </motion.div>
+                  ))}
+                </motion.div>
+              ) : (
+                <div className="space-y-1">
+                  {displayArtists.map((artist, index) => (
+                    <ArtistCardCompact
+                      key={artist.id}
+                      artist={artist}
+                      index={index}
+                      onPlay={() => handlePlayArtist(artist)}
+                      isSelected={artistSelection.isSelected(artist.id)}
+                      isSelectionMode={artistSelection.hasSelection}
+                      onSelect={(e) => artistSelection.handleSelect(artist.id, e)}
+                    />
+                  ))}
+                </div>
+              )
             ) : (
-              <EmptyState message={debouncedSearch ? "No artists match your search" : "No liked artists yet"} />
+              <EmptyState message={debouncedArtistSearch ? "No artists match your search" : "No liked artists yet"} />
             )}
           </div>
         </TabsContent>
       </Tabs>
 
       {/* Bulk actions bar for songs */}
-      <BulkActionsBar
-        selectedCount={selectedCount}
-        onClear={clearSelection}
-        onPlayNow={handlePlaySelected}
-        onPlayNext={() => addSelectedToQueue("next")}
-        onAddToQueue={() => addSelectedToQueue("last")}
-        onStar={() => starSelected(true)}
-        onUnstar={() => starSelected(false)}
-        onSelectAll={selectAll}
-        getSelectedSongs={getSelectedSongs}
-      />
+      {activeTab === "songs" && (
+        <BulkActionsBar
+          selectedCount={songSelection.selectedCount}
+          onClear={songSelection.clearSelection}
+          onPlayNow={handlePlaySelectedSongs}
+          onPlayNext={() => songSelection.addSelectedToQueue("next")}
+          onAddToQueue={() => songSelection.addSelectedToQueue("last")}
+          onStar={() => songSelection.starSelected(true)}
+          onUnstar={() => songSelection.starSelected(false)}
+          onSelectAll={songSelection.selectAll}
+          getSelectedSongs={songSelection.getSelectedSongs}
+        />
+      )}
+
+      {/* Bulk actions bar for albums */}
+      {activeTab === "albums" && (
+        <BulkActionsBar
+          mediaType="album"
+          selectedCount={albumSelection.selectedCount}
+          onClear={albumSelection.clearSelection}
+          onPlayNow={handlePlaySelectedAlbums}
+          onShuffle={handleShuffleSelectedAlbums}
+          onPlayNext={() => handleAddSelectedAlbumsToQueue("next")}
+          onAddToQueue={() => handleAddSelectedAlbumsToQueue("last")}
+          onStar={() => handleStarSelectedAlbums(true)}
+          onUnstar={() => handleStarSelectedAlbums(false)}
+          onSelectAll={albumSelection.selectAll}
+          getSelectedItems={albumSelection.getSelectedItems}
+        />
+      )}
+
+      {/* Bulk actions bar for artists */}
+      {activeTab === "artists" && (
+        <BulkActionsBar
+          mediaType="artist"
+          selectedCount={artistSelection.selectedCount}
+          onClear={artistSelection.clearSelection}
+          onPlayNow={handlePlaySelectedArtists}
+          onShuffle={handleShuffleSelectedArtists}
+          onPlayNext={() => handleAddSelectedArtistsToQueue("next")}
+          onAddToQueue={() => handleAddSelectedArtistsToQueue("last")}
+          onStar={() => handleStarSelectedArtists(true)}
+          onUnstar={() => handleStarSelectedArtists(false)}
+          onSelectAll={artistSelection.selectAll}
+          getSelectedItems={artistSelection.getSelectedItems}
+        />
+      )}
 
       {/* Spacer for player bar */}
       <div className="h-24" />

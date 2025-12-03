@@ -335,6 +335,11 @@ export class SubsonicClient {
       throw new Error(data.error || `HTTP error: ${response.status}`);
     }
 
+    // Handle 204 No Content responses
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
     return response.json() as Promise<T>;
   }
 
@@ -365,6 +370,14 @@ export class SubsonicClient {
     return this.adminRequest("/ferrotune/preferences", {
       method: "PUT",
       body: JSON.stringify(request),
+    });
+  }
+
+  // Playlist management (Admin API)
+  async reorderPlaylistSongs(playlistId: string, songIds: string[]): Promise<void> {
+    await this.adminRequest(`/ferrotune/playlists/${encodeURIComponent(playlistId)}/reorder`, {
+      method: "PUT",
+      body: JSON.stringify({ songIds }),
     });
   }
 }

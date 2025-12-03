@@ -19,8 +19,7 @@
 //! - `POST /ferrotune/playlist-folders` - Create a new playlist folder
 //! - `PATCH /ferrotune/playlist-folders/:id` - Update a playlist folder
 //! - `DELETE /ferrotune/playlist-folders/:id` - Delete a playlist folder
-//! - `PATCH /ferrotune/playlists/:id/move` - Move a playlist to a folder
-//! - `DELETE /ferrotune/songs/:id` - Delete a song from the database
+//! - `PATCH /ferrotune/playlists/:id/move` - Move a playlist to a folder//! - `PUT /ferrotune/playlists/:id/reorder` - Reorder songs in a playlist//! - `DELETE /ferrotune/songs/:id` - Delete a song from the database
 //! - `GET /ferrotune/songs/:id/tags` - Get all tags from a song file
 //! - `PATCH /ferrotune/songs/:id/tags` - Update tags in a song file
 //! - `GET /ferrotune/preferences` - Get user preferences
@@ -70,6 +69,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/ferrotune/playlists/{id}/move",
             patch(playlists::move_playlist),
+        )
+        .route(
+            "/ferrotune/playlists/{id}/reorder",
+            axum::routing::put(playlists::reorder_playlist_songs),
         )
         // Media management endpoints
         .route("/ferrotune/songs/{id}", delete(media::delete_song))

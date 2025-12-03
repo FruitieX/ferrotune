@@ -458,3 +458,133 @@ pub async fn move_playlist(
 
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// Request to reorder songs in a playlist.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderPlaylistRequest {
+    /// The new order of song IDs. Must contain all existing song IDs.
+    pub song_ids: Vec<String>,
+}
+
+/// Reorder songs in a playlist.
+pub async fn reorder_playlist_songs(
+    State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
+    Path(playlist_id): Path<String>,
+    Json(request): Json<ReorderPlaylistRequest>,
+) -> Result<StatusCode, ApiError> {
+    // Check playlist exists and belongs to user
+    let playlist: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
+            .bind(&playlist_id)
+            .bind(user.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::with_details(
+                        "Database error",
+                        e.to_string(),
+                    )),
+                )
+            })?;
+
+    if playlist.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(super::ErrorResponse::new("Playlist not found")),
+        ));
+    }
+
+    // Verify all provided song IDs are in the playlist
+    let existing_song_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT song_id FROM playlist_songs WHERE playlist_id = ? ORDER BY position",
+    )
+    .bind(&playlist_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    // Check that the reorder request contains the same songs
+    let mut existing_sorted = existing_song_ids.clone();
+    let mut requested_sorted = request.song_ids.clone();
+    existing_sorted.sort();
+    requested_sorted.sort();
+
+    if existing_sorted != requested_sorted {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(super::ErrorResponse::new(
+                "Song IDs must match existing playlist songs",
+            )),
+        ));
+    }
+
+    // Update positions in a transaction
+    // We need to delete all songs and re-insert them to avoid UNIQUE constraint violations
+    let mut tx = state.pool.begin().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    // Delete all songs from the playlist
+    sqlx::query("DELETE FROM playlist_songs WHERE playlist_id = ?")
+        .bind(&playlist_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse::with_details(
+                    "Database error",
+                    e.to_string(),
+                )),
+            )
+        })?;
+
+    // Re-insert songs in the new order
+    for (position, song_id) in request.song_ids.iter().enumerate() {
+        sqlx::query("INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES (?, ?, ?)")
+            .bind(&playlist_id)
+            .bind(song_id)
+            .bind(position as i64)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::with_details(
+                        "Database error",
+                        e.to_string(),
+                    )),
+                )
+            })?;
+    }
+
+    tx.commit().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
