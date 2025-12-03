@@ -73,7 +73,11 @@ function TrackIndex({ index, isCurrentTrack, isPlaying, isSelected, isSelectionM
             : "opacity-0 group-hover:opacity-100"
         )}
       >
-        <div
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={isSelected}
+          aria-label={`Select track ${index + 1}`}
           className={cn(
             "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
             isSelected
@@ -82,7 +86,7 @@ function TrackIndex({ index, isCurrentTrack, isPlaying, isSelected, isSelectionM
           )}
         >
           {isSelected && <Check className="w-3 h-3" />}
-        </div>
+        </button>
       </div>
       {/* Track number or now playing indicator - hidden when checkbox is visible */}
       <span

@@ -67,7 +67,9 @@ export function SortableSongRow({
       <div className="flex items-center">
         {/* Drag handle - positioned absolutely to overlay the track number area */}
         {!disabled && (
-          <div
+          <button
+            type="button"
+            aria-label="Drag to reorder"
             className={cn(
               "absolute -left-2 top-0 bottom-0 flex items-center justify-center w-10 cursor-grab z-10",
               "text-muted-foreground/50 hover:text-muted-foreground",
@@ -78,7 +80,7 @@ export function SortableSongRow({
             {...listeners}
           >
             <GripVertical className="w-4 h-4" />
-          </div>
+          </button>
         )}
         
         {/* Song row */}

@@ -41,6 +41,15 @@ const imageSizes = {
 };
 
 /**
+ * Hook to get the playlist cover URL for use in backgrounds
+ */
+export function usePlaylistCoverUrl(playlistId: string | null, size: number = 400): string | null {
+  const client = getClient();
+  if (!client || !playlistId) return null;
+  return client.getCoverArtUrl(playlistId, size);
+}
+
+/**
  * PlaylistCover - Shows the playlist's cover art (backend generates 2x2 composite if needed)
  */
 export function PlaylistCover({
