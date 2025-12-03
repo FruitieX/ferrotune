@@ -27,7 +27,7 @@ export const albumViewModeAtom = atomWithStorage<ViewMode>("ferrotune-album-view
 export const artistViewModeAtom = atomWithStorage<ViewMode>("ferrotune-artist-view", "grid");
 
 // Library sorting
-export type SortField = "name" | "artist" | "year" | "dateAdded" | "playCount" | "duration";
+export type SortField = "custom" | "name" | "artist" | "year" | "dateAdded" | "playCount" | "duration";
 export type SortDirection = "asc" | "desc";
 
 export interface SortConfig {
@@ -51,6 +51,21 @@ export interface ColumnVisibility {
 }
 
 export const columnVisibilityAtom = atomWithStorage<ColumnVisibility>("ferrotune-column-visibility", {
+  artist: true,
+  album: true,
+  duration: true,
+  playCount: false,
+  dateAdded: false,
+  year: false,
+});
+
+// Playlist-style views settings (favorites, history, playlist details)
+export const playlistViewModeAtom = atomWithStorage<ViewMode>("ferrotune-playlist-view", "list");
+export const playlistSortAtom = atomWithStorage<SortConfig>("ferrotune-playlist-sort", {
+  field: "custom",
+  direction: "asc",
+});
+export const playlistColumnVisibilityAtom = atomWithStorage<ColumnVisibility>("ferrotune-playlist-columns", {
   artist: true,
   album: true,
   duration: true,
