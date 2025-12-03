@@ -341,17 +341,17 @@ async fn get_playlist_cover_art(
 
 /// Generate a 2x2 tiled image from cover art images
 fn generate_tiled_cover(covers: Vec<Vec<u8>>, target_size: u32) -> Result<Vec<u8>> {
-    use image::{imageops, DynamicImage, RgbImage};
+    use image::{DynamicImage, GenericImage, RgbImage};
 
     let tile_size = target_size / 2;
 
     // Load and resize each cover image
-    let mut tiles: Vec<DynamicImage> = Vec::new();
+    let mut tiles: Vec<RgbImage> = Vec::new();
     for cover_data in &covers {
         if let Ok(img) = image::load_from_memory(cover_data) {
             // Resize to tile size, maintaining square aspect ratio
             let resized = img.resize_to_fill(tile_size, tile_size, FilterType::Triangle);
-            tiles.push(resized);
+            tiles.push(resized.to_rgb8());
         }
     }
 
@@ -370,7 +370,7 @@ fn generate_tiled_cover(covers: Vec<Vec<u8>>, target_size: u32) -> Result<Vec<u8
     }
 
     // Position definitions for 2x2 grid
-    let positions = [
+    let positions: [(u32, u32); 4] = [
         (0, 0),                 // Top-left
         (tile_size, 0),         // Top-right
         (0, tile_size),         // Bottom-left
@@ -394,8 +394,8 @@ fn generate_tiled_cover(covers: Vec<Vec<u8>>, target_size: u32) -> Result<Vec<u8
         };
 
         if tile_idx < tiles.len() {
-            let tile_rgb = tiles[tile_idx].to_rgb8();
-            imageops::overlay(&mut output, &tile_rgb, x.into(), y.into());
+            // Use copy_from to place tile at position
+            let _ = output.copy_from(&tiles[tile_idx], x, y);
         }
     }
 

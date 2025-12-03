@@ -1,17 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
 import Image from "next/image";
 import { ListMusic } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getClient } from "@/lib/api/client";
-import type { Song } from "@/lib/api/types";
 
 interface PlaylistCoverProps {
-  /** Playlist's explicit cover art URL (if any) */
-  coverArtId?: string;
-  /** Songs in the playlist for generating composite cover */
-  songs?: Song[];
+  /** Playlist ID (used as cover art ID - backend generates composite) */
+  playlistId: string;
   /** Alternative text */
   alt: string;
   /** Size variant */
@@ -36,51 +32,29 @@ const iconSizes = {
   full: "w-1/5 h-1/5",
 };
 
+const imageSizes = {
+  sm: 40,
+  md: 56,
+  lg: 96,
+  xl: 192,
+  full: 600,
+};
+
 /**
- * PlaylistCover - Shows either:
- * 1. The playlist's explicit cover art if available
- * 2. A 2x2 grid of the first 4 unique album covers from the playlist
- * 3. A fallback icon if no songs/covers available
+ * PlaylistCover - Shows the playlist's cover art (backend generates 2x2 composite if needed)
  */
 export function PlaylistCover({
-  coverArtId,
-  songs = [],
+  playlistId,
   alt,
   size = "md",
   className,
   priority = false,
 }: PlaylistCoverProps) {
   const client = getClient();
-  
-  // Get unique album cover art IDs from songs (first 4 unique albums)
-  const albumCoverIds = useMemo(() => {
-    const seenAlbums = new Set<string>();
-    const covers: string[] = [];
-    
-    for (const song of songs) {
-      // Use albumId to determine uniqueness, not coverArt ID
-      // (multiple songs from same album share the same coverArt)
-      const albumKey = song.albumId || song.album || song.coverArt;
-      if (song.coverArt && albumKey && !seenAlbums.has(albumKey) && covers.length < 4) {
-        seenAlbums.add(albumKey);
-        covers.push(song.coverArt);
-      }
-    }
-    
-    return covers;
-  }, [songs]);
 
-  // If playlist has explicit cover art, use that
-  const explicitCoverUrl = coverArtId && client
-    ? client.getCoverArtUrl(coverArtId, size === "full" || size === "xl" ? 300 : 150)
+  const coverUrl = client
+    ? client.getCoverArtUrl(playlistId, imageSizes[size])
     : null;
-
-  // Get cover URLs for composite image
-  const coverUrls = useMemo(() => {
-    if (!client || albumCoverIds.length === 0) return [];
-    const imageSize = size === "full" || size === "xl" ? 150 : 75;
-    return albumCoverIds.map(id => client.getCoverArtUrl(id, imageSize));
-  }, [client, albumCoverIds, size]);
 
   return (
     <div
@@ -90,38 +64,9 @@ export function PlaylistCover({
         className
       )}
     >
-      {explicitCoverUrl ? (
-        // Show explicit cover art
+      {coverUrl ? (
         <Image
-          src={explicitCoverUrl}
-          alt={alt}
-          fill
-          className="object-cover"
-          sizes={size === "full" ? "100vw" : size === "xl" ? "192px" : "56px"}
-          priority={priority}
-          unoptimized
-        />
-      ) : coverUrls.length >= 4 ? (
-        // Show 2x2 grid of album covers
-        <div className="grid grid-cols-2 grid-rows-2 w-full h-full">
-          {coverUrls.slice(0, 4).map((url, index) => (
-            <div key={index} className="relative w-full h-full">
-              <Image
-                src={url}
-                alt=""
-                fill
-                className="object-cover"
-                sizes={size === "full" ? "50vw" : size === "xl" ? "96px" : "28px"}
-                priority={priority && index === 0}
-                unoptimized
-              />
-            </div>
-          ))}
-        </div>
-      ) : coverUrls.length > 0 ? (
-        // Show single cover if we have 1-3 covers
-        <Image
-          src={coverUrls[0]}
+          src={coverUrl}
           alt={alt}
           fill
           className="object-cover"
@@ -130,7 +75,6 @@ export function PlaylistCover({
           unoptimized
         />
       ) : (
-        // Fallback placeholder
         <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-primary/30 to-primary/10">
           <ListMusic className={cn("text-muted-foreground", iconSizes[size])} />
         </div>

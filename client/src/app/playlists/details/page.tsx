@@ -223,8 +223,7 @@ function PlaylistDetailContent() {
                 className="w-48 h-48 md:w-56 md:h-56 shrink-0"
               >
                 <PlaylistCover
-                  coverArtId={playlist.coverArt}
-                  songs={songs}
+                  playlistId={playlist.id}
                   alt={playlist.name}
                   size="full"
                   className="rounded-lg shadow-2xl"
