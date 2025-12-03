@@ -1,15 +1,20 @@
 "use client";
 
-import { useAtom, useAtomValue } from "jotai";
+import { useMemo } from "react";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
-import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
+import { useTrackSelection } from "@/lib/hooks/use-track-selection";
+import { albumViewModeAtom, libraryFilterAtom, librarySortAtom } from "@/lib/store/ui";
+import { playNowAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
+import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
+import type { Song } from "@/lib/api/types";
 
 const PAGE_SIZE = 50;
 
@@ -17,7 +22,9 @@ export default function SongsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
+  const sortConfig = useAtomValue(librarySortAtom);
   const debouncedFilter = useDebounce(filter, 300);
+  const playNow = useSetAtom(playNowAtom);
   
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
@@ -81,9 +88,67 @@ export default function SongsPage() {
   const totalSongs = songsData?.pages[0]?.total ?? allSongs.length;
   
   // Use search results when filtering, otherwise use paginated list
-  const displaySongs = debouncedFilter ? (searchData ?? []) : allSongs;
+  const unsortedSongs = debouncedFilter ? (searchData ?? []) : allSongs;
+  
+  // Apply sorting
+  const displaySongs = useMemo(() => {
+    const sorted = [...unsortedSongs];
+    const { field, direction } = sortConfig;
+    const multiplier = direction === "asc" ? 1 : -1;
+    
+    sorted.sort((a, b) => {
+      let comparison = 0;
+      switch (field) {
+        case "name":
+          comparison = a.title.localeCompare(b.title);
+          break;
+        case "artist":
+          comparison = (a.artist ?? "").localeCompare(b.artist ?? "");
+          break;
+        case "year":
+          comparison = (a.year ?? 0) - (b.year ?? 0);
+          break;
+        case "duration":
+          comparison = a.duration - b.duration;
+          break;
+        case "playCount":
+          comparison = (a.playCount ?? 0) - (b.playCount ?? 0);
+          break;
+        case "dateAdded":
+          comparison = (a.created ?? "").localeCompare(b.created ?? "");
+          break;
+        default:
+          comparison = a.title.localeCompare(b.title);
+      }
+      return comparison * multiplier;
+    });
+    
+    return sorted;
+  }, [unsortedSongs, sortConfig]);
+
   const displayCount = debouncedFilter ? displaySongs.length : totalSongs;
   const isLoadingData = debouncedFilter ? isSearching : isLoading;
+
+  // Track selection
+  const {
+    selectedCount,
+    hasSelection,
+    isSelected,
+    handleSelect,
+    clearSelection,
+    selectAll,
+    getSelectedSongs,
+    addSelectedToQueue,
+    starSelected,
+  } = useTrackSelection(displaySongs);
+
+  const handlePlaySelected = () => {
+    const selected = getSelectedSongs();
+    if (selected.length > 0) {
+      playNow(selected);
+      clearSelection();
+    }
+  };
 
   if (authLoading) {
     return (
@@ -147,6 +212,9 @@ export default function SongsPage() {
                 index={index}
                 showCover
                 queueSongs={displaySongs}
+                isSelected={isSelected(song.id)}
+                isSelectionMode={hasSelection}
+                onSelect={(e) => handleSelect(song.id, e)}
               />
             )}
             renderSkeleton={() => <SongRowSkeleton showCover showIndex={false} />}
@@ -162,6 +230,19 @@ export default function SongsPage() {
       ) : (
         <EmptyState message={debouncedFilter ? "No songs match your filter" : "No songs in your library"} />
       )}
+
+      {/* Bulk actions bar */}
+      <BulkActionsBar
+        selectedCount={selectedCount}
+        onClear={clearSelection}
+        onPlayNow={handlePlaySelected}
+        onPlayNext={() => addSelectedToQueue("next")}
+        onAddToQueue={() => addSelectedToQueue("last")}
+        onStar={() => starSelected(true)}
+        onUnstar={() => starSelected(false)}
+        onSelectAll={selectAll}
+        getSelectedSongs={getSelectedSongs}
+      />
     </div>
   );
 }

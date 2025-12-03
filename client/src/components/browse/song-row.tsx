@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import { toast } from "sonner";
+import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
@@ -40,26 +41,41 @@ function NowPlayingBars({ className, isAnimating = true }: { className?: string;
   );
 }
 
-// Track number column - shows number or now playing indicator
+// Track number column - shows number, now playing indicator, or selection checkbox
 interface TrackIndexProps {
   index: number;
   isCurrentTrack: boolean;
   isPlaying: boolean;
+  isSelected?: boolean;
+  isSelectionMode?: boolean;
 }
 
-function TrackIndex({ index, isCurrentTrack, isPlaying }: TrackIndexProps) {
+function TrackIndex({ index, isCurrentTrack, isPlaying, isSelected, isSelectionMode }: TrackIndexProps) {
   return (
-    <div className="w-8 text-center shrink-0">
-      <span className={cn(
-        "text-sm tabular-nums text-muted-foreground",
-        isCurrentTrack && "text-primary"
-      )}>
-        {isCurrentTrack ? (
-          <NowPlayingBars isAnimating={isPlaying} />
-        ) : (
-          index + 1
-        )}
-      </span>
+    <div className="w-8 text-center shrink-0 relative">
+      {isSelectionMode ? (
+        <div
+          className={cn(
+            "w-5 h-5 rounded border-2 flex items-center justify-center mx-auto transition-all",
+            isSelected
+              ? "bg-primary border-primary text-primary-foreground"
+              : "border-muted-foreground/50 hover:border-primary/50"
+          )}
+        >
+          {isSelected && <Check className="w-3 h-3" />}
+        </div>
+      ) : (
+        <span className={cn(
+          "text-sm tabular-nums text-muted-foreground",
+          isCurrentTrack && "text-primary"
+        )}>
+          {isCurrentTrack ? (
+            <NowPlayingBars isAnimating={isPlaying} />
+          ) : (
+            index + 1
+          )}
+        </span>
+      )}
     </div>
   );
 }
@@ -71,6 +87,10 @@ interface SongRowProps {
   showArtist?: boolean;
   showCover?: boolean;
   queueSongs?: Song[]; // All songs in current context for queue
+  // Selection props
+  isSelected?: boolean;
+  isSelectionMode?: boolean;
+  onSelect?: (e: React.MouseEvent) => void;
   className?: string;
 }
 
@@ -81,6 +101,9 @@ export function SongRow({
   showArtist = true,
   showCover = false,
   queueSongs,
+  isSelected = false,
+  isSelectionMode = false,
+  onSelect,
   className,
 }: SongRowProps) {
   const currentTrack = useAtomValue(currentTrackAtom);
@@ -105,6 +128,14 @@ export function SongRow({
       playNow(queueSongs, songIndex >= 0 ? songIndex : 0);
     } else {
       playNow(song);
+    }
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    // If holding modifier keys or in selection mode, handle selection
+    if (onSelect && (e.shiftKey || e.ctrlKey || e.metaKey || isSelectionMode)) {
+      e.preventDefault();
+      onSelect(e);
     }
   };
 
@@ -160,6 +191,7 @@ export function SongRow({
       data-testid="song-row"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
+      onClick={handleClick}
     >
       <MediaRow
         coverArt={showCover ? coverArtUrl : undefined}
@@ -168,6 +200,7 @@ export function SongRow({
         coverType="song"
         isActive={isCurrentTrack}
         isPlaying={isPlaying}
+        isSelected={isSelected}
         onPlay={showCover ? handlePlay : undefined}
         onDoubleClick={handlePlay}
         leftContent={
@@ -176,6 +209,8 @@ export function SongRow({
               index={index}
               isCurrentTrack={isCurrentTrack}
               isPlaying={isPlaying}
+              isSelected={isSelected}
+              isSelectionMode={isSelectionMode}
             />
           ) : undefined
         }

@@ -45,6 +45,8 @@ interface MediaRowProps {
   isActive?: boolean;
   /** Whether this row is currently playing (shows pause icon) */
   isPlaying?: boolean;
+  /** Whether this row is selected in multi-select mode */
+  isSelected?: boolean;
   /** Content to show on the left side before cover art (e.g., track number) */
   leftContent?: React.ReactNode;
   /** Called when play button on cover art is clicked */
@@ -78,6 +80,7 @@ export function MediaRow({
   coverType = "album",
   isActive,
   isPlaying,
+  isSelected,
   leftContent,
   onPlay,
   actions,
@@ -161,6 +164,7 @@ export function MediaRow({
       className={cn(
         rowContainerStyles,
         isActive && "bg-accent/30",
+        isSelected && "bg-primary/15 border-primary",
         className
       )}
       onDoubleClick={onDoubleClick}
