@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { queueAtom, queueIndexAtom, isRestoringQueueAtom, queueSaveRequestAtom, createQueueItems } from "@/lib/store/queue";
+import { queueAtom, queueIndexAtom, isRestoringQueueAtom, isQueueLoadingAtom, queueSaveRequestAtom, createQueueItems } from "@/lib/store/queue";
 import { currentTimeAtom } from "@/lib/store/player";
 import { getClient } from "@/lib/api/client";
 import { useAuth } from "./use-auth";
@@ -21,6 +21,7 @@ export function useQueuePersistence() {
   const [queue, setQueue] = useAtom(queueAtom);
   const [queueIndex, setQueueIndex] = useAtom(queueIndexAtom);
   const setIsRestoringQueue = useSetAtom(isRestoringQueueAtom);
+  const setIsQueueLoading = useSetAtom(isQueueLoadingAtom);
   const currentTime = useAtomValue(currentTimeAtom);
   const saveRequest = useAtomValue(queueSaveRequestAtom);
   
@@ -140,10 +141,13 @@ export function useQueuePersistence() {
             position: response.playQueue.position ? Math.floor(response.playQueue.position / 1000) : 0,
           });
         }
+        // Queue loaded successfully (or was empty)
+        setIsQueueLoading(false);
       } catch (error) {
         // Queue not found or error - that's okay, start fresh
         console.debug("No saved play queue found:", error);
         setIsRestoringQueue(false);
+        setIsQueueLoading(false);
       } finally {
         isRestoringRef.current = false;
         // Note: We don't clear isRestoringQueueAtom here - it stays true until

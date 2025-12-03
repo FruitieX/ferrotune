@@ -6,8 +6,7 @@ import { Providers } from "@/components/providers";
 import { Sidebar, SidebarSkeleton } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { PlayerBar } from "@/components/layout/player-bar";
-import { QueuePanel } from "@/components/queue/queue-panel";
-import { QueueSidebar } from "@/components/queue/queue-sidebar";
+import { QueuePanel, QueueSidebar } from "@/components/queue/queue";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import { MainContent } from "@/components/layout/main-content";
 
