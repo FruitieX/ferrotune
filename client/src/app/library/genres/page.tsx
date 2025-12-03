@@ -1,23 +1,31 @@
 "use client";
 
 import { useMemo } from "react";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { Tag } from "lucide-react";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
+import { useItemSelection } from "@/lib/hooks/use-track-selection";
 import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
+import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 import { GenreCard, GenreCardSkeleton, GenreRow, GenreRowSkeleton } from "@/components/browse/genre-card";
+import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
+import type { Song, Genre } from "@/lib/api/types";
 
 export default function GenresPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
   const debouncedFilter = useDebounce(filter, 300);
+  const playNow = useSetAtom(playNowAtom);
+  const addToQueue = useSetAtom(addToQueueAtom);
   
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
@@ -43,6 +51,64 @@ export default function GenresPage() {
     );
   }, [genresData, debouncedFilter]);
 
+  // Genre selection - use value as id since genres don't have an id field
+  const genresWithId = useMemo(() => 
+    filteredGenres.map(g => ({ ...g, id: g.value })),
+    [filteredGenres]
+  );
+
+  const {
+    selectedCount,
+    hasSelection,
+    isSelected,
+    handleSelect,
+    clearSelection,
+    selectAll,
+    getSelectedItems,
+  } = useItemSelection(genresWithId);
+
+  // Get songs from selected genres
+  const getSelectedGenresSongs = async (): Promise<Song[]> => {
+    const client = getClient();
+    if (!client) return [];
+    
+    const genres = getSelectedItems();
+    const songsPromises = genres.map(genre => 
+      client.getSongsByGenre(genre.value, { count: 500 }).then(res => res.songsByGenre.song ?? [])
+    );
+    const songsArrays = await Promise.all(songsPromises);
+    return songsArrays.flat();
+  };
+
+  // Bulk action handlers
+  const handlePlaySelected = async () => {
+    const songs = await getSelectedGenresSongs();
+    if (songs.length > 0) {
+      playNow(songs);
+      clearSelection();
+      toast.success(`Playing ${songs.length} songs from ${selectedCount} genres`);
+    }
+  };
+
+  const handleShuffleSelected = async () => {
+    const songs = await getSelectedGenresSongs();
+    if (songs.length > 0) {
+      const shuffled = [...songs].sort(() => Math.random() - 0.5);
+      playNow(shuffled);
+      clearSelection();
+      toast.success(`Shuffling ${songs.length} songs from ${selectedCount} genres`);
+    }
+  };
+
+  const handleAddSelectedToQueue = async (position: "next" | "last") => {
+    const songs = await getSelectedGenresSongs();
+    if (songs.length > 0) {
+      songs.forEach(song => addToQueue(song, position));
+      clearSelection();
+      toast.success(`Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`);
+    }
+  };
+
   if (authLoading) {
     return (
       <div className="p-4 lg:p-6">
@@ -56,7 +122,7 @@ export default function GenresPage() {
   }
 
   return (
-    <div className="p-4 lg:p-6">
+    <div className={cn("p-4 lg:p-6", hasSelection && "select-none-during-selection")}>
       {isLoading ? (
         <div className={viewMode === "grid"
           ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"
@@ -73,8 +139,15 @@ export default function GenresPage() {
       ) : genresData && genresData.length > 0 ? (
         viewMode === "grid" ? (
           <VirtualizedGrid
-            items={filteredGenres}
-            renderItem={(genre) => <GenreCard genre={genre} />}
+            items={genresWithId}
+            renderItem={(genre) => (
+              <GenreCard 
+                genre={genre}
+                isSelected={isSelected(genre.id)}
+                isSelectionMode={hasSelection}
+                onSelect={(e) => handleSelect(genre.id, e)}
+              />
+            )}
             renderSkeleton={() => <GenreCardSkeleton />}
             getItemKey={(genre) => genre.value}
             estimateItemHeight={96}
@@ -84,8 +157,16 @@ export default function GenresPage() {
           />
         ) : (
           <VirtualizedList
-            items={filteredGenres}
-            renderItem={(genre) => <GenreRow genre={genre} />}
+            items={genresWithId}
+            renderItem={(genre, index) => (
+              <GenreRow 
+                genre={genre}
+                index={index}
+                isSelected={isSelected(genre.id)}
+                isSelectionMode={hasSelection}
+                onSelect={(e) => handleSelect(genre.id, e)}
+              />
+            )}
             renderSkeleton={() => <GenreRowSkeleton />}
             getItemKey={(genre) => genre.value}
             estimateItemHeight={56}
@@ -96,6 +177,19 @@ export default function GenresPage() {
       ) : (
         <EmptyState message={debouncedFilter ? "No genres match your filter" : "No genres found"} />
       )}
+
+      {/* Bulk actions bar */}
+      <BulkActionsBar
+        mediaType="genre"
+        selectedCount={selectedCount}
+        onClear={clearSelection}
+        onPlayNow={handlePlaySelected}
+        onShuffle={handleShuffleSelected}
+        onPlayNext={() => handleAddSelectedToQueue("next")}
+        onAddToQueue={() => handleAddSelectedToQueue("last")}
+        onSelectAll={selectAll}
+        getSelectedItems={getSelectedItems as () => Genre[]}
+      />
     </div>
   );
 }

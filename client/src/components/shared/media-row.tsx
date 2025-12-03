@@ -2,7 +2,7 @@
 
 import { forwardRef } from "react";
 import Link from "next/link";
-import { Play, Pause, Heart, MoreHorizontal } from "lucide-react";
+import { Play, Pause, Heart, MoreHorizontal, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -47,10 +47,16 @@ interface MediaRowProps {
   isPlaying?: boolean;
   /** Whether this row is selected in multi-select mode */
   isSelected?: boolean;
+  /** Whether any items are selected (enables selection mode UI) */
+  isSelectionMode?: boolean;
   /** Content to show on the left side before cover art (e.g., track number) */
   leftContent?: React.ReactNode;
+  /** Row index for displaying row number when no leftContent */
+  index?: number;
   /** Called when play button on cover art is clicked */
   onPlay?: () => void;
+  /** Called when checkbox is clicked for selection */
+  onSelect?: (e: React.MouseEvent) => void;
   /** Actions to render on the right side (use RowActions component) */
   actions?: React.ReactNode;
   /** Additional content after actions (e.g., duration) */
@@ -81,8 +87,11 @@ export function MediaRow({
   isActive,
   isPlaying,
   isSelected,
+  isSelectionMode,
   leftContent,
+  index,
   onPlay,
+  onSelect,
   actions,
   rightContent,
   contextMenu,
@@ -90,6 +99,52 @@ export function MediaRow({
   className,
   children,
 }: MediaRowProps) {
+  // Index column with checkbox on hover (when onSelect is provided and no custom leftContent)
+  const showIndexColumn = onSelect && index !== undefined && !leftContent;
+  
+  const indexColumn = showIndexColumn ? (
+    <div 
+      className="w-8 text-center shrink-0 relative cursor-pointer"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect(e);
+      }}
+    >
+      {/* Checkbox - shows when selected or on hover in selection mode */}
+      <div
+        className={cn(
+          "absolute inset-0 flex items-center justify-center transition-opacity",
+          isSelected || isSelectionMode
+            ? "opacity-100"
+            : "opacity-0 group-hover:opacity-100"
+        )}
+      >
+        <div
+          className={cn(
+            "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
+            isSelected
+              ? "bg-primary border-primary text-primary-foreground"
+              : "border-muted-foreground/50 hover:border-primary/50"
+          )}
+        >
+          {isSelected && <Check className="w-3 h-3" />}
+        </div>
+      </div>
+      {/* Index number - hidden when checkbox is visible */}
+      <span
+        className={cn(
+          "text-sm tabular-nums text-muted-foreground transition-opacity",
+          isActive && "text-primary",
+          (isSelected || isSelectionMode) 
+            ? "opacity-0 pointer-events-none" 
+            : "group-hover:opacity-0 group-hover:pointer-events-none"
+        )}
+      >
+        {index + 1}
+      </span>
+    </div>
+  ) : null;
   const coverArtElement = (
     <div
       className={cn(
@@ -163,13 +218,17 @@ export function MediaRow({
     <div
       className={cn(
         rowContainerStyles,
+        "media-row",
         isActive && "bg-accent/30",
         isSelected && "bg-primary/15 border-primary",
         className
       )}
       onDoubleClick={onDoubleClick}
     >
-      {/* Left content (e.g., track number) */}
+      {/* Index column with checkbox (when onSelect provided) */}
+      {indexColumn}
+      
+      {/* Left content (e.g., custom track number / now playing indicator) */}
       {leftContent}
 
       {/* Cover art and content */}
@@ -288,21 +347,26 @@ export const RowDropdownTrigger = forwardRef<
 export function MediaRowSkeleton({
   coverShape = "square",
   showCover = true,
+  showIndex = false,
   showLeftContent = false,
   showRightContent = false,
 }: {
   coverShape?: "square" | "circle";
   /** Show cover art skeleton (default: true) */
   showCover?: boolean;
-  /** Show skeleton for left content (e.g., track number) */
+  /** Show skeleton for index/track number column */
+  showIndex?: boolean;
+  /** Show skeleton for left content (e.g., custom left content) - deprecated, use showIndex */
   showLeftContent?: boolean;
   /** Show skeleton for right content (e.g., duration) */
   showRightContent?: boolean;
 }) {
+  const showIndexColumn = showIndex || showLeftContent;
+  
   return (
     <div className="flex items-center gap-4 px-4 pr-6 py-2">
-      {/* Left content skeleton */}
-      {showLeftContent && (
+      {/* Index/track number skeleton */}
+      {showIndexColumn && (
         <div className="w-8 text-center shrink-0">
           <Skeleton className="h-4 w-4 mx-auto" />
         </div>

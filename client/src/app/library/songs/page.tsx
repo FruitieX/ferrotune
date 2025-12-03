@@ -130,7 +130,7 @@ export default function SongsPage() {
         ) : (
           <div className="space-y-1">
             {Array.from({ length: 10 }).map((_, i) => (
-              <SongRowSkeleton key={i} showCover showIndex={false} />
+              <SongRowSkeleton key={i} showCover showIndex />
             ))}
           </div>
         )}
@@ -150,7 +150,7 @@ export default function SongsPage() {
         ) : (
           <div className="space-y-1">
             {Array.from({ length: 10 }).map((_, i) => (
-              <SongRowSkeleton key={i} showCover showIndex={false} />
+              <SongRowSkeleton key={i} showCover showIndex />
             ))}
           </div>
         )
@@ -160,7 +160,13 @@ export default function SongsPage() {
             items={displaySongs}
             totalCount={displayCount}
             renderItem={(song) => (
-              <SongCard song={song} queueSongs={displaySongs} />
+              <SongCard
+                song={song}
+                queueSongs={displaySongs}
+                isSelected={isSelected(song.id)}
+                isSelectionMode={hasSelection}
+                onSelect={(e) => handleSelect(song.id, e)}
+              />
             )}
             renderSkeleton={() => <SongCardSkeleton />}
             getItemKey={(song) => song.id}
@@ -191,7 +197,7 @@ export default function SongsPage() {
                 onSelect={(e) => handleSelect(song.id, e)}
               />
             )}
-            renderSkeleton={() => <SongRowSkeleton showCover showIndex={false} />}
+            renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
             getItemKey={(song) => song.id}
             estimateItemHeight={56}
             hasNextPage={!debouncedFilter && (hasNextPage ?? false)}

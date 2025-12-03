@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { toast } from "sonner";
 import type { Artist } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
+import { useStarredArtist } from "@/lib/store/starred";
 import { formatCount } from "@/lib/utils/format";
 import { MediaCard, MediaCardSkeleton } from "@/components/shared/media-card";
 import { MediaRow, RowActions, RowDropdownTrigger } from "@/components/shared/media-row";
@@ -12,11 +11,14 @@ import { ArtistContextMenu, ArtistDropdownMenu } from "./artist-context-menu";
 interface ArtistCardProps {
   artist: Artist;
   onPlay?: () => void;
+  isSelected?: boolean;
+  isSelectionMode?: boolean;
+  onSelect?: (e: React.MouseEvent) => void;
   className?: string;
 }
 
-export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
-  const [isStarred, setIsStarred] = useState(!!artist.starred);
+export function ArtistCard({ artist, onPlay, isSelected, isSelectionMode, onSelect, className }: ArtistCardProps) {
+  const { isStarred, toggleStar } = useStarredArtist(artist.id, !!artist.starred);
   
   const coverArtUrl = artist.coverArt
     ? getClient()?.getCoverArtUrl(artist.coverArt, 300)
@@ -25,23 +27,7 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
   const handleStar = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      if (isStarred) {
-        await client.unstar({ artistId: artist.id });
-        setIsStarred(false);
-        toast.success(`Removed from favorites`);
-      } else {
-        await client.star({ artistId: artist.id });
-        setIsStarred(true);
-        toast.success(`Added to favorites`);
-      }
-    } catch (error) {
-      toast.error("Failed to update favorites");
-      console.error(error);
-    }
+    await toggleStar();
   };
 
   return (
@@ -56,6 +42,9 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
       onPlay={onPlay}
       onStar={handleStar}
       isStarred={isStarred}
+      isSelected={isSelected}
+      isSelectionMode={isSelectionMode}
+      onSelect={onSelect}
       dropdownMenu={<ArtistDropdownMenu artist={artist} onPlay={onPlay} />}
       contextMenu={(children) => (
         <ArtistContextMenu artist={artist}>{children}</ArtistContextMenu>
@@ -72,12 +61,16 @@ export function ArtistCardSkeleton() {
 // Compact artist card for lists
 interface ArtistCardCompactProps {
   artist: Artist;
+  index?: number;
   onPlay?: () => void;
+  isSelected?: boolean;
+  isSelectionMode?: boolean;
+  onSelect?: (e: React.MouseEvent) => void;
   className?: string;
 }
 
-export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompactProps) {
-  const [isStarred, setIsStarred] = useState(!!artist.starred);
+export function ArtistCardCompact({ artist, index, onPlay, isSelected, isSelectionMode, onSelect, className }: ArtistCardCompactProps) {
+  const { isStarred, toggleStar } = useStarredArtist(artist.id, !!artist.starred);
   
   const coverArtUrl = artist.coverArt
     ? getClient()?.getCoverArtUrl(artist.coverArt, 80)
@@ -86,23 +79,7 @@ export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompa
   const handleStar = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      if (isStarred) {
-        await client.unstar({ artistId: artist.id });
-        setIsStarred(false);
-        toast.success(`Removed from favorites`);
-      } else {
-        await client.star({ artistId: artist.id });
-        setIsStarred(true);
-        toast.success(`Added to favorites`);
-      }
-    } catch (error) {
-      toast.error("Failed to update favorites");
-      console.error(error);
-    }
+    await toggleStar();
   };
 
   return (
@@ -116,6 +93,10 @@ export function ArtistCardCompact({ artist, onPlay, className }: ArtistCardCompa
       coverType="artist"
       onPlay={() => onPlay?.()}
       onDoubleClick={() => onPlay?.()}
+      isSelected={isSelected}
+      isSelectionMode={isSelectionMode}
+      index={index}
+      onSelect={onSelect}
       contextMenu={(children) => (
         <ArtistContextMenu artist={artist}>{children}</ArtistContextMenu>
       )}

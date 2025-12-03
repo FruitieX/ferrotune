@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Play, Heart } from "lucide-react";
+import { Play, Heart, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,6 +30,12 @@ interface MediaCardProps {
   onStar?: (e: React.MouseEvent) => void;
   /** Whether the item is starred */
   isStarred?: boolean;
+  /** Whether this card is selected in multi-select mode */
+  isSelected?: boolean;
+  /** Whether any items are selected (enables selection mode UI) */
+  isSelectionMode?: boolean;
+  /** Called when checkbox is clicked for selection */
+  onSelect?: (e: React.MouseEvent) => void;
   /** Dropdown menu component (will be positioned absolutely in top-right) */
   dropdownMenu?: React.ReactNode;
   /** Context menu wrapper */
@@ -56,6 +62,9 @@ export function MediaCard({
   onPlay,
   onStar,
   isStarred,
+  isSelected,
+  isSelectionMode,
+  onSelect,
   dropdownMenu,
   contextMenu,
   withGlow = false,
@@ -65,94 +74,124 @@ export function MediaCard({
     <article
       data-testid="media-card"
       className={cn(
-        "group relative p-4 rounded-lg bg-card",
+        "group relative p-4 rounded-lg bg-card media-card",
         "hover:bg-accent/70 transition-all cursor-pointer",
         "hover:shadow-lg hover:shadow-black/20",
+        isSelected && "ring-2 ring-primary bg-primary/10",
         className
       )}
     >
-      {/* Dropdown menu (absolute positioned in top-right corner) */}
-      {dropdownMenu && (
-        <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-          {dropdownMenu}
-        </div>
-      )}
-
-      {/* Star button (absolute positioned in bottom-right corner of cover) */}
-      {onStar && (
-        <div 
-          className={cn(
-            "absolute z-10 transition-opacity",
-            // Position differently based on cover shape
-            coverShape === "circle" 
-              ? "bottom-16 right-4" // Above the centered text for circle
-              : "bottom-16 right-4", // Bottom right of cover for square
-            !isStarred && "opacity-0 group-hover:opacity-100"
-          )}
-        >
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 bg-black/50 hover:bg-black/70 text-white"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onStar(e);
-            }}
+      {/* Cover art container - relative positioning for buttons outside overflow-hidden */}
+      <div className="relative mb-4">
+        {/* Selection checkbox (top-left corner of cover art) - outside overflow-hidden */}
+        {onSelect && (
+          <div 
+            className={cn(
+              "absolute top-1 left-1 z-20 transition-opacity",
+              isSelected || isSelectionMode
+                ? "opacity-100"
+                : "opacity-0 group-hover:opacity-100"
+            )}
           >
-            <Heart
+            <button
+              type="button"
               className={cn(
-                "w-4 h-4",
-                isStarred && "fill-red-500 text-red-500"
+                "w-6 h-6 rounded border-2 flex items-center justify-center transition-all",
+                "bg-black/50 hover:bg-black/70",
+                isSelected
+                  ? "bg-primary border-primary text-primary-foreground"
+                  : "border-white/80 hover:border-primary/80"
               )}
-            />
-          </Button>
-        </div>
-      )}
-
-      {/* Cover art with play overlay - wrapped in Link */}
-      <Link href={href} className="block group/cover">
-        <div
-          className={cn(
-            "relative aspect-square overflow-hidden mb-4",
-            "transform-gpu transition-transform duration-200 group-hover:scale-[1.05]",
-            coverShape === "circle" ? "rounded-full" : "rounded-md",
-            withGlow && "album-glow"
-          )}
-        >
-          <CoverImage
-            src={coverArt}
-            alt={title}
-            colorSeed={colorSeed ?? title}
-            type={coverType}
-            size="full"
-            className={coverShape === "circle" ? "rounded-full" : undefined}
-          />
-
-          {/* Play button overlay - only shows on cover hover */}
-          {onPlay && (
-            <div
-              className={cn(
-                "absolute inset-0 flex items-center justify-center",
-                "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
-                coverShape === "circle" && "rounded-full"
-              )}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onSelect(e);
+              }}
             >
-              <Button
-                size="icon"
-                className="h-12 w-12 rounded-full shadow-lg"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onPlay();
-                }}
+              {isSelected && <Check className="w-4 h-4" />}
+            </button>
+          </div>
+        )}
+
+        {/* Dropdown menu (top-right corner of cover art) - outside overflow-hidden */}
+        {dropdownMenu && (
+          <div className="absolute top-1 right-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
+            {dropdownMenu}
+          </div>
+        )}
+
+        {/* Star button (bottom-right corner of cover art) - outside overflow-hidden */}
+        {onStar && (
+          <div 
+            className={cn(
+              "absolute bottom-1 right-1 z-20 transition-opacity",
+              !isStarred && "opacity-0 group-hover:opacity-100"
+            )}
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 bg-black/50 hover:bg-black/70 text-white"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onStar(e);
+              }}
+            >
+              <Heart
+                className={cn(
+                  "w-4 h-4",
+                  isStarred && "fill-red-500 text-red-500"
+                )}
+              />
+            </Button>
+          </div>
+        )}
+
+        {/* Cover art with play overlay - wrapped in Link */}
+        <Link href={href} className="block group/cover">
+          <div
+            className={cn(
+              "relative aspect-square overflow-hidden",
+              "transform-gpu transition-transform duration-200 group-hover:scale-[1.05]",
+              coverShape === "circle" ? "rounded-full" : "rounded-md",
+              withGlow && "album-glow"
+            )}
+          >
+            <CoverImage
+              src={coverArt}
+              alt={title}
+              colorSeed={colorSeed ?? title}
+              type={coverType}
+              size="full"
+              className={coverShape === "circle" ? "rounded-full" : undefined}
+            />
+
+            {/* Play button overlay - only shows on cover hover */}
+            {onPlay && (
+              <div
+                className={cn(
+                  "absolute inset-0 flex items-center justify-center",
+                  "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
+                  coverShape === "circle" && "rounded-full"
+                )}
               >
-                <Play className="w-6 h-6 ml-0.5" />
-              </Button>
-            </div>
-          )}
-        </div>
-      </Link>
+                <Button
+                  size="icon"
+                  className="h-12 w-12 rounded-full shadow-lg"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onPlay();
+                  }}
+                >
+                  <Play className="w-6 h-6 ml-0.5" />
+                </Button>
+              </div>
+            )}
+          </div>
+        </Link>
+      </div>
 
       {/* Title and subtitle - separate from cover link to avoid nested anchors */}
       <div

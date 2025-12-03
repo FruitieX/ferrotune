@@ -38,7 +38,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { CoverImage } from "@/components/shared/cover-image";
+import { PlaylistCover } from "@/components/shared/playlist-cover";
 import { TrackList } from "@/components/browse/track-list";
 import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
 import { formatDuration, formatCount, formatDate } from "@/lib/utils/format";
@@ -94,10 +94,6 @@ function PlaylistDetailContent() {
   });
 
   const songs = playlist?.entry ?? [];
-
-  const coverArtUrl = playlist?.coverArt
-    ? getClient()?.getCoverArtUrl(playlist.coverArt, 300)
-    : undefined;
 
   const handlePlayAll = () => {
     if (songs.length > 0) {
@@ -203,11 +199,11 @@ function PlaylistDetailContent() {
                 animate={{ opacity: 1, scale: 1 }}
                 className="w-48 h-48 md:w-56 md:h-56 shrink-0"
               >
-                <CoverImage
-                  src={coverArtUrl}
+                <PlaylistCover
+                  coverArtId={playlist.coverArt}
+                  songs={songs}
                   alt={playlist.name}
                   size="full"
-                  type="playlist"
                   className="rounded-lg shadow-2xl"
                   priority
                 />
