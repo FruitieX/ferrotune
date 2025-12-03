@@ -308,9 +308,10 @@ pub async fn get_random_songs(
 
     // Use parameterized queries to prevent SQL injection
     let songs: Vec<crate::db::models::Song> = sqlx::query_as(
-        "SELECT s.*, ar.name as artist_name 
+        "SELECT s.*, ar.name as artist_name, al.name as album_name 
          FROM songs s 
          INNER JOIN artists ar ON s.artist_id = ar.id 
+         LEFT JOIN albums al ON s.album_id = al.id
          WHERE (? IS NULL OR s.genre = ?)
            AND (? IS NULL OR s.year >= ?)
            AND (? IS NULL OR s.year <= ?)
@@ -387,9 +388,10 @@ pub async fn get_songs_by_genre(
     let offset = params.offset.unwrap_or(0) as i64;
 
     let songs: Vec<crate::db::models::Song> = sqlx::query_as(
-        "SELECT s.*, ar.name as artist_name 
+        "SELECT s.*, ar.name as artist_name, al.name as album_name 
          FROM songs s 
          INNER JOIN artists ar ON s.artist_id = ar.id 
+         LEFT JOIN albums al ON s.album_id = al.id
          WHERE s.genre = ?
          ORDER BY s.title COLLATE NOCASE
          LIMIT ? OFFSET ?",

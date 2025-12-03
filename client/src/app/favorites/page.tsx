@@ -18,8 +18,10 @@ import {
   playlistColumnVisibilityAtom,
   favoritesAlbumViewModeAtom,
   favoritesAlbumSortAtom,
+  favoritesAlbumColumnVisibilityAtom,
   favoritesArtistViewModeAtom,
   favoritesArtistSortAtom,
+  favoritesArtistColumnVisibilityAtom,
 } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -65,10 +67,12 @@ export default function FavoritesPage() {
   // View settings for albums tab
   const [albumViewMode, setAlbumViewMode] = useAtom(favoritesAlbumViewModeAtom);
   const [albumSortConfig, setAlbumSortConfig] = useAtom(favoritesAlbumSortAtom);
+  const [albumColumnVisibility, setAlbumColumnVisibility] = useAtom(favoritesAlbumColumnVisibilityAtom);
   
   // View settings for artists tab
   const [artistViewMode, setArtistViewMode] = useAtom(favoritesArtistViewModeAtom);
   const [artistSortConfig, setArtistSortConfig] = useAtom(favoritesArtistSortAtom);
+  const [artistColumnVisibility, setArtistColumnVisibility] = useAtom(favoritesArtistColumnVisibilityAtom);
   
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
@@ -428,6 +432,9 @@ export default function FavoritesPage() {
             Shuffle
           </Button>
           
+          {/* Spacer */}
+          <div className="flex-1" />
+          
           {/* Song list toolbar - only show on songs tab */}
           {activeTab === "songs" && (
             <SongListToolbar
@@ -439,7 +446,7 @@ export default function FavoritesPage() {
               onColumnVisibilityChange={setColumnVisibility}
               viewMode={songViewMode}
               onViewModeChange={setSongViewMode}
-              filterPlaceholder="Search favorites..."
+              filterPlaceholder="Search songs..."
             />
           )}
           
@@ -454,6 +461,8 @@ export default function FavoritesPage() {
               onViewModeChange={setAlbumViewMode}
               mediaType="album"
               filterPlaceholder="Search albums..."
+              columnVisibility={albumColumnVisibility}
+              onColumnVisibilityChange={(v) => setAlbumColumnVisibility(v as typeof albumColumnVisibility)}
             />
           )}
           
@@ -468,6 +477,8 @@ export default function FavoritesPage() {
               onViewModeChange={setArtistViewMode}
               mediaType="artist"
               filterPlaceholder="Search artists..."
+              columnVisibility={artistColumnVisibility}
+              onColumnVisibilityChange={(v) => setArtistColumnVisibility(v as typeof artistColumnVisibility)}
             />
           )}
         </div>
@@ -595,6 +606,10 @@ export default function FavoritesPage() {
                       isSelected={albumSelection.isSelected(album.id)}
                       isSelectionMode={albumSelection.hasSelection}
                       onSelect={(e) => albumSelection.handleSelect(album.id, e)}
+                      showArtist={albumColumnVisibility.artist}
+                      showYear={albumColumnVisibility.year}
+                      showSongCount={albumColumnVisibility.songCount}
+                      showDuration={albumColumnVisibility.duration}
                     />
                   )}
                   renderSkeleton={() => <MediaRowSkeleton showIndex />}
@@ -651,6 +666,7 @@ export default function FavoritesPage() {
                       isSelected={artistSelection.isSelected(artist.id)}
                       isSelectionMode={artistSelection.hasSelection}
                       onSelect={(e) => artistSelection.handleSelect(artist.id, e)}
+                      showAlbumCount={artistColumnVisibility.albumCount}
                     />
                   )}
                   renderSkeleton={() => <MediaRowSkeleton showIndex />}

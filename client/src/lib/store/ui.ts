@@ -27,7 +27,7 @@ export const albumViewModeAtom = atomWithStorage<ViewMode>("ferrotune-album-view
 export const artistViewModeAtom = atomWithStorage<ViewMode>("ferrotune-artist-view", "grid");
 
 // Library sorting
-export type SortField = "custom" | "name" | "artist" | "year" | "dateAdded" | "playCount" | "duration";
+export type SortField = "custom" | "name" | "artist" | "year" | "dateAdded" | "playCount" | "duration" | "albumCount" | "songCount";
 export type SortDirection = "asc" | "desc";
 
 export interface SortConfig {
@@ -81,11 +81,35 @@ export const favoritesAlbumSortAtom = atomWithStorage<SortConfig>("ferrotune-fav
   direction: "asc",
 });
 
+// Album column visibility for favorites
+export interface AlbumColumnVisibility {
+  artist: boolean;
+  year: boolean;
+  songCount: boolean;
+  duration: boolean;
+}
+
+export const favoritesAlbumColumnVisibilityAtom = atomWithStorage<AlbumColumnVisibility>("ferrotune-favorites-album-columns", {
+  artist: true,
+  year: true,
+  songCount: true,
+  duration: true,
+});
+
 // Favorites artists view settings
 export const favoritesArtistViewModeAtom = atomWithStorage<ViewMode>("ferrotune-favorites-artist-view", "grid");
 export const favoritesArtistSortAtom = atomWithStorage<SortConfig>("ferrotune-favorites-artist-sort", {
   field: "name",
   direction: "asc",
+});
+
+// Artist column visibility for favorites
+export interface ArtistColumnVisibility {
+  albumCount: boolean;
+}
+
+export const favoritesArtistColumnVisibilityAtom = atomWithStorage<ArtistColumnVisibility>("ferrotune-favorites-artist-columns", {
+  albumCount: true,
 });
 
 // Keyboard shortcuts dialog

@@ -637,10 +637,15 @@ pub fn song_to_response_with_stats(
         .or_else(|| song.album_id.clone())
         .unwrap_or_else(|| song.id.clone());
 
+    // Use album name from Album object if provided, otherwise use song's album_name field
+    let album_name = album
+        .map(|a| a.name.clone())
+        .or_else(|| song.album_name.clone());
+
     SongResponse {
         id: song.id.clone(),
         title: song.title,
-        album: album.map(|a| a.name.clone()),
+        album: album_name,
         album_id: song.album_id,
         artist,
         artist_id: song.artist_id,

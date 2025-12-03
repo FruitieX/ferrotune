@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import { ListMusic } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -8,6 +9,8 @@ import { getClient } from "@/lib/api/client";
 interface PlaylistCoverProps {
   /** Playlist ID (used as cover art ID - backend generates composite) */
   playlistId: string;
+  /** Cover art ID (if different from playlist ID) */
+  coverArt?: string | null;
   /** Alternative text */
   alt: string;
   /** Size variant */
@@ -43,10 +46,12 @@ const imageSizes = {
 /**
  * Hook to get the playlist cover URL for use in backgrounds
  */
-export function usePlaylistCoverUrl(playlistId: string | null, size: number = 400): string | null {
+export function usePlaylistCoverUrl(playlistId: string | null, size: number = 400, coverArt?: string | null): string | null {
   const client = getClient();
   if (!client || !playlistId) return null;
-  return client.getCoverArtUrl(playlistId, size);
+  // Use coverArt if provided, otherwise try playlistId
+  const artId = coverArt || playlistId;
+  return client.getCoverArtUrl(artId, size);
 }
 
 /**
@@ -54,16 +59,23 @@ export function usePlaylistCoverUrl(playlistId: string | null, size: number = 40
  */
 export function PlaylistCover({
   playlistId,
+  coverArt,
   alt,
   size = "md",
   className,
   priority = false,
 }: PlaylistCoverProps) {
   const client = getClient();
+  const [imageError, setImageError] = useState(false);
 
-  const coverUrl = client
-    ? client.getCoverArtUrl(playlistId, imageSizes[size])
+  // Use coverArt if explicitly provided, otherwise try the playlist ID
+  // The backend may not return cover art for empty playlists
+  const artId = coverArt !== undefined ? coverArt : playlistId;
+  const coverUrl = client && artId
+    ? client.getCoverArtUrl(artId, imageSizes[size])
     : null;
+
+  const showPlaceholder = !coverUrl || imageError;
 
   return (
     <div
@@ -73,15 +85,16 @@ export function PlaylistCover({
         className
       )}
     >
-      {coverUrl ? (
+      {!showPlaceholder ? (
         <Image
-          src={coverUrl}
+          src={coverUrl!}
           alt={alt}
           fill
           className="object-cover"
           sizes={size === "full" ? "100vw" : size === "xl" ? "192px" : "56px"}
           priority={priority}
           unoptimized
+          onError={() => setImageError(true)}
         />
       ) : (
         <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-primary/30 to-primary/10">

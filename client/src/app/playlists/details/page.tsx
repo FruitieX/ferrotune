@@ -150,12 +150,11 @@ function PlaylistDetailContent() {
   // Local state for optimistic reordering
   const [localSongOrder, setLocalSongOrder] = useState<Song[]>([]);
   
-  // Sync local order with fetched data
+  // Sync local order with fetched data - also reset when playlist changes or is empty
   useEffect(() => {
-    if (songs.length > 0) {
-      setLocalSongOrder(songs);
-    }
-  }, [songs]);
+    // Always sync when playlist data changes (including when songs become empty)
+    setLocalSongOrder(songs);
+  }, [playlistId, songs]);
 
   // Use local order for display (allows optimistic updates)
   const orderedSongs = localSongOrder.length > 0 ? localSongOrder : songs;
@@ -308,7 +307,7 @@ function PlaylistDetailContent() {
   }
 
   // Get the cover URL for background
-  const coverUrl = usePlaylistCoverUrl(playlist?.id ?? null, 400);
+  const coverUrl = usePlaylistCoverUrl(playlist?.id ?? null, 400, playlist?.coverArt);
 
   return (
     <div className="min-h-screen">
@@ -375,6 +374,7 @@ function PlaylistDetailContent() {
               >
                 <PlaylistCover
                   playlistId={playlist.id}
+                  coverArt={playlist.coverArt}
                   alt={playlist.name}
                   size="full"
                   className="rounded-lg shadow-2xl"
