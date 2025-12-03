@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
-import { useSetAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -17,8 +17,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
+import { playlistViewModeAtom, playlistSortAtom, playlistColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -40,10 +42,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { PlaylistCover } from "@/components/shared/playlist-cover";
-import { TrackList } from "@/components/browse/track-list";
+import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
 import { formatDuration, formatCount, formatDate } from "@/lib/utils/format";
+import { sortSongs } from "@/lib/utils/sort-songs";
+import { cn } from "@/lib/utils";
+import type { Song } from "@/lib/api/types";
+import { Music } from "lucide-react";
 
 function PlaylistDetailContent() {
   const router = useRouter();
@@ -57,7 +64,14 @@ function PlaylistDetailContent() {
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const debouncedFilter = useDebounce(filter, 300);
   const isMounted = useIsMounted();
+  
+  // View settings
+  const [viewMode, setViewMode] = useAtom(playlistViewModeAtom);
+  const [sortConfig, setSortConfig] = useAtom(playlistSortAtom);
+  const [columnVisibility, setColumnVisibility] = useAtom(playlistColumnVisibilityAtom);
 
   // Redirect to playlists if no ID
   useEffect(() => {
@@ -96,8 +110,26 @@ function PlaylistDetailContent() {
   });
 
   const songs = playlist?.entry ?? [];
+  
+  // Filter and sort songs
+  const displaySongs = useMemo(() => {
+    let filtered = songs;
+    
+    // Apply filter
+    if (debouncedFilter.trim()) {
+      const query = debouncedFilter.toLowerCase();
+      filtered = songs.filter(song =>
+        song.title?.toLowerCase().includes(query) ||
+        song.artist?.toLowerCase().includes(query) ||
+        song.album?.toLowerCase().includes(query)
+      );
+    }
+    
+    // Apply sort
+    return sortSongs(filtered, sortConfig.field, sortConfig.direction);
+  }, [songs, debouncedFilter, sortConfig]);
 
-  // Track selection
+  // Track selection - use displaySongs for selection
   const {
     selectedCount,
     hasSelection,
@@ -108,7 +140,7 @@ function PlaylistDetailContent() {
     getSelectedSongs,
     addSelectedToQueue,
     starSelected,
-  } = useTrackSelection(songs);
+  } = useTrackSelection(displaySongs);
 
   const handlePlaySelected = () => {
     const selected = getSelectedSongs();
@@ -119,16 +151,16 @@ function PlaylistDetailContent() {
   };
 
   const handlePlayAll = () => {
-    if (songs.length > 0) {
+    if (displaySongs.length > 0) {
       setIsShuffled(false);
-      playNow(songs);
+      playNow(displaySongs);
     }
   };
 
   const handleShuffle = () => {
-    if (songs.length > 0) {
+    if (displaySongs.length > 0) {
       setIsShuffled(true);
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
+      const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
       playNow(shuffled);
     }
   };
@@ -274,14 +306,14 @@ function PlaylistDetailContent() {
         </div>
       </div>
 
-      {/* Action buttons */}
+      {/* Action buttons and toolbar */}
       <div className="sticky top-0 z-20 bg-background/80 backdrop-blur-lg border-b border-border">
         <div className="flex items-center gap-4 px-4 lg:px-6 py-4">
           <Button
             size="lg"
             className="rounded-full gap-2 px-8"
             onClick={handlePlayAll}
-            disabled={isLoading || songs.length === 0}
+            disabled={isLoading || displaySongs.length === 0}
           >
             <Play className="w-5 h-5 ml-0.5" />
             Play
@@ -291,15 +323,30 @@ function PlaylistDetailContent() {
             size="lg"
             className="rounded-full gap-2"
             onClick={handleShuffle}
-            disabled={isLoading || songs.length === 0}
+            disabled={isLoading || displaySongs.length === 0}
           >
             <Shuffle className="w-5 h-5" />
             Shuffle
           </Button>
 
+          <div className="flex-1" />
+          
+          {/* Toolbar with filter/sort/columns/view mode */}
+          <SongListToolbar
+            filter={filter}
+            onFilterChange={setFilter}
+            filterPlaceholder="Filter playlist..."
+            sortConfig={sortConfig}
+            onSortChange={setSortConfig}
+            columnVisibility={columnVisibility}
+            onColumnVisibilityChange={setColumnVisibility}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+          />
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="ml-auto">
+              <Button variant="ghost" size="icon">
                 <MoreHorizontal className="w-5 h-5" />
               </Button>
             </DropdownMenuTrigger>
@@ -322,16 +369,68 @@ function PlaylistDetailContent() {
       </div>
 
       {/* Track list */}
-      <TrackList
-        songs={songs}
-        isLoading={isLoading}
-        showCover
-        showHeader
-        emptyMessage="This playlist is empty"
-        isSelected={isSelected}
-        isSelectionMode={hasSelection}
-        onSelect={handleSelect}
-      />
+      <div className={cn("px-4 lg:px-6 py-4", hasSelection && "select-none")}>
+        {isLoading ? (
+          viewMode === "grid" ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <SongCardSkeleton key={i} />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <SongRowSkeleton key={i} showCover showIndex />
+              ))}
+            </div>
+          )
+        ) : displaySongs.length > 0 ? (
+          viewMode === "grid" ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+              {displaySongs.map((song) => (
+                <SongCard
+                  key={song.id}
+                  song={song}
+                  queueSongs={displaySongs}
+                  isSelected={isSelected(song.id)}
+                  isSelectionMode={hasSelection}
+                  onSelect={(e) => handleSelect(song.id, e)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {displaySongs.map((song, index) => (
+                <SongRow
+                  key={song.id}
+                  song={song}
+                  index={index}
+                  showCover
+                  showArtist={columnVisibility.artist}
+                  showAlbum={columnVisibility.album}
+                  showDuration={columnVisibility.duration}
+                  showPlayCount={columnVisibility.playCount}
+                  showYear={columnVisibility.year}
+                  showDateAdded={columnVisibility.dateAdded}
+                  queueSongs={displaySongs}
+                  isSelected={isSelected(song.id)}
+                  isSelectionMode={hasSelection}
+                  onSelect={(e) => handleSelect(song.id, e)}
+                />
+              ))}
+            </div>
+          )
+        ) : (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+              <Music className="w-8 h-8 text-muted-foreground" />
+            </div>
+            <p className="text-muted-foreground">
+              {debouncedFilter ? "No songs match your filter" : "This playlist is empty"}
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Bulk actions bar */}
       <BulkActionsBar

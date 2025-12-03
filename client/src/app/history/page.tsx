@@ -1,18 +1,25 @@
 "use client";
 
-import { useAtomValue, useSetAtom } from "jotai";
+import { useState, useMemo } from "react";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { motion } from "framer-motion";
-import { History, Play, Shuffle, Trash2 } from "lucide-react";
+import { History, Play, Shuffle, Trash2, Music } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
+import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
 import { recentlyPlayedAtom, clearHistoryAtom } from "@/lib/store/history";
+import { playlistViewModeAtom, playlistSortAtom, playlistColumnVisibilityAtom } from "@/lib/store/ui";
 import { Button } from "@/components/ui/button";
-import { TrackList } from "@/components/browse/track-list";
+import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { formatCount, formatTotalDuration } from "@/lib/utils/format";
+import { cn } from "@/lib/utils";
+import type { Song } from "@/lib/api/types";
+import { sortSongs } from "@/lib/utils/sort-songs";
 
 export default function HistoryPage() {
   const { isLoading: authLoading } = useAuth({ redirectToLogin: true });
@@ -22,12 +29,38 @@ export default function HistoryPage() {
   const recentlyPlayed = useAtomValue(recentlyPlayedAtom);
   const clearHistory = useSetAtom(clearHistoryAtom);
   
+  // Filter and view settings
+  const [filter, setFilter] = useState("");
+  const debouncedFilter = useDebounce(filter, 300);
+  const [viewMode, setViewMode] = useAtom(playlistViewModeAtom);
+  const [sortConfig, setSortConfig] = useAtom(playlistSortAtom);
+  const [columnVisibility, setColumnVisibility] = useAtom(playlistColumnVisibilityAtom);
+  
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
 
   // Extract songs from history entries
   const songs = recentlyPlayed.map((entry) => entry.song);
-  const totalDuration = songs.reduce((acc, song) => acc + song.duration, 0);
+  
+  // Filter and sort songs
+  const displaySongs = useMemo(() => {
+    let filtered = songs;
+    
+    // Apply filter
+    if (debouncedFilter.trim()) {
+      const query = debouncedFilter.toLowerCase();
+      filtered = songs.filter(song =>
+        song.title?.toLowerCase().includes(query) ||
+        song.artist?.toLowerCase().includes(query) ||
+        song.album?.toLowerCase().includes(query)
+      );
+    }
+    
+    // Apply sort
+    return sortSongs(filtered, sortConfig.field, sortConfig.direction);
+  }, [songs, debouncedFilter, sortConfig]);
+  
+  const totalDuration = displaySongs.reduce((acc, song) => acc + song.duration, 0);
 
   // Track selection
   const {
@@ -40,7 +73,7 @@ export default function HistoryPage() {
     getSelectedSongs,
     addSelectedToQueue,
     starSelected,
-  } = useTrackSelection(songs);
+  } = useTrackSelection(displaySongs);
 
   const handlePlaySelected = () => {
     const selected = getSelectedSongs();
@@ -51,16 +84,16 @@ export default function HistoryPage() {
   };
 
   const handlePlayAll = () => {
-    if (songs.length > 0) {
+    if (displaySongs.length > 0) {
       setIsShuffled(false);
-      playNow(songs);
+      playNow(displaySongs);
     }
   };
 
   const handleShuffle = () => {
-    if (songs.length > 0) {
+    if (displaySongs.length > 0) {
       setIsShuffled(true);
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
+      const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
       playNow(shuffled);
     }
   };
@@ -110,21 +143,21 @@ export default function HistoryPage() {
               </span>
               <h1 className="text-4xl lg:text-5xl font-bold mt-2">Recently Played</h1>
               <p className="mt-4 text-muted-foreground">
-                {formatCount(songs.length, "song")} • {formatTotalDuration(totalDuration)}
+                {formatCount(displaySongs.length, "song")} • {formatTotalDuration(totalDuration)}
               </p>
             </motion.div>
           </div>
         </div>
       </div>
 
-      {/* Action buttons */}
+      {/* Action buttons and toolbar */}
       <div className="sticky top-0 z-20 bg-background/80 backdrop-blur-lg border-b border-border">
         <div className="flex items-center gap-4 px-4 lg:px-6 py-4">
           <Button
             size="lg"
             className="rounded-full gap-2 px-8"
             onClick={handlePlayAll}
-            disabled={songs.length === 0}
+            disabled={displaySongs.length === 0}
           >
             <Play className="w-5 h-5 ml-0.5" />
             Play
@@ -134,7 +167,7 @@ export default function HistoryPage() {
             size="lg"
             className="rounded-full gap-2"
             onClick={handleShuffle}
-            disabled={songs.length === 0}
+            disabled={displaySongs.length === 0}
           >
             <Shuffle className="w-5 h-5" />
             Shuffle
@@ -150,24 +183,73 @@ export default function HistoryPage() {
               Clear
             </Button>
           )}
+          
+          <div className="flex-1" />
+          
+          {/* Toolbar with filter/sort/columns/view mode */}
+          <SongListToolbar
+            filter={filter}
+            onFilterChange={setFilter}
+            filterPlaceholder="Filter history..."
+            sortConfig={sortConfig}
+            onSortChange={setSortConfig}
+            columnVisibility={columnVisibility}
+            onColumnVisibilityChange={setColumnVisibility}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+          />
         </div>
       </div>
 
       {/* Track list */}
-      {songs.length > 0 ? (
-        <TrackList
-          songs={songs}
-          isLoading={false}
-          showCover
-          showHeader
-          emptyMessage="No history yet"
-          isSelected={isSelected}
-          isSelectionMode={hasSelection}
-          onSelect={handleSelect}
-        />
-      ) : (
-        <EmptyState />
-      )}
+      <div className={cn("px-4 lg:px-6 py-4", hasSelection && "select-none")}>
+        {displaySongs.length > 0 ? (
+          viewMode === "grid" ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+              {displaySongs.map((song) => (
+                <SongCard
+                  key={song.id}
+                  song={song}
+                  queueSongs={displaySongs}
+                  isSelected={isSelected(song.id)}
+                  isSelectionMode={hasSelection}
+                  onSelect={(e) => handleSelect(song.id, e)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {displaySongs.map((song, index) => (
+                <SongRow
+                  key={song.id}
+                  song={song}
+                  index={index}
+                  showCover
+                  showArtist={columnVisibility.artist}
+                  showAlbum={columnVisibility.album}
+                  showDuration={columnVisibility.duration}
+                  showPlayCount={columnVisibility.playCount}
+                  showYear={columnVisibility.year}
+                  showDateAdded={columnVisibility.dateAdded}
+                  queueSongs={displaySongs}
+                  isSelected={isSelected(song.id)}
+                  isSelectionMode={hasSelection}
+                  onSelect={(e) => handleSelect(song.id, e)}
+                />
+              ))}
+            </div>
+          )
+        ) : songs.length > 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+              <Music className="w-8 h-8 text-muted-foreground" />
+            </div>
+            <p className="text-muted-foreground">No songs match your filter</p>
+          </div>
+        ) : (
+          <EmptyState />
+        )}
+      </div>
 
       {/* Bulk actions bar */}
       <BulkActionsBar
