@@ -112,6 +112,28 @@ export const favoritesArtistColumnVisibilityAtom = atomWithStorage<ArtistColumnV
   albumCount: true,
 });
 
+// Playlists list view settings (for /playlists page listing playlists)
+export const playlistsViewModeAtom = atomWithStorage<ViewMode>("ferrotune-playlists-view", "grid");
+export const playlistsSortAtom = atomWithStorage<SortConfig>("ferrotune-playlists-sort", {
+  field: "name",
+  direction: "asc",
+});
+
+// Playlist column visibility (for list view of playlists)
+export interface PlaylistColumnVisibility {
+  songCount: boolean;
+  duration: boolean;
+  owner: boolean;
+  created: boolean;
+}
+
+export const playlistsColumnVisibilityAtom = atomWithStorage<PlaylistColumnVisibility>("ferrotune-playlists-columns", {
+  songCount: true,
+  duration: true,
+  owner: false,
+  created: false,
+});
+
 // Keyboard shortcuts dialog
 export const shortcutsDialogOpenAtom = atom<boolean>(false);
 

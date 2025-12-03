@@ -217,7 +217,7 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
 }
 
 // Dropdown variant for mobile and click-triggered menu
-export function PlaylistDropdownMenu({ playlist }: { playlist: Playlist }) {
+export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: Playlist; inline?: boolean }) {
   const queryClient = useQueryClient();
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -319,7 +319,10 @@ export function PlaylistDropdownMenu({ playlist }: { playlist: Playlist }) {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+            className={inline 
+              ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+              : "h-8 w-8 absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+            }
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();

@@ -1,28 +1,45 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { useAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
+import { Plus, ListMusic, Upload, Clock } from "lucide-react";
+import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
-import { motion } from "framer-motion";
-import Link from "next/link";
-import { Plus, ListMusic, Music2, Clock, Upload } from "lucide-react";
-import { useAuth } from "@/lib/hooks/use-auth";
+import { useDebounce } from "@/lib/hooks/use-debounce";
+import { usePlaylistSelection } from "@/lib/hooks/use-playlist-selection";
+import { playlistsViewModeAtom, playlistsSortAtom, playlistsColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { CoverImage } from "@/components/shared/cover-image";
+import { DetailHeader } from "@/components/shared/detail-header";
+import { ActionBar } from "@/components/shared/action-bar";
+import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
+import { PlaylistsListToolbar } from "@/components/shared/playlists-list-toolbar";
+import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
+import { MediaCard, MediaCardSkeleton } from "@/components/shared/media-card";
+import { MediaRow, MediaRowSkeleton } from "@/components/shared/media-row";
+import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { CreatePlaylistDialog } from "@/components/playlists/create-playlist-dialog";
 import { ImportPlaylistDialog } from "@/components/playlists/import-playlist-dialog";
 import { PlaylistContextMenu, PlaylistDropdownMenu } from "@/components/playlists/playlist-context-menu";
-import { formatDuration, formatCount, formatDate } from "@/lib/utils/format";
+import { formatDuration, formatCount, formatDate, formatTotalDuration } from "@/lib/utils/format";
+import { filterPlaylists, sortPlaylists } from "@/lib/utils/sort-playlists";
+import { cn } from "@/lib/utils";
 import type { Playlist } from "@/lib/api/types";
 
 export default function PlaylistsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const isMounted = useIsMounted();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const isMounted = useIsMounted();
+  
+  // Filter and view settings
+  const [filter, setFilter] = useState("");
+  const debouncedFilter = useDebounce(filter, 300);
+  const [viewMode, setViewMode] = useAtom(playlistsViewModeAtom);
+  const [sortConfig, setSortConfig] = useAtom(playlistsSortAtom);
+  const [columnVisibility, setColumnVisibility] = useAtom(playlistsColumnVisibilityAtom);
   
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
@@ -39,32 +56,37 @@ export default function PlaylistsPage() {
     enabled: isReady,
   });
 
+  // Filter and sort playlists
+  const displayPlaylists = useMemo(() => {
+    if (!playlists) return [];
+    const filtered = filterPlaylists(playlists, debouncedFilter);
+    return sortPlaylists(filtered, sortConfig.field, sortConfig.direction);
+  }, [playlists, debouncedFilter, sortConfig]);
+
+  // Calculate totals
+  const totalDuration = displayPlaylists.reduce((acc, p) => acc + (p.duration ?? 0), 0);
+
+  // Playlist selection
+  const {
+    selectedCount,
+    hasSelection,
+    isSelected,
+    handleSelect,
+    clearSelection,
+    selectAll,
+    getSelectedPlaylists,
+    playSelectedNow,
+    shuffleSelected,
+    addSelectedToQueue,
+    deleteSelected,
+    mergeSelected,
+  } = usePlaylistSelection(displayPlaylists);
+
   // Always render the same loading state on server and during hydration
-  // This prevents hydration mismatches
   if (!isMounted || authLoading) {
     return (
-      <div className="min-h-screen">
-        {/* Header skeleton */}
-        <div className="px-4 lg:px-6 pt-8 pb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Skeleton className="w-12 h-12 rounded-lg" />
-              <div>
-                <Skeleton className="h-8 w-32 mb-1" />
-                <Skeleton className="h-4 w-20" />
-              </div>
-            </div>
-            <Skeleton className="h-10 w-36 rounded-full" />
-          </div>
-        </div>
-        {/* Grid skeleton */}
-        <div className="px-4 lg:px-6 pb-24">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <PlaylistCardSkeleton key={i} />
-            ))}
-          </div>
-        </div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-pulse">Loading...</div>
       </div>
     );
   }
@@ -72,35 +94,141 @@ export default function PlaylistsPage() {
   return (
     <div className="min-h-screen">
       {/* Header */}
-      <div className="px-4 lg:px-6 pt-8 pb-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-between"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
-              <ListMusic className="w-6 h-6 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold">Playlists</h1>
-              <p className="text-sm text-muted-foreground">
-                {isLoading ? "Loading..." : formatCount(playlists?.length ?? 0, "playlist")}
-              </p>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" className="rounded-full gap-2" onClick={() => setImportDialogOpen(true)}>
-              <Upload className="w-4 h-4" />
+      <DetailHeader
+        icon={ListMusic}
+        iconClassName="bg-linear-to-br from-emerald-500 to-emerald-800"
+        gradientColor="rgba(16,185,129,0.2)"
+        label="Collection"
+        title="Playlists"
+        subtitle={
+          isLoading 
+            ? "Loading..." 
+            : `${formatCount(displayPlaylists.length, "playlist")} • ${formatTotalDuration(totalDuration)}`
+        }
+      />
+
+      {/* Action buttons and toolbar */}
+      <ActionBar
+        onPlayAll={playSelectedNow}
+        onShuffle={shuffleSelected}
+        disablePlay={displayPlaylists.length === 0}
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="lg"
+              className="rounded-full gap-2"
+              onClick={() => setImportDialogOpen(true)}
+            >
+              <Upload className="w-5 h-5" />
               Import
             </Button>
-            <Button className="rounded-full gap-2" onClick={() => setCreateDialogOpen(true)}>
-              <Plus className="w-4 h-4" />
-              Create Playlist
+            <Button
+              variant="ghost"
+              size="lg"
+              className="rounded-full gap-2"
+              onClick={() => setCreateDialogOpen(true)}
+            >
+              <Plus className="w-5 h-5" />
+              Create
             </Button>
-          </div>
-        </motion.div>
+          </>
+        }
+        toolbar={
+          <PlaylistsListToolbar
+            filter={filter}
+            onFilterChange={setFilter}
+            filterPlaceholder="Filter playlists..."
+            sortConfig={sortConfig}
+            onSortChange={setSortConfig}
+            columnVisibility={columnVisibility}
+            onColumnVisibilityChange={setColumnVisibility}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+          />
+        }
+      />
+
+      {/* Playlist list */}
+      <div className={cn("px-4 lg:px-6 py-4", hasSelection && "select-none")}>
+        {isLoading ? (
+          viewMode === "grid" ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <MediaCardSkeleton key={i} />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <MediaRowSkeleton key={i} showRightContent />
+              ))}
+            </div>
+          )
+        ) : displayPlaylists.length > 0 ? (
+          viewMode === "grid" ? (
+            <VirtualizedGrid
+              items={displayPlaylists}
+              renderItem={(playlist) => (
+                <PlaylistGridCard
+                  playlist={playlist}
+                  isSelected={isSelected(playlist.id)}
+                  isSelectionMode={hasSelection}
+                  onSelect={(e) => handleSelect(playlist.id, e)}
+                />
+              )}
+              renderSkeleton={() => <MediaCardSkeleton />}
+              getItemKey={(playlist) => playlist.id}
+            />
+          ) : (
+            <VirtualizedList
+              items={displayPlaylists}
+              renderItem={(playlist, index) => (
+                <PlaylistListRow
+                  playlist={playlist}
+                  index={index}
+                  isSelected={isSelected(playlist.id)}
+                  isSelectionMode={hasSelection}
+                  onSelect={(e) => handleSelect(playlist.id, e)}
+                  columnVisibility={columnVisibility}
+                />
+              )}
+              renderSkeleton={() => <MediaRowSkeleton showRightContent />}
+              getItemKey={(playlist) => playlist.id}
+              estimateItemHeight={56}
+            />
+          )
+        ) : playlists && playlists.length > 0 ? (
+          <EmptyFilterState message="No playlists match your filter" />
+        ) : (
+          <EmptyState
+            icon={ListMusic}
+            title="No playlists yet"
+            description="Create your first playlist to organize your favorite music."
+            action={
+              <Button className="rounded-full gap-2" onClick={() => setCreateDialogOpen(true)}>
+                <Plus className="w-4 h-4" />
+                Create Playlist
+              </Button>
+            }
+          />
+        )}
       </div>
+
+      {/* Bulk actions bar */}
+      <BulkActionsBar
+        mediaType="playlist"
+        selectedCount={selectedCount}
+        onClear={clearSelection}
+        onPlayNow={playSelectedNow}
+        onShuffle={shuffleSelected}
+        onPlayNext={() => addSelectedToQueue("next")}
+        onAddToQueue={() => addSelectedToQueue("last")}
+        onSelectAll={selectAll}
+        getSelectedItems={getSelectedPlaylists}
+        onDelete={deleteSelected}
+        onMerge={mergeSelected}
+      />
 
       {/* Create Playlist Dialog */}
       <CreatePlaylistDialog 
@@ -114,104 +242,98 @@ export default function PlaylistsPage() {
         onOpenChange={setImportDialogOpen} 
       />
 
-      {/* Playlists grid */}
-      <div className="px-4 lg:px-6 pb-24">
-        {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <PlaylistCardSkeleton key={i} />
-            ))}
-          </div>
-        ) : playlists && playlists.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {playlists.map((playlist, index) => (
-              <motion.div
-                key={playlist.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05, duration: 0.3 }}
-              >
-                <PlaylistCard playlist={playlist} />
-              </motion.div>
-            ))}
-          </div>
-        ) : (
-          <EmptyState onCreateClick={() => setCreateDialogOpen(true)} />
-        )}
-      </div>
+      {/* Spacer for player bar */}
+      <div className="h-24" />
     </div>
   );
 }
 
-function PlaylistCard({ playlist }: { playlist: Playlist }) {
+interface PlaylistGridCardProps {
+  playlist: Playlist;
+  isSelected: boolean;
+  isSelectionMode: boolean;
+  onSelect: (e: React.MouseEvent) => void;
+}
+
+function PlaylistGridCard({ playlist, isSelected, isSelectionMode, onSelect }: PlaylistGridCardProps) {
   const coverArtUrl = playlist.coverArt
     ? getClient()?.getCoverArtUrl(playlist.coverArt, 300)
     : undefined;
 
   return (
-    <PlaylistContextMenu playlist={playlist}>
-      <Link
-        href={`/playlists/details?id=${playlist.id}`}
-        className="group block p-4 rounded-lg bg-card hover:bg-accent/70 hover:shadow-lg hover:shadow-black/20 transition-all relative"
-      >
-        <PlaylistDropdownMenu playlist={playlist} />
-        <div className="relative mb-4">
-          <CoverImage
-            src={coverArtUrl}
-            alt={playlist.name || "Playlist cover"}
-            size="full"
-            type="playlist"
-            className="rounded-md shadow-lg"
-          />
-          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-md flex items-center justify-center">
-            <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center shadow-xl">
-              <Music2 className="w-6 h-6 text-primary-foreground" />
-            </div>
-          </div>
-        </div>
-        <h3 className="font-semibold truncate">{playlist.name}</h3>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-          <span>{formatCount(playlist.songCount, "song")}</span>
-          <span>•</span>
-          <span className="flex items-center gap-1">
-            <Clock className="w-3 h-3" />
-            {formatDuration(playlist.duration)}
-          </span>
-        </div>
-        {playlist.comment && (
-          <p className="text-sm text-muted-foreground mt-2 line-clamp-2">
-            {playlist.comment}
-          </p>
-        )}
-      </Link>
-    </PlaylistContextMenu>
+    <MediaCard
+      coverArt={coverArtUrl}
+      title={playlist.name}
+      subtitleContent={
+        <span className="flex items-center gap-1">
+          {formatCount(playlist.songCount, "song")} • <Clock className="w-3 h-3" /> {formatDuration(playlist.duration)}
+        </span>
+      }
+      href={`/playlists/details?id=${playlist.id}`}
+      coverType="playlist"
+      colorSeed={playlist.name}
+      isSelected={isSelected}
+      isSelectionMode={isSelectionMode}
+      onSelect={onSelect}
+      dropdownMenu={<PlaylistDropdownMenu playlist={playlist} />}
+      contextMenu={(children) => (
+        <PlaylistContextMenu playlist={playlist}>{children}</PlaylistContextMenu>
+      )}
+    />
   );
 }
 
-function PlaylistCardSkeleton() {
-  return (
-    <div className="p-4 rounded-lg bg-card">
-      <Skeleton className="aspect-square rounded-md mb-4" />
-      <Skeleton className="h-5 w-3/4 mb-2" />
-      <Skeleton className="h-4 w-1/2" />
-    </div>
-  );
+interface PlaylistListRowProps {
+  playlist: Playlist;
+  index: number;
+  isSelected: boolean;
+  isSelectionMode: boolean;
+  onSelect: (e: React.MouseEvent) => void;
+  columnVisibility: {
+    songCount: boolean;
+    duration: boolean;
+    owner: boolean;
+    created: boolean;
+  };
 }
 
-function EmptyState({ onCreateClick }: { onCreateClick: () => void }) {
+function PlaylistListRow({ playlist, index, isSelected, isSelectionMode, onSelect, columnVisibility }: PlaylistListRowProps) {
+  const coverArtUrl = playlist.coverArt
+    ? getClient()?.getCoverArtUrl(playlist.coverArt, 80)
+    : undefined;
+
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center mb-4">
-        <ListMusic className="w-10 h-10 text-muted-foreground" />
-      </div>
-      <h3 className="text-lg font-semibold mb-2">No playlists yet</h3>
-      <p className="text-muted-foreground mb-6 max-w-sm">
-        Create your first playlist to organize your favorite music.
-      </p>
-      <Button className="rounded-full gap-2" onClick={onCreateClick}>
-        <Plus className="w-4 h-4" />
-        Create Playlist
-      </Button>
-    </div>
+    <MediaRow
+      coverArt={coverArtUrl}
+      title={playlist.name}
+      subtitle={playlist.comment}
+      href={`/playlists/details?id=${playlist.id}`}
+      coverType="playlist"
+      colorSeed={playlist.name}
+      index={index}
+      isSelected={isSelected}
+      isSelectionMode={isSelectionMode}
+      onSelect={onSelect}
+      actions={<PlaylistDropdownMenu playlist={playlist} inline />}
+      rightContent={
+        <div className="flex items-center gap-6 text-sm text-muted-foreground">
+          {columnVisibility.songCount && (
+            <span className="w-16 text-right tabular-nums">{playlist.songCount} songs</span>
+          )}
+          {columnVisibility.duration && (
+            <span className="w-16 text-right tabular-nums">{formatDuration(playlist.duration)}</span>
+          )}
+          {columnVisibility.owner && playlist.owner && (
+            <span className="w-24 truncate">{playlist.owner}</span>
+          )}
+          {columnVisibility.created && (
+            <span className="w-24 text-right">{formatDate(playlist.created)}</span>
+          )}
+        </div>
+      }
+      contextMenu={(children) => (
+        <PlaylistContextMenu playlist={playlist}>{children}</PlaylistContextMenu>
+      )}
+    />
   );
 }
