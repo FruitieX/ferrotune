@@ -221,20 +221,32 @@ export async function waitForPlayerReady(page: Page, timeout = 5000) {
 export async function playFirstSong(page: Page) {
   // Navigate to library (albums tab is default)
   await page.goto("/library");
-  await page.waitForSelector('[data-testid="album-card"], article', { timeout: 10000 });
+  await page.waitForLoadState("networkidle");
   
-  // Click specifically on "Test Album" (not just the first album)
-  const testAlbum = page.locator('[data-testid="album-card"], article').filter({ hasText: "Test Album" });
+  // Wait for albums to load - handle both grid and list views
+  // In grid view: [data-testid="media-card"]
+  // In list view: link with album name
+  const albumLoaded = await Promise.race([
+    page.waitForSelector('[data-testid="media-card"]', { timeout: 10000 }).then(() => 'grid'),
+    page.waitForSelector('a:has-text("Test Album")', { timeout: 10000 }).then(() => 'list'),
+  ]).catch(() => null);
+  
+  if (!albumLoaded) {
+    throw new Error('Could not find albums in library');
+  }
+  
+  // Click specifically on "Test Album" (works in both views)
+  const testAlbum = page.locator('a').filter({ hasText: /^Test Album/ }).first();
   await testAlbum.click();
   
   // Wait for navigation to album detail page
   await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
   
   // Wait for tracks to load
-  await page.waitForSelector('[data-testid="song-row"], [role="row"]', { timeout: 10000 });
+  await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
   
   // Double-click first track to play
-  const firstTrack = page.locator('[data-testid="song-row"], [role="row"]').first();
+  const firstTrack = page.locator('[data-testid="song-row"]').first();
   await firstTrack.dblclick();
 }
 
