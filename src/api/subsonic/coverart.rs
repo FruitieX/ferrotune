@@ -32,10 +32,10 @@ pub async fn get_cover_art(
     if params.id.is_empty() {
         return Err(Error::NotFound("No cover art ID provided".to_string()));
     }
-    
+
     // The ID can be for a song, album, artist, or playlist
     // Try to find cover art in this order based on ID prefix
-    
+
     let cover_art_data = if params.id.starts_with("so-") {
         // Song ID
         get_song_cover_art(&state, &params.id).await?
@@ -49,7 +49,10 @@ pub async fn get_cover_art(
         // Playlist ID - generate tiled cover art
         get_playlist_cover_art(&state, &params.id, params.size).await?
     } else {
-        return Err(Error::InvalidRequest(format!("Invalid cover art ID: {}", params.id)));
+        return Err(Error::InvalidRequest(format!(
+            "Invalid cover art ID: {}",
+            params.id
+        )));
     };
 
     // Process image (resize if requested) in blocking task
@@ -57,7 +60,9 @@ pub async fn get_cover_art(
     let max_size = if params.id.starts_with("pl-") {
         None // Already sized in get_playlist_cover_art
     } else {
-        params.size.map(|s| s.min(state.config.cache.max_cover_size))
+        params
+            .size
+            .map(|s| s.min(state.config.cache.max_cover_size))
     };
     let image_data = process_image(cover_art_data, max_size).await?;
 
@@ -72,8 +77,7 @@ pub async fn get_cover_art(
 
 async fn process_image(data: Vec<u8>, max_size: Option<u32>) -> Result<Vec<u8>> {
     tokio::task::spawn_blocking(move || {
-        let img = image::load_from_memory(&data)
-            .map_err(|e| Error::Image(e))?;
+        let img = image::load_from_memory(&data).map_err(|e| Error::Image(e))?;
 
         let (width, height) = (img.width(), img.height());
 
@@ -150,7 +154,7 @@ async fn get_album_cover_art(state: &AppState, album_id: &str) -> Result<Vec<u8>
 
     // Get a song from this album to find the album directory
     let songs = crate::db::queries::get_songs_by_album(&state.pool, album_id).await?;
-    
+
     if let Some(song) = songs.first() {
         // Try external cover art files first (folder.jpg, cover.jpg, etc.)
         if let Ok(cover_data) = find_external_cover_art(state, &song.file_path).await {
@@ -173,9 +177,25 @@ async fn get_artist_cover_art(state: &AppState, artist_id: &str) -> Result<Vec<u
 
     // Get first album by this artist
     let albums = crate::db::queries::get_albums_by_artist(&state.pool, artist_id).await?;
-    
+
     if let Some(album) = albums.first() {
         return get_album_cover_art(state, &album.id).await;
+    }
+
+    // No albums - try to find a track by this artist and use its album's cover
+    let songs = crate::db::queries::get_songs_by_artist(&state.pool, artist_id).await?;
+
+    if let Some(song) = songs.first() {
+        // Try the song's album cover first
+        if let Some(album_id) = &song.album_id {
+            if let Ok(cover_data) = get_album_cover_art(state, album_id).await {
+                return Ok(cover_data);
+            }
+        }
+        // Fall back to the song's own cover art (embedded or external)
+        if let Ok(cover_data) = get_song_cover_art(state, &song.id).await {
+            return Ok(cover_data);
+        }
     }
 
     Err(Error::NotFound("No cover art found for artist".to_string()))
@@ -192,14 +212,14 @@ async fn extract_embedded_cover_art(state: &AppState, file_path: &str) -> Result
         }
     }
 
-    let full_path = full_path
-        .ok_or_else(|| Error::NotFound(format!("File not found: {}", file_path)))?;
+    let full_path =
+        full_path.ok_or_else(|| Error::NotFound(format!("File not found: {}", file_path)))?;
 
     // Run blocking lofty operations in spawn_blocking
     tokio::task::spawn_blocking(move || {
         // Skip reading audio properties - we only need cover art
         let parse_options = ParseOptions::new().read_properties(false);
-        
+
         let tagged_file = Probe::open(&full_path)
             .map_err(Error::Lofty)?
             .options(parse_options)
@@ -235,8 +255,8 @@ async fn find_external_cover_art(state: &AppState, file_path: &str) -> Result<Ve
         }
     }
 
-    let full_path = full_path
-        .ok_or_else(|| Error::NotFound(format!("File not found: {}", file_path)))?;
+    let full_path =
+        full_path.ok_or_else(|| Error::NotFound(format!("File not found: {}", file_path)))?;
 
     // Get the directory containing the music file
     let dir = full_path
@@ -245,12 +265,19 @@ async fn find_external_cover_art(state: &AppState, file_path: &str) -> Result<Ve
 
     // Common cover art filenames
     let cover_names = [
-        "folder.jpg", "folder.png",
-        "cover.jpg", "cover.png",
-        "front.jpg", "front.png",
-        "album.jpg", "album.png",
-        "albumart.jpg", "albumart.png",
-        "Folder.jpg", "Cover.jpg", "Front.jpg",
+        "folder.jpg",
+        "folder.png",
+        "cover.jpg",
+        "cover.png",
+        "front.jpg",
+        "front.png",
+        "album.jpg",
+        "album.png",
+        "albumart.jpg",
+        "albumart.png",
+        "Folder.jpg",
+        "Cover.jpg",
+        "Front.jpg",
     ];
 
     for name in &cover_names {
@@ -265,15 +292,22 @@ async fn find_external_cover_art(state: &AppState, file_path: &str) -> Result<Ve
 }
 
 /// Generate a 2x2 tiled cover art image from up to 4 unique album covers in a playlist
-async fn get_playlist_cover_art(state: &AppState, playlist_id: &str, size: Option<u32>) -> Result<Vec<u8>> {
+async fn get_playlist_cover_art(
+    state: &AppState,
+    playlist_id: &str,
+    size: Option<u32>,
+) -> Result<Vec<u8>> {
     // Get up to 4 unique album IDs from the playlist
-    let album_ids = crate::db::queries::get_playlist_album_ids(&state.pool, playlist_id, 4).await
+    let album_ids = crate::db::queries::get_playlist_album_ids(&state.pool, playlist_id, 4)
+        .await
         .map_err(|e| Error::Internal(e.to_string()))?;
-    
+
     if album_ids.is_empty() {
-        return Err(Error::NotFound("No cover art found for playlist".to_string()));
+        return Err(Error::NotFound(
+            "No cover art found for playlist".to_string(),
+        ));
     }
-    
+
     // Collect cover art data for each album
     let mut covers: Vec<Vec<u8>> = Vec::new();
     for album_id in &album_ids {
@@ -281,35 +315,36 @@ async fn get_playlist_cover_art(state: &AppState, playlist_id: &str, size: Optio
             covers.push(cover_data);
         }
     }
-    
+
     if covers.is_empty() {
-        return Err(Error::NotFound("No cover art found for playlist".to_string()));
+        return Err(Error::NotFound(
+            "No cover art found for playlist".to_string(),
+        ));
     }
-    
+
     // If only one cover, just return it (will be resized by caller)
     if covers.len() == 1 {
         return Ok(covers.remove(0));
     }
-    
+
     // Target size for the final image
     let target_size = size.unwrap_or(600).min(state.config.cache.max_cover_size);
-    
+
     // Generate tiled image in blocking task
-    let tiled_image = tokio::task::spawn_blocking(move || {
-        generate_tiled_cover(covers, target_size)
-    })
-    .await
-    .map_err(|e| Error::Internal(e.to_string()))??;
-    
+    let tiled_image =
+        tokio::task::spawn_blocking(move || generate_tiled_cover(covers, target_size))
+            .await
+            .map_err(|e| Error::Internal(e.to_string()))??;
+
     Ok(tiled_image)
 }
 
 /// Generate a 2x2 tiled image from cover art images
 fn generate_tiled_cover(covers: Vec<Vec<u8>>, target_size: u32) -> Result<Vec<u8>> {
-    use image::{DynamicImage, RgbImage, imageops};
-    
+    use image::{imageops, DynamicImage, RgbImage};
+
     let tile_size = target_size / 2;
-    
+
     // Load and resize each cover image
     let mut tiles: Vec<DynamicImage> = Vec::new();
     for cover_data in &covers {
@@ -319,50 +354,56 @@ fn generate_tiled_cover(covers: Vec<Vec<u8>>, target_size: u32) -> Result<Vec<u8
             tiles.push(resized);
         }
     }
-    
+
     if tiles.is_empty() {
-        return Err(Error::NotFound("Failed to process cover images".to_string()));
+        return Err(Error::NotFound(
+            "Failed to process cover images".to_string(),
+        ));
     }
-    
+
     // Create the output image (target_size x target_size)
     let mut output = RgbImage::new(target_size, target_size);
-    
+
     // Fill with black initially
     for pixel in output.pixels_mut() {
         *pixel = image::Rgb([0, 0, 0]);
     }
-    
+
     // Position definitions for 2x2 grid
     let positions = [
-        (0, 0),                      // Top-left
-        (tile_size, 0),              // Top-right
-        (0, tile_size),              // Bottom-left
-        (tile_size, tile_size),      // Bottom-right
+        (0, 0),                 // Top-left
+        (tile_size, 0),         // Top-right
+        (0, tile_size),         // Bottom-left
+        (tile_size, tile_size), // Bottom-right
     ];
-    
+
     // Place tiles - duplicate as needed to fill 4 slots
     let tile_count = tiles.len();
     for (i, &(x, y)) in positions.iter().enumerate() {
         let tile_idx = match tile_count {
-            1 => 0,                              // Same image in all 4 slots
-            2 => i % 2,                          // Alternate between 2 images
-            3 => if i == 3 { 0 } else { i },     // Use first image for 4th slot
-            _ => i,                              // 4 unique images
+            1 => 0,     // Same image in all 4 slots
+            2 => i % 2, // Alternate between 2 images
+            3 => {
+                if i == 3 {
+                    0
+                } else {
+                    i
+                }
+            } // Use first image for 4th slot
+            _ => i,     // 4 unique images
         };
-        
+
         if tile_idx < tiles.len() {
             let tile_rgb = tiles[tile_idx].to_rgb8();
             imageops::overlay(&mut output, &tile_rgb, x.into(), y.into());
         }
     }
-    
+
     // Encode as JPEG
     let mut buffer = Cursor::new(Vec::new());
     DynamicImage::ImageRgb8(output)
         .write_to(&mut buffer, ImageFormat::Jpeg)
         .map_err(|e| Error::Image(e))?;
-    
+
     Ok(buffer.into_inner())
 }
-
-

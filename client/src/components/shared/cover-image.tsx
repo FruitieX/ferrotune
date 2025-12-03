@@ -64,6 +64,11 @@ export function CoverImage({
   const Icon = type === "artist" ? User : type === "playlist" ? ListMusic : type === "song" ? Music : Disc;
   const isRound = type === "artist";
 
+  // Reset error state when src changes
+  useEffect(() => {
+    setHasError(false);
+  }, [src]);
+
   // Generate a unique color based on colorSeed (album/artist name) or fall back to alt
   const placeholderHue = useMemo(() => stringToHue(colorSeed || alt || ""), [colorSeed, alt]);
 
