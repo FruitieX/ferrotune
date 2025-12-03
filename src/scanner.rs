@@ -75,11 +75,29 @@ pub async fn scan_library(
     folder_id: Option<i64>,
     dry_run: bool,
 ) -> Result<()> {
+    // First, clean up any music folders in the database that are no longer in the config
+    // This must happen before scanning to avoid scanning folders that should be removed
+    clean_orphaned_music_folders(pool, config, dry_run).await?;
+
+    // Build set of config paths to filter folders (important for dry-run where DB isn't modified)
+    let config_paths: std::collections::HashSet<String> = config
+        .music
+        .folders
+        .iter()
+        .map(|f| f.path.to_string_lossy().to_string())
+        .collect();
+
     let folders = if let Some(id) = folder_id {
         vec![get_music_folder(pool, id).await?]
     } else {
         crate::db::queries::get_music_folders(pool).await?
     };
+
+    // Filter to only scan folders that are still in the config
+    let folders: Vec<_> = folders
+        .into_iter()
+        .filter(|f| config_paths.contains(&f.path))
+        .collect();
 
     for folder in folders {
         tracing::info!("Scanning folder: {} ({})", folder.name, folder.path);
@@ -93,6 +111,108 @@ pub async fn scan_library(
         // In dry-run mode, just report potential duplicates
         detect_duplicates_dry_run(pool, folder_id).await?;
     }
+
+    Ok(())
+}
+
+/// Remove music folders from the database that are no longer in the config.
+/// Songs in removed folders will be cascade-deleted, then we clean up orphaned albums/artists.
+async fn clean_orphaned_music_folders(
+    pool: &SqlitePool,
+    config: &Config,
+    dry_run: bool,
+) -> Result<()> {
+    // Get all music folders from the database
+    let db_folders = crate::db::queries::get_music_folders(pool).await?;
+
+    // Build a set of paths from the config for quick lookup
+    let config_paths: std::collections::HashSet<String> = config
+        .music
+        .folders
+        .iter()
+        .map(|f| f.path.to_string_lossy().to_string())
+        .collect();
+
+    // Find folders in DB that are not in config
+    let orphaned_folders: Vec<_> = db_folders
+        .iter()
+        .filter(|f| !config_paths.contains(&f.path))
+        .collect();
+
+    if orphaned_folders.is_empty() {
+        return Ok(());
+    }
+
+    for folder in &orphaned_folders {
+        tracing::warn!(
+            "Music folder '{}' ({}) is in database but not in config",
+            folder.name,
+            folder.path
+        );
+    }
+
+    if dry_run {
+        tracing::warn!(
+            "Dry-run: would remove {} music folder(s) and their songs from database",
+            orphaned_folders.len()
+        );
+        return Ok(());
+    }
+
+    // Delete the orphaned folders (songs will cascade delete)
+    let mut tx = pool.begin().await?;
+
+    for folder in &orphaned_folders {
+        tracing::warn!(
+            "Removing music folder '{}' and all its songs from database",
+            folder.name
+        );
+        sqlx::query("DELETE FROM music_folders WHERE id = ?")
+            .bind(folder.id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    // Clean up orphaned albums (no songs reference them)
+    let orphaned_albums = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)"
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if orphaned_albums > 0 {
+        sqlx::query(
+            "DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)"
+        )
+        .execute(&mut *tx)
+        .await?;
+        tracing::info!("Removed {} orphaned albums", orphaned_albums);
+    }
+
+    // Clean up orphaned artists (no songs or albums reference them)
+    let orphaned_artists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM songs) 
+         AND id NOT IN (SELECT DISTINCT artist_id FROM albums)",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if orphaned_artists > 0 {
+        sqlx::query(
+            "DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM songs) 
+             AND id NOT IN (SELECT DISTINCT artist_id FROM albums)",
+        )
+        .execute(&mut *tx)
+        .await?;
+        tracing::info!("Removed {} orphaned artists", orphaned_artists);
+    }
+
+    tx.commit().await?;
+
+    tracing::info!(
+        "Removed {} music folder(s) from database",
+        orphaned_folders.len()
+    );
 
     Ok(())
 }
@@ -123,8 +243,25 @@ async fn scan_folder(
     let mut updated = 0;
     let mut errors = 0;
 
-    // First, clean up missing files (only for this folder)
-    let removed = clean_missing_files(pool, folder_id, &base_path, dry_run).await?;
+    // Load all existing file paths for this folder from database.
+    // We'll track which ones we see during the scan - any remaining are missing files.
+    // This is much faster than checking exists() for each file, especially on network drives.
+    tracing::info!("Loading existing songs from database...");
+    let existing_paths: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, file_path FROM songs WHERE music_folder_id = ?")
+            .bind(folder_id)
+            .fetch_all(pool)
+            .await?;
+
+    let mut unseen_files: std::collections::HashMap<String, String> = existing_paths
+        .into_iter()
+        .map(|(id, path)| (path, id))
+        .collect();
+
+    tracing::info!(
+        "Found {} existing songs, scanning filesystem...",
+        unseen_files.len()
+    );
 
     for entry in WalkDir::new(&base_path)
         .follow_links(true)
@@ -156,6 +293,9 @@ async fn scan_folder(
             .to_string_lossy()
             .to_string();
 
+        // Mark this file as seen (remove from unseen set)
+        let existing_id = unseen_files.remove(&relative_path);
+
         // Get file modification time (used for incremental scanning)
         let file_mtime = std::fs::metadata(path)
             .ok()
@@ -163,17 +303,30 @@ async fn scan_folder(
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs() as i64);
 
-        // Check if file already exists in database
-        let existing: Option<(String, Option<i64>)> =
-            sqlx::query_as("SELECT id, file_mtime FROM songs WHERE file_path = ?")
-                .bind(&relative_path)
+        // Check if file already exists in database (use cached info if available)
+        let existing: Option<(String, Option<i64>)> = if let Some(id) = existing_id {
+            // We know it exists, fetch mtime for incremental scan check
+            sqlx::query_as("SELECT id, file_mtime FROM songs WHERE id = ?")
+                .bind(&id)
                 .fetch_optional(pool)
-                .await?;
+                .await?
+        } else {
+            None
+        };
 
         if !full {
             if let Some((_, stored_mtime)) = &existing {
                 // Skip if file hasn't been modified since last scan
                 if file_mtime.is_some() && stored_mtime == &file_mtime {
+                    if scanned % 100 == 0 {
+                        tracing::info!(
+                            "Progress: {} files scanned, {} added, {} updated, {} errors",
+                            scanned,
+                            added,
+                            updated,
+                            errors
+                        );
+                    }
                     continue;
                 }
             }
@@ -223,6 +376,9 @@ async fn scan_folder(
         }
     }
 
+    // Any files still in unseen_files no longer exist on disk - remove them
+    let removed = remove_missing_songs(pool, &unseen_files, dry_run).await?;
+
     if !dry_run {
         tracing::info!(
             "Scan complete: {} files scanned, {} added, {} updated, {} removed, {} errors",
@@ -246,37 +402,22 @@ async fn scan_folder(
     Ok(())
 }
 
-/// Remove database entries for files that no longer exist on disk.
-/// Returns the number of songs removed (or that would be removed in dry-run mode).
-/// Only checks songs belonging to the specified music folder.
-async fn clean_missing_files(
+/// Remove songs from database that no longer exist on disk.
+/// Takes a map of file_path -> song_id for files that were not seen during scan.
+async fn remove_missing_songs(
     pool: &SqlitePool,
-    folder_id: i64,
-    base_path: &Path,
+    missing_files: &std::collections::HashMap<String, String>,
     dry_run: bool,
 ) -> Result<usize> {
-    // Get songs from this specific folder only
-    let songs: Vec<(String, String)> =
-        sqlx::query_as("SELECT id, file_path FROM songs WHERE music_folder_id = ?")
-            .bind(folder_id)
-            .fetch_all(pool)
-            .await?;
-
-    let mut missing_ids = Vec::new();
-
-    for (id, file_path) in &songs {
-        let full_path = base_path.join(file_path);
-        if !full_path.exists() {
-            tracing::info!("Missing file: {}", file_path);
-            missing_ids.push(id.clone());
-        }
-    }
-
-    if missing_ids.is_empty() {
+    if missing_files.is_empty() {
         return Ok(0);
     }
 
-    let count = missing_ids.len();
+    let count = missing_files.len();
+
+    for (file_path, _id) in missing_files {
+        tracing::info!("Missing file: {}", file_path);
+    }
 
     if dry_run {
         tracing::info!(
@@ -289,7 +430,7 @@ async fn clean_missing_files(
     // Delete missing songs in a transaction
     let mut tx = pool.begin().await?;
 
-    for id in &missing_ids {
+    for (_file_path, id) in missing_files {
         sqlx::query("DELETE FROM songs WHERE id = ?")
             .bind(id)
             .execute(&mut *tx)
