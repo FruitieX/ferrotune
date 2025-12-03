@@ -4,8 +4,10 @@
  */
 
 export interface ParsedTrack {
-  /** Original line/entry from the file */
+  /** Original line/entry from the file (display purposes) */
   raw: string;
+  /** Original lines from the file exactly as they appeared (for re-export) */
+  originalLines: string[];
   /** Artist name if available */
   artist?: string;
   /** Track title if available */
@@ -25,6 +27,8 @@ export interface ParseResult {
   tracks: ParsedTrack[];
   /** Number of lines that couldn't be parsed */
   errors: number;
+  /** Original header line (for CSV) */
+  headerLine?: string;
 }
 
 /**
@@ -71,15 +75,18 @@ export function detectFormat(content: string, filename?: string): "m3u" | "pls" 
  * /path/to/file.mp3
  */
 function parseM3U(content: string): ParseResult {
-  const lines = content.split("\n").map(l => l.trim()).filter(l => l);
+  const rawLines = content.split("\n");
   const tracks: ParsedTrack[] = [];
   let errors = 0;
   
-  let currentInfo: { duration?: number; artist?: string; title?: string } = {};
+  let currentInfo: { duration?: number; artist?: string; title?: string; extinfLine?: string } = {};
   
-  for (const line of lines) {
-    // Skip M3U header
-    if (line === "#EXTM3U") continue;
+  for (let i = 0; i < rawLines.length; i++) {
+    const originalLine = rawLines[i];
+    const line = originalLine.trim();
+    
+    // Skip empty lines and M3U header
+    if (!line || line === "#EXTM3U") continue;
     
     // Parse EXTINF line
     if (line.startsWith("#EXTINF:")) {
@@ -95,11 +102,13 @@ function parseM3U(content: string): ParseResult {
             duration: duration > 0 ? duration : undefined,
             artist: artistTitleMatch[1].trim(),
             title: artistTitleMatch[2].trim(),
+            extinfLine: originalLine,
           };
         } else {
           currentInfo = {
             duration: duration > 0 ? duration : undefined,
             title: info.trim(),
+            extinfLine: originalLine,
           };
         }
       }
@@ -109,11 +118,20 @@ function parseM3U(content: string): ParseResult {
     // Skip other comment lines
     if (line.startsWith("#")) continue;
     
-    // This is a file path line
+    // This is a file path line - build original lines array
+    const originalLines: string[] = [];
+    if (currentInfo.extinfLine) {
+      originalLines.push(currentInfo.extinfLine);
+    }
+    originalLines.push(originalLine);
+    
     const track: ParsedTrack = {
       raw: line,
+      originalLines,
       path: line,
-      ...currentInfo,
+      duration: currentInfo.duration,
+      artist: currentInfo.artist,
+      title: currentInfo.title,
     };
     
     // If no EXTINF info, try to extract from filename
@@ -153,15 +171,18 @@ function parseM3U(content: string): ParseResult {
  * Version=2
  */
 function parsePLS(content: string): ParseResult {
-  const lines = content.split("\n").map(l => l.trim()).filter(l => l);
+  const rawLines = content.split("\n");
   const tracks: ParsedTrack[] = [];
   let errors = 0;
   
-  // Collect entries by number
-  const entries: Map<number, { file?: string; title?: string; length?: number }> = new Map();
+  // Collect entries by number with their original lines
+  const entries: Map<number, { file?: string; title?: string; length?: number; originalLines: string[] }> = new Map();
   
-  for (const line of lines) {
-    // Skip header and metadata
+  for (const originalLine of rawLines) {
+    const line = originalLine.trim();
+    
+    // Skip empty lines, header and metadata
+    if (!line) continue;
     if (line.toLowerCase() === "[playlist]") continue;
     if (line.toLowerCase().startsWith("numberofentries")) continue;
     if (line.toLowerCase().startsWith("version")) continue;
@@ -172,9 +193,10 @@ function parsePLS(content: string): ParseResult {
       const num = parseInt(numStr, 10);
       
       if (!entries.has(num)) {
-        entries.set(num, {});
+        entries.set(num, { originalLines: [] });
       }
       const entry = entries.get(num)!;
+      entry.originalLines.push(originalLine);
       
       switch (key.toLowerCase()) {
         case "file":
@@ -194,6 +216,7 @@ function parsePLS(content: string): ParseResult {
   for (const [, entry] of Array.from(entries.entries()).sort((a, b) => a[0] - b[0])) {
     const track: ParsedTrack = {
       raw: entry.title || entry.file || "",
+      originalLines: entry.originalLines,
       path: entry.file,
       duration: entry.length && entry.length > 0 ? entry.length : undefined,
     };
@@ -236,13 +259,17 @@ function parsePLS(content: string): ParseResult {
  * Looks for columns: artist, title, album, duration, track, song, name
  */
 function parseCSV(content: string): ParseResult {
-  const lines = content.split("\n").map(l => l.trim()).filter(l => l);
+  const rawLines = content.split("\n");
+  const lines = rawLines.map(l => l.trim()).filter(l => l);
   const tracks: ParsedTrack[] = [];
   let errors = 0;
   
   if (lines.length === 0) {
     return { format: "csv", tracks, errors: 0 };
   }
+  
+  // Store original header line for re-export
+  const headerLine = rawLines.find(l => l.trim())?.trim();
   
   // Parse header
   const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
@@ -261,6 +288,7 @@ function parseCSV(content: string): ParseResult {
       if (values[0]) {
         tracks.push({
           raw: lines[i],
+          originalLines: [lines[i]],
           title: values[0].trim(),
           artist: values[1]?.trim(),
         });
@@ -277,6 +305,7 @@ function parseCSV(content: string): ParseResult {
     
     const track: ParsedTrack = {
       raw: lines[i],
+      originalLines: [lines[i]],
     };
     
     if (titleIdx !== -1 && values[titleIdx]) {
@@ -302,7 +331,7 @@ function parseCSV(content: string): ParseResult {
     }
   }
   
-  return { format: "csv", tracks, errors };
+  return { format: "csv", tracks, errors, headerLine };
 }
 
 /**
@@ -370,4 +399,127 @@ export function exportToM3U(tracks: { title: string; artist?: string; duration?:
   }
   
   return output;
+}
+
+/**
+ * Export tracks to PLS format
+ */
+export function exportToPLS(tracks: ParsedTrack[]): string {
+  let output = "[playlist]\n\n";
+  
+  for (let i = 0; i < tracks.length; i++) {
+    const track = tracks[i];
+    const num = i + 1;
+    
+    if (track.path) {
+      output += `File${num}=${track.path}\n`;
+    }
+    
+    const title = track.artist && track.title 
+      ? `${track.artist} - ${track.title}` 
+      : track.title || track.raw;
+    output += `Title${num}=${title}\n`;
+    
+    if (track.duration) {
+      output += `Length${num}=${track.duration}\n`;
+    }
+    
+    output += "\n";
+  }
+  
+  output += `NumberOfEntries=${tracks.length}\n`;
+  output += "Version=2\n";
+  
+  return output;
+}
+
+/**
+ * Export tracks to CSV format
+ */
+export function exportToCSV(tracks: ParsedTrack[], headerLine?: string): string {
+  // If we have an original header, use it
+  if (headerLine) {
+    const lines = [headerLine];
+    for (const track of tracks) {
+      // Use the original line if available
+      if (track.originalLines.length > 0) {
+        lines.push(track.originalLines[0]);
+      }
+    }
+    return lines.join("\n") + "\n";
+  }
+  
+  // Otherwise generate a simple CSV
+  let output = "Artist,Title,Album\n";
+  for (const track of tracks) {
+    const artist = track.artist ? `"${track.artist.replace(/"/g, '""')}"` : "";
+    const title = track.title ? `"${track.title.replace(/"/g, '""')}"` : "";
+    const album = track.album ? `"${track.album.replace(/"/g, '""')}"` : "";
+    output += `${artist},${title},${album}\n`;
+  }
+  return output;
+}
+
+/**
+ * Export unmatched tracks using their original lines from the source file
+ */
+export function exportOriginalLines(tracks: ParsedTrack[], format: ParseResult["format"], headerLine?: string): string {
+  // For all formats, we just need to output the original lines
+  const lines: string[] = [];
+  
+  // Add format-specific headers
+  if (format === "m3u") {
+    lines.push("#EXTM3U");
+  } else if (format === "pls") {
+    lines.push("[playlist]");
+    lines.push("");
+  } else if (format === "csv" && headerLine) {
+    lines.push(headerLine);
+  }
+  
+  // Add original lines for each track
+  for (const track of tracks) {
+    lines.push(...track.originalLines);
+  }
+  
+  // Add PLS footer
+  if (format === "pls") {
+    lines.push("");
+    lines.push(`NumberOfEntries=${tracks.length}`);
+    lines.push("Version=2");
+  }
+  
+  return lines.join("\n") + "\n";
+}
+
+/**
+ * Get file extension for a playlist format
+ */
+export function getFormatExtension(format: ParseResult["format"]): string {
+  switch (format) {
+    case "m3u":
+      return ".m3u";
+    case "pls":
+      return ".pls";
+    case "csv":
+      return ".csv";
+    default:
+      return ".txt";
+  }
+}
+
+/**
+ * Get MIME type for a playlist format
+ */
+export function getFormatMimeType(format: ParseResult["format"]): string {
+  switch (format) {
+    case "m3u":
+      return "audio/x-mpegurl";
+    case "pls":
+      return "audio/x-scpls";
+    case "csv":
+      return "text/csv";
+    default:
+      return "text/plain";
+  }
 }

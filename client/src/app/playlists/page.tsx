@@ -123,26 +123,18 @@ export default function PlaylistsPage() {
             ))}
           </div>
         ) : playlists && playlists.length > 0 ? (
-          <motion.div
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
-            initial="hidden"
-            animate="visible"
-            variants={{
-              visible: { transition: { staggerChildren: 0.05 } },
-            }}
-          >
-            {playlists.map((playlist) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {playlists.map((playlist, index) => (
               <motion.div
                 key={playlist.id}
-                variants={{
-                  hidden: { opacity: 0, y: 20 },
-                  visible: { opacity: 1, y: 0 },
-                }}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05, duration: 0.3 }}
               >
                 <PlaylistCard playlist={playlist} />
               </motion.div>
             ))}
-          </motion.div>
+          </div>
         ) : (
           <EmptyState onCreateClick={() => setCreateDialogOpen(true)} />
         )}

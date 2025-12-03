@@ -13,6 +13,7 @@ import {
   Download,
   Search,
   Music,
+  RefreshCw,
 } from "lucide-react";
 import {
   Dialog,
@@ -22,6 +23,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,7 +37,7 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { getClient } from "@/lib/api/client";
-import { parsePlaylist, exportToM3U, type ParsedTrack } from "@/lib/utils/playlist-parser";
+import { parsePlaylist, exportOriginalLines, getFormatExtension, getFormatMimeType, type ParsedTrack, type ParseResult } from "@/lib/utils/playlist-parser";
 import type { Song } from "@/lib/api/types";
 
 interface ImportPlaylistDialogProps {
@@ -55,18 +61,28 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
   const [matchingProgress, setMatchingProgress] = useState(0);
   const [isMatching, setIsMatching] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [originalFormat, setOriginalFormat] = useState<ParseResult["format"]>("m3u");
+  const [originalHeaderLine, setOriginalHeaderLine] = useState<string | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const queryClient = useQueryClient();
 
   // Reset state when dialog closes
   const handleOpenChange = (open: boolean) => {
     if (!open) {
+      // Cancel any in-progress matching
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
       setStep("upload");
       setPlaylistName("");
       setParsedTracks([]);
       setMatchedTracks([]);
       setMatchingProgress(0);
       setIsMatching(false);
+      setOriginalFormat("m3u");
+      setOriginalHeaderLine(undefined);
     }
     onOpenChange(open);
   };
@@ -84,6 +100,8 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
       
       setParsedTracks(result.tracks);
       setPlaylistName(file.name.replace(/\.[^.]+$/, ""));
+      setOriginalFormat(result.format);
+      setOriginalHeaderLine(result.headerLine);
       
       // Auto-start matching
       await matchTracks(result.tracks);
@@ -95,6 +113,15 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
 
   // Match tracks against library
   const matchTracks = async (tracks: ParsedTrack[]) => {
+    // Cancel any previous matching operation
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Create new abort controller for this operation
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    
     setIsMatching(true);
     setStep("matching");
     setMatchingProgress(0);
@@ -109,6 +136,11 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
     const matched: MatchedTrack[] = [];
     
     for (let i = 0; i < tracks.length; i++) {
+      // Check if cancelled
+      if (abortController.signal.aborted) {
+        return;
+      }
+      
       const track = tracks[i];
       setMatchingProgress(Math.round(((i + 1) / tracks.length) * 100));
       
@@ -126,6 +158,12 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
       
       try {
         const response = await client.search3({ query, songCount: 10 });
+        
+        // Check if cancelled after await
+        if (abortController.signal.aborted) {
+          return;
+        }
+        
         const songs = response.searchResult3?.song ?? [];
         
         // Find best match
@@ -147,6 +185,10 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
           matched.push({ parsed: track, match: null, matchScore: 0 });
         }
       } catch (error) {
+        // Check if this was an abort
+        if (abortController.signal.aborted) {
+          return;
+        }
         console.error("Search error:", error);
         matched.push({ parsed: track, match: null, matchScore: 0 });
       }
@@ -155,9 +197,12 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     
-    setMatchedTracks(matched);
-    setIsMatching(false);
-    setStep("preview");
+    // Only update state if not cancelled
+    if (!abortController.signal.aborted) {
+      setMatchedTracks(matched);
+      setIsMatching(false);
+      setStep("preview");
+    }
   };
 
   // Calculate match score between parsed track and library song
@@ -261,9 +306,9 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
       
       return { matchedCount: matchedSongIds.length };
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       toast.success(`Playlist "${playlistName}" created with ${data.matchedCount} songs`);
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      await queryClient.invalidateQueries({ queryKey: ["playlists"] });
       handleOpenChange(false);
     },
     onError: (error) => {
@@ -271,24 +316,26 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
     },
   });
 
-  // Download unmatched tracks as M3U
+  // Download unmatched tracks in the same format as the original file
   const downloadUnmatched = () => {
     const unmatched = matchedTracks.filter(t => !t.match);
     if (unmatched.length === 0) return;
     
-    const content = exportToM3U(
-      unmatched.map(t => ({
-        title: t.parsed.title || t.parsed.raw,
-        artist: t.parsed.artist,
-        duration: t.parsed.duration,
-      }))
+    // Export using the original format
+    const content = exportOriginalLines(
+      unmatched.map(t => t.parsed),
+      originalFormat,
+      originalHeaderLine
     );
     
-    const blob = new Blob([content], { type: "audio/x-mpegurl" });
+    const mimeType = getFormatMimeType(originalFormat);
+    const extension = getFormatExtension(originalFormat);
+    
+    const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${playlistName}_unmatched.m3u`;
+    a.download = `${playlistName}_unmatched${extension}`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -411,13 +458,50 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
               </TabsList>
               
               <TabsContent value="all" className="flex-1 mt-2">
-                <TrackList tracks={matchedTracks} />
+                <TrackList 
+                  tracks={matchedTracks} 
+                  onUpdateMatch={(index, match, score) => {
+                    setMatchedTracks(prev => {
+                      const updated = [...prev];
+                      updated[index] = { ...updated[index], match, matchScore: score };
+                      return updated;
+                    });
+                  }}
+                />
               </TabsContent>
               <TabsContent value="matched" className="flex-1 mt-2">
-                <TrackList tracks={matchedTracks.filter(t => t.match)} />
+                <TrackList 
+                  tracks={matchedTracks.filter(t => t.match)} 
+                  onUpdateMatch={(index, match, score) => {
+                    // Find the original index in matchedTracks
+                    const matchedOnly = matchedTracks.filter(t => t.match);
+                    const originalIndex = matchedTracks.findIndex(t => t === matchedOnly[index]);
+                    if (originalIndex !== -1) {
+                      setMatchedTracks(prev => {
+                        const updated = [...prev];
+                        updated[originalIndex] = { ...updated[originalIndex], match, matchScore: score };
+                        return updated;
+                      });
+                    }
+                  }}
+                />
               </TabsContent>
               <TabsContent value="unmatched" className="flex-1 mt-2">
-                <TrackList tracks={matchedTracks.filter(t => !t.match)} />
+                <TrackList 
+                  tracks={matchedTracks.filter(t => !t.match)} 
+                  onUpdateMatch={(index, match, score) => {
+                    // Find the original index in matchedTracks
+                    const unmatchedOnly = matchedTracks.filter(t => !t.match);
+                    const originalIndex = matchedTracks.findIndex(t => t === unmatchedOnly[index]);
+                    if (originalIndex !== -1) {
+                      setMatchedTracks(prev => {
+                        const updated = [...prev];
+                        updated[originalIndex] = { ...updated[originalIndex], match, matchScore: score };
+                        return updated;
+                      });
+                    }
+                  }}
+                />
               </TabsContent>
             </Tabs>
           </>
@@ -430,7 +514,7 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
           </div>
         )}
 
-        <DialogFooter className="flex-shrink-0">
+        <DialogFooter className="shrink-0">
           {step === "preview" && unmatchedCount > 0 && (
             <Button variant="outline" className="mr-auto" onClick={downloadUnmatched}>
               <Download className="w-4 h-4 mr-2" />
@@ -466,7 +550,13 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
   );
 }
 
-function TrackList({ tracks }: { tracks: MatchedTrack[] }) {
+function TrackList({ 
+  tracks, 
+  onUpdateMatch,
+}: { 
+  tracks: MatchedTrack[];
+  onUpdateMatch: (index: number, match: Song | null, score: number) => void;
+}) {
   if (tracks.length === 0) {
     return (
       <div className="flex items-center justify-center py-8 text-muted-foreground">
@@ -480,47 +570,203 @@ function TrackList({ tracks }: { tracks: MatchedTrack[] }) {
     <ScrollArea className="h-[300px] rounded-md border">
       <div className="p-2">
         {tracks.map((track, index) => (
-          <div
+          <TrackRow 
             key={index}
-            className={cn(
-              "flex items-center gap-3 p-2 rounded-md",
-              track.match ? "hover:bg-accent/50" : "bg-orange-500/10"
-            )}
-          >
-            <div className="flex-shrink-0">
-              {track.match ? (
-                <Check className="w-4 h-4 text-green-500" />
-              ) : (
-                <X className="w-4 h-4 text-orange-500" />
-              )}
-            </div>
-            
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-medium truncate">
-                  {track.parsed.title || track.parsed.raw}
-                </span>
-                {track.matchScore > 0 && track.matchScore < 1 && (
-                  <Badge variant="outline" className="text-xs shrink-0">
-                    {Math.round(track.matchScore * 100)}%
-                  </Badge>
-                )}
-              </div>
-              {track.parsed.artist && (
-                <span className="text-sm text-muted-foreground truncate block">
-                  {track.parsed.artist}
-                </span>
-              )}
-            </div>
-            
-            {track.match && (
-              <div className="text-right text-sm text-muted-foreground truncate max-w-[150px]">
-                <span className="text-xs">→</span> {track.match.title}
-              </div>
-            )}
-          </div>
+            track={track}
+            index={index}
+            onUpdateMatch={onUpdateMatch}
+          />
         ))}
       </div>
     </ScrollArea>
+  );
+}
+
+function TrackRow({
+  track,
+  index,
+  onUpdateMatch,
+}: {
+  track: MatchedTrack;
+  index: number;
+  onUpdateMatch: (index: number, match: Song | null, score: number) => void;
+}) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Song[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    
+    setIsSearching(true);
+    try {
+      const client = getClient();
+      if (!client) return;
+      
+      const response = await client.search3({ query: searchQuery.trim(), songCount: 20 });
+      setSearchResults(response.searchResult3?.song ?? []);
+    } catch (error) {
+      console.error("Search error:", error);
+      toast.error("Search failed");
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleSelectMatch = (song: Song) => {
+    onUpdateMatch(index, song, 1); // Manual selection = 100% match
+    setSearchOpen(false);
+    setSearchQuery("");
+    setSearchResults([]);
+  };
+
+  const handleClearMatch = () => {
+    onUpdateMatch(index, null, 0);
+    setSearchOpen(false);
+  };
+
+  // Initialize search query with parsed track info
+  const openSearch = () => {
+    const parts: string[] = [];
+    if (track.parsed.artist) parts.push(track.parsed.artist);
+    if (track.parsed.title) parts.push(track.parsed.title);
+    setSearchQuery(parts.join(" ").trim() || track.parsed.raw);
+    setSearchResults([]);
+    setSearchOpen(true);
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 p-2 rounded-md group",
+        track.match ? "hover:bg-accent/50" : "bg-orange-500/10"
+      )}
+    >
+      <div className="shrink-0">
+        {track.match ? (
+          <Check className="w-4 h-4 text-green-500" />
+        ) : (
+          <X className="w-4 h-4 text-orange-500" />
+        )}
+      </div>
+      
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium truncate">
+            {track.parsed.artist 
+              ? `${track.parsed.artist} - ${track.parsed.title || track.parsed.raw}`
+              : track.parsed.title || track.parsed.raw
+            }
+          </span>
+          {track.matchScore > 0 && track.matchScore < 1 && (
+            <Badge variant="outline" className="text-xs shrink-0">
+              {Math.round(track.matchScore * 100)}%
+            </Badge>
+          )}
+        </div>
+      </div>
+      
+      {track.match && (
+        <div className="text-right text-sm text-muted-foreground truncate max-w-[200px]">
+          <span className="text-xs">→</span>{" "}
+          {track.match.artist 
+            ? `${track.match.artist} - ${track.match.title}`
+            : track.match.title
+          }
+        </div>
+      )}
+
+      <Popover open={searchOpen} onOpenChange={setSearchOpen}>
+        <PopoverTrigger asChild>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7"
+            onClick={openSearch}
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[400px] p-3" align="end">
+          <div className="space-y-3">
+            <div className="font-medium text-sm">Find alternative match</div>
+            
+            <div className="flex gap-2">
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search for track..."
+                className="h-8"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSearch();
+                  }
+                }}
+              />
+              <Button 
+                size="sm" 
+                onClick={handleSearch}
+                disabled={isSearching || !searchQuery.trim()}
+                className="h-8"
+              >
+                {isSearching ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Search className="w-4 h-4" />
+                )}
+              </Button>
+            </div>
+
+            {searchResults.length > 0 && (
+              <div 
+                className="h-[200px] rounded border overflow-y-auto"
+                onWheel={(e) => {
+                  // Prevent popover from capturing wheel events
+                  e.stopPropagation();
+                }}
+              >
+                <div className="p-1">
+                  {searchResults.map((song) => (
+                    <button
+                      key={song.id}
+                      className="w-full text-left p-2 rounded hover:bg-accent text-sm flex items-center gap-2"
+                      onClick={() => handleSelectMatch(song)}
+                    >
+                      <Music className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium truncate">{song.title}</div>
+                        <div className="text-muted-foreground text-xs truncate">
+                          {song.artist}{song.album ? ` • ${song.album}` : ""}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {searchResults.length === 0 && searchQuery && !isSearching && (
+              <div className="text-sm text-muted-foreground text-center py-4">
+                Press Enter or click Search to find tracks
+              </div>
+            )}
+
+            {track.match && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="w-full"
+                onClick={handleClearMatch}
+              >
+                <X className="w-3.5 h-3.5 mr-2" />
+                Remove match
+              </Button>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
