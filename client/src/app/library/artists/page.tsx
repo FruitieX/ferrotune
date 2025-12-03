@@ -3,16 +3,20 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { User } from "lucide-react";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
+import { useItemSelection } from "@/lib/hooks/use-track-selection";
 import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
-import { playNowAtom } from "@/lib/store/queue";
+import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { ArtistCard, ArtistCardSkeleton, ArtistCardCompact } from "@/components/browse/artist-card";
 import { MediaRowSkeleton } from "@/components/shared/media-row";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
-import type { Artist } from "@/lib/api/types";
+import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
+import type { Artist, Song } from "@/lib/api/types";
 
 export default function ArtistsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
@@ -20,6 +24,7 @@ export default function ArtistsPage() {
   const filter = useAtomValue(libraryFilterAtom);
   const debouncedFilter = useDebounce(filter, 300);
   const playNow = useSetAtom(playNowAtom);
+  const addToQueue = useSetAtom(addToQueueAtom);
   
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
@@ -60,6 +65,79 @@ export default function ArtistsPage() {
   const displayArtists = debouncedFilter ? (searchData ?? []) : allArtists;
   const isLoadingData = debouncedFilter ? isSearching : isLoading;
 
+  // Artist selection
+  const {
+    selectedCount,
+    hasSelection,
+    isSelected,
+    handleSelect,
+    clearSelection,
+    selectAll,
+    getSelectedItems,
+  } = useItemSelection(displayArtists);
+
+  // Get songs from selected artists
+  const getSelectedArtistsSongs = async (): Promise<Song[]> => {
+    const client = getClient();
+    if (!client) return [];
+    
+    const artists = getSelectedItems();
+    const songsPromises = artists.map(artist => 
+      client.getArtist(artist.id).then(res => res.artist.song ?? [])
+    );
+    const songsArrays = await Promise.all(songsPromises);
+    return songsArrays.flat();
+  };
+
+  // Bulk action handlers
+  const handlePlaySelected = async () => {
+    const songs = await getSelectedArtistsSongs();
+    if (songs.length > 0) {
+      playNow(songs);
+      clearSelection();
+      toast.success(`Playing ${songs.length} songs from ${selectedCount} artists`);
+    }
+  };
+
+  const handleShuffleSelected = async () => {
+    const songs = await getSelectedArtistsSongs();
+    if (songs.length > 0) {
+      const shuffled = [...songs].sort(() => Math.random() - 0.5);
+      playNow(shuffled);
+      clearSelection();
+      toast.success(`Shuffling ${songs.length} songs from ${selectedCount} artists`);
+    }
+  };
+
+  const handleAddSelectedToQueue = async (position: "next" | "last") => {
+    const songs = await getSelectedArtistsSongs();
+    if (songs.length > 0) {
+      songs.forEach(song => addToQueue(song, position));
+      clearSelection();
+      toast.success(`Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`);
+    }
+  };
+
+  const handleStarSelected = async (star: boolean) => {
+    const client = getClient();
+    if (!client) return;
+    
+    const artists = getSelectedItems();
+    try {
+      if (star) {
+        await Promise.all(artists.map(a => client.star({ artistId: a.id })));
+        toast.success(`Added ${artists.length} artists to favorites`);
+      } else {
+        await Promise.all(artists.map(a => client.unstar({ artistId: a.id })));
+        toast.success(`Removed ${artists.length} artists from favorites`);
+      }
+      clearSelection();
+    } catch (error) {
+      toast.error("Failed to update favorites");
+      console.error(error);
+    }
+  };
+
   // Play artist handler - plays all songs by this artist
   const handlePlayArtist = async (artist: Artist) => {
     const client = getClient();
@@ -88,7 +166,7 @@ export default function ArtistsPage() {
         ) : (
           <div className="space-y-1">
             {Array.from({ length: 12 }).map((_, i) => (
-              <MediaRowSkeleton key={i} coverShape="circle" />
+              <MediaRowSkeleton key={i} coverShape="circle" showIndex />
             ))}
           </div>
         )}
@@ -97,7 +175,7 @@ export default function ArtistsPage() {
   }
 
   return (
-    <div className="p-4 lg:p-6">
+    <div className={cn("p-4 lg:p-6", hasSelection && "select-none-during-selection")}>
       {isLoadingData && displayArtists.length === 0 ? (
         viewMode === "grid" ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -108,7 +186,7 @@ export default function ArtistsPage() {
         ) : (
           <div className="space-y-1">
             {Array.from({ length: 12 }).map((_, i) => (
-              <MediaRowSkeleton key={i} coverShape="circle" />
+              <MediaRowSkeleton key={i} coverShape="circle" showIndex />
             ))}
           </div>
         )
@@ -117,7 +195,13 @@ export default function ArtistsPage() {
           <VirtualizedGrid
             items={displayArtists}
             renderItem={(artist) => (
-              <ArtistCard artist={artist} onPlay={() => handlePlayArtist(artist)} />
+              <ArtistCard 
+                artist={artist} 
+                onPlay={() => handlePlayArtist(artist)}
+                isSelected={isSelected(artist.id)}
+                isSelectionMode={hasSelection}
+                onSelect={(e) => handleSelect(artist.id, e)}
+              />
             )}
             renderSkeleton={() => <ArtistCardSkeleton />}
             getItemKey={(artist) => artist.id}
@@ -127,11 +211,18 @@ export default function ArtistsPage() {
         ) : (
           <VirtualizedList
             items={displayArtists}
-            renderItem={(artist) => (
-              <ArtistCardCompact artist={artist} onPlay={() => handlePlayArtist(artist)} />
+            renderItem={(artist, index) => (
+              <ArtistCardCompact 
+                artist={artist} 
+                index={index}
+                onPlay={() => handlePlayArtist(artist)}
+                isSelected={isSelected(artist.id)}
+                isSelectionMode={hasSelection}
+                onSelect={(e) => handleSelect(artist.id, e)}
+              />
             )}
             renderSkeleton={() => (
-              <MediaRowSkeleton coverShape="circle" />
+              <MediaRowSkeleton coverShape="circle" showIndex />
             )}
             getItemKey={(artist) => artist.id}
             estimateItemHeight={56}
@@ -142,6 +233,21 @@ export default function ArtistsPage() {
       ) : (
         <EmptyState message={debouncedFilter ? "No artists match your filter" : "No artists in your library"} />
       )}
+
+      {/* Bulk actions bar */}
+      <BulkActionsBar
+        mediaType="artist"
+        selectedCount={selectedCount}
+        onClear={clearSelection}
+        onPlayNow={handlePlaySelected}
+        onShuffle={handleShuffleSelected}
+        onPlayNext={() => handleAddSelectedToQueue("next")}
+        onAddToQueue={() => handleAddSelectedToQueue("last")}
+        onStar={() => handleStarSelected(true)}
+        onUnstar={() => handleStarSelected(false)}
+        onSelectAll={selectAll}
+        getSelectedItems={getSelectedItems}
+      />
     </div>
   );
 }

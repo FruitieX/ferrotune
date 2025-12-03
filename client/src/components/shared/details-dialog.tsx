@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Music, User, Disc, ListMusic, Calendar, Clock, Hash, FileAudio, HardDrive, Star, Heart, Trash2, Loader2, Play, History, Tag } from "lucide-react";
+import { Music, User, Disc, ListMusic, Calendar, Clock, Hash, FileAudio, HardDrive, Star, Heart, Trash2, Loader2, Play, History, Tag, Copy, Check } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getClient } from "@/lib/api/client";
 import { formatDuration, formatDate, formatFileSize } from "@/lib/utils/format";
 import { toast } from "sonner";
@@ -73,14 +74,52 @@ export function DetailsDialog({ item, open, onOpenChange, onSongDeleted }: Detai
   );
 }
 
-function DetailRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: React.ReactNode }) {
+function DetailRow({ icon: Icon, label, value, copyable = false }: { icon: React.ElementType; label: string; value: React.ReactNode; copyable?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  
   if (!value) return null;
+  
+  const handleCopy = async () => {
+    if (typeof value !== "string" && typeof value !== "number") return;
+    try {
+      await navigator.clipboard.writeText(String(value));
+      setCopied(true);
+      toast.success("Copied to clipboard");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Failed to copy");
+    }
+  };
+  
+  const canCopy = copyable && (typeof value === "string" || typeof value === "number");
+  
   return (
-    <div className="flex items-start gap-3 py-2">
+    <div className="flex items-start gap-3 py-2 group">
       <Icon className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
       <div className="min-w-0 flex-1 overflow-hidden">
         <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="text-sm font-medium wrap-break-word whitespace-pre-wrap">{value}</p>
+        <div className="flex items-center gap-1">
+          <p className="text-sm font-medium wrap-break-word whitespace-pre-wrap flex-1">{value}</p>
+          {canCopy && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={handleCopy}
+                >
+                  {copied ? (
+                    <Check className="w-3 h-3 text-green-500" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">Copy to clipboard</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -170,12 +209,12 @@ function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }
 
         {/* Details grid */}
         <div className="grid grid-cols-2 gap-x-4">
-          <DetailRow icon={User} label="Artist" value={fullSong.artist} />
-          <DetailRow icon={Disc} label="Album" value={fullSong.album} />
+          <DetailRow icon={User} label="Artist" value={fullSong.artist} copyable />
+          <DetailRow icon={Disc} label="Album" value={fullSong.album} copyable />
           <DetailRow icon={Hash} label="Track" value={fullSong.track ? `${fullSong.track}${fullSong.discNumber ? ` (Disc ${fullSong.discNumber})` : ""}` : undefined} />
-          <DetailRow icon={Calendar} label="Year" value={fullSong.year} />
-          <DetailRow icon={Clock} label="Duration" value={formatDuration(fullSong.duration)} />
-          <DetailRow icon={Music} label="Genre" value={fullSong.genre} />
+          <DetailRow icon={Calendar} label="Year" value={fullSong.year} copyable />
+          <DetailRow icon={Clock} label="Duration" value={formatDuration(fullSong.duration)} copyable />
+          <DetailRow icon={Music} label="Genre" value={fullSong.genre} copyable />
           <DetailRow icon={FileAudio} label="Format" value={fullSong.suffix?.toUpperCase()} />
           <DetailRow icon={FileAudio} label="Bitrate" value={fullSong.bitRate ? `${fullSong.bitRate} kbps` : undefined} />
           <DetailRow icon={HardDrive} label="Size" value={formatFileSize(fullSong.size)} />
@@ -207,8 +246,8 @@ function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }
 
         <Separator />
 
-        <DetailRow icon={Hash} label="Track ID" value={fullSong.id} />
-        <DetailRow icon={HardDrive} label="File Path" value={fullSong.path} />
+        <DetailRow icon={Hash} label="Track ID" value={fullSong.id} copyable />
+        <DetailRow icon={HardDrive} label="File Path" value={fullSong.path} copyable />
 
         <Separator />
 

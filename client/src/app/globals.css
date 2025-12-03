@@ -378,3 +378,23 @@
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* Prevent text selection in interactive areas */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* Apply no-select to interactive areas by default */
+.media-row,
+.media-card,
+[data-testid="song-row"],
+[data-testid="media-card"],
+[data-slot="sidebar"],
+.player-bar,
+.queue-sidebar {
+  user-select: none;
+  -webkit-user-select: none;
+}

@@ -46,6 +46,7 @@ export const selectItemAtom = atom(
 
     if (shiftKey && state.anchorId) {
       // Range selection: select all between anchor and current
+      // IMPORTANT: Preserve existing selections when shift-clicking
       const anchorIndex = items.findIndex((s) => s.id === state.anchorId);
       const currentIndex = items.findIndex((s) => s.id === id);
 
@@ -53,16 +54,12 @@ export const selectItemAtom = atom(
         const start = Math.min(anchorIndex, currentIndex);
         const end = Math.max(anchorIndex, currentIndex);
 
-        // Clear existing selection if not holding ctrl
-        if (!ctrlKey) {
-          newSelectedIds.clear();
-        }
-
-        // Add all items in range
+        // Add all items in range (keeping existing selections)
         for (let i = start; i <= end; i++) {
           newSelectedIds.add(items[i].id);
         }
       }
+      // Don't update anchor on shift-click to allow extending selection
     } else if (ctrlKey) {
       // Toggle selection with ctrl held
       if (isCurrentlySelected) {

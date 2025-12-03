@@ -1,10 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { toast } from "sonner";
 import type { Album } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
+import { useStarredAlbum } from "@/lib/store/starred";
 import { MediaCard, MediaCardSkeleton } from "@/components/shared/media-card";
 import { MediaRow, RowActions, RowDropdownTrigger } from "@/components/shared/media-row";
 import { AlbumContextMenu, AlbumDropdownMenu } from "./album-context-menu";
@@ -12,11 +11,14 @@ import { AlbumContextMenu, AlbumDropdownMenu } from "./album-context-menu";
 interface AlbumCardProps {
   album: Album;
   onPlay?: () => void;
+  isSelected?: boolean;
+  isSelectionMode?: boolean;
+  onSelect?: (e: React.MouseEvent) => void;
   className?: string;
 }
 
-export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
-  const [isStarred, setIsStarred] = useState(!!album.starred);
+export function AlbumCard({ album, onPlay, isSelected, isSelectionMode, onSelect, className }: AlbumCardProps) {
+  const { isStarred, toggleStar } = useStarredAlbum(album.id, !!album.starred);
   
   const coverArtUrl = album.coverArt
     ? getClient()?.getCoverArtUrl(album.coverArt, 300)
@@ -25,23 +27,7 @@ export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
   const handleStar = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      if (isStarred) {
-        await client.unstar({ albumId: album.id });
-        setIsStarred(false);
-        toast.success(`Removed from favorites`);
-      } else {
-        await client.star({ albumId: album.id });
-        setIsStarred(true);
-        toast.success(`Added to favorites`);
-      }
-    } catch (error) {
-      toast.error("Failed to update favorites");
-      console.error(error);
-    }
+    await toggleStar();
   };
 
   const subtitleContent = (
@@ -68,6 +54,9 @@ export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
       onPlay={onPlay}
       onStar={handleStar}
       isStarred={isStarred}
+      isSelected={isSelected}
+      isSelectionMode={isSelectionMode}
+      onSelect={onSelect}
       dropdownMenu={<AlbumDropdownMenu album={album} onPlay={onPlay} />}
       contextMenu={(children) => (
         <AlbumContextMenu album={album}>{children}</AlbumContextMenu>
@@ -85,12 +74,16 @@ export function AlbumCardSkeleton() {
 // Compact album card for lists
 interface AlbumCardCompactProps {
   album: Album;
+  index?: number;
   onPlay?: () => void;
+  isSelected?: boolean;
+  isSelectionMode?: boolean;
+  onSelect?: (e: React.MouseEvent) => void;
   className?: string;
 }
 
-export function AlbumCardCompact({ album, onPlay, className }: AlbumCardCompactProps) {
-  const [isStarred, setIsStarred] = useState(!!album.starred);
+export function AlbumCardCompact({ album, index, onPlay, isSelected, isSelectionMode, onSelect, className }: AlbumCardCompactProps) {
+  const { isStarred, toggleStar } = useStarredAlbum(album.id, !!album.starred);
   
   const coverArtUrl = album.coverArt
     ? getClient()?.getCoverArtUrl(album.coverArt, 80)
@@ -99,23 +92,7 @@ export function AlbumCardCompact({ album, onPlay, className }: AlbumCardCompactP
   const handleStar = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      if (isStarred) {
-        await client.unstar({ albumId: album.id });
-        setIsStarred(false);
-        toast.success(`Removed from favorites`);
-      } else {
-        await client.star({ albumId: album.id });
-        setIsStarred(true);
-        toast.success(`Added to favorites`);
-      }
-    } catch (error) {
-      toast.error("Failed to update favorites");
-      console.error(error);
-    }
+    await toggleStar();
   };
 
   return (
@@ -136,6 +113,10 @@ export function AlbumCardCompact({ album, onPlay, className }: AlbumCardCompactP
       coverType="album"
       onPlay={() => onPlay?.()}
       onDoubleClick={() => onPlay?.()}
+      isSelected={isSelected}
+      isSelectionMode={isSelectionMode}
+      index={index}
+      onSelect={onSelect}
       contextMenu={(children) => (
         <AlbumContextMenu album={album}>{children}</AlbumContextMenu>
       )}

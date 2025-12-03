@@ -40,22 +40,42 @@ function NowPlayingBars({ className, isAnimating = true }: { className?: string;
   );
 }
 
-// Track number column - shows number, now playing indicator, or selection checkbox
+// Track number column - shows number, now playing indicator, or selection checkbox on hover
 interface TrackIndexProps {
   index: number;
   isCurrentTrack: boolean;
   isPlaying: boolean;
   isSelected?: boolean;
   isSelectionMode?: boolean;
+  onSelect?: (e: React.MouseEvent) => void;
 }
 
-function TrackIndex({ index, isCurrentTrack, isPlaying, isSelected, isSelectionMode }: TrackIndexProps) {
+function TrackIndex({ index, isCurrentTrack, isPlaying, isSelected, isSelectionMode, onSelect }: TrackIndexProps) {
+  const showCheckbox = isSelected || isSelectionMode;
+  
   return (
-    <div className="w-8 text-center shrink-0 relative">
-      {isSelectionMode ? (
+    <div 
+      className="w-8 text-center shrink-0 relative cursor-pointer"
+      onClick={(e) => {
+        if (onSelect) {
+          e.preventDefault();
+          e.stopPropagation();
+          onSelect(e);
+        }
+      }}
+    >
+      {/* Checkbox - shows when selected, in selection mode, or on hover */}
+      <div
+        className={cn(
+          "absolute inset-0 flex items-center justify-center transition-opacity",
+          showCheckbox
+            ? "opacity-100"
+            : "opacity-0 group-hover:opacity-100"
+        )}
+      >
         <div
           className={cn(
-            "w-5 h-5 rounded border-2 flex items-center justify-center mx-auto transition-all",
+            "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
             isSelected
               ? "bg-primary border-primary text-primary-foreground"
               : "border-muted-foreground/50 hover:border-primary/50"
@@ -63,18 +83,21 @@ function TrackIndex({ index, isCurrentTrack, isPlaying, isSelected, isSelectionM
         >
           {isSelected && <Check className="w-3 h-3" />}
         </div>
-      ) : (
-        <span className={cn(
-          "text-sm tabular-nums text-muted-foreground",
-          isCurrentTrack && "text-primary"
-        )}>
-          {isCurrentTrack ? (
-            <NowPlayingBars isAnimating={isPlaying} />
-          ) : (
-            index + 1
-          )}
-        </span>
-      )}
+      </div>
+      {/* Track number or now playing indicator - hidden when checkbox is visible */}
+      <span
+        className={cn(
+          "text-sm tabular-nums text-muted-foreground transition-opacity",
+          isCurrentTrack && "text-primary",
+          showCheckbox ? "opacity-0 pointer-events-none" : "group-hover:opacity-0 group-hover:pointer-events-none"
+        )}
+      >
+        {isCurrentTrack ? (
+          <NowPlayingBars isAnimating={isPlaying} />
+        ) : (
+          index + 1
+        )}
+      </span>
     </div>
   );
 }
@@ -202,6 +225,7 @@ export function SongRow({
               isPlaying={isPlaying}
               isSelected={isSelected}
               isSelectionMode={isSelectionMode}
+              onSelect={onSelect}
             />
           ) : undefined
         }
@@ -259,7 +283,7 @@ export function SongRowSkeleton({ showCover = false, showIndex = true }: { showC
   return (
     <MediaRowSkeleton
       showCover={showCover}
-      showLeftContent={showIndex}
+      showIndex={showIndex}
       showRightContent={true}
     />
   );
@@ -269,10 +293,13 @@ export function SongRowSkeleton({ showCover = false, showIndex = true }: { showC
 interface SongCardProps {
   song: Song;
   queueSongs?: Song[];
+  isSelected?: boolean;
+  isSelectionMode?: boolean;
+  onSelect?: (e: React.MouseEvent) => void;
   className?: string;
 }
 
-export function SongCard({ song, queueSongs, className }: SongCardProps) {
+export function SongCard({ song, queueSongs, isSelected, isSelectionMode, onSelect, className }: SongCardProps) {
   const currentTrack = useAtomValue(currentTrackAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const playNow = useSetAtom(playNowAtom);
@@ -326,6 +353,9 @@ export function SongCard({ song, queueSongs, className }: SongCardProps) {
       onPlay={handlePlay}
       onStar={handleStar}
       isStarred={isStarred}
+      isSelected={isSelected}
+      isSelectionMode={isSelectionMode}
+      onSelect={onSelect}
       dropdownMenu={<SongDropdownMenu song={song} queueSongs={queueSongs} />}
       contextMenu={(children) => (
         <SongContextMenu song={song} queueSongs={queueSongs}>

@@ -4,14 +4,34 @@ import { useSetAtom } from "jotai";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Play, Clock, Sparkles, TrendingUp } from "lucide-react";
+import { Play, Clock, Sparkles, TrendingUp, Shuffle } from "lucide-react";
+import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { playNowAtom } from "@/lib/store/queue";
+import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
-import type { Album } from "@/lib/api/types";
+import type { Album, Song } from "@/lib/api/types";
+
+// Helper to fetch all songs for albums
+async function fetchAlbumsSongs(albums: Album[]): Promise<Song[]> {
+  const client = getClient();
+  if (!client || !albums.length) return [];
+  
+  try {
+    const songsPromises = albums.map(album => 
+      client.getAlbum(album.id).then(res => res.album.song ?? [])
+    );
+    const songsArrays = await Promise.all(songsPromises);
+    return songsArrays.flat();
+  } catch (error) {
+    console.error("Failed to fetch songs:", error);
+    return [];
+  }
+}
 
 // Section component for album rows
 function AlbumSection({
@@ -20,18 +40,55 @@ function AlbumSection({
   albums,
   isLoading,
   onPlayAlbum,
+  onPlayAll,
+  onShuffleAll,
 }: {
   title: string;
   icon: React.ElementType;
   albums?: Album[];
   isLoading: boolean;
   onPlayAlbum: (album: Album) => void;
+  onPlayAll?: () => void;
+  onShuffleAll?: () => void;
 }) {
   return (
     <section className="space-y-4">
       <div className="flex items-center gap-2 px-4 lg:px-6">
         <Icon className="w-5 h-5 text-primary" />
         <h2 className="text-xl font-bold">{title}</h2>
+        {/* Play all and shuffle buttons */}
+        {albums && albums.length > 0 && (
+          <div className="flex items-center gap-1 ml-auto">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={onPlayAll}
+                  disabled={isLoading}
+                >
+                  <Play className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Play all</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={onShuffleAll}
+                  disabled={isLoading}
+                >
+                  <Shuffle className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Shuffle all</TooltipContent>
+            </Tooltip>
+          </div>
+        )}
       </div>
       
       <ScrollArea className="w-full">
@@ -70,6 +127,7 @@ function AlbumSection({
 export default function HomePage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const playNow = useSetAtom(playNowAtom);
+  const setIsShuffled = useSetAtom(isShuffledAtom);
   const isMounted = useIsMounted();
 
   // Fetch recently added albums
@@ -128,10 +186,46 @@ export default function HomePage() {
     try {
       const response = await client.getAlbum(album.id);
       if (response.album.song && response.album.song.length > 0) {
+        setIsShuffled(false);
         playNow(response.album.song);
       }
     } catch (error) {
       console.error("Failed to play album:", error);
+    }
+  };
+
+  // Play all albums in a section
+  const handlePlayAllAlbums = async (albums: Album[] | undefined) => {
+    if (!albums?.length) return;
+    
+    toast.loading("Loading songs...");
+    const songs = await fetchAlbumsSongs(albums);
+    toast.dismiss();
+    
+    if (songs.length > 0) {
+      setIsShuffled(false);
+      playNow(songs);
+      toast.success(`Playing ${songs.length} songs`);
+    } else {
+      toast.error("No songs found");
+    }
+  };
+
+  // Shuffle all albums in a section
+  const handleShuffleAllAlbums = async (albums: Album[] | undefined) => {
+    if (!albums?.length) return;
+    
+    toast.loading("Loading songs...");
+    const songs = await fetchAlbumsSongs(albums);
+    toast.dismiss();
+    
+    if (songs.length > 0) {
+      setIsShuffled(true);
+      const shuffled = [...songs].sort(() => Math.random() - 0.5);
+      playNow(shuffled);
+      toast.success(`Shuffling ${songs.length} songs`);
+    } else {
+      toast.error("No songs found");
     }
   };
 
@@ -163,6 +257,8 @@ export default function HomePage() {
           albums={newestAlbums}
           isLoading={loadingNewest}
           onPlayAlbum={handlePlayAlbum}
+          onPlayAll={() => handlePlayAllAlbums(newestAlbums)}
+          onShuffleAll={() => handleShuffleAllAlbums(newestAlbums)}
         />
 
         {/* Continue Listening (Recently Played) */}
@@ -172,6 +268,8 @@ export default function HomePage() {
           albums={recentAlbums}
           isLoading={loadingRecent}
           onPlayAlbum={handlePlayAlbum}
+          onPlayAll={() => handlePlayAllAlbums(recentAlbums)}
+          onShuffleAll={() => handleShuffleAllAlbums(recentAlbums)}
         />
 
         {/* Most Played */}
@@ -181,6 +279,8 @@ export default function HomePage() {
           albums={frequentAlbums}
           isLoading={loadingFrequent}
           onPlayAlbum={handlePlayAlbum}
+          onPlayAll={() => handlePlayAllAlbums(frequentAlbums)}
+          onShuffleAll={() => handleShuffleAllAlbums(frequentAlbums)}
         />
 
         {/* Discover */}
@@ -190,6 +290,8 @@ export default function HomePage() {
           albums={randomAlbums}
           isLoading={loadingRandom}
           onPlayAlbum={handlePlayAlbum}
+          onPlayAll={() => handlePlayAllAlbums(randomAlbums)}
+          onShuffleAll={() => handleShuffleAllAlbums(randomAlbums)}
         />
       </div>
     </div>
