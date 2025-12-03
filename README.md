@@ -39,25 +39,36 @@ path = "/path/to/your/music"
 With Nix:
 ```bash
 nix develop -c cargo build --release
-./target/release/ferrotune serve
 ```
 
 Or with Cargo directly:
 ```bash
 cargo build --release
-./target/release/ferrotune serve
+```
+
+Then run the server:
+```bash
+ferrotune serve
+# Or specify the full path: ./target/release/ferrotune serve
 ```
 
 ### 3. Scan Your Music Library
 
 ```bash
-./target/release/ferrotune scan --full
+# Preview what would change (recommended first time)
+ferrotune scan --dry-run
+
+# Incremental scan (add new files, remove deleted)
+ferrotune scan
+
+# Full rescan (also refresh metadata for existing files)
+ferrotune scan --full
 ```
 
 ### 4. Create Additional Users
 
 ```bash
-./target/release/ferrotune create-user \
+ferrotune create-user \
   --username newuser \
   --password secret \
   --email user@example.com
@@ -78,9 +89,10 @@ Configure your Subsonic-compatible music client with:
 ferrotune serve --host 0.0.0.0 --port 4040
 
 # Scan music library
-ferrotune scan              # Incremental scan
-ferrotune scan --full       # Full rescan
+ferrotune scan              # Incremental scan (new/modified/deleted files)
+ferrotune scan --full       # Full rescan (refresh all metadata)
 ferrotune scan --folder 1   # Scan specific folder
+ferrotune scan --dry-run    # Preview changes without modifying database
 
 # User management
 ferrotune create-user --username alice --password secret --admin
@@ -91,6 +103,23 @@ ferrotune generate-config > ~/.config/ferrotune/config.toml
 # Enable verbose logging
 ferrotune --verbose serve
 ```
+
+### Library Scanning
+
+The scanner supports two modes:
+
+| Behavior | Incremental (default) | Full (`--full`) |
+|----------|----------------------|------------------|
+| Add new files | ✅ | ✅ |
+| Remove deleted files | ✅ | ✅ |
+| Update modified files | ✅ | ✅ |
+| Refresh unchanged files | ❌ | ✅ |
+
+**Incremental scan** checks file modification times and only re-reads metadata for files that have changed since the last scan. This is fast and suitable for routine use.
+
+**Full scan** re-reads metadata for every file regardless of modification time. Use this after bulk re-tagging your library or if you suspect the database is out of sync.
+
+Add `--dry-run` to either mode to preview what would change without modifying the database.
 
 All commands support environment variables:
 - `FERROTUNE_CONFIG` - Config file path

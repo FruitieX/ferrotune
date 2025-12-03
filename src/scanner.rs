@@ -88,16 +88,27 @@ async fn scan_folder(
             .to_string_lossy()
             .to_string();
 
+        // Get file modification time (used for incremental scanning)
+        let file_mtime = std::fs::metadata(path)
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64);
+
         // Check if file already exists in database
-        let existing: Option<(String,)> =
-            sqlx::query_as("SELECT id FROM songs WHERE file_path = ?")
+        let existing: Option<(String, Option<i64>)> =
+            sqlx::query_as("SELECT id, file_mtime FROM songs WHERE file_path = ?")
                 .bind(&relative_path)
                 .fetch_optional(pool)
                 .await?;
 
-        if !full && existing.is_some() {
-            // TODO: Check file modification time
-            continue;
+        if !full {
+            if let Some((_, stored_mtime)) = &existing {
+                // Skip if file hasn't been modified since last scan
+                if file_mtime.is_some() && stored_mtime == &file_mtime {
+                    continue;
+                }
+            }
         }
 
         // In dry-run mode, just count what would be added/updated
@@ -112,8 +123,8 @@ async fn scan_folder(
             continue;
         }
 
-        // Extract metadata
-        match extract_metadata(path).await {
+        // Extract metadata (pass file_mtime to avoid re-reading it)
+        match extract_metadata(path, file_mtime).await {
             Ok(metadata) => match upsert_song(pool, metadata, relative_path, folder_id).await {
                 Ok(is_new) => {
                     if is_new {
@@ -289,9 +300,10 @@ struct SongMetadata {
     bitrate: Option<u32>,
     file_size: u64,
     file_format: String,
+    file_mtime: Option<i64>,
 }
 
-async fn extract_metadata(path: &Path) -> Result<SongMetadata> {
+async fn extract_metadata(path: &Path, file_mtime: Option<i64>) -> Result<SongMetadata> {
     let tagged_file = Probe::open(path)
         .map_err(|e| Error::Lofty(e))?
         .read()
@@ -393,6 +405,7 @@ async fn extract_metadata(path: &Path) -> Result<SongMetadata> {
         bitrate,
         file_size,
         file_format,
+        file_mtime,
     })
 }
 
@@ -445,7 +458,7 @@ async fn upsert_song(
                 title = ?, album_id = ?, artist_id = ?, track_number = ?, 
                 disc_number = ?, year = ?, genre = ?, duration = ?, 
                 bitrate = ?, file_size = ?, file_format = ?, music_folder_id = ?,
-                updated_at = datetime('now')
+                file_mtime = ?, updated_at = datetime('now')
              WHERE id = ?",
         )
         .bind(&metadata.title)
@@ -460,6 +473,7 @@ async fn upsert_song(
         .bind(metadata.file_size as i64)
         .bind(&metadata.file_format)
         .bind(folder_id)
+        .bind(metadata.file_mtime)
         .bind(&id)
         .execute(&mut *tx)
         .await?;
@@ -473,8 +487,8 @@ async fn upsert_song(
             "INSERT INTO songs (
                 id, title, album_id, artist_id, track_number, disc_number,
                 year, genre, duration, bitrate, file_path, file_size, 
-                file_format, music_folder_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+                file_format, music_folder_id, file_mtime, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
         )
         .bind(&song_id)
         .bind(&metadata.title)
@@ -490,6 +504,7 @@ async fn upsert_song(
         .bind(metadata.file_size as i64)
         .bind(&metadata.file_format)
         .bind(folder_id)
+        .bind(metadata.file_mtime)
         .execute(&mut *tx)
         .await?;
 
