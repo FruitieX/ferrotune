@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { motion, AnimatePresence, Reorder, useDragControls } from "framer-motion";
 import { X, ListMusic, Trash2, GripVertical, Play, Pause, Clock, FolderPlus, MoreHorizontal, ListPlus, ListStart, User, Disc } from "lucide-react";
@@ -283,7 +284,25 @@ export function QueuePanel() {
                             {currentTrack.title}
                           </p>
                           <p className="text-sm text-muted-foreground truncate">
-                            {currentTrack.artist}
+                            <Link 
+                              href={`/library/artists/details?id=${currentTrack.artistId}`}
+                              className="hover:underline hover:text-foreground transition-colors"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {currentTrack.artist}
+                            </Link>
+                            {currentTrack.album && (
+                              <>
+                                {" · "}
+                                <Link
+                                  href={`/library/albums/details?id=${currentTrack.albumId}`}
+                                  className="hover:underline hover:text-foreground transition-colors"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {currentTrack.album}
+                                </Link>
+                              </>
+                            )}
                           </p>
                         </div>
                         <DropdownMenu>
@@ -455,7 +474,27 @@ function PlayablePreviousItem({ item, onPlay, onAddToQueue, onPlayNext, onGoToAr
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{song.title}</p>
-              <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
+              <p className="text-xs text-muted-foreground truncate">
+                <Link 
+                  href={`/library/artists/details?id=${song.artistId}`}
+                  className="hover:underline hover:text-foreground transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {song.artist}
+                </Link>
+                {song.album && (
+                  <>
+                    {" · "}
+                    <Link
+                      href={`/library/albums/details?id=${song.albumId}`}
+                      className="hover:underline hover:text-foreground transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {song.album}
+                    </Link>
+                  </>
+                )}
+              </p>
             </div>
 
             <DropdownMenu>
@@ -590,7 +629,27 @@ function DraggableQueueItem({ item, song, onPlay, onRemove, onPlayNext, onGoToAr
 
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{song.title}</p>
-              <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
+              <p className="text-xs text-muted-foreground truncate">
+                <Link 
+                  href={`/library/artists/details?id=${song.artistId}`}
+                  className="hover:underline hover:text-foreground transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {song.artist}
+                </Link>
+                {song.album && (
+                  <>
+                    {" · "}
+                    <Link
+                      href={`/library/albums/details?id=${song.albumId}`}
+                      className="hover:underline hover:text-foreground transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {song.album}
+                    </Link>
+                  </>
+                )}
+              </p>
             </div>
 
             <DropdownMenu>
