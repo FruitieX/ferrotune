@@ -52,14 +52,17 @@ export function PlaylistCover({
 }: PlaylistCoverProps) {
   const client = getClient();
   
-  // Get unique album cover art IDs from songs (first 4)
+  // Get unique album cover art IDs from songs (first 4 unique albums)
   const albumCoverIds = useMemo(() => {
-    const seen = new Set<string>();
+    const seenAlbums = new Set<string>();
     const covers: string[] = [];
     
     for (const song of songs) {
-      if (song.coverArt && !seen.has(song.coverArt) && covers.length < 4) {
-        seen.add(song.coverArt);
+      // Use albumId to determine uniqueness, not coverArt ID
+      // (multiple songs from same album share the same coverArt)
+      const albumKey = song.albumId || song.album || song.coverArt;
+      if (song.coverArt && albumKey && !seenAlbums.has(albumKey) && covers.length < 4) {
+        seenAlbums.add(albumKey);
         covers.push(song.coverArt);
       }
     }

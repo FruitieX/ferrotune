@@ -3,14 +3,14 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
-import { Music, User, Disc, ListMusic } from "lucide-react";
+import { Music, User, Disc, ListMusic, Tag } from "lucide-react";
 
 interface CoverImageProps {
   src?: string | null;
   alt: string;
   /** String to use for generating placeholder color (e.g. album name for albums, artist name for artists) */
   colorSeed?: string;
-  type?: "album" | "artist" | "song" | "playlist";
+  type?: "album" | "artist" | "song" | "playlist" | "genre";
   size?: "sm" | "md" | "lg" | "xl" | "full";
   className?: string;
   priority?: boolean;
@@ -61,7 +61,7 @@ export function CoverImage({
   const [isVisible, setIsVisible] = useState(!lazy);
   const containerRef = useRef<HTMLDivElement>(null);
   
-  const Icon = type === "artist" ? User : type === "playlist" ? ListMusic : type === "song" ? Music : Disc;
+  const Icon = type === "artist" ? User : type === "playlist" ? ListMusic : type === "song" ? Music : type === "genre" ? Tag : Disc;
   const isRound = type === "artist";
 
   // Reset error state when src changes

@@ -6,10 +6,12 @@ import { History, Play, Shuffle, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
+import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
 import { recentlyPlayedAtom, clearHistoryAtom } from "@/lib/store/history";
 import { Button } from "@/components/ui/button";
 import { TrackList } from "@/components/browse/track-list";
+import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { formatCount, formatTotalDuration } from "@/lib/utils/format";
 
 export default function HistoryPage() {
@@ -26,6 +28,27 @@ export default function HistoryPage() {
   // Extract songs from history entries
   const songs = recentlyPlayed.map((entry) => entry.song);
   const totalDuration = songs.reduce((acc, song) => acc + song.duration, 0);
+
+  // Track selection
+  const {
+    selectedCount,
+    hasSelection,
+    isSelected,
+    handleSelect,
+    clearSelection,
+    selectAll,
+    getSelectedSongs,
+    addSelectedToQueue,
+    starSelected,
+  } = useTrackSelection(songs);
+
+  const handlePlaySelected = () => {
+    const selected = getSelectedSongs();
+    if (selected.length > 0) {
+      playNow(selected);
+      clearSelection();
+    }
+  };
 
   const handlePlayAll = () => {
     if (songs.length > 0) {
@@ -138,10 +161,26 @@ export default function HistoryPage() {
           showCover
           showHeader
           emptyMessage="No history yet"
+          isSelected={isSelected}
+          isSelectionMode={hasSelection}
+          onSelect={handleSelect}
         />
       ) : (
         <EmptyState />
       )}
+
+      {/* Bulk actions bar */}
+      <BulkActionsBar
+        selectedCount={selectedCount}
+        onClear={clearSelection}
+        onPlayNow={handlePlaySelected}
+        onPlayNext={() => addSelectedToQueue("next")}
+        onAddToQueue={() => addSelectedToQueue("last")}
+        onStar={() => starSelected(true)}
+        onUnstar={() => starSelected(false)}
+        onSelectAll={selectAll}
+        getSelectedSongs={getSelectedSongs}
+      />
 
       {/* Spacer for player bar */}
       <div className="h-24" />

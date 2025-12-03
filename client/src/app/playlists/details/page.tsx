@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
+import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { PlaylistCover } from "@/components/shared/playlist-cover";
 import { TrackList } from "@/components/browse/track-list";
+import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
 import { formatDuration, formatCount, formatDate } from "@/lib/utils/format";
 
@@ -94,6 +96,27 @@ function PlaylistDetailContent() {
   });
 
   const songs = playlist?.entry ?? [];
+
+  // Track selection
+  const {
+    selectedCount,
+    hasSelection,
+    isSelected,
+    handleSelect,
+    clearSelection,
+    selectAll,
+    getSelectedSongs,
+    addSelectedToQueue,
+    starSelected,
+  } = useTrackSelection(songs);
+
+  const handlePlaySelected = () => {
+    const selected = getSelectedSongs();
+    if (selected.length > 0) {
+      playNow(selected);
+      clearSelection();
+    }
+  };
 
   const handlePlayAll = () => {
     if (songs.length > 0) {
@@ -306,6 +329,22 @@ function PlaylistDetailContent() {
         showCover
         showHeader
         emptyMessage="This playlist is empty"
+        isSelected={isSelected}
+        isSelectionMode={hasSelection}
+        onSelect={handleSelect}
+      />
+
+      {/* Bulk actions bar */}
+      <BulkActionsBar
+        selectedCount={selectedCount}
+        onClear={clearSelection}
+        onPlayNow={handlePlaySelected}
+        onPlayNext={() => addSelectedToQueue("next")}
+        onAddToQueue={() => addSelectedToQueue("last")}
+        onStar={() => starSelected(true)}
+        onUnstar={() => starSelected(false)}
+        onSelectAll={selectAll}
+        getSelectedSongs={getSelectedSongs}
       />
 
       {/* Spacer for player bar */}
