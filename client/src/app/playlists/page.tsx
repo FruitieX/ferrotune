@@ -6,13 +6,14 @@ import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { Plus, ListMusic, Music2, Clock } from "lucide-react";
+import { Plus, ListMusic, Music2, Clock, Upload } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CoverImage } from "@/components/shared/cover-image";
 import { CreatePlaylistDialog } from "@/components/playlists/create-playlist-dialog";
+import { ImportPlaylistDialog } from "@/components/playlists/import-playlist-dialog";
 import { PlaylistContextMenu, PlaylistDropdownMenu } from "@/components/playlists/playlist-context-menu";
 import { formatDuration, formatCount, formatDate } from "@/lib/utils/format";
 import type { Playlist } from "@/lib/api/types";
@@ -20,6 +21,7 @@ import type { Playlist } from "@/lib/api/types";
 export default function PlaylistsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const isMounted = useIsMounted();
   
   // Restore scroll position when navigating back to this page
@@ -87,10 +89,16 @@ export default function PlaylistsPage() {
               </p>
             </div>
           </div>
-          <Button className="rounded-full gap-2" onClick={() => setCreateDialogOpen(true)}>
-            <Plus className="w-4 h-4" />
-            Create Playlist
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" className="rounded-full gap-2" onClick={() => setImportDialogOpen(true)}>
+              <Upload className="w-4 h-4" />
+              Import
+            </Button>
+            <Button className="rounded-full gap-2" onClick={() => setCreateDialogOpen(true)}>
+              <Plus className="w-4 h-4" />
+              Create Playlist
+            </Button>
+          </div>
         </motion.div>
       </div>
 
@@ -98,6 +106,12 @@ export default function PlaylistsPage() {
       <CreatePlaylistDialog 
         open={createDialogOpen} 
         onOpenChange={setCreateDialogOpen} 
+      />
+
+      {/* Import Playlist Dialog */}
+      <ImportPlaylistDialog 
+        open={importDialogOpen} 
+        onOpenChange={setImportDialogOpen} 
       />
 
       {/* Playlists grid */}

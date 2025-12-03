@@ -351,6 +351,7 @@ function QueueContent({ variant }: QueueContentProps) {
                         <Button
                           variant="ghost"
                           size="sm"
+                          aria-label="More options"
                           className={cn(
                             "p-0 opacity-0 group-hover:opacity-100 text-muted-foreground",
                             isMobile ? "h-8 w-8" : "h-7 w-7"
@@ -777,6 +778,7 @@ function DraggableQueueItem({
               />
               <button
                 type="button"
+                aria-label={`Play ${song.title}`}
                 className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
               >
                 <Play className="w-4 h-4 ml-0.5 text-white" />
@@ -815,6 +817,7 @@ function DraggableQueueItem({
                   size="sm"
                   className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
                   onClick={(e) => e.stopPropagation()}
+                  aria-label="More options"
                 >
                   <MoreHorizontal className="w-4 h-4" />
                 </Button>

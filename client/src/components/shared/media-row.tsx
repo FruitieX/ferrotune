@@ -120,7 +120,11 @@ export function MediaRow({
             : "opacity-0 group-hover:opacity-100"
         )}
       >
-        <div
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={isSelected}
+          aria-label={`Select item ${index + 1}`}
           className={cn(
             "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
             isSelected
@@ -129,7 +133,7 @@ export function MediaRow({
           )}
         >
           {isSelected && <Check className="w-3 h-3" />}
-        </div>
+        </button>
       </div>
       {/* Index number - hidden when checkbox is visible */}
       <span
@@ -164,6 +168,7 @@ export function MediaRow({
       {onPlay && (
         <button
           type="button"
+          aria-label={isPlaying ? "Pause" : "Play"}
           className={cn(
             "absolute inset-0 flex items-center justify-center",
             "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
@@ -293,6 +298,8 @@ export function RowActions({
         <Button
           variant="ghost"
           size="icon"
+          aria-label={isStarred ? "Remove from favorites" : "Add to favorites"}
+          aria-pressed={isStarred}
           className={cn(
             rowActionButtonStyles,
             !isStarred && "opacity-0 group-hover:opacity-100 transition-opacity"
