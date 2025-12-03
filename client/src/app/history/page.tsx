@@ -14,6 +14,7 @@ import { recentlyPlayedAtom, clearHistoryAtom } from "@/lib/store/history";
 import { playlistViewModeAtom, playlistSortAtom, playlistColumnVisibilityAtom } from "@/lib/store/ui";
 import { Button } from "@/components/ui/button";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { formatCount, formatTotalDuration } from "@/lib/utils/format";
@@ -205,23 +206,25 @@ export default function HistoryPage() {
       <div className={cn("px-4 lg:px-6 py-4", hasSelection && "select-none")}>
         {displaySongs.length > 0 ? (
           viewMode === "grid" ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-              {displaySongs.map((song) => (
+            <VirtualizedGrid
+              items={displaySongs}
+              renderItem={(song) => (
                 <SongCard
-                  key={song.id}
                   song={song}
                   queueSongs={displaySongs}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
                   onSelect={(e) => handleSelect(song.id, e)}
                 />
-              ))}
-            </div>
+              )}
+              renderSkeleton={() => <SongCardSkeleton />}
+              getItemKey={(song) => song.id}
+            />
           ) : (
-            <div className="space-y-1">
-              {displaySongs.map((song, index) => (
+            <VirtualizedList
+              items={displaySongs}
+              renderItem={(song, index) => (
                 <SongRow
-                  key={song.id}
                   song={song}
                   index={index}
                   showCover
@@ -236,8 +239,11 @@ export default function HistoryPage() {
                   isSelectionMode={hasSelection}
                   onSelect={(e) => handleSelect(song.id, e)}
                 />
-              ))}
-            </div>
+              )}
+              renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+              getItemKey={(song) => song.id}
+              estimateItemHeight={56}
+            />
           )
         ) : songs.length > 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">

@@ -11,11 +11,12 @@ test.describe("Browse Library", () => {
       // Should show library heading
       await expect(page.getByRole("heading", { name: /library/i })).toBeVisible();
       
-      // Should show tab links for albums, artists, songs, genres (use exact names)
-      await expect(page.getByRole("link", { name: "Albums", exact: true })).toBeVisible();
-      await expect(page.getByRole("link", { name: "Artists", exact: true })).toBeVisible();
-      await expect(page.getByRole("link", { name: "Songs", exact: true })).toBeVisible();
-      await expect(page.getByRole("link", { name: "Genres", exact: true })).toBeVisible();
+      // Should show tab links for albums, artists, songs, genres (use library sections nav)
+      const libraryNav = page.getByLabel("Library sections");
+      await expect(libraryNav.getByRole("link", { name: "Albums" })).toBeVisible();
+      await expect(libraryNav.getByRole("link", { name: "Artists" })).toBeVisible();
+      await expect(libraryNav.getByRole("link", { name: "Songs" })).toBeVisible();
+      await expect(libraryNav.getByRole("link", { name: "Genres" })).toBeVisible();
     });
 
     test("albums tab is active by default", async ({ authenticatedPage: page }) => {
@@ -29,19 +30,20 @@ test.describe("Browse Library", () => {
       await page.goto("/library/albums");
       await page.waitForLoadState("networkidle");
       
-      // Wait for albums link to be visible first
-      await expect(page.getByRole("link", { name: "Albums", exact: true })).toBeVisible();
+      // Wait for library sections nav and albums link to be visible
+      const libraryNav = page.getByLabel("Library sections");
+      await expect(libraryNav.getByRole("link", { name: "Albums" })).toBeVisible();
       
       // Click artists tab link
-      await page.getByRole("link", { name: "Artists", exact: true }).click();
+      await libraryNav.getByRole("link", { name: "Artists" }).click();
       await expect(page).toHaveURL("/library/artists");
       
       // Click genres tab link
-      await page.getByRole("link", { name: "Genres", exact: true }).click();
+      await libraryNav.getByRole("link", { name: "Genres" }).click();
       await expect(page).toHaveURL("/library/genres");
       
       // Back to albums
-      await page.getByRole("link", { name: "Albums", exact: true }).click();
+      await libraryNav.getByRole("link", { name: "Albums" }).click();
       await expect(page).toHaveURL("/library/albums");
     });
   });
@@ -52,7 +54,7 @@ test.describe("Browse Library", () => {
       await page.waitForLoadState("networkidle");
       
       // Should show heading
-      await expect(page.getByRole("heading", { name: /liked songs/i })).toBeVisible();
+      await expect(page.getByRole("heading", { name: /favorites/i })).toBeVisible();
       
       // Should show tabs
       await expect(page.getByRole("tab", { name: /songs/i })).toBeVisible();

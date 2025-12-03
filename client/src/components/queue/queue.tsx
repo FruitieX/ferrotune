@@ -575,7 +575,7 @@ export function QueueSidebar() {
                     Clear
                   </Button>
                 )}
-                <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)} className="h-8 w-8">
+                <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)} className="h-8 w-8" aria-label="Close queue">
                   <PanelRightClose className="w-4 h-4" />
                 </Button>
               </div>

@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
+import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 import { formatCount } from "@/lib/utils/format";
 import type { Album } from "@/lib/api/types";
 
@@ -33,7 +34,6 @@ function GenreDetailContent() {
   const playNow = useSetAtom(playNowAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const loadMoreRef = useRef<HTMLDivElement>(null);
-  const songsLoadMoreRef = useRef<HTMLDivElement>(null);
 
   // Redirect to library if no name
   useEffect(() => {
@@ -136,31 +136,6 @@ function GenreDetailContent() {
     observer.observe(element);
     return () => observer.disconnect();
   }, [handleObserver]);
-
-  // Intersection observer for songs infinite scroll
-  const handleSongsObserver = useCallback(
-    (entries: IntersectionObserverEntry[]) => {
-      const [target] = entries;
-      if (target.isIntersecting && hasNextSongsPage && !isFetchingNextSongsPage) {
-        fetchNextSongsPage();
-      }
-    },
-    [fetchNextSongsPage, hasNextSongsPage, isFetchingNextSongsPage]
-  );
-
-  useEffect(() => {
-    const element = songsLoadMoreRef.current;
-    if (!element) return;
-
-    const observer = new IntersectionObserver(handleSongsObserver, {
-      root: null,
-      rootMargin: "200px",
-      threshold: 0,
-    });
-
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [handleSongsObserver]);
 
   // Flatten albums from all pages
   const allAlbums = albumsData?.pages.flatMap((page) => page.albums) ?? [];
@@ -355,43 +330,28 @@ function GenreDetailContent() {
             ))}
           </div>
         ) : allSongs.length > 0 ? (
-          <motion.div 
-            className="space-y-1"
-            initial="hidden"
-            animate="visible"
-            variants={{
-              visible: { transition: { staggerChildren: 0.02 } },
-            }}
-          >
-            {allSongs.map((song, index) => (
-              <motion.div
-                key={song.id}
-                variants={{
-                  hidden: { opacity: 0, x: -10 },
-                  visible: { opacity: 1, x: 0 },
-                }}
-              >
-                <SongRow 
-                  song={song} 
-                  index={index} 
-                  showAlbum={true}
-                  showArtist={true}
-                  showCover={true}
-                  queueSongs={allSongs}
-                />
-              </motion.div>
-            ))}
-          </motion.div>
+          <VirtualizedList
+            items={allSongs}
+            renderItem={(song, index) => (
+              <SongRow 
+                song={song} 
+                index={index} 
+                showAlbum={true}
+                showArtist={true}
+                showCover={true}
+                queueSongs={allSongs}
+              />
+            )}
+            renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+            getItemKey={(song) => song.id}
+            estimateItemHeight={56}
+            hasNextPage={hasNextSongsPage}
+            isFetchingNextPage={isFetchingNextSongsPage}
+            fetchNextPage={fetchNextSongsPage}
+          />
         ) : (
           <div className="py-10 text-center text-muted-foreground">
             No songs found in this genre
-          </div>
-        )}
-        {/* Infinite scroll trigger for songs */}
-        <div ref={songsLoadMoreRef} className="h-10" />
-        {isFetchingNextSongsPage && (
-          <div className="flex justify-center py-4">
-            <Skeleton className="w-8 h-8 rounded-full" />
           </div>
         )}
       </div>

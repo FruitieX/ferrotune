@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
+import { VirtualizedList } from "@/components/shared/virtualized-grid";
 import { ArtistDropdownMenu, useArtistStar } from "@/components/browse/artist-context-menu";
 import { CoverImage } from "@/components/shared/cover-image";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
@@ -321,22 +322,10 @@ function ArtistDetailContent() {
             ))}
           </div>
         ) : allSongs.length > 0 ? (
-          <motion.div 
-            className={cn("space-y-1", selection.hasSelection && "select-none-during-selection")}
-            initial="hidden"
-            animate="visible"
-            variants={{
-              visible: { transition: { staggerChildren: 0.02 } },
-            }}
-          >
-            {allSongs.map((song, index) => (
-              <motion.div
-                key={song.id}
-                variants={{
-                  hidden: { opacity: 0, x: -10 },
-                  visible: { opacity: 1, x: 0 },
-                }}
-              >
+          <div className={cn("", selection.hasSelection && "select-none-during-selection")}>
+            <VirtualizedList
+              items={allSongs}
+              renderItem={(song, index) => (
                 <SongRow 
                   song={song} 
                   index={index} 
@@ -348,9 +337,12 @@ function ArtistDetailContent() {
                   isSelectionMode={selection.hasSelection}
                   onSelect={(e) => selection.handleSelect(song.id, e)}
                 />
-              </motion.div>
-            ))}
-          </motion.div>
+              )}
+              renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+              getItemKey={(song) => song.id}
+              estimateItemHeight={56}
+            />
+          </div>
         ) : (
           <div className="py-20 text-center text-muted-foreground">
             No songs found
