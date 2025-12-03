@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { useDebounce } from "@/lib/hooks/use-debounce";
+import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { ArtistCard, ArtistCardSkeleton } from "@/components/browse/artist-card";
 import { TrackList } from "@/components/browse/track-list";
+import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { formatCount, formatTotalDuration } from "@/lib/utils/format";
 import type { Album } from "@/lib/api/types";
 
@@ -80,6 +82,27 @@ export default function FavoritesPage() {
   }, [artists, debouncedSearch]);
 
   const totalDuration = filteredSongs.reduce((acc, song) => acc + song.duration, 0);
+
+  // Track selection for songs tab
+  const {
+    selectedCount,
+    hasSelection,
+    isSelected,
+    handleSelect,
+    clearSelection,
+    selectAll,
+    getSelectedSongs,
+    addSelectedToQueue,
+    starSelected,
+  } = useTrackSelection(filteredSongs);
+
+  const handlePlaySelected = () => {
+    const selected = getSelectedSongs();
+    if (selected.length > 0) {
+      playNow(selected);
+      clearSelection();
+    }
+  };
 
   // Get the description based on active tab
   const getSubtitle = () => {
@@ -269,6 +292,9 @@ export default function FavoritesPage() {
             showCover
             showHeader
             emptyMessage={debouncedSearch ? "No songs match your search" : "No liked songs yet"}
+            isSelected={isSelected}
+            isSelectionMode={hasSelection}
+            onSelect={handleSelect}
           />
         </TabsContent>
 
@@ -342,6 +368,19 @@ export default function FavoritesPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Bulk actions bar for songs */}
+      <BulkActionsBar
+        selectedCount={selectedCount}
+        onClear={clearSelection}
+        onPlayNow={handlePlaySelected}
+        onPlayNext={() => addSelectedToQueue("next")}
+        onAddToQueue={() => addSelectedToQueue("last")}
+        onStar={() => starSelected(true)}
+        onUnstar={() => starSelected(false)}
+        onSelectAll={selectAll}
+        getSelectedSongs={getSelectedSongs}
+      />
 
       {/* Spacer for player bar */}
       <div className="h-24" />

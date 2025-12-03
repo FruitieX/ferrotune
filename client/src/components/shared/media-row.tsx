@@ -40,7 +40,7 @@ interface MediaRowProps {
   /** Cover art color seed for placeholder */
   colorSeed?: string;
   /** Cover art type for placeholder icon */
-  coverType?: "album" | "artist" | "song" | "playlist";
+  coverType?: "album" | "artist" | "song" | "playlist" | "genre";
   /** Whether this row is currently active/selected */
   isActive?: boolean;
   /** Whether this row is currently playing (shows pause icon) */

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Tag, Play, ListPlus, ListEnd, Shuffle, MoreHorizontal, Check } from "lucide-react";
+import { Play, ListPlus, ListEnd, Shuffle, MoreHorizontal, Check } from "lucide-react";
 import { useSetAtom } from "jotai";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -21,7 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { rowContainerStyles, rowActionsContainerStyles, RowDropdownTrigger } from "@/components/shared/media-row";
+import { MediaRow, MediaRowSkeleton, RowDropdownTrigger, RowActions } from "@/components/shared/media-row";
 import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import type { Genre, Song } from "@/lib/api/types";
@@ -165,10 +165,9 @@ interface GenreRowProps {
 }
 
 /**
- * Genre row for list view - colored indicator with genre info
+ * Genre row for list view - uses MediaRow with genre-colored cover placeholder
  */
 export function GenreRow({ genre, className, index, isSelected, isSelectionMode, onSelect }: GenreRowProps) {
-  const { hue } = getGenreColor(genre.value);
   const playNow = useSetAtom(playNowAtom);
 
   const handlePlay = async () => {
@@ -181,137 +180,35 @@ export function GenreRow({ genre, className, index, isSelected, isSelectionMode,
     }
   };
 
-  const handleClick = (e: React.MouseEvent) => {
-    if (onSelect && (e.ctrlKey || e.metaKey || e.shiftKey || isSelectionMode)) {
-      e.preventDefault();
-      onSelect(e);
-    }
-  };
-
-  // Show index+1 or checkbox depending on hover/selection state
-  const showCheckbox = isSelectionMode || isSelected;
-
   return (
-    <GenreContextMenu genre={genre}>
-      <div 
-        className={cn(
-          rowContainerStyles, 
-          "media-row",
-          isSelected && "bg-primary/10",
-          className
-        )} 
-        onDoubleClick={handlePlay}
-        onClick={handleClick}
-      >
-        {/* Track number / Checkbox */}
-        {index !== undefined && (
-          <div 
-            className="w-8 text-center shrink-0 relative cursor-pointer"
-            onClick={(e) => {
-              if (onSelect) {
-                e.preventDefault();
-                e.stopPropagation();
-                onSelect(e);
-              }
-            }}
-          >
-            {/* Checkbox - shows when selected, in selection mode, or on hover */}
-            <div
-              className={cn(
-                "absolute inset-0 flex items-center justify-center transition-opacity",
-                showCheckbox
-                  ? "opacity-100"
-                  : "opacity-0 group-hover:opacity-100"
-              )}
-            >
-              <div
-                className={cn(
-                  "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
-                  isSelected
-                    ? "bg-primary border-primary text-primary-foreground"
-                    : "border-muted-foreground/50 hover:border-primary/50"
-                )}
-              >
-                {isSelected && <Check className="w-3 h-3" />}
-              </div>
-            </div>
-            {/* Index number - hidden when checkbox is visible */}
-            <span
-              className={cn(
-                "text-sm tabular-nums text-muted-foreground transition-opacity",
-                showCheckbox 
-                  ? "opacity-0 pointer-events-none" 
-                  : "group-hover:opacity-0 group-hover:pointer-events-none"
-              )}
-            >
-              {index + 1}
-            </span>
-          </div>
-        )}
-
-        {/* Colored genre indicator with play overlay */}
-        <div
-          className="group/cover relative w-10 h-10 rounded-md shrink-0 flex items-center justify-center"
-          style={{ backgroundColor: `hsl(${hue}, 60%, 40%)` }}
-        >
-          <Tag className="w-5 h-5 text-white group-hover/cover:opacity-0 transition-opacity" />
-          {/* Play button overlay - matches MediaRow styling */}
-          <button
-            type="button"
-            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded-md cursor-pointer"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              handlePlay();
-            }}
-          >
-            <Play className="w-4 h-4 ml-0.5 text-white" />
-          </button>
-        </div>
-
-        {/* Genre info - link only wraps the text content */}
-        <div className="min-w-0 flex-1">
-          <Link
-            href={`/library/genres/details?name=${encodeURIComponent(genre.value)}`}
-            className="font-medium text-sm truncate hover:underline block w-fit max-w-full"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (isSelectionMode) {
-                e.preventDefault();
-              }
-            }}
-          >
-            {genre.value}
-          </Link>
-          <p className="text-xs text-muted-foreground truncate">
-            {genre.albumCount} albums • {genre.songCount} songs
-          </p>
-        </div>
-
-        {/* Actions */}
-        <div className={rowActionsContainerStyles}>
-          <GenreDropdownMenu genre={genre} trigger={<RowDropdownTrigger />} />
-        </div>
-      </div>
-    </GenreContextMenu>
+    <MediaRow
+      // No coverArt URL - CoverImage will show genre placeholder with color from colorSeed
+      title={genre.value}
+      subtitle={`${genre.albumCount} albums • ${genre.songCount} songs`}
+      href={`/library/genres/details?name=${encodeURIComponent(genre.value)}`}
+      colorSeed={genre.value}
+      coverType="genre"
+      index={index}
+      isSelected={isSelected}
+      isSelectionMode={isSelectionMode}
+      onSelect={onSelect}
+      onPlay={handlePlay}
+      onDoubleClick={handlePlay}
+      actions={
+        <RowActions
+          dropdownMenu={<GenreDropdownMenu genre={genre} trigger={<RowDropdownTrigger />} />}
+        />
+      }
+      contextMenu={(children) => (
+        <GenreContextMenu genre={genre}>{children}</GenreContextMenu>
+      )}
+      className={className}
+    />
   );
 }
 
 export function GenreRowSkeleton() {
-  return (
-    <div className="flex items-center gap-4 px-4 pr-6 py-2">
-      {/* Index skeleton */}
-      <div className="w-8 text-center shrink-0">
-        <Skeleton className="h-4 w-4 mx-auto" />
-      </div>
-      {/* Genre indicator skeleton */}
-      <Skeleton className="w-10 h-10 rounded-md shrink-0" />
-      <div className="min-w-0 flex-1 space-y-1">
-        <Skeleton className="h-4 w-32 max-w-full" />
-        <Skeleton className="h-3 w-24 max-w-[80%]" />
-      </div>
-    </div>
-  );
+  return <MediaRowSkeleton showIndex />;
 }
 
 // Context menu for genres

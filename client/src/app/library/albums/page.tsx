@@ -44,6 +44,7 @@ export default function AlbumsPage() {
   const sortConfig = useAtomValue(librarySortAtom);
   const debouncedFilter = useDebounce(filter, 300);
   const playNow = useSetAtom(playNowAtom);
+  const addToQueue = useSetAtom(addToQueueAtom);
   
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
