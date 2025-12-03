@@ -267,3 +267,66 @@ HTTP 200
 [Asserts]
 header "Content-Type" contains "application/json"
 jsonpath "$.subsonic-response.status" == "ok"
+
+# ============================================================================
+# SEARCH3 - PREFIX MATCHING (FTS5 WITH WILDCARDS)
+# ============================================================================
+
+# Test: search3 - prefix matching for artists ("Tes" should find "Test Artist")
+GET {{base_url}}/rest/search3?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&query=Tes
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.subsonic-response.status" == "ok"
+# "Tes*" should match "Test Artist"
+jsonpath "$.subsonic-response.searchResult3.artist" isCollection
+jsonpath "$.subsonic-response.searchResult3.artist[0].name" contains "Test"
+
+# Test: search3 - prefix matching for albums ("Anot" should find "Another Album")
+GET {{base_url}}/rest/search3?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&query=Anot
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.subsonic-response.status" == "ok"
+# "Anot*" should match "Another Album"
+jsonpath "$.subsonic-response.searchResult3.album" isCollection
+jsonpath "$.subsonic-response.searchResult3.album[0].name" contains "Another"
+
+# Test: search3 - prefix matching for songs ("Fir" should find "First Song")
+GET {{base_url}}/rest/search3?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&query=Fir
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.subsonic-response.status" == "ok"
+# "Fir*" should match "First Song"
+jsonpath "$.subsonic-response.searchResult3.song" isCollection
+jsonpath "$.subsonic-response.searchResult3.song[0].title" contains "First"
+
+# Test: search3 - single character prefix matching ("A" should find artists/albums starting with A)
+GET {{base_url}}/rest/search3?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&query=A
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.subsonic-response.status" == "ok"
+# "A*" should match "Another Artist", "Another Album", etc.
+jsonpath "$.subsonic-response.searchResult3.artist" isCollection
+
+# Test: search3 - two character prefix matching ("Te" should find "Test Artist")
+GET {{base_url}}/rest/search3?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&query=Te
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.subsonic-response.status" == "ok"
+# "Te*" should match "Test Artist"
+jsonpath "$.subsonic-response.searchResult3.artist" isCollection
+jsonpath "$.subsonic-response.searchResult3.artist[0].name" contains "Test"
+
+# Test: search3 - case insensitive prefix matching ("tes" should find "Test Artist")
+GET {{base_url}}/rest/search3?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&query=tes
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.subsonic-response.status" == "ok"
+# "tes*" should match "Test Artist" (case insensitive)
+jsonpath "$.subsonic-response.searchResult3.artist" isCollection
+jsonpath "$.subsonic-response.searchResult3.artist[0].name" contains "Test"

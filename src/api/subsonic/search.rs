@@ -9,6 +9,33 @@ use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+/// Convert a user query into an FTS5-safe query with prefix matching.
+///
+/// Examples:
+/// - "beat" -> "beat*" (matches "Beatles", "beat", "beats")
+/// - "the beatles" -> "the* beatles*" (matches "the beatles", "Theatre Beatles")
+/// - "rock & roll" -> "rock* roll*" (strips special chars, adds prefix wildcards)
+/// - "24-7" -> "24* 7*" (prevents FTS5 interpreting as "24 NOT 7")
+///
+/// Returns None if the query is empty after processing.
+fn build_fts_query(query: &str) -> Option<String> {
+    // Split into words, filtering out empty strings and FTS5 operators
+    let words: Vec<String> = query
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| !s.is_empty())
+        // Filter out FTS5 reserved words (case-insensitive)
+        .filter(|s| !matches!(s.to_uppercase().as_str(), "AND" | "OR" | "NOT" | "NEAR"))
+        .map(|s| format!("{}*", s))
+        .collect();
+
+    if words.is_empty() {
+        None
+    } else {
+        // Join with spaces - FTS5 defaults to AND for multiple terms
+        Some(words.join(" "))
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchParams {
@@ -100,24 +127,65 @@ pub async fn search3(
     let song_count = params.song_count.unwrap_or(20).min(500) as i64;
     let song_offset = params.song_offset.unwrap_or(0) as i64;
 
-    let search_term = format!("%{}%", params.query);
     let song_order =
         get_song_order_clause(params.song_sort.as_ref(), params.song_sort_dir.as_ref());
     let album_order =
         get_album_order_clause(params.album_sort.as_ref(), params.album_sort_dir.as_ref());
 
-    // Search artists
-    let artists: Vec<crate::db::models::Artist> = sqlx::query_as(
-        "SELECT * FROM artists 
-         WHERE name LIKE ? COLLATE NOCASE 
-         ORDER BY name 
-         LIMIT ? OFFSET ?",
-    )
-    .bind(&search_term)
-    .bind(artist_count)
-    .bind(artist_offset)
-    .fetch_all(&state.pool)
-    .await?;
+    // Check for wildcard query
+    let is_wildcard = params.query.is_empty() || params.query == "*";
+
+    // Build FTS query with prefix wildcards
+    let fts_query = if !is_wildcard {
+        build_fts_query(&params.query)
+    } else {
+        None
+    };
+
+    // ========================================================================
+    // Search artists using FTS5
+    // ========================================================================
+    let (artists, artist_total): (Vec<crate::db::models::Artist>, Option<i64>) = if is_wildcard {
+        // Wildcard: return all artists
+        let artists: Vec<crate::db::models::Artist> =
+            sqlx::query_as("SELECT * FROM artists ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?")
+                .bind(artist_count)
+                .bind(artist_offset)
+                .fetch_all(&state.pool)
+                .await?;
+
+        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM artists")
+            .fetch_one(&state.pool)
+            .await?;
+
+        (artists, Some(total.0))
+    } else if let Some(ref fts_q) = fts_query {
+        // Use FTS5 for artist search
+        let artists: Vec<crate::db::models::Artist> = sqlx::query_as(
+            "SELECT a.* FROM artists a
+                 INNER JOIN artists_fts fts ON a.id = fts.artist_id
+                 WHERE artists_fts MATCH ?
+                 ORDER BY a.name COLLATE NOCASE
+                 LIMIT ? OFFSET ?",
+        )
+        .bind(fts_q)
+        .bind(artist_count)
+        .bind(artist_offset)
+        .fetch_all(&state.pool)
+        .await?;
+
+        // Get total count for FTS search
+        let total: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM artists_fts WHERE artists_fts MATCH ?")
+                .bind(fts_q)
+                .fetch_one(&state.pool)
+                .await?;
+
+        (artists, Some(total.0))
+    } else {
+        // Empty query after processing
+        (vec![], Some(0))
+    };
 
     // Get starred status and ratings for artists
     let artist_ids: Vec<String> = artists.iter().map(|a| a.id.clone()).collect();
@@ -138,21 +206,59 @@ pub async fn search3(
         })
         .collect();
 
-    // Search albums with dynamic sorting
-    let album_query = format!(
-        "SELECT a.*, ar.name as artist_name 
-         FROM albums a 
-         INNER JOIN artists ar ON a.artist_id = ar.id 
-         WHERE a.name LIKE ? COLLATE NOCASE 
-         ORDER BY {album_order}
-         LIMIT ? OFFSET ?"
-    );
-    let albums: Vec<crate::db::models::Album> = sqlx::query_as(&album_query)
-        .bind(&search_term)
-        .bind(album_count)
-        .bind(album_offset)
-        .fetch_all(&state.pool)
-        .await?;
+    // ========================================================================
+    // Search albums using FTS5
+    // ========================================================================
+    let (albums, album_total): (Vec<crate::db::models::Album>, Option<i64>) = if is_wildcard {
+        // Wildcard: return all albums with dynamic sorting
+        let album_query = format!(
+            "SELECT a.*, ar.name as artist_name 
+                 FROM albums a 
+                 INNER JOIN artists ar ON a.artist_id = ar.id 
+                 ORDER BY {album_order}
+                 LIMIT ? OFFSET ?"
+        );
+        let albums: Vec<crate::db::models::Album> = sqlx::query_as(&album_query)
+            .bind(album_count)
+            .bind(album_offset)
+            .fetch_all(&state.pool)
+            .await?;
+
+        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM albums")
+            .fetch_one(&state.pool)
+            .await?;
+
+        (albums, Some(total.0))
+    } else if let Some(ref fts_q) = fts_query {
+        // Use FTS5 for album search with dynamic sorting
+        let album_query = format!(
+            "SELECT a.*, ar.name as artist_name 
+                 FROM albums a 
+                 INNER JOIN artists ar ON a.artist_id = ar.id
+                 INNER JOIN albums_fts fts ON a.id = fts.album_id
+                 WHERE albums_fts MATCH ?
+                 ORDER BY {album_order}
+                 LIMIT ? OFFSET ?"
+        );
+        let albums: Vec<crate::db::models::Album> = sqlx::query_as(&album_query)
+            .bind(fts_q)
+            .bind(album_count)
+            .bind(album_offset)
+            .fetch_all(&state.pool)
+            .await?;
+
+        // Get total count for FTS search
+        let total: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM albums_fts WHERE albums_fts MATCH ?")
+                .bind(fts_q)
+                .fetch_one(&state.pool)
+                .await?;
+
+        (albums, Some(total.0))
+    } else {
+        // Empty query after processing
+        (vec![], Some(0))
+    };
 
     // Get starred status and ratings for albums
     let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
@@ -183,14 +289,11 @@ pub async fn search3(
         })
         .collect();
 
-    // Search songs - handle wildcard query specially, with dynamic sorting
-    let (songs, song_total): (Vec<crate::db::models::Song>, Option<i64>) = if params
-        .query
-        .is_empty()
-        || params.query == "*"
-    {
+    // ========================================================================
+    // Search songs using FTS5
+    // ========================================================================
+    let (songs, song_total): (Vec<crate::db::models::Song>, Option<i64>) = if is_wildcard {
         // Return all songs with dynamic sorting
-        // Join with scrobbles to get play count
         let needs_play_count = params.song_sort.as_deref() == Some("playCount");
 
         let query = if needs_play_count {
@@ -226,12 +329,7 @@ pub async fn search3(
             .await?;
 
         (songs, Some(total.0))
-    } else {
-        // Escape query for FTS5 - wrap in double quotes to make it a phrase query
-        // and escape any internal double quotes. This prevents SQL injection and
-        // FTS5 operator interpretation (e.g., "24-7" doesn't become "24 NOT 7")
-        let escaped_query = format!("\"{}\"", params.query.replace("\"", "\"\""));
-
+    } else if let Some(ref fts_q) = fts_query {
         // Use FTS5 for actual search queries with dynamic sorting
         let needs_play_count = params.song_sort.as_deref() == Some("playCount");
 
@@ -261,7 +359,7 @@ pub async fn search3(
         };
 
         let songs: Vec<crate::db::models::Song> = sqlx::query_as(&query)
-            .bind(&escaped_query)
+            .bind(fts_q)
             .bind(song_count)
             .bind(song_offset)
             .fetch_all(&state.pool)
@@ -270,34 +368,14 @@ pub async fn search3(
         // Get total count for FTS search
         let total: (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM songs_fts WHERE songs_fts MATCH ?")
-                .bind(&escaped_query)
+                .bind(fts_q)
                 .fetch_one(&state.pool)
                 .await?;
 
         (songs, Some(total.0))
-    };
-
-    // Get totals for artists and albums (only when offset is 0 for efficiency)
-    let artist_total: Option<i64> = if artist_offset == 0 {
-        let count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM artists WHERE name LIKE ? COLLATE NOCASE")
-                .bind(&search_term)
-                .fetch_one(&state.pool)
-                .await?;
-        Some(count.0)
     } else {
-        None
-    };
-
-    let album_total: Option<i64> = if album_offset == 0 {
-        let count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM albums WHERE name LIKE ? COLLATE NOCASE")
-                .bind(&search_term)
-                .fetch_one(&state.pool)
-                .await?;
-        Some(count.0)
-    } else {
-        None
+        // Empty query after processing
+        (vec![], Some(0))
     };
 
     // Get starred status and ratings for songs
