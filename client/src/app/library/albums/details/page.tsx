@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
+import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
 import { isShuffledAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
@@ -32,8 +33,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
+import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { CoverImage } from "@/components/shared/cover-image";
 import { formatTotalDuration, formatCount } from "@/lib/utils/format";
+import { cn } from "@/lib/utils";
 
 function AlbumDetailContent() {
   const searchParams = useSearchParams();
@@ -65,24 +68,37 @@ function AlbumDetailContent() {
     enabled: isReady && !!id,
   });
 
+  const songs = albumData?.song ?? [];
+  
+  // Multi-selection support
+  const selection = useTrackSelection(songs);
+
   const coverArtUrl = albumData?.coverArt
     ? getClient()?.getCoverArtUrl(albumData.coverArt, 400)
     : undefined;
 
-  const totalDuration = albumData?.song?.reduce((acc, song) => acc + song.duration, 0) ?? 0;
+  const totalDuration = songs.reduce((acc, song) => acc + song.duration, 0);
 
   const handlePlayAll = () => {
-    if (albumData?.song && albumData.song.length > 0) {
+    if (songs.length > 0) {
       setIsShuffled(false);
-      playNow(albumData.song);
+      playNow(songs);
     }
   };
 
   const handleShuffle = () => {
-    if (albumData?.song && albumData.song.length > 0) {
+    if (songs.length > 0) {
       setIsShuffled(true);
-      const shuffled = [...albumData.song].sort(() => Math.random() - 0.5);
+      const shuffled = [...songs].sort(() => Math.random() - 0.5);
       playNow(shuffled);
+    }
+  };
+
+  const handlePlaySelected = () => {
+    const selectedSongs = selection.getSelectedSongs();
+    if (selectedSongs.length > 0) {
+      playNow(selectedSongs);
+      selection.clearSelection();
     }
   };
 
@@ -226,7 +242,7 @@ function AlbumDetailContent() {
             size="lg"
             className="rounded-full gap-2 px-8"
             onClick={handlePlayAll}
-            disabled={isLoading || !albumData?.song?.length}
+            disabled={isLoading || songs.length === 0}
           >
             <Play className="w-5 h-5 ml-0.5" />
             Play
@@ -236,7 +252,7 @@ function AlbumDetailContent() {
             size="lg"
             className="rounded-full gap-2"
             onClick={handleShuffle}
-            disabled={isLoading || !albumData?.song?.length}
+            disabled={isLoading || songs.length === 0}
           >
             <Shuffle className="w-5 h-5" />
             Shuffle
@@ -253,19 +269,19 @@ function AlbumDetailContent() {
             <DropdownMenuContent align="end">
               <DropdownMenuItem 
                 onClick={() => {
-                  if (albumData?.song) {
-                    albumData.song.forEach(song => addToQueue(song, "last"));
-                    toast.success(`Added ${albumData.song.length} songs to queue`);
+                  if (songs.length > 0) {
+                    songs.forEach(song => addToQueue(song, "last"));
+                    toast.success(`Added ${songs.length} songs to queue`);
                   }
                 }}
-                disabled={!albumData?.song?.length}
+                disabled={songs.length === 0}
               >
                 <ListEnd className="w-4 h-4 mr-2" />
                 Add all to Queue
               </DropdownMenuItem>
               <DropdownMenuItem 
                 onClick={() => setAddToPlaylistOpen(true)}
-                disabled={!albumData?.song?.length}
+                disabled={songs.length === 0}
               >
                 <FolderPlus className="w-4 h-4 mr-2" />
                 Add all to Playlist
@@ -290,20 +306,23 @@ function AlbumDetailContent() {
       </div>
 
       {/* Song list */}
-      <div className="divide-y divide-border/50">
+      <div className={cn("divide-y divide-border/50", selection.hasSelection && "select-none-during-selection")}>
         {isLoading ? (
           Array.from({ length: 10 }).map((_, i) => (
             <SongRowSkeleton key={i} />
           ))
-        ) : albumData?.song && albumData.song.length > 0 ? (
-          albumData.song.map((song, index) => (
+        ) : songs.length > 0 ? (
+          songs.map((song, index) => (
             <SongRow
               key={song.id}
               song={song}
               index={index}
               showAlbum={false}
               showCover={true}
-              queueSongs={albumData.song}
+              queueSongs={songs}
+              isSelected={selection.isSelected(song.id)}
+              isSelectionMode={selection.hasSelection}
+              onSelect={(e) => selection.handleSelect(song.id, e)}
             />
           ))
         ) : (
@@ -313,15 +332,28 @@ function AlbumDetailContent() {
         )}
       </div>
 
+      {/* Bulk actions bar */}
+      <BulkActionsBar
+        selectedCount={selection.selectedCount}
+        onClear={selection.clearSelection}
+        onPlayNow={handlePlaySelected}
+        onPlayNext={() => selection.addSelectedToQueue("next")}
+        onAddToQueue={() => selection.addSelectedToQueue("last")}
+        onStar={() => selection.starSelected(true)}
+        onUnstar={() => selection.starSelected(false)}
+        onSelectAll={selection.selectAll}
+        getSelectedSongs={selection.getSelectedSongs}
+      />
+
       {/* Spacer for player bar */}
       <div className="h-24" />
 
       {/* Add to Playlist Dialog */}
-      {albumData?.song && (
+      {songs.length > 0 && (
         <AddToPlaylistDialog
           open={addToPlaylistOpen}
           onOpenChange={setAddToPlaylistOpen}
-          songs={albumData.song}
+          songs={songs}
         />
       )}
     </div>

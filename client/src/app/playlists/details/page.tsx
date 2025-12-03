@@ -1,11 +1,26 @@
 "use client";
 
-import { useState, useEffect, useMemo, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import {
   Play,
   Shuffle,
@@ -14,6 +29,7 @@ import {
   Pencil,
   Trash2,
   ArrowLeft,
+  GripVertical,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -44,6 +60,7 @@ import {
 import { PlaylistCover } from "@/components/shared/playlist-cover";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
+import { SortableSongRow } from "@/components/shared/sortable-song-row";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
 import { formatDuration, formatCount, formatDate } from "@/lib/utils/format";
@@ -109,25 +126,100 @@ function PlaylistDetailContent() {
     },
   });
 
+  // Reorder mutation
+  const reorderMutation = useMutation({
+    mutationFn: async (songIds: string[]) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      await client.reorderPlaylistSongs(playlistId!, songIds);
+    },
+    onSuccess: () => {
+      // Don't invalidate - we already have the optimistic update in localSongOrder
+      toast.success("Playlist order updated");
+    },
+    onError: () => {
+      // On error, refetch to restore the correct order
+      queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
+      toast.error("Failed to update playlist order");
+    },
+  });
+
   const songs = playlist?.entry ?? [];
+  
+  // Local state for optimistic reordering
+  const [localSongOrder, setLocalSongOrder] = useState<Song[]>([]);
+  
+  // Sync local order with fetched data
+  useEffect(() => {
+    if (songs.length > 0) {
+      setLocalSongOrder(songs);
+    }
+  }, [songs]);
+
+  // Use local order for display (allows optimistic updates)
+  const orderedSongs = localSongOrder.length > 0 ? localSongOrder : songs;
+  
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Handle drag end
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+
+      if (over && active.id !== over.id) {
+        const oldIndex = localSongOrder.findIndex((item) => item.id === active.id);
+        const newIndex = localSongOrder.findIndex((item) => item.id === over.id);
+
+        if (oldIndex !== -1 && newIndex !== -1) {
+          const newOrder = arrayMove(localSongOrder, oldIndex, newIndex);
+          
+          // Update local state for optimistic UI
+          setLocalSongOrder(newOrder);
+          
+          // Persist the new order to the server
+          reorderMutation.mutate(newOrder.map((s) => s.id));
+        }
+      }
+    },
+    [localSongOrder, reorderMutation]
+  );
+
+  // Check if drag-and-drop should be enabled (only when no filter/sort applied)
+  const isDragEnabled = !debouncedFilter.trim() && sortConfig.field === "custom" && viewMode === "list";
   
   // Filter and sort songs
   const displaySongs = useMemo(() => {
-    let filtered = songs;
+    // When drag is enabled, use local order; otherwise use ordered songs
+    const sourceSongs = isDragEnabled ? orderedSongs : orderedSongs;
+    let filtered = sourceSongs;
     
     // Apply filter
     if (debouncedFilter.trim()) {
       const query = debouncedFilter.toLowerCase();
-      filtered = songs.filter(song =>
+      filtered = sourceSongs.filter(song =>
         song.title?.toLowerCase().includes(query) ||
         song.artist?.toLowerCase().includes(query) ||
         song.album?.toLowerCase().includes(query)
       );
     }
     
-    // Apply sort
-    return sortSongs(filtered, sortConfig.field, sortConfig.direction);
-  }, [songs, debouncedFilter, sortConfig]);
+    // Apply sort (skip for custom/playlist order)
+    if (sortConfig.field !== "custom") {
+      return sortSongs(filtered, sortConfig.field, sortConfig.direction);
+    }
+    
+    return filtered;
+  }, [orderedSongs, debouncedFilter, sortConfig, isDragEnabled]);
 
   // Track selection - use displaySongs for selection
   const {
@@ -398,6 +490,39 @@ function PlaylistDetailContent() {
                 />
               ))}
             </div>
+          ) : isDragEnabled ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={displaySongs.map((s) => s.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-1">
+                  {displaySongs.map((song, index) => (
+                    <SortableSongRow
+                      key={song.id}
+                      song={song}
+                      index={index}
+                      showCover
+                      showArtist={columnVisibility.artist}
+                      showAlbum={columnVisibility.album}
+                      showDuration={columnVisibility.duration}
+                      showPlayCount={columnVisibility.playCount}
+                      showYear={columnVisibility.year}
+                      showDateAdded={columnVisibility.dateAdded}
+                      queueSongs={displaySongs}
+                      isSelected={isSelected(song.id)}
+                      isSelectionMode={hasSelection}
+                      onSelect={(e) => handleSelect(song.id, e)}
+                      disabled={hasSelection}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
           ) : (
             <div className="space-y-1">
               {displaySongs.map((song, index) => (

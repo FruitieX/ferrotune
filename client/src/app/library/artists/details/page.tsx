@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
+import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
 import { ArtistDropdownMenu, useArtistStar } from "@/components/browse/artist-context-menu";
 import { CoverImage } from "@/components/shared/cover-image";
+import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { formatCount } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import type { Album } from "@/lib/api/types";
@@ -57,6 +59,9 @@ function ArtistDetailContent() {
   // Songs come directly from server response - includes songs on compilations
   const allSongs = artistData?.song ?? [];
 
+  // Multi-selection support for songs
+  const selection = useTrackSelection(allSongs);
+
   // Use the artist star hook
   const { isStarred, handleStar, setIsStarred } = useArtistStar(
     !!artistData?.starred,
@@ -87,6 +92,14 @@ function ArtistDetailContent() {
       setIsShuffled(true);
       const shuffled = [...allSongs].sort(() => Math.random() - 0.5);
       playNow(shuffled);
+    }
+  };
+
+  const handlePlaySelected = () => {
+    const selectedSongs = selection.getSelectedSongs();
+    if (selectedSongs.length > 0) {
+      playNow(selectedSongs);
+      selection.clearSelection();
     }
   };
 
@@ -309,7 +322,7 @@ function ArtistDetailContent() {
           </div>
         ) : allSongs.length > 0 ? (
           <motion.div 
-            className="space-y-1"
+            className={cn("space-y-1", selection.hasSelection && "select-none-during-selection")}
             initial="hidden"
             animate="visible"
             variants={{
@@ -331,6 +344,9 @@ function ArtistDetailContent() {
                   showArtist={false}
                   showCover={true}
                   queueSongs={allSongs}
+                  isSelected={selection.isSelected(song.id)}
+                  isSelectionMode={selection.hasSelection}
+                  onSelect={(e) => selection.handleSelect(song.id, e)}
                 />
               </motion.div>
             ))}
@@ -341,6 +357,19 @@ function ArtistDetailContent() {
           </div>
         )}
       </div>
+
+      {/* Bulk actions bar */}
+      <BulkActionsBar
+        selectedCount={selection.selectedCount}
+        onClear={selection.clearSelection}
+        onPlayNow={handlePlaySelected}
+        onPlayNext={() => selection.addSelectedToQueue("next")}
+        onAddToQueue={() => selection.addSelectedToQueue("last")}
+        onStar={() => selection.starSelected(true)}
+        onUnstar={() => selection.starSelected(false)}
+        onSelectAll={selection.selectAll}
+        getSelectedSongs={selection.getSelectedSongs}
+      />
 
       {/* Spacer for player bar */}
       <div className="h-24" />

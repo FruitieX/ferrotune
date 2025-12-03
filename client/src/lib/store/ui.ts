@@ -74,6 +74,20 @@ export const playlistColumnVisibilityAtom = atomWithStorage<ColumnVisibility>("f
   year: false,
 });
 
+// Favorites albums view settings
+export const favoritesAlbumViewModeAtom = atomWithStorage<ViewMode>("ferrotune-favorites-album-view", "grid");
+export const favoritesAlbumSortAtom = atomWithStorage<SortConfig>("ferrotune-favorites-album-sort", {
+  field: "name",
+  direction: "asc",
+});
+
+// Favorites artists view settings
+export const favoritesArtistViewModeAtom = atomWithStorage<ViewMode>("ferrotune-favorites-artist-view", "grid");
+export const favoritesArtistSortAtom = atomWithStorage<SortConfig>("ferrotune-favorites-artist-sort", {
+  field: "name",
+  direction: "asc",
+});
+
 // Keyboard shortcuts dialog
 export const shortcutsDialogOpenAtom = atom<boolean>(false);
 
