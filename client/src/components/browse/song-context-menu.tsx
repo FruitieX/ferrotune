@@ -40,6 +40,7 @@ import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
 import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
+import { useStarred } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 import Link from "next/link";
@@ -53,7 +54,7 @@ interface SongContextMenuProps {
 export function SongContextMenu({ song, children, queueSongs }: SongContextMenuProps) {
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
-  const [isStarred, setIsStarred] = useState(!!song.starred);
+  const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
   const [currentRating, setCurrentRating] = useState(song.userRating ?? 0);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -75,26 +76,6 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
   const handleAddToQueue = () => {
     addToQueue(song, "last");
     toast.success(`Added "${song.title}" to queue`);
-  };
-
-  const handleStar = async () => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      if (isStarred) {
-        await client.unstar({ id: song.id });
-        setIsStarred(false);
-        toast.success(`Removed "${song.title}" from favorites`);
-      } else {
-        await client.star({ id: song.id });
-        setIsStarred(true);
-        toast.success(`Added "${song.title}" to favorites`);
-      }
-    } catch (error) {
-      toast.error("Failed to update favorites");
-      console.error(error);
-    }
   };
 
   const handleRate = async (rating: number) => {
@@ -140,7 +121,7 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
 
       <ContextMenuSeparator />
 
-      <ContextMenuItem onClick={handleStar}>
+      <ContextMenuItem onClick={toggleStar}>
         <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
         {isStarred ? "Remove from Favorites" : "Add to Favorites"}
       </ContextMenuItem>
@@ -230,7 +211,7 @@ interface SongDropdownMenuProps {
 export function SongDropdownMenu({ song, queueSongs, trigger }: SongDropdownMenuProps) {
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
-  const [isStarred, setIsStarred] = useState(!!song.starred);
+  const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
   const [currentRating, setCurrentRating] = useState(song.userRating ?? 0);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -252,26 +233,6 @@ export function SongDropdownMenu({ song, queueSongs, trigger }: SongDropdownMenu
   const handleAddToQueue = () => {
     addToQueue(song, "last");
     toast.success(`Added "${song.title}" to queue`);
-  };
-
-  const handleStar = async () => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      if (isStarred) {
-        await client.unstar({ id: song.id });
-        setIsStarred(false);
-        toast.success(`Removed "${song.title}" from favorites`);
-      } else {
-        await client.star({ id: song.id });
-        setIsStarred(true);
-        toast.success(`Added "${song.title}" to favorites`);
-      }
-    } catch (error) {
-      toast.error("Failed to update favorites");
-      console.error(error);
-    }
   };
 
   const handleRate = async (rating: number) => {
@@ -337,7 +298,7 @@ export function SongDropdownMenu({ song, queueSongs, trigger }: SongDropdownMenu
 
           <DropdownMenuSeparator />
 
-          <DropdownMenuItem onClick={handleStar}>
+          <DropdownMenuItem onClick={toggleStar}>
             <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
             {isStarred ? "Remove from Favorites" : "Add to Favorites"}
           </DropdownMenuItem>

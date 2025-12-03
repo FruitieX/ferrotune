@@ -212,8 +212,9 @@ interface RowActionsProps {
 
 /**
  * Standard action buttons for media rows.
- * Button order: Star → Custom children → Dropdown
+ * Button order: Dropdown → Custom children → Star (heart on right)
  * Note: Play button is now on cover art overlay, not in actions.
+ * The star button is always visible when starred, otherwise shows on hover.
  */
 export function RowActions({
   onStar,
@@ -222,12 +223,21 @@ export function RowActions({
   children,
 }: RowActionsProps) {
   return (
-    <div className={rowActionsContainerStyles}>
+    <div className="flex items-center gap-1 shrink-0">
+      {/* Actions that only show on hover */}
+      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+        {dropdownMenu}
+        {children}
+      </div>
+      {/* Star button - always visible when starred, otherwise on hover */}
       {onStar && (
         <Button
           variant="ghost"
           size="icon"
-          className={rowActionButtonStyles}
+          className={cn(
+            rowActionButtonStyles,
+            !isStarred && "opacity-0 group-hover:opacity-100 transition-opacity"
+          )}
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -242,8 +252,6 @@ export function RowActions({
           />
         </Button>
       )}
-      {children}
-      {dropdownMenu}
     </div>
   );
 }

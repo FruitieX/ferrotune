@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { motion, AnimatePresence, Reorder, useDragControls } from "framer-motion";
-import { X, ListMusic, Trash2, GripVertical, Play, Pause, Clock, FolderPlus, MoreHorizontal, ListPlus, ListStart } from "lucide-react";
+import { X, ListMusic, Trash2, GripVertical, Play, Pause, Clock, FolderPlus, MoreHorizontal, ListPlus, ListStart, User, Disc } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { queuePanelOpenAtom } from "@/lib/store/ui";
 import {
@@ -84,6 +85,7 @@ interface QueueDisplayItem {
  * On desktop, use QueueSidebar instead.
  */
 export function QueuePanel() {
+  const router = useRouter();
   const isDesktop = useIsDesktop();
   const [isOpen, setIsOpen] = useAtom(queuePanelOpenAtom);
   const [queue, setQueue] = useAtom(queueAtom);
@@ -99,6 +101,14 @@ export function QueuePanel() {
   const shuffledIndices = useAtomValue(shuffledIndicesAtom);
   const { togglePlayPause } = useAudioEngine();
   const [nowPlayingAddToPlaylist, setNowPlayingAddToPlaylist] = useState(false);
+
+  const navigateToArtist = (artistId: string) => {
+    router.push(`/library/artists/details?id=${artistId}`);
+  };
+
+  const navigateToAlbum = (albumId: string) => {
+    router.push(`/library/albums/details?id=${albumId}`);
+  };
 
   // Calculate up next and previous tracks based on shuffle state
   const getUpNextAndPrevious = () => {
@@ -287,6 +297,14 @@ export function QueuePanel() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => navigateToArtist(currentTrack.artistId)}>
+                              <User className="w-4 h-4 mr-2" />
+                              Go to Artist
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => navigateToAlbum(currentTrack.albumId)}>
+                              <Disc className="w-4 h-4 mr-2" />
+                              Go to Album
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setNowPlayingAddToPlaylist(true)}>
                               <FolderPlus className="w-4 h-4 mr-2" />
                               Add to Playlist
@@ -299,6 +317,14 @@ export function QueuePanel() {
                       </motion.div>
                     </ContextMenuTrigger>
                     <ContextMenuContent>
+                      <ContextMenuItem onClick={() => navigateToArtist(currentTrack.artistId)}>
+                        <User className="w-4 h-4 mr-2" />
+                        Go to Artist
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => navigateToAlbum(currentTrack.albumId)}>
+                        <Disc className="w-4 h-4 mr-2" />
+                        Go to Album
+                      </ContextMenuItem>
                       <ContextMenuItem onClick={() => setNowPlayingAddToPlaylist(true)}>
                         <FolderPlus className="w-4 h-4 mr-2" />
                         Add to Playlist
@@ -336,6 +362,8 @@ export function QueuePanel() {
                           onPlay={() => handlePlayTrack(item.originalIndex)}
                           onRemove={() => removeFromQueue(item.originalIndex)}
                           onPlayNext={() => handlePlayNext(item.queueItem.song)}
+                          onGoToArtist={() => navigateToArtist(item.queueItem.song.artistId)}
+                          onGoToAlbum={() => navigateToAlbum(item.queueItem.song.albumId)}
                         />
                       ))}
                     </AnimatePresence>
@@ -357,6 +385,8 @@ export function QueuePanel() {
                         onPlay={() => handlePlayTrack(item.originalIndex)}
                         onAddToQueue={() => addToQueue([item.queueItem.song], "last")}
                         onPlayNext={() => handlePlayNext(item.queueItem.song)}
+                        onGoToArtist={() => navigateToArtist(item.queueItem.song.artistId)}
+                        onGoToAlbum={() => navigateToAlbum(item.queueItem.song.albumId)}
                       />
                     ))}
                   </div>
@@ -391,9 +421,11 @@ interface PlayablePreviousItemProps {
   onPlay: () => void;
   onAddToQueue: () => void;
   onPlayNext: () => void;
+  onGoToArtist: () => void;
+  onGoToAlbum: () => void;
 }
 
-function PlayablePreviousItem({ item, onPlay, onAddToQueue, onPlayNext }: PlayablePreviousItemProps) {
+function PlayablePreviousItem({ item, onPlay, onAddToQueue, onPlayNext, onGoToArtist, onGoToAlbum }: PlayablePreviousItemProps) {
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const song = item.queueItem.song;
 
@@ -438,6 +470,14 @@ function PlayablePreviousItem({ item, onPlay, onAddToQueue, onPlayNext }: Playab
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={onGoToArtist}>
+                  <User className="w-4 h-4 mr-2" />
+                  Go to Artist
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onGoToAlbum}>
+                  <Disc className="w-4 h-4 mr-2" />
+                  Go to Album
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={onAddToQueue}>
                   <ListPlus className="w-4 h-4 mr-2" />
                   Add to Queue
@@ -459,6 +499,14 @@ function PlayablePreviousItem({ item, onPlay, onAddToQueue, onPlayNext }: Playab
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          <ContextMenuItem onClick={onGoToArtist}>
+            <User className="w-4 h-4 mr-2" />
+            Go to Artist
+          </ContextMenuItem>
+          <ContextMenuItem onClick={onGoToAlbum}>
+            <Disc className="w-4 h-4 mr-2" />
+            Go to Album
+          </ContextMenuItem>
           <ContextMenuItem onClick={onAddToQueue}>
             <ListPlus className="w-4 h-4 mr-2" />
             Add to Queue
@@ -488,9 +536,11 @@ interface DraggableQueueItemProps {
   onPlay: () => void;
   onRemove: () => void;
   onPlayNext: () => void;
+  onGoToArtist: () => void;
+  onGoToAlbum: () => void;
 }
 
-function DraggableQueueItem({ item, song, onPlay, onRemove, onPlayNext }: DraggableQueueItemProps) {
+function DraggableQueueItem({ item, song, onPlay, onRemove, onPlayNext, onGoToArtist, onGoToAlbum }: DraggableQueueItemProps) {
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const dragControls = useDragControls();
 
@@ -555,6 +605,14 @@ function DraggableQueueItem({ item, song, onPlay, onRemove, onPlayNext }: Dragga
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={onGoToArtist}>
+                  <User className="w-4 h-4 mr-2" />
+                  Go to Artist
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onGoToAlbum}>
+                  <Disc className="w-4 h-4 mr-2" />
+                  Go to Album
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={onPlayNext}>
                   <ListStart className="w-4 h-4 mr-2" />
                   Play Next
@@ -576,6 +634,14 @@ function DraggableQueueItem({ item, song, onPlay, onRemove, onPlayNext }: Dragga
           </Reorder.Item>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          <ContextMenuItem onClick={onGoToArtist}>
+            <User className="w-4 h-4 mr-2" />
+            Go to Artist
+          </ContextMenuItem>
+          <ContextMenuItem onClick={onGoToAlbum}>
+            <Disc className="w-4 h-4 mr-2" />
+            Go to Album
+          </ContextMenuItem>
           <ContextMenuItem onClick={onPlayNext}>
             <ListStart className="w-4 h-4 mr-2" />
             Play Next

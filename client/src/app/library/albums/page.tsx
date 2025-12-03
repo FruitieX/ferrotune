@@ -6,27 +6,50 @@ import { Music } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
-import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
+import { albumViewModeAtom, libraryFilterAtom, librarySortAtom } from "@/lib/store/ui";
 import { playNowAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { AlbumCard, AlbumCardSkeleton, AlbumCardCompact } from "@/components/browse/album-card";
 import { MediaRowSkeleton } from "@/components/shared/media-row";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
-import type { Album } from "@/lib/api/types";
+import type { Album, AlbumListType } from "@/lib/api/types";
 
 const PAGE_SIZE = 50;
+
+// Map sort config to getAlbumList2 type parameter
+function getSortType(field: string, direction: string): AlbumListType {
+  // Note: getAlbumList2 has limited sorting options compared to search3
+  // For full sorting support, we'd need to use search3 for albums too
+  switch (field) {
+    case "artist":
+      return "alphabeticalByArtist";
+    case "year":
+      return "byYear";
+    case "dateAdded":
+      return "newest";
+    case "name":
+    default:
+      return "alphabeticalByName";
+  }
+}
 
 export default function AlbumsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
+  const sortConfig = useAtomValue(librarySortAtom);
   const debouncedFilter = useDebounce(filter, 300);
   const playNow = useSetAtom(playNowAtom);
   
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
 
+  // Get the appropriate list type for the current sort
+  const listType = getSortType(sortConfig.field, sortConfig.direction);
+
   // Fetch albums with infinite scroll (when no filter)
+  // Note: getAlbumList2 doesn't support desc sorting for all types, 
+  // so for now we use what's available
   const {
     data: albumsData,
     isLoading,
@@ -34,12 +57,12 @@ export default function AlbumsPage() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["albums", "alphabetical"],
+    queryKey: ["albums", listType, sortConfig.direction],
     queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getAlbumList2({
-        type: "alphabeticalByName",
+        type: listType,
         size: PAGE_SIZE,
         offset: pageParam,
       });
@@ -54,9 +77,9 @@ export default function AlbumsPage() {
     enabled: isReady && !debouncedFilter,
   });
 
-  // Search albums when filter is active
+  // Search albums when filter is active (with server-side sorting)
   const { data: searchData, isLoading: isSearching } = useQuery({
-    queryKey: ["albums", "search", debouncedFilter],
+    queryKey: ["albums", "search", debouncedFilter, sortConfig.field, sortConfig.direction],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
@@ -65,6 +88,8 @@ export default function AlbumsPage() {
         albumCount: 100,
         artistCount: 0,
         songCount: 0,
+        albumSort: sortConfig.field,
+        albumSortDir: sortConfig.direction,
       });
       return response.searchResult3.album ?? [];
     },

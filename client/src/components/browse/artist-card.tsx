@@ -16,9 +16,33 @@ interface ArtistCardProps {
 }
 
 export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
+  const [isStarred, setIsStarred] = useState(!!artist.starred);
+  
   const coverArtUrl = artist.coverArt
     ? getClient()?.getCoverArtUrl(artist.coverArt, 300)
     : undefined;
+
+  const handleStar = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const client = getClient();
+    if (!client) return;
+
+    try {
+      if (isStarred) {
+        await client.unstar({ artistId: artist.id });
+        setIsStarred(false);
+        toast.success(`Removed from favorites`);
+      } else {
+        await client.star({ artistId: artist.id });
+        setIsStarred(true);
+        toast.success(`Added to favorites`);
+      }
+    } catch (error) {
+      toast.error("Failed to update favorites");
+      console.error(error);
+    }
+  };
 
   return (
     <MediaCard
@@ -30,6 +54,8 @@ export function ArtistCard({ artist, onPlay, className }: ArtistCardProps) {
       colorSeed={artist.name}
       coverType="artist"
       onPlay={onPlay}
+      onStar={handleStar}
+      isStarred={isStarred}
       dropdownMenu={<ArtistDropdownMenu artist={artist} onPlay={onPlay} />}
       contextMenu={(children) => (
         <ArtistContextMenu artist={artist}>{children}</ArtistContextMenu>

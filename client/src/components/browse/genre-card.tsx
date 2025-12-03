@@ -136,39 +136,39 @@ export function GenreRow({ genre, className }: GenreRowProps) {
   return (
     <GenreContextMenu genre={genre}>
       <div className={cn(rowContainerStyles, className)} onDoubleClick={handlePlay}>
-        <Link
-          href={`/library/genres/details?name=${encodeURIComponent(genre.value)}`}
-          className="flex items-center gap-4 flex-1 min-w-0"
-          onClick={(e) => e.stopPropagation()}
+        {/* Colored genre indicator with play overlay */}
+        <div
+          className="group/cover relative w-10 h-10 rounded-md shrink-0 flex items-center justify-center"
+          style={{ backgroundColor: `hsl(${hue}, 60%, 40%)` }}
         >
-          {/* Colored genre indicator with play overlay */}
-          <div
-            className="group/cover relative w-10 h-10 rounded-md shrink-0 flex items-center justify-center"
-            style={{ backgroundColor: `hsl(${hue}, 60%, 40%)` }}
+          <Tag className="w-5 h-5 text-white group-hover/cover:opacity-0 transition-opacity" />
+          {/* Play button overlay - matches MediaRow styling */}
+          <button
+            type="button"
+            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded-md cursor-pointer"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handlePlay();
+            }}
           >
-            <Tag className="w-5 h-5 text-white group-hover/cover:opacity-0 transition-opacity" />
-            {/* Play button overlay - matches MediaRow styling */}
-            <button
-              type="button"
-              className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded-md cursor-pointer"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handlePlay();
-              }}
-            >
-              <Play className="w-4 h-4 ml-0.5 text-white" />
-            </button>
-          </div>
+            <Play className="w-4 h-4 ml-0.5 text-white" />
+          </button>
+        </div>
 
-          {/* Genre info */}
-          <div className="min-w-0 flex-1">
-            <p className="font-medium text-sm truncate hover:underline">{genre.value}</p>
-            <p className="text-xs text-muted-foreground truncate">
-              {genre.albumCount} albums • {genre.songCount} songs
-            </p>
-          </div>
-        </Link>
+        {/* Genre info - link only wraps the text content */}
+        <div className="min-w-0 flex-1">
+          <Link
+            href={`/library/genres/details?name=${encodeURIComponent(genre.value)}`}
+            className="font-medium text-sm truncate hover:underline block w-fit max-w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {genre.value}
+          </Link>
+          <p className="text-xs text-muted-foreground truncate">
+            {genre.albumCount} albums • {genre.songCount} songs
+          </p>
+        </div>
 
         {/* Actions */}
         <div className={rowActionsContainerStyles}>

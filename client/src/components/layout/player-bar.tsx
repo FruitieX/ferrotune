@@ -1,10 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { toast } from "sonner";
 import {
   Play,
   Pause,
@@ -40,6 +38,7 @@ import {
 import { currentTrackAtom } from "@/lib/store/queue";
 import { queuePanelOpenAtom, fullscreenPlayerOpenAtom } from "@/lib/store/ui";
 import { serverConnectionAtom } from "@/lib/store/auth";
+import { useStarred } from "@/lib/store/starred";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 
@@ -54,37 +53,17 @@ export function PlayerBar() {
   const connection = useAtomValue(serverConnectionAtom);
   const [queuePanelOpen, setQueuePanelOpen] = useAtom(queuePanelOpenAtom);
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
-  const [isStarred, setIsStarred] = useState(false);
 
   const { togglePlayPause, next, previous, seekPercent } = useAudioEngine();
   const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
   const { repeatMode, cycleRepeatMode } = useRepeatMode();
   const { isShuffled, toggleShuffle } = useShuffle();
 
-  // Sync starred state when track changes
-  useEffect(() => {
-    setIsStarred(!!currentTrack?.starred);
-  }, [currentTrack?.id, currentTrack?.starred]);
-
-  const handleStar = async () => {
-    const client = getClient();
-    if (!client || !currentTrack) return;
-
-    try {
-      if (isStarred) {
-        await client.unstar({ id: currentTrack.id });
-        setIsStarred(false);
-        toast.success("Removed from favorites");
-      } else {
-        await client.star({ id: currentTrack.id });
-        setIsStarred(true);
-        toast.success("Added to favorites");
-      }
-    } catch (error) {
-      toast.error("Failed to update favorites");
-      console.error(error);
-    }
-  };
+  // Use global starred state
+  const { isStarred, toggleStar } = useStarred(
+    currentTrack?.id ?? "",
+    !!currentTrack?.starred
+  );
 
   const isEnded = playbackState === "ended";
   const progress = isEnded ? 0 : (duration > 0 ? (currentTime / duration) * 100 : 0);
@@ -173,7 +152,7 @@ export function PlayerBar() {
                 variant="ghost"
                 size="icon"
                 className="hidden sm:flex shrink-0 h-8 w-8"
-                onClick={handleStar}
+                onClick={toggleStar}
               >
                 <Heart className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")} />
               </Button>

@@ -3,15 +3,14 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useState } from "react";
-import { toast } from "sonner";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
-import { formatDuration } from "@/lib/utils/format";
+import { formatDuration, formatDate } from "@/lib/utils/format";
 import { currentTrackAtom, playNowAtom } from "@/lib/store/queue";
 import { playbackStateAtom } from "@/lib/store/player";
+import { useStarred } from "@/lib/store/starred";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { MediaRow, MediaRowSkeleton, RowActions } from "@/components/shared/media-row";
 import { MediaCard, MediaCardSkeleton } from "@/components/shared/media-card";
@@ -86,6 +85,10 @@ interface SongRowProps {
   showAlbum?: boolean;
   showArtist?: boolean;
   showCover?: boolean;
+  showDuration?: boolean;
+  showPlayCount?: boolean;
+  showYear?: boolean;
+  showDateAdded?: boolean;
   queueSongs?: Song[]; // All songs in current context for queue
   // Selection props
   isSelected?: boolean;
@@ -100,6 +103,10 @@ export function SongRow({
   showAlbum = true,
   showArtist = true,
   showCover = false,
+  showDuration = true,
+  showPlayCount = false,
+  showYear = false,
+  showDateAdded = false,
   queueSongs,
   isSelected = false,
   isSelectionMode = false,
@@ -110,7 +117,7 @@ export function SongRow({
   const playbackState = useAtomValue(playbackStateAtom);
   const playNow = useSetAtom(playNowAtom);
   const { togglePlayPause } = useAudioEngine();
-  const [isStarred, setIsStarred] = useState(!!song.starred);
+  const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
 
   // Don't show track as current when playback has ended
   const isCurrentTrack = currentTrack?.id === song.id && playbackState !== "ended";
@@ -139,26 +146,10 @@ export function SongRow({
     }
   };
 
-  const handleStar = async (e: React.MouseEvent) => {
+  const handleStar = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      if (isStarred) {
-        await client.unstar({ id: song.id });
-        setIsStarred(false);
-        toast.success(`Removed from favorites`);
-      } else {
-        await client.star({ id: song.id });
-        setIsStarred(true);
-        toast.success(`Added to favorites`);
-      }
-    } catch (error) {
-      toast.error("Failed to update favorites");
-      console.error(error);
-    }
+    toggleStar();
   };
 
   // Build subtitle with clickable links
@@ -227,9 +218,20 @@ export function SongRow({
           />
         }
         rightContent={
-          <span className="text-sm text-muted-foreground tabular-nums shrink-0">
-            {formatDuration(song.duration)}
-          </span>
+          <div className="flex items-center gap-4 text-sm text-muted-foreground tabular-nums shrink-0">
+            {showYear && song.year && (
+              <span className="hidden sm:inline w-12 text-right">{song.year}</span>
+            )}
+            {showPlayCount && (
+              <span className="hidden md:inline w-12 text-right">{song.playCount ?? 0}</span>
+            )}
+            {showDateAdded && song.created && (
+              <span className="hidden lg:inline w-24 text-right">{formatDate(song.created)}</span>
+            )}
+            {showDuration && (
+              <span className="w-12 text-right">{formatDuration(song.duration)}</span>
+            )}
+          </div>
         }
         contextMenu={(children) => (
           <SongContextMenu song={song} queueSongs={queueSongs}>
@@ -275,6 +277,7 @@ export function SongCard({ song, queueSongs, className }: SongCardProps) {
   const playbackState = useAtomValue(playbackStateAtom);
   const playNow = useSetAtom(playNowAtom);
   const { togglePlayPause } = useAudioEngine();
+  const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
 
   const isCurrentTrack = currentTrack?.id === song.id && playbackState !== "ended";
 
@@ -291,6 +294,12 @@ export function SongCard({ song, queueSongs, className }: SongCardProps) {
     } else {
       playNow(song);
     }
+  };
+
+  const handleStar = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleStar();
   };
 
   const subtitleContent = (
@@ -315,6 +324,8 @@ export function SongCard({ song, queueSongs, className }: SongCardProps) {
       colorSeed={song.album}
       coverType="song"
       onPlay={handlePlay}
+      onStar={handleStar}
+      isStarred={isStarred}
       dropdownMenu={<SongDropdownMenu song={song} queueSongs={queueSongs} />}
       contextMenu={(children) => (
         <SongContextMenu song={song} queueSongs={queueSongs}>

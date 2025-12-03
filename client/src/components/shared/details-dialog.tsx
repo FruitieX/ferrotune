@@ -44,9 +44,18 @@ interface DetailsDialogProps {
 export function DetailsDialog({ item, open, onOpenChange, onSongDeleted }: DetailsDialogProps) {
   if (!item) return null;
 
+  // Stop context menu events from propagating outside the dialog
+  // This allows native browser context menus to work inside the dialog
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto overflow-x-hidden">
+      <DialogContent 
+        className="sm:max-w-xl max-h-[85vh] overflow-y-auto overflow-x-hidden"
+        onContextMenu={handleContextMenu}
+      >
         {item.type === "song" && (
           <SongDetails 
             song={item.data} 

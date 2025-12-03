@@ -372,3 +372,9 @@
 .animate-slide-up-fade {
   animation: slide-up-fade 0.2s ease-out forwards;
 }
+
+/* Prevent text selection in list views during multi-select */
+.select-none-during-selection {
+  user-select: none;
+  -webkit-user-select: none;
+}
