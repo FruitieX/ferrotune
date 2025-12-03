@@ -2,8 +2,17 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 
 // Playback state
-export type PlaybackState = "idle" | "loading" | "playing" | "paused" | "ended";
+export type PlaybackState = "idle" | "loading" | "playing" | "paused" | "ended" | "error";
 export const playbackStateAtom = atom<PlaybackState>("idle");
+
+// Playback error details
+export interface PlaybackError {
+  message: string;
+  trackId?: string;
+  trackTitle?: string;
+  timestamp: number;
+}
+export const playbackErrorAtom = atom<PlaybackError | null>(null);
 
 // Time tracking
 export const currentTimeAtom = atom<number>(0);

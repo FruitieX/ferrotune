@@ -59,6 +59,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { PlaylistCover } from "@/components/shared/playlist-cover";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { SortableSongRow } from "@/components/shared/sortable-song-row";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
@@ -478,18 +479,20 @@ function PlaylistDetailContent() {
           )
         ) : displaySongs.length > 0 ? (
           viewMode === "grid" ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-              {displaySongs.map((song) => (
+            <VirtualizedGrid
+              items={displaySongs}
+              renderItem={(song) => (
                 <SongCard
-                  key={song.id}
                   song={song}
                   queueSongs={displaySongs}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
                   onSelect={(e) => handleSelect(song.id, e)}
                 />
-              ))}
-            </div>
+              )}
+              renderSkeleton={() => <SongCardSkeleton />}
+              getItemKey={(song) => song.id}
+            />
           ) : isDragEnabled ? (
             <DndContext
               sensors={sensors}
@@ -524,10 +527,10 @@ function PlaylistDetailContent() {
               </SortableContext>
             </DndContext>
           ) : (
-            <div className="space-y-1">
-              {displaySongs.map((song, index) => (
+            <VirtualizedList
+              items={displaySongs}
+              renderItem={(song, index) => (
                 <SongRow
-                  key={song.id}
                   song={song}
                   index={index}
                   showCover
@@ -542,8 +545,11 @@ function PlaylistDetailContent() {
                   isSelectionMode={hasSelection}
                   onSelect={(e) => handleSelect(song.id, e)}
                 />
-              ))}
-            </div>
+              )}
+              renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+              getItemKey={(song) => song.id}
+              estimateItemHeight={56}
+            />
           )
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-center">

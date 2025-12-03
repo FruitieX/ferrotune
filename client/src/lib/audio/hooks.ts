@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { toast } from "sonner";
 import {
   playbackStateAtom,
+  playbackErrorAtom,
   currentTimeAtom,
   durationAtom,
   bufferedAtom,
@@ -58,6 +60,7 @@ function getGlobalAudio(): HTMLAudioElement {
  */
 export function useAudioEngineInit() {
   const [playbackState, setPlaybackState] = useAtom(playbackStateAtom);
+  const setPlaybackError = useSetAtom(playbackErrorAtom);
   const setCurrentTime = useSetAtom(currentTimeAtom);
   const setDuration = useSetAtom(durationAtom);
   const setBuffered = useSetAtom(bufferedAtom);
@@ -82,6 +85,7 @@ export function useAudioEngineInit() {
   // Refs for setters to avoid stale closures
   const settersRef = useRef({
     setPlaybackState,
+    setPlaybackError,
     setCurrentTime,
     setDuration,
     setBuffered,
@@ -97,6 +101,7 @@ export function useAudioEngineInit() {
   useEffect(() => {
     settersRef.current = {
       setPlaybackState,
+      setPlaybackError,
       setCurrentTime,
       setDuration,
       setBuffered,
@@ -282,12 +287,52 @@ export function useAudioEngineInit() {
 
     const handlePlaying = () => {
       console.log("[Audio] playing event");
+      // Clear any previous error when playback successfully starts
+      settersRef.current.setPlaybackError(null);
       settersRef.current.setPlaybackState("playing");
     };
 
     const handleError = (e: Event) => {
-      console.error("Audio error:", e);
-      settersRef.current.setPlaybackState("paused");
+      const audioElement = e.target as HTMLAudioElement;
+      const mediaError = audioElement?.error;
+      const state = stateRef.current;
+      
+      // Determine error message based on error code
+      let errorMessage = "Failed to play track";
+      if (mediaError) {
+        switch (mediaError.code) {
+          case MediaError.MEDIA_ERR_ABORTED:
+            errorMessage = "Playback was aborted";
+            break;
+          case MediaError.MEDIA_ERR_NETWORK:
+            errorMessage = "Network error while loading track";
+            break;
+          case MediaError.MEDIA_ERR_DECODE:
+            errorMessage = "Could not decode audio file";
+            break;
+          case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+            errorMessage = "Audio format not supported or file not found";
+            break;
+        }
+      }
+      
+      console.error("[Audio] Playback error:", errorMessage, mediaError);
+      
+      // Set error state
+      settersRef.current.setPlaybackError({
+        message: errorMessage,
+        trackId: state.currentTrack?.id,
+        trackTitle: state.currentTrack?.title,
+        timestamp: Date.now(),
+      });
+      settersRef.current.setPlaybackState("error");
+      
+      // Show toast notification
+      const trackName = state.currentTrack?.title || "Unknown track";
+      toast.error(`Playback failed: ${trackName}`, {
+        description: errorMessage,
+        duration: 5000,
+      });
     };
 
     audio.addEventListener("play", handlePlay);
@@ -400,6 +445,7 @@ export function useAudioEngineInit() {
  */
 export function useAudioEngine() {
   const [playbackState, setPlaybackState] = useAtom(playbackStateAtom);
+  const setPlaybackError = useSetAtom(playbackErrorAtom);
   const setCurrentTime = useSetAtom(currentTimeAtom);
   const clearRestoringFlag = useSetAtom(clearRestoringFlagAtom);
   
@@ -410,6 +456,32 @@ export function useAudioEngine() {
   const isShuffled = useAtomValue(isShuffledAtom);
   const [shuffledIndices, setShuffledIndices] = useAtom(shuffledIndicesAtom);
   const [playHistory, setPlayHistory] = useAtom(playHistoryAtom);
+
+  // Retry playback by forcing a fresh load of the current track
+  const retryPlayback = useCallback(() => {
+    if (!globalAudio || !currentTrack) return;
+    
+    const client = getClient();
+    if (!client) return;
+    
+    // Clear error state
+    setPlaybackError(null);
+    setPlaybackState("loading");
+    
+    // Force reload by clearing cached state
+    currentLoadedQueueIndex = -1;
+    currentLoadedTrackId = null;
+    
+    // Get fresh stream URL and load
+    const streamUrl = client.getStreamUrl(currentTrack.id);
+    globalAudio.src = streamUrl;
+    isLoadingNewTrack = true;
+    
+    globalAudio.play().catch((err) => {
+      console.error("[Audio] Retry playback failed:", err);
+      setPlaybackState("error");
+    });
+  }, [currentTrack, setPlaybackError, setPlaybackState]);
 
   const play = useCallback(() => {
     // Clear restore flag on explicit user interaction
@@ -436,10 +508,13 @@ export function useAudioEngine() {
         currentLoadedTrackId = null;
         setQueueIndex(0);
       }
+    } else if (playbackState === "error") {
+      // Retry playback after error
+      retryPlayback();
     } else {
       play();
     }
-  }, [playbackState, play, pause, queue.length, setQueueIndex]);
+  }, [playbackState, play, pause, queue.length, setQueueIndex, retryPlayback]);
 
   const seek = useCallback((time: number) => {
     if (globalAudio) {
@@ -571,6 +646,7 @@ export function useAudioEngine() {
     seekPercent,
     next,
     previous,
+    retryPlayback,
     playbackState,
   };
 }

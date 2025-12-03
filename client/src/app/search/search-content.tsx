@@ -18,7 +18,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { ArtistCard, ArtistCardSkeleton } from "@/components/browse/artist-card";
-import { SongRow } from "@/components/browse/song-row";
+import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
+import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 import { GenreCard, GenreCardSkeleton } from "@/components/browse/genre-card";
 import { CoverImage } from "@/components/shared/cover-image";
 import { formatDuration, formatCount } from "@/lib/utils/format";
@@ -309,17 +310,20 @@ export function SearchPageContent() {
 
             <TabsContent value="songs">
               {searchResults?.song && searchResults.song.length > 0 && (
-                <div className="divide-y divide-border/50">
-                  {searchResults.song.map((song, index) => (
+                <VirtualizedList
+                  items={searchResults.song}
+                  renderItem={(song, index) => (
                     <SongRow
-                      key={song.id}
                       song={song}
                       index={index}
                       showCover
-                      queueSongs={searchResults.song}
+                      queueSongs={searchResults.song!}
                     />
-                  ))}
-                </div>
+                  )}
+                  renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+                  getItemKey={(song) => song.id}
+                  estimateItemHeight={56}
+                />
               )}
             </TabsContent>
 

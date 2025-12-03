@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -29,6 +29,7 @@ import { AlbumCard, AlbumCardSkeleton, AlbumCardCompact } from "@/components/bro
 import { ArtistCard, ArtistCardSkeleton, ArtistCardCompact } from "@/components/browse/artist-card";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { MediaRowSkeleton } from "@/components/shared/media-row";
+import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
 import { MediaListToolbar } from "@/components/shared/media-list-toolbar";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
@@ -506,37 +507,25 @@ export default function FavoritesPage() {
               )
             ) : displaySongs.length > 0 ? (
               songViewMode === "grid" ? (
-                <motion.div 
-                  className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
-                  initial="hidden"
-                  animate="visible"
-                  variants={{
-                    visible: { transition: { staggerChildren: 0.02 } },
-                  }}
-                >
-                  {displaySongs.map((song) => (
-                    <motion.div
-                      key={song.id}
-                      variants={{
-                        hidden: { opacity: 0, y: 20 },
-                        visible: { opacity: 1, y: 0 },
-                      }}
-                    >
-                      <SongCard 
-                        song={song} 
-                        queueSongs={displaySongs}
-                        isSelected={songSelection.isSelected(song.id)}
-                        isSelectionMode={songSelection.hasSelection}
-                        onSelect={(e) => songSelection.handleSelect(song.id, e)}
-                      />
-                    </motion.div>
-                  ))}
-                </motion.div>
+                <VirtualizedGrid
+                  items={displaySongs}
+                  renderItem={(song) => (
+                    <SongCard 
+                      song={song} 
+                      queueSongs={displaySongs}
+                      isSelected={songSelection.isSelected(song.id)}
+                      isSelectionMode={songSelection.hasSelection}
+                      onSelect={(e) => songSelection.handleSelect(song.id, e)}
+                    />
+                  )}
+                  renderSkeleton={() => <SongCardSkeleton />}
+                  getItemKey={(song) => song.id}
+                />
               ) : (
-                <div className="space-y-1">
-                  {displaySongs.map((song, index) => (
+                <VirtualizedList
+                  items={displaySongs}
+                  renderItem={(song, index) => (
                     <SongRow
-                      key={song.id}
                       song={song}
                       index={index}
                       showCover
@@ -551,8 +540,11 @@ export default function FavoritesPage() {
                       isSelectionMode={songSelection.hasSelection}
                       onSelect={(e) => songSelection.handleSelect(song.id, e)}
                     />
-                  ))}
-                </div>
+                  )}
+                  renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+                  getItemKey={(song) => song.id}
+                  estimateItemHeight={56}
+                />
               )
             ) : (
               <EmptyState message={debouncedSongSearch ? "No songs match your search" : "No liked songs yet"} />
@@ -578,37 +570,25 @@ export default function FavoritesPage() {
               )
             ) : displayAlbums.length > 0 ? (
               albumViewMode === "grid" ? (
-                <motion.div 
-                  className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
-                  initial="hidden"
-                  animate="visible"
-                  variants={{
-                    visible: { transition: { staggerChildren: 0.05 } },
-                  }}
-                >
-                  {displayAlbums.map((album) => (
-                    <motion.div
-                      key={album.id}
-                      variants={{
-                        hidden: { opacity: 0, y: 20 },
-                        visible: { opacity: 1, y: 0 },
-                      }}
-                    >
-                      <AlbumCard 
-                        album={album} 
-                        onPlay={() => handlePlayAlbum(album)}
-                        isSelected={albumSelection.isSelected(album.id)}
-                        isSelectionMode={albumSelection.hasSelection}
-                        onSelect={(e) => albumSelection.handleSelect(album.id, e)}
-                      />
-                    </motion.div>
-                  ))}
-                </motion.div>
+                <VirtualizedGrid
+                  items={displayAlbums}
+                  renderItem={(album) => (
+                    <AlbumCard 
+                      album={album} 
+                      onPlay={() => handlePlayAlbum(album)}
+                      isSelected={albumSelection.isSelected(album.id)}
+                      isSelectionMode={albumSelection.hasSelection}
+                      onSelect={(e) => albumSelection.handleSelect(album.id, e)}
+                    />
+                  )}
+                  renderSkeleton={() => <AlbumCardSkeleton />}
+                  getItemKey={(album) => album.id}
+                />
               ) : (
-                <div className="space-y-1">
-                  {displayAlbums.map((album, index) => (
+                <VirtualizedList
+                  items={displayAlbums}
+                  renderItem={(album, index) => (
                     <AlbumCardCompact
-                      key={album.id}
                       album={album}
                       index={index}
                       onPlay={() => handlePlayAlbum(album)}
@@ -616,8 +596,11 @@ export default function FavoritesPage() {
                       isSelectionMode={albumSelection.hasSelection}
                       onSelect={(e) => albumSelection.handleSelect(album.id, e)}
                     />
-                  ))}
-                </div>
+                  )}
+                  renderSkeleton={() => <MediaRowSkeleton showIndex />}
+                  getItemKey={(album) => album.id}
+                  estimateItemHeight={56}
+                />
               )
             ) : (
               <EmptyState message={debouncedAlbumSearch ? "No albums match your search" : "No liked albums yet"} />
@@ -643,37 +626,25 @@ export default function FavoritesPage() {
               )
             ) : displayArtists.length > 0 ? (
               artistViewMode === "grid" ? (
-                <motion.div 
-                  className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
-                  initial="hidden"
-                  animate="visible"
-                  variants={{
-                    visible: { transition: { staggerChildren: 0.05 } },
-                  }}
-                >
-                  {displayArtists.map((artist) => (
-                    <motion.div
-                      key={artist.id}
-                      variants={{
-                        hidden: { opacity: 0, y: 20 },
-                        visible: { opacity: 1, y: 0 },
-                      }}
-                    >
-                      <ArtistCard 
-                        artist={artist}
-                        onPlay={() => handlePlayArtist(artist)}
-                        isSelected={artistSelection.isSelected(artist.id)}
-                        isSelectionMode={artistSelection.hasSelection}
-                        onSelect={(e) => artistSelection.handleSelect(artist.id, e)}
-                      />
-                    </motion.div>
-                  ))}
-                </motion.div>
+                <VirtualizedGrid
+                  items={displayArtists}
+                  renderItem={(artist) => (
+                    <ArtistCard 
+                      artist={artist}
+                      onPlay={() => handlePlayArtist(artist)}
+                      isSelected={artistSelection.isSelected(artist.id)}
+                      isSelectionMode={artistSelection.hasSelection}
+                      onSelect={(e) => artistSelection.handleSelect(artist.id, e)}
+                    />
+                  )}
+                  renderSkeleton={() => <ArtistCardSkeleton />}
+                  getItemKey={(artist) => artist.id}
+                />
               ) : (
-                <div className="space-y-1">
-                  {displayArtists.map((artist, index) => (
+                <VirtualizedList
+                  items={displayArtists}
+                  renderItem={(artist, index) => (
                     <ArtistCardCompact
-                      key={artist.id}
                       artist={artist}
                       index={index}
                       onPlay={() => handlePlayArtist(artist)}
@@ -681,8 +652,11 @@ export default function FavoritesPage() {
                       isSelectionMode={artistSelection.hasSelection}
                       onSelect={(e) => artistSelection.handleSelect(artist.id, e)}
                     />
-                  ))}
-                </div>
+                  )}
+                  renderSkeleton={() => <MediaRowSkeleton showIndex />}
+                  getItemKey={(artist) => artist.id}
+                  estimateItemHeight={56}
+                />
               )
             ) : (
               <EmptyState message={debouncedArtistSearch ? "No artists match your search" : "No liked artists yet"} />

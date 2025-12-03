@@ -53,24 +53,25 @@ test.describe("Search", () => {
     await page.goto("/library/artists");
     await page.waitForLoadState("networkidle");
     
-    // Wait for artist data to load
-    await page.waitForTimeout(1000);
+    // Wait for artist data to load - wait for artist cards to appear
+    const artistCards = page.locator('[data-testid="media-card"], [class*="group"]').filter({
+      has: page.locator('a[href^="/library/artists/details"]')
+    });
+    await expect(artistCards.first()).toBeVisible({ timeout: 10000 });
     
-    const firstArtist = page.locator('a[href^="/library/artists/details"]').first();
-    await expect(firstArtist).toBeVisible({ timeout: 5000 });
-    
-    // Get artist name
-    const artistName = await firstArtist.textContent();
+    // Get the artist name from the h3 heading inside the card
+    const artistHeading = page.locator('h3').filter({ hasText: /\w+/ }).first();
+    const artistName = await artistHeading.textContent();
     expect(artistName).toBeTruthy();
     
     // Search for the artist
     await page.goto("/search");
     await page.waitForTimeout(500);
-    await searchFor(page, artistName!);
+    await searchFor(page, artistName!.trim());
     await page.waitForTimeout(1500);
     
     // Should show artist in results
-    const result = page.getByText(artistName!).first();
+    const result = page.getByText(artistName!.trim()).first();
     await expect(result).toBeVisible();
   });
 

@@ -10,6 +10,7 @@ import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
 import { useQueuePersistence } from "@/lib/hooks/use-queue-persistence";
 import { useDocumentTitle } from "@/lib/hooks/use-document-title";
 import { usePreferencesSync } from "@/lib/hooks/use-preferences-sync";
+import { DynamicFavicon } from "@/components/dynamic-favicon";
 import { accentColorAtom, customAccentHueAtom, customAccentLightnessAtom, customAccentChromaAtom } from "@/lib/store/ui";
 
 // Component that initializes the audio engine and media session
@@ -82,6 +83,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           disableTransitionOnChange
         >
             <AccentColorProvider>
+              <DynamicFavicon />
               <AudioEngineProvider>
                 {children}
               </AudioEngineProvider>

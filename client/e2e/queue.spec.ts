@@ -77,10 +77,18 @@ test.describe("Queue Management", () => {
     await queueButton.click();
     
     // Wait for queue panel
-    await waitForQueuePanel(page);
+    const queuePanel = await waitForQueuePanel(page);
     
-    // Should show empty state message (it's a heading in the UI)
-    await expect(page.getByRole("heading", { name: "Your queue is empty" })).toBeVisible();
+    // Clear queue if it has items (from server-side persistence of previous tests)
+    const clearButton = queuePanel.getByRole("button", { name: "Clear" });
+    if (await clearButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await clearButton.click();
+      // Wait for clear to take effect
+      await page.waitForTimeout(500);
+    }
+    
+    // Now check for empty state message
+    await expect(queuePanel.getByRole("heading", { name: "Your queue is empty" })).toBeVisible({ timeout: 15000 });
   });
 
   test("playing a song populates queue", async ({ authenticatedPage: page }) => {
@@ -130,7 +138,7 @@ test.describe("Queue Management", () => {
     
     if (isDesktop) {
       // Desktop: click the close button in sidebar
-      const closeButton = page.locator('aside').filter({ hasText: /^Queue/ }).getByRole("button").filter({ has: page.locator('svg') }).last();
+      const closeButton = page.getByRole("button", { name: /close queue/i });
       await closeButton.click();
     } else {
       // Mobile: press Escape to close sheet
