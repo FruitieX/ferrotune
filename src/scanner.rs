@@ -4,9 +4,69 @@ use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::probe::Probe;
 use lofty::tag::Accessor;
 use sqlx::SqlitePool;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 use walkdir::WalkDir;
+
+/// Size threshold for partial hashing. Files smaller than this use the entire file.
+const PARTIAL_HASH_CHUNK_SIZE: u64 = 64 * 1024; // 64KB
+
+/// Compute a partial hash of a file for fast duplicate detection.
+///
+/// For files >= 128KB: hash(first 64KB + last 64KB + file_size)
+/// For smaller files: hash the entire file content + file_size
+///
+/// Returns the hash as a hex string.
+fn compute_partial_hash(path: &Path) -> Result<String> {
+    let mut file = std::fs::File::open(path)?;
+    let file_size = file.metadata()?.len();
+
+    let mut hasher = blake3::Hasher::new();
+
+    // Include file size in hash to differentiate files with same content at boundaries
+    hasher.update(&file_size.to_le_bytes());
+
+    if file_size <= PARTIAL_HASH_CHUNK_SIZE * 2 {
+        // Small file: hash entire content
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer)?;
+        hasher.update(&buffer);
+    } else {
+        // Large file: hash first 64KB + last 64KB
+        let mut buffer = vec![0u8; PARTIAL_HASH_CHUNK_SIZE as usize];
+
+        // Read first 64KB
+        file.read_exact(&mut buffer)?;
+        hasher.update(&buffer);
+
+        // Read last 64KB
+        file.seek(SeekFrom::End(-(PARTIAL_HASH_CHUNK_SIZE as i64)))?;
+        file.read_exact(&mut buffer)?;
+        hasher.update(&buffer);
+    }
+
+    Ok(hasher.finalize().to_hex().to_string())
+}
+
+/// Compute a full file hash using BLAKE3.
+/// Returns the hash as a hex string.
+fn compute_full_hash(path: &Path) -> Result<String> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = blake3::Hasher::new();
+
+    // Read in 64KB chunks for efficiency
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+
+    Ok(hasher.finalize().to_hex().to_string())
+}
 
 pub async fn scan_library(
     pool: &SqlitePool,
@@ -24,6 +84,14 @@ pub async fn scan_library(
     for folder in folders {
         tracing::info!("Scanning folder: {} ({})", folder.name, folder.path);
         scan_folder(pool, config, folder.id, &folder.path, full, dry_run).await?;
+    }
+
+    // After scanning all folders, detect and resolve hash collisions
+    if !dry_run {
+        detect_duplicates(pool, folder_id).await?;
+    } else {
+        // In dry-run mode, just report potential duplicates
+        detect_duplicates_dry_run(pool, folder_id).await?;
     }
 
     Ok(())
@@ -301,6 +369,7 @@ struct SongMetadata {
     file_size: u64,
     file_format: String,
     file_mtime: Option<i64>,
+    partial_hash: Option<String>,
 }
 
 async fn extract_metadata(path: &Path, file_mtime: Option<i64>) -> Result<SongMetadata> {
@@ -323,6 +392,19 @@ async fn extract_metadata(path: &Path, file_mtime: Option<i64>) -> Result<SongMe
 
     let duration = properties.duration().as_secs();
     let bitrate = properties.audio_bitrate();
+
+    // Compute partial hash for duplicate detection
+    let partial_hash = match compute_partial_hash(path) {
+        Ok(hash) => Some(hash),
+        Err(e) => {
+            tracing::warn!(
+                "Failed to compute partial hash for {}: {}",
+                path.display(),
+                e
+            );
+            None
+        }
+    };
 
     // Extract tags
     let (title, artist, album, album_artist, track_number, disc_number, year, genre) =
@@ -406,6 +488,7 @@ async fn extract_metadata(path: &Path, file_mtime: Option<i64>) -> Result<SongMe
         file_size,
         file_format,
         file_mtime,
+        partial_hash,
     })
 }
 
@@ -458,7 +541,7 @@ async fn upsert_song(
                 title = ?, album_id = ?, artist_id = ?, track_number = ?, 
                 disc_number = ?, year = ?, genre = ?, duration = ?, 
                 bitrate = ?, file_size = ?, file_format = ?, music_folder_id = ?,
-                file_mtime = ?, updated_at = datetime('now')
+                file_mtime = ?, partial_hash = ?, updated_at = datetime('now')
              WHERE id = ?",
         )
         .bind(&metadata.title)
@@ -474,6 +557,7 @@ async fn upsert_song(
         .bind(&metadata.file_format)
         .bind(folder_id)
         .bind(metadata.file_mtime)
+        .bind(&metadata.partial_hash)
         .bind(&id)
         .execute(&mut *tx)
         .await?;
@@ -487,8 +571,8 @@ async fn upsert_song(
             "INSERT INTO songs (
                 id, title, album_id, artist_id, track_number, disc_number,
                 year, genre, duration, bitrate, file_path, file_size, 
-                file_format, music_folder_id, file_mtime, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+                file_format, music_folder_id, file_mtime, partial_hash, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
         )
         .bind(&song_id)
         .bind(&metadata.title)
@@ -505,6 +589,7 @@ async fn upsert_song(
         .bind(&metadata.file_format)
         .bind(folder_id)
         .bind(metadata.file_mtime)
+        .bind(&metadata.partial_hash)
         .execute(&mut *tx)
         .await?;
 
@@ -605,4 +690,189 @@ async fn get_or_create_album(
 
         Ok(album_id)
     }
+}
+
+/// Detect duplicate files by finding partial hash collisions and computing full hashes.
+///
+/// Phase 1: Find all songs with duplicate partial_hash values
+/// Phase 2: For each collision group, compute full file hashes
+/// Phase 3: Update full_file_hash in database and log duplicates
+async fn detect_duplicates(pool: &SqlitePool, folder_id: Option<i64>) -> Result<()> {
+    // First, clear full_file_hash for songs that will be re-evaluated
+    // (in case files were modified and are no longer duplicates)
+    if let Some(fid) = folder_id {
+        sqlx::query("UPDATE songs SET full_file_hash = NULL WHERE music_folder_id = ?")
+            .bind(fid)
+            .execute(pool)
+            .await?;
+    } else {
+        sqlx::query("UPDATE songs SET full_file_hash = NULL")
+            .execute(pool)
+            .await?;
+    }
+
+    // Find partial hash collisions (songs with the same partial_hash)
+    let collision_hashes: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT partial_hash, COUNT(*) as cnt 
+         FROM songs 
+         WHERE partial_hash IS NOT NULL 
+         GROUP BY partial_hash 
+         HAVING COUNT(*) > 1",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    if collision_hashes.is_empty() {
+        tracing::info!("No potential duplicates found (no partial hash collisions)");
+        return Ok(());
+    }
+
+    tracing::info!(
+        "Found {} partial hash collision groups, computing full hashes...",
+        collision_hashes.len()
+    );
+
+    let mut total_duplicates = 0;
+
+    // For each collision group, compute full hashes
+    for (partial_hash, _count) in collision_hashes {
+        // Get all songs with this partial hash
+        let songs: Vec<(String, String, i64, i64)> = sqlx::query_as(
+            "SELECT s.id, s.file_path, s.music_folder_id, s.file_size
+             FROM songs s
+             WHERE s.partial_hash = ?",
+        )
+        .bind(&partial_hash)
+        .fetch_all(pool)
+        .await?;
+
+        // Get music folders to resolve full paths
+        let folders = crate::db::queries::get_music_folders(pool).await?;
+        let folder_map: std::collections::HashMap<i64, String> =
+            folders.into_iter().map(|f| (f.id, f.path)).collect();
+
+        // Compute full hash for each song in the collision group
+        let mut hash_to_songs: std::collections::HashMap<String, Vec<(String, String, i64)>> =
+            std::collections::HashMap::new();
+
+        for (song_id, file_path, music_folder_id, file_size) in songs {
+            let base_path = match folder_map.get(&music_folder_id) {
+                Some(p) => p,
+                None => {
+                    tracing::warn!(
+                        "Unknown music folder {} for song {}",
+                        music_folder_id,
+                        song_id
+                    );
+                    continue;
+                }
+            };
+
+            let full_path = PathBuf::from(base_path).join(&file_path);
+
+            // For small files (where partial = full), use partial_hash as full_hash
+            let full_hash = if file_size as u64 <= PARTIAL_HASH_CHUNK_SIZE * 2 {
+                partial_hash.clone()
+            } else {
+                match compute_full_hash(&full_path) {
+                    Ok(h) => h,
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to compute full hash for {}: {}",
+                            full_path.display(),
+                            e
+                        );
+                        continue;
+                    }
+                }
+            };
+
+            hash_to_songs
+                .entry(full_hash)
+                .or_default()
+                .push((song_id, file_path, file_size));
+        }
+
+        // Update full_file_hash for songs that are actually duplicates
+        for (full_hash, songs_with_hash) in hash_to_songs {
+            if songs_with_hash.len() > 1 {
+                // These are actual duplicates
+                total_duplicates += songs_with_hash.len();
+
+                tracing::warn!(
+                    "Found {} duplicate files with hash {}:",
+                    songs_with_hash.len(),
+                    &full_hash[..16] // First 16 chars for readability
+                );
+
+                for (song_id, file_path, file_size) in &songs_with_hash {
+                    tracing::warn!("  - {} ({} bytes)", file_path, file_size);
+
+                    // Update the full_file_hash in database
+                    sqlx::query("UPDATE songs SET full_file_hash = ? WHERE id = ?")
+                        .bind(&full_hash)
+                        .bind(song_id)
+                        .execute(pool)
+                        .await?;
+                }
+            }
+            // If only one song has this full hash, it was a false positive from partial hash
+            // collision, so we don't set full_file_hash
+        }
+    }
+
+    if total_duplicates > 0 {
+        tracing::warn!(
+            "Duplicate detection complete: {} files are duplicates",
+            total_duplicates
+        );
+    } else {
+        tracing::info!("Duplicate detection complete: no actual duplicates found (partial hash collisions were false positives)");
+    }
+
+    Ok(())
+}
+
+/// Dry-run version of duplicate detection - just reports what would be found.
+async fn detect_duplicates_dry_run(pool: &SqlitePool, _folder_id: Option<i64>) -> Result<()> {
+    // Find partial hash collisions
+    let collision_hashes: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT partial_hash, COUNT(*) as cnt 
+         FROM songs 
+         WHERE partial_hash IS NOT NULL 
+         GROUP BY partial_hash 
+         HAVING COUNT(*) > 1",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    if collision_hashes.is_empty() {
+        tracing::info!("Dry-run: No potential duplicates found");
+        return Ok(());
+    }
+
+    tracing::info!(
+        "Dry-run: Found {} partial hash collision groups (potential duplicates)",
+        collision_hashes.len()
+    );
+
+    // Show details for each collision group
+    for (partial_hash, count) in &collision_hashes {
+        let songs: Vec<(String, String, i64)> =
+            sqlx::query_as("SELECT id, file_path, file_size FROM songs WHERE partial_hash = ?")
+                .bind(partial_hash)
+                .fetch_all(pool)
+                .await?;
+
+        tracing::info!(
+            "Dry-run: {} files share partial hash {}:",
+            count,
+            &partial_hash[..16]
+        );
+        for (_, file_path, file_size) in &songs {
+            tracing::info!("  - {} ({} bytes)", file_path, file_size);
+        }
+    }
+
+    Ok(())
 }

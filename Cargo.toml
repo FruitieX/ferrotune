@@ -47,6 +47,9 @@ rand = "0.8"
 hex = "0.4"
 base64 = "0.22"
 
+# Hashing
+blake3 = "1.5"
+
 # Error handling
 anyhow = "1.0"
 thiserror = "1.0"

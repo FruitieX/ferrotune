@@ -15,6 +15,7 @@
 //! - `GET /ferrotune/health` - Health check
 //! - `POST /ferrotune/scan` - Trigger a library scan
 //! - `GET /ferrotune/scan/status` - Get current scan status (placeholder for future async scanning)
+//! - `GET /ferrotune/duplicates` - Get duplicate files detected during scanning
 //! - `GET /ferrotune/playlist-folders` - Get all playlist folders and playlists
 //! - `POST /ferrotune/playlist-folders` - Create a new playlist folder
 //! - `PATCH /ferrotune/playlist-folders/:id` - Update a playlist folder
@@ -26,6 +27,7 @@
 //! - `PUT /ferrotune/preferences` - Update user preferences
 //! - `POST /ferrotune/play-queue` - Save play queue (JSON body, scalable alternative to OpenSubsonic)
 
+mod duplicates;
 mod media;
 mod playlists;
 mod playqueue;
@@ -49,6 +51,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/health", get(health))
         .route("/ferrotune/scan", post(scan::start_scan))
         .route("/ferrotune/scan/status", get(scan::scan_status))
+        .route("/ferrotune/duplicates", get(duplicates::get_duplicates))
         // Playlist folder endpoints
         .route(
             "/ferrotune/playlist-folders",
