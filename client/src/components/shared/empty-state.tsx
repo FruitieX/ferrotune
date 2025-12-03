@@ -11,6 +11,8 @@ interface EmptyStateProps {
   title?: string;
   /** Description text */
   description?: string;
+  /** Optional action button */
+  action?: React.ReactNode;
   /** Additional classes */
   className?: string;
 }
@@ -19,6 +21,7 @@ export function EmptyState({
   icon: Icon = Music,
   title = "No items",
   description,
+  action,
   className,
 }: EmptyStateProps) {
   return (
@@ -31,9 +34,14 @@ export function EmptyState({
       </div>
       <h3 className="font-semibold mb-1">{title}</h3>
       {description && (
-        <p className="text-sm text-muted-foreground max-w-sm">
+        <p className="text-sm text-muted-foreground max-w-sm mb-4">
           {description}
         </p>
+      )}
+      {action && (
+        <div className="mt-2">
+          {action}
+        </div>
       )}
     </div>
   );

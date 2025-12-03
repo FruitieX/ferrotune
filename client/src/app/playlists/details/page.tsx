@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import {
   DndContext,
   closestCenter,
@@ -22,14 +21,10 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import {
-  Play,
-  Shuffle,
   MoreHorizontal,
-  Clock,
   Pencil,
   Trash2,
-  ArrowLeft,
-  GripVertical,
+  ListMusic,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -57,18 +52,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { PlaylistCover, usePlaylistCoverUrl } from "@/components/shared/playlist-cover";
+import { usePlaylistCoverUrl } from "@/components/shared/playlist-cover";
+import { DetailHeader } from "@/components/shared/detail-header";
+import { ActionBar } from "@/components/shared/action-bar";
+import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { SortableSongRow } from "@/components/shared/sortable-song-row";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
-import { formatDuration, formatCount, formatDate } from "@/lib/utils/format";
+import { formatDuration, formatCount, formatDate, formatTotalDuration } from "@/lib/utils/format";
 import { sortSongs } from "@/lib/utils/sort-songs";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
-import { Music } from "lucide-react";
 
 function PlaylistDetailContent() {
   const router = useRouter();
@@ -110,6 +107,9 @@ function PlaylistDetailContent() {
     enabled: isReady && !!playlistId,
   });
 
+  // Get the cover URL
+  const coverUrl = usePlaylistCoverUrl(playlist?.id ?? null, 400, playlist?.coverArt);
+
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async () => {
@@ -135,13 +135,28 @@ function PlaylistDetailContent() {
       await client.reorderPlaylistSongs(playlistId!, songIds);
     },
     onSuccess: () => {
-      // Don't invalidate - we already have the optimistic update in localSongOrder
       toast.success("Playlist order updated");
     },
     onError: () => {
-      // On error, refetch to restore the correct order
       queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
       toast.error("Failed to update playlist order");
+    },
+  });
+
+  // Remove songs mutation
+  const removeSongsMutation = useMutation({
+    mutationFn: async (songIndices: number[]) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      await client.updatePlaylist({ playlistId: playlistId!, songIndexToRemove: songIndices });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      toast.success("Songs removed from playlist");
+    },
+    onError: () => {
+      toast.error("Failed to remove songs from playlist");
     },
   });
 
@@ -150,9 +165,8 @@ function PlaylistDetailContent() {
   // Local state for optimistic reordering
   const [localSongOrder, setLocalSongOrder] = useState<Song[]>([]);
   
-  // Sync local order with fetched data - also reset when playlist changes or is empty
+  // Sync local order with fetched data
   useEffect(() => {
-    // Always sync when playlist data changes (including when songs become empty)
     setLocalSongOrder(songs);
   }, [playlistId, songs]);
 
@@ -162,9 +176,7 @@ function PlaylistDetailContent() {
   // DnD sensors
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
+      activationConstraint: { distance: 8 },
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
@@ -182,11 +194,7 @@ function PlaylistDetailContent() {
 
         if (oldIndex !== -1 && newIndex !== -1) {
           const newOrder = arrayMove(localSongOrder, oldIndex, newIndex);
-          
-          // Update local state for optimistic UI
           setLocalSongOrder(newOrder);
-          
-          // Persist the new order to the server
           reorderMutation.mutate(newOrder.map((s) => s.id));
         }
       }
@@ -194,34 +202,32 @@ function PlaylistDetailContent() {
     [localSongOrder, reorderMutation]
   );
 
-  // Check if drag-and-drop should be enabled (only when no filter/sort applied)
+  // Check if drag-and-drop should be enabled
   const isDragEnabled = !debouncedFilter.trim() && sortConfig.field === "custom" && viewMode === "list";
   
   // Filter and sort songs
   const displaySongs = useMemo(() => {
-    // When drag is enabled, use local order; otherwise use ordered songs
-    const sourceSongs = isDragEnabled ? orderedSongs : orderedSongs;
-    let filtered = sourceSongs;
+    let filtered = orderedSongs;
     
-    // Apply filter
     if (debouncedFilter.trim()) {
       const query = debouncedFilter.toLowerCase();
-      filtered = sourceSongs.filter(song =>
+      filtered = orderedSongs.filter(song =>
         song.title?.toLowerCase().includes(query) ||
         song.artist?.toLowerCase().includes(query) ||
         song.album?.toLowerCase().includes(query)
       );
     }
     
-    // Apply sort (skip for custom/playlist order)
     if (sortConfig.field !== "custom") {
       return sortSongs(filtered, sortConfig.field, sortConfig.direction);
     }
     
     return filtered;
-  }, [orderedSongs, debouncedFilter, sortConfig, isDragEnabled]);
+  }, [orderedSongs, debouncedFilter, sortConfig]);
 
-  // Track selection - use displaySongs for selection
+  const totalDuration = displaySongs.reduce((acc, song) => acc + (song.duration ?? 0), 0);
+
+  // Track selection
   const {
     selectedCount,
     hasSelection,
@@ -233,6 +239,27 @@ function PlaylistDetailContent() {
     addSelectedToQueue,
     starSelected,
   } = useTrackSelection(displaySongs);
+
+  // Get indices of selected songs in the original order (for removal)
+  const getSelectedIndices = useCallback(() => {
+    const selected = getSelectedSongs();
+    const selectedIds = new Set(selected.map(s => s.id));
+    const indices: number[] = [];
+    orderedSongs.forEach((song, index) => {
+      if (selectedIds.has(song.id)) {
+        indices.push(index);
+      }
+    });
+    return indices;
+  }, [getSelectedSongs, orderedSongs]);
+
+  const handleRemoveSelected = useCallback(() => {
+    const indices = getSelectedIndices();
+    if (indices.length > 0) {
+      removeSongsMutation.mutate(indices);
+      clearSelection();
+    }
+  }, [getSelectedIndices, removeSongsMutation, clearSelection]);
 
   const handlePlaySelected = () => {
     const selected = getSelectedSongs();
@@ -257,47 +284,11 @@ function PlaylistDetailContent() {
     }
   };
 
-  // Always render the same loading state on server and during hydration
-  // This prevents hydration mismatches
+  // Loading state
   if (!isMounted || authLoading) {
     return (
-      <div className="min-h-screen">
-        {/* Header with gradient background */}
-        <div className="relative">
-          <div className="absolute inset-0 h-[400px] bg-gradient-to-b from-primary/20 to-background" />
-          <div className="relative z-10 px-4 lg:px-6 pt-8 pb-6">
-            <div className="flex flex-col md:flex-row items-center md:items-end gap-6">
-              <Skeleton className="w-48 h-48 md:w-56 md:h-56 rounded-lg" />
-              <div className="space-y-4 text-center md:text-left">
-                <Skeleton className="h-4 w-20" />
-                <Skeleton className="h-10 w-64" />
-                <Skeleton className="h-4 w-48" />
-              </div>
-            </div>
-          </div>
-        </div>
-        {/* Action buttons skeleton */}
-        <div className="px-4 lg:px-6 py-4 border-b border-border">
-          <div className="flex items-center gap-4">
-            <Skeleton className="h-12 w-28 rounded-full" />
-            <Skeleton className="h-12 w-28 rounded-full" />
-            <Skeleton className="h-10 w-10 rounded-full" />
-          </div>
-        </div>
-        {/* Track list skeleton */}
-        <div className="px-4 lg:px-6 py-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-4 py-2">
-              <Skeleton className="w-8 h-4" />
-              <Skeleton className="w-10 h-10 rounded" />
-              <div className="flex-1">
-                <Skeleton className="h-4 w-40 mb-1" />
-                <Skeleton className="h-3 w-32" />
-              </div>
-              <Skeleton className="h-4 w-10" />
-            </div>
-          ))}
-        </div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-pulse">Loading...</div>
       </div>
     );
   }
@@ -306,151 +297,50 @@ function PlaylistDetailContent() {
     return null;
   }
 
-  // Get the cover URL for background
-  const coverUrl = usePlaylistCoverUrl(playlist?.id ?? null, 400, playlist?.coverArt);
-
   return (
     <div className="min-h-screen">
-      {/* Header with blurred background */}
-      <div className="relative">
-        {/* Background image with blur */}
-        {coverUrl && (
-          <div 
-            className="absolute inset-0 h-[400px] overflow-hidden"
-            style={{
-              backgroundImage: `url(${coverUrl})`,
-              backgroundSize: "cover",
-              backgroundPosition: "center",
-            }}
-          >
-            {/* Blur and gradient overlay */}
-            <div className="absolute inset-0 backdrop-blur-3xl bg-background/60" />
-            <div 
-              className="absolute inset-0"
-              style={{
-                background: `linear-gradient(180deg, transparent 0%, hsl(var(--background)) 100%)`
-              }}
-            />
-          </div>
-        )}
-        {/* Fallback gradient when no cover image */}
-        {!coverUrl && (
-          <div
-            className="absolute inset-0 h-[400px]"
-            style={{
-              background: `linear-gradient(180deg, rgba(var(--primary-rgb, 30, 215, 96), 0.2) 0%, hsl(var(--background)) 100%)`,
-            }}
-          />
-        )}
-
-        {/* Back button */}
-        <div className="relative z-10 p-4 lg:p-6">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-10 w-10 rounded-full bg-background/50 hover:bg-background/80"
-            onClick={() => router.back()}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-        </div>
-
-        <div className="relative z-10 px-4 lg:px-6 pb-6">
-          {isLoading ? (
-            <div className="flex flex-col md:flex-row items-center md:items-end gap-6">
-              <Skeleton className="w-48 h-48 md:w-56 md:h-56 rounded-lg" />
-              <div className="space-y-4 text-center md:text-left">
-                <Skeleton className="h-4 w-20" />
-                <Skeleton className="h-10 w-64" />
-                <Skeleton className="h-4 w-48" />
-              </div>
-            </div>
-          ) : playlist ? (
-            <div className="flex flex-col md:flex-row items-center md:items-end gap-6">
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="w-48 h-48 md:w-56 md:h-56 shrink-0"
-              >
-                <PlaylistCover
-                  playlistId={playlist.id}
-                  coverArt={playlist.coverArt}
-                  alt={playlist.name}
-                  size="full"
-                  className="rounded-lg shadow-2xl"
-                  priority
-                />
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="text-center md:text-left"
-              >
-                <span className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-                  Playlist
-                </span>
-                <h1 className="text-3xl md:text-5xl font-bold mt-2">
-                  {playlist.name}
-                </h1>
-                {playlist.comment && (
-                  <p className="mt-4 text-muted-foreground max-w-lg">
-                    {playlist.comment}
-                  </p>
-                )}
-                <div className="mt-4 flex flex-wrap items-center justify-center md:justify-start gap-2 text-sm text-muted-foreground">
-                  {playlist.owner && (
-                    <>
-                      <span className="font-medium text-foreground">{playlist.owner}</span>
-                      <span>•</span>
-                    </>
-                  )}
-                  <span>{formatCount(playlist.songCount, "song")}</span>
+      {/* Header */}
+      <DetailHeader
+        showBackButton
+        coverUrl={coverUrl}
+        coverAlt={playlist?.name ?? "Playlist"}
+        icon={ListMusic}
+        iconClassName="bg-linear-to-br from-emerald-500 to-emerald-800"
+        coverSize="lg"
+        useBlurredBackground={!!coverUrl}
+        gradientColor="rgba(16,185,129,0.2)"
+        label="Playlist"
+        title={isLoading ? "Loading..." : (playlist?.name ?? "Playlist")}
+        subtitle={playlist?.comment}
+        metadata={
+          playlist && (
+            <span className="flex flex-wrap items-center gap-2">
+              {playlist.owner && (
+                <>
+                  <span className="font-medium text-foreground">{playlist.owner}</span>
                   <span>•</span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {formatDuration(playlist.duration)}
-                  </span>
-                  {playlist.created && (
-                    <>
-                      <span>•</span>
-                      <span>Created {formatDate(playlist.created)}</span>
-                    </>
-                  )}
-                </div>
-              </motion.div>
-            </div>
-          ) : null}
-        </div>
-      </div>
+                </>
+              )}
+              <span>{formatCount(displaySongs.length, "song")}</span>
+              <span>•</span>
+              <span>{formatTotalDuration(totalDuration)}</span>
+              {playlist.created && (
+                <>
+                  <span>•</span>
+                  <span>Created {formatDate(playlist.created)}</span>
+                </>
+              )}
+            </span>
+          )
+        }
+      />
 
-      {/* Action buttons and toolbar */}
-      <div className="sticky top-0 z-20 bg-background/80 backdrop-blur-lg border-b border-border">
-        <div className="flex items-center gap-4 px-4 lg:px-6 py-4">
-          <Button
-            size="lg"
-            className="rounded-full gap-2 px-8"
-            onClick={handlePlayAll}
-            disabled={isLoading || displaySongs.length === 0}
-          >
-            <Play className="w-5 h-5 ml-0.5" />
-            Play
-          </Button>
-          <Button
-            variant="outline"
-            size="lg"
-            className="rounded-full gap-2"
-            onClick={handleShuffle}
-            disabled={isLoading || displaySongs.length === 0}
-          >
-            <Shuffle className="w-5 h-5" />
-            Shuffle
-          </Button>
-
-          <div className="flex-1" />
-          
-          {/* Toolbar with filter/sort/columns/view mode */}
+      {/* Action bar */}
+      <ActionBar
+        onPlayAll={handlePlayAll}
+        onShuffle={handleShuffle}
+        disablePlay={isLoading || displaySongs.length === 0}
+        toolbar={
           <SongListToolbar
             filter={filter}
             onFilterChange={setFilter}
@@ -462,30 +352,30 @@ function PlaylistDetailContent() {
             viewMode={viewMode}
             onViewModeChange={setViewMode}
           />
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <MoreHorizontal className="w-5 h-5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
-                <Pencil className="w-4 h-4 mr-2" />
-                Edit Playlist
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={() => setDeleteDialogOpen(true)}
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Delete Playlist
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
+        }
+      >
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <MoreHorizontal className="w-5 h-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
+              <Pencil className="w-4 h-4 mr-2" />
+              Edit Playlist
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive"
+              onClick={() => setDeleteDialogOpen(true)}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete Playlist
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </ActionBar>
 
       {/* Track list */}
       <div className={cn("px-4 lg:px-6 py-4", hasSelection && "select-none")}>
@@ -577,20 +467,20 @@ function PlaylistDetailContent() {
               estimateItemHeight={56}
             />
           )
+        ) : songs.length > 0 ? (
+          <EmptyFilterState message="No songs match your filter" />
         ) : (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-              <Music className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <p className="text-muted-foreground">
-              {debouncedFilter ? "No songs match your filter" : "This playlist is empty"}
-            </p>
-          </div>
+          <EmptyState
+            icon={ListMusic}
+            title="This playlist is empty"
+            description="Add songs to this playlist to see them here."
+          />
         )}
       </div>
 
       {/* Bulk actions bar */}
       <BulkActionsBar
+        mediaType="playlist-songs"
         selectedCount={selectedCount}
         onClear={clearSelection}
         onPlayNow={handlePlaySelected}
@@ -600,6 +490,7 @@ function PlaylistDetailContent() {
         onUnstar={() => starSelected(false)}
         onSelectAll={selectAll}
         getSelectedSongs={getSelectedSongs}
+        onRemoveFromPlaylist={handleRemoveSelected}
       />
 
       {/* Spacer for player bar */}
@@ -642,20 +533,8 @@ function PlaylistDetailContent() {
 export default function PlaylistDetailPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen">
-        <div className="relative">
-          <div className="absolute inset-0 h-[400px] bg-gradient-to-b from-primary/20 to-background" />
-          <div className="relative z-10 px-4 lg:px-6 pt-8 pb-6">
-            <div className="flex flex-col md:flex-row items-center md:items-end gap-6">
-              <Skeleton className="w-48 h-48 md:w-56 md:h-56 rounded-lg" />
-              <div className="space-y-4 text-center md:text-left">
-                <Skeleton className="h-4 w-20" />
-                <Skeleton className="h-10 w-64" />
-                <Skeleton className="h-4 w-48" />
-              </div>
-            </div>
-          </div>
-        </div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-pulse">Loading...</div>
       </div>
     }>
       <PlaylistDetailContent />

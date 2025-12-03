@@ -12,15 +12,29 @@ import {
   FolderPlus,
   CheckSquare,
   Shuffle,
+  Trash2,
+  Merge,
+  ListMinus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
-import type { Song, Album, Artist, Genre } from "@/lib/api/types";
+import { MergePlaylistsDialog } from "@/components/playlists/merge-playlists-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import type { Song, Album, Artist, Genre, Playlist } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 // Type for different media types
-export type MediaType = "song" | "album" | "artist" | "genre";
+export type MediaType = "song" | "album" | "artist" | "genre" | "playlist";
 
 interface BaseBulkActionsBarProps {
   selectedCount: number;
@@ -59,11 +73,28 @@ interface GenreBulkActionsBarProps extends BaseBulkActionsBarProps {
   getSelectedItems: () => Genre[];
 }
 
+// Props for playlist-specific bulk actions (no starring, but has delete/merge)
+interface PlaylistBulkActionsBarProps extends BaseBulkActionsBarProps {
+  mediaType: "playlist";
+  getSelectedItems: () => Playlist[];
+  onDelete?: () => void;
+  onMerge?: (name: string) => void;
+}
+
+// Props for playlist detail view - songs within a playlist
+interface PlaylistSongsBulkActionsBarProps extends BaseBulkActionsBarProps {
+  mediaType: "playlist-songs";
+  getSelectedSongs: () => Song[];
+  onRemoveFromPlaylist?: () => void;
+}
+
 type BulkActionsBarProps = 
   | SongBulkActionsBarProps 
   | AlbumBulkActionsBarProps 
   | ArtistBulkActionsBarProps
-  | GenreBulkActionsBarProps;
+  | GenreBulkActionsBarProps
+  | PlaylistBulkActionsBarProps
+  | PlaylistSongsBulkActionsBarProps;
 
 // Legacy interface for backwards compatibility
 interface LegacyBulkActionsBarProps {
@@ -82,18 +113,30 @@ interface LegacyBulkActionsBarProps {
 
 export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBarProps) {
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
 
   // Determine media type and get label
   const mediaType = 'mediaType' in props ? props.mediaType ?? 'song' : 'song';
-  const itemLabel = mediaType === 'song' ? 'song' : mediaType === 'album' ? 'album' : mediaType === 'artist' ? 'artist' : 'genre';
+  const itemLabel = mediaType === 'song' || mediaType === 'playlist-songs' ? 'song' : mediaType === 'album' ? 'album' : mediaType === 'artist' ? 'artist' : mediaType === 'playlist' ? 'playlist' : 'genre';
   const pluralLabel = props.selectedCount === 1 ? itemLabel : `${itemLabel}s`;
 
-  // Check if starring is supported (not for genres)
-  const supportsStarring = mediaType !== 'genre' && props.onStar && props.onUnstar;
+  // Check if starring is supported (not for genres, playlists, or playlist-songs)
+  const supportsStarring = mediaType !== 'genre' && mediaType !== 'playlist' && mediaType !== 'playlist-songs' && props.onStar && props.onUnstar;
 
-  // Get songs for add to playlist (only for songs)
-  const canAddToPlaylist = mediaType === 'song' && 'getSelectedSongs' in props;
-  const getSelectedSongs = canAddToPlaylist ? (props as SongBulkActionsBarProps).getSelectedSongs : () => [];
+  // Get songs for add to playlist (only for songs and playlist-songs)
+  const canAddToPlaylist = (mediaType === 'song' || mediaType === 'playlist-songs') && 'getSelectedSongs' in props;
+  const getSelectedSongs = canAddToPlaylist ? (props as SongBulkActionsBarProps | PlaylistSongsBulkActionsBarProps).getSelectedSongs : () => [];
+
+  // Check for playlist-specific actions
+  const isPlaylistType = mediaType === 'playlist' && 'onDelete' in props;
+  const onDelete = isPlaylistType ? (props as PlaylistBulkActionsBarProps).onDelete : undefined;
+  const onMerge = isPlaylistType ? (props as PlaylistBulkActionsBarProps).onMerge : undefined;
+  const canMerge = isPlaylistType && props.selectedCount >= 2;
+
+  // Check for playlist-songs-specific actions
+  const isPlaylistSongsType = mediaType === 'playlist-songs' && 'onRemoveFromPlaylist' in props;
+  const onRemoveFromPlaylist = isPlaylistSongsType ? (props as PlaylistSongsBulkActionsBarProps).onRemoveFromPlaylist : undefined;
 
   return (
     <>
@@ -271,6 +314,69 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                     </Tooltip>
                   </>
                 )}
+
+                {/* Playlist-specific actions */}
+                {isPlaylistType && (
+                  <>
+                    <div className="w-px h-6 bg-border mx-1" role="separator" aria-orientation="vertical" />
+
+                    {onMerge && canMerge && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9"
+                            onClick={() => setMergeDialogOpen(true)}
+                            aria-label="Merge playlists"
+                          >
+                            <Merge className="w-4 h-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Merge playlists</TooltipContent>
+                      </Tooltip>
+                    )}
+
+                    {onDelete && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 text-destructive hover:text-destructive"
+                            onClick={() => setDeleteConfirmOpen(true)}
+                            aria-label="Delete playlists"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Delete playlists</TooltipContent>
+                      </Tooltip>
+                    )}
+                  </>
+                )}
+
+                {/* Playlist songs - remove from playlist */}
+                {isPlaylistSongsType && onRemoveFromPlaylist && (
+                  <>
+                    <div className="w-px h-6 bg-border mx-1" role="separator" aria-orientation="vertical" />
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 text-destructive hover:text-destructive"
+                          onClick={onRemoveFromPlaylist}
+                          aria-label="Remove from playlist"
+                        >
+                          <ListMinus className="w-4 h-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Remove from playlist</TooltipContent>
+                    </Tooltip>
+                  </>
+                )}
               </div>
             </div>
           </motion.div>
@@ -282,6 +388,40 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
           open={addToPlaylistOpen}
           onOpenChange={setAddToPlaylistOpen}
           songs={addToPlaylistOpen ? getSelectedSongs() : []}
+        />
+      )}
+
+      {/* Delete confirmation dialog for playlists */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {props.selectedCount} {pluralLabel}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. The selected playlists will be permanently deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                onDelete?.();
+                setDeleteConfirmOpen(false);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Merge playlists dialog */}
+      {onMerge && (
+        <MergePlaylistsDialog
+          open={mergeDialogOpen}
+          onOpenChange={setMergeDialogOpen}
+          selectedCount={props.selectedCount}
+          onConfirm={onMerge}
         />
       )}
     </>
