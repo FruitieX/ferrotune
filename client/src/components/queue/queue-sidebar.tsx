@@ -132,18 +132,26 @@ export function QueueSidebar() {
 
   const { upNext, previous: previousTracks } = getUpNextAndPrevious();
 
+  const setShuffledIndices = useSetAtom(shuffledIndicesAtom);
+
   const handleReorder = (newOrder: QueueDisplayItem[]) => {
     if (isShuffled && shuffledIndices.length > 0) {
-      return;
+      // Reorder the shuffle indices, not the queue itself
+      const currentShufflePosition = shuffledIndices.indexOf(queueIndex);
+      const newShuffledIndices = [
+        ...shuffledIndices.slice(0, currentShufflePosition + 1),
+        ...newOrder.map(t => t.originalIndex),
+      ];
+      setShuffledIndices(newShuffledIndices);
+    } else {
+      // Non-shuffled: reconstruct full queue preserving QueueItems
+      const newQueue: QueueItem[] = [
+        ...previousTracks.map(t => t.queueItem),
+        currentQueueItem!,
+        ...newOrder.map(t => t.queueItem),
+      ].filter(Boolean) as QueueItem[];
+      setQueue(newQueue);
     }
-    
-    // Non-shuffled: reconstruct full queue preserving QueueItems
-    const newQueue: QueueItem[] = [
-      ...previousTracks.map(t => t.queueItem),
-      currentQueueItem!,
-      ...newOrder.map(t => t.queueItem),
-    ].filter(Boolean) as QueueItem[];
-    setQueue(newQueue);
   };
 
   const handlePlayTrack = (index: number) => {
@@ -327,7 +335,7 @@ export function QueueSidebar() {
                         <Reorder.Group
                           axis="y"
                           values={upNext}
-                          onReorder={isShuffled ? () => {} : handleReorder}
+                          onReorder={handleReorder}
                           className="space-y-1"
                           layoutScroll
                         >
@@ -340,7 +348,6 @@ export function QueueSidebar() {
                                 onPlay={() => handlePlayTrack(item.originalIndex)}
                                 onRemove={() => removeFromQueue(item.originalIndex)}
                                 onPlayNext={() => addToQueue([item.queueItem.song], "next")}
-                                disableDrag={isShuffled}
                               />
                             ))}
                           </AnimatePresence>
@@ -495,10 +502,9 @@ interface DraggableQueueItemProps {
   onPlay: () => void;
   onRemove: () => void;
   onPlayNext: () => void;
-  disableDrag?: boolean;
 }
 
-function DraggableQueueItem({ item, song, onPlay, onRemove, onPlayNext, disableDrag }: DraggableQueueItemProps) {
+function DraggableQueueItem({ item, song, onPlay, onRemove, onPlayNext }: DraggableQueueItemProps) {
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const dragControls = useDragControls();
 
@@ -511,22 +517,20 @@ function DraggableQueueItem({ item, song, onPlay, onRemove, onPlayNext, disableD
             id={item.queueItem.queueItemId}
             className="flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 group select-none max-w-full"
             dragListener={false}
-            dragControls={disableDrag ? undefined : dragControls}
+            dragControls={dragControls}
             dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
-            whileDrag={disableDrag ? {} : { 
+            whileDrag={{ 
               scale: 1.02, 
               boxShadow: "0 10px 20px rgba(0,0,0,0.3)",
               zIndex: 50
             }}
           >
-            {!disableDrag && (
-              <div
-                className="cursor-grab active:cursor-grabbing touch-none"
-                onPointerDown={(e) => dragControls.start(e)}
-              >
-                <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
-              </div>
-            )}
+            <div
+              className="cursor-grab active:cursor-grabbing touch-none"
+              onPointerDown={(e) => dragControls.start(e)}
+            >
+              <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
+            </div>
             
             {/* Cover with play button overlay on cover hover only */}
             <div 
