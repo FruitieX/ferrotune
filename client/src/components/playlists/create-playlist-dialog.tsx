@@ -32,9 +32,9 @@ export function CreatePlaylistDialog({ open, onOpenChange }: CreatePlaylistDialo
       if (!client) throw new Error("Not connected");
       return client.createPlaylist({ name: playlistName });
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success(`Playlist "${name}" created successfully`);
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      await queryClient.invalidateQueries({ queryKey: ["playlists"] });
       setName("");
       onOpenChange(false);
     },
