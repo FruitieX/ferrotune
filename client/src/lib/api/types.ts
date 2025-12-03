@@ -268,6 +268,14 @@ export interface SearchParams {
   albumOffset?: number;
   songCount?: number;
   songOffset?: number;
+  /** Ferrotune extension: sort field for songs (name, artist, album, year, duration, playCount, dateAdded) */
+  songSort?: string;
+  /** Ferrotune extension: sort direction (asc, desc) */
+  songSortDir?: string;
+  /** Ferrotune extension: sort field for albums (name, artist, year, dateAdded) */
+  albumSort?: string;
+  /** Ferrotune extension: sort direction for albums (asc, desc) */
+  albumSortDir?: string;
 }
 
 export interface RandomSongsParams {

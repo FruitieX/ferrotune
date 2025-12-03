@@ -1,5 +1,9 @@
 import { atom } from "jotai";
-import type { Song } from "@/lib/api/types";
+
+// Generic item selection interface
+export interface SelectableItem {
+  id: string;
+}
 
 // Track selection state
 export interface SelectionState {
@@ -21,27 +25,29 @@ export const selectedCountAtom = atom((get) => get(selectionStateAtom).selectedI
 // Derived atom to check if any items are selected
 export const hasSelectionAtom = atom((get) => get(selectionStateAtom).selectedIds.size > 0);
 
-// Action atoms for selection management
-export const selectTrackAtom = atom(
+// Action atoms for selection management - now generic
+export const selectItemAtom = atom(
   null,
   (
     get,
     set,
     {
       id,
-      songs,
+      items,
       shiftKey = false,
       ctrlKey = false,
-    }: { id: string; songs: Song[]; shiftKey?: boolean; ctrlKey?: boolean }
+    }: { id: string; items: SelectableItem[]; shiftKey?: boolean; ctrlKey?: boolean }
   ) => {
     const state = get(selectionStateAtom);
     const newSelectedIds = new Set(state.selectedIds);
     let newAnchorId = state.anchorId;
+    const hasExistingSelection = state.selectedIds.size > 0;
+    const isCurrentlySelected = state.selectedIds.has(id);
 
     if (shiftKey && state.anchorId) {
       // Range selection: select all between anchor and current
-      const anchorIndex = songs.findIndex((s) => s.id === state.anchorId);
-      const currentIndex = songs.findIndex((s) => s.id === id);
+      const anchorIndex = items.findIndex((s) => s.id === state.anchorId);
+      const currentIndex = items.findIndex((s) => s.id === id);
 
       if (anchorIndex !== -1 && currentIndex !== -1) {
         const start = Math.min(anchorIndex, currentIndex);
@@ -52,22 +58,30 @@ export const selectTrackAtom = atom(
           newSelectedIds.clear();
         }
 
-        // Add all songs in range
+        // Add all items in range
         for (let i = start; i <= end; i++) {
-          newSelectedIds.add(songs[i].id);
+          newSelectedIds.add(items[i].id);
         }
       }
     } else if (ctrlKey) {
-      // Toggle selection
-      if (newSelectedIds.has(id)) {
+      // Toggle selection with ctrl held
+      if (isCurrentlySelected) {
+        newSelectedIds.delete(id);
+      } else {
+        newSelectedIds.add(id);
+        newAnchorId = id;
+      }
+    } else if (hasExistingSelection) {
+      // Selection mode is active (we have selections)
+      // Toggle the clicked item without clearing others
+      if (isCurrentlySelected) {
         newSelectedIds.delete(id);
       } else {
         newSelectedIds.add(id);
         newAnchorId = id;
       }
     } else {
-      // Single selection - clear others and select this one
-      newSelectedIds.clear();
+      // No existing selection - start fresh selection
       newSelectedIds.add(id);
       newAnchorId = id;
     }
@@ -80,6 +94,9 @@ export const selectTrackAtom = atom(
   }
 );
 
+// Backwards compatible alias for song selection
+export const selectTrackAtom = selectItemAtom;
+
 export const clearSelectionAtom = atom(null, (get, set) => {
   set(selectionStateAtom, {
     selectedIds: new Set<string>(),
@@ -88,14 +105,14 @@ export const clearSelectionAtom = atom(null, (get, set) => {
   });
 });
 
-export const selectAllAtom = atom(null, (get, set, songs: Song[]) => {
-  const selectedIds = new Set(songs.map((s) => s.id));
+export const selectAllAtom = atom(null, (get, set, items: SelectableItem[]) => {
+  const selectedIds = new Set(items.map((s) => s.id));
   set(selectionStateAtom, {
     selectedIds,
-    lastSelectedId: songs[songs.length - 1]?.id ?? null,
-    anchorId: songs[0]?.id ?? null,
+    lastSelectedId: items[items.length - 1]?.id ?? null,
+    anchorId: items[0]?.id ?? null,
   });
 });
 
-// Check if a specific track is selected
+// Check if a specific item is selected
 export const isSelectedAtom = atom((get) => (id: string) => get(selectionStateAtom).selectedIds.has(id));

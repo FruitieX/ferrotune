@@ -17,8 +17,7 @@ import {
   Heart,
   MoreHorizontal,
 } from "lucide-react";
-import { useState, useEffect } from "react";
-import { toast } from "sonner";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -26,6 +25,7 @@ import { CoverImage } from "@/components/shared/cover-image";
 import { fullscreenPlayerOpenAtom, queuePanelOpenAtom } from "@/lib/store/ui";
 import { currentTrackAtom, queueAtom, queueIndexAtom, isShuffledAtom } from "@/lib/store/queue";
 import { playbackStateAtom, currentTimeAtom, volumeAtom, repeatModeAtom, isMutedAtom } from "@/lib/store/player";
+import { useStarred } from "@/lib/store/starred";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
@@ -45,17 +45,15 @@ export function FullscreenPlayer() {
   const queueIndex = useAtomValue(queueIndexAtom);
   
   const { togglePlayPause, seek, next, previous } = useAudioEngine();
-  const [isStarred, setIsStarred] = useState(false);
+  const { isStarred, toggleStar } = useStarred(
+    currentTrack?.id ?? "",
+    !!currentTrack?.starred
+  );
   const [localProgress, setLocalProgress] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
 
   const duration = currentTrack?.duration ?? 0;
   const progress = isDragging ? localProgress : currentTime;
-
-  // Update starred state when track changes
-  useEffect(() => {
-    setIsStarred(!!currentTrack?.starred);
-  }, [currentTrack?.id, currentTrack?.starred]);
 
   // Get cover art URL
   const coverArtUrl = currentTrack?.coverArt
@@ -70,27 +68,6 @@ export function FullscreenPlayer() {
   const handleProgressCommit = (value: number[]) => {
     seek(value[0]);
     setIsDragging(false);
-  };
-
-  const handleStar = async () => {
-    if (!currentTrack) return;
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      if (isStarred) {
-        await client.unstar({ id: currentTrack.id });
-        setIsStarred(false);
-        toast.success("Removed from favorites");
-      } else {
-        await client.star({ id: currentTrack.id });
-        setIsStarred(true);
-        toast.success("Added to favorites");
-      }
-    } catch (error) {
-      toast.error("Failed to update favorites");
-      console.error(error);
-    }
   };
 
   const cycleRepeat = () => {
@@ -192,7 +169,7 @@ export function FullscreenPlayer() {
                 variant="ghost"
                 size="icon"
                 className="rounded-full shrink-0"
-                onClick={handleStar}
+                onClick={toggleStar}
               >
                 <Heart className={cn("w-6 h-6", isStarred && "fill-red-500 text-red-500")} />
               </Button>

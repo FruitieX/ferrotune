@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Play } from "lucide-react";
+import { Play, Heart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,6 +26,10 @@ interface MediaCardProps {
   coverType?: "album" | "artist" | "song" | "playlist";
   /** Called when play button is clicked */
   onPlay?: () => void;
+  /** Called when star button is clicked */
+  onStar?: (e: React.MouseEvent) => void;
+  /** Whether the item is starred */
+  isStarred?: boolean;
   /** Dropdown menu component (will be positioned absolutely in top-right) */
   dropdownMenu?: React.ReactNode;
   /** Context menu wrapper */
@@ -50,6 +54,8 @@ export function MediaCard({
   colorSeed,
   coverType = "album",
   onPlay,
+  onStar,
+  isStarred,
   dropdownMenu,
   contextMenu,
   withGlow = false,
@@ -69,6 +75,38 @@ export function MediaCard({
       {dropdownMenu && (
         <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
           {dropdownMenu}
+        </div>
+      )}
+
+      {/* Star button (absolute positioned in bottom-right corner of cover) */}
+      {onStar && (
+        <div 
+          className={cn(
+            "absolute z-10 transition-opacity",
+            // Position differently based on cover shape
+            coverShape === "circle" 
+              ? "bottom-16 right-4" // Above the centered text for circle
+              : "bottom-16 right-4", // Bottom right of cover for square
+            !isStarred && "opacity-0 group-hover:opacity-100"
+          )}
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 bg-black/50 hover:bg-black/70 text-white"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onStar(e);
+            }}
+          >
+            <Heart
+              className={cn(
+                "w-4 h-4",
+                isStarred && "fill-red-500 text-red-500"
+              )}
+            />
+          </Button>
         </div>
       )}
 

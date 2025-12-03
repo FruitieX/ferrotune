@@ -1,14 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { albumViewModeAtom, libraryFilterAtom, librarySortAtom } from "@/lib/store/ui";
+import { albumViewModeAtom, libraryFilterAtom, librarySortAtom, columnVisibilityAtom } from "@/lib/store/ui";
 import { playNowAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
@@ -23,6 +23,7 @@ export default function SongsPage() {
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
   const sortConfig = useAtomValue(librarySortAtom);
+  const columnVisibility = useAtomValue(columnVisibilityAtom);
   const debouncedFilter = useDebounce(filter, 300);
   const playNow = useSetAtom(playNowAtom);
   
@@ -30,6 +31,7 @@ export default function SongsPage() {
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
 
   // Fetch all songs using search with wildcard (when no filter)
+  // Server-side sorting is applied via songSort and songSortDir parameters
   const {
     data: songsData,
     isLoading,
@@ -37,22 +39,23 @@ export default function SongsPage() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["songs", "all"],
+    queryKey: ["songs", "all", sortConfig.field, sortConfig.direction],
     queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       // Use search with an empty-ish query to get all songs, paginated
+      // Pass sort parameters to server for server-side sorting
       const response = await client.search3({
         query: "*", // Wildcard to match all
         songCount: PAGE_SIZE,
         songOffset: pageParam,
         artistCount: 0,
         albumCount: 0,
+        songSort: sortConfig.field,
+        songSortDir: sortConfig.direction,
       });
       const songs = response.searchResult3.song ?? [];
       const total = response.searchResult3.songTotal;
-      // Sort alphabetically by title
-      songs.sort((a, b) => a.title.localeCompare(b.title));
       return {
         songs,
         total,
@@ -64,9 +67,9 @@ export default function SongsPage() {
     enabled: isReady && !debouncedFilter,
   });
 
-  // Search songs when filter is active
+  // Search songs when filter is active (also with server-side sorting)
   const { data: searchData, isLoading: isSearching } = useQuery({
-    queryKey: ["songs", "search", debouncedFilter],
+    queryKey: ["songs", "search", debouncedFilter, sortConfig.field, sortConfig.direction],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
@@ -75,10 +78,10 @@ export default function SongsPage() {
         songCount: 200,
         artistCount: 0,
         albumCount: 0,
+        songSort: sortConfig.field,
+        songSortDir: sortConfig.direction,
       });
-      const songs = response.searchResult3.song ?? [];
-      songs.sort((a, b) => a.title.localeCompare(b.title));
-      return songs;
+      return response.searchResult3.song ?? [];
     },
     enabled: isReady && debouncedFilter.length >= 1,
   });
@@ -88,43 +91,8 @@ export default function SongsPage() {
   const totalSongs = songsData?.pages[0]?.total ?? allSongs.length;
   
   // Use search results when filtering, otherwise use paginated list
-  const unsortedSongs = debouncedFilter ? (searchData ?? []) : allSongs;
-  
-  // Apply sorting
-  const displaySongs = useMemo(() => {
-    const sorted = [...unsortedSongs];
-    const { field, direction } = sortConfig;
-    const multiplier = direction === "asc" ? 1 : -1;
-    
-    sorted.sort((a, b) => {
-      let comparison = 0;
-      switch (field) {
-        case "name":
-          comparison = a.title.localeCompare(b.title);
-          break;
-        case "artist":
-          comparison = (a.artist ?? "").localeCompare(b.artist ?? "");
-          break;
-        case "year":
-          comparison = (a.year ?? 0) - (b.year ?? 0);
-          break;
-        case "duration":
-          comparison = a.duration - b.duration;
-          break;
-        case "playCount":
-          comparison = (a.playCount ?? 0) - (b.playCount ?? 0);
-          break;
-        case "dateAdded":
-          comparison = (a.created ?? "").localeCompare(b.created ?? "");
-          break;
-        default:
-          comparison = a.title.localeCompare(b.title);
-      }
-      return comparison * multiplier;
-    });
-    
-    return sorted;
-  }, [unsortedSongs, sortConfig]);
+  // Sorting is now handled server-side, no need for client-side sorting
+  const displaySongs = debouncedFilter ? (searchData ?? []) : allSongs;
 
   const displayCount = debouncedFilter ? displaySongs.length : totalSongs;
   const isLoadingData = debouncedFilter ? isSearching : isLoading;
@@ -171,7 +139,7 @@ export default function SongsPage() {
   }
 
   return (
-    <div className="p-4 lg:p-6">
+    <div className={cn("p-4 lg:p-6", hasSelection && "select-none-during-selection")}>
       {isLoadingData && displaySongs.length === 0 ? (
         viewMode === "grid" ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -211,6 +179,12 @@ export default function SongsPage() {
                 song={song}
                 index={index}
                 showCover
+                showArtist={columnVisibility.artist}
+                showAlbum={columnVisibility.album}
+                showDuration={columnVisibility.duration}
+                showPlayCount={columnVisibility.playCount}
+                showYear={columnVisibility.year}
+                showDateAdded={columnVisibility.dateAdded}
                 queueSongs={displaySongs}
                 isSelected={isSelected(song.id)}
                 isSelectionMode={hasSelection}

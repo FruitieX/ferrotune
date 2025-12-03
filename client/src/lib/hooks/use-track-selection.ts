@@ -5,31 +5,35 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { toast } from "sonner";
 import {
   selectionStateAtom,
-  selectTrackAtom,
+  selectItemAtom,
   clearSelectionAtom,
   selectAllAtom,
   hasSelectionAtom,
   selectedCountAtom,
+  type SelectableItem,
 } from "@/lib/store/selection";
 import { addToQueueAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 
-export function useTrackSelection(songs: Song[]) {
+/**
+ * Generic hook for item selection.
+ * Can be used with songs, albums, artists, or any item with an id.
+ */
+export function useItemSelection<T extends SelectableItem>(items: T[]) {
   const [selectionState] = useAtom(selectionStateAtom);
-  const selectTrack = useSetAtom(selectTrackAtom);
+  const selectItem = useSetAtom(selectItemAtom);
   const clearSelection = useSetAtom(clearSelectionAtom);
   const selectAll = useSetAtom(selectAllAtom);
   const hasSelection = useAtomValue(hasSelectionAtom);
   const selectedCount = useAtomValue(selectedCountAtom);
-  const addToQueue = useSetAtom(addToQueueAtom);
 
-  // Get selected songs in order
-  const getSelectedSongs = useCallback(() => {
-    return songs.filter((s) => selectionState.selectedIds.has(s.id));
-  }, [songs, selectionState.selectedIds]);
+  // Get selected items in order
+  const getSelectedItems = useCallback(() => {
+    return items.filter((item) => selectionState.selectedIds.has(item.id));
+  }, [items, selectionState.selectedIds]);
 
-  // Check if a specific song is selected
+  // Check if a specific item is selected
   const isSelected = useCallback(
     (id: string) => selectionState.selectedIds.has(id),
     [selectionState.selectedIds]
@@ -38,14 +42,14 @@ export function useTrackSelection(songs: Song[]) {
   // Handle click with modifiers
   const handleSelect = useCallback(
     (id: string, event?: React.MouseEvent) => {
-      selectTrack({
+      selectItem({
         id,
-        songs,
+        items,
         shiftKey: event?.shiftKey ?? false,
         ctrlKey: event?.ctrlKey ?? event?.metaKey ?? false,
       });
     },
-    [selectTrack, songs]
+    [selectItem, items]
   );
 
   // Keyboard shortcuts for selection
@@ -58,7 +62,7 @@ export function useTrackSelection(songs: Song[]) {
           return;
         }
         e.preventDefault();
-        selectAll(songs);
+        selectAll(items);
       }
 
       // Escape to clear selection
@@ -69,7 +73,42 @@ export function useTrackSelection(songs: Song[]) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectAll, clearSelection, songs, hasSelection]);
+  }, [selectAll, clearSelection, items, hasSelection]);
+
+  return {
+    selectedIds: selectionState.selectedIds,
+    selectedCount,
+    hasSelection,
+    isSelected,
+    handleSelect,
+    clearSelection,
+    selectAll: () => selectAll(items),
+    getSelectedItems,
+  };
+}
+
+/**
+ * Track (song) specific selection hook.
+ * Provides song-specific actions like add to queue and star/unstar.
+ */
+export function useTrackSelection(songs: Song[]) {
+  const {
+    selectedIds,
+    selectedCount,
+    hasSelection,
+    isSelected,
+    handleSelect,
+    clearSelection,
+    selectAll,
+    getSelectedItems,
+  } = useItemSelection(songs);
+  
+  const addToQueue = useSetAtom(addToQueueAtom);
+
+  // Get selected songs (type-safe alias)
+  const getSelectedSongs = useCallback(() => {
+    return getSelectedItems() as Song[];
+  }, [getSelectedItems]);
 
   // Bulk action handlers
   const addSelectedToQueue = useCallback(
@@ -117,13 +156,13 @@ export function useTrackSelection(songs: Song[]) {
   );
 
   return {
-    selectedIds: selectionState.selectedIds,
+    selectedIds,
     selectedCount,
     hasSelection,
     isSelected,
     handleSelect,
     clearSelection,
-    selectAll: () => selectAll(songs),
+    selectAll,
     getSelectedSongs,
     addSelectedToQueue,
     starSelected,

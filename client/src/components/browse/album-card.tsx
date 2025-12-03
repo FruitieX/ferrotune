@@ -16,9 +16,33 @@ interface AlbumCardProps {
 }
 
 export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
+  const [isStarred, setIsStarred] = useState(!!album.starred);
+  
   const coverArtUrl = album.coverArt
     ? getClient()?.getCoverArtUrl(album.coverArt, 300)
     : undefined;
+
+  const handleStar = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const client = getClient();
+    if (!client) return;
+
+    try {
+      if (isStarred) {
+        await client.unstar({ albumId: album.id });
+        setIsStarred(false);
+        toast.success(`Removed from favorites`);
+      } else {
+        await client.star({ albumId: album.id });
+        setIsStarred(true);
+        toast.success(`Added to favorites`);
+      }
+    } catch (error) {
+      toast.error("Failed to update favorites");
+      console.error(error);
+    }
+  };
 
   const subtitleContent = (
     <>
@@ -42,6 +66,8 @@ export function AlbumCard({ album, onPlay, className }: AlbumCardProps) {
       colorSeed={album.name}
       coverType="album"
       onPlay={onPlay}
+      onStar={handleStar}
+      isStarred={isStarred}
       dropdownMenu={<AlbumDropdownMenu album={album} onPlay={onPlay} />}
       contextMenu={(children) => (
         <AlbumContextMenu album={album}>{children}</AlbumContextMenu>

@@ -13,6 +13,7 @@ import {
   CheckSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import type { Song } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
@@ -69,90 +70,130 @@ export function BulkActionsBar({
                 <span className="text-sm font-medium text-primary tabular-nums" aria-live="polite">
                   {selectedCount} selected
                 </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={onClear}
-                  aria-label="Clear selection (Escape key)"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={onClear}
+                      aria-label="Clear selection"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Clear selection (Esc)</TooltipContent>
+                </Tooltip>
               </div>
 
               {/* Actions */}
               <div className="flex items-center gap-1 px-1" role="group" aria-label="Bulk actions">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9"
-                  onClick={onSelectAll}
-                  aria-label="Select all (Ctrl+A)"
-                >
-                  <CheckSquare className="w-4 h-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={onSelectAll}
+                      aria-label="Select all"
+                    >
+                      <CheckSquare className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Select all</TooltipContent>
+                </Tooltip>
 
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9"
-                  onClick={onPlayNow}
-                  aria-label="Play selected songs"
-                >
-                  <Play className="w-4 h-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={onPlayNow}
+                      aria-label="Play now"
+                    >
+                      <Play className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Play now</TooltipContent>
+                </Tooltip>
 
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9"
-                  onClick={onPlayNext}
-                  aria-label="Add selected songs to play next"
-                >
-                  <ListPlus className="w-4 h-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={onPlayNext}
+                      aria-label="Play next"
+                    >
+                      <ListPlus className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Play next</TooltipContent>
+                </Tooltip>
 
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9"
-                  onClick={onAddToQueue}
-                  aria-label="Add selected songs to end of queue"
-                >
-                  <ListEnd className="w-4 h-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={onAddToQueue}
+                      aria-label="Add to queue"
+                    >
+                      <ListEnd className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Add to queue</TooltipContent>
+                </Tooltip>
 
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9"
-                  onClick={() => setAddToPlaylistOpen(true)}
-                  aria-label="Add selected songs to playlist"
-                >
-                  <FolderPlus className="w-4 h-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={() => setAddToPlaylistOpen(true)}
+                      aria-label="Add to playlist"
+                    >
+                      <FolderPlus className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Add to playlist</TooltipContent>
+                </Tooltip>
 
                 <div className="w-px h-6 bg-border mx-1" role="separator" aria-orientation="vertical" />
 
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9"
-                  onClick={onStar}
-                  aria-label="Add selected songs to favorites"
-                >
-                  <Heart className="w-4 h-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={onStar}
+                      aria-label="Add to favorites"
+                    >
+                      <Heart className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Add to favorites</TooltipContent>
+                </Tooltip>
 
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9"
-                  onClick={onUnstar}
-                  aria-label="Remove selected songs from favorites"
-                >
-                  <HeartOff className="w-4 h-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={onUnstar}
+                      aria-label="Remove from favorites"
+                    >
+                      <HeartOff className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Remove from favorites</TooltipContent>
+                </Tooltip>
               </div>
             </div>
           </motion.div>
