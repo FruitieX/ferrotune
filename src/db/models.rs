@@ -46,6 +46,7 @@ pub struct Song {
     pub id: String,
     pub title: String,
     pub album_id: Option<String>,
+    pub album_name: Option<String>,
     pub artist_id: String,
     pub artist_name: String,
     pub track_number: Option<i32>,

@@ -112,10 +112,11 @@ pub async fn get_play_queue(
 
     // Get queue entries with song data
     let songs: Vec<crate::db::models::Song> = sqlx::query_as(
-        "SELECT s.*, ar.name as artist_name
+        "SELECT s.*, ar.name as artist_name, al.name as album_name
          FROM play_queue_entries pqe
          INNER JOIN songs s ON pqe.song_id = s.id
          INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
          WHERE pqe.user_id = ?
          ORDER BY pqe.queue_position ASC",
     )

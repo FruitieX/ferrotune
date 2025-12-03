@@ -67,9 +67,20 @@ interface ArtistCardCompactProps {
   isSelectionMode?: boolean;
   onSelect?: (e: React.MouseEvent) => void;
   className?: string;
+  /** Column visibility settings */
+  showAlbumCount?: boolean;
 }
 
-export function ArtistCardCompact({ artist, index, onPlay, isSelected, isSelectionMode, onSelect, className }: ArtistCardCompactProps) {
+export function ArtistCardCompact({ 
+  artist, 
+  index, 
+  onPlay, 
+  isSelected, 
+  isSelectionMode, 
+  onSelect, 
+  className,
+  showAlbumCount = true,
+}: ArtistCardCompactProps) {
   const { isStarred, toggleStar } = useStarredArtist(artist.id, !!artist.starred);
   
   const coverArtUrl = artist.coverArt
@@ -86,7 +97,7 @@ export function ArtistCardCompact({ artist, index, onPlay, isSelected, isSelecti
     <MediaRow
       coverArt={coverArtUrl}
       title={artist.name}
-      subtitle={formatCount(artist.albumCount, "album")}
+      subtitle={showAlbumCount ? formatCount(artist.albumCount, "album") : undefined}
       href={`/library/artists/details?id=${artist.id}`}
       coverShape="circle"
       colorSeed={artist.name}
@@ -112,6 +123,13 @@ export function ArtistCardCompact({ artist, index, onPlay, isSelected, isSelecti
             />
           }
         />
+      }
+      rightContent={
+        showAlbumCount ? (
+          <span className="text-sm text-muted-foreground tabular-nums w-12 text-right shrink-0">
+            {artist.albumCount}
+          </span>
+        ) : undefined
       }
       className={className}
     />

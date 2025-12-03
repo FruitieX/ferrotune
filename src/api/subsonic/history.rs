@@ -1,7 +1,9 @@
 //! Play history endpoints for the Subsonic API.
 
 use crate::api::subsonic::auth::AuthenticatedUser;
-use crate::api::subsonic::browse::{get_ratings_map, get_starred_map, song_to_response, SongResponse};
+use crate::api::subsonic::browse::{
+    get_ratings_map, get_starred_map, song_to_response, SongResponse,
+};
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
 use crate::error::Result;
@@ -49,6 +51,7 @@ struct ScrobbleWithSong {
     id: String,
     title: String,
     album_id: Option<String>,
+    album_name: Option<String>,
     artist_id: String,
     artist_name: String,
     track_number: Option<i32>,
@@ -73,6 +76,7 @@ impl ScrobbleWithSong {
                 id: self.id,
                 title: self.title,
                 album_id: self.album_id,
+                album_name: self.album_name,
                 artist_id: self.artist_id,
                 artist_name: self.artist_name,
                 track_number: self.track_number,
@@ -103,13 +107,14 @@ pub async fn get_play_history(
 
     // Get scrobbles with song data joined
     let scrobbles: Vec<ScrobbleWithSong> = sqlx::query_as(
-        r#"SELECT s.id, s.title, s.album_id, s.artist_id, ar.name as artist_name,
+        r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
                   s.track_number, s.disc_number, s.year, s.genre, s.duration,
                   s.bitrate, s.file_path, s.file_size, s.file_format, 
                   s.created_at, s.updated_at, sc.played_at
            FROM scrobbles sc
            INNER JOIN songs s ON sc.song_id = s.id
            INNER JOIN artists ar ON s.artist_id = ar.id
+           LEFT JOIN albums al ON s.album_id = al.id
            WHERE sc.user_id = ? AND sc.submission = 1
            ORDER BY sc.played_at DESC
            LIMIT ? OFFSET ?"#,
@@ -121,12 +126,11 @@ pub async fn get_play_history(
     .await?;
 
     // Get total count
-    let total: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM scrobbles WHERE user_id = ? AND submission = 1",
-    )
-    .bind(user.user_id)
-    .fetch_one(&state.pool)
-    .await?;
+    let total: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM scrobbles WHERE user_id = ? AND submission = 1")
+            .bind(user.user_id)
+            .fetch_one(&state.pool)
+            .await?;
 
     // Convert to songs with played_at
     let scrobble_data: Vec<_> = scrobbles.into_iter().map(|s| s.into_song()).collect();

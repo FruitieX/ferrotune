@@ -195,18 +195,20 @@ pub async fn search3(
 
         let query = if needs_play_count {
             format!(
-                    "SELECT s.*, ar.name as artist_name, COALESCE(pc.play_count, 0) as play_count
+                    "SELECT s.*, ar.name as artist_name, al.name as album_name, COALESCE(pc.play_count, 0) as play_count
                      FROM songs s 
                      INNER JOIN artists ar ON s.artist_id = ar.id
+                     LEFT JOIN albums al ON s.album_id = al.id
                      LEFT JOIN (SELECT song_id, COUNT(*) as play_count FROM scrobbles GROUP BY song_id) pc ON s.id = pc.song_id
                      ORDER BY {song_order}
                      LIMIT ? OFFSET ?"
                 )
         } else {
             format!(
-                "SELECT s.*, ar.name as artist_name, 0 as play_count
+                "SELECT s.*, ar.name as artist_name, al.name as album_name, 0 as play_count
                      FROM songs s 
                      INNER JOIN artists ar ON s.artist_id = ar.id
+                     LEFT JOIN albums al ON s.album_id = al.id
                      ORDER BY {song_order}
                      LIMIT ? OFFSET ?"
             )
@@ -235,9 +237,10 @@ pub async fn search3(
 
         let query = if needs_play_count {
             format!(
-                    "SELECT s.*, ar.name as artist_name, COALESCE(pc.play_count, 0) as play_count
+                    "SELECT s.*, ar.name as artist_name, al.name as album_name, COALESCE(pc.play_count, 0) as play_count
                      FROM songs s 
                      INNER JOIN artists ar ON s.artist_id = ar.id
+                     LEFT JOIN albums al ON s.album_id = al.id
                      INNER JOIN songs_fts fts ON s.id = fts.song_id 
                      LEFT JOIN (SELECT song_id, COUNT(*) as play_count FROM scrobbles GROUP BY song_id) pc ON s.id = pc.song_id
                      WHERE songs_fts MATCH ? 
@@ -246,9 +249,10 @@ pub async fn search3(
                 )
         } else {
             format!(
-                "SELECT s.*, ar.name as artist_name, 0 as play_count
+                "SELECT s.*, ar.name as artist_name, al.name as album_name, 0 as play_count
                      FROM songs s 
                      INNER JOIN artists ar ON s.artist_id = ar.id
+                     LEFT JOIN albums al ON s.album_id = al.id
                      INNER JOIN songs_fts fts ON s.id = fts.song_id 
                      WHERE songs_fts MATCH ? 
                      ORDER BY {song_order}

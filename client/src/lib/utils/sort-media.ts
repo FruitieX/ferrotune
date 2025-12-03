@@ -69,6 +69,10 @@ export function sortArtists(
         aVal = a.name?.toLowerCase() ?? "";
         bVal = b.name?.toLowerCase() ?? "";
         break;
+      case "albumCount":
+        aVal = a.albumCount ?? 0;
+        bVal = b.albumCount ?? 0;
+        break;
       default:
         aVal = a.name?.toLowerCase() ?? "";
         bVal = b.name?.toLowerCase() ?? "";
