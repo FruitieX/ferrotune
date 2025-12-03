@@ -631,6 +631,12 @@ pub fn song_to_response_with_stats(
         .map(|s| (s.play_count, s.last_played))
         .unwrap_or((None, None));
 
+    // Use album ID for cover art (prefer album object, fall back to song's album_id, then song id)
+    let cover_art = album
+        .map(|a| a.id.clone())
+        .or_else(|| song.album_id.clone())
+        .unwrap_or_else(|| song.id.clone());
+
     SongResponse {
         id: song.id.clone(),
         title: song.title,
@@ -642,7 +648,7 @@ pub fn song_to_response_with_stats(
         disc_number: Some(song.disc_number),
         year: song.year,
         genre: song.genre,
-        cover_art: Some(album.map(|a| a.id.clone()).unwrap_or(song.id)),
+        cover_art: Some(cover_art),
         size: song.file_size,
         content_type: content_type.to_string(),
         suffix: song.file_format.clone(),
