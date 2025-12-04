@@ -56,6 +56,10 @@ interface SongContextMenuProps {
   showRemoveFromQueue?: boolean;
   /** Callback for removing from queue */
   onRemoveFromQueue?: () => void;
+  /** Show "Remove from Playlist" option */
+  showRemoveFromPlaylist?: boolean;
+  /** Callback for removing from playlist */
+  onRemoveFromPlaylist?: () => void;
 }
 
 export function SongContextMenu({ 
@@ -65,6 +69,8 @@ export function SongContextMenu({
   hideQueueActions = false,
   showRemoveFromQueue = false,
   onRemoveFromQueue,
+  showRemoveFromPlaylist = false,
+  onRemoveFromPlaylist,
 }: SongContextMenuProps) {
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -146,7 +152,7 @@ export function SongContextMenu({
 
       <ContextMenuSub>
         <ContextMenuSubTrigger>
-          <Star className={`w-4 h-4 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`} />
+          <Star className={`w-4 h-4 mr-2 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`} />
           Rate {currentRating > 0 && `(${currentRating})`}
         </ContextMenuSubTrigger>
         <ContextMenuSubContent>
@@ -206,6 +212,16 @@ export function SongContextMenu({
           </ContextMenuItem>
         </>
       )}
+
+      {showRemoveFromPlaylist && onRemoveFromPlaylist && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={onRemoveFromPlaylist} className="text-destructive">
+            <X className="w-4 h-4 mr-2" />
+            Remove from Playlist
+          </ContextMenuItem>
+        </>
+      )}
     </>
   );
 
@@ -240,6 +256,10 @@ interface SongDropdownMenuProps {
   showRemoveFromQueue?: boolean;
   /** Callback for removing from queue */
   onRemoveFromQueue?: () => void;
+  /** Show "Remove from Playlist" option */
+  showRemoveFromPlaylist?: boolean;
+  /** Callback for removing from playlist */
+  onRemoveFromPlaylist?: () => void;
 }
 
 export function SongDropdownMenu({ 
@@ -249,6 +269,8 @@ export function SongDropdownMenu({
   hideQueueActions = false,
   showRemoveFromQueue = false,
   onRemoveFromQueue,
+  showRemoveFromPlaylist = false,
+  onRemoveFromPlaylist,
 }: SongDropdownMenuProps) {
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -356,7 +378,7 @@ export function SongDropdownMenu({
 
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
-              <Star className={`w-4 h-4 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`} />
+              <Star className={`w-4 h-4 mr-2 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`} />
               Rate {currentRating > 0 && `(${currentRating})`}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
@@ -406,6 +428,16 @@ export function SongDropdownMenu({
             <Info className="w-4 h-4 mr-2" />
             View Details
           </DropdownMenuItem>
+
+          {showRemoveFromPlaylist && onRemoveFromPlaylist && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onRemoveFromPlaylist} className="text-destructive">
+                <X className="w-4 h-4 mr-2" />
+                Remove from Playlist
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
       <AddToPlaylistDialog

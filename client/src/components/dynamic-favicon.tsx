@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAtomValue } from "jotai";
 import { 
   accentColorAtom, 
@@ -9,7 +9,6 @@ import {
   customAccentChromaAtom,
   ACCENT_PRESETS,
 } from "@/lib/store/ui";
-import { useHydrated } from "@/lib/hooks/use-hydrated";
 
 // Generate an SVG favicon with the specified color
 const generateFaviconSvg = (color: string): string => {
@@ -71,15 +70,26 @@ const oklchToHex = (l: number, c: number, h: number): string => {
 };
 
 export function DynamicFavicon() {
-  const isHydrated = useHydrated();
+  // Track if we've mounted and waited for atoms to hydrate from localStorage
+  const [isReady, setIsReady] = useState(false);
   const accentColor = useAtomValue(accentColorAtom);
   const customHue = useAtomValue(customAccentHueAtom);
   const customLightness = useAtomValue(customAccentLightnessAtom);
   const customChroma = useAtomValue(customAccentChromaAtom);
   
+  // Wait for mount plus a microtask to ensure atomWithStorage has hydrated from localStorage
   useEffect(() => {
-    // Don't update favicon until hydrated to ensure we use localStorage values
-    if (!isHydrated) return;
+    // Use requestAnimationFrame to wait for the next frame after React has committed
+    // This ensures Jotai's atomWithStorage has read from localStorage
+    const frameId = requestAnimationFrame(() => {
+      setIsReady(true);
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, []);
+  
+  useEffect(() => {
+    // Don't update favicon until ready to ensure we use localStorage values
+    if (!isReady) return;
     
     // Determine OKLCH values based on accent color
     let lightness: number;
@@ -173,7 +183,7 @@ export function DynamicFavicon() {
     appleLinks.forEach((link) => {
       (link as HTMLLinkElement).href = dataUrl;
     });
-  }, [isHydrated, accentColor, customHue, customLightness, customChroma]);
+  }, [isReady, accentColor, customHue, customLightness, customChroma]);
   
   return null;
 }

@@ -22,6 +22,8 @@ interface SortableSongRowProps {
   isSelectionMode?: boolean;
   onSelect?: (e: React.MouseEvent) => void;
   disabled?: boolean;
+  showRemoveFromPlaylist?: boolean;
+  onRemoveFromPlaylist?: () => void;
 }
 
 export function SortableSongRow({
@@ -39,6 +41,8 @@ export function SortableSongRow({
   isSelectionMode,
   onSelect,
   disabled = false,
+  showRemoveFromPlaylist,
+  onRemoveFromPlaylist,
 }: SortableSongRowProps) {
   const {
     attributes,
@@ -99,6 +103,8 @@ export function SortableSongRow({
             isSelected={isSelected}
             isSelectionMode={isSelectionMode}
             onSelect={onSelect}
+            showRemoveFromPlaylist={showRemoveFromPlaylist}
+            onRemoveFromPlaylist={onRemoveFromPlaylist}
           />
         </div>
       </div>
