@@ -27,6 +27,7 @@ import type {
   UserPreferences,
   UpdatePreferencesRequest,
   ServerStats,
+  ListeningStatsResponse,
 } from "./types";
 
 const API_VERSION = "1.16.1";
@@ -385,6 +386,18 @@ export class SubsonicClient {
       method: "PUT",
       body: JSON.stringify({ songIds }),
     });
+  }
+
+  // Listening statistics (Admin API)
+  async logListening(songId: string, durationSeconds: number): Promise<void> {
+    await this.adminRequest("/ferrotune/listening", {
+      method: "POST",
+      body: JSON.stringify({ song_id: songId, duration_seconds: durationSeconds }),
+    });
+  }
+
+  async getListeningStats(): Promise<ListeningStatsResponse> {
+    return this.adminRequest("/ferrotune/listening/stats");
   }
 }
 

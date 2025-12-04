@@ -189,6 +189,24 @@ pub async fn get_song_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<
     .await
 }
 
+/// Get a song by ID with its music folder path for full filesystem path construction
+pub async fn get_song_by_id_with_folder(
+    pool: &SqlitePool,
+    id: &str,
+) -> sqlx::Result<Option<SongWithFolder>> {
+    sqlx::query_as::<_, SongWithFolder>(
+        "SELECT s.*, ar.name as artist_name, al.name as album_name, mf.path as folder_path
+         FROM songs s
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         LEFT JOIN music_folders mf ON s.music_folder_id = mf.id
+         WHERE s.id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+}
+
 // Playlist queries
 
 /// Get all playlists visible to a user (their own + public playlists)

@@ -133,6 +133,38 @@ export function truncate(text: string, maxLength: number): string {
 }
 
 /**
+ * Format listening time (total seconds) to a friendly string
+ * e.g., "42 minutes", "3 hours 15 min", "2 days 5 hours"
+ */
+export function formatListeningTime(totalSeconds: number): string {
+  if (!totalSeconds || totalSeconds < 60) {
+    return "Less than a minute";
+  }
+  
+  const minutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (days > 0) {
+    const remainingHours = hours % 24;
+    if (remainingHours > 0) {
+      return `${days} day${days > 1 ? 's' : ''} ${remainingHours} hr`;
+    }
+    return `${days} day${days > 1 ? 's' : ''}`;
+  }
+  
+  if (hours > 0) {
+    const remainingMinutes = minutes % 60;
+    if (remainingMinutes > 0) {
+      return `${hours} hr ${remainingMinutes} min`;
+    }
+    return `${hours} hour${hours > 1 ? 's' : ''}`;
+  }
+  
+  return `${minutes} minute${minutes > 1 ? 's' : ''}`;
+}
+
+/**
  * Generate a random ID
  */
 export function generateId(): string {

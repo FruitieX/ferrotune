@@ -87,29 +87,30 @@ export function DynamicFavicon() {
     // Generate SVG
     const svg = generateFaviconSvg(hexColor);
     
-    // Convert to data URL
-    const svgBlob = new Blob([svg], { type: "image/svg+xml" });
-    const url = URL.createObjectURL(svgBlob);
+    // Convert to data URL (more reliable than blob URL for favicons)
+    const svgBase64 = btoa(svg);
+    const dataUrl = `data:image/svg+xml;base64,${svgBase64}`;
     
-    // Update favicon
-    let link = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
-    if (!link) {
-      link = document.createElement("link");
+    // Update all icon link elements (Next.js may create multiple)
+    const iconLinks = document.querySelectorAll("link[rel='icon'], link[rel='shortcut icon']");
+    iconLinks.forEach((link) => {
+      (link as HTMLLinkElement).href = dataUrl;
+    });
+    
+    // If no icon link exists, create one
+    if (iconLinks.length === 0) {
+      const link = document.createElement("link");
       link.rel = "icon";
+      link.type = "image/svg+xml";
+      link.href = dataUrl;
       document.head.appendChild(link);
     }
-    link.href = url;
     
     // Also update apple-touch-icon if present
-    const appleLink = document.querySelector("link[rel='apple-touch-icon']") as HTMLLinkElement | null;
-    if (appleLink) {
-      appleLink.href = url;
-    }
-    
-    // Cleanup old URL on next update
-    return () => {
-      URL.revokeObjectURL(url);
-    };
+    const appleLinks = document.querySelectorAll("link[rel='apple-touch-icon']");
+    appleLinks.forEach((link) => {
+      (link as HTMLLinkElement).href = dataUrl;
+    });
   }, [accentColor, customHue]);
   
   return null;

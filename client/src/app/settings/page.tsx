@@ -26,6 +26,8 @@ import {
   ListMusic,
   Clock,
   PlayCircle,
+  Headphones,
+  Calendar,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -74,7 +76,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatTotalDuration, formatFileSize } from "@/lib/utils/format";
+import { formatTotalDuration, formatFileSize, formatListeningTime } from "@/lib/utils/format";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -94,6 +96,18 @@ export default function SettingsPage() {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       return client.getStats();
+    },
+    enabled: isReady,
+    staleTime: 60000, // Cache for 1 minute
+  });
+  
+  // Fetch listening stats
+  const { data: listeningStats, isLoading: listeningStatsLoading } = useQuery({
+    queryKey: ["listeningStats"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.getListeningStats();
     },
     enabled: isReady,
     staleTime: 60000, // Cache for 1 minute
@@ -348,6 +362,74 @@ export default function SettingsPage() {
                   </div>
                 </div>
               ) : null}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Listening Activity */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.17 }}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Headphones className="w-5 h-5" />
+                Listening Activity
+              </CardTitle>
+              <CardDescription>
+                Your music listening statistics
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {listeningStatsLoading ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="p-3 rounded-lg bg-muted/30">
+                      <Skeleton className="h-4 w-16 mb-2" />
+                      <Skeleton className="h-6 w-20" />
+                    </div>
+                  ))}
+                </div>
+              ) : listeningStats ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-3 rounded-lg bg-muted/30">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <Calendar className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">Last 7 Days</span>
+                    </div>
+                    <p className="text-lg font-bold">{formatListeningTime(listeningStats.last7Days.totalSeconds)}</p>
+                    <p className="text-xs text-muted-foreground">{listeningStats.last7Days.uniqueSongs} songs</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <Calendar className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">Last 30 Days</span>
+                    </div>
+                    <p className="text-lg font-bold">{formatListeningTime(listeningStats.last30Days.totalSeconds)}</p>
+                    <p className="text-xs text-muted-foreground">{listeningStats.last30Days.uniqueSongs} songs</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <Calendar className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">This Year</span>
+                    </div>
+                    <p className="text-lg font-bold">{formatListeningTime(listeningStats.thisYear.totalSeconds)}</p>
+                    <p className="text-xs text-muted-foreground">{listeningStats.thisYear.uniqueSongs} songs</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <Clock className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">All Time</span>
+                    </div>
+                    <p className="text-lg font-bold">{formatListeningTime(listeningStats.allTime.totalSeconds)}</p>
+                    <p className="text-xs text-muted-foreground">{listeningStats.allTime.uniqueSongs} songs</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-sm">No listening data yet. Start playing some music!</p>
+              )}
             </CardContent>
           </Card>
         </motion.div>

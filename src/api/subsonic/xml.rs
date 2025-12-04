@@ -604,7 +604,9 @@ pub struct XmlSong {
     pub created: String,
     #[serde(rename = "@type")]
     pub media_type: String,
-    // Ferrotune extensions for play statistics
+    // Ferrotune extensions
+    #[serde(rename = "@fullPath", skip_serializing_if = "Option::is_none")]
+    pub full_path: Option<String>,
     #[serde(rename = "@playCount", skip_serializing_if = "Option::is_none")]
     pub play_count: Option<i64>,
     #[serde(rename = "@lastPlayed", skip_serializing_if = "Option::is_none")]
@@ -1153,6 +1155,7 @@ fn song_to_xml(song: &SongResponse) -> XmlSong {
         duration: song.duration,
         bit_rate: song.bit_rate,
         path: song.path.clone(),
+        full_path: song.full_path.clone(),
         starred: song.starred.clone(),
         user_rating: song.user_rating,
         created: song.created.clone(),
