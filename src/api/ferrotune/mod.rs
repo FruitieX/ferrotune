@@ -13,6 +13,7 @@
 //! ## Endpoints
 //!
 //! - `GET /ferrotune/health` - Health check
+//! - `GET /ferrotune/stats` - Get server statistics (song/album/artist counts, total duration, etc.)
 //! - `POST /ferrotune/scan` - Trigger a library scan
 //! - `GET /ferrotune/scan/status` - Get current scan status (placeholder for future async scanning)
 //! - `GET /ferrotune/duplicates` - Get duplicate files detected during scanning
@@ -33,6 +34,7 @@ mod playlists;
 mod playqueue;
 mod preferences;
 mod scan;
+mod stats;
 mod tags;
 
 use crate::api::AppState;
@@ -49,6 +51,7 @@ use std::sync::Arc;
 pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/ferrotune/health", get(health))
+        .route("/ferrotune/stats", get(stats::get_stats))
         .route("/ferrotune/scan", post(scan::start_scan))
         .route("/ferrotune/scan/status", get(scan::scan_status))
         .route("/ferrotune/duplicates", get(duplicates::get_duplicates))

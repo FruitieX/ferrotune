@@ -340,6 +340,18 @@ export interface UpdateTagsResponse {
   rescanRecommended: boolean;
 }
 
+// Server statistics types (Admin API)
+export interface ServerStats {
+  songCount: number;
+  albumCount: number;
+  artistCount: number;
+  genreCount: number;
+  playlistCount: number;
+  totalDurationSeconds: number;
+  totalSizeBytes: number;
+  totalPlays: number;
+}
+
 // User preferences types (Admin API)
 export interface UserPreferences {
   accentColor: string;

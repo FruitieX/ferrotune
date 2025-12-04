@@ -29,6 +29,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -53,6 +54,12 @@ interface MatchedTrack {
 
 type ImportStep = "upload" | "matching" | "preview" | "importing";
 
+interface SearchOptions {
+  useTitle: boolean;
+  useArtist: boolean;
+  useAlbum: boolean;
+}
+
 export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialogProps) {
   const [step, setStep] = useState<ImportStep>("upload");
   const [playlistName, setPlaylistName] = useState("");
@@ -63,6 +70,11 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
   const [isDragging, setIsDragging] = useState(false);
   const [originalFormat, setOriginalFormat] = useState<ParseResult["format"]>("m3u");
   const [originalHeaderLine, setOriginalHeaderLine] = useState<string | undefined>(undefined);
+  const [searchOptions, setSearchOptions] = useState<SearchOptions>({
+    useTitle: true,
+    useArtist: true,
+    useAlbum: false,
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const queryClient = useQueryClient();
@@ -83,6 +95,7 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
       setIsMatching(false);
       setOriginalFormat("m3u");
       setOriginalHeaderLine(undefined);
+      setSearchOptions({ useTitle: true, useArtist: true, useAlbum: false });
     }
     onOpenChange(open);
   };
@@ -144,10 +157,11 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
       const track = tracks[i];
       setMatchingProgress(Math.round(((i + 1) / tracks.length) * 100));
       
-      // Build search query
+      // Build search query based on enabled options
       const searchParts: string[] = [];
-      if (track.title) searchParts.push(track.title);
-      if (track.artist) searchParts.push(track.artist);
+      if (searchOptions.useTitle && track.title) searchParts.push(track.title);
+      if (searchOptions.useArtist && track.artist) searchParts.push(track.artist);
+      if (searchOptions.useAlbum && track.album) searchParts.push(track.album);
       
       const query = searchParts.join(" ").trim();
       
@@ -365,7 +379,7 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[80vh] flex flex-col">
+      <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Upload className="w-5 h-5" />
@@ -377,34 +391,82 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
         </DialogHeader>
 
         {step === "upload" && (
-          <div
-            className={cn(
-              "border-2 border-dashed rounded-lg p-8 text-center transition-colors",
-              isDragging ? "border-primary bg-primary/10" : "border-muted-foreground/25"
-            )}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".m3u,.m3u8,.pls,.csv,.txt"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleFileSelect(file);
-              }}
-            />
-            <FileMusic className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-            <p className="text-lg font-medium mb-1">Drop your playlist file here</p>
-            <p className="text-sm text-muted-foreground mb-4">
-              Supports M3U, M3U8, PLS, and CSV formats
-            </p>
-            <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-              Browse Files
-            </Button>
-          </div>
+          <>
+            <div
+              className={cn(
+                "border-2 border-dashed rounded-lg p-8 text-center transition-colors",
+                isDragging ? "border-primary bg-primary/10" : "border-muted-foreground/25"
+              )}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".m3u,.m3u8,.pls,.csv,.txt"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileSelect(file);
+                }}
+              />
+              <FileMusic className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+              <p className="text-lg font-medium mb-1">Drop your playlist file here</p>
+              <p className="text-sm text-muted-foreground mb-4">
+                Supports M3U, M3U8, PLS, and CSV formats
+              </p>
+              <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                Browse Files
+              </Button>
+            </div>
+            
+            {/* Search options */}
+            <div className="mt-4 p-4 rounded-lg border bg-muted/30">
+              <p className="text-sm font-medium mb-3">Search options</p>
+              <p className="text-xs text-muted-foreground mb-3">
+                Choose which fields to use when matching tracks against your library
+              </p>
+              <div className="flex flex-wrap gap-4">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="search-title"
+                    checked={searchOptions.useTitle}
+                    onCheckedChange={(checked) => 
+                      setSearchOptions(prev => ({ ...prev, useTitle: checked === true }))
+                    }
+                  />
+                  <label htmlFor="search-title" className="text-sm font-medium leading-none cursor-pointer">
+                    Title
+                  </label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="search-artist"
+                    checked={searchOptions.useArtist}
+                    onCheckedChange={(checked) => 
+                      setSearchOptions(prev => ({ ...prev, useArtist: checked === true }))
+                    }
+                  />
+                  <label htmlFor="search-artist" className="text-sm font-medium leading-none cursor-pointer">
+                    Artist
+                  </label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="search-album"
+                    checked={searchOptions.useAlbum}
+                    onCheckedChange={(checked) => 
+                      setSearchOptions(prev => ({ ...prev, useAlbum: checked === true }))
+                    }
+                  />
+                  <label htmlFor="search-album" className="text-sm font-medium leading-none cursor-pointer">
+                    Album
+                  </label>
+                </div>
+              </div>
+            </div>
+          </>
         )}
 
         {step === "matching" && (
@@ -652,28 +714,31 @@ function TrackRow({
       </div>
       
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-medium truncate">
-            {track.parsed.artist 
-              ? `${track.parsed.artist} - ${track.parsed.title || track.parsed.raw}`
-              : track.parsed.title || track.parsed.raw
-            }
-          </span>
-          {track.matchScore > 0 && track.matchScore < 1 && (
-            <Badge variant="outline" className="text-xs shrink-0">
-              {Math.round(track.matchScore * 100)}%
-            </Badge>
-          )}
+        <div className="font-medium truncate">
+          {track.parsed.title || track.parsed.raw}
         </div>
+        {(track.parsed.artist || track.parsed.album) && (
+          <div className="text-sm text-muted-foreground truncate">
+            {track.parsed.artist}
+            {track.parsed.artist && track.parsed.album && " • "}
+            {track.parsed.album}
+          </div>
+        )}
+        {track.matchScore > 0 && track.matchScore < 1 && (
+          <Badge variant="outline" className="text-xs mt-1">
+            {Math.round(track.matchScore * 100)}% match
+          </Badge>
+        )}
       </div>
       
       {track.match && (
-        <div className="text-right text-sm text-muted-foreground truncate max-w-[200px]">
-          <span className="text-xs">→</span>{" "}
-          {track.match.artist 
-            ? `${track.match.artist} - ${track.match.title}`
-            : track.match.title
-          }
+        <div className="text-right text-sm truncate max-w-[200px]">
+          <div className="font-medium truncate">{track.match.title}</div>
+          <div className="text-muted-foreground text-xs truncate">
+            {track.match.artist}
+            {track.match.artist && track.match.album && " • "}
+            {track.match.album}
+          </div>
         </div>
       )}
 

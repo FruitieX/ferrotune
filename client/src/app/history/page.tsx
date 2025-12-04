@@ -1,17 +1,17 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { History, Trash2 } from "lucide-react";
+import { useAtom, useSetAtom } from "jotai";
+import { useQuery } from "@tanstack/react-query";
+import { History } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
-import { recentlyPlayedAtom, clearHistoryAtom } from "@/lib/store/history";
 import { playlistViewModeAtom, playlistSortAtom, playlistColumnVisibilityAtom } from "@/lib/store/ui";
-import { Button } from "@/components/ui/button";
+import { getClient } from "@/lib/api/client";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
@@ -22,14 +22,13 @@ import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { formatCount, formatTotalDuration } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import { sortSongs } from "@/lib/utils/sort-songs";
+import type { Song } from "@/lib/api/types";
 
 export default function HistoryPage() {
-  const { isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const isMounted = useIsMounted();
   const playNow = useSetAtom(playNowAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
-  const recentlyPlayed = useAtomValue(recentlyPlayedAtom);
-  const clearHistory = useSetAtom(clearHistoryAtom);
   
   // Filter and view settings
   const [filter, setFilter] = useState("");
@@ -41,8 +40,20 @@ export default function HistoryPage() {
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
 
-  // Extract songs from history entries
-  const songs = recentlyPlayed.map((entry) => entry.song);
+  // Fetch play history from the server
+  const { data: historyData, isLoading } = useQuery({
+    queryKey: ["playHistory"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getPlayHistory({ size: 500 });
+      return response.playHistory;
+    },
+    enabled: isReady,
+  });
+
+  // Extract songs from history entries (Song type already includes playedAt from the API)
+  const songs: Song[] = historyData?.entry ?? [];
   
   // Filter and sort songs
   const displaySongs = useMemo(() => {
@@ -100,10 +111,6 @@ export default function HistoryPage() {
     }
   };
 
-  const handleClearHistory = () => {
-    clearHistory();
-  };
-
   // Always render the same loading state on server and during hydration
   // This prevents hydration mismatches
   if (!isMounted || authLoading) {
@@ -130,20 +137,7 @@ export default function HistoryPage() {
       <ActionBar
         onPlayAll={handlePlayAll}
         onShuffle={handleShuffle}
-        disablePlay={displaySongs.length === 0}
-        actions={
-          songs.length > 0 && (
-            <Button
-              variant="ghost"
-              size="lg"
-              className="rounded-full gap-2 text-muted-foreground hover:text-destructive"
-              onClick={handleClearHistory}
-            >
-              <Trash2 className="w-5 h-5" />
-              Clear
-            </Button>
-          )
-        }
+        disablePlay={isLoading || displaySongs.length === 0}
         toolbar={
           <SongListToolbar
             filter={filter}

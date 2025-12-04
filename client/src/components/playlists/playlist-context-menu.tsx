@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSetAtom } from "jotai";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Play,
@@ -14,6 +14,9 @@ import {
   MoreHorizontal,
   Shuffle,
   Info,
+  FolderInput,
+  Folder,
+  Home,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -21,6 +24,9 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
@@ -28,6 +34,9 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
@@ -43,6 +52,7 @@ import { Button } from "@/components/ui/button";
 import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { EditPlaylistDialog } from "./edit-playlist-dialog";
+import { getPlaylistDisplayName, getUniqueFolderPaths, parsePlaylistPath } from "@/lib/utils/playlist-folders";
 import type { Playlist } from "@/lib/api/types";
 
 interface PlaylistContextMenuProps {
@@ -57,6 +67,49 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
   const addToQueue = useSetAtom(addToQueueAtom);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  // Get current folder path for this playlist
+  const { folderPath: currentFolderPath } = parsePlaylistPath(playlist.name);
+  const currentFolder = currentFolderPath.join("/");
+
+  // Fetch all playlists to get available folders
+  const { data: allPlaylists } = useQuery({
+    queryKey: ["playlists"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getPlaylists();
+      return response.playlists.playlist ?? [];
+    },
+  });
+
+  // Get unique folder paths from all playlists
+  const folderPaths = allPlaylists ? getUniqueFolderPaths(allPlaylists) : [];
+
+  // Move playlist mutation
+  const movePlaylist = useMutation({
+    mutationFn: async (targetFolder: string) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      
+      const displayName = getPlaylistDisplayName(playlist);
+      const newName = targetFolder ? `${targetFolder}/${displayName}` : displayName;
+      
+      await client.updatePlaylist({ playlistId: playlist.id, name: newName });
+      return { displayName, targetFolder };
+    },
+    onSuccess: ({ displayName, targetFolder }) => {
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      if (targetFolder) {
+        toast.success(`Moved "${displayName}" to ${targetFolder}`);
+      } else {
+        toast.success(`Moved "${displayName}" to root`);
+      }
+    },
+    onError: (error) => {
+      toast.error("Failed to move playlist", { description: String(error) });
+    },
+  });
 
   const handlePlay = async () => {
     const client = getClient();
@@ -166,6 +219,41 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
         Add to Queue
       </ContextMenuItem>
       <ContextMenuSeparator />
+      <ContextMenuSub>
+        <ContextMenuSubTrigger>
+          <FolderInput className="w-4 h-4 mr-2" />
+          Move to
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent className="w-48">
+          {/* Move to root option */}
+          <ContextMenuItem
+            onClick={() => movePlaylist.mutate("")}
+            disabled={currentFolder === "" || movePlaylist.isPending}
+          >
+            <Home className="w-4 h-4 mr-2" />
+            Root
+            {currentFolder === "" && <span className="ml-auto text-xs text-muted-foreground">Current</span>}
+          </ContextMenuItem>
+          {folderPaths.length > 0 && <ContextMenuSeparator />}
+          {/* Folder options */}
+          {folderPaths.map((folderPath) => (
+            <ContextMenuItem
+              key={folderPath}
+              onClick={() => movePlaylist.mutate(folderPath)}
+              disabled={currentFolder === folderPath || movePlaylist.isPending}
+            >
+              <Folder className="w-4 h-4 mr-2" />
+              <span className="truncate">{folderPath}</span>
+              {currentFolder === folderPath && <span className="ml-auto text-xs text-muted-foreground">Current</span>}
+            </ContextMenuItem>
+          ))}
+          {folderPaths.length === 0 && currentFolder !== "" && (
+            <ContextMenuItem disabled className="text-muted-foreground text-xs">
+              No other folders
+            </ContextMenuItem>
+          )}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
       <ContextMenuItem onClick={() => setEditDialogOpen(true)}>
         <Pencil className="w-4 h-4 mr-2" />
         Edit Playlist
@@ -223,6 +311,49 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
   const addToQueue = useSetAtom(addToQueueAtom);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  // Get current folder path for this playlist
+  const { folderPath: currentFolderPath } = parsePlaylistPath(playlist.name);
+  const currentFolder = currentFolderPath.join("/");
+
+  // Fetch all playlists to get available folders
+  const { data: allPlaylists } = useQuery({
+    queryKey: ["playlists"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getPlaylists();
+      return response.playlists.playlist ?? [];
+    },
+  });
+
+  // Get unique folder paths from all playlists
+  const folderPaths = allPlaylists ? getUniqueFolderPaths(allPlaylists) : [];
+
+  // Move playlist mutation
+  const movePlaylist = useMutation({
+    mutationFn: async (targetFolder: string) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      
+      const displayName = getPlaylistDisplayName(playlist);
+      const newName = targetFolder ? `${targetFolder}/${displayName}` : displayName;
+      
+      await client.updatePlaylist({ playlistId: playlist.id, name: newName });
+      return { displayName, targetFolder };
+    },
+    onSuccess: ({ displayName, targetFolder }) => {
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      if (targetFolder) {
+        toast.success(`Moved "${displayName}" to ${targetFolder}`);
+      } else {
+        toast.success(`Moved "${displayName}" to root`);
+      }
+    },
+    onError: (error) => {
+      toast.error("Failed to move playlist", { description: String(error) });
+    },
+  });
 
   const handlePlay = async () => {
     const client = getClient();
@@ -351,6 +482,41 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
             Add to Queue
           </DropdownMenuItem>
           <DropdownMenuSeparator />
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <FolderInput className="w-4 h-4 mr-2" />
+              Move to
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-48">
+              {/* Move to root option */}
+              <DropdownMenuItem
+                onClick={() => movePlaylist.mutate("")}
+                disabled={currentFolder === "" || movePlaylist.isPending}
+              >
+                <Home className="w-4 h-4 mr-2" />
+                Root
+                {currentFolder === "" && <span className="ml-auto text-xs text-muted-foreground">Current</span>}
+              </DropdownMenuItem>
+              {folderPaths.length > 0 && <DropdownMenuSeparator />}
+              {/* Folder options */}
+              {folderPaths.map((folderPath) => (
+                <DropdownMenuItem
+                  key={folderPath}
+                  onClick={() => movePlaylist.mutate(folderPath)}
+                  disabled={currentFolder === folderPath || movePlaylist.isPending}
+                >
+                  <Folder className="w-4 h-4 mr-2" />
+                  <span className="truncate">{folderPath}</span>
+                  {currentFolder === folderPath && <span className="ml-auto text-xs text-muted-foreground">Current</span>}
+                </DropdownMenuItem>
+              ))}
+              {folderPaths.length === 0 && currentFolder !== "" && (
+                <DropdownMenuItem disabled className="text-muted-foreground text-xs">
+                  No other folders
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
             <Pencil className="w-4 h-4 mr-2" />
             Edit Playlist
