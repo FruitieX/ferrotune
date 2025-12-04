@@ -21,13 +21,13 @@ import {
   currentTrackAtom,
   queueAtom,
   queueIndexAtom,
+  queueSourceAtom,
   isShuffledAtom,
   shuffledIndicesAtom,
   playHistoryAtom,
   isRestoringQueueAtom,
   clearRestoringFlagAtom,
 } from "@/lib/store/queue";
-import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
 import { getClient } from "@/lib/api/client";
 import { shuffleArray } from "../utils";
 
@@ -195,12 +195,12 @@ export function useAudioEngineInit() {
   const currentTrack = useAtomValue(currentTrackAtom);
   const queue = useAtomValue(queueAtom);
   const [queueIndex, setQueueIndex] = useAtom(queueIndexAtom);
+  const queueSource = useAtomValue(queueSourceAtom);
   const repeatMode = useAtomValue(repeatModeAtom);
   const isShuffled = useAtomValue(isShuffledAtom);
   const [shuffledIndices, setShuffledIndices] = useAtom(shuffledIndicesAtom);
   const setPlayHistory = useSetAtom(playHistoryAtom);
   const isRestoringQueue = useAtomValue(isRestoringQueueAtom);
-  const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
 
   // Track if we've initialized
   const initializedRef = useRef(false);
@@ -243,11 +243,11 @@ export function useAudioEngineInit() {
     currentTrack,
     queue,
     queueIndex,
+    queueSource,
     repeatMode,
     isShuffled,
     shuffledIndices,
     isRestoringQueue,
-    shuffleExcludes,
   });
 
   // Keep refs in sync
@@ -259,11 +259,11 @@ export function useAudioEngineInit() {
       currentTrack,
       queue,
       queueIndex,
+      queueSource,
       repeatMode,
       isShuffled,
       shuffledIndices,
       isRestoringQueue,
-      shuffleExcludes,
     };
   });
 
@@ -345,11 +345,9 @@ export function useAudioEngineInit() {
         if (currentShuffleIndex < state.shuffledIndices.length - 1) {
           nextIndex = state.shuffledIndices[currentShuffleIndex + 1];
         } else if (state.repeatMode === "all") {
-          // Filter out excluded songs from the new shuffle order
-          const validIndices = [...Array(state.queue.length).keys()].filter(
-            (i) => !state.shuffleExcludes.has(state.queue[i]?.song.id)
-          );
-          const newShuffled = shuffleArray(validIndices);
+          // Re-shuffle all indices for next loop
+          const indices = [...Array(state.queue.length).keys()];
+          const newShuffled = shuffleArray(indices);
           settersRef.current.setShuffledIndices(newShuffled);
           nextIndex = newShuffled[0];
         } else {
@@ -617,7 +615,6 @@ export function useAudioEngine() {
   const isShuffled = useAtomValue(isShuffledAtom);
   const [shuffledIndices, setShuffledIndices] = useAtom(shuffledIndicesAtom);
   const [playHistory, setPlayHistory] = useAtom(playHistoryAtom);
-  const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
 
   // Retry playback by forcing a fresh load of the current track
   const retryPlayback = useCallback(() => {
@@ -716,11 +713,9 @@ export function useAudioEngine() {
       if (currentShuffleIndex < shuffledIndices.length - 1) {
         nextIndex = shuffledIndices[currentShuffleIndex + 1];
       } else if (repeatMode === "all") {
-        // Filter out excluded songs from the new shuffle order
-        const validIndices = [...Array(queue.length).keys()].filter(
-          (i) => !shuffleExcludes.has(queue[i]?.song.id)
-        );
-        const newShuffled = shuffleArray(validIndices);
+        // Re-shuffle all indices for next loop
+        const indices = [...Array(queue.length).keys()];
+        const newShuffled = shuffleArray(indices);
         setShuffledIndices(newShuffled);
         nextIndex = newShuffled[0];
       } else {
@@ -764,7 +759,6 @@ export function useAudioEngine() {
     repeatMode,
     isShuffled,
     shuffledIndices,
-    shuffleExcludes,
     setQueueIndex,
     setPlayHistory,
     setPlaybackState,
@@ -872,17 +866,13 @@ export function useShuffle() {
   const queue = useAtomValue(queueAtom);
   const queueIndex = useAtomValue(queueIndexAtom);
   const setShuffledIndices = useSetAtom(shuffledIndicesAtom);
-  const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
 
   const toggleShuffle = useCallback(() => {
     if (!isShuffled) {
       // Turning shuffle on - create shuffled indices starting from current position
-      // Filter out excluded songs from the shuffle order
-      const indices = [...Array(queue.length).keys()];
-      const validIndices = indices.filter(
-        (i) => i !== queueIndex && !shuffleExcludes.has(queue[i]?.song.id)
-      );
-      const shuffled = shuffleArray(validIndices);
+      // Excluded songs are already filtered out at queue-add time for library playback
+      const indices = [...Array(queue.length).keys()].filter((i) => i !== queueIndex);
+      const shuffled = shuffleArray(indices);
       setShuffledIndices([queueIndex, ...shuffled]);
       setIsShuffled(true);
     } else {
@@ -890,7 +880,7 @@ export function useShuffle() {
       setShuffledIndices([]);
       setIsShuffled(false);
     }
-  }, [isShuffled, queue, queueIndex, setIsShuffled, setShuffledIndices, shuffleExcludes]);
+  }, [isShuffled, queue, queueIndex, setIsShuffled, setShuffledIndices]);
 
   return { isShuffled, toggleShuffle };
 }

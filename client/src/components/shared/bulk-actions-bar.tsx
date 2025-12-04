@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useAtom } from "jotai";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import {
   X,
   Play,
@@ -15,9 +17,16 @@ import {
   Trash2,
   Merge,
   ListMinus,
+  MoreHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { MergePlaylistsDialog } from "@/components/playlists/merge-playlists-dialog";
 import {
@@ -30,6 +39,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
+import { getClient } from "@/lib/api/client";
 import type { Song, Album, Artist, Genre, Playlist } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
@@ -115,6 +126,7 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
 
   // Determine media type and get label
   const mediaType = 'mediaType' in props ? props.mediaType ?? 'song' : 'song';
@@ -128,6 +140,9 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
   const canAddToPlaylist = (mediaType === 'song' || mediaType === 'playlist-songs') && 'getSelectedSongs' in props;
   const getSelectedSongs = canAddToPlaylist ? (props as SongBulkActionsBarProps | PlaylistSongsBulkActionsBarProps).getSelectedSongs : () => [];
 
+  // Check if shuffle exclude is supported (only for songs)
+  const canShuffleExclude = (mediaType === 'song' || mediaType === 'playlist-songs') && 'getSelectedSongs' in props;
+
   // Check for playlist-specific actions
   const isPlaylistType = mediaType === 'playlist' && 'onDelete' in props;
   const onDelete = isPlaylistType ? (props as PlaylistBulkActionsBarProps).onDelete : undefined;
@@ -137,6 +152,40 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
   // Check for playlist-songs-specific actions
   const isPlaylistSongsType = mediaType === 'playlist-songs' && 'onRemoveFromPlaylist' in props;
   const onRemoveFromPlaylist = isPlaylistSongsType ? (props as PlaylistSongsBulkActionsBarProps).onRemoveFromPlaylist : undefined;
+
+  // Handler for bulk shuffle exclude
+  const handleBulkShuffleExclude = async (excluded: boolean) => {
+    const client = getClient();
+    if (!client || !canShuffleExclude) return;
+
+    const songs = getSelectedSongs();
+    const songIds = songs.map(s => s.id);
+
+    try {
+      await client.bulkSetShuffleExcludes(songIds, excluded);
+      
+      // Update local state
+      setShuffleExcludes((prev: Set<string>) => {
+        const next = new Set(prev);
+        if (excluded) {
+          songIds.forEach(id => next.add(id));
+        } else {
+          songIds.forEach(id => next.delete(id));
+        }
+        return next;
+      });
+
+      toast.success(
+        excluded
+          ? `Excluded ${songs.length} songs from shuffle`
+          : `Included ${songs.length} songs in shuffle`
+      );
+      props.onClear();
+    } catch (error) {
+      toast.error("Failed to update shuffle settings");
+      console.error(error);
+    }
+  };
 
   return (
     <>
@@ -375,6 +424,41 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                       </TooltipTrigger>
                       <TooltipContent side="top">Remove from playlist</TooltipContent>
                     </Tooltip>
+                  </>
+                )}
+
+                {/* More actions dropdown for songs */}
+                {canShuffleExclude && (
+                  <>
+                    <div className="w-px h-6 bg-border mx-1" role="separator" aria-orientation="vertical" />
+                    
+                    <DropdownMenu>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-9 w-9"
+                              aria-label="More actions"
+                            >
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">More actions</TooltipContent>
+                      </Tooltip>
+                      <DropdownMenuContent align="center" side="top" className="mb-2">
+                        <DropdownMenuItem onClick={() => handleBulkShuffleExclude(true)}>
+                          <Shuffle className="w-4 h-4 mr-2 text-muted-foreground line-through" />
+                          Exclude from shuffle
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleBulkShuffleExclude(false)}>
+                          <Shuffle className="w-4 h-4 mr-2" />
+                          Include in shuffle
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </>
                 )}
               </div>

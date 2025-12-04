@@ -49,7 +49,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
+import { playNowAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { EditPlaylistDialog } from "./edit-playlist-dialog";
 import { getPlaylistDisplayName, getUniqueFolderPaths, parsePlaylistPath } from "@/lib/utils/playlist-folders";
@@ -71,6 +71,12 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
   // Get current folder path for this playlist
   const { folderPath: currentFolderPath } = parsePlaylistPath(playlist.name);
   const currentFolder = currentFolderPath.join("/");
+
+  const getQueueSource = (): QueueSourceInfo => ({
+    type: "playlist",
+    id: playlist.id,
+    name: getPlaylistDisplayName(playlist),
+  });
 
   // Fetch all playlists to get available folders
   const { data: allPlaylists } = useQuery({
@@ -118,7 +124,7 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
     try {
       const response = await client.getPlaylist(playlist.id);
       if (response.playlist.entry?.length > 0) {
-        playNow(response.playlist.entry);
+        playNow(response.playlist.entry, 0, getQueueSource());
         toast.success(`Playing "${playlist.name}"`);
       } else {
         toast.error("Playlist is empty");
@@ -137,7 +143,7 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
       const response = await client.getPlaylist(playlist.id);
       if (response.playlist.entry?.length > 0) {
         const shuffled = [...response.playlist.entry].sort(() => Math.random() - 0.5);
-        playNow(shuffled);
+        playNow(shuffled, 0, getQueueSource());
         toast.success(`Shuffling "${playlist.name}"`);
       } else {
         toast.error("Playlist is empty");
@@ -316,6 +322,12 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
   const { folderPath: currentFolderPath } = parsePlaylistPath(playlist.name);
   const currentFolder = currentFolderPath.join("/");
 
+  const getQueueSource = (): QueueSourceInfo => ({
+    type: "playlist",
+    id: playlist.id,
+    name: getPlaylistDisplayName(playlist),
+  });
+
   // Fetch all playlists to get available folders
   const { data: allPlaylists } = useQuery({
     queryKey: ["playlists"],
@@ -362,7 +374,7 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
     try {
       const response = await client.getPlaylist(playlist.id);
       if (response.playlist.entry?.length > 0) {
-        playNow(response.playlist.entry);
+        playNow(response.playlist.entry, 0, getQueueSource());
         toast.success(`Playing "${playlist.name}"`);
       } else {
         toast.error("Playlist is empty");
@@ -381,7 +393,7 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
       const response = await client.getPlaylist(playlist.id);
       if (response.playlist.entry?.length > 0) {
         const shuffled = [...response.playlist.entry].sort(() => Math.random() - 0.5);
-        playNow(shuffled);
+        playNow(shuffled, 0, getQueueSource());
         toast.success(`Shuffling "${playlist.name}"`);
       } else {
         toast.error("Playlist is empty");

@@ -75,6 +75,8 @@ pub struct SearchParams {
     min_play_count: Option<i32>,
     /// Filter songs by maximum play count
     max_play_count: Option<i32>,
+    /// Filter to only shuffle-excluded songs
+    shuffle_excluded_only: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -142,13 +144,15 @@ struct SongFilterConditions {
     has_play_count_filter: bool,
     has_rating_filter: bool,
     has_starred_filter: bool,
+    has_shuffle_exclude_filter: bool,
 }
 
-fn build_song_filter_conditions(params: &SearchParams) -> SongFilterConditions {
+fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> SongFilterConditions {
     let mut conditions = Vec::new();
     let mut has_play_count_filter = false;
     let has_rating_filter = params.min_rating.is_some() || params.max_rating.is_some();
     let has_starred_filter = params.starred_only.unwrap_or(false);
+    let has_shuffle_exclude_filter = params.shuffle_excluded_only.unwrap_or(false);
 
     if let Some(min_year) = params.min_year {
         conditions.push(format!("s.year >= {}", min_year));
@@ -185,12 +189,20 @@ fn build_song_filter_conditions(params: &SearchParams) -> SongFilterConditions {
         conditions.push(format!("COALESCE(pc.play_count, 0) <= {}", max_pc));
         has_play_count_filter = true;
     }
+    if has_shuffle_exclude_filter {
+        // Filter to only show songs that are in the shuffle_excludes table for this user
+        conditions.push(format!(
+            "EXISTS (SELECT 1 FROM shuffle_excludes se WHERE se.song_id = s.id AND se.user_id = {})",
+            user_id
+        ));
+    }
 
     SongFilterConditions {
         conditions,
         has_play_count_filter,
         has_rating_filter,
         has_starred_filter,
+        has_shuffle_exclude_filter,
     }
 }
 
@@ -430,7 +442,7 @@ pub async fn search3(
     // ========================================================================
     // Search songs using FTS5 with filtering support
     // ========================================================================
-    let filter_conds = build_song_filter_conditions(&params);
+    let filter_conds = build_song_filter_conditions(&params, user.user_id);
     let has_filters = !filter_conds.conditions.is_empty();
     let needs_play_count =
         params.song_sort.as_deref() == Some("playCount") || filter_conds.has_play_count_filter;

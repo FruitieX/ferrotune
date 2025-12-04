@@ -128,6 +128,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/shuffle-excludes",
             get(shuffle_exclude::get_all_shuffle_excludes),
         )
+        .route(
+            "/ferrotune/shuffle-excludes/bulk",
+            post(shuffle_exclude::bulk_set_shuffle_excludes),
+        )
         .with_state(state)
 }
 

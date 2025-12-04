@@ -299,6 +299,8 @@ export interface SearchParams {
   minPlayCount?: number;
   /** Filter songs by maximum play count */
   maxPlayCount?: number;
+  /** Filter to only shuffle-excluded songs */
+  shuffleExcludedOnly?: boolean;
 }
 
 export interface RandomSongsParams {

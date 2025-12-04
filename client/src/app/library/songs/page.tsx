@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
@@ -9,7 +10,7 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { albumViewModeAtom, libraryFilterAtom, librarySortAtom, columnVisibilityAtom, advancedFiltersAtom, hasActiveFiltersAtom } from "@/lib/store/ui";
-import { playNowAtom } from "@/lib/store/queue";
+import { playNowAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
@@ -17,6 +18,9 @@ import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import type { Song } from "@/lib/api/types";
 
 const PAGE_SIZE = 50;
+
+// Queue source for library playback - shuffle-excluded songs will be filtered
+const LIBRARY_QUEUE_SOURCE: QueueSourceInfo = { type: "library", name: "Library" };
 
 export default function SongsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
@@ -70,6 +74,8 @@ export default function SongsPage() {
     getNextPageParam: (lastPage) => lastPage.nextOffset,
     initialPageParam: 0,
     enabled: isReady && !debouncedFilter,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   // Search songs when filter is active (also with server-side sorting)
@@ -91,6 +97,8 @@ export default function SongsPage() {
       return response.searchResult3.song ?? [];
     },
     enabled: isReady && debouncedFilter.length >= 1,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   // Flatten songs from all pages
@@ -120,7 +128,7 @@ export default function SongsPage() {
   const handlePlaySelected = () => {
     const selected = getSelectedSongs();
     if (selected.length > 0) {
-      playNow(selected);
+      playNow(selected, 0, LIBRARY_QUEUE_SOURCE);
       clearSelection();
     }
   };
@@ -170,6 +178,7 @@ export default function SongsPage() {
               <SongCard
                 song={song}
                 queueSongs={displaySongs}
+                queueSource={LIBRARY_QUEUE_SOURCE}
                 isSelected={isSelected(song.id)}
                 isSelectionMode={hasSelection}
                 onSelect={(e) => handleSelect(song.id, e)}
@@ -199,6 +208,7 @@ export default function SongsPage() {
                 showYear={columnVisibility.year}
                 showDateAdded={columnVisibility.dateAdded}
                 queueSongs={displaySongs}
+                queueSource={LIBRARY_QUEUE_SOURCE}
                 isSelected={isSelected(song.id)}
                 isSelectionMode={hasSelection}
                 onSelect={(e) => handleSelect(song.id, e)}

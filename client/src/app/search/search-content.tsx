@@ -62,7 +62,8 @@ export function SearchPageContent() {
       return response.searchResult3;
     },
     enabled: isReady && debouncedQuery.length >= 2,
-    staleTime: 60000,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   // Fetch and filter playlists client-side (API doesn't have playlist search)

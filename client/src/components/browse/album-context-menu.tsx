@@ -32,7 +32,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
-import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
+import { playNowAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import type { Album, Song } from "@/lib/api/types";
 
@@ -61,10 +61,16 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
     }
   };
 
+  const getQueueSource = (): QueueSourceInfo => ({
+    type: "album",
+    id: album.id,
+    name: album.name,
+  });
+
   const handlePlay = async () => {
     const songs = await fetchSongs();
     if (songs && songs.length > 0) {
-      playNow(songs);
+      playNow(songs, 0, getQueueSource());
       toast.success(`Playing "${album.name}"`);
     } else {
       toast.error("No songs in this album");
@@ -75,7 +81,7 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
     const songs = await fetchSongs();
     if (songs && songs.length > 0) {
       const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
+      playNow(shuffled, 0, getQueueSource());
       toast.success(`Shuffling "${album.name}"`);
     } else {
       toast.error("No songs in this album");
@@ -223,13 +229,19 @@ export function AlbumDropdownMenu({ album, onPlay, trigger }: AlbumDropdownMenuP
     }
   };
 
+  const getQueueSource = (): QueueSourceInfo => ({
+    type: "album",
+    id: album.id,
+    name: album.name,
+  });
+
   const handlePlay = async () => {
     if (onPlay) {
       onPlay();
     } else {
       const songs = await fetchSongs();
       if (songs && songs.length > 0) {
-        playNow(songs);
+        playNow(songs, 0, getQueueSource());
         toast.success(`Playing "${album.name}"`);
       } else {
         toast.error("No songs in this album");
@@ -241,7 +253,7 @@ export function AlbumDropdownMenu({ album, onPlay, trigger }: AlbumDropdownMenuP
     const songs = await fetchSongs();
     if (songs && songs.length > 0) {
       const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
+      playNow(shuffled, 0, getQueueSource());
       toast.success(`Shuffling "${album.name}"`);
     } else {
       toast.error("No songs in this album");

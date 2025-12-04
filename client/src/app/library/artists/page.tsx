@@ -56,6 +56,8 @@ export default function ArtistsPage() {
       return response.searchResult3.artist ?? [];
     },
     enabled: isReady && debouncedFilter.length >= 1,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   // Flatten artists from indexes, filter out artists with 0 albums
