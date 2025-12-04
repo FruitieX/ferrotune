@@ -35,10 +35,28 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const colorProbeRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
   const [isHovering, setIsHovering] = useState(false);
   const [primaryColor, setPrimaryColor] = useState("#3b82f6");
   const [isDarkMode, setIsDarkMode] = useState(true);
+  
+  // Format time as h:mm:ss or mm:ss depending on duration
+  const formatTime = (seconds: number): string => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    
+    if (hrs > 0) {
+      return `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    }
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+  
+  // Calculate hover time
+  const hoverTime = hoverPercent !== null && duration > 0 
+    ? (hoverPercent / 100) * duration 
+    : null;
   
   // Animation state
   const animatedHeightsRef = useRef<Float32Array>(new Float32Array(barCount).fill(FLAT_BAR_HEIGHT));
@@ -329,6 +347,20 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
             imageRendering: "pixelated",
           }}
         />
+        
+        {/* Hover time tooltip */}
+        {isHovering && hoverPercent !== null && hoverTime !== null && (
+          <div
+            ref={tooltipRef}
+            className="absolute bottom-full mb-2 px-2 py-1 text-xs font-medium rounded bg-popover text-popover-foreground shadow-md border border-border whitespace-nowrap pointer-events-none"
+            style={{
+              left: `${hoverPercent}%`,
+              transform: "translateX(-50%)",
+            }}
+          >
+            {formatTime(hoverTime)}
+          </div>
+        )}
       </div>
     </>
   );

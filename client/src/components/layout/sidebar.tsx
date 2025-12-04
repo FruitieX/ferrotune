@@ -354,9 +354,9 @@ export function Sidebar() {
                   <div className="pl-4 mt-1 space-y-0.5">
                     {playlistsLoading ? (
                       <>
-                        <Skeleton className="h-8 w-full rounded" />
-                        <Skeleton className="h-8 w-full rounded" />
-                        <Skeleton className="h-8 w-full rounded" />
+                        <PlaylistSkeletonItem />
+                        <PlaylistSkeletonItem />
+                        <PlaylistSkeletonItem />
                       </>
                     ) : playlistTree ? (
                       <PlaylistFolderTree
@@ -540,6 +540,16 @@ function PlaylistFolderTree({
         );
       })}
     </>
+  );
+}
+
+// Skeleton for playlist items in sidebar
+function PlaylistSkeletonItem() {
+  return (
+    <div className="flex items-center gap-2 h-8 px-2">
+      <Skeleton className="w-4 h-4 rounded shrink-0" />
+      <Skeleton className="h-3 flex-1 rounded" />
+    </div>
   );
 }
 
