@@ -73,7 +73,7 @@ export function SearchPageContent() {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getPlaylists();
-      return response.playlists.playlist ?? [];
+      return response.playlists?.playlist ?? [];
     },
     enabled: isReady,
     staleTime: 60000,

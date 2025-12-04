@@ -1,31 +1,35 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useSetAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
-  Play,
-  Shuffle,
   Heart,
   MoreHorizontal,
   ArrowLeft,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
+import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
+import { artistDetailViewModeAtom, artistDetailSortAtom, artistDetailColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
-import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
-import { VirtualizedList } from "@/components/shared/virtualized-grid";
+import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
+import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 import { ArtistDropdownMenu, useArtistStar } from "@/components/browse/artist-context-menu";
 import { CoverImage } from "@/components/shared/cover-image";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
+import { ActionBar } from "@/components/shared/action-bar";
+import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
 import { formatCount } from "@/lib/utils/format";
+import { sortSongs } from "@/lib/utils/sort-songs";
 import { cn } from "@/lib/utils";
 import type { Album } from "@/lib/api/types";
 
@@ -37,6 +41,15 @@ function ArtistDetailContent() {
   const isMounted = useIsMounted();
   const playNow = useSetAtom(playNowAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
+  
+  // Filter state
+  const [filter, setFilter] = useState("");
+  const debouncedFilter = useDebounce(filter, 300);
+  
+  // View settings
+  const [viewMode, setViewMode] = useAtom(artistDetailViewModeAtom);
+  const [sortConfig, setSortConfig] = useAtom(artistDetailSortAtom);
+  const [columnVisibility, setColumnVisibility] = useAtom(artistDetailColumnVisibilityAtom);
 
   // Redirect to library if no ID
   useEffect(() => {
@@ -59,9 +72,28 @@ function ArtistDetailContent() {
 
   // Songs come directly from server response - includes songs on compilations
   const allSongs = artistData?.song ?? [];
+  
+  // Filter and sort songs
+  const displaySongs = useMemo(() => {
+    let filtered = allSongs;
+    
+    if (debouncedFilter.trim()) {
+      const query = debouncedFilter.toLowerCase();
+      filtered = allSongs.filter(song =>
+        song.title?.toLowerCase().includes(query) ||
+        song.album?.toLowerCase().includes(query)
+      );
+    }
+    
+    if (sortConfig.field !== "custom") {
+      return sortSongs(filtered, sortConfig.field, sortConfig.direction);
+    }
+    
+    return filtered;
+  }, [allSongs, debouncedFilter, sortConfig]);
 
-  // Multi-selection support for songs
-  const selection = useTrackSelection(allSongs);
+  // Multi-selection support for songs - use displaySongs for selection
+  const selection = useTrackSelection(displaySongs);
 
   // Use the artist star hook
   const { isStarred, handleStar, setIsStarred } = useArtistStar(
@@ -82,16 +114,16 @@ function ArtistDetailContent() {
     : undefined;
 
   const handlePlayAll = () => {
-    if (allSongs && allSongs.length > 0) {
+    if (displaySongs && displaySongs.length > 0) {
       setIsShuffled(false);
-      playNow(allSongs);
+      playNow(displaySongs);
     }
   };
 
   const handleShuffle = () => {
-    if (allSongs && allSongs.length > 0) {
+    if (displaySongs && displaySongs.length > 0) {
       setIsShuffled(true);
-      const shuffled = [...allSongs].sort(() => Math.random() - 0.5);
+      const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
       playNow(shuffled);
     }
   };
@@ -229,51 +261,34 @@ function ArtistDetailContent() {
         </div>
       </div>
 
-      {/* Action buttons */}
-      <div className="sticky top-0 z-20 bg-background/80 backdrop-blur-lg border-b border-border">
-        <div className="flex items-center gap-4 px-4 lg:px-6 py-4">
-          <Button
-            size="lg"
-            className="rounded-full gap-2 px-8"
-            onClick={handlePlayAll}
-            disabled={isLoading || !artistData?.album?.length}
-          >
-            <Play className="w-5 h-5 ml-0.5" />
-            Play All
-          </Button>
-          <Button
-            variant="outline"
-            size="lg"
-            className="rounded-full gap-2"
-            onClick={handleShuffle}
-            disabled={isLoading || !artistData?.album?.length}
-          >
-            <Shuffle className="w-5 h-5" />
-            Shuffle
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="h-10 w-10"
-            onClick={handleStar}
-            disabled={!artistData}
-          >
-            <Heart className={cn("w-5 h-5", isStarred && "fill-red-500 text-red-500")} />
-          </Button>
-          {artistData && (
-            <ArtistDropdownMenu 
-              artist={artistData}
-              onPlay={handlePlayAll}
-              onShuffle={handleShuffle}
-              trigger={
-                <Button variant="ghost" size="icon" className="h-10 w-10">
-                  <MoreHorizontal className="w-5 h-5" />
-                </Button>
-              }
-            />
-          )}
-        </div>
-      </div>
+      {/* Action bar - only show toolbar for songs, not albums */}
+      <ActionBar
+        onPlayAll={handlePlayAll}
+        onShuffle={handleShuffle}
+        disablePlay={isLoading || displaySongs.length === 0}
+      >
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="h-10 w-10"
+          onClick={handleStar}
+          disabled={!artistData}
+        >
+          <Heart className={cn("w-5 h-5", isStarred && "fill-red-500 text-red-500")} />
+        </Button>
+        {artistData && (
+          <ArtistDropdownMenu 
+            artist={artistData}
+            onPlay={handlePlayAll}
+            onShuffle={handleShuffle}
+            trigger={
+              <Button variant="ghost" size="icon" className="h-10 w-10">
+                <MoreHorizontal className="w-5 h-5" />
+              </Button>
+            }
+          />
+        )}
+      </ActionBar>
 
       {/* Albums section */}
       <div className="p-4 lg:p-6 mt-2">
@@ -312,41 +327,86 @@ function ArtistDetailContent() {
         )}
       </div>
 
-      {/* Songs section */}
+      {/* Songs section with toolbar */}
       <div className="p-4 lg:p-6">
-        <h2 className="text-xl font-bold mb-6">Songs</h2>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold">Songs</h2>
+          <SongListToolbar
+            filter={filter}
+            onFilterChange={setFilter}
+            filterPlaceholder="Filter songs..."
+            sortConfig={sortConfig}
+            onSortChange={setSortConfig}
+            columnVisibility={columnVisibility}
+            onColumnVisibilityChange={setColumnVisibility}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+          />
+        </div>
         {isLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <SongRowSkeleton key={i} />
-            ))}
+          viewMode === "grid" ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <SongCardSkeleton key={i} />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <SongRowSkeleton key={i} showCover />
+              ))}
+            </div>
+          )
+        ) : displaySongs.length > 0 ? (
+          <div className={cn("", selection.hasSelection && "select-none")}>
+            {viewMode === "grid" ? (
+              <VirtualizedGrid
+                items={displaySongs}
+                renderItem={(song) => (
+                  <SongCard
+                    song={song}
+                    queueSongs={displaySongs}
+                    isSelected={selection.isSelected(song.id)}
+                    isSelectionMode={selection.hasSelection}
+                    onSelect={(e) => selection.handleSelect(song.id, e)}
+                  />
+                )}
+                renderSkeleton={() => <SongCardSkeleton />}
+                getItemKey={(song) => song.id}
+              />
+            ) : (
+              <VirtualizedList
+                items={displaySongs}
+                renderItem={(song, index) => (
+                  <SongRow 
+                    song={song} 
+                    index={index} 
+                    showCover
+                    showArtist={columnVisibility.artist}
+                    showAlbum={columnVisibility.album}
+                    showDuration={columnVisibility.duration}
+                    showPlayCount={columnVisibility.playCount}
+                    showYear={columnVisibility.year}
+                    showDateAdded={columnVisibility.dateAdded}
+                    queueSongs={displaySongs}
+                    isSelected={selection.isSelected(song.id)}
+                    isSelectionMode={selection.hasSelection}
+                    onSelect={(e) => selection.handleSelect(song.id, e)}
+                  />
+                )}
+                renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+                getItemKey={(song) => song.id}
+                estimateItemHeight={56}
+              />
+            )}
           </div>
         ) : allSongs.length > 0 ? (
-          <div className={cn("", selection.hasSelection && "select-none-during-selection")}>
-            <VirtualizedList
-              items={allSongs}
-              renderItem={(song, index) => (
-                <SongRow 
-                  song={song} 
-                  index={index} 
-                  showAlbum={true}
-                  showArtist={false}
-                  showCover={true}
-                  queueSongs={allSongs}
-                  isSelected={selection.isSelected(song.id)}
-                  isSelectionMode={selection.hasSelection}
-                  onSelect={(e) => selection.handleSelect(song.id, e)}
-                />
-              )}
-              renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
-              getItemKey={(song) => song.id}
-              estimateItemHeight={56}
-            />
-          </div>
+          <EmptyFilterState message="No songs match your filter" />
         ) : (
-          <div className="py-20 text-center text-muted-foreground">
-            No songs found
-          </div>
+          <EmptyState
+            title="No songs found"
+            description="This artist doesn't have any songs yet."
+          />
         )}
       </div>
 

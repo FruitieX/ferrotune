@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   playbackStateAtom,
@@ -182,6 +183,7 @@ async function logListeningTimeAndReset(): Promise<void> {
  * This sets up the audio element and all event listeners.
  */
 export function useAudioEngineInit() {
+  const queryClient = useQueryClient();
   const [playbackState, setPlaybackState] = useAtom(playbackStateAtom);
   const setPlaybackError = useSetAtom(playbackErrorAtom);
   const setCurrentTime = useSetAtom(currentTimeAtom);
@@ -205,6 +207,17 @@ export function useAudioEngineInit() {
   // Track if we've initialized
   const initializedRef = useRef(false);
 
+  // Callback to invalidate queries that contain play count data
+  const invalidatePlayCountQueries = useCallback(() => {
+    // Invalidate all queries that display play counts
+    queryClient.invalidateQueries({ queryKey: ["songs"] });
+    queryClient.invalidateQueries({ queryKey: ["starred-search"] });
+    queryClient.invalidateQueries({ queryKey: ["play-history"] });
+    queryClient.invalidateQueries({ queryKey: ["album"] });
+    queryClient.invalidateQueries({ queryKey: ["artist"] });
+    queryClient.invalidateQueries({ queryKey: ["playlist"] });
+  }, [queryClient]);
+
   // Refs for setters to avoid stale closures
   const settersRef = useRef({
     setPlaybackState,
@@ -217,6 +230,7 @@ export function useAudioEngineInit() {
     setQueueIndex,
     setShuffledIndices,
     setPlayHistory,
+    invalidatePlayCountQueries,
   });
 
   // Keep setter refs in sync
@@ -232,6 +246,7 @@ export function useAudioEngineInit() {
       setQueueIndex,
       setShuffledIndices,
       setPlayHistory,
+      invalidatePlayCountQueries,
     };
   });
 
@@ -388,7 +403,12 @@ export function useAudioEngineInit() {
       if (!state.hasScrobbled && duration > 0 && audio.currentTime / duration >= state.scrobbleThreshold) {
         settersRef.current.setHasScrobbled(true);
         if (state.currentTrack) {
-          getClient()?.scrobble(state.currentTrack.id).catch(console.error);
+          getClient()?.scrobble(state.currentTrack.id)
+            .then(() => {
+              // Invalidate queries that display play counts so they update in real-time
+              settersRef.current.invalidatePlayCountQueries();
+            })
+            .catch(console.error);
         }
       }
     };

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ListMusic, Folder, Loader2 } from "lucide-react";
@@ -35,14 +36,16 @@ export function CreatePlaylistDialog({
 }: CreatePlaylistDialogProps) {
   const [name, setName] = useState("");
   const queryClient = useQueryClient();
+  const router = useRouter();
   
   // Fetch playlists to check for folder placeholders
-  const { data: playlistsData } = useQuery({
+  const { data: playlists } = useQuery({
     queryKey: ["playlists"],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      return client.getPlaylists();
+      const response = await client.getPlaylists();
+      return response.playlists.playlist ?? [];
     },
     enabled: open && !createFolder, // Only need this when creating a playlist (not a folder)
   });
@@ -80,8 +83,8 @@ export function CreatePlaylistDialog({
       const result = await client.createPlaylist({ name: fullName });
       
       // If creating a real playlist in a folder, delete the folder placeholder if it exists
-      if (!createFolder && folderPath && playlistsData?.playlists?.playlist) {
-        const placeholder = findFolderPlaceholder(playlistsData.playlists.playlist, folderPath);
+      if (!createFolder && folderPath && playlists) {
+        const placeholder = findFolderPlaceholder(playlists, folderPath);
         if (placeholder) {
           try {
             await client.deletePlaylist(placeholder.id);
@@ -94,7 +97,7 @@ export function CreatePlaylistDialog({
       
       return result;
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       const displayName = name.trim();
       if (createFolder) {
         toast.success(`Folder "${displayName}" created successfully`);
@@ -104,6 +107,11 @@ export function CreatePlaylistDialog({
       await queryClient.invalidateQueries({ queryKey: ["playlists"] });
       setName("");
       onOpenChange(false);
+      
+      // Navigate to the new playlist (only for regular playlists, not folders)
+      if (!createFolder && result.playlist?.id) {
+        router.push(`/playlists/details?id=${result.playlist.id}`);
+      }
     },
     onError: (error) => {
       const entityType = createFolder ? "folder" : "playlist";
