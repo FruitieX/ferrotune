@@ -5,7 +5,8 @@ import { useAtomValue } from "jotai";
 import { cn } from "@/lib/utils";
 import { currentTimeAtom, durationAtom, playbackStateAtom, bufferedAtom } from "@/lib/store/player";
 import { currentTrackAtom } from "@/lib/store/queue";
-import { useAudioEngine } from "@/lib/audio/hooks";
+import { accentColorRgbAtom } from "@/lib/store/ui";
+import { useAudioEngine, getGlobalAudio } from "@/lib/audio/hooks";
 import { useWaveform } from "@/lib/hooks/use-waveform";
 import { FLAT_BAR_HEIGHT } from "@/lib/store/waveform";
 
@@ -29,17 +30,20 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const duration = useAtomValue(durationAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const buffered = useAtomValue(bufferedAtom);
+  const primaryColor = useAtomValue(accentColorRgbAtom);
   const { seekPercent } = useAudioEngine();
   const { heights, barCount } = useWaveform();
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const colorProbeRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
   const [isHovering, setIsHovering] = useState(false);
-  const [primaryColor, setPrimaryColor] = useState("#3b82f6");
   const [isDarkMode, setIsDarkMode] = useState(true);
+  
+  // Smooth progress tracking - read directly from audio element for 60fps updates
+  const smoothProgressRef = useRef<number>(0);
+  const progressAnimationRef = useRef<number | null>(null);
   
   // Format time as h:mm:ss or mm:ss depending on duration
   const formatTime = (seconds: number): string => {
@@ -58,39 +62,33 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     ? (hoverPercent / 100) * duration 
     : null;
   
-  // Animation state
+  // Animation state for bar heights
   const animatedHeightsRef = useRef<Float32Array>(new Float32Array(barCount).fill(FLAT_BAR_HEIGHT));
   const targetHeightsRef = useRef<Float32Array>(new Float32Array(barCount).fill(FLAT_BAR_HEIGHT));
   const startHeightsRef = useRef<Float32Array>(new Float32Array(barCount).fill(FLAT_BAR_HEIGHT));
   const barAnimationStartRef = useRef<Float32Array>(new Float32Array(barCount).fill(0));
-  const animationFrameRef = useRef<number | null>(null);
-  const drawWaveformRef = useRef<(() => void) | null>(null);
+  const barAnimationFrameRef = useRef<number | null>(null);
+  const drawWaveformRef = useRef<((progress: number) => void) | null>(null);
   
   const isEnded = playbackState === "ended";
-  const progress = isEnded ? 0 : (duration > 0 ? (currentTime / duration) * 100 : 0);
+  // Fallback progress from atom (used when not playing)
+  const atomProgress = isEnded ? 0 : (duration > 0 ? (currentTime / duration) * 100 : 0);
   const bufferedPercent = duration > 0 ? (buffered / duration) * 100 : 0;
   
-  // Get the primary color from a probe element that uses the CSS variable
+  // Detect dark mode for bar colors
   useEffect(() => {
-    const updateColors = () => {
-      const probe = colorProbeRef.current;
-      if (probe) {
-        const computedColor = getComputedStyle(probe).backgroundColor;
-        if (computedColor && computedColor !== "rgba(0, 0, 0, 0)") {
-          setPrimaryColor(computedColor);
-        }
-      }
+    const updateDarkMode = () => {
       setIsDarkMode(document.documentElement.classList.contains("dark") || 
                     !document.documentElement.classList.contains("light"));
     };
     
-    updateColors();
+    updateDarkMode();
     
     // Watch for theme changes
-    const observer = new MutationObserver(updateColors);
+    const observer = new MutationObserver(updateDarkMode);
     observer.observe(document.documentElement, { 
       attributes: true, 
-      attributeFilter: ["class", "style"] 
+      attributeFilter: ["class"] 
     });
     
     return () => observer.disconnect();
@@ -130,8 +128,8 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     }
     
     // Cancel existing animation frame
-    if (animationFrameRef.current !== null) {
-      cancelAnimationFrame(animationFrameRef.current);
+    if (barAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(barAnimationFrameRef.current);
     }
     
     const animate = (animNow: number) => {
@@ -156,24 +154,47 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       }
       
       // Force redraw via ref (avoids stale closure)
-      drawWaveformRef.current?.();
+      drawWaveformRef.current?.(smoothProgressRef.current);
       
       if (!allComplete) {
-        animationFrameRef.current = requestAnimationFrame(animate);
+        barAnimationFrameRef.current = requestAnimationFrame(animate);
       }
     };
     
-    animationFrameRef.current = requestAnimationFrame(animate);
+    barAnimationFrameRef.current = requestAnimationFrame(animate);
     
     return () => {
-      if (animationFrameRef.current !== null) {
-        cancelAnimationFrame(animationFrameRef.current);
+      if (barAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(barAnimationFrameRef.current);
       }
     };
   }, [heights, barCount, trackId]);
   
-  // Draw waveform on canvas
-  const drawWaveform = useCallback(() => {
+  // Helper function to draw all bars with a given color
+  const drawBars = (
+    ctx: CanvasRenderingContext2D, 
+    rect: DOMRect, 
+    color: string,
+    barWidth: number,
+    barGap: number,
+    centerY: number
+  ) => {
+    ctx.fillStyle = color;
+    for (let i = 0; i < barCount; i++) {
+      const x = i * (barWidth + barGap);
+      const displayHeight = animatedHeightsRef.current[i];
+      const barHeight = Math.max(2, displayHeight * rect.height);
+      const y = centerY - barHeight / 2;
+      
+      ctx.beginPath();
+      const radius = Math.min(barWidth / 2, barHeight / 2, 2);
+      ctx.roundRect(x, y, barWidth, barHeight, radius);
+      ctx.fill();
+    }
+  };
+  
+  // Draw waveform on canvas with smooth clip-based progress fill
+  const drawWaveform = useCallback((progress: number) => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
@@ -212,55 +233,93 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     const bufferedColor = isDarkMode ? COLORS.buffered.dark : COLORS.buffered.light;
     const unbufferedColor = isDarkMode ? COLORS.unbuffered.dark : COLORS.unbuffered.light;
     
-    // Draw each bar
-    for (let i = 0; i < barCount; i++) {
-      const barPercent = ((i + 0.5) / barCount) * 100;
-      const isPlayed = barPercent <= progress;
-      const isBufferedBar = barPercent <= bufferedPercent;
-      const isInHoverRange = hoverPercent !== null && barPercent <= hoverPercent && isHovering;
-      
-      // Determine color
-      let color: string;
-      if (isPlayed) {
-        color = primaryColor;
-      } else if (isInHoverRange) {
-        color = primaryColor;
-      } else if (isBufferedBar) {
-        color = bufferedColor;
-      } else {
-        color = unbufferedColor;
-      }
-      
-      // Calculate bar position and size using animated heights
-      const x = i * (barWidth + barGap);
-      const displayHeight = animatedHeightsRef.current[i];
-      const barHeight = Math.max(2, displayHeight * rect.height);
-      const y = centerY - barHeight / 2;
-      
-      // Draw rounded bar
-      ctx.fillStyle = color;
+    // Calculate progress X position for smooth fill
+    const progressX = (progress / 100) * rect.width;
+    const bufferedX = (bufferedPercent / 100) * rect.width;
+    
+    // Pass 1: Draw unbuffered bars (lightest gray)
+    if (bufferedX < rect.width) {
+      ctx.save();
       ctx.beginPath();
-      const radius = Math.min(barWidth / 2, barHeight / 2, 2);
-      ctx.roundRect(x, y, barWidth, barHeight, radius);
-      ctx.fill();
+      ctx.rect(bufferedX, 0, rect.width - bufferedX, rect.height);
+      ctx.clip();
+      drawBars(ctx, rect, unbufferedColor, barWidth, barGap, centerY);
+      ctx.restore();
     }
     
-    // Draw hover indicator line
+    // Pass 2: Draw buffered bars (medium gray) - only the portion not yet played
+    if (bufferedX > progressX) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(progressX, 0, bufferedX - progressX, rect.height);
+      ctx.clip();
+      drawBars(ctx, rect, bufferedColor, barWidth, barGap, centerY);
+      ctx.restore();
+    }
+    
+    // Pass 3: Draw played bars (accent color) with smooth clip
+    if (progressX > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, progressX, rect.height);
+      ctx.clip();
+      drawBars(ctx, rect, primaryColor, barWidth, barGap, centerY);
+      ctx.restore();
+    }
+    
+    // Draw hover indicator line (taller, no bar coloring)
     if (isHovering && hoverPercent !== null) {
       const x = (hoverPercent / 100) * rect.width;
-      ctx.fillStyle = isDarkMode ? "rgba(255,255,255,0.8)" : "rgba(0,0,0,0.8)";
-      ctx.fillRect(x - 1, 0, 2, rect.height);
+      const cursorHeight = rect.height + 8; // 4px above and below
+      const cursorY = -4;
+      ctx.fillStyle = isDarkMode ? "rgba(255,255,255,0.9)" : "rgba(0,0,0,0.9)";
+      ctx.fillRect(x - 1.5, cursorY, 2, cursorHeight);
     }
-  }, [barCount, progress, bufferedPercent, hoverPercent, isHovering, primaryColor, isDarkMode]);
+  }, [barCount, bufferedPercent, hoverPercent, isHovering, primaryColor, isDarkMode]);
   
   // Keep ref updated so animation loop can call latest version
   useEffect(() => {
     drawWaveformRef.current = drawWaveform;
   }, [drawWaveform]);
   
-  // Redraw when dependencies change (but not heights - that's handled by animation)
+  // Smooth progress animation loop - runs during playback for 60fps updates
   useEffect(() => {
-    drawWaveform();
+    const isPlaying = playbackState === "playing";
+    
+    if (isPlaying) {
+      const animateProgress = () => {
+        const audio = getGlobalAudio();
+        if (audio && audio.duration > 0) {
+          smoothProgressRef.current = (audio.currentTime / audio.duration) * 100;
+        } else {
+          smoothProgressRef.current = atomProgress;
+        }
+        drawWaveformRef.current?.(smoothProgressRef.current);
+        progressAnimationRef.current = requestAnimationFrame(animateProgress);
+      };
+      
+      progressAnimationRef.current = requestAnimationFrame(animateProgress);
+    } else {
+      // When not playing, use atom-based progress and cancel animation loop
+      if (progressAnimationRef.current !== null) {
+        cancelAnimationFrame(progressAnimationRef.current);
+        progressAnimationRef.current = null;
+      }
+      smoothProgressRef.current = atomProgress;
+      drawWaveformRef.current?.(atomProgress);
+    }
+    
+    return () => {
+      if (progressAnimationRef.current !== null) {
+        cancelAnimationFrame(progressAnimationRef.current);
+        progressAnimationRef.current = null;
+      }
+    };
+  }, [playbackState, atomProgress]);
+  
+  // Redraw when visual dependencies change (but not progress - that's handled by animation loop)
+  useEffect(() => {
+    drawWaveform(smoothProgressRef.current);
   }, [drawWaveform]);
   
   // Handle click to seek
@@ -291,12 +350,12 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     const step = e.shiftKey ? 10 : 2;
     if (e.key === "ArrowRight") {
       e.preventDefault();
-      seekPercent(Math.min(100, progress + step));
+      seekPercent(Math.min(100, smoothProgressRef.current + step));
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
-      seekPercent(Math.max(0, progress - step));
+      seekPercent(Math.max(0, smoothProgressRef.current - step));
     }
-  }, [progress, seekPercent]);
+  }, [seekPercent]);
   
   const hasTrack = !!currentTrack && playbackState !== "idle" && playbackState !== "ended";
 
@@ -305,19 +364,13 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   
   return (
     <>
-      {/* Hidden probe element to get computed primary color */}
-      <div 
-        ref={colorProbeRef} 
-        className="bg-primary absolute w-0 h-0 pointer-events-none" 
-        aria-hidden="true"
-      />
       <div
         ref={containerRef}
         role="slider"
         aria-label="Playback progress"
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={Math.round(progress)}
+        aria-valuenow={Math.round(smoothProgressRef.current)}
         tabIndex={hasTrack ? 0 : -1}
         className={cn(
           "absolute left-0 right-0 cursor-pointer overflow-visible",

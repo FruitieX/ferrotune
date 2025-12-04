@@ -28,6 +28,7 @@ import {
   PlayCircle,
   Headphones,
   Calendar,
+  Activity,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -40,7 +41,9 @@ import { clearQueueAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { 
   ACCENT_PRESETS,
-  type AccentColor 
+  type AccentColor,
+  progressBarStyleAtom,
+  type ProgressBarStyle,
 } from "@/lib/store/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -84,6 +87,7 @@ export default function SettingsPage() {
   const isMounted = useIsMounted();
   const [connection, setConnection] = useAtom(serverConnectionAtom);
   const [volume, setVolume] = useAtom(volumeAtom);
+  const [progressBarStyle, setProgressBarStyle] = useAtom(progressBarStyleAtom);
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
   const [isShuffled, setIsShuffled] = useAtom(isShuffledAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
@@ -719,6 +723,38 @@ export default function SettingsPage() {
                       </span>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Progress Bar Style */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-medium">Progress Bar Style</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Choose between waveform or simple progress bar
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant={progressBarStyle === "waveform" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setProgressBarStyle("waveform")}
+                    className="gap-1.5"
+                  >
+                    <Activity className="w-4 h-4" />
+                    Waveform
+                  </Button>
+                  <Button
+                    variant={progressBarStyle === "simple" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setProgressBarStyle("simple")}
+                    className="gap-1.5"
+                  >
+                    <div className="w-4 h-0.5 bg-current rounded-full" />
+                    Simple
+                  </Button>
                 </div>
               </div>
             </CardContent>

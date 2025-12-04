@@ -1,5 +1,6 @@
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
+import { oklchToRgbString } from "@/lib/utils/color";
 
 // Sidebar state
 export const sidebarCollapsedAtom = atomWithStorage("ferrotune-sidebar-collapsed", false);
@@ -191,6 +192,13 @@ export const expandedPlaylistFoldersAtom = atomWithStorage<string[]>(
   []
 );
 
+// Progress bar style preference
+export type ProgressBarStyle = "waveform" | "simple";
+export const progressBarStyleAtom = atomWithStorage<ProgressBarStyle>(
+  "ferrotune-progress-bar-style",
+  "waveform"
+);
+
 // Accent color theme - 10 presets + custom option
 export type AccentColor = 
   | "rust"     // 45° - warm orange (default)
@@ -228,3 +236,41 @@ export const ACCENT_PRESETS: { name: AccentColor; hue: number; label: string }[]
   { name: "rose", hue: 340, label: "Rose" },
   { name: "crimson", hue: 15, label: "Crimson" },
 ];
+
+// OKLCH preset values matching globals.css
+const PRESET_OKLCH: Record<AccentColor, { l: number; c: number; h: number }> = {
+  rust: { l: 0.65, c: 0.16, h: 45 },
+  gold: { l: 0.75, c: 0.15, h: 85 },
+  lime: { l: 0.75, c: 0.18, h: 125 },
+  emerald: { l: 0.70, c: 0.15, h: 160 },
+  teal: { l: 0.70, c: 0.12, h: 195 },
+  ocean: { l: 0.65, c: 0.15, h: 230 },
+  indigo: { l: 0.65, c: 0.18, h: 265 },
+  violet: { l: 0.70, c: 0.18, h: 300 },
+  rose: { l: 0.65, c: 0.18, h: 340 },
+  crimson: { l: 0.60, c: 0.20, h: 15 },
+  custom: { l: 0.65, c: 0.18, h: 45 }, // Placeholder, overridden by custom atoms
+};
+
+/**
+ * Derived atom that computes the current accent color as an RGB string.
+ * Updates automatically when accent color or custom color values change.
+ */
+export const accentColorRgbAtom = atom((get) => {
+  const accentColor = get(accentColorAtom);
+  
+  let l: number, c: number, h: number;
+  
+  if (accentColor === "custom") {
+    l = get(customAccentLightnessAtom);
+    c = get(customAccentChromaAtom);
+    h = get(customAccentHueAtom);
+  } else {
+    const preset = PRESET_OKLCH[accentColor];
+    l = preset.l;
+    c = preset.c;
+    h = preset.h;
+  }
+  
+  return oklchToRgbString(l, c, h);
+});

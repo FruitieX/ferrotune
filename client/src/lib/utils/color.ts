@@ -137,6 +137,60 @@ function srgbToLinear(c: number): number {
 }
 
 /**
+ * Convert linear RGB component to sRGB with gamma correction.
+ */
+function linearToSrgb(c: number): number {
+  if (c <= 0.0031308) {
+    return 12.92 * c;
+  }
+  return 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+}
+
+/**
+ * Convert OKLCH to sRGB (0-255).
+ * 
+ * Pipeline: OKLCH → OKLAB → Linear RGB → sRGB
+ */
+export function oklchToRgb(l: number, c: number, h: number): { r: number; g: number; b: number } {
+  // Convert OKLCH to OKLab (polar to cartesian)
+  const hRad = (h * Math.PI) / 180;
+  const a = c * Math.cos(hRad);
+  const b = c * Math.sin(hRad);
+  
+  // Convert OKLab to linear sRGB
+  // Using the standard OKLab to linear RGB matrix
+  const l_ = l + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = l - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = l - 0.0894841775 * a - 1.2914855480 * b;
+  
+  const lCubed = l_ * l_ * l_;
+  const mCubed = m_ * m_ * m_;
+  const sCubed = s_ * s_ * s_;
+  
+  // Linear sRGB
+  const rLinear = +4.0767416621 * lCubed - 3.3077115913 * mCubed + 0.2309699292 * sCubed;
+  const gLinear = -1.2684380046 * lCubed + 2.6097574011 * mCubed - 0.3413193965 * sCubed;
+  const bLinear = -0.0041960863 * lCubed - 0.7034186147 * mCubed + 1.7076147010 * sCubed;
+  
+  // Apply sRGB gamma correction and clamp to 0-255
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255)));
+  
+  return {
+    r: clamp(linearToSrgb(rLinear)),
+    g: clamp(linearToSrgb(gLinear)),
+    b: clamp(linearToSrgb(bLinear)),
+  };
+}
+
+/**
+ * Convert OKLCH to CSS rgb() string.
+ */
+export function oklchToRgbString(l: number, c: number, h: number): string {
+  const { r, g, b } = oklchToRgb(l, c, h);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/**
  * Clamp OKLCH values to the ranges used by our sliders.
  */
 export function clampOklchToSliderRanges(color: OklchColor): OklchColor {
