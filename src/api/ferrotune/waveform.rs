@@ -321,14 +321,19 @@ fn generate_waveform(path: &std::path::Path, resolution: usize) -> Result<Wavefo
 }
 
 /// Generate waveform data progressively, sending chunks via channel.
+///
+/// Uses fixed-size chunks (in seconds of audio) so that chunk delivery is
+/// consistent regardless of song duration. Short songs may have fewer chunks,
+/// long songs will have more chunks, but each chunk takes roughly the same
+/// time to process.
 fn generate_waveform_streaming(
     path: &std::path::Path,
     resolution: usize,
     tx: mpsc::Sender<WaveformChunk>,
 ) -> Result<()> {
-    // Number of chunks to send (each chunk contains a portion of the waveform)
-    const NUM_CHUNKS: usize = 8;
-    let bars_per_chunk = resolution / NUM_CHUNKS;
+    // Fixed chunk size: 30 seconds of audio per chunk
+    // This means a 3-minute song = 6 chunks, a 1-hour mix = 120 chunks
+    const CHUNK_DURATION_SECS: u64 = 30;
 
     // Open the audio file
     let file = std::fs::File::open(path)
@@ -361,11 +366,16 @@ fn generate_waveform_streaming(
 
     let track_id = track.id;
 
-    // Estimate total samples from duration if available
+    // Get sample rate and estimate total duration
     let sample_rate = track.codec_params.sample_rate.unwrap_or(44100);
     let n_frames = track.codec_params.n_frames;
+
+    // Calculate samples per chunk (fixed duration)
+    let samples_per_chunk = (sample_rate as u64 * CHUNK_DURATION_SECS) as usize;
+
+    // Estimate total samples and total chunks
     let estimated_samples = n_frames.unwrap_or(sample_rate as u64 * 300) as usize; // Default to 5 mins
-    let samples_per_chunk = estimated_samples / NUM_CHUNKS;
+    let estimated_total_chunks = (estimated_samples + samples_per_chunk - 1) / samples_per_chunk;
 
     // Create a decoder
     let mut decoder = symphonia::default::get_codecs()
@@ -374,6 +384,7 @@ fn generate_waveform_streaming(
 
     let mut all_samples: Vec<f32> = Vec::new();
     let mut current_chunk = 0;
+    let mut samples_sent = 0;
 
     // Decode packets and send chunks as we go
     loop {
@@ -418,60 +429,75 @@ fn generate_waveform_streaming(
         }
 
         // Check if we have enough samples for the next chunk
-        while current_chunk < NUM_CHUNKS - 1
-            && all_samples.len() >= samples_per_chunk * (current_chunk + 1)
-        {
+        while all_samples.len() >= samples_sent + samples_per_chunk {
+            // Calculate how many bars belong to this chunk based on progress
+            let chunk_start_ratio = samples_sent as f64 / estimated_samples as f64;
+            let chunk_end_ratio =
+                (samples_sent + samples_per_chunk) as f64 / estimated_samples as f64;
+            let bar_start = (chunk_start_ratio * resolution as f64).floor() as usize;
+            let bar_end = (chunk_end_ratio * resolution as f64).floor() as usize;
+            let bars_in_chunk = bar_end.saturating_sub(bar_start).max(1);
+
             let chunk_rms = compute_chunk_raw_rms(
                 &all_samples,
-                current_chunk * samples_per_chunk,
-                (current_chunk + 1) * samples_per_chunk,
-                bars_per_chunk,
+                samples_sent,
+                samples_sent + samples_per_chunk,
+                bars_in_chunk,
             );
 
             let chunk = WaveformChunk {
                 chunk_index: current_chunk,
-                total_chunks: NUM_CHUNKS,
+                total_chunks: estimated_total_chunks,
                 rms_values: chunk_rms,
                 done: false,
             };
 
             // Send chunk (ignore errors if receiver is gone)
             let _ = tx.blocking_send(chunk);
+            samples_sent += samples_per_chunk;
             current_chunk += 1;
         }
     }
 
-    // Process remaining samples and send final chunk(s)
-    while current_chunk < NUM_CHUNKS {
-        let remaining_bars = if current_chunk == NUM_CHUNKS - 1 {
-            resolution - current_chunk * bars_per_chunk
-        } else {
-            bars_per_chunk
-        };
-
-        let start_sample = current_chunk * samples_per_chunk;
-        let end_sample = if current_chunk == NUM_CHUNKS - 1 {
-            all_samples.len()
-        } else {
-            (current_chunk + 1) * samples_per_chunk
-        };
+    // Send final chunk with remaining samples
+    if all_samples.len() > samples_sent {
+        let chunk_start_ratio = samples_sent as f64 / all_samples.len() as f64;
+        let bar_start = (chunk_start_ratio * resolution as f64).floor() as usize;
+        let remaining_bars = resolution.saturating_sub(bar_start).max(1);
 
         let chunk_rms = compute_chunk_raw_rms(
             &all_samples,
-            start_sample.min(all_samples.len()),
-            end_sample.min(all_samples.len()),
+            samples_sent,
+            all_samples.len(),
             remaining_bars,
         );
 
         let chunk = WaveformChunk {
             chunk_index: current_chunk,
-            total_chunks: NUM_CHUNKS,
+            total_chunks: current_chunk + 1, // Update total to actual count
             rms_values: chunk_rms,
-            done: current_chunk == NUM_CHUNKS - 1,
+            done: true,
         };
 
         let _ = tx.blocking_send(chunk);
-        current_chunk += 1;
+    } else if current_chunk > 0 {
+        // No remaining samples, send empty done signal
+        let chunk = WaveformChunk {
+            chunk_index: current_chunk,
+            total_chunks: current_chunk,
+            rms_values: vec![],
+            done: true,
+        };
+        let _ = tx.blocking_send(chunk);
+    } else {
+        // No samples at all, send empty waveform
+        let chunk = WaveformChunk {
+            chunk_index: 0,
+            total_chunks: 1,
+            rms_values: vec![0.0; resolution],
+            done: true,
+        };
+        let _ = tx.blocking_send(chunk);
     }
 
     Ok(())

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useSetAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import { toast } from "sonner";
 import {
   Play,
@@ -16,6 +16,7 @@ import {
   FolderPlus,
   Info,
   X,
+  Shuffle,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -42,6 +43,7 @@ import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dial
 import { DetailsDialog } from "@/components/shared/details-dialog";
 import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
 import { useStarred } from "@/lib/store/starred";
+import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 import Link from "next/link";
@@ -81,9 +83,39 @@ export function SongContextMenu({
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
+  const [shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
   const [currentRating, setCurrentRating] = useState(song.userRating ?? 0);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+
+  const isExcludedFromShuffle = shuffleExcludes.has(song.id);
+
+  const handleToggleShuffleExclude = async () => {
+    const client = getClient();
+    if (!client) return;
+
+    const newExcluded = !isExcludedFromShuffle;
+    try {
+      await client.setShuffleExclude(song.id, newExcluded);
+      setShuffleExcludes((prev: Set<string>) => {
+        const next = new Set(prev);
+        if (newExcluded) {
+          next.add(song.id);
+        } else {
+          next.delete(song.id);
+        }
+        return next;
+      });
+      toast.success(
+        newExcluded
+          ? `"${song.title}" excluded from shuffle`
+          : `"${song.title}" included in shuffle`
+      );
+    } catch (error) {
+      toast.error("Failed to update shuffle setting");
+      console.error(error);
+    }
+  };
 
   const handlePlay = () => {
     if (queueSongs && queueSongs.length > 0) {
@@ -166,6 +198,11 @@ export function SongContextMenu({
       <ContextMenuItem onClick={toggleStar}>
         <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
         {isStarred ? "Remove from Favorites" : "Add to Favorites"}
+      </ContextMenuItem>
+
+      <ContextMenuItem onClick={handleToggleShuffleExclude}>
+        <Shuffle className={`w-4 h-4 mr-2 ${isExcludedFromShuffle ? "text-muted-foreground line-through" : ""}`} />
+        {isExcludedFromShuffle ? "Include in Shuffle" : "Exclude from Shuffle"}
       </ContextMenuItem>
 
       <ContextMenuSub>
@@ -275,9 +312,39 @@ export function SongDropdownMenu({
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
+  const [shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
   const [currentRating, setCurrentRating] = useState(song.userRating ?? 0);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+
+  const isExcludedFromShuffle = shuffleExcludes.has(song.id);
+
+  const handleToggleShuffleExclude = async () => {
+    const client = getClient();
+    if (!client) return;
+
+    const newExcluded = !isExcludedFromShuffle;
+    try {
+      await client.setShuffleExclude(song.id, newExcluded);
+      setShuffleExcludes((prev: Set<string>) => {
+        const next = new Set(prev);
+        if (newExcluded) {
+          next.add(song.id);
+        } else {
+          next.delete(song.id);
+        }
+        return next;
+      });
+      toast.success(
+        newExcluded
+          ? `"${song.title}" excluded from shuffle`
+          : `"${song.title}" included in shuffle`
+      );
+    } catch (error) {
+      toast.error("Failed to update shuffle setting");
+      console.error(error);
+    }
+  };
 
   const handlePlay = () => {
     if (queueSongs && queueSongs.length > 0) {
@@ -387,6 +454,11 @@ export function SongDropdownMenu({
           <DropdownMenuItem onClick={toggleStar}>
             <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
             {isStarred ? "Remove from Favorites" : "Add to Favorites"}
+          </DropdownMenuItem>
+
+          <DropdownMenuItem onClick={handleToggleShuffleExclude}>
+            <Shuffle className={`w-4 h-4 mr-2 ${isExcludedFromShuffle ? "text-muted-foreground line-through" : ""}`} />
+            {isExcludedFromShuffle ? "Include in Shuffle" : "Exclude from Shuffle"}
           </DropdownMenuItem>
 
           <DropdownMenuSub>

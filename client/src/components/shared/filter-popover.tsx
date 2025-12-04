@@ -1,0 +1,438 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useAtom, useAtomValue } from "jotai";
+import { useQuery } from "@tanstack/react-query";
+import { Filter, X, Star, Clock, Calendar, Music, Disc } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { advancedFiltersAtom, hasActiveFiltersAtom, type AdvancedFilters } from "@/lib/store/ui";
+import { getClient } from "@/lib/api/client";
+
+interface FilterPopoverProps {
+  /** Which filter options to show */
+  showOptions?: {
+    year?: boolean;
+    genre?: boolean;
+    duration?: boolean;
+    rating?: boolean;
+    starred?: boolean;
+    playCount?: boolean;
+  };
+  className?: string;
+}
+
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins > 0 && secs > 0) return `${mins}m ${secs}s`;
+  if (mins > 0) return `${mins}m`;
+  return `${secs}s`;
+}
+
+export function FilterPopover({ 
+  showOptions = {
+    year: true,
+    genre: true,
+    duration: true,
+    rating: true,
+    starred: true,
+    playCount: true,
+  },
+  className 
+}: FilterPopoverProps) {
+  const [filters, setFilters] = useAtom(advancedFiltersAtom);
+  const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
+  const [open, setOpen] = useState(false);
+
+  // Local state for form inputs (allows typing without immediate API calls)
+  const [localFilters, setLocalFilters] = useState<AdvancedFilters>(filters);
+
+  // Sync local state when filters atom changes externally
+  useEffect(() => {
+    setLocalFilters(filters);
+  }, [filters]);
+
+  // Fetch genres for the dropdown
+  // Note: Returns just the genre array for consistency with genres page query cache
+  const { data: genres = [], isLoading: genresLoading } = useQuery({
+    queryKey: ["genres"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getGenres();
+      return response.genres?.genre ?? [];
+    },
+    retry: 3,
+    retryDelay: 500,
+  });
+
+  // Count active filters
+  const activeFilterCount = Object.entries(filters).filter(
+    ([, v]) => v !== undefined && v !== false && v !== ''
+  ).length;
+
+  const handleApply = () => {
+    // Clean up empty values
+    const cleanedFilters: AdvancedFilters = {};
+    if (localFilters.minYear) cleanedFilters.minYear = localFilters.minYear;
+    if (localFilters.maxYear) cleanedFilters.maxYear = localFilters.maxYear;
+    if (localFilters.genre) cleanedFilters.genre = localFilters.genre;
+    if (localFilters.minDuration) cleanedFilters.minDuration = localFilters.minDuration;
+    if (localFilters.maxDuration) cleanedFilters.maxDuration = localFilters.maxDuration;
+    if (localFilters.minRating) cleanedFilters.minRating = localFilters.minRating;
+    if (localFilters.maxRating) cleanedFilters.maxRating = localFilters.maxRating;
+    if (localFilters.starredOnly) cleanedFilters.starredOnly = localFilters.starredOnly;
+    if (localFilters.minPlayCount) cleanedFilters.minPlayCount = localFilters.minPlayCount;
+    if (localFilters.maxPlayCount) cleanedFilters.maxPlayCount = localFilters.maxPlayCount;
+    
+    setFilters(cleanedFilters);
+    setOpen(false);
+  };
+
+  const handleClear = () => {
+    setLocalFilters({});
+    setFilters({});
+  };
+
+  const updateLocalFilter = <K extends keyof AdvancedFilters>(key: K, value: AdvancedFilters[K]) => {
+    setLocalFilters(prev => ({
+      ...prev,
+      [key]: value || undefined,
+    }));
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant={hasActiveFilters ? "default" : "outline"}
+          size="sm"
+          className={cn("gap-2", className)}
+        >
+          <Filter className="h-4 w-4" />
+          <span className="hidden sm:inline">Filters</span>
+          {activeFilterCount > 0 && (
+            <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
+              {activeFilterCount}
+            </Badge>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80" align="start">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="font-medium">Advanced Filters</h4>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={handleClear}>
+                <X className="h-4 w-4 mr-1" />
+                Clear All
+              </Button>
+            )}
+          </div>
+
+          {/* Year Range */}
+          {showOptions.year && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-sm">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                Year Range
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  placeholder="From"
+                  min={1900}
+                  max={new Date().getFullYear()}
+                  value={localFilters.minYear ?? ""}
+                  onChange={(e) => updateLocalFilter("minYear", e.target.value ? parseInt(e.target.value) : undefined)}
+                  className="h-8"
+                />
+                <span className="text-muted-foreground self-center">–</span>
+                <Input
+                  type="number"
+                  placeholder="To"
+                  min={1900}
+                  max={new Date().getFullYear()}
+                  value={localFilters.maxYear ?? ""}
+                  onChange={(e) => updateLocalFilter("maxYear", e.target.value ? parseInt(e.target.value) : undefined)}
+                  className="h-8"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Genre */}
+          {showOptions.genre && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-sm">
+                <Music className="h-4 w-4 text-muted-foreground" />
+                Genre
+              </Label>
+              <Select
+                value={localFilters.genre ?? "__any__"}
+                onValueChange={(value) => updateLocalFilter("genre", value === "__any__" ? undefined : value)}
+                disabled={genresLoading}
+              >
+                <SelectTrigger className="h-8">
+                  <SelectValue placeholder={genresLoading ? "Loading..." : "Any genre"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__any__">Any genre</SelectItem>
+                  {genres
+                    .filter((genre) => genre.value && genre.value.trim() !== "")
+                    .map((genre) => (
+                      <SelectItem key={genre.value} value={genre.value}>
+                        {genre.value} ({genre.songCount})
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Duration Range */}
+          {showOptions.duration && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-sm">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                Duration
+              </Label>
+              <div className="flex gap-2">
+                <Select
+                  value={localFilters.minDuration?.toString() ?? "__none__"}
+                  onValueChange={(value) => updateLocalFilter("minDuration", value === "__none__" ? undefined : parseInt(value))}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="Min" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No min</SelectItem>
+                    <SelectItem value="60">1 min+</SelectItem>
+                    <SelectItem value="180">3 min+</SelectItem>
+                    <SelectItem value="300">5 min+</SelectItem>
+                    <SelectItem value="600">10 min+</SelectItem>
+                    <SelectItem value="1800">30 min+</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-muted-foreground self-center">–</span>
+                <Select
+                  value={localFilters.maxDuration?.toString() ?? "__none__"}
+                  onValueChange={(value) => updateLocalFilter("maxDuration", value === "__none__" ? undefined : parseInt(value))}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="Max" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No max</SelectItem>
+                    <SelectItem value="60">1 min</SelectItem>
+                    <SelectItem value="180">3 min</SelectItem>
+                    <SelectItem value="300">5 min</SelectItem>
+                    <SelectItem value="600">10 min</SelectItem>
+                    <SelectItem value="1800">30 min</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {/* Rating */}
+          {showOptions.rating && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-sm">
+                <Star className="h-4 w-4 text-muted-foreground" />
+                Rating
+              </Label>
+              <div className="flex gap-2">
+                <Select
+                  value={localFilters.minRating?.toString() ?? "__none__"}
+                  onValueChange={(value) => updateLocalFilter("minRating", value === "__none__" ? undefined : parseInt(value))}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="Min" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Any</SelectItem>
+                    <SelectItem value="1">1+ ★</SelectItem>
+                    <SelectItem value="2">2+ ★★</SelectItem>
+                    <SelectItem value="3">3+ ★★★</SelectItem>
+                    <SelectItem value="4">4+ ★★★★</SelectItem>
+                    <SelectItem value="5">5 ★★★★★</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-muted-foreground self-center">–</span>
+                <Select
+                  value={localFilters.maxRating?.toString() ?? "__none__"}
+                  onValueChange={(value) => updateLocalFilter("maxRating", value === "__none__" ? undefined : parseInt(value))}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="Max" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Any</SelectItem>
+                    <SelectItem value="1">1 ★</SelectItem>
+                    <SelectItem value="2">2 ★★</SelectItem>
+                    <SelectItem value="3">3 ★★★</SelectItem>
+                    <SelectItem value="4">4 ★★★★</SelectItem>
+                    <SelectItem value="5">5 ★★★★★</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {/* Play Count Range */}
+          {showOptions.playCount && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-sm">
+                <Disc className="h-4 w-4 text-muted-foreground" />
+                Play Count
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  placeholder="Min"
+                  min={0}
+                  value={localFilters.minPlayCount ?? ""}
+                  onChange={(e) => updateLocalFilter("minPlayCount", e.target.value ? parseInt(e.target.value) : undefined)}
+                  className="h-8"
+                />
+                <span className="text-muted-foreground self-center">–</span>
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  min={0}
+                  value={localFilters.maxPlayCount ?? ""}
+                  onChange={(e) => updateLocalFilter("maxPlayCount", e.target.value ? parseInt(e.target.value) : undefined)}
+                  className="h-8"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Starred Only Toggle */}
+          {showOptions.starred && (
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-2 text-sm cursor-pointer">
+                <Star className="h-4 w-4 text-muted-foreground" />
+                Favorites Only
+              </Label>
+              <Switch
+                checked={localFilters.starredOnly ?? false}
+                onCheckedChange={(checked) => updateLocalFilter("starredOnly", checked || undefined)}
+              />
+            </div>
+          )}
+
+          {/* Apply Button */}
+          <Button className="w-full" onClick={handleApply}>
+            Apply Filters
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Shows active filter badges that can be individually removed
+ */
+export function ActiveFilterBadges({ className }: { className?: string }) {
+  const [filters, setFilters] = useAtom(advancedFiltersAtom);
+  const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
+
+  if (!hasActiveFilters) return null;
+
+  const removeFilter = (key: keyof AdvancedFilters) => {
+    setFilters(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const badges: { key: keyof AdvancedFilters; label: string }[] = [];
+  
+  if (filters.minYear || filters.maxYear) {
+    const yearLabel = filters.minYear && filters.maxYear 
+      ? `${filters.minYear}–${filters.maxYear}`
+      : filters.minYear 
+        ? `${filters.minYear}+`
+        : `≤${filters.maxYear}`;
+    badges.push({ key: "minYear", label: `Year: ${yearLabel}` });
+  }
+  
+  if (filters.genre) {
+    badges.push({ key: "genre", label: `Genre: ${filters.genre}` });
+  }
+  
+  if (filters.minDuration || filters.maxDuration) {
+    const durLabel = filters.minDuration && filters.maxDuration
+      ? `${formatDuration(filters.minDuration)}–${formatDuration(filters.maxDuration)}`
+      : filters.minDuration
+        ? `${formatDuration(filters.minDuration)}+`
+        : `≤${formatDuration(filters.maxDuration!)}`;
+    badges.push({ key: "minDuration", label: `Duration: ${durLabel}` });
+  }
+  
+  if (filters.minRating || filters.maxRating) {
+    const ratingLabel = filters.minRating && filters.maxRating
+      ? `${filters.minRating}–${filters.maxRating} ★`
+      : filters.minRating
+        ? `${filters.minRating}+ ★`
+        : `≤${filters.maxRating} ★`;
+    badges.push({ key: "minRating", label: `Rating: ${ratingLabel}` });
+  }
+  
+  if (filters.minPlayCount || filters.maxPlayCount) {
+    const pcLabel = filters.minPlayCount && filters.maxPlayCount
+      ? `${filters.minPlayCount}–${filters.maxPlayCount}`
+      : filters.minPlayCount
+        ? `${filters.minPlayCount}+`
+        : `≤${filters.maxPlayCount}`;
+    badges.push({ key: "minPlayCount", label: `Plays: ${pcLabel}` });
+  }
+  
+  if (filters.starredOnly) {
+    badges.push({ key: "starredOnly", label: "Favorites Only" });
+  }
+
+  return (
+    <div className={cn("flex flex-wrap gap-2", className)}>
+      {badges.map(({ key, label }) => (
+        <Badge
+          key={key}
+          variant="secondary"
+          className="gap-1 pr-1 cursor-pointer hover:bg-secondary/80"
+          onClick={() => {
+            // For range filters, remove both min and max
+            if (key === "minYear") {
+              removeFilter("minYear");
+              removeFilter("maxYear");
+            } else if (key === "minDuration") {
+              removeFilter("minDuration");
+              removeFilter("maxDuration");
+            } else if (key === "minRating") {
+              removeFilter("minRating");
+              removeFilter("maxRating");
+            } else if (key === "minPlayCount") {
+              removeFilter("minPlayCount");
+              removeFilter("maxPlayCount");
+            } else {
+              removeFilter(key);
+            }
+          }}
+        >
+          {label}
+          <X className="h-3 w-3 ml-1" />
+        </Badge>
+      ))}
+    </div>
+  );
+}

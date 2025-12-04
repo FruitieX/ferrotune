@@ -224,10 +224,25 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
     // Both APIs are served on the same port:
     // - /rest/* - OpenSubsonic API
     // - /api/ferrotune/* - Ferrotune Admin API
+    // If embedded UI is available, it's served from / (set up in subsonic::create_router)
     let app = api::subsonic::create_router(state.clone())
-        .merge(api::ferrotune::create_router(state))
-        .fallback(api::subsonic::fallback_handler)
-        .layer(
+        .merge(api::ferrotune::create_router(state));
+    
+    // Set up fallback handler:
+    // - If embedded UI is available, serve static files
+    // - Otherwise, return "endpoint not implemented" error
+    #[cfg(feature = "embedded-ui")]
+    let app = if api::embedded_ui::has_embedded_ui() {
+        tracing::info!("Embedded UI assets found, serving web client from /");
+        app.fallback(api::embedded_ui::serve_embedded_ui)
+    } else {
+        app.fallback(api::subsonic::fallback_handler)
+    };
+    
+    #[cfg(not(feature = "embedded-ui"))]
+    let app = app.fallback(api::subsonic::fallback_handler);
+    
+    let app = app.layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {
                     let uri = request.uri();

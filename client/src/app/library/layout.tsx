@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { useAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import {
   Disc,
   User,
@@ -24,8 +24,11 @@ import {
   libraryFilterAtom,
   librarySortAtom,
   columnVisibilityAtom,
+  advancedFiltersAtom,
   type SortField,
 } from "@/lib/store/ui";
+import { shuffleExcludesAtom, shuffleExcludesLoadingAtom } from "@/lib/store/shuffle-excludes";
+import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -37,6 +40,7 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
+import { FilterPopover, ActiveFilterBadges } from "@/components/shared/filter-popover";
 import { cn } from "@/lib/utils";
 
 const tabs = [
@@ -74,13 +78,41 @@ export default function LibraryLayout({
   const [filter, setFilter] = useAtom(libraryFilterAtom);
   const [sortConfig, setSortConfig] = useAtom(librarySortAtom);
   const [columnVisibility, setColumnVisibility] = useAtom(columnVisibilityAtom);
+  const setAdvancedFilters = useSetAtom(advancedFiltersAtom);
+  const setShuffleExcludes = useSetAtom(shuffleExcludesAtom);
+  const setShuffleExcludesLoading = useSetAtom(shuffleExcludesLoadingAtom);
+  
+  // Load shuffle excludes on mount
+  useEffect(() => {
+    const loadShuffleExcludes = async () => {
+      const client = getClient();
+      if (!client) return;
+      
+      setShuffleExcludesLoading(true);
+      try {
+        const response = await client.getAllShuffleExcludes();
+        setShuffleExcludes(new Set(response.songIds));
+      } catch (error) {
+        console.error("Failed to load shuffle excludes:", error);
+      } finally {
+        setShuffleExcludesLoading(false);
+      }
+    };
+    
+    loadShuffleExcludes();
+  }, [setShuffleExcludes, setShuffleExcludesLoading]);
   
   // Clear filter when navigating away from library
   useEffect(() => {
     return () => {
       setFilter("");
+      setAdvancedFilters({});
     };
-  }, [setFilter]);
+  }, [setFilter, setAdvancedFilters]);
+  
+  // Check which library tab we're on for conditional filter options
+  const isSongsTab = pathname === "/library/songs";
+  const isAlbumsTab = pathname === "/library/albums";
   
   // Don't show tabs on detail pages
   const isDetailPage = pathname.includes("/details");
@@ -223,8 +255,29 @@ export default function LibraryLayout({
             >
               <List className="w-4 h-4" />
             </Button>
+            
+            {/* Advanced filters - only on songs and albums tabs */}
+            {(isSongsTab || isAlbumsTab) && (
+              <FilterPopover 
+                showOptions={{
+                  year: true,
+                  genre: true,
+                  duration: isSongsTab,
+                  rating: true,
+                  starred: true,
+                  playCount: isSongsTab,
+                }}
+              />
+            )}
           </div>
         </div>
+        
+        {/* Active filter badges */}
+        {(isSongsTab || isAlbumsTab) && (
+          <div className="px-4 lg:px-6 pb-2">
+            <ActiveFilterBadges />
+          </div>
+        )}
       </header>
 
       {/* Tab Navigation */}

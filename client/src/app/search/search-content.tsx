@@ -85,7 +85,7 @@ export function SearchPageContent() {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getGenres();
-      return response.genres.genre ?? [];
+      return response.genres?.genre ?? [];
     },
     enabled: isReady,
     staleTime: 60000,

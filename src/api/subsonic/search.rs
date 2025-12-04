@@ -54,6 +54,27 @@ pub struct SearchParams {
     album_sort: Option<String>,
     /// Ferrotune extension: sort direction for albums (asc, desc)
     album_sort_dir: Option<String>,
+    // ===== Advanced Filter Parameters (Ferrotune extension) =====
+    /// Filter songs/albums by minimum year
+    min_year: Option<i32>,
+    /// Filter songs/albums by maximum year
+    max_year: Option<i32>,
+    /// Filter songs/albums by genre (exact match)
+    genre: Option<String>,
+    /// Filter songs by minimum duration in seconds
+    min_duration: Option<i32>,
+    /// Filter songs by maximum duration in seconds
+    max_duration: Option<i32>,
+    /// Filter songs/albums by minimum user rating (1-5)
+    min_rating: Option<i32>,
+    /// Filter songs/albums by maximum user rating (1-5)
+    max_rating: Option<i32>,
+    /// Filter to only starred items
+    starred_only: Option<bool>,
+    /// Filter songs by minimum play count
+    min_play_count: Option<i32>,
+    /// Filter songs by maximum play count
+    max_play_count: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -113,6 +134,94 @@ fn get_album_order_clause(sort: Option<&String>, sort_dir: Option<&String>) -> S
         Some("dateAdded") => format!("a.created_at {dir}, a.name COLLATE NOCASE {dir}"),
         _ => format!("a.name COLLATE NOCASE {dir}"), // default: name
     }
+}
+
+/// Build WHERE clause conditions for song filters
+struct SongFilterConditions {
+    conditions: Vec<String>,
+    has_play_count_filter: bool,
+    has_rating_filter: bool,
+    has_starred_filter: bool,
+}
+
+fn build_song_filter_conditions(params: &SearchParams) -> SongFilterConditions {
+    let mut conditions = Vec::new();
+    let mut has_play_count_filter = false;
+    let has_rating_filter = params.min_rating.is_some() || params.max_rating.is_some();
+    let has_starred_filter = params.starred_only.unwrap_or(false);
+
+    if let Some(min_year) = params.min_year {
+        conditions.push(format!("s.year >= {}", min_year));
+    }
+    if let Some(max_year) = params.max_year {
+        conditions.push(format!("s.year <= {}", max_year));
+    }
+    if let Some(ref genre) = params.genre {
+        // Escape single quotes for SQL safety
+        let escaped_genre = genre.replace('\'', "''");
+        conditions.push(format!("s.genre = '{}'", escaped_genre));
+    }
+    if let Some(min_duration) = params.min_duration {
+        conditions.push(format!("s.duration >= {}", min_duration));
+    }
+    if let Some(max_duration) = params.max_duration {
+        conditions.push(format!("s.duration <= {}", max_duration));
+    }
+    if let Some(min_rating) = params.min_rating {
+        conditions.push(format!("COALESCE(r.rating, 0) >= {}", min_rating));
+    }
+    if let Some(max_rating) = params.max_rating {
+        conditions.push(format!("COALESCE(r.rating, 0) <= {}", max_rating));
+    }
+    if has_starred_filter {
+        // starred table uses composite PK (user_id, item_type, item_id) - no 'id' column
+        conditions.push("st.item_id IS NOT NULL".to_string());
+    }
+    if let Some(min_pc) = params.min_play_count {
+        conditions.push(format!("COALESCE(pc.play_count, 0) >= {}", min_pc));
+        has_play_count_filter = true;
+    }
+    if let Some(max_pc) = params.max_play_count {
+        conditions.push(format!("COALESCE(pc.play_count, 0) <= {}", max_pc));
+        has_play_count_filter = true;
+    }
+
+    SongFilterConditions {
+        conditions,
+        has_play_count_filter,
+        has_rating_filter,
+        has_starred_filter,
+    }
+}
+
+/// Build WHERE clause conditions for album filters
+fn build_album_filter_conditions(params: &SearchParams) -> Vec<String> {
+    let mut conditions = Vec::new();
+
+    if let Some(min_year) = params.min_year {
+        conditions.push(format!("a.year >= {}", min_year));
+    }
+    if let Some(max_year) = params.max_year {
+        conditions.push(format!("a.year <= {}", max_year));
+    }
+    if let Some(ref genre) = params.genre {
+        let escaped_genre = genre.replace('\'', "''");
+        conditions.push(format!("a.genre = '{}'", escaped_genre));
+    }
+    if params.min_rating.is_some() || params.max_rating.is_some() {
+        if let Some(min_rating) = params.min_rating {
+            conditions.push(format!("COALESCE(r.rating, 0) >= {}", min_rating));
+        }
+        if let Some(max_rating) = params.max_rating {
+            conditions.push(format!("COALESCE(r.rating, 0) <= {}", max_rating));
+        }
+    }
+    if params.starred_only.unwrap_or(false) {
+        // starred table uses composite PK (user_id, item_type, item_id) - no 'id' column
+        conditions.push("st.item_id IS NOT NULL".to_string());
+    }
+
+    conditions
 }
 
 pub async fn search3(
@@ -207,16 +316,42 @@ pub async fn search3(
         .collect();
 
     // ========================================================================
-    // Search albums using FTS5
+    // Search albums using FTS5 with filtering support
     // ========================================================================
+    let album_filter_conds = build_album_filter_conditions(&params);
+    let has_album_filters = !album_filter_conds.is_empty();
+    let album_has_rating_filter = params.min_rating.is_some() || params.max_rating.is_some();
+    let album_has_starred_filter = params.starred_only.unwrap_or(false);
+
+    // Build album JOIN clauses
+    let mut album_joins = String::from("INNER JOIN artists ar ON a.artist_id = ar.id");
+    if album_has_rating_filter {
+        album_joins.push_str(&format!(
+            " LEFT JOIN ratings r ON r.item_id = a.id AND r.item_type = 'album' AND r.user_id = {}",
+            user.user_id
+        ));
+    }
+    if album_has_starred_filter {
+        album_joins.push_str(&format!(
+            " LEFT JOIN starred st ON st.item_id = a.id AND st.item_type = 'album' AND st.user_id = {}",
+            user.user_id
+        ));
+    }
+
     let (albums, album_total): (Vec<crate::db::models::Album>, Option<i64>) = if is_wildcard {
-        // Wildcard: return all albums with dynamic sorting
+        let where_clause = if has_album_filters {
+            format!("WHERE {}", album_filter_conds.join(" AND "))
+        } else {
+            String::new()
+        };
+
         let album_query = format!(
             "SELECT a.*, ar.name as artist_name 
-                 FROM albums a 
-                 INNER JOIN artists ar ON a.artist_id = ar.id 
-                 ORDER BY {album_order}
-                 LIMIT ? OFFSET ?"
+             FROM albums a 
+             {album_joins}
+             {where_clause}
+             ORDER BY {album_order}
+             LIMIT ? OFFSET ?"
         );
         let albums: Vec<crate::db::models::Album> = sqlx::query_as(&album_query)
             .bind(album_count)
@@ -224,21 +359,23 @@ pub async fn search3(
             .fetch_all(&state.pool)
             .await?;
 
-        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM albums")
-            .fetch_one(&state.pool)
-            .await?;
+        let count_query = format!("SELECT COUNT(*) FROM albums a {album_joins} {where_clause}");
+        let total: (i64,) = sqlx::query_as(&count_query).fetch_one(&state.pool).await?;
 
         (albums, Some(total.0))
     } else if let Some(ref fts_q) = fts_query {
-        // Use FTS5 for album search with dynamic sorting
+        let mut where_conditions = vec!["albums_fts MATCH ?".to_string()];
+        where_conditions.extend(album_filter_conds.clone());
+        let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
+
         let album_query = format!(
             "SELECT a.*, ar.name as artist_name 
-                 FROM albums a 
-                 INNER JOIN artists ar ON a.artist_id = ar.id
-                 INNER JOIN albums_fts fts ON a.id = fts.album_id
-                 WHERE albums_fts MATCH ?
-                 ORDER BY {album_order}
-                 LIMIT ? OFFSET ?"
+             FROM albums a 
+             {album_joins}
+             INNER JOIN albums_fts fts ON a.id = fts.album_id
+             {where_clause}
+             ORDER BY {album_order}
+             LIMIT ? OFFSET ?"
         );
         let albums: Vec<crate::db::models::Album> = sqlx::query_as(&album_query)
             .bind(fts_q)
@@ -247,12 +384,13 @@ pub async fn search3(
             .fetch_all(&state.pool)
             .await?;
 
-        // Get total count for FTS search
-        let total: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM albums_fts WHERE albums_fts MATCH ?")
-                .bind(fts_q)
-                .fetch_one(&state.pool)
-                .await?;
+        let count_query = format!(
+            "SELECT COUNT(*) FROM albums a {album_joins} INNER JOIN albums_fts fts ON a.id = fts.album_id {where_clause}"
+        );
+        let total: (i64,) = sqlx::query_as(&count_query)
+            .bind(fts_q)
+            .fetch_one(&state.pool)
+            .await?;
 
         (albums, Some(total.0))
     } else {
@@ -290,32 +428,58 @@ pub async fn search3(
         .collect();
 
     // ========================================================================
-    // Search songs using FTS5
+    // Search songs using FTS5 with filtering support
     // ========================================================================
-    let (songs, song_total): (Vec<crate::db::models::Song>, Option<i64>) = if is_wildcard {
-        // Return all songs with dynamic sorting
-        let needs_play_count = params.song_sort.as_deref() == Some("playCount");
+    let filter_conds = build_song_filter_conditions(&params);
+    let has_filters = !filter_conds.conditions.is_empty();
+    let needs_play_count =
+        params.song_sort.as_deref() == Some("playCount") || filter_conds.has_play_count_filter;
 
-        let query = if needs_play_count {
-            format!(
-                    "SELECT s.*, ar.name as artist_name, al.name as album_name, COALESCE(pc.play_count, 0) as play_count
-                     FROM songs s 
-                     INNER JOIN artists ar ON s.artist_id = ar.id
-                     LEFT JOIN albums al ON s.album_id = al.id
-                     LEFT JOIN (SELECT song_id, COUNT(*) as play_count FROM scrobbles GROUP BY song_id) pc ON s.id = pc.song_id
-                     ORDER BY {song_order}
-                     LIMIT ? OFFSET ?"
-                )
+    // Build JOIN clauses based on filter requirements
+    let mut joins = String::from(
+        "INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id",
+    );
+    if needs_play_count {
+        joins.push_str(
+            " LEFT JOIN (SELECT song_id, COUNT(*) as play_count FROM scrobbles GROUP BY song_id) pc ON s.id = pc.song_id",
+        );
+    }
+    if filter_conds.has_rating_filter {
+        joins.push_str(&format!(
+            " LEFT JOIN ratings r ON r.item_id = s.id AND r.item_type = 'song' AND r.user_id = {}",
+            user.user_id
+        ));
+    }
+    if filter_conds.has_starred_filter {
+        joins.push_str(&format!(
+            " LEFT JOIN starred st ON st.item_id = s.id AND st.item_type = 'song' AND st.user_id = {}",
+            user.user_id
+        ));
+    }
+
+    let (songs, song_total): (Vec<crate::db::models::Song>, Option<i64>) = if is_wildcard {
+        // Build WHERE clause for filters
+        let where_clause = if has_filters {
+            format!("WHERE {}", filter_conds.conditions.join(" AND "))
         } else {
-            format!(
-                "SELECT s.*, ar.name as artist_name, al.name as album_name, 0 as play_count
-                     FROM songs s 
-                     INNER JOIN artists ar ON s.artist_id = ar.id
-                     LEFT JOIN albums al ON s.album_id = al.id
-                     ORDER BY {song_order}
-                     LIMIT ? OFFSET ?"
-            )
+            String::new()
         };
+
+        let play_count_select = if needs_play_count {
+            "COALESCE(pc.play_count, 0)"
+        } else {
+            "0"
+        };
+
+        let query = format!(
+            "SELECT s.*, ar.name as artist_name, al.name as album_name, {play_count_select} as play_count
+             FROM songs s 
+             {joins}
+             {where_clause}
+             ORDER BY {song_order}
+             LIMIT ? OFFSET ?"
+        );
 
         let songs: Vec<crate::db::models::Song> = sqlx::query_as(&query)
             .bind(song_count)
@@ -323,40 +487,32 @@ pub async fn search3(
             .fetch_all(&state.pool)
             .await?;
 
-        // Get total count
-        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM songs")
-            .fetch_one(&state.pool)
-            .await?;
+        // Get total count with same filters
+        let count_query = format!("SELECT COUNT(*) FROM songs s {joins} {where_clause}");
+        let total: (i64,) = sqlx::query_as(&count_query).fetch_one(&state.pool).await?;
 
         (songs, Some(total.0))
     } else if let Some(ref fts_q) = fts_query {
-        // Use FTS5 for actual search queries with dynamic sorting
-        let needs_play_count = params.song_sort.as_deref() == Some("playCount");
+        // Build WHERE clause combining FTS and filters
+        let mut where_conditions = vec!["songs_fts MATCH ?".to_string()];
+        where_conditions.extend(filter_conds.conditions.clone());
+        let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
 
-        let query = if needs_play_count {
-            format!(
-                    "SELECT s.*, ar.name as artist_name, al.name as album_name, COALESCE(pc.play_count, 0) as play_count
-                     FROM songs s 
-                     INNER JOIN artists ar ON s.artist_id = ar.id
-                     LEFT JOIN albums al ON s.album_id = al.id
-                     INNER JOIN songs_fts fts ON s.id = fts.song_id 
-                     LEFT JOIN (SELECT song_id, COUNT(*) as play_count FROM scrobbles GROUP BY song_id) pc ON s.id = pc.song_id
-                     WHERE songs_fts MATCH ? 
-                     ORDER BY {song_order}
-                     LIMIT ? OFFSET ?"
-                )
+        let play_count_select = if needs_play_count {
+            "COALESCE(pc.play_count, 0)"
         } else {
-            format!(
-                "SELECT s.*, ar.name as artist_name, al.name as album_name, 0 as play_count
-                     FROM songs s 
-                     INNER JOIN artists ar ON s.artist_id = ar.id
-                     LEFT JOIN albums al ON s.album_id = al.id
-                     INNER JOIN songs_fts fts ON s.id = fts.song_id 
-                     WHERE songs_fts MATCH ? 
-                     ORDER BY {song_order}
-                     LIMIT ? OFFSET ?"
-            )
+            "0"
         };
+
+        let query = format!(
+            "SELECT s.*, ar.name as artist_name, al.name as album_name, {play_count_select} as play_count
+             FROM songs s 
+             {joins}
+             INNER JOIN songs_fts fts ON s.id = fts.song_id 
+             {where_clause}
+             ORDER BY {song_order}
+             LIMIT ? OFFSET ?"
+        );
 
         let songs: Vec<crate::db::models::Song> = sqlx::query_as(&query)
             .bind(fts_q)
@@ -365,12 +521,14 @@ pub async fn search3(
             .fetch_all(&state.pool)
             .await?;
 
-        // Get total count for FTS search
-        let total: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM songs_fts WHERE songs_fts MATCH ?")
-                .bind(fts_q)
-                .fetch_one(&state.pool)
-                .await?;
+        // Get total count with same filters
+        let count_query = format!(
+            "SELECT COUNT(*) FROM songs s {joins} INNER JOIN songs_fts fts ON s.id = fts.song_id {where_clause}"
+        );
+        let total: (i64,) = sqlx::query_as(&count_query)
+            .bind(fts_q)
+            .fetch_one(&state.pool)
+            .await?;
 
         (songs, Some(total.0))
     } else {

@@ -27,6 +27,7 @@ import {
   isRestoringQueueAtom,
   clearRestoringFlagAtom,
 } from "@/lib/store/queue";
+import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
 import { getClient } from "@/lib/api/client";
 import { shuffleArray } from "../utils";
 
@@ -198,6 +199,7 @@ export function useAudioEngineInit() {
   const [shuffledIndices, setShuffledIndices] = useAtom(shuffledIndicesAtom);
   const setPlayHistory = useSetAtom(playHistoryAtom);
   const isRestoringQueue = useAtomValue(isRestoringQueueAtom);
+  const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
 
   // Track if we've initialized
   const initializedRef = useRef(false);
@@ -244,6 +246,7 @@ export function useAudioEngineInit() {
     isShuffled,
     shuffledIndices,
     isRestoringQueue,
+    shuffleExcludes,
   });
 
   // Keep refs in sync
@@ -259,6 +262,7 @@ export function useAudioEngineInit() {
       isShuffled,
       shuffledIndices,
       isRestoringQueue,
+      shuffleExcludes,
     };
   });
 
@@ -339,7 +343,11 @@ export function useAudioEngineInit() {
         if (currentShuffleIndex < state.shuffledIndices.length - 1) {
           nextIndex = state.shuffledIndices[currentShuffleIndex + 1];
         } else if (state.repeatMode === "all") {
-          const newShuffled = shuffleArray([...Array(state.queue.length).keys()]);
+          // Filter out excluded songs from the new shuffle order
+          const validIndices = [...Array(state.queue.length).keys()].filter(
+            (i) => !state.shuffleExcludes.has(state.queue[i]?.song.id)
+          );
+          const newShuffled = shuffleArray(validIndices);
           settersRef.current.setShuffledIndices(newShuffled);
           nextIndex = newShuffled[0];
         } else {
@@ -607,6 +615,7 @@ export function useAudioEngine() {
   const isShuffled = useAtomValue(isShuffledAtom);
   const [shuffledIndices, setShuffledIndices] = useAtom(shuffledIndicesAtom);
   const [playHistory, setPlayHistory] = useAtom(playHistoryAtom);
+  const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
 
   // Retry playback by forcing a fresh load of the current track
   const retryPlayback = useCallback(() => {
@@ -705,7 +714,11 @@ export function useAudioEngine() {
       if (currentShuffleIndex < shuffledIndices.length - 1) {
         nextIndex = shuffledIndices[currentShuffleIndex + 1];
       } else if (repeatMode === "all") {
-        const newShuffled = shuffleArray([...Array(queue.length).keys()]);
+        // Filter out excluded songs from the new shuffle order
+        const validIndices = [...Array(queue.length).keys()].filter(
+          (i) => !shuffleExcludes.has(queue[i]?.song.id)
+        );
+        const newShuffled = shuffleArray(validIndices);
         setShuffledIndices(newShuffled);
         nextIndex = newShuffled[0];
       } else {
@@ -749,6 +762,7 @@ export function useAudioEngine() {
     repeatMode,
     isShuffled,
     shuffledIndices,
+    shuffleExcludes,
     setQueueIndex,
     setPlayHistory,
     setPlaybackState,
@@ -856,12 +870,17 @@ export function useShuffle() {
   const queue = useAtomValue(queueAtom);
   const queueIndex = useAtomValue(queueIndexAtom);
   const setShuffledIndices = useSetAtom(shuffledIndicesAtom);
+  const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
 
   const toggleShuffle = useCallback(() => {
     if (!isShuffled) {
       // Turning shuffle on - create shuffled indices starting from current position
+      // Filter out excluded songs from the shuffle order
       const indices = [...Array(queue.length).keys()];
-      const shuffled = shuffleArray(indices.filter((i) => i !== queueIndex));
+      const validIndices = indices.filter(
+        (i) => i !== queueIndex && !shuffleExcludes.has(queue[i]?.song.id)
+      );
+      const shuffled = shuffleArray(validIndices);
       setShuffledIndices([queueIndex, ...shuffled]);
       setIsShuffled(true);
     } else {
@@ -869,7 +888,7 @@ export function useShuffle() {
       setShuffledIndices([]);
       setIsShuffled(false);
     }
-  }, [isShuffled, queue.length, queueIndex, setIsShuffled, setShuffledIndices]);
+  }, [isShuffled, queue, queueIndex, setIsShuffled, setShuffledIndices, shuffleExcludes]);
 
   return { isShuffled, toggleShuffle };
 }

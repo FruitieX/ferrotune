@@ -36,7 +36,7 @@ export default function ArtistsPage() {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getArtists();
-      return response.artists.index;
+      return response.artists?.index ?? [];
     },
     enabled: isReady && !debouncedFilter,
   });

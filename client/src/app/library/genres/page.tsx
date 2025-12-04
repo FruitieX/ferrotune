@@ -37,23 +37,24 @@ export default function GenresPage() {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getGenres();
-      return response.genres.genre;
+      return response.genres?.genre ?? [];
     },
     enabled: isReady,
   });
   
   // Filter genres based on search filter (client-side - API doesn't support genre search)
   const filteredGenres = useMemo(() => {
-    if (!debouncedFilter.trim() || !genresData) return genresData ?? [];
+    const genres = genresData ?? [];
+    if (!debouncedFilter?.trim() || genres.length === 0) return genres;
     const lowerFilter = debouncedFilter.toLowerCase();
-    return genresData.filter((genre) =>
+    return genres.filter((genre) =>
       genre.value.toLowerCase().includes(lowerFilter)
     );
   }, [genresData, debouncedFilter]);
 
   // Genre selection - use value as id since genres don't have an id field
   const genresWithId = useMemo(() => 
-    filteredGenres.map(g => ({ ...g, id: g.value })),
+    (filteredGenres ?? []).map(g => ({ ...g, id: g.value })),
     [filteredGenres]
   );
 

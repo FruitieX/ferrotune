@@ -1,7 +1,7 @@
 import { atom } from "jotai";
 
 // Number of bars in the waveform (doubled for higher resolution)
-export const WAVEFORM_BAR_COUNT = 400;
+export const WAVEFORM_BAR_COUNT = 600;
 
 // Default flat height for unanalyzed bars (visual "dots")
 export const FLAT_BAR_HEIGHT = 0.15;

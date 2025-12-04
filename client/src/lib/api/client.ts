@@ -437,6 +437,39 @@ export class SubsonicClient {
     }
     return headers;
   }
+
+  // Shuffle exclude endpoints (Admin API)
+  async getShuffleExcludeStatus(songId: string): Promise<{ songId: string; excluded: boolean }> {
+    return this.adminRequest(`/ferrotune/songs/${encodeURIComponent(songId)}/shuffle-exclude`);
+  }
+
+  async setShuffleExclude(songId: string, excluded: boolean): Promise<{ songId: string; excluded: boolean }> {
+    const url = this.buildAdminUrl(`/ferrotune/songs/${encodeURIComponent(songId)}/shuffle-exclude`);
+    
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (this.username && this.password) {
+      headers["Authorization"] = `Basic ${btoa(`${this.username}:${this.password}`)}`;
+    }
+
+    const response = await fetch(url, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ excluded }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP error: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  async getAllShuffleExcludes(): Promise<{ songIds: string[] }> {
+    return this.adminRequest("/ferrotune/shuffle-excludes");
+  }
 }
 
 // Singleton instance - will be initialized when user connects

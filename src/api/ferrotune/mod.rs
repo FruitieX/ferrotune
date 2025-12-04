@@ -31,6 +31,9 @@
 //! - `GET /ferrotune/listening/stats` - Get listening statistics
 //! - `GET /ferrotune/songs/:id/waveform` - Get waveform data for a song
 //! - `GET /ferrotune/songs/:id/waveform/stream` - Get waveform data as SSE stream
+//! - `GET /ferrotune/songs/:id/shuffle-exclude` - Get shuffle exclude status for a song
+//! - `PUT /ferrotune/songs/:id/shuffle-exclude` - Set shuffle exclude status for a song
+//! - `GET /ferrotune/shuffle-excludes` - Get all songs excluded from shuffle
 
 mod duplicates;
 mod listening;
@@ -39,6 +42,7 @@ mod playlists;
 mod playqueue;
 mod preferences;
 mod scan;
+mod shuffle_exclude;
 mod stats;
 mod tags;
 mod waveform;
@@ -47,7 +51,7 @@ use crate::api::AppState;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Json},
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use serde::Serialize;
@@ -114,6 +118,15 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/ferrotune/songs/{id}/waveform/stream",
             get(waveform::get_waveform_stream),
+        )
+        // Shuffle exclude endpoints
+        .route(
+            "/ferrotune/songs/{id}/shuffle-exclude",
+            get(shuffle_exclude::get_shuffle_exclude).put(shuffle_exclude::set_shuffle_exclude),
+        )
+        .route(
+            "/ferrotune/shuffle-excludes",
+            get(shuffle_exclude::get_all_shuffle_excludes),
         )
         .with_state(state)
 }
