@@ -1,6 +1,22 @@
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { Song } from "@/lib/api/types";
+import { shuffleExcludesAtom } from "./shuffle-excludes";
+
+// Queue source type - determines where the current queue came from
+export type QueueSourceType = "library" | "album" | "artist" | "playlist" | "genre" | "search" | "favorites" | "history" | "other";
+
+// Detailed queue source info for "Playing from X" display
+export interface QueueSourceInfo {
+  /** Type of source (library, album, artist, playlist, etc.) */
+  type: QueueSourceType;
+  /** ID of the source (album ID, artist ID, playlist ID, etc.) */
+  id?: string;
+  /** Display name of the source (album name, artist name, playlist name, etc.) */
+  name?: string;
+  /** Original index where playback was started (before any filtering) */
+  startIndex?: number;
+}
 
 // Queue item with unique ID for stable React keys during reordering
 export interface QueueItem {
@@ -26,6 +42,10 @@ export function createQueueItems(songs: Song[]): QueueItem[] {
 // Queue state - now stores QueueItem[] instead of Song[]
 export const queueAtom = atom<QueueItem[]>([]);
 export const queueIndexAtom = atom<number>(-1);
+
+// Queue source - tracks where the current queue came from with rich info
+// Used for "Playing from X" display and controlling shuffle exclusion behavior
+export const queueSourceAtom = atom<QueueSourceInfo>({ type: "other" });
 
 // Flag to indicate queue is being restored from server (don't auto-play during restore)
 // This flag stays true until the user explicitly presses play
@@ -181,15 +201,42 @@ export const reorderQueueAtom = atom(
 );
 
 // Replace queue and start playing
+// For "library" source, shuffle-excluded songs are filtered out
 export const playNowAtom = atom(
   null,
-  (get, set, songs: Song | Song[], startIndex: number = 0) => {
+  (get, set, songs: Song | Song[], startIndex: number = 0, source: QueueSourceInfo = { type: "other" }) => {
     const songsArray = Array.isArray(songs) ? songs : [songs];
-    const queueItems = createQueueItems(songsArray);
+    const shuffleExcludes = get(shuffleExcludesAtom);
+    
+    // For library source, filter out shuffle-excluded songs
+    let filteredSongs: Song[];
+    let adjustedIndex = startIndex;
+    
+    if (source.type === "library" && shuffleExcludes.size > 0) {
+      // Find the target song before filtering
+      const targetSongId = songsArray[startIndex]?.id;
+      
+      // Filter out excluded songs
+      filteredSongs = songsArray.filter((song) => !shuffleExcludes.has(song.id));
+      
+      // Adjust index to find the target song in filtered list
+      if (targetSongId) {
+        const newIndex = filteredSongs.findIndex((song) => song.id === targetSongId);
+        // If target song was excluded, start from beginning
+        adjustedIndex = newIndex >= 0 ? newIndex : 0;
+      } else {
+        adjustedIndex = 0;
+      }
+    } else {
+      filteredSongs = songsArray;
+    }
+    
+    const queueItems = createQueueItems(filteredSongs);
     // Clear restore flag since user is explicitly starting playback
     set(isRestoringQueueAtom, false);
     set(queueAtom, queueItems);
-    set(queueIndexAtom, startIndex);
+    set(queueIndexAtom, adjustedIndex);
+    set(queueSourceAtom, { ...source, startIndex });
     set(shuffledIndicesAtom, []);
     set(playHistoryAtom, []);
     // Request immediate save by incrementing the counter

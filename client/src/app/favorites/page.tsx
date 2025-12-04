@@ -77,7 +77,7 @@ export default function FavoritesPage() {
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
 
-  // Fetch starred items
+  // Fetch starred items (when not searching)
   const { data: starredData, isLoading } = useQuery({
     queryKey: ["starred"],
     queryFn: async () => {
@@ -89,48 +89,71 @@ export default function FavoritesPage() {
     enabled: isReady,
   });
 
+  // Search within starred items using search3 API with starredOnly
+  const { data: searchResults, isLoading: isSearching } = useQuery({
+    queryKey: ["starred-search", debouncedSongSearch, debouncedAlbumSearch, debouncedArtistSearch, songSortConfig, albumSortConfig, artistSortConfig],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      
+      // Determine which queries are active
+      const hasQuery = debouncedSongSearch || debouncedAlbumSearch || debouncedArtistSearch;
+      if (!hasQuery) return null;
+      
+      // Use the query from the active tab, or combine them
+      const query = debouncedSongSearch || debouncedAlbumSearch || debouncedArtistSearch;
+      
+      const response = await client.search3({
+        query,
+        songCount: debouncedSongSearch ? 200 : 0,
+        albumCount: debouncedAlbumSearch ? 200 : 0,
+        artistCount: debouncedArtistSearch ? 200 : 0,
+        starredOnly: true,
+        songSort: debouncedSongSearch ? songSortConfig.field : undefined,
+        songSortDir: debouncedSongSearch ? songSortConfig.direction : undefined,
+        albumSort: debouncedAlbumSearch ? albumSortConfig.field : undefined,
+        albumSortDir: debouncedAlbumSearch ? albumSortConfig.direction : undefined,
+        artistSort: debouncedArtistSearch ? artistSortConfig.field : undefined,
+        artistSortDir: debouncedArtistSearch ? artistSortConfig.direction : undefined,
+      });
+      return response.searchResult3;
+    },
+    enabled: isReady && !!(debouncedSongSearch || debouncedAlbumSearch || debouncedArtistSearch),
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+
   const songs = starredData?.song ?? [];
   const albums = starredData?.album ?? [];
   const artists = starredData?.artist ?? [];
 
   // Filter and sort songs
+  // When searching, use search API results; otherwise sort the full list
   const displaySongs = useMemo(() => {
-    let filtered = songs;
-    if (debouncedSongSearch.trim()) {
-      const query = debouncedSongSearch.toLowerCase();
-      filtered = songs.filter(song => 
-        song.title.toLowerCase().includes(query) ||
-        song.artist?.toLowerCase().includes(query) ||
-        song.album?.toLowerCase().includes(query)
-      );
+    if (debouncedSongSearch.trim() && searchResults) {
+      // Results from API are already sorted server-side
+      return searchResults.song ?? [];
     }
-    return sortSongs(filtered as Song[], songSortConfig.field, songSortConfig.direction);
-  }, [songs, debouncedSongSearch, songSortConfig]);
+    return sortSongs(songs as Song[], songSortConfig.field, songSortConfig.direction);
+  }, [songs, debouncedSongSearch, songSortConfig, searchResults]);
 
   // Filter and sort albums
   const displayAlbums = useMemo(() => {
-    let filtered = albums;
-    if (debouncedAlbumSearch.trim()) {
-      const query = debouncedAlbumSearch.toLowerCase();
-      filtered = albums.filter(album => 
-        album.name.toLowerCase().includes(query) ||
-        album.artist?.toLowerCase().includes(query)
-      );
+    if (debouncedAlbumSearch.trim() && searchResults) {
+      // Results from API are already sorted server-side
+      return searchResults.album ?? [];
     }
-    return sortAlbums(filtered, albumSortConfig.field, albumSortConfig.direction);
-  }, [albums, debouncedAlbumSearch, albumSortConfig]);
+    return sortAlbums(albums, albumSortConfig.field, albumSortConfig.direction);
+  }, [albums, debouncedAlbumSearch, albumSortConfig, searchResults]);
 
   // Filter and sort artists
   const displayArtists = useMemo(() => {
-    let filtered = artists;
-    if (debouncedArtistSearch.trim()) {
-      const query = debouncedArtistSearch.toLowerCase();
-      filtered = artists.filter(artist => 
-        artist.name.toLowerCase().includes(query)
-      );
+    if (debouncedArtistSearch.trim() && searchResults) {
+      // Results from API are already sorted server-side
+      return searchResults.artist ?? [];
     }
-    return sortArtists(filtered, artistSortConfig.field, artistSortConfig.direction);
-  }, [artists, debouncedArtistSearch, artistSortConfig]);
+    return sortArtists(artists, artistSortConfig.field, artistSortConfig.direction);
+  }, [artists, debouncedArtistSearch, artistSortConfig, searchResults]);
 
   const totalDuration = displaySongs.reduce((acc, song) => acc + song.duration, 0);
 

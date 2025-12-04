@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { useQuery } from "@tanstack/react-query";
-import { Filter, X, Star, Clock, Calendar, Music, Disc } from "lucide-react";
+import { Filter, X, Star, Clock, Calendar, Music, Disc, Shuffle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
@@ -24,6 +24,7 @@ interface FilterPopoverProps {
     rating?: boolean;
     starred?: boolean;
     playCount?: boolean;
+    shuffleExcluded?: boolean;
   };
   className?: string;
 }
@@ -44,6 +45,7 @@ export function FilterPopover({
     rating: true,
     starred: true,
     playCount: true,
+    shuffleExcluded: true,
   },
   className 
 }: FilterPopoverProps) {
@@ -91,6 +93,7 @@ export function FilterPopover({
     if (localFilters.starredOnly) cleanedFilters.starredOnly = localFilters.starredOnly;
     if (localFilters.minPlayCount) cleanedFilters.minPlayCount = localFilters.minPlayCount;
     if (localFilters.maxPlayCount) cleanedFilters.maxPlayCount = localFilters.maxPlayCount;
+    if (localFilters.shuffleExcludedOnly) cleanedFilters.shuffleExcludedOnly = localFilters.shuffleExcludedOnly;
     
     setFilters(cleanedFilters);
     setOpen(false);
@@ -330,6 +333,20 @@ export function FilterPopover({
             </div>
           )}
 
+          {/* Shuffle Excluded Only Toggle */}
+          {showOptions.shuffleExcluded && (
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-2 text-sm cursor-pointer">
+                <Shuffle className="h-4 w-4 text-muted-foreground" />
+                Shuffle Excluded Only
+              </Label>
+              <Switch
+                checked={localFilters.shuffleExcludedOnly ?? false}
+                onCheckedChange={(checked) => updateLocalFilter("shuffleExcludedOnly", checked || undefined)}
+              />
+            </div>
+          )}
+
           {/* Apply Button */}
           <Button className="w-full" onClick={handleApply}>
             Apply Filters
@@ -401,6 +418,10 @@ export function ActiveFilterBadges({ className }: { className?: string }) {
   
   if (filters.starredOnly) {
     badges.push({ key: "starredOnly", label: "Favorites Only" });
+  }
+  
+  if (filters.shuffleExcludedOnly) {
+    badges.push({ key: "shuffleExcludedOnly", label: "Shuffle Excluded" });
   }
 
   return (

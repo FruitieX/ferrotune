@@ -105,7 +105,8 @@ pub async fn get_play_history(
     let size = params.size.unwrap_or(50).min(500) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
 
-    // Get scrobbles with song data joined
+    // Get scrobbles with song data joined, deduplicated by song_id (keeping most recent play)
+    // Uses a subquery to get the most recent played_at for each song per user
     let scrobbles: Vec<ScrobbleWithSong> = sqlx::query_as(
         r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
                   s.track_number, s.disc_number, s.year, s.genre, s.duration,
@@ -116,6 +117,11 @@ pub async fn get_play_history(
            INNER JOIN artists ar ON s.artist_id = ar.id
            LEFT JOIN albums al ON s.album_id = al.id
            WHERE sc.user_id = ? AND sc.submission = 1
+             AND sc.played_at = (
+               SELECT MAX(sc2.played_at)
+               FROM scrobbles sc2
+               WHERE sc2.song_id = sc.song_id AND sc2.user_id = sc.user_id AND sc2.submission = 1
+             )
            ORDER BY sc.played_at DESC
            LIMIT ? OFFSET ?"#,
     )
@@ -125,12 +131,13 @@ pub async fn get_play_history(
     .fetch_all(&state.pool)
     .await?;
 
-    // Get total count
-    let total: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM scrobbles WHERE user_id = ? AND submission = 1")
-            .bind(user.user_id)
-            .fetch_one(&state.pool)
-            .await?;
+    // Get total count of unique songs in history
+    let total: (i64,) = sqlx::query_as(
+        "SELECT COUNT(DISTINCT song_id) FROM scrobbles WHERE user_id = ? AND submission = 1",
+    )
+    .bind(user.user_id)
+    .fetch_one(&state.pool)
+    .await?;
 
     // Convert to songs with played_at
     let scrobble_data: Vec<_> = scrobbles.into_iter().map(|s| s.into_song()).collect();

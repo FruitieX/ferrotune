@@ -3,17 +3,19 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useAtomValue, useSetAtom } from "jotai";
-import { Check } from "lucide-react";
+import { Check, Shuffle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { formatDuration, formatDate } from "@/lib/utils/format";
-import { currentTrackAtom, playNowAtom } from "@/lib/store/queue";
+import { currentTrackAtom, playNowAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { playbackStateAtom } from "@/lib/store/player";
+import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
 import { useStarred } from "@/lib/store/starred";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { MediaRow, MediaRowSkeleton, RowActions } from "@/components/shared/media-row";
 import { MediaCard, MediaCardSkeleton } from "@/components/shared/media-card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
 
 // Audio bar visualizer for now playing indicator - uses CSS animations
@@ -117,6 +119,7 @@ interface SongRowProps {
   showYear?: boolean;
   showDateAdded?: boolean;
   queueSongs?: Song[]; // All songs in current context for queue
+  queueSource?: QueueSourceInfo; // Source info for "Playing from X" display
   // Selection props
   isSelected?: boolean;
   isSelectionMode?: boolean;
@@ -138,6 +141,7 @@ export function SongRow({
   showYear = false,
   showDateAdded = false,
   queueSongs,
+  queueSource,
   isSelected = false,
   isSelectionMode = false,
   onSelect,
@@ -147,6 +151,7 @@ export function SongRow({
 }: SongRowProps) {
   const currentTrack = useAtomValue(currentTrackAtom);
   const playbackState = useAtomValue(playbackStateAtom);
+  const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
   const playNow = useSetAtom(playNowAtom);
   const { togglePlayPause } = useAudioEngine();
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
@@ -154,6 +159,7 @@ export function SongRow({
   // Don't show track as current when playback has ended
   const isCurrentTrack = currentTrack?.id === song.id && playbackState !== "ended";
   const isPlaying = isCurrentTrack && playbackState === "playing";
+  const isExcludedFromShuffle = shuffleExcludes.has(song.id);
 
   const coverArtUrl = showCover && song.coverArt
     ? getClient()?.getCoverArtUrl(song.coverArt, 48)
@@ -164,7 +170,7 @@ export function SongRow({
       togglePlayPause();
     } else if (queueSongs) {
       const songIndex = queueSongs.findIndex((s) => s.id === song.id);
-      playNow(queueSongs, songIndex >= 0 ? songIndex : 0);
+      playNow(queueSongs, songIndex >= 0 ? songIndex : 0, queueSource);
     } else {
       playNow(song);
     }
@@ -254,6 +260,21 @@ export function SongRow({
         }
         rightContent={
           <div className="flex items-center gap-4 text-sm text-muted-foreground tabular-nums shrink-0">
+            {isExcludedFromShuffle && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="relative hidden sm:inline-flex items-center justify-center w-4 h-4">
+                    <Shuffle className="w-3.5 h-3.5 text-muted-foreground/60" />
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      <span className="w-px h-5 bg-muted-foreground/60 rotate-45 transform" />
+                    </span>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p>Excluded from shuffle when playing the full library</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
             {showYear && song.year && (
               <span className="hidden sm:inline w-12 text-right">{song.year}</span>
             )}
@@ -309,20 +330,23 @@ export function SongRowSkeleton({ showCover = false, showIndex = true }: { showC
 interface SongCardProps {
   song: Song;
   queueSongs?: Song[];
+  queueSource?: QueueSourceInfo;
   isSelected?: boolean;
   isSelectionMode?: boolean;
   onSelect?: (e: React.MouseEvent) => void;
   className?: string;
 }
 
-export function SongCard({ song, queueSongs, isSelected, isSelectionMode, onSelect, className }: SongCardProps) {
+export function SongCard({ song, queueSongs, queueSource, isSelected, isSelectionMode, onSelect, className }: SongCardProps) {
   const currentTrack = useAtomValue(currentTrackAtom);
   const playbackState = useAtomValue(playbackStateAtom);
+  const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
   const playNow = useSetAtom(playNowAtom);
   const { togglePlayPause } = useAudioEngine();
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
 
   const isCurrentTrack = currentTrack?.id === song.id && playbackState !== "ended";
+  const isExcludedFromShuffle = shuffleExcludes.has(song.id);
 
   const coverArtUrl = song.coverArt
     ? getClient()?.getCoverArtUrl(song.coverArt, 300)
@@ -333,7 +357,7 @@ export function SongCard({ song, queueSongs, isSelected, isSelectionMode, onSele
       togglePlayPause();
     } else if (queueSongs) {
       const songIndex = queueSongs.findIndex((s) => s.id === song.id);
-      playNow(queueSongs, songIndex >= 0 ? songIndex : 0);
+      playNow(queueSongs, songIndex >= 0 ? songIndex : 0, queueSource);
     } else {
       playNow(song);
     }
@@ -355,6 +379,21 @@ export function SongCard({ song, queueSongs, isSelected, isSelectionMode, onSele
         {song.artist}
       </Link>
       <span> • {formatDuration(song.duration)}</span>
+      {isExcludedFromShuffle && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="relative inline-flex items-center justify-center w-4 h-4 ml-1">
+              <Shuffle className="w-3 h-3 text-muted-foreground/60" />
+              <span className="absolute inset-0 flex items-center justify-center">
+                <span className="w-px h-4 bg-muted-foreground/60 rotate-45 transform" />
+              </span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <p>Excluded from shuffle</p>
+          </TooltipContent>
+        </Tooltip>
+      )}
     </>
   );
 

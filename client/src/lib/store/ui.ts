@@ -147,6 +147,7 @@ export interface AdvancedFilters {
   starredOnly?: boolean;
   minPlayCount?: number;
   maxPlayCount?: number;
+  shuffleExcludedOnly?: boolean;  // Filter to only show shuffle-excluded tracks
 }
 
 // Filter state (not persisted - resets on page reload)

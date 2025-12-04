@@ -470,6 +470,13 @@ export class SubsonicClient {
   async getAllShuffleExcludes(): Promise<{ songIds: string[] }> {
     return this.adminRequest("/ferrotune/shuffle-excludes");
   }
+
+  async bulkSetShuffleExcludes(songIds: string[], excluded: boolean): Promise<{ count: number; excluded: boolean }> {
+    return this.adminRequest("/ferrotune/shuffle-excludes/bulk", {
+      method: "POST",
+      body: JSON.stringify({ songIds, excluded }),
+    });
+  }
 }
 
 // Singleton instance - will be initialized when user connects

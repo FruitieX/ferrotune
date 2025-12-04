@@ -73,6 +73,8 @@ export default function AlbumsPage() {
     getNextPageParam: (lastPage) => lastPage.nextOffset,
     initialPageParam: 0,
     enabled: isReady && !debouncedFilter,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   // Search albums when filter is active (with server-side sorting and filters)
@@ -99,6 +101,8 @@ export default function AlbumsPage() {
       return response.searchResult3.album ?? [];
     },
     enabled: isReady && debouncedFilter.length >= 1,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   // Flatten albums from all pages
