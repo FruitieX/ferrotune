@@ -278,6 +278,27 @@ export interface SearchParams {
   albumSort?: string;
   /** Ferrotune extension: sort direction for albums (asc, desc) */
   albumSortDir?: string;
+  // ===== Advanced Filter Parameters (Ferrotune extension) =====
+  /** Filter songs/albums by minimum year */
+  minYear?: number;
+  /** Filter songs/albums by maximum year */
+  maxYear?: number;
+  /** Filter songs/albums by genre (exact match) */
+  genre?: string;
+  /** Filter songs by minimum duration in seconds */
+  minDuration?: number;
+  /** Filter songs by maximum duration in seconds */
+  maxDuration?: number;
+  /** Filter songs/albums by minimum user rating (1-5) */
+  minRating?: number;
+  /** Filter songs/albums by maximum user rating (1-5) */
+  maxRating?: number;
+  /** Filter to only starred items */
+  starredOnly?: boolean;
+  /** Filter songs by minimum play count */
+  minPlayCount?: number;
+  /** Filter songs by maximum play count */
+  maxPlayCount?: number;
 }
 
 export interface RandomSongsParams {

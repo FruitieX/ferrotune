@@ -134,6 +134,29 @@ export const playlistsColumnVisibilityAtom = atomWithStorage<PlaylistColumnVisib
   created: false,
 });
 
+// ===== Advanced Filtering =====
+export interface AdvancedFilters {
+  minYear?: number;
+  maxYear?: number;
+  genre?: string;
+  minDuration?: number;  // in seconds
+  maxDuration?: number;  // in seconds
+  minRating?: number;    // 1-5
+  maxRating?: number;    // 1-5
+  starredOnly?: boolean;
+  minPlayCount?: number;
+  maxPlayCount?: number;
+}
+
+// Filter state (not persisted - resets on page reload)
+export const advancedFiltersAtom = atom<AdvancedFilters>({});
+
+// Derived atom to check if any filters are active
+export const hasActiveFiltersAtom = atom((get) => {
+  const filters = get(advancedFiltersAtom);
+  return Object.values(filters).some(v => v !== undefined && v !== false && v !== '');
+});
+
 // Keyboard shortcuts dialog
 export const shortcutsDialogOpenAtom = atom<boolean>(false);
 

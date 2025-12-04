@@ -12,6 +12,7 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
+import { FilterPopover, ActiveFilterBadges } from "@/components/shared/filter-popover";
 import type { SortField, SortDirection, ColumnVisibility, ViewMode } from "@/lib/store/ui";
 
 export interface SortConfig {
@@ -61,6 +62,17 @@ interface SongListToolbarProps {
   showSort?: boolean;
   showColumns?: boolean;
   showViewMode?: boolean;
+  showAdvancedFilters?: boolean;
+  
+  // Advanced filter options
+  advancedFilterOptions?: {
+    year?: boolean;
+    genre?: boolean;
+    duration?: boolean;
+    rating?: boolean;
+    starred?: boolean;
+    playCount?: boolean;
+  };
 }
 
 export function SongListToolbar({
@@ -77,6 +89,8 @@ export function SongListToolbar({
   showSort = true,
   showColumns = true,
   showViewMode = true,
+  showAdvancedFilters = false,
+  advancedFilterOptions,
 }: SongListToolbarProps) {
   const handleSort = (field: SortField) => {
     if (sortConfig.field === field) {
@@ -99,31 +113,32 @@ export function SongListToolbar({
   const SortIcon = sortConfig.direction === "asc" ? ArrowUp : ArrowDown;
 
   return (
-    <div className="flex items-center gap-2">
-      {/* Search filter */}
-      {showFilter && (
-        <div className="flex-1 max-w-xs relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder={filterPlaceholder}
-            value={filter}
-            onChange={(e) => onFilterChange(e.target.value)}
-            className="pl-9 pr-8 h-9 bg-secondary border-0 rounded-full"
-            aria-label="Filter items"
-          />
-          {filter && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-              onClick={() => onFilterChange("")}
-              aria-label="Clear filter"
-            >
-              <X className="w-3 h-3" />
-            </Button>
-          )}
-        </div>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        {/* Search filter */}
+        {showFilter && (
+          <div className="flex-1 max-w-xs relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder={filterPlaceholder}
+              value={filter}
+              onChange={(e) => onFilterChange(e.target.value)}
+              className="pl-9 pr-8 h-9 bg-secondary border-0 rounded-full"
+              aria-label="Filter items"
+            />
+            {filter && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                onClick={() => onFilterChange("")}
+                aria-label="Clear filter"
+              >
+                <X className="w-3 h-3" />
+              </Button>
+            )}
+          </div>
       )}
 
       {/* Sort dropdown */}
@@ -212,6 +227,15 @@ export function SongListToolbar({
           </Button>
         </>
       )}
+
+      {/* Advanced filters */}
+      {showAdvancedFilters && (
+        <FilterPopover showOptions={advancedFilterOptions} />
+      )}
+      </div>
+
+      {/* Active filter badges */}
+      {showAdvancedFilters && <ActiveFilterBadges />}
     </div>
   );
 }

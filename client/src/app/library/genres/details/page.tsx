@@ -55,7 +55,7 @@ function GenreDetailContent() {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getGenres();
-      return response.genres.genre;
+      return response.genres?.genre ?? [];
     },
     enabled: isReady,
     select: (genres) => genres.find((g) => g.value === genreName),

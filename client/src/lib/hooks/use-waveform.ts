@@ -6,9 +6,6 @@ import { waveformCacheAtom, loadingWaveformIdAtom, WAVEFORM_BAR_COUNT, FLAT_BAR_
 import { currentTrackAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 
-// Number of chunks the server sends (must match backend)
-const NUM_CHUNKS = 8;
-
 interface WaveformChunk {
   chunk_index: number;
   total_chunks: number;
@@ -32,9 +29,19 @@ function normalizeRmsToHeights(rmsValues: number[]): number[] {
       return FLAT_BAR_HEIGHT;
     }
 
+    // Linear normalization first (0-1)
     const normalized = rms / peakRms;
-    const logScaled = Math.log10(1 + normalized * 9);
-    const height = FLAT_BAR_HEIGHT + logScaled * (1 - FLAT_BAR_HEIGHT);
+
+    // Apply dB-like logarithmic compression
+    // -40dB to 0dB maps to 0-1, giving more visual space for quieter parts
+    // and compressing loud sections to show more variation
+    const dbMin = -10; // Adjust for compression strength (-30 = more, -60 = less)
+    const db = 20 * Math.log10(Math.max(normalized, 1e-6));
+    const dbNormalized = Math.max(0, (db - dbMin) / -dbMin);
+    
+    // Map to height range (FLAT_BAR_HEIGHT to 1.0)
+    const height = FLAT_BAR_HEIGHT + dbNormalized * (1 - FLAT_BAR_HEIGHT);
+
     return Math.max(FLAT_BAR_HEIGHT, Math.min(1, height));
   });
 }
@@ -100,12 +107,11 @@ export function useWaveform() {
     const fetchWaveformStreaming = async () => {
       const client = getClient();
       if (!client) return;
-
-      const barsPerChunk = Math.floor(WAVEFORM_BAR_COUNT / NUM_CHUNKS);
       
       // Accumulate raw RMS values across all chunks
+      // We'll dynamically track where to place each chunk's RMS values
       const allRmsValues = new Array<number>(WAVEFORM_BAR_COUNT).fill(0);
-      const receivedChunks = new Set<number>();
+      let currentBarIndex = 0;
       
       try {
         const streamUrl = client.getWaveformStreamUrl(trackId, WAVEFORM_BAR_COUNT);
@@ -147,12 +153,11 @@ export function useWaveform() {
             try {
               const chunk: WaveformChunk = JSON.parse(jsonStr);
               
-              // Store raw RMS values at correct position
-              const startBar = chunk.chunk_index * barsPerChunk;
-              for (let i = 0; i < chunk.rms_values.length && startBar + i < WAVEFORM_BAR_COUNT; i++) {
-                allRmsValues[startBar + i] = chunk.rms_values[i];
+              // Store raw RMS values at current position (sequential append)
+              // Server sends chunks sequentially, so we just append
+              for (let i = 0; i < chunk.rms_values.length && currentBarIndex < WAVEFORM_BAR_COUNT; i++) {
+                allRmsValues[currentBarIndex++] = chunk.rms_values[i];
               }
-              receivedChunks.add(chunk.chunk_index);
 
               // Re-normalize across ALL received data so far
               const normalizedHeights = normalizeRmsToHeights(allRmsValues);

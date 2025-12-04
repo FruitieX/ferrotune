@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { albumViewModeAtom, libraryFilterAtom, librarySortAtom, columnVisibilityAtom } from "@/lib/store/ui";
+import { albumViewModeAtom, libraryFilterAtom, librarySortAtom, columnVisibilityAtom, advancedFiltersAtom, hasActiveFiltersAtom } from "@/lib/store/ui";
 import { playNowAtom } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
@@ -24,6 +24,8 @@ export default function SongsPage() {
   const filter = useAtomValue(libraryFilterAtom);
   const sortConfig = useAtomValue(librarySortAtom);
   const columnVisibility = useAtomValue(columnVisibilityAtom);
+  const advancedFilters = useAtomValue(advancedFiltersAtom);
+  const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
   const debouncedFilter = useDebounce(filter, 300);
   const playNow = useSetAtom(playNowAtom);
   
@@ -32,6 +34,7 @@ export default function SongsPage() {
 
   // Fetch all songs using search with wildcard (when no filter)
   // Server-side sorting is applied via songSort and songSortDir parameters
+  // Advanced filters are passed to the API
   const {
     data: songsData,
     isLoading,
@@ -39,7 +42,7 @@ export default function SongsPage() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["songs", "all", sortConfig.field, sortConfig.direction],
+    queryKey: ["songs", "all", sortConfig.field, sortConfig.direction, advancedFilters],
     queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
@@ -53,6 +56,8 @@ export default function SongsPage() {
         albumCount: 0,
         songSort: sortConfig.field,
         songSortDir: sortConfig.direction,
+        // Pass advanced filters
+        ...advancedFilters,
       });
       const songs = response.searchResult3.song ?? [];
       const total = response.searchResult3.songTotal;
@@ -69,7 +74,7 @@ export default function SongsPage() {
 
   // Search songs when filter is active (also with server-side sorting)
   const { data: searchData, isLoading: isSearching } = useQuery({
-    queryKey: ["songs", "search", debouncedFilter, sortConfig.field, sortConfig.direction],
+    queryKey: ["songs", "search", debouncedFilter, sortConfig.field, sortConfig.direction, advancedFilters],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
@@ -80,6 +85,8 @@ export default function SongsPage() {
         albumCount: 0,
         songSort: sortConfig.field,
         songSortDir: sortConfig.direction,
+        // Pass advanced filters
+        ...advancedFilters,
       });
       return response.searchResult3.song ?? [];
     },
