@@ -36,7 +36,7 @@ import {
   playbackStateAtom,
 } from "@/lib/store/player";
 import { currentTrackAtom } from "@/lib/store/queue";
-import { queuePanelOpenAtom, fullscreenPlayerOpenAtom } from "@/lib/store/ui";
+import { queuePanelOpenAtom, fullscreenPlayerOpenAtom, progressBarStyleAtom } from "@/lib/store/ui";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { useStarred } from "@/lib/store/starred";
 import { formatDuration } from "@/lib/utils/format";
@@ -45,6 +45,7 @@ import { getClient } from "@/lib/api/client";
 import { SongDropdownMenu } from "@/components/browse/song-context-menu";
 import { CoverImage } from "@/components/shared/cover-image";
 import { WaveformProgressBar } from "@/components/player/waveform-progress-bar";
+import { SimpleProgressBar } from "@/components/player/simple-progress-bar";
 
 export function PlayerBar() {
   const currentTrack = useAtomValue(currentTrackAtom);
@@ -52,6 +53,7 @@ export function PlayerBar() {
   const duration = useAtomValue(durationAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const connection = useAtomValue(serverConnectionAtom);
+  const progressBarStyle = useAtomValue(progressBarStyleAtom);
   const [queuePanelOpen, setQueuePanelOpen] = useAtom(queuePanelOpenAtom);
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
 
@@ -97,12 +99,16 @@ export function PlayerBar() {
       data-testid="player-bar"
       className={cn(
         "relative z-50",
-        "h-[88px] bg-background/95 backdrop-blur-lg border-t border-border",
+        "h-[88px] bg-background/95 backdrop-blur-lg",
         "transition-all duration-200"
       )}
     >
-      {/* Waveform progress bar at top */}
-      <WaveformProgressBar />
+      {/* Progress bar at top - waveform or simple based on preference */}
+      {progressBarStyle === "waveform" ? (
+        <WaveformProgressBar />
+      ) : (
+        <SimpleProgressBar />
+      )}
 
       <div className="flex items-center h-full px-4 gap-4">
         {/* Now Playing Info */}

@@ -33,6 +33,7 @@ import { shuffleArray } from "../utils";
 
 // Singleton audio element - only one instance across the entire app
 let globalAudio: HTMLAudioElement | null = null;
+
 // Track by queue index to handle duplicate songs
 let currentLoadedQueueIndex: number = -1;
 // Track the currently loaded track ID to avoid unnecessary reloads when queue changes
@@ -60,9 +61,9 @@ const LISTENING_UPDATE_INTERVAL_MS = 60000; // Update every 60 seconds
  * is browser-dependent and may be throttled based on network conditions and
  * available memory.
  */
-function getGlobalAudio(): HTMLAudioElement {
+export function getGlobalAudio(): HTMLAudioElement | null {
   if (typeof window === "undefined") {
-    throw new Error("Cannot create audio element on server");
+    return null;
   }
   
   if (!globalAudio) {
@@ -273,6 +274,7 @@ export function useAudioEngineInit() {
     initializedRef.current = true;
     
     const audio = getGlobalAudio();
+    if (!audio) return;
     setAudioElement(audio);
 
     const handlePlay = () => {
