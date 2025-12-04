@@ -113,6 +113,51 @@ export const favoritesArtistColumnVisibilityAtom = atomWithStorage<ArtistColumnV
   albumCount: true,
 });
 
+// Album details view settings (for album songs list)
+export const albumDetailViewModeAtom = atomWithStorage<ViewMode>("ferrotune-album-detail-view", "list");
+export const albumDetailSortAtom = atomWithStorage<SortConfig>("ferrotune-album-detail-sort", {
+  field: "custom",  // Custom means track order
+  direction: "asc",
+});
+export const albumDetailColumnVisibilityAtom = atomWithStorage<ColumnVisibility>("ferrotune-album-detail-columns", {
+  artist: false,  // Album typically has same artist
+  album: false,   // Already on album page
+  duration: true,
+  playCount: false,
+  dateAdded: false,
+  year: false,
+});
+
+// Artist details view settings (for artist songs list)
+export const artistDetailViewModeAtom = atomWithStorage<ViewMode>("ferrotune-artist-detail-view", "list");
+export const artistDetailSortAtom = atomWithStorage<SortConfig>("ferrotune-artist-detail-sort", {
+  field: "name",
+  direction: "asc",
+});
+export const artistDetailColumnVisibilityAtom = atomWithStorage<ColumnVisibility>("ferrotune-artist-detail-columns", {
+  artist: false,  // Already on artist page
+  album: true,
+  duration: true,
+  playCount: false,
+  dateAdded: false,
+  year: true,
+});
+
+// Genre details view settings (for genre songs list)
+export const genreDetailViewModeAtom = atomWithStorage<ViewMode>("ferrotune-genre-detail-view", "list");
+export const genreDetailSortAtom = atomWithStorage<SortConfig>("ferrotune-genre-detail-sort", {
+  field: "name",
+  direction: "asc",
+});
+export const genreDetailColumnVisibilityAtom = atomWithStorage<ColumnVisibility>("ferrotune-genre-detail-columns", {
+  artist: true,
+  album: true,
+  duration: true,
+  playCount: false,
+  dateAdded: false,
+  year: true,
+});
+
 // Playlists list view settings (for /playlists page listing playlists)
 export const playlistsViewModeAtom = atomWithStorage<ViewMode>("ferrotune-playlists-view", "grid");
 export const playlistsSortAtom = atomWithStorage<SortConfig>("ferrotune-playlists-sort", {

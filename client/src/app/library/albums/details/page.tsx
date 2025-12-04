@@ -1,27 +1,26 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { useSetAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import {
-  Play,
-  Shuffle,
   Heart,
   MoreHorizontal,
-  Clock,
   ArrowLeft,
   FolderPlus,
   ListEnd,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
+import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
 import { isShuffledAtom } from "@/lib/store/queue";
+import { albumDetailViewModeAtom, albumDetailSortAtom, albumDetailColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,11 +30,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
+import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { CoverImage } from "@/components/shared/cover-image";
+import { ActionBar } from "@/components/shared/action-bar";
+import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
+import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
 import { formatTotalDuration, formatCount } from "@/lib/utils/format";
+import { sortSongs } from "@/lib/utils/sort-songs";
 import { cn } from "@/lib/utils";
 
 function AlbumDetailContent() {
@@ -48,6 +52,15 @@ function AlbumDetailContent() {
   const addToQueue = useSetAtom(addToQueueAtom);
   const setIsShuffled = useSetAtom(isShuffledAtom);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+  
+  // Filter state
+  const [filter, setFilter] = useState("");
+  const debouncedFilter = useDebounce(filter, 300);
+  
+  // View settings
+  const [viewMode, setViewMode] = useAtom(albumDetailViewModeAtom);
+  const [sortConfig, setSortConfig] = useAtom(albumDetailSortAtom);
+  const [columnVisibility, setColumnVisibility] = useAtom(albumDetailColumnVisibilityAtom);
 
   // Redirect to library if no ID
   useEffect(() => {
@@ -70,26 +83,45 @@ function AlbumDetailContent() {
 
   const songs = albumData?.song ?? [];
   
-  // Multi-selection support
-  const selection = useTrackSelection(songs);
+  // Filter and sort songs
+  const displaySongs = useMemo(() => {
+    let filtered = songs;
+    
+    if (debouncedFilter.trim()) {
+      const query = debouncedFilter.toLowerCase();
+      filtered = songs.filter(song =>
+        song.title?.toLowerCase().includes(query) ||
+        song.artist?.toLowerCase().includes(query)
+      );
+    }
+    
+    if (sortConfig.field !== "custom") {
+      return sortSongs(filtered, sortConfig.field, sortConfig.direction);
+    }
+    
+    return filtered;
+  }, [songs, debouncedFilter, sortConfig]);
+  
+  // Multi-selection support - use displaySongs for selection
+  const selection = useTrackSelection(displaySongs);
 
   const coverArtUrl = albumData?.coverArt
     ? getClient()?.getCoverArtUrl(albumData.coverArt, 400)
     : undefined;
 
-  const totalDuration = songs.reduce((acc, song) => acc + song.duration, 0);
+  const totalDuration = displaySongs.reduce((acc, song) => acc + song.duration, 0);
 
   const handlePlayAll = () => {
-    if (songs.length > 0) {
+    if (displaySongs.length > 0) {
       setIsShuffled(false);
-      playNow(songs);
+      playNow(displaySongs);
     }
   };
 
   const handleShuffle = () => {
-    if (songs.length > 0) {
+    if (displaySongs.length > 0) {
       setIsShuffled(true);
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
+      const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
       playNow(shuffled);
     }
   };
@@ -235,100 +267,122 @@ function AlbumDetailContent() {
         </div>
       </div>
 
-      {/* Action buttons */}
-      <div className="sticky top-0 z-20 bg-background/80 backdrop-blur-lg border-b border-border">
-        <div className="flex items-center gap-4 px-4 lg:px-6 py-4">
-          <Button
-            size="lg"
-            className="rounded-full gap-2 px-8"
-            onClick={handlePlayAll}
-            disabled={isLoading || songs.length === 0}
-          >
-            <Play className="w-5 h-5 ml-0.5" />
-            Play
-          </Button>
-          <Button
-            variant="outline"
-            size="lg"
-            className="rounded-full gap-2"
-            onClick={handleShuffle}
-            disabled={isLoading || songs.length === 0}
-          >
-            <Shuffle className="w-5 h-5" />
-            Shuffle
-          </Button>
-          <Button variant="ghost" size="icon" className="h-10 w-10">
-            <Heart className="w-5 h-5" />
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-10 w-10">
-                <MoreHorizontal className="w-5 h-5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem 
-                onClick={() => {
-                  if (songs.length > 0) {
-                    songs.forEach(song => addToQueue(song, "last"));
-                    toast.success(`Added ${songs.length} songs to queue`);
-                  }
-                }}
-                disabled={songs.length === 0}
-              >
-                <ListEnd className="w-4 h-4 mr-2" />
-                Add all to Queue
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                onClick={() => setAddToPlaylistOpen(true)}
-                disabled={songs.length === 0}
-              >
-                <FolderPlus className="w-4 h-4 mr-2" />
-                Add all to Playlist
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-
-      {/* Song list header */}
-      <div className="grid gap-4 px-4 py-2 border-b border-border text-sm text-muted-foreground"
-        style={{ gridTemplateColumns: "2rem 1fr auto auto" }}
+      {/* Action bar with toolbar */}
+      <ActionBar
+        onPlayAll={handlePlayAll}
+        onShuffle={handleShuffle}
+        disablePlay={isLoading || displaySongs.length === 0}
+        toolbar={
+          <SongListToolbar
+            filter={filter}
+            onFilterChange={setFilter}
+            filterPlaceholder="Filter songs..."
+            sortConfig={sortConfig}
+            onSortChange={setSortConfig}
+            columnVisibility={columnVisibility}
+            onColumnVisibilityChange={setColumnVisibility}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+          />
+        }
       >
-        <span className="text-center">#</span>
-        <span>Title</span>
-        <span className="hidden sm:block">
-          <Heart className="w-4 h-4" />
-        </span>
-        <span className="flex items-center gap-1">
-          <Clock className="w-4 h-4" />
-        </span>
-      </div>
+        <Button variant="ghost" size="icon" className="h-10 w-10">
+          <Heart className="w-5 h-5" />
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-10 w-10">
+              <MoreHorizontal className="w-5 h-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem 
+              onClick={() => {
+                if (displaySongs.length > 0) {
+                  displaySongs.forEach(song => addToQueue(song, "last"));
+                  toast.success(`Added ${displaySongs.length} songs to queue`);
+                }
+              }}
+              disabled={displaySongs.length === 0}
+            >
+              <ListEnd className="w-4 h-4 mr-2" />
+              Add all to Queue
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              onClick={() => setAddToPlaylistOpen(true)}
+              disabled={displaySongs.length === 0}
+            >
+              <FolderPlus className="w-4 h-4 mr-2" />
+              Add all to Playlist
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </ActionBar>
 
       {/* Song list */}
-      <div className={cn("divide-y divide-border/50", selection.hasSelection && "select-none-during-selection")}>
+      <div className={cn("px-4 lg:px-6 py-4", selection.hasSelection && "select-none")}>
         {isLoading ? (
-          Array.from({ length: 10 }).map((_, i) => (
-            <SongRowSkeleton key={i} />
-          ))
-        ) : songs.length > 0 ? (
-          songs.map((song, index) => (
-            <SongRow
-              key={song.id}
-              song={song}
-              index={index}
-              showAlbum={false}
-              showCover={true}
-              queueSongs={songs}
-              isSelected={selection.isSelected(song.id)}
-              isSelectionMode={selection.hasSelection}
-              onSelect={(e) => selection.handleSelect(song.id, e)}
+          viewMode === "grid" ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <SongCardSkeleton key={i} />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <SongRowSkeleton key={i} showCover showIndex />
+              ))}
+            </div>
+          )
+        ) : displaySongs.length > 0 ? (
+          viewMode === "grid" ? (
+            <VirtualizedGrid
+              items={displaySongs}
+              renderItem={(song) => (
+                <SongCard
+                  song={song}
+                  queueSongs={displaySongs}
+                  isSelected={selection.isSelected(song.id)}
+                  isSelectionMode={selection.hasSelection}
+                  onSelect={(e) => selection.handleSelect(song.id, e)}
+                />
+              )}
+              renderSkeleton={() => <SongCardSkeleton />}
+              getItemKey={(song) => song.id}
             />
-          ))
+          ) : (
+            <VirtualizedList
+              items={displaySongs}
+              renderItem={(song, index) => (
+                <SongRow
+                  song={song}
+                  index={index}
+                  showCover
+                  showArtist={columnVisibility.artist}
+                  showAlbum={columnVisibility.album}
+                  showDuration={columnVisibility.duration}
+                  showPlayCount={columnVisibility.playCount}
+                  showYear={columnVisibility.year}
+                  showDateAdded={columnVisibility.dateAdded}
+                  queueSongs={displaySongs}
+                  isSelected={selection.isSelected(song.id)}
+                  isSelectionMode={selection.hasSelection}
+                  onSelect={(e) => selection.handleSelect(song.id, e)}
+                />
+              )}
+              renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+              getItemKey={(song) => song.id}
+              estimateItemHeight={56}
+            />
+          )
+        ) : songs.length > 0 ? (
+          <EmptyFilterState message="No songs match your filter" />
         ) : (
-          <div className="py-20 text-center text-muted-foreground">
-            No songs in this album
-          </div>
+          <EmptyState
+            title="No songs in this album"
+            description="This album appears to be empty."
+          />
         )}
       </div>
 
@@ -349,11 +403,11 @@ function AlbumDetailContent() {
       <div className="h-24" />
 
       {/* Add to Playlist Dialog */}
-      {songs.length > 0 && (
+      {displaySongs.length > 0 && (
         <AddToPlaylistDialog
           open={addToPlaylistOpen}
           onOpenChange={setAddToPlaylistOpen}
-          songs={songs}
+          songs={displaySongs}
         />
       )}
     </div>
