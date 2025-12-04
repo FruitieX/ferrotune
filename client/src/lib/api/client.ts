@@ -26,6 +26,7 @@ import type {
   UpdateTagsResponse,
   UserPreferences,
   UpdatePreferencesRequest,
+  ServerStats,
 } from "./types";
 
 const API_VERSION = "1.16.1";
@@ -371,6 +372,11 @@ export class SubsonicClient {
       method: "PUT",
       body: JSON.stringify(request),
     });
+  }
+
+  // Server statistics endpoint (Admin API)
+  async getStats(): Promise<ServerStats> {
+    return this.adminRequest("/ferrotune/stats");
   }
 
   // Playlist management (Admin API)

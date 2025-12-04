@@ -2,6 +2,7 @@
 
 import { useAtom, useSetAtom } from "jotai";
 import { useTheme } from "next-themes";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   Settings as SettingsIcon,
@@ -19,6 +20,12 @@ import {
   Sun,
   Moon,
   Monitor,
+  BarChart3,
+  Disc,
+  Users,
+  ListMusic,
+  Clock,
+  PlayCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -28,6 +35,7 @@ import { serverConnectionAtom } from "@/lib/store/auth";
 import { volumeAtom, repeatModeAtom } from "@/lib/store/player";
 import { isShuffledAtom } from "@/lib/store/queue";
 import { clearQueueAtom } from "@/lib/store/queue";
+import { getClient } from "@/lib/api/client";
 import { 
   ACCENT_PRESETS,
   type AccentColor 
@@ -66,10 +74,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatTotalDuration, formatFileSize } from "@/lib/utils/format";
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const isMounted = useIsMounted();
   const [connection, setConnection] = useAtom(serverConnectionAtom);
   const [volume, setVolume] = useAtom(volumeAtom);
@@ -77,6 +86,18 @@ export default function SettingsPage() {
   const [isShuffled, setIsShuffled] = useAtom(isShuffledAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
   const { theme, setTheme } = useTheme();
+  
+  // Fetch server stats
+  const { data: stats, isLoading: statsLoading } = useQuery({
+    queryKey: ["serverStats"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.getStats();
+    },
+    enabled: isReady,
+    staleTime: 60000, // Cache for 1 minute
+  });
   
   // Use the centralized accent color hook that syncs with server
   const {
@@ -237,6 +258,96 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Library Statistics */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="w-5 h-5" />
+                Library Statistics
+              </CardTitle>
+              <CardDescription>
+                Overview of your music library
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {statsLoading ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="p-3 rounded-lg bg-muted/30">
+                      <Skeleton className="h-4 w-16 mb-2" />
+                      <Skeleton className="h-6 w-12" />
+                    </div>
+                  ))}
+                </div>
+              ) : stats ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-3 rounded-lg bg-muted/30">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <Music2 className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">Songs</span>
+                    </div>
+                    <p className="text-xl font-bold">{stats.songCount.toLocaleString()}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <Disc className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">Albums</span>
+                    </div>
+                    <p className="text-xl font-bold">{stats.albumCount.toLocaleString()}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <Users className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">Artists</span>
+                    </div>
+                    <p className="text-xl font-bold">{stats.artistCount.toLocaleString()}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <ListMusic className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">Playlists</span>
+                    </div>
+                    <p className="text-xl font-bold">{stats.playlistCount.toLocaleString()}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <Clock className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">Total Duration</span>
+                    </div>
+                    <p className="text-xl font-bold">{formatTotalDuration(stats.totalDurationSeconds)}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <HardDrive className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">Library Size</span>
+                    </div>
+                    <p className="text-xl font-bold">{formatFileSize(stats.totalSizeBytes)}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <PlayCircle className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">Total Plays</span>
+                    </div>
+                    <p className="text-xl font-bold">{stats.totalPlays.toLocaleString()}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <Music2 className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">Genres</span>
+                    </div>
+                    <p className="text-xl font-bold">{stats.genreCount.toLocaleString()}</p>
+                  </div>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         </motion.div>

@@ -29,7 +29,6 @@ import {
 } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { shuffleArray } from "../utils";
-import { recordPlayAtom } from "@/lib/store/history";
 
 // Singleton audio element - only one instance across the entire app
 let globalAudio: HTMLAudioElement | null = null;
@@ -76,7 +75,6 @@ export function useAudioEngineInit() {
   const isShuffled = useAtomValue(isShuffledAtom);
   const [shuffledIndices, setShuffledIndices] = useAtom(shuffledIndicesAtom);
   const setPlayHistory = useSetAtom(playHistoryAtom);
-  const recordPlay = useSetAtom(recordPlayAtom);
   const isRestoringQueue = useAtomValue(isRestoringQueueAtom);
 
   // Track if we've initialized
@@ -94,7 +92,6 @@ export function useAudioEngineInit() {
     setQueueIndex,
     setShuffledIndices,
     setPlayHistory,
-    recordPlay,
   });
 
   // Keep setter refs in sync
@@ -110,7 +107,6 @@ export function useAudioEngineInit() {
       setQueueIndex,
       setShuffledIndices,
       setPlayHistory,
-      recordPlay,
     };
   });
 
@@ -404,11 +400,6 @@ export function useAudioEngineInit() {
     const isRestoring = stateRef.current.isRestoringQueue;
     
     const streamUrl = client.getStreamUrl(track.id);
-    
-    // Record to recently played history (but not during restore)
-    if (!isRestoring) {
-      settersRef.current.recordPlay(track);
-    }
     
     // Stop current playback
     audio.pause();
