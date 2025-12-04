@@ -78,6 +78,7 @@ function PlaylistDetailContent() {
   const queryClient = useQueryClient();
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [removeTracksDialogOpen, setRemoveTracksDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const debouncedFilter = useDebounce(filter, 300);
@@ -143,17 +144,44 @@ function PlaylistDetailContent() {
     },
   });
 
-  // Remove songs mutation
-  const removeSongsMutation = useMutation({
-    mutationFn: async (songIndices: number[]) => {
+  // Add songs back mutation (for undo)
+  const addSongsBackMutation = useMutation({
+    mutationFn: async (songIds: string[]) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      await client.updatePlaylist({ playlistId: playlistId!, songIndexToRemove: songIndices });
+      await client.updatePlaylist({ playlistId: playlistId!, songIdToAdd: songIds });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      toast.success("Songs removed from playlist");
+      toast.success("Songs restored to playlist");
+    },
+    onError: () => {
+      toast.error("Failed to restore songs");
+    },
+  });
+
+  // Remove songs mutation
+  const removeSongsMutation = useMutation({
+    mutationFn: async ({ indices, songIds }: { indices: number[]; songIds: string[] }) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      await client.updatePlaylist({ playlistId: playlistId!, songIndexToRemove: indices });
+      return songIds; // Return for undo
+    },
+    onSuccess: (songIds) => {
+      queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      const count = songIds.length;
+      toast.success(count === 1 ? "Song removed from playlist" : `${count} songs removed from playlist`, {
+        action: {
+          label: "Undo",
+          onClick: () => {
+            addSongsBackMutation.mutate(songIds);
+          },
+        },
+        duration: 8000, // Give user more time to undo
+      });
     },
     onError: () => {
       toast.error("Failed to remove songs from playlist");
@@ -256,10 +284,19 @@ function PlaylistDetailContent() {
   const handleRemoveSelected = useCallback(() => {
     const indices = getSelectedIndices();
     if (indices.length > 0) {
-      removeSongsMutation.mutate(indices);
+      setRemoveTracksDialogOpen(true);
+    }
+  }, [getSelectedIndices]);
+
+  const confirmRemoveSelected = useCallback(() => {
+    const indices = getSelectedIndices();
+    const songIds = getSelectedSongs().map(s => s.id);
+    if (indices.length > 0) {
+      removeSongsMutation.mutate({ indices, songIds });
       clearSelection();
     }
-  }, [getSelectedIndices, removeSongsMutation, clearSelection]);
+    setRemoveTracksDialogOpen(false);
+  }, [getSelectedIndices, getSelectedSongs, removeSongsMutation, clearSelection]);
 
   const handlePlaySelected = () => {
     const selected = getSelectedSongs();
@@ -513,6 +550,29 @@ function PlaylistDetailContent() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Remove tracks confirmation dialog */}
+      <AlertDialog open={removeTracksDialogOpen} onOpenChange={setRemoveTracksDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove tracks from playlist?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedCount === 1
+                ? "This will remove 1 track from the playlist."
+                : `This will remove ${selectedCount} tracks from the playlist.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmRemoveSelected}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Remove
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

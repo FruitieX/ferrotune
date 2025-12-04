@@ -87,7 +87,37 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
         } else if (type === "artist") {
           await client.star({ artistId: id });
         }
-        toast.success("Added to favorites");
+        toast.success("Added to favorites", {
+          action: {
+            label: "Undo",
+            onClick: async () => {
+              setStarredItems((current) => {
+                const updated = new Map(current);
+                updated.set(key, false);
+                return updated;
+              });
+              try {
+                if (type === "song") {
+                  await client.unstar({ id });
+                } else if (type === "album") {
+                  await client.unstar({ albumId: id });
+                } else if (type === "artist") {
+                  await client.unstar({ artistId: id });
+                }
+                toast.success("Removed from favorites");
+              } catch {
+                // Revert on error
+                setStarredItems((current) => {
+                  const updated = new Map(current);
+                  updated.set(key, true);
+                  return updated;
+                });
+                toast.error("Failed to update favorites");
+              }
+            },
+          },
+          duration: 5000,
+        });
       } else {
         // Use the appropriate unstar method based on type
         if (type === "song") {
@@ -97,7 +127,37 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
         } else if (type === "artist") {
           await client.unstar({ artistId: id });
         }
-        toast.success("Removed from favorites");
+        toast.success("Removed from favorites", {
+          action: {
+            label: "Undo",
+            onClick: async () => {
+              setStarredItems((current) => {
+                const updated = new Map(current);
+                updated.set(key, true);
+                return updated;
+              });
+              try {
+                if (type === "song") {
+                  await client.star({ id });
+                } else if (type === "album") {
+                  await client.star({ albumId: id });
+                } else if (type === "artist") {
+                  await client.star({ artistId: id });
+                }
+                toast.success("Added to favorites");
+              } catch {
+                // Revert on error
+                setStarredItems((current) => {
+                  const updated = new Map(current);
+                  updated.set(key, false);
+                  return updated;
+                });
+                toast.error("Failed to update favorites");
+              }
+            },
+          },
+          duration: 5000,
+        });
       }
     } catch (error) {
       // Revert on error

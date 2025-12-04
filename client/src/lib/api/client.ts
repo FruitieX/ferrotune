@@ -389,10 +389,10 @@ export class SubsonicClient {
   }
 
   // Listening statistics (Admin API)
-  async logListening(songId: string, durationSeconds: number): Promise<void> {
-    await this.adminRequest("/ferrotune/listening", {
+  async logListening(songId: string, durationSeconds: number, sessionId?: number): Promise<{ success: boolean; sessionId: number }> {
+    return this.adminRequest("/ferrotune/listening", {
       method: "POST",
-      body: JSON.stringify({ song_id: songId, duration_seconds: durationSeconds }),
+      body: JSON.stringify({ songId, durationSeconds, sessionId }),
     });
   }
 

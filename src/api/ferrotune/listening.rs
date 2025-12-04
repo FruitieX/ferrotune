@@ -13,17 +13,23 @@ use std::sync::Arc;
 
 /// Request body for logging a listening session.
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogListeningRequest {
     /// The ID of the song that was listened to
     pub song_id: String,
     /// Duration listened in seconds (may be less than song duration if skipped)
     pub duration_seconds: i64,
+    /// Optional session ID to update an existing session instead of creating a new one
+    pub session_id: Option<i64>,
 }
 
 /// Response for logging a listening session.
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogListeningResponse {
     pub success: bool,
+    /// The session ID (for updating in subsequent calls)
+    pub session_id: i64,
 }
 
 /// Listening statistics for a time period.
@@ -55,6 +61,9 @@ pub struct ListeningStatsResponse {
 /// Log a listening session.
 ///
 /// POST /ferrotune/listening
+///
+/// If session_id is provided, updates an existing session.
+/// Otherwise, creates a new session and returns its ID.
 pub async fn log_listening(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
@@ -75,21 +84,70 @@ pub async fn log_listening(
             .into_response();
     }
 
-    // Insert the listening session
-    let result = sqlx::query(
+    // If session_id is provided, update the existing session
+    if let Some(session_id) = request.session_id {
+        let result = sqlx::query(
+            r#"
+            UPDATE listening_sessions 
+            SET duration_seconds = ?
+            WHERE id = ? AND user_id = ? AND song_id = ?
+            "#,
+        )
+        .bind(request.duration_seconds)
+        .bind(session_id)
+        .bind(&user.username)
+        .bind(&request.song_id)
+        .execute(&state.pool)
+        .await;
+
+        match result {
+            Ok(rows) if rows.rows_affected() > 0 => {
+                return Json(LogListeningResponse {
+                    success: true,
+                    session_id,
+                })
+                .into_response();
+            }
+            Ok(_) => {
+                // Session not found or wrong user/song - create a new one instead
+                tracing::warn!(
+                    "Session {} not found for update, creating new one",
+                    session_id
+                );
+            }
+            Err(e) => {
+                tracing::error!("Failed to update listening session: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::new(
+                        "Failed to update listening session",
+                    )),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    // Insert a new listening session
+    let result = sqlx::query_scalar::<_, i64>(
         r#"
         INSERT INTO listening_sessions (user_id, song_id, duration_seconds, listened_at)
         VALUES (?, ?, ?, datetime('now'))
+        RETURNING id
         "#,
     )
     .bind(&user.username)
     .bind(&request.song_id)
     .bind(request.duration_seconds)
-    .execute(&state.pool)
+    .fetch_one(&state.pool)
     .await;
 
     match result {
-        Ok(_) => Json(LogListeningResponse { success: true }).into_response(),
+        Ok(session_id) => Json(LogListeningResponse {
+            success: true,
+            session_id,
+        })
+        .into_response(),
         Err(e) => {
             tracing::error!("Failed to log listening session: {}", e);
             (
