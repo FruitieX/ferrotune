@@ -2,13 +2,12 @@
 
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::browse::{
-    get_ratings_map, get_starred_map, song_to_response, SongResponse,
+    get_ratings_map, get_starred_map, song_to_response_with_stats, SongPlayStats, SongResponse,
 };
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
 use crate::error::Result;
 use axum::extract::{Query, State};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -44,58 +43,6 @@ pub struct PlayHistoryEntry {
     pub played_at: String,
 }
 
-/// Row type for the scrobble join query
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct ScrobbleWithSong {
-    // Song fields
-    id: String,
-    title: String,
-    album_id: Option<String>,
-    album_name: Option<String>,
-    artist_id: String,
-    artist_name: String,
-    track_number: Option<i32>,
-    disc_number: i32,
-    year: Option<i32>,
-    genre: Option<String>,
-    duration: i64,
-    bitrate: Option<i32>,
-    file_path: String,
-    file_size: i64,
-    file_format: String,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-    // Scrobble field
-    played_at: DateTime<Utc>,
-}
-
-impl ScrobbleWithSong {
-    fn into_song(self) -> (crate::db::models::Song, DateTime<Utc>) {
-        (
-            crate::db::models::Song {
-                id: self.id,
-                title: self.title,
-                album_id: self.album_id,
-                album_name: self.album_name,
-                artist_id: self.artist_id,
-                artist_name: self.artist_name,
-                track_number: self.track_number,
-                disc_number: self.disc_number,
-                year: self.year,
-                genre: self.genre,
-                duration: self.duration,
-                bitrate: self.bitrate,
-                file_path: self.file_path,
-                file_size: self.file_size,
-                file_format: self.file_format,
-                created_at: self.created_at,
-                updated_at: self.updated_at,
-            },
-            self.played_at,
-        )
-    }
-}
-
 /// GET /rest/getPlayHistory - Get user's play history (Ferrotune extension)
 pub async fn get_play_history(
     user: AuthenticatedUser,
@@ -107,15 +54,24 @@ pub async fn get_play_history(
 
     // Get scrobbles with song data joined, deduplicated by song_id (keeping most recent play)
     // Uses a subquery to get the most recent played_at for each song per user
-    let scrobbles: Vec<ScrobbleWithSong> = sqlx::query_as(
+    // Also includes play_count and last_played from scrobbles
+    let songs: Vec<crate::db::models::Song> = sqlx::query_as(
         r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
                   s.track_number, s.disc_number, s.year, s.genre, s.duration,
                   s.bitrate, s.file_path, s.file_size, s.file_format, 
-                  s.created_at, s.updated_at, sc.played_at
+                  s.created_at, s.updated_at,
+                  pc.play_count,
+                  sc.played_at as last_played,
+                  NULL as starred_at
            FROM scrobbles sc
            INNER JOIN songs s ON sc.song_id = s.id
            INNER JOIN artists ar ON s.artist_id = ar.id
            LEFT JOIN albums al ON s.album_id = al.id
+           LEFT JOIN (
+               SELECT song_id, COUNT(*) as play_count
+               FROM scrobbles WHERE submission = 1
+               GROUP BY song_id
+           ) pc ON s.id = pc.song_id
            WHERE sc.user_id = ? AND sc.submission = 1
              AND sc.played_at = (
                SELECT MAX(sc2.played_at)
@@ -139,23 +95,37 @@ pub async fn get_play_history(
     .fetch_one(&state.pool)
     .await?;
 
-    // Convert to songs with played_at
-    let scrobble_data: Vec<_> = scrobbles.into_iter().map(|s| s.into_song()).collect();
-
     // Get starred status and ratings for all songs in the result
-    let song_ids: Vec<String> = scrobble_data.iter().map(|(s, _)| s.id.clone()).collect();
+    let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
     let starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
     let ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
 
     // Convert to response format
-    let entries: Vec<PlayHistoryEntry> = scrobble_data
+    let entries: Vec<PlayHistoryEntry> = songs
         .into_iter()
-        .map(|(song, played_at)| {
+        .map(|song| {
             let starred = starred_map.get(&song.id).cloned();
             let user_rating = ratings_map.get(&song.id).copied();
+            let played_at = song
+                .last_played
+                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                .unwrap_or_default();
+            let play_stats = SongPlayStats {
+                play_count: song.play_count,
+                last_played: song
+                    .last_played
+                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+            };
             PlayHistoryEntry {
-                song: song_to_response(song, None, starred, user_rating),
-                played_at: played_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                song: song_to_response_with_stats(
+                    song,
+                    None,
+                    starred,
+                    user_rating,
+                    Some(play_stats),
+                    None,
+                ),
+                played_at,
             }
         })
         .collect();

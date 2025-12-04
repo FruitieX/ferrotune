@@ -60,6 +60,16 @@ pub struct Song {
     pub file_format: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    // Optional fields populated via JOINs when needed
+    /// Play count from scrobbles table (populated via JOIN)
+    #[sqlx(default)]
+    pub play_count: Option<i64>,
+    /// Last played timestamp from scrobbles table (populated via JOIN)
+    #[sqlx(default)]
+    pub last_played: Option<DateTime<Utc>>,
+    /// Starred timestamp from starred table (populated via JOIN)
+    #[sqlx(default)]
+    pub starred_at: Option<DateTime<Utc>>,
 }
 
 /// Song with its music folder path for full filesystem path construction
@@ -84,6 +94,13 @@ pub struct SongWithFolder {
     pub updated_at: DateTime<Utc>,
     /// The base path of the music folder this song belongs to
     pub folder_path: Option<String>,
+    // Optional fields populated via JOINs when needed
+    #[sqlx(default)]
+    pub play_count: Option<i64>,
+    #[sqlx(default)]
+    pub last_played: Option<DateTime<Utc>>,
+    #[sqlx(default)]
+    pub starred_at: Option<DateTime<Utc>>,
 }
 
 impl SongWithFolder {
@@ -107,6 +124,9 @@ impl SongWithFolder {
             file_format: self.file_format,
             created_at: self.created_at,
             updated_at: self.updated_at,
+            play_count: self.play_count,
+            last_played: self.last_played,
+            starred_at: self.starred_at,
         }
     }
 
