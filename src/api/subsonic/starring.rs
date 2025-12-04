@@ -1,9 +1,7 @@
 use crate::api::first_string_or_none;
 use crate::api::string_or_seq;
 use crate::api::subsonic::auth::AuthenticatedUser;
-use crate::api::subsonic::browse::{
-    get_ratings_map, song_to_response, AlbumResponse, ArtistResponse, SongResponse,
-};
+use crate::api::subsonic::browse::{get_ratings_map, AlbumResponse, ArtistResponse, SongResponse};
 use crate::api::subsonic::query::first_i32;
 use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
 use crate::api::AppState;
@@ -277,30 +275,62 @@ async fn fetch_starred_content(
         }
     }
 
-    // Get starred songs with their starred_at timestamps
-    let starred_songs: Vec<(String, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
-        "SELECT item_id, starred_at FROM starred WHERE user_id = ? AND item_type = 'song' ORDER BY starred_at DESC"
+    // Get starred songs with play counts via join
+    let starred_songs: Vec<crate::db::models::Song> = sqlx::query_as(
+        r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
+                  s.track_number, s.disc_number, s.year, s.genre, s.duration,
+                  s.bitrate, s.file_path, s.file_size, s.file_format, 
+                  s.created_at, s.updated_at,
+                  pc.play_count,
+                  pc.last_played,
+                  st.starred_at
+           FROM starred st
+           INNER JOIN songs s ON st.item_id = s.id
+           INNER JOIN artists ar ON s.artist_id = ar.id
+           LEFT JOIN albums al ON s.album_id = al.id
+           LEFT JOIN (
+               SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played
+               FROM scrobbles WHERE submission = 1
+               GROUP BY song_id
+           ) pc ON s.id = pc.song_id
+           WHERE st.user_id = ? AND st.item_type = 'song'
+           ORDER BY st.starred_at DESC"#
     )
     .bind(user_id)
     .fetch_all(pool)
     .await?;
 
     // Get ratings for starred songs
-    let song_ids: Vec<String> = starred_songs.iter().map(|(id, _)| id.clone()).collect();
+    let song_ids: Vec<String> = starred_songs.iter().map(|s| s.id.clone()).collect();
     let song_ratings = get_ratings_map(pool, user_id, "song", &song_ids).await?;
 
+    use crate::api::subsonic::browse::{song_to_response_with_stats, SongPlayStats};
     let mut song_responses = Vec::new();
-    for (id, starred_at) in starred_songs {
-        if let Some(song) = crate::db::queries::get_song_by_id(pool, &id).await? {
-            let album = if let Some(album_id) = &song.album_id {
-                crate::db::queries::get_album_by_id(pool, album_id).await?
-            } else {
-                None
-            };
-            let starred = Some(starred_at.format("%Y-%m-%dT%H:%M:%SZ").to_string());
-            let user_rating = song_ratings.get(&song.id).copied();
-            song_responses.push(song_to_response(song, album.as_ref(), starred, user_rating));
-        }
+    for song in starred_songs {
+        let song_id = song.id.clone();
+        let album = if let Some(album_id) = &song.album_id {
+            crate::db::queries::get_album_by_id(pool, album_id).await?
+        } else {
+            None
+        };
+        let starred = song
+            .starred_at
+            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        let user_rating = song_ratings.get(&song_id).copied();
+        let play_stats = SongPlayStats {
+            play_count: song.play_count,
+            last_played: song
+                .last_played
+                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+        };
+        song_responses.push(song_to_response_with_stats(
+            song,
+            album.as_ref(),
+            starred,
+            user_rating,
+            Some(play_stats),
+            None,
+        ));
     }
 
     Ok((artist_responses, album_responses, song_responses))

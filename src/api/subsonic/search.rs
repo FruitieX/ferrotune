@@ -1,6 +1,7 @@
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::browse::{
-    get_ratings_map, get_starred_map, song_to_response, AlbumResponse, ArtistResponse, SongResponse,
+    get_ratings_map, get_starred_map, song_to_response_with_stats, AlbumResponse, ArtistResponse,
+    SongPlayStats, SongResponse,
 };
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
@@ -141,15 +142,12 @@ fn get_album_order_clause(sort: Option<&String>, sort_dir: Option<&String>) -> S
 /// Build WHERE clause conditions for song filters
 struct SongFilterConditions {
     conditions: Vec<String>,
-    has_play_count_filter: bool,
     has_rating_filter: bool,
     has_starred_filter: bool,
-    has_shuffle_exclude_filter: bool,
 }
 
 fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> SongFilterConditions {
     let mut conditions = Vec::new();
-    let mut has_play_count_filter = false;
     let has_rating_filter = params.min_rating.is_some() || params.max_rating.is_some();
     let has_starred_filter = params.starred_only.unwrap_or(false);
     let has_shuffle_exclude_filter = params.shuffle_excluded_only.unwrap_or(false);
@@ -183,11 +181,9 @@ fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> SongFilt
     }
     if let Some(min_pc) = params.min_play_count {
         conditions.push(format!("COALESCE(pc.play_count, 0) >= {}", min_pc));
-        has_play_count_filter = true;
     }
     if let Some(max_pc) = params.max_play_count {
         conditions.push(format!("COALESCE(pc.play_count, 0) <= {}", max_pc));
-        has_play_count_filter = true;
     }
     if has_shuffle_exclude_filter {
         // Filter to only show songs that are in the shuffle_excludes table for this user
@@ -199,10 +195,8 @@ fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> SongFilt
 
     SongFilterConditions {
         conditions,
-        has_play_count_filter,
         has_rating_filter,
         has_starred_filter,
-        has_shuffle_exclude_filter,
     }
 }
 
@@ -444,19 +438,14 @@ pub async fn search3(
     // ========================================================================
     let filter_conds = build_song_filter_conditions(&params, user.user_id);
     let has_filters = !filter_conds.conditions.is_empty();
-    let needs_play_count =
-        params.song_sort.as_deref() == Some("playCount") || filter_conds.has_play_count_filter;
 
     // Build JOIN clauses based on filter requirements
+    // Always include play_count and last_played for the response
     let mut joins = String::from(
         "INNER JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id",
+         LEFT JOIN albums al ON s.album_id = al.id
+         LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id",
     );
-    if needs_play_count {
-        joins.push_str(
-            " LEFT JOIN (SELECT song_id, COUNT(*) as play_count FROM scrobbles GROUP BY song_id) pc ON s.id = pc.song_id",
-        );
-    }
     if filter_conds.has_rating_filter {
         joins.push_str(&format!(
             " LEFT JOIN ratings r ON r.item_id = s.id AND r.item_type = 'song' AND r.user_id = {}",
@@ -478,14 +467,8 @@ pub async fn search3(
             String::new()
         };
 
-        let play_count_select = if needs_play_count {
-            "COALESCE(pc.play_count, 0)"
-        } else {
-            "0"
-        };
-
         let query = format!(
-            "SELECT s.*, ar.name as artist_name, al.name as album_name, {play_count_select} as play_count
+            "SELECT s.*, ar.name as artist_name, al.name as album_name, pc.play_count, pc.last_played, NULL as starred_at
              FROM songs s 
              {joins}
              {where_clause}
@@ -510,14 +493,8 @@ pub async fn search3(
         where_conditions.extend(filter_conds.conditions.clone());
         let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
 
-        let play_count_select = if needs_play_count {
-            "COALESCE(pc.play_count, 0)"
-        } else {
-            "0"
-        };
-
         let query = format!(
-            "SELECT s.*, ar.name as artist_name, al.name as album_name, {play_count_select} as play_count
+            "SELECT s.*, ar.name as artist_name, al.name as album_name, pc.play_count, pc.last_played, NULL as starred_at
              FROM songs s 
              {joins}
              INNER JOIN songs_fts fts ON s.id = fts.song_id 
@@ -562,7 +539,20 @@ pub async fn search3(
         };
         let starred = song_starred_map.get(&song.id).cloned();
         let user_rating = song_ratings_map.get(&song.id).copied();
-        song_responses.push(song_to_response(song, album.as_ref(), starred, user_rating));
+        let play_stats = SongPlayStats {
+            play_count: song.play_count,
+            last_played: song
+                .last_played
+                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+        };
+        song_responses.push(song_to_response_with_stats(
+            song,
+            album.as_ref(),
+            starred,
+            user_rating,
+            Some(play_stats),
+            None,
+        ));
     }
 
     let response = SearchResult3 {
