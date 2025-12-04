@@ -44,6 +44,7 @@ import { getClient } from "@/lib/api/client";
 
 import { SongDropdownMenu } from "@/components/browse/song-context-menu";
 import { CoverImage } from "@/components/shared/cover-image";
+import { WaveformProgressBar } from "@/components/player/waveform-progress-bar";
 
 export function PlayerBar() {
   const currentTrack = useAtomValue(currentTrackAtom);
@@ -95,25 +96,13 @@ export function PlayerBar() {
     <footer
       data-testid="player-bar"
       className={cn(
-        "z-50",
+        "relative z-50",
         "h-[88px] bg-background/95 backdrop-blur-lg border-t border-border",
         "transition-all duration-200"
       )}
     >
-      {/* Progress bar (thin line at top) */}
-      <div className="absolute top-0 left-0 right-0 h-1 bg-muted group cursor-pointer"
-        onClick={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const percent = ((e.clientX - rect.left) / rect.width) * 100;
-          seekPercent(percent);
-        }}
-      >
-        <motion.div
-          className="h-full bg-primary"
-          style={{ width: `${progress}%` }}
-        />
-        <div className="absolute top-0 left-0 right-0 h-3 -translate-y-1 opacity-0 group-hover:opacity-100 transition-opacity" />
-      </div>
+      {/* Waveform progress bar at top */}
+      <WaveformProgressBar />
 
       <div className="flex items-center h-full px-4 gap-4">
         {/* Now Playing Info */}
