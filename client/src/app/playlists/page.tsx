@@ -37,6 +37,7 @@ import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { CreatePlaylistDialog } from "@/components/playlists/create-playlist-dialog";
 import { ImportPlaylistDialog } from "@/components/playlists/import-playlist-dialog";
 import { PlaylistContextMenu, PlaylistDropdownMenu } from "@/components/playlists/playlist-context-menu";
+import { FolderContextMenu, FolderDropdownMenu } from "@/components/playlists/folder-context-menu";
 import { formatDuration, formatCount, formatDate, formatTotalDuration } from "@/lib/utils/format";
 import { filterPlaylists, sortPlaylists } from "@/lib/utils/sort-playlists";
 import { organizePlaylistsIntoFolders, getPlaylistDisplayName, type PlaylistFolder } from "@/lib/utils/playlist-folders";
@@ -51,6 +52,7 @@ export default function PlaylistsPage() {
   const queryClient = useQueryClient();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
+  const [createInFolderPath, setCreateInFolderPath] = useState<string>("");
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [activeDragPlaylist, setActiveDragPlaylist] = useState<Playlist | null>(null);
   
@@ -242,6 +244,17 @@ export default function PlaylistsPage() {
     }
   };
 
+  // Handlers for creating playlist/folder in a specific folder via context menu
+  const handleCreatePlaylistInFolder = useCallback((folderPath: string) => {
+    setCreateInFolderPath(folderPath);
+    setCreateDialogOpen(true);
+  }, []);
+
+  const handleCreateSubfolder = useCallback((parentPath: string) => {
+    setCreateInFolderPath(parentPath);
+    setCreateFolderDialogOpen(true);
+  }, []);
+
   // Build breadcrumb items
   const breadcrumbItems = useMemo(() => {
     const items = [{ label: "Playlists", path: "" }];
@@ -384,6 +397,8 @@ export default function PlaylistsPage() {
                       folder={item.data}
                       currentPath={currentPath}
                       onNavigate={navigateToFolder}
+                      onCreateSubfolder={handleCreateSubfolder}
+                      onCreatePlaylist={handleCreatePlaylistInFolder}
                     />
                   ) : (
                     <DraggablePlaylistGridCard
@@ -410,6 +425,8 @@ export default function PlaylistsPage() {
                       index={index}
                       currentPath={currentPath}
                       onNavigate={navigateToFolder}
+                      onCreateSubfolder={handleCreateSubfolder}
+                      onCreatePlaylist={handleCreatePlaylistInFolder}
                     />
                   ) : (
                     <DraggablePlaylistListRow
@@ -462,15 +479,21 @@ export default function PlaylistsPage() {
         {/* Create Playlist Dialog */}
         <CreatePlaylistDialog 
           open={createDialogOpen} 
-          onOpenChange={setCreateDialogOpen}
-          folderPath={currentPath}
+          onOpenChange={(open) => {
+            setCreateDialogOpen(open);
+            if (!open) setCreateInFolderPath("");
+          }}
+          folderPath={createInFolderPath || currentPath}
         />
 
         {/* Create Folder Dialog */}
         <CreatePlaylistDialog 
           open={createFolderDialogOpen} 
-          onOpenChange={setCreateFolderDialogOpen}
-          folderPath={currentPath}
+          onOpenChange={(open) => {
+            setCreateFolderDialogOpen(open);
+            if (!open) setCreateInFolderPath("");
+          }}
+          folderPath={createInFolderPath || currentPath}
           createFolder
         />
 
@@ -528,36 +551,49 @@ interface DroppableFolderGridCardProps {
   folder: PlaylistFolder;
   currentPath: string;
   onNavigate: (path: string) => void;
+  onCreateSubfolder: (parentPath: string) => void;
+  onCreatePlaylist: (folderPath: string) => void;
 }
 
-function DroppableFolderGridCard({ folder, onNavigate }: DroppableFolderGridCardProps) {
+function DroppableFolderGridCard({ folder, onNavigate, onCreateSubfolder, onCreatePlaylist }: DroppableFolderGridCardProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: `folder-${folder.path}`,
   });
   const playlistCount = countPlaylistsInFolder(folder);
   
   return (
-    <button
-      ref={setNodeRef}
-      onClick={() => onNavigate(folder.path)}
-      className={cn(
-        "group relative flex flex-col items-center text-left w-full rounded-lg transition-colors hover:bg-accent/50 p-4",
-        isOver && "bg-emerald-500/20 ring-2 ring-emerald-500"
-      )}
+    <FolderContextMenu
+      folder={folder}
+      onCreateSubfolder={onCreateSubfolder}
+      onCreatePlaylist={onCreatePlaylist}
     >
-      <div className={cn(
-        "w-full aspect-square rounded-lg bg-linear-to-br from-amber-500/20 to-amber-700/20 flex items-center justify-center mb-3",
-        isOver && "from-emerald-500/30 to-emerald-700/30"
-      )}>
-        <Folder className={cn("w-16 h-16 text-amber-500", isOver && "text-emerald-500")} />
-      </div>
-      <div className="w-full">
-        <h3 className="font-medium truncate">{folder.name}</h3>
-        <p className="text-sm text-muted-foreground truncate">
-          {formatCount(folder.subfolders.length, "folder")} • {formatCount(playlistCount, "playlist")}
-        </p>
-      </div>
-    </button>
+      <button
+        ref={setNodeRef}
+        onClick={() => onNavigate(folder.path)}
+        className={cn(
+          "group relative flex flex-col items-center text-left w-full rounded-lg transition-colors hover:bg-accent/50 p-4",
+          isOver && "bg-emerald-500/20 ring-2 ring-emerald-500"
+        )}
+      >
+        <FolderDropdownMenu
+          folder={folder}
+          onCreateSubfolder={onCreateSubfolder}
+          onCreatePlaylist={onCreatePlaylist}
+        />
+        <div className={cn(
+          "w-full aspect-square rounded-lg bg-linear-to-br from-amber-500/20 to-amber-700/20 flex items-center justify-center mb-3",
+          isOver && "from-emerald-500/30 to-emerald-700/30"
+        )}>
+          <Folder className={cn("w-16 h-16 text-amber-500", isOver && "text-emerald-500")} />
+        </div>
+        <div className="w-full">
+          <h3 className="font-medium truncate">{folder.name}</h3>
+          <p className="text-sm text-muted-foreground truncate">
+            {formatCount(folder.subfolders.length, "folder")} • {formatCount(playlistCount, "playlist")}
+          </p>
+        </div>
+      </button>
+    </FolderContextMenu>
   );
 }
 
@@ -567,40 +603,54 @@ interface DroppableFolderListRowProps {
   index: number;
   currentPath: string;
   onNavigate: (path: string) => void;
+  onCreateSubfolder: (parentPath: string) => void;
+  onCreatePlaylist: (folderPath: string) => void;
 }
 
-function DroppableFolderListRow({ folder, index, onNavigate }: DroppableFolderListRowProps) {
+function DroppableFolderListRow({ folder, index, onNavigate, onCreateSubfolder, onCreatePlaylist }: DroppableFolderListRowProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: `folder-${folder.path}`,
   });
   const playlistCount = countPlaylistsInFolder(folder);
   
   return (
-    <button
-      ref={setNodeRef}
-      onClick={() => onNavigate(folder.path)}
-      className={cn(
-        "w-full flex items-center gap-4 py-2 px-2 rounded-md hover:bg-accent/50 transition-colors group",
-        isOver && "bg-emerald-500/20 ring-2 ring-emerald-500"
-      )}
+    <FolderContextMenu
+      folder={folder}
+      onCreateSubfolder={onCreateSubfolder}
+      onCreatePlaylist={onCreatePlaylist}
     >
-      <span className="w-8 text-center text-sm text-muted-foreground tabular-nums">
-        {index + 1}
-      </span>
-      <div className={cn(
-        "w-10 h-10 rounded bg-linear-to-br from-amber-500/20 to-amber-700/20 flex items-center justify-center shrink-0",
-        isOver && "from-emerald-500/30 to-emerald-700/30"
-      )}>
-        <Folder className={cn("w-5 h-5 text-amber-500", isOver && "text-emerald-500")} />
+      <div
+        ref={setNodeRef}
+        onClick={() => onNavigate(folder.path)}
+        className={cn(
+          "w-full flex items-center gap-4 py-2 px-2 rounded-md hover:bg-accent/50 transition-colors group cursor-pointer",
+          isOver && "bg-emerald-500/20 ring-2 ring-emerald-500"
+        )}
+      >
+        <span className="w-8 text-center text-sm text-muted-foreground tabular-nums">
+          {index + 1}
+        </span>
+        <div className={cn(
+          "w-10 h-10 rounded bg-linear-to-br from-amber-500/20 to-amber-700/20 flex items-center justify-center shrink-0",
+          isOver && "from-emerald-500/30 to-emerald-700/30"
+        )}>
+          <Folder className={cn("w-5 h-5 text-amber-500", isOver && "text-emerald-500")} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-medium truncate">{folder.name}</h3>
+          <p className="text-sm text-muted-foreground truncate">
+            {formatCount(folder.subfolders.length, "folder")} • {formatCount(playlistCount, "playlist")}
+          </p>
+        </div>
+        <FolderDropdownMenu
+          folder={folder}
+          inline
+          onCreateSubfolder={onCreateSubfolder}
+          onCreatePlaylist={onCreatePlaylist}
+        />
+        <ChevronRight className="w-5 h-5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
-      <div className="flex-1 min-w-0">
-        <h3 className="font-medium truncate">{folder.name}</h3>
-        <p className="text-sm text-muted-foreground truncate">
-          {formatCount(folder.subfolders.length, "folder")} • {formatCount(playlistCount, "playlist")}
-        </p>
-      </div>
-      <ChevronRight className="w-5 h-5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-    </button>
+    </FolderContextMenu>
   );
 }
 

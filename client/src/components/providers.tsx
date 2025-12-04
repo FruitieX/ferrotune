@@ -4,14 +4,22 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Provider as JotaiProvider, useAtomValue } from "jotai";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useAudioEngineInit, useMediaSession } from "@/lib/audio/hooks";
 import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
 import { useQueuePersistence } from "@/lib/hooks/use-queue-persistence";
 import { useDocumentTitle } from "@/lib/hooks/use-document-title";
 import { usePreferencesSync } from "@/lib/hooks/use-preferences-sync";
+import { useClearSelectionOnNavigate } from "@/lib/hooks/use-clear-selection-on-navigate";
 import { DynamicFavicon } from "@/components/dynamic-favicon";
 import { accentColorAtom, customAccentHueAtom, customAccentLightnessAtom, customAccentChromaAtom } from "@/lib/store/ui";
+
+// Component that handles clearing selection on navigation
+// Wrapped in Suspense because useSearchParams triggers Suspense on initial render
+function SelectionClearer() {
+  useClearSelectionOnNavigate();
+  return null;
+}
 
 // Component that initializes the audio engine and media session
 function AudioEngineProvider({ children }: { children: React.ReactNode }) {
@@ -84,6 +92,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
         >
             <AccentColorProvider>
               <DynamicFavicon />
+              <Suspense fallback={null}>
+                <SelectionClearer />
+              </Suspense>
               <AudioEngineProvider>
                 {children}
               </AudioEngineProvider>

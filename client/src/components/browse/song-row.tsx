@@ -121,6 +121,9 @@ interface SongRowProps {
   isSelected?: boolean;
   isSelectionMode?: boolean;
   onSelect?: (e: React.MouseEvent) => void;
+  // Playlist props
+  showRemoveFromPlaylist?: boolean;
+  onRemoveFromPlaylist?: () => void;
   className?: string;
 }
 
@@ -138,6 +141,8 @@ export function SongRow({
   isSelected = false,
   isSelectionMode = false,
   onSelect,
+  showRemoveFromPlaylist = false,
+  onRemoveFromPlaylist,
   className,
 }: SongRowProps) {
   const currentTrack = useAtomValue(currentTrackAtom);
@@ -241,6 +246,8 @@ export function SongRow({
               <SongDropdownMenu
                 song={song}
                 queueSongs={queueSongs}
+                showRemoveFromPlaylist={showRemoveFromPlaylist}
+                onRemoveFromPlaylist={onRemoveFromPlaylist}
               />
             }
           />
@@ -262,7 +269,12 @@ export function SongRow({
           </div>
         }
         contextMenu={(children) => (
-          <SongContextMenu song={song} queueSongs={queueSongs}>
+          <SongContextMenu 
+            song={song} 
+            queueSongs={queueSongs}
+            showRemoveFromPlaylist={showRemoveFromPlaylist}
+            onRemoveFromPlaylist={onRemoveFromPlaylist}
+          >
             {children}
           </SongContextMenu>
         )}

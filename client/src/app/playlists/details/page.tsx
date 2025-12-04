@@ -25,6 +25,8 @@ import {
   Pencil,
   Trash2,
   ListMusic,
+  ChevronRight,
+  Home,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -189,6 +191,14 @@ function PlaylistDetailContent() {
   });
 
   const songs = playlist?.entry ?? [];
+
+  // Helper to remove a single song by its ID (for context menu)
+  const handleRemoveSingleSong = useCallback((songId: string) => {
+    // Find the index of the song in the original playlist order
+    const index = songs.findIndex((s) => s.id === songId);
+    if (index === -1) return;
+    removeSongsMutation.mutate({ indices: [index], songIds: [songId] });
+  }, [songs, removeSongsMutation]);
   
   // Local state for optimistic reordering
   const [localSongOrder, setLocalSongOrder] = useState<Song[]>([]);
@@ -254,6 +264,43 @@ function PlaylistDetailContent() {
   }, [orderedSongs, debouncedFilter, sortConfig]);
 
   const totalDuration = displaySongs.reduce((acc, song) => acc + (song.duration ?? 0), 0);
+
+  // Build breadcrumb items from playlist name (which includes folder path)
+  const breadcrumbItems = useMemo(() => {
+    const items: { label: string; path: string }[] = [{ label: "Playlists", path: "" }];
+    if (!playlist?.name) return items;
+    
+    // Playlist names include the full path like "Folder/SubFolder/PlaylistName"
+    const parts = playlist.name.split("/");
+    
+    // If there's only one part, there's no folder, just the playlist name
+    if (parts.length <= 1) return items;
+    
+    // Build folder breadcrumbs (all parts except the last, which is the playlist name)
+    let currentPath = "";
+    for (let i = 0; i < parts.length - 1; i++) {
+      currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+      items.push({ label: parts[i], path: currentPath });
+    }
+    
+    return items;
+  }, [playlist?.name]);
+
+  // Get the display name (last part of the path)
+  const displayName = useMemo(() => {
+    if (!playlist?.name) return "Playlist";
+    const parts = playlist.name.split("/");
+    return parts[parts.length - 1];
+  }, [playlist?.name]);
+
+  // Navigate to a folder
+  const navigateToFolder = useCallback((path: string) => {
+    if (path === "") {
+      router.push("/playlists");
+    } else {
+      router.push(`/playlists?folder=${encodeURIComponent(path)}`);
+    }
+  }, [router]);
 
   // Track selection
   const {
@@ -340,14 +387,14 @@ function PlaylistDetailContent() {
       <DetailHeader
         showBackButton
         coverUrl={coverUrl}
-        coverAlt={playlist?.name ?? "Playlist"}
+        coverAlt={displayName}
         icon={ListMusic}
         iconClassName="bg-linear-to-br from-emerald-500 to-emerald-800"
         coverSize="lg"
         useBlurredBackground={!!coverUrl}
         gradientColor="rgba(16,185,129,0.2)"
         label="Playlist"
-        title={isLoading ? "Loading..." : (playlist?.name ?? "Playlist")}
+        title={isLoading ? "Loading..." : displayName}
         subtitle={playlist?.comment}
         metadata={
           playlist && (
@@ -371,6 +418,25 @@ function PlaylistDetailContent() {
           )
         }
       />
+
+      {/* Breadcrumb navigation (only if playlist is in a folder) */}
+      {breadcrumbItems.length > 1 && (
+        <div className="relative z-20 px-4 lg:px-6 py-2 flex items-center gap-1 text-sm text-muted-foreground border-b border-border bg-background/80 backdrop-blur-sm">
+          {breadcrumbItems.map((item, index) => (
+            <div key={item.path} className="flex items-center">
+              {index > 0 && <ChevronRight className="w-4 h-4 mx-1" />}
+              <button
+                onClick={() => navigateToFolder(item.path)}
+                className="hover:text-foreground transition-colors px-1 py-0.5 rounded hover:bg-accent"
+              >
+                {index === 0 ? <Home className="w-4 h-4" /> : item.label}
+              </button>
+            </div>
+          ))}
+          <ChevronRight className="w-4 h-4 mx-1" />
+          <span className="font-medium text-foreground">{displayName}</span>
+        </div>
+      )}
 
       {/* Action bar */}
       <ActionBar
@@ -474,6 +540,8 @@ function PlaylistDetailContent() {
                       isSelectionMode={hasSelection}
                       onSelect={(e) => handleSelect(song.id, e)}
                       disabled={hasSelection}
+                      showRemoveFromPlaylist
+                      onRemoveFromPlaylist={() => handleRemoveSingleSong(song.id)}
                     />
                   ))}
                 </div>
@@ -497,6 +565,8 @@ function PlaylistDetailContent() {
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
                   onSelect={(e) => handleSelect(song.id, e)}
+                  showRemoveFromPlaylist
+                  onRemoveFromPlaylist={() => handleRemoveSingleSong(song.id)}
                 />
               )}
               renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
