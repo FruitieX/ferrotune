@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, Suspense } from "react";
 import { useAtom } from "jotai";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -44,7 +44,7 @@ import { organizePlaylistsIntoFolders, getPlaylistDisplayName, type PlaylistFold
 import { cn } from "@/lib/utils";
 import type { Playlist } from "@/lib/api/types";
 
-export default function PlaylistsPage() {
+function PlaylistsPageContent() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const isMounted = useIsMounted();
   const router = useRouter();
@@ -774,5 +774,17 @@ function DraggablePlaylistListRow({ playlist, index, isSelected, isSelectionMode
         )}
       />
     </div>
+  );
+}
+
+export default function PlaylistsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-pulse">Loading...</div>
+      </div>
+    }>
+      <PlaylistsPageContent />
+    </Suspense>
   );
 }

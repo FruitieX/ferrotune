@@ -95,7 +95,7 @@ pub async fn log_listening(
         )
         .bind(request.duration_seconds)
         .bind(session_id)
-        .bind(&user.username)
+        .bind(user.user_id)
         .bind(&request.song_id)
         .execute(&state.pool)
         .await;
@@ -136,7 +136,7 @@ pub async fn log_listening(
         RETURNING id
         "#,
     )
-    .bind(&user.username)
+    .bind(user.user_id)
     .bind(&request.song_id)
     .bind(request.duration_seconds)
     .fetch_one(&state.pool)
@@ -169,7 +169,7 @@ pub async fn get_listening_stats(
     // Helper to get stats for a date filter
     async fn get_stats_for_period(
         db: &sqlx::SqlitePool,
-        user_id: &str,
+        user_id: i64,
         date_filter: &str,
     ) -> Result<ListeningStats, sqlx::Error> {
         let query = format!(
@@ -194,26 +194,26 @@ pub async fn get_listening_stats(
     // Get stats for each time period
     let last_7_days = get_stats_for_period(
         &state.pool,
-        &user.username,
+        user.user_id,
         "AND listened_at >= datetime('now', '-7 days')",
     )
     .await;
 
     let last_30_days = get_stats_for_period(
         &state.pool,
-        &user.username,
+        user.user_id,
         "AND listened_at >= datetime('now', '-30 days')",
     )
     .await;
 
     let this_year = get_stats_for_period(
         &state.pool,
-        &user.username,
+        user.user_id,
         "AND strftime('%Y', listened_at) = strftime('%Y', 'now')",
     )
     .await;
 
-    let all_time = get_stats_for_period(&state.pool, &user.username, "").await;
+    let all_time = get_stats_for_period(&state.pool, user.user_id, "").await;
 
     // Check for errors
     match (last_7_days, last_30_days, this_year, all_time) {

@@ -29,6 +29,8 @@
 //! - `POST /ferrotune/play-queue` - Save play queue (JSON body, scalable alternative to OpenSubsonic)
 //! - `POST /ferrotune/listening` - Log a listening session
 //! - `GET /ferrotune/listening/stats` - Get listening statistics
+//! - `GET /ferrotune/songs/:id/waveform` - Get waveform data for a song
+//! - `GET /ferrotune/songs/:id/waveform/stream` - Get waveform data as SSE stream
 
 mod duplicates;
 mod listening;
@@ -39,6 +41,7 @@ mod preferences;
 mod scan;
 mod stats;
 mod tags;
+mod waveform;
 
 use crate::api::AppState;
 use axum::{
@@ -102,6 +105,15 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/ferrotune/listening/stats",
             get(listening::get_listening_stats),
+        )
+        // Waveform generation endpoint
+        .route(
+            "/ferrotune/songs/{id}/waveform",
+            get(waveform::get_waveform),
+        )
+        .route(
+            "/ferrotune/songs/{id}/waveform/stream",
+            get(waveform::get_waveform_stream),
         )
         .with_state(state)
 }

@@ -399,6 +399,44 @@ export class SubsonicClient {
   async getListeningStats(): Promise<ListeningStatsResponse> {
     return this.adminRequest("/ferrotune/listening/stats");
   }
+
+  // Waveform data (Admin API)
+  async getWaveform(songId: string, resolution: number = 200): Promise<{ heights: number[]; peak_rms: number }> {
+    const url = `${this.buildAdminUrl(`/ferrotune/songs/${encodeURIComponent(songId)}/waveform`)}?resolution=${resolution}`;
+    
+    const headers: Record<string, string> = {};
+    if (this.username && this.password) {
+      headers["Authorization"] = `Basic ${btoa(`${this.username}:${this.password}`)}`;
+    }
+
+    const response = await fetch(url, { headers });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP error: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  // Streaming waveform URL (Admin API - returns URL for SSE endpoint)
+  getWaveformStreamUrl(songId: string, resolution: number = 200): string {
+    // Build URL with resolution param
+    const baseUrl = this.buildAdminUrl(`/ferrotune/songs/${encodeURIComponent(songId)}/waveform/stream`);
+    const params = new URLSearchParams({
+      resolution: resolution.toString(),
+    });
+    return `${baseUrl}?${params.toString()}`;
+  }
+
+  // Get auth headers for streaming requests
+  getAuthHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {};
+    if (this.username && this.password) {
+      headers["Authorization"] = `Basic ${btoa(`${this.username}:${this.password}`)}`;
+    }
+    return headers;
+  }
 }
 
 // Singleton instance - will be initialized when user connects

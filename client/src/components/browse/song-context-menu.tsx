@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useSetAtom } from "jotai";
 import { toast } from "sonner";
 import {
@@ -45,6 +45,12 @@ import { useStarred } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 import Link from "next/link";
+
+// Global function to dismiss any open context menu by simulating an escape key press
+function dismissContextMenu() {
+  // Dispatch Escape key to close any open context menu
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+}
 
 interface SongContextMenuProps {
   song: Song;
@@ -142,6 +148,18 @@ export function SongContextMenu({
         <FolderPlus className="w-4 h-4 mr-2" />
         Add to Playlist
       </ContextMenuItem>
+      {showRemoveFromQueue && onRemoveFromQueue && (
+        <ContextMenuItem onClick={onRemoveFromQueue}>
+          <X className="w-4 h-4 mr-2" />
+          Remove from Queue
+        </ContextMenuItem>
+      )}
+      {showRemoveFromPlaylist && onRemoveFromPlaylist && (
+        <ContextMenuItem onClick={onRemoveFromPlaylist} className="text-destructive">
+          <X className="w-4 h-4 mr-2" />
+          Remove from Playlist
+        </ContextMenuItem>
+      )}
 
       <ContextMenuSeparator />
 
@@ -202,33 +220,15 @@ export function SongContextMenu({
         <Info className="w-4 h-4 mr-2" />
         View Details
       </ContextMenuItem>
-
-      {showRemoveFromQueue && onRemoveFromQueue && (
-        <>
-          <ContextMenuSeparator />
-          <ContextMenuItem onClick={onRemoveFromQueue} className="text-destructive">
-            <X className="w-4 h-4 mr-2" />
-            Remove from Queue
-          </ContextMenuItem>
-        </>
-      )}
-
-      {showRemoveFromPlaylist && onRemoveFromPlaylist && (
-        <>
-          <ContextMenuSeparator />
-          <ContextMenuItem onClick={onRemoveFromPlaylist} className="text-destructive">
-            <X className="w-4 h-4 mr-2" />
-            Remove from Playlist
-          </ContextMenuItem>
-        </>
-      )}
     </>
   );
 
   return (
     <>
       <ContextMenu>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+        <ContextMenuTrigger asChild>
+          {children}
+        </ContextMenuTrigger>
         <ContextMenuContent className="w-56" onDoubleClick={(e) => e.stopPropagation()}>{menuItems}</ContextMenuContent>
       </ContextMenu>
       <AddToPlaylistDialog
@@ -335,9 +335,16 @@ export function SongDropdownMenu({
     </Button>
   );
 
+  // Dismiss any open context menu when dropdown opens
+  const handleDropdownOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      dismissContextMenu();
+    }
+  }, []);
+
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={handleDropdownOpenChange}>
         <DropdownMenuTrigger asChild>
           {trigger ?? defaultTrigger}
         </DropdownMenuTrigger>
@@ -366,6 +373,12 @@ export function SongDropdownMenu({
             <DropdownMenuItem onClick={onRemoveFromQueue}>
               <X className="w-4 h-4 mr-2" />
               Remove from Queue
+            </DropdownMenuItem>
+          )}
+          {showRemoveFromPlaylist && onRemoveFromPlaylist && (
+            <DropdownMenuItem onClick={onRemoveFromPlaylist} className="text-destructive">
+              <X className="w-4 h-4 mr-2" />
+              Remove from Playlist
             </DropdownMenuItem>
           )}
 
@@ -428,16 +441,6 @@ export function SongDropdownMenu({
             <Info className="w-4 h-4 mr-2" />
             View Details
           </DropdownMenuItem>
-
-          {showRemoveFromPlaylist && onRemoveFromPlaylist && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={onRemoveFromPlaylist} className="text-destructive">
-                <X className="w-4 h-4 mr-2" />
-                Remove from Playlist
-              </DropdownMenuItem>
-            </>
-          )}
         </DropdownMenuContent>
       </DropdownMenu>
       <AddToPlaylistDialog

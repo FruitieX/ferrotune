@@ -3,10 +3,26 @@
 import { useCallback } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import Link from "next/link";
-import { motion, AnimatePresence, Reorder, useDragControls } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
 import {
-  X,
   ListMusic,
   Trash2,
   GripVertical,
@@ -197,23 +213,47 @@ function QueueContent({ variant }: QueueContentProps) {
 
   const { upNext, previous: previousTracks } = getUpNextAndPrevious();
 
-  const handleReorder = (newOrder: QueueDisplayItem[]) => {
-    if (isShuffled && shuffledIndices.length > 0) {
-      const currentShufflePosition = shuffledIndices.indexOf(queueIndex);
-      const newShuffledIndices = [
-        ...shuffledIndices.slice(0, currentShufflePosition + 1),
-        ...newOrder.map((t) => t.originalIndex),
-      ];
-      setShuffledIndices(newShuffledIndices);
-    } else {
-      const newQueue: QueueItem[] = [
-        ...previousTracks.map((t) => t.queueItem),
-        currentQueueItem!,
-        ...newOrder.map((t) => t.queueItem),
-      ].filter(Boolean) as QueueItem[];
-      setQueue(newQueue);
-    }
-  };
+  // dnd-kit sensors for drag and drop
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+
+      if (over && active.id !== over.id) {
+        const oldIndex = upNext.findIndex((item) => item.queueItem.queueItemId === active.id);
+        const newIndex = upNext.findIndex((item) => item.queueItem.queueItemId === over.id);
+
+        if (oldIndex !== -1 && newIndex !== -1) {
+          const newOrder = arrayMove(upNext, oldIndex, newIndex);
+
+          if (isShuffled && shuffledIndices.length > 0) {
+            const currentShufflePosition = shuffledIndices.indexOf(queueIndex);
+            const newShuffledIndices = [
+              ...shuffledIndices.slice(0, currentShufflePosition + 1),
+              ...newOrder.map((t) => t.originalIndex),
+            ];
+            setShuffledIndices(newShuffledIndices);
+          } else {
+            const newQueue: QueueItem[] = [
+              ...previousTracks.map((t) => t.queueItem),
+              currentQueueItem!,
+              ...newOrder.map((t) => t.queueItem),
+            ].filter(Boolean) as QueueItem[];
+            setQueue(newQueue);
+          }
+        }
+      }
+    },
+    [upNext, previousTracks, currentQueueItem, isShuffled, shuffledIndices, queueIndex, setShuffledIndices, setQueue]
+  );
 
   const handlePlayTrack = (index: number) => {
     playAtIndex(index);
@@ -350,19 +390,28 @@ function QueueContent({ variant }: QueueContentProps) {
                   {formatDuration(remainingDuration)}
                 </span>
               </div>
-              <Reorder.Group axis="y" values={upNext} onReorder={handleReorder} className="space-y-1" layoutScroll>
-                <AnimatePresence mode="popLayout">
-                  {upNext.map((item) => (
-                    <DraggableQueueItem
-                      key={item.queueItem.queueItemId}
-                      item={item}
-                      song={item.queueItem.song}
-                      onPlay={() => handlePlayTrack(item.originalIndex)}
-                      onRemove={() => removeFromQueue(item.originalIndex)}
-                    />
-                  ))}
-                </AnimatePresence>
-              </Reorder.Group>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={upNext.map((item) => item.queueItem.queueItemId)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-1">
+                    {upNext.map((item) => (
+                      <SortableQueueItem
+                        key={item.queueItem.queueItemId}
+                        item={item}
+                        song={item.queueItem.song}
+                        onPlay={() => handlePlayTrack(item.originalIndex)}
+                        onRemove={() => removeFromQueue(item.originalIndex)}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
             </section>
           )}
 
@@ -648,20 +697,33 @@ function PlayablePreviousItem({
   );
 }
 
-interface DraggableQueueItemProps {
+interface SortableQueueItemProps {
   item: QueueDisplayItem;
   song: Song;
   onPlay: () => void;
   onRemove: () => void;
 }
 
-function DraggableQueueItem({
+function SortableQueueItem({
   item,
   song,
   onPlay,
   onRemove,
-}: DraggableQueueItemProps) {
-  const dragControls = useDragControls();
+}: SortableQueueItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.queueItem.queueItemId });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+  };
 
   return (
     <SongContextMenu 
@@ -670,22 +732,23 @@ function DraggableQueueItem({
       showRemoveFromQueue 
       onRemoveFromQueue={onRemove}
     >
-      <Reorder.Item
-        value={item}
-        id={item.queueItem.queueItemId}
-        className="flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 group select-none max-w-full"
-        dragListener={false}
-        dragControls={dragControls}
-        dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
-        whileDrag={{
-          scale: 1.02,
-          boxShadow: "0 10px 20px rgba(0,0,0,0.3)",
-          zIndex: 50,
-        }}
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={cn(
+          "flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 group select-none max-w-full",
+          isDragging && "opacity-50 bg-accent/20 shadow-lg"
+        )}
       >
-        <div className="cursor-grab active:cursor-grabbing touch-none" onPointerDown={(e) => dragControls.start(e)}>
-          <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
-        </div>
+        <button
+          type="button"
+          aria-label="Drag to reorder"
+          className="cursor-grab active:cursor-grabbing touch-none text-muted-foreground"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="w-4 h-4 shrink-0" />
+        </button>
 
         {/* Cover with play button overlay on cover hover only */}
         <div className="group/cover relative shrink-0 cursor-pointer" onClick={onPlay}>
@@ -749,7 +812,7 @@ function DraggableQueueItem({
         />
 
         <span className="text-xs text-muted-foreground tabular-nums shrink-0">{formatDuration(song.duration)}</span>
-      </Reorder.Item>
+      </div>
     </SongContextMenu>
   );
 }
