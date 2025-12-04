@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { useCallback } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import Link from "next/link";
 import { motion, AnimatePresence, Reorder, useDragControls } from "framer-motion";
+import { toast } from "sonner";
 import {
   X,
   ListMusic,
@@ -13,7 +13,6 @@ import {
   Play,
   Pause,
   Clock,
-  FolderPlus,
   MoreHorizontal,
   PanelRightClose,
 } from "lucide-react";
@@ -25,9 +24,7 @@ import {
   currentTrackAtom,
   currentQueueItemAtom,
   removeFromQueueAtom,
-  clearQueueAtom,
   playAtIndexAtom,
-  addToQueueAtom,
   isShuffledAtom,
   shuffledIndicesAtom,
   isQueueLoadingAtom,
@@ -41,16 +38,8 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { CoverImage } from "@/components/shared/cover-image";
-import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
-import { SongContextMenu } from "@/components/browse/song-context-menu";
+import { SongContextMenu, SongDropdownMenu } from "@/components/browse/song-context-menu";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
@@ -159,7 +148,6 @@ interface QueueContentProps {
 }
 
 function QueueContent({ variant }: QueueContentProps) {
-  const router = useRouter();
   const [queue, setQueue] = useAtom(queueAtom);
   const queueIndex = useAtomValue(queueIndexAtom);
   const currentTrack = useAtomValue(currentTrackAtom);
@@ -167,23 +155,12 @@ function QueueContent({ variant }: QueueContentProps) {
   const playbackState = useAtomValue(playbackStateAtom);
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
   const removeFromQueue = useSetAtom(removeFromQueueAtom);
-  const clearQueue = useSetAtom(clearQueueAtom);
   const playAtIndex = useSetAtom(playAtIndexAtom);
-  const addToQueue = useSetAtom(addToQueueAtom);
   const isShuffled = useAtomValue(isShuffledAtom);
   const shuffledIndices = useAtomValue(shuffledIndicesAtom);
   const setShuffledIndices = useSetAtom(shuffledIndicesAtom);
   const { togglePlayPause } = useAudioEngine();
-  const [nowPlayingAddToPlaylist, setNowPlayingAddToPlaylist] = useState(false);
   const setIsOpen = useSetAtom(queuePanelOpenAtom);
-
-  const navigateToArtist = (artistId: string) => {
-    router.push(`/library/artists/details?id=${artistId}`);
-  };
-
-  const navigateToAlbum = (albumId: string) => {
-    router.push(`/library/albums/details?id=${albumId}`);
-  };
 
   // Calculate up next and previous tracks based on shuffle state
   const getUpNextAndPrevious = () => {
@@ -336,8 +313,10 @@ function QueueContent({ variant }: QueueContentProps) {
                       )}
                     </p>
                   </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+                  <SongDropdownMenu
+                    song={currentTrack}
+                    hideQueueActions
+                    trigger={
                       <Button
                         variant="ghost"
                         size="sm"
@@ -349,14 +328,8 @@ function QueueContent({ variant }: QueueContentProps) {
                       >
                         <MoreHorizontal className="w-4 h-4" />
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => setNowPlayingAddToPlaylist(true)}>
-                        <FolderPlus className="w-4 h-4 mr-2" />
-                        Add to Playlist
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                    }
+                  />
                   <span className={cn("text-muted-foreground tabular-nums", isMobile ? "text-sm" : "text-xs")}>
                     {formatDuration(currentTrack.duration)}
                   </span>
@@ -424,14 +397,6 @@ function QueueContent({ variant }: QueueContentProps) {
           {queue.length} tracks • {formatDuration(totalDuration)} total
         </div>
       )}
-
-      {currentTrack && (
-        <AddToPlaylistDialog
-          open={nowPlayingAddToPlaylist}
-          onOpenChange={setNowPlayingAddToPlaylist}
-          songs={[currentTrack]}
-        />
-      )}
     </>
   );
 }
@@ -443,9 +408,37 @@ function QueueContent({ variant }: QueueContentProps) {
 export function QueuePanel() {
   const isDesktop = useIsDesktop();
   const [isOpen, setIsOpen] = useAtom(queuePanelOpenAtom);
-  const queue = useAtomValue(queueAtom);
+  const [queue, setQueue] = useAtom(queueAtom);
+  const [queueIndex, setQueueIndex] = useAtom(queueIndexAtom);
+  const [shuffledIndices, setShuffledIndices] = useAtom(shuffledIndicesAtom);
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
-  const clearQueue = useSetAtom(clearQueueAtom);
+
+  const handleClearQueue = useCallback(() => {
+    // Save current state for undo
+    const savedQueue = queue;
+    const savedIndex = queueIndex;
+    const savedShuffled = shuffledIndices;
+    const trackCount = queue.length;
+    
+    // Clear the queue
+    setQueue([]);
+    setQueueIndex(-1);
+    setShuffledIndices([]);
+    
+    // Show toast with undo
+    toast.success(`Cleared ${trackCount} tracks from queue`, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          setQueue(savedQueue);
+          setQueueIndex(savedIndex);
+          setShuffledIndices(savedShuffled);
+          toast.success("Queue restored");
+        },
+      },
+      duration: 8000,
+    });
+  }, [queue, queueIndex, shuffledIndices, setQueue, setQueueIndex, setShuffledIndices]);
 
   // Don't render the Sheet on desktop - use QueueSidebar instead
   if (isDesktop) {
@@ -465,7 +458,7 @@ export function QueuePanel() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={clearQueue}
+                onClick={handleClearQueue}
                 className="text-muted-foreground hover:text-destructive"
               >
                 <Trash2 className="w-4 h-4 mr-2" />
@@ -488,9 +481,37 @@ export function QueuePanel() {
 export function QueueSidebar() {
   const hydrated = useHydrated();
   const [isOpen, setIsOpen] = useAtom(queuePanelOpenAtom);
-  const queue = useAtomValue(queueAtom);
+  const [queue, setQueue] = useAtom(queueAtom);
+  const [queueIndex, setQueueIndex] = useAtom(queueIndexAtom);
+  const [shuffledIndices, setShuffledIndices] = useAtom(shuffledIndicesAtom);
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
-  const clearQueue = useSetAtom(clearQueueAtom);
+
+  const handleClearQueue = useCallback(() => {
+    // Save current state for undo
+    const savedQueue = queue;
+    const savedIndex = queueIndex;
+    const savedShuffled = shuffledIndices;
+    const trackCount = queue.length;
+    
+    // Clear the queue
+    setQueue([]);
+    setQueueIndex(-1);
+    setShuffledIndices([]);
+    
+    // Show toast with undo
+    toast.success(`Cleared ${trackCount} tracks from queue`, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          setQueue(savedQueue);
+          setQueueIndex(savedIndex);
+          setShuffledIndices(savedShuffled);
+          toast.success("Queue restored");
+        },
+      },
+      duration: 8000,
+    });
+  }, [queue, queueIndex, shuffledIndices, setQueue, setQueueIndex, setShuffledIndices]);
 
   // Don't render until hydrated to prevent hydration mismatch with atomWithStorage
   if (!hydrated) {
@@ -529,7 +550,7 @@ export function QueueSidebar() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={clearQueue}
+                    onClick={handleClearQueue}
                     className="text-muted-foreground hover:text-destructive h-8"
                   >
                     <Trash2 className="w-4 h-4 mr-1" />
@@ -559,80 +580,71 @@ function PlayablePreviousItem({
   item,
   onPlay,
 }: PlayablePreviousItemProps) {
-  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const song = item.queueItem.song;
 
   return (
-    <>
-      <SongContextMenu song={song}>
-        <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 cursor-default group">
-          {/* Cover with play button overlay on cover hover */}
-          <div className="group/cover relative shrink-0 cursor-pointer" onClick={onPlay}>
-            <CoverImage
-              src={getCoverUrl(song.coverArt)}
-              alt={song.title}
-              colorSeed={song.album}
-              type="song"
-              size="sm"
-            />
-            <button
-              type="button"
-              className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
-            >
-              <Play className="w-4 h-4 ml-0.5 text-white" />
-            </button>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{song.title}</p>
-            <p className="text-xs text-muted-foreground truncate">
-              <Link
-                href={`/library/artists/details?id=${song.artistId}`}
-                className="hover:underline hover:text-foreground transition-colors"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {song.artist}
-              </Link>
-              {song.album && (
-                <>
-                  {" · "}
-                  <Link
-                    href={`/library/albums/details?id=${song.albumId}`}
-                    className="hover:underline hover:text-foreground transition-colors"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {song.album}
-                  </Link>
-                </>
-              )}
-            </p>
-          </div>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
-                <FolderPlus className="w-4 h-4 mr-2" />
-                Add to Playlist
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-            {formatDuration(song.duration)}
-          </span>
+    <SongContextMenu song={song}>
+      <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 cursor-default group">
+        {/* Cover with play button overlay on cover hover */}
+        <div className="group/cover relative shrink-0 cursor-pointer" onClick={onPlay}>
+          <CoverImage
+            src={getCoverUrl(song.coverArt)}
+            alt={song.title}
+            colorSeed={song.album}
+            type="song"
+            size="sm"
+          />
+          <button
+            type="button"
+            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
+          >
+            <Play className="w-4 h-4 ml-0.5 text-white" />
+          </button>
         </div>
-      </SongContextMenu>
-      <AddToPlaylistDialog open={addToPlaylistOpen} onOpenChange={setAddToPlaylistOpen} songs={[song]} />
-    </>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{song.title}</p>
+          <p className="text-xs text-muted-foreground truncate">
+            <Link
+              href={`/library/artists/details?id=${song.artistId}`}
+              className="hover:underline hover:text-foreground transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {song.artist}
+            </Link>
+            {song.album && (
+              <>
+                {" · "}
+                <Link
+                  href={`/library/albums/details?id=${song.albumId}`}
+                  className="hover:underline hover:text-foreground transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {song.album}
+                </Link>
+              </>
+            )}
+          </p>
+        </div>
+
+        <SongDropdownMenu
+          song={song}
+          trigger={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </Button>
+          }
+        />
+
+        <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+          {formatDuration(song.duration)}
+        </span>
+      </div>
+    </SongContextMenu>
   );
 }
 
@@ -649,106 +661,95 @@ function DraggableQueueItem({
   onPlay,
   onRemove,
 }: DraggableQueueItemProps) {
-  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const dragControls = useDragControls();
 
   return (
-    <>
-      <SongContextMenu 
-        song={song} 
-        hideQueueActions 
-        showRemoveFromQueue 
-        onRemoveFromQueue={onRemove}
+    <SongContextMenu 
+      song={song} 
+      hideQueueActions 
+      showRemoveFromQueue 
+      onRemoveFromQueue={onRemove}
+    >
+      <Reorder.Item
+        value={item}
+        id={item.queueItem.queueItemId}
+        className="flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 group select-none max-w-full"
+        dragListener={false}
+        dragControls={dragControls}
+        dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
+        whileDrag={{
+          scale: 1.02,
+          boxShadow: "0 10px 20px rgba(0,0,0,0.3)",
+          zIndex: 50,
+        }}
       >
-        <Reorder.Item
-          value={item}
-          id={item.queueItem.queueItemId}
-          className="flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 group select-none max-w-full"
-          dragListener={false}
-          dragControls={dragControls}
-          dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
-          whileDrag={{
-            scale: 1.02,
-            boxShadow: "0 10px 20px rgba(0,0,0,0.3)",
-            zIndex: 50,
-          }}
-        >
-          <div className="cursor-grab active:cursor-grabbing touch-none" onPointerDown={(e) => dragControls.start(e)}>
-            <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
-          </div>
+        <div className="cursor-grab active:cursor-grabbing touch-none" onPointerDown={(e) => dragControls.start(e)}>
+          <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
+        </div>
 
-          {/* Cover with play button overlay on cover hover only */}
-          <div className="group/cover relative shrink-0 cursor-pointer" onClick={onPlay}>
-            <CoverImage
-              src={getCoverUrl(song.coverArt)}
-              alt={song.title}
-              colorSeed={song.album}
-              type="song"
-              size="sm"
-            />
-            <button
-              type="button"
-              aria-label={`Play ${song.title}`}
-              className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
+        {/* Cover with play button overlay on cover hover only */}
+        <div className="group/cover relative shrink-0 cursor-pointer" onClick={onPlay}>
+          <CoverImage
+            src={getCoverUrl(song.coverArt)}
+            alt={song.title}
+            colorSeed={song.album}
+            type="song"
+            size="sm"
+          />
+          <button
+            type="button"
+            aria-label={`Play ${song.title}`}
+            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
+          >
+            <Play className="w-4 h-4 ml-0.5 text-white" />
+          </button>
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{song.title}</p>
+          <p className="text-xs text-muted-foreground truncate">
+            <Link
+              href={`/library/artists/details?id=${song.artistId}`}
+              className="hover:underline hover:text-foreground transition-colors"
+              onClick={(e) => e.stopPropagation()}
             >
-              <Play className="w-4 h-4 ml-0.5 text-white" />
-            </button>
-          </div>
+              {song.artist}
+            </Link>
+            {song.album && (
+              <>
+                {" · "}
+                <Link
+                  href={`/library/albums/details?id=${song.albumId}`}
+                  className="hover:underline hover:text-foreground transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {song.album}
+                </Link>
+              </>
+            )}
+          </p>
+        </div>
 
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{song.title}</p>
-            <p className="text-xs text-muted-foreground truncate">
-              <Link
-                href={`/library/artists/details?id=${song.artistId}`}
-                className="hover:underline hover:text-foreground transition-colors"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {song.artist}
-              </Link>
-              {song.album && (
-                <>
-                  {" · "}
-                  <Link
-                    href={`/library/albums/details?id=${song.albumId}`}
-                    className="hover:underline hover:text-foreground transition-colors"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {song.album}
-                  </Link>
-                </>
-              )}
-            </p>
-          </div>
+        <SongDropdownMenu
+          song={song}
+          hideQueueActions
+          showRemoveFromQueue
+          onRemoveFromQueue={onRemove}
+          trigger={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
+              onClick={(e) => e.stopPropagation()}
+              aria-label="More options"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </Button>
+          }
+        />
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
-                onClick={(e) => e.stopPropagation()}
-                aria-label="More options"
-              >
-                <MoreHorizontal className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
-                <FolderPlus className="w-4 h-4 mr-2" />
-                Add to Playlist
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={onRemove} className="text-destructive">
-                <X className="w-4 h-4 mr-2" />
-                Remove from Queue
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <span className="text-xs text-muted-foreground tabular-nums shrink-0">{formatDuration(song.duration)}</span>
-        </Reorder.Item>
-      </SongContextMenu>
-      <AddToPlaylistDialog open={addToPlaylistOpen} onOpenChange={setAddToPlaylistOpen} songs={[song]} />
-    </>
+        <span className="text-xs text-muted-foreground tabular-nums shrink-0">{formatDuration(song.duration)}</span>
+      </Reorder.Item>
+    </SongContextMenu>
   );
 }

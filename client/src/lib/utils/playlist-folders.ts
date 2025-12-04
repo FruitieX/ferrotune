@@ -15,10 +15,34 @@ export interface PlaylistWithPath extends Playlist {
 const FOLDER_SEPARATOR = "/";
 
 /**
+ * Check if a playlist is a folder placeholder (ends with /)
+ * e.g., "Rock/" or "Music/Rock/" are empty folder placeholders
+ */
+export function isFolderPlaceholder(name: string): boolean {
+  return name.endsWith(FOLDER_SEPARATOR);
+}
+
+/**
+ * Get the folder path from a folder placeholder name
+ * e.g., "Rock/" -> "Rock", "Music/Rock/" -> "Music/Rock"
+ */
+export function getFolderPathFromPlaceholder(name: string): string {
+  return name.slice(0, -1);
+}
+
+/**
  * Parse a playlist name to extract folder path and display name
  * e.g., "Rock/80s/Best Hits" -> { displayName: "Best Hits", folderPath: ["Rock", "80s"] }
+ * For folder placeholders like "Rock/", returns { displayName: "", folderPath: ["Rock"], isPlaceholder: true }
  */
-export function parsePlaylistPath(name: string): { displayName: string; folderPath: string[] } {
+export function parsePlaylistPath(name: string): { displayName: string; folderPath: string[]; isPlaceholder?: boolean } {
+  // Handle folder placeholders (trailing /)
+  if (isFolderPlaceholder(name)) {
+    const folderPath = getFolderPathFromPlaceholder(name);
+    const parts = folderPath.split(FOLDER_SEPARATOR).map((p) => p.trim()).filter(Boolean);
+    return { displayName: "", folderPath: parts, isPlaceholder: true };
+  }
+
   const parts = name.split(FOLDER_SEPARATOR).map((p) => p.trim()).filter(Boolean);
   
   if (parts.length <= 1) {
@@ -52,8 +76,13 @@ export function organizePlaylistsIntoFolders(playlists: Playlist[]): PlaylistFol
     subfolders: [],
   };
 
+  // Guard against undefined/null input
+  if (!playlists || !Array.isArray(playlists)) {
+    return root;
+  }
+
   for (const playlist of playlists) {
-    const { displayName, folderPath } = parsePlaylistPath(playlist.name);
+    const { displayName, folderPath, isPlaceholder } = parsePlaylistPath(playlist.name);
     
     let currentFolder = root;
     let currentPath = "";
@@ -75,6 +104,12 @@ export function organizePlaylistsIntoFolders(playlists: Playlist[]): PlaylistFol
       }
       
       currentFolder = subfolder;
+    }
+    
+    // Skip folder placeholders - they're just used to establish folder structure
+    // but shouldn't appear as actual playlists
+    if (isPlaceholder) {
+      continue;
     }
     
     // Add playlist with display name to the final folder
@@ -127,4 +162,26 @@ export function getUniqueFolderPaths(playlists: Playlist[]): string[] {
   }
   
   return Array.from(paths).sort();
+}
+
+/**
+ * Find the folder placeholder playlist for a given folder path
+ * Returns the playlist if it exists and is an empty folder placeholder
+ */
+export function findFolderPlaceholder(playlists: Playlist[], folderPath: string): Playlist | undefined {
+  const placeholderName = `${folderPath}/`;
+  return playlists.find((p) => p.name === placeholderName);
+}
+
+/**
+ * Check if a folder has only a placeholder (is empty)
+ * Returns true if the only playlist in this folder path is the placeholder itself
+ */
+export function isFolderEmpty(playlists: Playlist[], folderPath: string): boolean {
+  const prefix = `${folderPath}/`;
+  const playlistsInFolder = playlists.filter((p) => p.name.startsWith(prefix));
+  
+  // Empty if no playlists or only the placeholder exists
+  return playlistsInFolder.length === 0 || 
+    (playlistsInFolder.length === 1 && playlistsInFolder[0].name === prefix);
 }

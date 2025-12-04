@@ -146,7 +146,7 @@ export function SongContextMenu({
 
       <ContextMenuSub>
         <ContextMenuSubTrigger>
-          <Star className={`w-4 h-4 mr-2 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`} />
+          <Star className={`w-4 h-4 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`} />
           Rate {currentRating > 0 && `(${currentRating})`}
         </ContextMenuSubTrigger>
         <ContextMenuSubContent>
@@ -234,9 +234,22 @@ interface SongDropdownMenuProps {
   song: Song;
   queueSongs?: Song[];
   trigger?: React.ReactNode;
+  /** Hide Play, Play Next, Add to Queue options (for queue items) */
+  hideQueueActions?: boolean;
+  /** Show "Remove from Queue" option */
+  showRemoveFromQueue?: boolean;
+  /** Callback for removing from queue */
+  onRemoveFromQueue?: () => void;
 }
 
-export function SongDropdownMenu({ song, queueSongs, trigger }: SongDropdownMenuProps) {
+export function SongDropdownMenu({ 
+  song, 
+  queueSongs, 
+  trigger,
+  hideQueueActions = false,
+  showRemoveFromQueue = false,
+  onRemoveFromQueue,
+}: SongDropdownMenuProps) {
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
@@ -307,22 +320,32 @@ export function SongDropdownMenu({ song, queueSongs, trigger }: SongDropdownMenu
           {trigger ?? defaultTrigger}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56" onDoubleClick={(e) => e.stopPropagation()}>
-          <DropdownMenuItem onClick={handlePlay}>
-            <Play className="w-4 h-4 mr-2" />
-            Play
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handlePlayNext}>
-            <ListPlus className="w-4 h-4 mr-2" />
-            Play Next
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleAddToQueue}>
-            <ListEnd className="w-4 h-4 mr-2" />
-            Add to Queue
-          </DropdownMenuItem>
+          {!hideQueueActions && (
+            <>
+              <DropdownMenuItem onClick={handlePlay}>
+                <Play className="w-4 h-4 mr-2" />
+                Play
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handlePlayNext}>
+                <ListPlus className="w-4 h-4 mr-2" />
+                Play Next
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleAddToQueue}>
+                <ListEnd className="w-4 h-4 mr-2" />
+                Add to Queue
+              </DropdownMenuItem>
+            </>
+          )}
           <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
             <FolderPlus className="w-4 h-4 mr-2" />
             Add to Playlist
           </DropdownMenuItem>
+          {showRemoveFromQueue && onRemoveFromQueue && (
+            <DropdownMenuItem onClick={onRemoveFromQueue}>
+              <X className="w-4 h-4 mr-2" />
+              Remove from Queue
+            </DropdownMenuItem>
+          )}
 
           <DropdownMenuSeparator />
 
@@ -333,7 +356,7 @@ export function SongDropdownMenu({ song, queueSongs, trigger }: SongDropdownMenu
 
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
-              <Star className={`w-4 h-4 mr-2 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`} />
+              <Star className={`w-4 h-4 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`} />
               Rate {currentRating > 0 && `(${currentRating})`}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>

@@ -15,6 +15,9 @@ import {
 } from "@/lib/store/ui";
 import type { UserPreferences, UpdatePreferencesRequest } from "@/lib/api/types";
 
+// Debounce timeout for custom color changes (ms)
+const CUSTOM_COLOR_DEBOUNCE_MS = 500;
+
 /**
  * Hook that syncs user preferences between the server and local state.
  * 
@@ -131,6 +134,9 @@ export function useAccentColor() {
   const [customLightness, setCustomLightnessAtom] = useAtom(customAccentLightnessAtom);
   const [customChroma, setCustomChromaAtom] = useAtom(customAccentChromaAtom);
   const connection = useAtomValue(serverConnectionAtom);
+  
+  // Ref to track debounce timer for custom color changes
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const syncToServer = useCallback(
     async (
@@ -155,10 +161,25 @@ export function useAccentColor() {
     },
     [connection]
   );
+  
+  // Debounced sync for custom color changes
+  const debouncedSyncCustomColor = useCallback(
+    (hue: number, lightness: number, chroma: number) => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      debounceTimerRef.current = setTimeout(() => {
+        syncToServer("custom", hue, lightness, chroma);
+        debounceTimerRef.current = null;
+      }, CUSTOM_COLOR_DEBOUNCE_MS);
+    },
+    [syncToServer]
+  );
 
   const setAccentColor = useCallback(
     (color: AccentColor) => {
       setAccentColorAtom(color);
+      // Immediate sync for preset changes
       syncToServer(color, customHue, customLightness, customChroma);
     },
     [setAccentColorAtom, syncToServer, customHue, customLightness, customChroma]
@@ -168,30 +189,30 @@ export function useAccentColor() {
     (hue: number) => {
       setCustomHueAtom(hue);
       if (accentColor === "custom") {
-        syncToServer("custom", hue, customLightness, customChroma);
+        debouncedSyncCustomColor(hue, customLightness, customChroma);
       }
     },
-    [setCustomHueAtom, accentColor, syncToServer, customLightness, customChroma]
+    [setCustomHueAtom, accentColor, debouncedSyncCustomColor, customLightness, customChroma]
   );
 
   const setCustomLightness = useCallback(
     (lightness: number) => {
       setCustomLightnessAtom(lightness);
       if (accentColor === "custom") {
-        syncToServer("custom", customHue, lightness, customChroma);
+        debouncedSyncCustomColor(customHue, lightness, customChroma);
       }
     },
-    [setCustomLightnessAtom, accentColor, syncToServer, customHue, customChroma]
+    [setCustomLightnessAtom, accentColor, debouncedSyncCustomColor, customHue, customChroma]
   );
 
   const setCustomChroma = useCallback(
     (chroma: number) => {
       setCustomChromaAtom(chroma);
       if (accentColor === "custom") {
-        syncToServer("custom", customHue, customLightness, chroma);
+        debouncedSyncCustomColor(customHue, customLightness, chroma);
       }
     },
-    [setCustomChromaAtom, accentColor, syncToServer, customHue, customLightness]
+    [setCustomChromaAtom, accentColor, debouncedSyncCustomColor, customHue, customLightness]
   );
 
   return {

@@ -44,6 +44,11 @@ let isLoadingNewTrack: boolean = false;
 let playbackStartTime: number | null = null;
 let playbackStartSongId: string | null = null;
 let accumulatedPlayTime: number = 0; // Accumulated time for pauses
+// Session-based listening tracking
+let currentListeningSessionId: number | null = null;
+let listeningUpdateInterval: ReturnType<typeof setInterval> | null = null;
+
+const LISTENING_UPDATE_INTERVAL_MS = 60000; // Update every 60 seconds
 
 /**
  * Gets or creates the singleton audio element for playback.
@@ -69,6 +74,67 @@ function getGlobalAudio(): HTMLAudioElement {
 }
 
 /**
+ * Calculates the total listening time for the current session.
+ */
+function calculateTotalListeningSeconds(): number {
+  let totalSeconds = accumulatedPlayTime;
+  if (playbackStartTime !== null) {
+    totalSeconds += (Date.now() - playbackStartTime) / 1000;
+  }
+  return totalSeconds;
+}
+
+/**
+ * Updates the listening session with current accumulated time.
+ * Called periodically during playback and on pause.
+ */
+async function updateListeningSession(): Promise<void> {
+  if (!playbackStartSongId) return;
+  
+  const totalSeconds = calculateTotalListeningSeconds();
+  
+  // Only update if listened for at least 5 seconds
+  if (totalSeconds < 5) return;
+  
+  try {
+    const client = getClient();
+    if (client) {
+      const response = await client.logListening(
+        playbackStartSongId,
+        Math.round(totalSeconds),
+        currentListeningSessionId ?? undefined
+      );
+      // Store the session ID for subsequent updates
+      currentListeningSessionId = response.sessionId;
+    }
+  } catch (err) {
+    console.warn("[Audio] Failed to update listening session:", err);
+  }
+}
+
+/**
+ * Starts the periodic listening update interval.
+ */
+function startListeningUpdateInterval(): void {
+  // Clear any existing interval
+  stopListeningUpdateInterval();
+  
+  listeningUpdateInterval = setInterval(() => {
+    updateListeningSession();
+  }, LISTENING_UPDATE_INTERVAL_MS);
+}
+
+/**
+ * Stops the periodic listening update interval.
+ */
+function stopListeningUpdateInterval(): void {
+  if (listeningUpdateInterval) {
+    clearInterval(listeningUpdateInterval);
+    listeningUpdateInterval = null;
+  }
+}
+
+/**
  * Logs the listening time for the current song and resets tracking.
  * Should be called when:
  * - A track ends naturally
@@ -78,20 +144,24 @@ function getGlobalAudio(): HTMLAudioElement {
  * Only logs if the user has listened for at least 5 seconds.
  */
 async function logListeningTimeAndReset(): Promise<void> {
+  // Stop the periodic update interval
+  stopListeningUpdateInterval();
+  
   if (!playbackStartSongId) return;
   
-  // Calculate total play time
-  let totalSeconds = accumulatedPlayTime;
-  if (playbackStartTime !== null) {
-    totalSeconds += (Date.now() - playbackStartTime) / 1000;
-  }
+  const totalSeconds = calculateTotalListeningSeconds();
   
   // Only log if listened for at least 5 seconds
   if (totalSeconds >= 5) {
     try {
       const client = getClient();
       if (client) {
-        await client.logListening(playbackStartSongId, Math.round(totalSeconds));
+        // Final update with the session ID
+        await client.logListening(
+          playbackStartSongId,
+          Math.round(totalSeconds),
+          currentListeningSessionId ?? undefined
+        );
       }
     } catch (err) {
       console.warn("[Audio] Failed to log listening time:", err);
@@ -102,6 +172,7 @@ async function logListeningTimeAndReset(): Promise<void> {
   playbackStartTime = null;
   playbackStartSongId = null;
   accumulatedPlayTime = 0;
+  currentListeningSessionId = null;
 }
 
 /**
@@ -211,9 +282,12 @@ export function useAudioEngineInit() {
         if (currentSongId !== playbackStartSongId) {
           playbackStartSongId = currentSongId;
           accumulatedPlayTime = 0;
+          currentListeningSessionId = null;
         }
         // Record when playback started
         playbackStartTime = Date.now();
+        // Start periodic updates
+        startListeningUpdateInterval();
       }
     };
     const handlePause = () => {
@@ -225,10 +299,15 @@ export function useAudioEngineInit() {
       }
       settersRef.current.setPlaybackState("paused");
       
-      // Accumulate listening time when paused
+      // Stop periodic updates
+      stopListeningUpdateInterval();
+      
+      // Accumulate listening time when paused and update the session
       if (playbackStartTime !== null) {
         accumulatedPlayTime += (Date.now() - playbackStartTime) / 1000;
         playbackStartTime = null;
+        // Update the session with current accumulated time
+        updateListeningSession();
       }
     };
     
@@ -428,6 +507,8 @@ export function useAudioEngineInit() {
       audio.removeEventListener("waiting", handleWaiting);
       audio.removeEventListener("playing", handlePlaying);
       audio.removeEventListener("error", handleError);
+      // Clean up the listening update interval
+      stopListeningUpdateInterval();
       initializedRef.current = false;
     };
   }, []);

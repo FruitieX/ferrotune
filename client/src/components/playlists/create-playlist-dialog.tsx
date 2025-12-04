@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ListMusic, Folder, Loader2 } from "lucide-react";
 import {
@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getClient } from "@/lib/api/client";
+import { findFolderPlaceholder } from "@/lib/utils/playlist-folders";
 
 interface CreatePlaylistDialogProps {
   open: boolean;
@@ -34,6 +35,17 @@ export function CreatePlaylistDialog({
 }: CreatePlaylistDialogProps) {
   const [name, setName] = useState("");
   const queryClient = useQueryClient();
+  
+  // Fetch playlists to check for folder placeholders
+  const { data: playlistsData } = useQuery({
+    queryKey: ["playlists"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.getPlaylists();
+    },
+    enabled: open && !createFolder, // Only need this when creating a playlist (not a folder)
+  });
 
   // Reset name when dialog opens
   useEffect(() => {
@@ -50,11 +62,13 @@ export function CreatePlaylistDialog({
       // Build the full playlist name with folder path prefix
       let fullName: string;
       if (createFolder) {
-        // Creating a folder: the "folder" is actually a placeholder playlist
-        // The folder name IS the path, so append this name to the current path
-        fullName = folderPath 
+        // Creating a folder: create a placeholder with trailing /
+        // e.g., "Rock/" or "Music/Rock/" to indicate an empty folder
+        // This placeholder will be deleted when the first real playlist is added
+        const folderFullPath = folderPath 
           ? `${folderPath}/${playlistName}` 
           : playlistName;
+        fullName = `${folderFullPath}/`;
       } else {
         // Creating a regular playlist in a folder
         fullName = folderPath 
@@ -62,7 +76,23 @@ export function CreatePlaylistDialog({
           : playlistName;
       }
       
-      return client.createPlaylist({ name: fullName });
+      // Create the new playlist
+      const result = await client.createPlaylist({ name: fullName });
+      
+      // If creating a real playlist in a folder, delete the folder placeholder if it exists
+      if (!createFolder && folderPath && playlistsData?.playlists?.playlist) {
+        const placeholder = findFolderPlaceholder(playlistsData.playlists.playlist, folderPath);
+        if (placeholder) {
+          try {
+            await client.deletePlaylist(placeholder.id);
+          } catch (err) {
+            // Ignore errors deleting placeholder - the folder will still work
+            console.warn("Failed to delete folder placeholder:", err);
+          }
+        }
+      }
+      
+      return result;
     },
     onSuccess: async () => {
       const displayName = name.trim();

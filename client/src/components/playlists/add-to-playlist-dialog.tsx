@@ -27,6 +27,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { CoverImage } from "@/components/shared/cover-image";
 import { getClient } from "@/lib/api/client";
 import { formatCount } from "@/lib/utils/format";
+import { isFolderPlaceholder } from "@/lib/utils/playlist-folders";
 import type { Playlist, Song } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
@@ -143,9 +144,9 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs }: AddToPlaylist
     },
   });
 
-  const filteredPlaylists = playlists?.filter((p) =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase())
-  ) ?? [];
+  const filteredPlaylists = (Array.isArray(playlists) ? playlists : []).filter((p) =>
+    !isFolderPlaceholder(p.name) && p.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const handleAddToPlaylist = async (playlistId: string, playlistName: string) => {
     setSelectedPlaylistId(playlistId);
