@@ -245,7 +245,7 @@ function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }
         <Separator />
 
         <DetailRow icon={Hash} label="Track ID" value={fullSong.id} copyable />
-        <DetailRow icon={HardDrive} label="File Path" value={fullSong.path} copyable />
+        <DetailRow icon={HardDrive} label="File Path" value={fullSong.fullPath || fullSong.path} copyable />
 
         <Separator />
 

@@ -40,7 +40,20 @@ let currentLoadedTrackId: string | null = null;
 let isEndingQueue: boolean = false;
 // Flag to indicate we're intentionally loading a new track (overrides "ended" state check)
 let isLoadingNewTrack: boolean = false;
+// Track when playback started for listening time logging
+let playbackStartTime: number | null = null;
+let playbackStartSongId: string | null = null;
+let accumulatedPlayTime: number = 0; // Accumulated time for pauses
 
+/**
+ * Gets or creates the singleton audio element for playback.
+ * 
+ * Uses `preload="auto"` which instructs the browser to buffer the entire track
+ * if possible. This helps with battery life on mobile devices since the modem
+ * can go to sleep after downloading is complete. The actual buffering behavior
+ * is browser-dependent and may be throttled based on network conditions and
+ * available memory.
+ */
 function getGlobalAudio(): HTMLAudioElement {
   if (typeof window === "undefined") {
     throw new Error("Cannot create audio element on server");
@@ -48,9 +61,47 @@ function getGlobalAudio(): HTMLAudioElement {
   
   if (!globalAudio) {
     globalAudio = new Audio();
+    // Buffer the entire track if possible - helps with battery life on mobile
+    // as the modem can sleep when there's no network activity
     globalAudio.preload = "auto";
   }
   return globalAudio;
+}
+
+/**
+ * Logs the listening time for the current song and resets tracking.
+ * Should be called when:
+ * - A track ends naturally
+ * - User skips to next/previous track
+ * - Track changes for any other reason
+ * 
+ * Only logs if the user has listened for at least 5 seconds.
+ */
+async function logListeningTimeAndReset(): Promise<void> {
+  if (!playbackStartSongId) return;
+  
+  // Calculate total play time
+  let totalSeconds = accumulatedPlayTime;
+  if (playbackStartTime !== null) {
+    totalSeconds += (Date.now() - playbackStartTime) / 1000;
+  }
+  
+  // Only log if listened for at least 5 seconds
+  if (totalSeconds >= 5) {
+    try {
+      const client = getClient();
+      if (client) {
+        await client.logListening(playbackStartSongId, Math.round(totalSeconds));
+      }
+    } catch (err) {
+      console.warn("[Audio] Failed to log listening time:", err);
+    }
+  }
+  
+  // Reset tracking
+  playbackStartTime = null;
+  playbackStartSongId = null;
+  accumulatedPlayTime = 0;
 }
 
 /**
@@ -152,6 +203,18 @@ export function useAudioEngineInit() {
     const handlePlay = () => {
       console.log("[Audio] play event fired");
       settersRef.current.setPlaybackState("playing");
+      
+      // Start tracking listening time
+      const currentSongId = stateRef.current.currentTrack?.id;
+      if (currentSongId) {
+        // If this is a new song, reset tracking
+        if (currentSongId !== playbackStartSongId) {
+          playbackStartSongId = currentSongId;
+          accumulatedPlayTime = 0;
+        }
+        // Record when playback started
+        playbackStartTime = Date.now();
+      }
     };
     const handlePause = () => {
       console.log("[Audio] pause event fired");
@@ -161,9 +224,18 @@ export function useAudioEngineInit() {
         return;
       }
       settersRef.current.setPlaybackState("paused");
+      
+      // Accumulate listening time when paused
+      if (playbackStartTime !== null) {
+        accumulatedPlayTime += (Date.now() - playbackStartTime) / 1000;
+        playbackStartTime = null;
+      }
     };
     
     const handleEnded = () => {
+      // Log listening time before moving to next track
+      logListeningTimeAndReset();
+      
       // Handle next track
       const state = stateRef.current;
       if (state.queue.length === 0) {
@@ -382,6 +454,13 @@ export function useAudioEngineInit() {
       return;
     }
     
+    // Log listening time for the track we're leaving (if jumping via queue click)
+    // Note: next(), previous(), and handleEnded() also call this, but it's safe
+    // because logListeningTimeAndReset() clears the tracking state
+    if (currentLoadedTrackId && track?.id !== currentLoadedTrackId) {
+      logListeningTimeAndReset();
+    }
+    
     currentLoadedQueueIndex = queueIndex;
     currentLoadedTrackId = track?.id ?? null;
     
@@ -524,6 +603,9 @@ export function useAudioEngine() {
   const next = useCallback(() => {
     if (queue.length === 0) return;
 
+    // Log listening time before skipping
+    logListeningTimeAndReset();
+    
     // Clear restore flag on explicit user interaction
     clearRestoringFlag();
 
@@ -602,6 +684,9 @@ export function useAudioEngine() {
       globalAudio.currentTime = 0;
       return;
     }
+
+    // Log listening time before going to previous track
+    logListeningTimeAndReset();
 
     if (playHistory.length > 0) {
       const previousTrack = playHistory[playHistory.length - 1];

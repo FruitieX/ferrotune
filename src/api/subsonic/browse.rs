@@ -374,6 +374,9 @@ pub struct SongResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bit_rate: Option<i32>,
     pub path: String,
+    /// Full filesystem path (Ferrotune extension)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub starred: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -461,9 +464,12 @@ pub async fn get_song(
     State(state): State<Arc<AppState>>,
     Query(params): Query<IdParam>,
 ) -> crate::error::Result<FormatResponse<SongDetailResponse>> {
-    let song = crate::db::queries::get_song_by_id(&state.pool, &params.id)
+    let song_with_folder = crate::db::queries::get_song_by_id_with_folder(&state.pool, &params.id)
         .await?
         .ok_or_else(|| crate::error::Error::NotFound(format!("Song {} not found", params.id)))?;
+
+    let folder_path = song_with_folder.folder_path.clone();
+    let song = song_with_folder.into_song();
 
     // Get album info if available
     let album = if let Some(album_id) = &song.album_id {
@@ -490,6 +496,7 @@ pub async fn get_song(
             starred,
             user_rating,
             Some(play_stats),
+            folder_path.as_deref(),
         ),
     };
 
@@ -598,16 +605,17 @@ pub fn song_to_response(
     starred: Option<String>,
     user_rating: Option<i32>,
 ) -> SongResponse {
-    song_to_response_with_stats(song, album, starred, user_rating, None)
+    song_to_response_with_stats(song, album, starred, user_rating, None, None)
 }
 
-// Helper function to convert Song model to API response with optional play stats
+// Helper function to convert Song model to API response with optional play stats and folder path
 pub fn song_to_response_with_stats(
     song: Song,
     album: Option<&Album>,
     starred: Option<String>,
     user_rating: Option<i32>,
     play_stats: Option<SongPlayStats>,
+    folder_path: Option<&str>,
 ) -> SongResponse {
     let content_type = match song.file_format.as_str() {
         "mp3" => "audio/mpeg",
@@ -659,7 +667,8 @@ pub fn song_to_response_with_stats(
         suffix: song.file_format.clone(),
         duration: song.duration,
         bit_rate: song.bitrate,
-        path: song.file_path,
+        path: song.file_path.clone(),
+        full_path: folder_path.map(|fp| format!("{}/{}", fp, song.file_path)),
         starred,
         user_rating,
         created: song.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),

@@ -16,11 +16,6 @@ import {
   FolderPlus,
   MoreHorizontal,
   PanelRightClose,
-  ListEnd,
-  ListStart,
-  ListPlus,
-  User,
-  Disc,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { queuePanelOpenAtom } from "@/lib/store/ui";
@@ -50,16 +45,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
 import { CoverImage } from "@/components/shared/cover-image";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
+import { SongContextMenu } from "@/components/browse/song-context-menu";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
@@ -278,123 +269,99 @@ function QueueContent({ variant }: QueueContentProps) {
               <h3 className={cn("font-semibold text-muted-foreground uppercase tracking-wider mb-3", headerSizeClass)}>
                 {playbackState === "ended" ? "Queue Ended" : "Now Playing"}
               </h3>
-              <ContextMenu>
-                <ContextMenuTrigger asChild>
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={cn(
-                      "flex items-center gap-3 p-2 rounded-lg border group",
-                      playbackState === "ended" ? "bg-muted/50 border-border" : "bg-primary/10 border-primary/20"
-                    )}
-                  >
-                    {/* Now playing indicator - left of cover */}
-                    {playbackState !== "ended" && (
-                      <div className="shrink-0">
-                        <NowPlayingBars isAnimating={playbackState === "playing"} />
-                      </div>
-                    )}
-                    {/* Cover art - clickable play/pause */}
-                    <div className="group/cover relative shrink-0 cursor-pointer" onClick={togglePlayPause}>
-                      <CoverImage
-                        src={getCoverUrl(currentTrack.coverArt)}
-                        alt={currentTrack.title}
-                        colorSeed={currentTrack.album}
-                        type="song"
+              <SongContextMenu song={currentTrack} hideQueueActions>
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={cn(
+                    "flex items-center gap-3 p-2 rounded-lg border group",
+                    playbackState === "ended" ? "bg-muted/50 border-border" : "bg-primary/10 border-primary/20"
+                  )}
+                >
+                  {/* Now playing indicator - left of cover */}
+                  {playbackState !== "ended" && (
+                    <div className="shrink-0">
+                      <NowPlayingBars isAnimating={playbackState === "playing"} />
+                    </div>
+                  )}
+                  {/* Cover art - clickable play/pause */}
+                  <div className="group/cover relative shrink-0 cursor-pointer" onClick={togglePlayPause}>
+                    <CoverImage
+                      src={getCoverUrl(currentTrack.coverArt)}
+                      alt={currentTrack.title}
+                      colorSeed={currentTrack.album}
+                      type="song"
+                      size="sm"
+                    />
+                    <button
+                      type="button"
+                      className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
+                    >
+                      {playbackState === "playing" ? (
+                        <Pause className="w-4 h-4 text-white" />
+                      ) : (
+                        <Play className="w-4 h-4 ml-0.5 text-white" />
+                      )}
+                    </button>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className={cn(
+                        "font-medium truncate",
+                        isMobile ? "" : "text-sm",
+                        playbackState === "ended" ? "text-foreground" : "text-primary"
+                      )}
+                    >
+                      {currentTrack.title}
+                    </p>
+                    <p className={cn("text-muted-foreground truncate", isMobile ? "text-sm" : "text-xs")}>
+                      <Link
+                        href={`/library/artists/details?id=${currentTrack.artistId}`}
+                        className="hover:underline hover:text-foreground transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {currentTrack.artist}
+                      </Link>
+                      {currentTrack.album && (
+                        <>
+                          {" · "}
+                          <Link
+                            href={`/library/albums/details?id=${currentTrack.albumId}`}
+                            className="hover:underline hover:text-foreground transition-colors"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {currentTrack.album}
+                          </Link>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
                         size="sm"
-                      />
-                      <button
-                        type="button"
-                        className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
-                      >
-                        {playbackState === "playing" ? (
-                          <Pause className="w-4 h-4 text-white" />
-                        ) : (
-                          <Play className="w-4 h-4 ml-0.5 text-white" />
-                        )}
-                      </button>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p
+                        aria-label="More options"
                         className={cn(
-                          "font-medium truncate",
-                          isMobile ? "" : "text-sm",
-                          playbackState === "ended" ? "text-foreground" : "text-primary"
+                          "p-0 opacity-0 group-hover:opacity-100 text-muted-foreground",
+                          isMobile ? "h-8 w-8" : "h-7 w-7"
                         )}
                       >
-                        {currentTrack.title}
-                      </p>
-                      <p className={cn("text-muted-foreground truncate", isMobile ? "text-sm" : "text-xs")}>
-                        <Link
-                          href={`/library/artists/details?id=${currentTrack.artistId}`}
-                          className="hover:underline hover:text-foreground transition-colors"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {currentTrack.artist}
-                        </Link>
-                        {currentTrack.album && (
-                          <>
-                            {" · "}
-                            <Link
-                              href={`/library/albums/details?id=${currentTrack.albumId}`}
-                              className="hover:underline hover:text-foreground transition-colors"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {currentTrack.album}
-                            </Link>
-                          </>
-                        )}
-                      </p>
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label="More options"
-                          className={cn(
-                            "p-0 opacity-0 group-hover:opacity-100 text-muted-foreground",
-                            isMobile ? "h-8 w-8" : "h-7 w-7"
-                          )}
-                        >
-                          <MoreHorizontal className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => navigateToArtist(currentTrack.artistId)}>
-                          <User className="w-4 h-4 mr-2" />
-                          Go to Artist
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => navigateToAlbum(currentTrack.albumId)}>
-                          <Disc className="w-4 h-4 mr-2" />
-                          Go to Album
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setNowPlayingAddToPlaylist(true)}>
-                          <FolderPlus className="w-4 h-4 mr-2" />
-                          Add to Playlist
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <span className={cn("text-muted-foreground tabular-nums", isMobile ? "text-sm" : "text-xs")}>
-                      {formatDuration(currentTrack.duration)}
-                    </span>
-                  </motion.div>
-                </ContextMenuTrigger>
-                <ContextMenuContent>
-                  <ContextMenuItem onClick={() => navigateToArtist(currentTrack.artistId)}>
-                    <User className="w-4 h-4 mr-2" />
-                    Go to Artist
-                  </ContextMenuItem>
-                  <ContextMenuItem onClick={() => navigateToAlbum(currentTrack.albumId)}>
-                    <Disc className="w-4 h-4 mr-2" />
-                    Go to Album
-                  </ContextMenuItem>
-                  <ContextMenuItem onClick={() => setNowPlayingAddToPlaylist(true)}>
-                    <FolderPlus className="w-4 h-4 mr-2" />
-                    Add to Playlist
-                  </ContextMenuItem>
-                </ContextMenuContent>
-              </ContextMenu>
+                        <MoreHorizontal className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => setNowPlayingAddToPlaylist(true)}>
+                        <FolderPlus className="w-4 h-4 mr-2" />
+                        Add to Playlist
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <span className={cn("text-muted-foreground tabular-nums", isMobile ? "text-sm" : "text-xs")}>
+                    {formatDuration(currentTrack.duration)}
+                  </span>
+                </motion.div>
+              </SongContextMenu>
             </section>
           )}
 
@@ -419,9 +386,6 @@ function QueueContent({ variant }: QueueContentProps) {
                       song={item.queueItem.song}
                       onPlay={() => handlePlayTrack(item.originalIndex)}
                       onRemove={() => removeFromQueue(item.originalIndex)}
-                      onPlayNext={() => addToQueue([item.queueItem.song], "next")}
-                      onGoToArtist={() => navigateToArtist(item.queueItem.song.artistId)}
-                      onGoToAlbum={() => navigateToAlbum(item.queueItem.song.albumId)}
                     />
                   ))}
                 </AnimatePresence>
@@ -441,10 +405,6 @@ function QueueContent({ variant }: QueueContentProps) {
                     key={item.queueItem.queueItemId}
                     item={item}
                     onPlay={() => handlePlayTrack(item.originalIndex)}
-                    onAddToQueue={() => addToQueue([item.queueItem.song], "last")}
-                    onPlayNext={() => addToQueue([item.queueItem.song], "next")}
-                    onGoToArtist={() => navigateToArtist(item.queueItem.song.artistId)}
-                    onGoToAlbum={() => navigateToAlbum(item.queueItem.song.albumId)}
                   />
                 ))}
               </div>
@@ -593,132 +553,84 @@ export function QueueSidebar() {
 interface PlayablePreviousItemProps {
   item: QueueDisplayItem;
   onPlay: () => void;
-  onAddToQueue: () => void;
-  onPlayNext: () => void;
-  onGoToArtist: () => void;
-  onGoToAlbum: () => void;
 }
 
 function PlayablePreviousItem({
   item,
   onPlay,
-  onAddToQueue,
-  onPlayNext,
-  onGoToArtist,
-  onGoToAlbum,
 }: PlayablePreviousItemProps) {
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const song = item.queueItem.song;
 
   return (
     <>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 cursor-default group">
-            {/* Cover with play button overlay on cover hover */}
-            <div className="group/cover relative shrink-0 cursor-pointer" onClick={onPlay}>
-              <CoverImage
-                src={getCoverUrl(song.coverArt)}
-                alt={song.title}
-                colorSeed={song.album}
-                type="song"
-                size="sm"
-              />
-              <button
-                type="button"
-                className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
-              >
-                <Play className="w-4 h-4 ml-0.5 text-white" />
-              </button>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{song.title}</p>
-              <p className="text-xs text-muted-foreground truncate">
-                <Link
-                  href={`/library/artists/details?id=${song.artistId}`}
-                  className="hover:underline hover:text-foreground transition-colors"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {song.artist}
-                </Link>
-                {song.album && (
-                  <>
-                    {" · "}
-                    <Link
-                      href={`/library/albums/details?id=${song.albumId}`}
-                      className="hover:underline hover:text-foreground transition-colors"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {song.album}
-                    </Link>
-                  </>
-                )}
-              </p>
-            </div>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <MoreHorizontal className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={onGoToArtist}>
-                  <User className="w-4 h-4 mr-2" />
-                  Go to Artist
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onGoToAlbum}>
-                  <Disc className="w-4 h-4 mr-2" />
-                  Go to Album
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onAddToQueue}>
-                  <ListEnd className="w-4 h-4 mr-2" />
-                  Add to Queue
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onPlayNext}>
-                  <ListStart className="w-4 h-4 mr-2" />
-                  Play Next
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
-                  <FolderPlus className="w-4 h-4 mr-2" />
-                  Add to Playlist
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-              {formatDuration(song.duration)}
-            </span>
+      <SongContextMenu song={song}>
+        <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 cursor-default group">
+          {/* Cover with play button overlay on cover hover */}
+          <div className="group/cover relative shrink-0 cursor-pointer" onClick={onPlay}>
+            <CoverImage
+              src={getCoverUrl(song.coverArt)}
+              alt={song.title}
+              colorSeed={song.album}
+              type="song"
+              size="sm"
+            />
+            <button
+              type="button"
+              className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
+            >
+              <Play className="w-4 h-4 ml-0.5 text-white" />
+            </button>
           </div>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem onClick={onGoToArtist}>
-            <User className="w-4 h-4 mr-2" />
-            Go to Artist
-          </ContextMenuItem>
-          <ContextMenuItem onClick={onGoToAlbum}>
-            <Disc className="w-4 h-4 mr-2" />
-            Go to Album
-          </ContextMenuItem>
-          <ContextMenuItem onClick={onAddToQueue}>
-            <ListEnd className="w-4 h-4 mr-2" />
-            Add to Queue
-          </ContextMenuItem>
-          <ContextMenuItem onClick={onPlayNext}>
-            <ListStart className="w-4 h-4 mr-2" />
-            Play Next
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => setAddToPlaylistOpen(true)}>
-            <FolderPlus className="w-4 h-4 mr-2" />
-            Add to Playlist
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{song.title}</p>
+            <p className="text-xs text-muted-foreground truncate">
+              <Link
+                href={`/library/artists/details?id=${song.artistId}`}
+                className="hover:underline hover:text-foreground transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {song.artist}
+              </Link>
+              {song.album && (
+                <>
+                  {" · "}
+                  <Link
+                    href={`/library/albums/details?id=${song.albumId}`}
+                    className="hover:underline hover:text-foreground transition-colors"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {song.album}
+                  </Link>
+                </>
+              )}
+            </p>
+          </div>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
+                <FolderPlus className="w-4 h-4 mr-2" />
+                Add to Playlist
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+            {formatDuration(song.duration)}
+          </span>
+        </div>
+      </SongContextMenu>
       <AddToPlaylistDialog open={addToPlaylistOpen} onOpenChange={setAddToPlaylistOpen} songs={[song]} />
     </>
   );
@@ -729,9 +641,6 @@ interface DraggableQueueItemProps {
   song: Song;
   onPlay: () => void;
   onRemove: () => void;
-  onPlayNext: () => void;
-  onGoToArtist: () => void;
-  onGoToAlbum: () => void;
 }
 
 function DraggableQueueItem({
@@ -739,139 +648,106 @@ function DraggableQueueItem({
   song,
   onPlay,
   onRemove,
-  onPlayNext,
-  onGoToArtist,
-  onGoToAlbum,
 }: DraggableQueueItemProps) {
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const dragControls = useDragControls();
 
   return (
     <>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <Reorder.Item
-            value={item}
-            id={item.queueItem.queueItemId}
-            className="flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 group select-none max-w-full"
-            dragListener={false}
-            dragControls={dragControls}
-            dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
-            whileDrag={{
-              scale: 1.02,
-              boxShadow: "0 10px 20px rgba(0,0,0,0.3)",
-              zIndex: 50,
-            }}
-          >
-            <div className="cursor-grab active:cursor-grabbing touch-none" onPointerDown={(e) => dragControls.start(e)}>
-              <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
-            </div>
+      <SongContextMenu 
+        song={song} 
+        hideQueueActions 
+        showRemoveFromQueue 
+        onRemoveFromQueue={onRemove}
+      >
+        <Reorder.Item
+          value={item}
+          id={item.queueItem.queueItemId}
+          className="flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 group select-none max-w-full"
+          dragListener={false}
+          dragControls={dragControls}
+          dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
+          whileDrag={{
+            scale: 1.02,
+            boxShadow: "0 10px 20px rgba(0,0,0,0.3)",
+            zIndex: 50,
+          }}
+        >
+          <div className="cursor-grab active:cursor-grabbing touch-none" onPointerDown={(e) => dragControls.start(e)}>
+            <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
+          </div>
 
-            {/* Cover with play button overlay on cover hover only */}
-            <div className="group/cover relative shrink-0 cursor-pointer" onClick={onPlay}>
-              <CoverImage
-                src={getCoverUrl(song.coverArt)}
-                alt={song.title}
-                colorSeed={song.album}
-                type="song"
-                size="sm"
-              />
-              <button
-                type="button"
-                aria-label={`Play ${song.title}`}
-                className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
+          {/* Cover with play button overlay on cover hover only */}
+          <div className="group/cover relative shrink-0 cursor-pointer" onClick={onPlay}>
+            <CoverImage
+              src={getCoverUrl(song.coverArt)}
+              alt={song.title}
+              colorSeed={song.album}
+              type="song"
+              size="sm"
+            />
+            <button
+              type="button"
+              aria-label={`Play ${song.title}`}
+              className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
+            >
+              <Play className="w-4 h-4 ml-0.5 text-white" />
+            </button>
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{song.title}</p>
+            <p className="text-xs text-muted-foreground truncate">
+              <Link
+                href={`/library/artists/details?id=${song.artistId}`}
+                className="hover:underline hover:text-foreground transition-colors"
+                onClick={(e) => e.stopPropagation()}
               >
-                <Play className="w-4 h-4 ml-0.5 text-white" />
-              </button>
-            </div>
+                {song.artist}
+              </Link>
+              {song.album && (
+                <>
+                  {" · "}
+                  <Link
+                    href={`/library/albums/details?id=${song.albumId}`}
+                    className="hover:underline hover:text-foreground transition-colors"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {song.album}
+                  </Link>
+                </>
+              )}
+            </p>
+          </div>
 
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{song.title}</p>
-              <p className="text-xs text-muted-foreground truncate">
-                <Link
-                  href={`/library/artists/details?id=${song.artistId}`}
-                  className="hover:underline hover:text-foreground transition-colors"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {song.artist}
-                </Link>
-                {song.album && (
-                  <>
-                    {" · "}
-                    <Link
-                      href={`/library/albums/details?id=${song.albumId}`}
-                      className="hover:underline hover:text-foreground transition-colors"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {song.album}
-                    </Link>
-                  </>
-                )}
-              </p>
-            </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
+                onClick={(e) => e.stopPropagation()}
+                aria-label="More options"
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
+                <FolderPlus className="w-4 h-4 mr-2" />
+                Add to Playlist
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onRemove} className="text-destructive">
+                <X className="w-4 h-4 mr-2" />
+                Remove from Queue
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label="More options"
-                >
-                  <MoreHorizontal className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={onGoToArtist}>
-                  <User className="w-4 h-4 mr-2" />
-                  Go to Artist
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onGoToAlbum}>
-                  <Disc className="w-4 h-4 mr-2" />
-                  Go to Album
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onPlayNext}>
-                  <ListStart className="w-4 h-4 mr-2" />
-                  Play Next
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
-                  <FolderPlus className="w-4 h-4 mr-2" />
-                  Add to Playlist
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onRemove} className="text-destructive">
-                  <X className="w-4 h-4 mr-2" />
-                  Remove from Queue
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <span className="text-xs text-muted-foreground tabular-nums shrink-0">{formatDuration(song.duration)}</span>
-          </Reorder.Item>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem onClick={onGoToArtist}>
-            <User className="w-4 h-4 mr-2" />
-            Go to Artist
-          </ContextMenuItem>
-          <ContextMenuItem onClick={onGoToAlbum}>
-            <Disc className="w-4 h-4 mr-2" />
-            Go to Album
-          </ContextMenuItem>
-          <ContextMenuItem onClick={onPlayNext}>
-            <ListStart className="w-4 h-4 mr-2" />
-            Play Next
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => setAddToPlaylistOpen(true)}>
-            <FolderPlus className="w-4 h-4 mr-2" />
-            Add to Playlist
-          </ContextMenuItem>
-          <ContextMenuItem onClick={onRemove} className="text-destructive">
-            <X className="w-4 h-4 mr-2" />
-            Remove from Queue
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+          <span className="text-xs text-muted-foreground tabular-nums shrink-0">{formatDuration(song.duration)}</span>
+        </Reorder.Item>
+      </SongContextMenu>
       <AddToPlaylistDialog open={addToPlaylistOpen} onOpenChange={setAddToPlaylistOpen} songs={[song]} />
     </>
   );

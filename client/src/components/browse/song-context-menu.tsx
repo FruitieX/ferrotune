@@ -15,6 +15,7 @@ import {
   Disc,
   FolderPlus,
   Info,
+  X,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -49,9 +50,22 @@ interface SongContextMenuProps {
   song: Song;
   children: React.ReactNode;
   queueSongs?: Song[];
+  /** Hide Play, Play Next, Add to Queue options (for queue items) */
+  hideQueueActions?: boolean;
+  /** Show "Remove from Queue" option */
+  showRemoveFromQueue?: boolean;
+  /** Callback for removing from queue */
+  onRemoveFromQueue?: () => void;
 }
 
-export function SongContextMenu({ song, children, queueSongs }: SongContextMenuProps) {
+export function SongContextMenu({ 
+  song, 
+  children, 
+  queueSongs,
+  hideQueueActions = false,
+  showRemoveFromQueue = false,
+  onRemoveFromQueue,
+}: SongContextMenuProps) {
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
@@ -102,18 +116,22 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
 
   const menuItems = (
     <>
-      <ContextMenuItem onClick={handlePlay}>
-        <Play className="w-4 h-4 mr-2" />
-        Play
-      </ContextMenuItem>
-      <ContextMenuItem onClick={handlePlayNext}>
-        <ListPlus className="w-4 h-4 mr-2" />
-        Play Next
-      </ContextMenuItem>
-      <ContextMenuItem onClick={handleAddToQueue}>
-        <ListEnd className="w-4 h-4 mr-2" />
-        Add to Queue
-      </ContextMenuItem>
+      {!hideQueueActions && (
+        <>
+          <ContextMenuItem onClick={handlePlay}>
+            <Play className="w-4 h-4 mr-2" />
+            Play
+          </ContextMenuItem>
+          <ContextMenuItem onClick={handlePlayNext}>
+            <ListPlus className="w-4 h-4 mr-2" />
+            Play Next
+          </ContextMenuItem>
+          <ContextMenuItem onClick={handleAddToQueue}>
+            <ListEnd className="w-4 h-4 mr-2" />
+            Add to Queue
+          </ContextMenuItem>
+        </>
+      )}
       <ContextMenuItem onClick={() => setAddToPlaylistOpen(true)}>
         <FolderPlus className="w-4 h-4 mr-2" />
         Add to Playlist
@@ -178,6 +196,16 @@ export function SongContextMenu({ song, children, queueSongs }: SongContextMenuP
         <Info className="w-4 h-4 mr-2" />
         View Details
       </ContextMenuItem>
+
+      {showRemoveFromQueue && onRemoveFromQueue && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={onRemoveFromQueue} className="text-destructive">
+            <X className="w-4 h-4 mr-2" />
+            Remove from Queue
+          </ContextMenuItem>
+        </>
+      )}
     </>
   );
 

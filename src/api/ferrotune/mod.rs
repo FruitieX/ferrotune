@@ -27,8 +27,11 @@
 //! - `GET /ferrotune/preferences` - Get user preferences
 //! - `PUT /ferrotune/preferences` - Update user preferences
 //! - `POST /ferrotune/play-queue` - Save play queue (JSON body, scalable alternative to OpenSubsonic)
+//! - `POST /ferrotune/listening` - Log a listening session
+//! - `GET /ferrotune/listening/stats` - Get listening statistics
 
 mod duplicates;
+mod listening;
 mod media;
 mod playlists;
 mod playqueue;
@@ -94,6 +97,12 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         // Play queue endpoints
         .route("/ferrotune/play-queue", post(playqueue::save_play_queue))
+        // Listening statistics endpoints
+        .route("/ferrotune/listening", post(listening::log_listening))
+        .route(
+            "/ferrotune/listening/stats",
+            get(listening::get_listening_stats),
+        )
         .with_state(state)
 }
 

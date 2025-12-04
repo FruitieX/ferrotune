@@ -78,7 +78,9 @@ export interface Song {
   userRating?: number;
   created: string;
   type: "music";
-  // Ferrotune extensions for play statistics
+  // Ferrotune extensions
+  /** Full filesystem path (only available from getSong endpoint) */
+  fullPath?: string;
   playCount?: number;
   lastPlayed?: string;
 }
@@ -365,4 +367,18 @@ export interface UpdatePreferencesRequest {
   customAccentHue?: number;
   customAccentLightness?: number;
   customAccentChroma?: number;
+}
+
+// Listening statistics types (Admin API)
+export interface ListeningStats {
+  totalSeconds: number;
+  sessionCount: number;
+  uniqueSongs: number;
+}
+
+export interface ListeningStatsResponse {
+  last7Days: ListeningStats;
+  last30Days: ListeningStats;
+  thisYear: ListeningStats;
+  allTime: ListeningStats;
 }

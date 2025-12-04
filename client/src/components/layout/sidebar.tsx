@@ -466,28 +466,43 @@ function PlaylistFolderTree({
       {/* Subfolders */}
       {folder.subfolders.map((subfolder) => {
         const isExpanded = expandedFolders.includes(subfolder.path);
+        const isFolderActive = pathname === "/playlists" && searchParams.get("folder") === subfolder.path;
         
         return (
           <Collapsible key={subfolder.path} open={isExpanded} onOpenChange={() => toggleFolder(subfolder.path)}>
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent"
-                style={{ paddingLeft: `${depth * 12 + 8}px` }}
-              >
-                {isExpanded ? (
-                  <FolderOpen className="w-4 h-4 shrink-0 text-muted-foreground" />
-                ) : (
-                  <Folder className="w-4 h-4 shrink-0 text-muted-foreground" />
-                )}
-                <span className="truncate text-sm">{subfolder.name}</span>
-                <ChevronDown className={cn(
-                  "w-3 h-3 shrink-0 ml-auto transition-transform duration-200",
-                  isExpanded && "rotate-180"
-                )} />
-              </Button>
-            </CollapsibleTrigger>
+            <div className="relative flex items-center">
+              <Link href={`/playlists?folder=${encodeURIComponent(subfolder.path)}`} className="flex-1 min-w-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "w-full justify-start gap-2 h-8 px-2 pr-8 hover:bg-sidebar-accent",
+                    isFolderActive && "bg-sidebar-accent text-sidebar-primary"
+                  )}
+                  style={{ paddingLeft: `${depth * 12 + 8}px` }}
+                >
+                  {isExpanded ? (
+                    <FolderOpen className="w-4 h-4 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <Folder className="w-4 h-4 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="truncate text-sm">{subfolder.name}</span>
+                </Button>
+              </Link>
+              <CollapsibleTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 h-8 w-8 hover:bg-sidebar-accent/80"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <ChevronDown className={cn(
+                    "w-3 h-3 shrink-0 transition-transform duration-200",
+                    isExpanded && "rotate-180"
+                  )} />
+                </Button>
+              </CollapsibleTrigger>
+            </div>
             <CollapsibleContent>
               <PlaylistFolderTree
                 folder={subfolder}
