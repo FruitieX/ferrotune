@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useMemo, memo } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import Link from "next/link";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -25,7 +25,6 @@ import {
   GripVertical,
   Play,
   Pause,
-  Clock,
   MoreHorizontal,
   Loader2,
 } from "lucide-react";
@@ -33,7 +32,6 @@ import { cn } from "@/lib/utils";
 import {
   serverQueueStateAtom,
   queueWindowAtom,
-  currentSongAtom,
   isQueueLoadingAtom,
   isQueueOperationPendingAtom,
   fetchQueueRangeAtom,
@@ -96,7 +94,11 @@ interface VirtualQueueItemProps {
   onTogglePlayPause: () => void;
 }
 
-function VirtualQueueItem({
+/**
+ * Memoized queue item component to prevent unnecessary re-renders.
+ * Only re-renders when its specific props change.
+ */
+const VirtualQueueItem = memo(function VirtualQueueItem({
   entry,
   isCurrent,
   isPlaying,
@@ -256,7 +258,7 @@ function VirtualQueueItem({
       </div>
     </SongContextMenu>
   );
-}
+});
 
 interface VirtualizedQueueDisplayProps {
   variant?: "mobile" | "desktop";
@@ -265,13 +267,18 @@ interface VirtualizedQueueDisplayProps {
 /**
  * Virtualized queue display using server-side queue state.
  * Fetches song windows on demand as user scrolls.
+ * 
+ * Performance optimizations:
+ * - songsByPosition Map is memoized to prevent recreation on every render
+ * - sortableIds array is memoized to prevent dnd-kit recalculations
+ * - VirtualQueueItem is wrapped in React.memo
+ * - Callbacks are stabilized with useCallback
  */
-export function VirtualizedQueueDisplay({ variant = "desktop" }: VirtualizedQueueDisplayProps) {
+export function VirtualizedQueueDisplay({ variant: _variant = "desktop" }: VirtualizedQueueDisplayProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   
   const queueState = useAtomValue(serverQueueStateAtom);
   const queueWindow = useAtomValue(queueWindowAtom);
-  const currentSong = useAtomValue(currentSongAtom);
   const isLoading = useAtomValue(isQueueLoadingAtom);
   const isPending = useAtomValue(isQueueOperationPendingAtom);
   const playbackState = useAtomValue(playbackStateAtom);
@@ -286,13 +293,20 @@ export function VirtualizedQueueDisplay({ variant = "desktop" }: VirtualizedQueu
   const totalCount = queueState?.totalCount ?? 0;
   const currentIndex = queueState?.currentIndex ?? 0;
 
-  // Create a map of loaded songs by position for O(1) lookup
-  const songsByPosition = new Map<number, QueueSongEntry>();
-  if (queueWindow?.songs) {
-    for (const entry of queueWindow.songs) {
-      songsByPosition.set(entry.position, entry);
+  // Memoize the songs array reference for stable dependencies
+  const songs = queueWindow?.songs;
+
+  // Create a memoized map of loaded songs by position for O(1) lookup
+  // Only recreate when the songs array changes
+  const songsByPosition = useMemo(() => {
+    const map = new Map<number, QueueSongEntry>();
+    if (songs) {
+      for (const entry of songs) {
+        map.set(entry.position, entry);
+      }
     }
-  }
+    return map;
+  }, [songs]);
 
   // Virtualizer setup
   const virtualizer = useVirtualizer({
@@ -308,12 +322,13 @@ export function VirtualizedQueueDisplay({ variant = "desktop" }: VirtualizedQueu
   const fetchedRangesRef = useRef<Set<string>>(new Set());
   const isFetchingRef = useRef(false);
 
+  // Memoize the first and last visible indices to stabilize callback dependencies
+  const firstVisible = virtualItems[0]?.index ?? 0;
+  const lastVisible = virtualItems[virtualItems.length - 1]?.index ?? 0;
+
   // Fetch more songs when scrolling near edges of loaded data
   const checkAndFetchMore = useCallback(async () => {
     if (isFetchingRef.current || totalCount === 0) return;
-
-    const firstVisible = virtualItems[0]?.index ?? 0;
-    const lastVisible = virtualItems[virtualItems.length - 1]?.index ?? 0;
 
     // Find gaps in the loaded data within the visible + threshold range
     const checkStart = Math.max(0, firstVisible - FETCH_THRESHOLD);
@@ -345,12 +360,12 @@ export function VirtualizedQueueDisplay({ variant = "desktop" }: VirtualizedQueu
         }
       }
     }
-  }, [virtualItems, totalCount, songsByPosition, fetchQueueRange]);
+  }, [firstVisible, lastVisible, totalCount, songsByPosition, fetchQueueRange]);
 
   // Check for more data to fetch when scroll position changes
   useEffect(() => {
     checkAndFetchMore();
-  }, [virtualItems, checkAndFetchMore]);
+  }, [checkAndFetchMore]);
 
   // Reset fetched ranges when queue changes
   useEffect(() => {
@@ -385,6 +400,16 @@ export function VirtualizedQueueDisplay({ variant = "desktop" }: VirtualizedQueu
     [moveInQueue]
   );
 
+  // Memoize sortable IDs to prevent dnd-kit from recalculating on every render
+  // Only recalculate when the songs array changes
+  // Note: This must be defined before early returns to follow React Hooks rules
+  const sortableIds = useMemo(() => 
+    Array.from(songsByPosition.values())
+      .sort((a, b) => a.position - b.position)
+      .map((entry) => entry.entryId),
+    [songsByPosition]
+  );
+
   // Show loading state
   if (isLoading) {
     return (
@@ -398,11 +423,6 @@ export function VirtualizedQueueDisplay({ variant = "desktop" }: VirtualizedQueu
   if (totalCount === 0) {
     return <QueueEmptyState />;
   }
-
-  // Build sortable IDs for items we have loaded - use entry_id for uniqueness
-  const sortableIds = Array.from(songsByPosition.values())
-    .sort((a, b) => a.position - b.position)
-    .map((entry) => entry.entryId);
 
   return (
     <div className="flex flex-col h-full">
