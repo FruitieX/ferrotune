@@ -1,14 +1,15 @@
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::AppState;
+use crate::api::ferrotune::users::user_has_song_access;
 use crate::error::{Error, Result};
 use axum::{
     body::Body,
     extract::{Query, State},
     http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::Response,
 };
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -25,7 +26,7 @@ pub struct StreamParams {
 }
 
 pub async fn stream(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Query(params): Query<StreamParams>,
@@ -34,6 +35,14 @@ pub async fn stream(
     let song = crate::db::queries::get_song_by_id(&state.pool, &params.id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("Song {} not found", params.id)))?;
+
+    // Check if user has access to this song's library
+    if !user_has_song_access(&state.pool, user.user_id, &params.id).await? {
+        return Err(Error::Forbidden(format!(
+            "You do not have access to song {}",
+            params.id
+        )));
+    }
 
     // Find the music folder for this song
     let music_folders = crate::db::queries::get_music_folders(&state.pool).await?;

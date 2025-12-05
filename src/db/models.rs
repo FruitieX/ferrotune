@@ -363,3 +363,24 @@ pub struct QueueEntryWithSong {
     #[sqlx(default)]
     pub starred_at: Option<DateTime<Utc>>,
 }
+
+// ============================================================================
+// User Management Models
+// ============================================================================
+
+/// User with library access information
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct UserLibraryAccess {
+    pub user_id: i64,
+    pub music_folder_id: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Playlist share record
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PlaylistShare {
+    pub playlist_id: String,
+    pub shared_with_user_id: i64,
+    pub can_edit: bool,
+    pub created_at: DateTime<Utc>,
+}
