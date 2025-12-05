@@ -13,7 +13,7 @@ import {
   type SelectableItem,
 } from "@/lib/store/selection";
 import { addToQueueAtom } from "@/lib/store/server-queue";
-import { starredItemsAtom } from "@/lib/store/starred";
+import { starredItemsAtom, useInvalidateFavorites } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
 import type { Song, SearchParams } from "@/lib/api/types";
 
@@ -171,6 +171,7 @@ export function useTrackSelection(
   
   const addToQueue = useSetAtom(addToQueueAtom);
   const setStarredItems = useSetAtom(starredItemsAtom);
+  const invalidateFavorites = useInvalidateFavorites();
 
   // Get selected songs (type-safe alias)
   // NOTE: This only returns songs that are currently loaded in memory.
@@ -235,13 +236,16 @@ export function useTrackSelection(
           return updated;
         });
         
+        // Invalidate favorites queries so the favorites view updates
+        invalidateFavorites("song");
+        
         clearSelection();
       } catch (error) {
         toast.error("Failed to update favorites");
         console.error(error);
       }
     },
-    [selectedIds, clearSelection, setStarredItems]
+    [selectedIds, clearSelection, setStarredItems, invalidateFavorites]
   );
 
   return {

@@ -2,6 +2,7 @@
 
 import { atom, useAtom } from "jotai";
 import { useCallback, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
 
@@ -16,6 +17,36 @@ import { getClient } from "@/lib/api/client";
 export const starredItemsAtom = atom<Map<string, boolean>>(new Map());
 
 type StarType = "song" | "album" | "artist";
+export type { StarType };
+
+/**
+ * Invalidate all favorites-related queries to ensure the favorites view
+ * is updated when items are starred/unstarred elsewhere.
+ */
+function invalidateFavoritesQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  type: StarType
+) {
+  // Invalidate the specific type's starred query
+  if (type === "song") {
+    queryClient.invalidateQueries({ queryKey: ["starred-songs"] });
+  } else if (type === "album") {
+    queryClient.invalidateQueries({ queryKey: ["starred-albums"] });
+  } else if (type === "artist") {
+    queryClient.invalidateQueries({ queryKey: ["starred-artists"] });
+  }
+}
+
+/**
+ * Hook that returns a function to invalidate favorites queries.
+ * Use this when starring/unstarring outside of the useStarred hooks.
+ */
+export function useInvalidateFavorites() {
+  const queryClient = useQueryClient();
+  return useCallback((type: StarType) => {
+    invalidateFavoritesQueries(queryClient, type);
+  }, [queryClient]);
+}
 
 /**
  * Hook to manage starred state for a song.
@@ -47,6 +78,7 @@ export function useStarredArtist(id: string, initialStarred: boolean) {
  */
 function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
   const [starredItems, setStarredItems] = useAtom(starredItemsAtom);
+  const queryClient = useQueryClient();
   
   // Create a unique key that includes the type to avoid collisions
   const key = `${type}:${id}`;
@@ -88,6 +120,8 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
         } else if (type === "artist") {
           await client.star({ artistId: id });
         }
+        // Invalidate favorites queries so the favorites view updates
+        invalidateFavoritesQueries(queryClient, type);
         toast.success("Added to favorites", {
           action: {
             label: "Undo",
@@ -105,6 +139,7 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
                 } else if (type === "artist") {
                   await client.unstar({ artistId: id });
                 }
+                invalidateFavoritesQueries(queryClient, type);
                 toast.success("Removed from favorites");
               } catch {
                 // Revert on error
@@ -128,6 +163,8 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
         } else if (type === "artist") {
           await client.unstar({ artistId: id });
         }
+        // Invalidate favorites queries so the favorites view updates
+        invalidateFavoritesQueries(queryClient, type);
         toast.success("Removed from favorites", {
           action: {
             label: "Undo",
@@ -145,6 +182,7 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
                 } else if (type === "artist") {
                   await client.star({ artistId: id });
                 }
+                invalidateFavoritesQueries(queryClient, type);
                 toast.success("Added to favorites");
               } catch {
                 // Revert on error
@@ -170,7 +208,7 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
       toast.error("Failed to update favorites");
       console.error(error);
     }
-  }, [key, id, type, isStarred, setStarredItems]);
+  }, [key, id, type, isStarred, setStarredItems, queryClient]);
 
   return { isStarred, toggleStar };
 }
