@@ -130,7 +130,7 @@ function FilesPageContent() {
           </div>
         ) : directoryId && directory ? (
           // Directory contents view
-          <DirectoryContents items={directory.directory.child} />
+          <DirectoryContents items={directory.directory.child ?? []} />
         ) : indexes ? (
           // Indexes view (top-level artist listing)
           <IndexesView indexes={indexes} />
