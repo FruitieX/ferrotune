@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { User } from "lucide-react";
@@ -156,14 +157,21 @@ export default function ArtistsPage() {
     }
   };
 
+  // Use a ref to track display artists for stable callbacks
+  const displayArtistsRef = useRef(displayArtists);
+  displayArtistsRef.current = displayArtists;
+
   // Play artist handler - plays all songs by this artist
-  const handlePlayArtist = async (artist: Artist) => {
+  // Takes id for stable callback, looks up artist data from ref
+  const handlePlayArtist = useCallback((id: string) => {
+    const artist = displayArtistsRef.current.find(a => a.id === id);
+    if (!artist) return;
     startQueue({
       sourceType: "artist",
       sourceId: artist.id,
       sourceName: artist.name,
     });
-  };
+  }, [startQueue]);
 
   if (authLoading) {
     return (
@@ -208,10 +216,10 @@ export default function ArtistsPage() {
             renderItem={(artist) => (
               <ArtistCard 
                 artist={artist} 
-                onPlay={() => handlePlayArtist(artist)}
+                onPlay={handlePlayArtist}
                 isSelected={isSelected(artist.id)}
                 isSelectionMode={hasSelection}
-                onSelect={(e) => handleSelect(artist.id, e)}
+                onSelect={handleSelect}
               />
             )}
             renderSkeleton={() => <ArtistCardSkeleton />}
@@ -226,10 +234,10 @@ export default function ArtistsPage() {
               <ArtistCardCompact 
                 artist={artist} 
                 index={index}
-                onPlay={() => handlePlayArtist(artist)}
+                onPlay={handlePlayArtist}
                 isSelected={isSelected(artist.id)}
                 isSelectionMode={hasSelection}
-                onSelect={(e) => handleSelect(artist.id, e)}
+                onSelect={handleSelect}
               />
             )}
             renderSkeleton={() => (

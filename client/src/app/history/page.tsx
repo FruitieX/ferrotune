@@ -166,14 +166,14 @@ export default function HistoryPage() {
           viewMode === "grid" ? (
             <VirtualizedGrid
               items={displaySongs}
-              renderItem={(song) => (
+              renderItem={(song, index) => (
                 <SongCard
                   song={song}
-                  queueSongs={displaySongs}
+                  index={index}
                   queueSource={historyQueueSource}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
-                  onSelect={(e) => handleSelect(song.id, e)}
+                  onSelect={handleSelect}
                 />
               )}
               renderSkeleton={() => <SongCardSkeleton />}
@@ -193,11 +193,10 @@ export default function HistoryPage() {
                   showPlayCount={columnVisibility.playCount}
                   showYear={columnVisibility.year}
                   showDateAdded={columnVisibility.dateAdded}
-                  queueSongs={displaySongs}
                   queueSource={historyQueueSource}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
-                  onSelect={(e) => handleSelect(song.id, e)}
+                  onSelect={handleSelect}
                 />
               )}
               renderSkeleton={() => <SongRowSkeleton showCover showIndex />}

@@ -516,14 +516,14 @@ function PlaylistDetailContent() {
           viewMode === "grid" ? (
             <VirtualizedGrid
               items={displaySongs}
-              renderItem={(song) => (
+              renderItem={(song, index) => (
                 <SongCard
                   song={song}
-                  queueSongs={displaySongs}
+                  index={index}
                   queueSource={playlistQueueSource}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
-                  onSelect={(e) => handleSelect(song.id, e)}
+                  onSelect={handleSelect}
                 />
               )}
               renderSkeleton={() => <SongCardSkeleton />}
@@ -556,7 +556,7 @@ function PlaylistDetailContent() {
                       queueSource={playlistQueueSource}
                       isSelected={isSelected(song.id)}
                       isSelectionMode={hasSelection}
-                      onSelect={(e) => handleSelect(song.id, e)}
+                      onSelect={handleSelect}
                       disabled={hasSelection}
                       showRemoveFromPlaylist
                       onRemoveFromPlaylist={() => handleRemoveSingleSong(song.id)}
@@ -579,11 +579,10 @@ function PlaylistDetailContent() {
                   showPlayCount={columnVisibility.playCount}
                   showYear={columnVisibility.year}
                   showDateAdded={columnVisibility.dateAdded}
-                  queueSongs={displaySongs}
                   queueSource={playlistQueueSource}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
-                  onSelect={(e) => handleSelect(song.id, e)}
+                  onSelect={handleSelect}
                   showRemoveFromPlaylist
                   onRemoveFromPlaylist={() => handleRemoveSingleSong(song.id)}
                 />

@@ -55,6 +55,10 @@ export function VirtualizedGrid<T>({
   const containerRef = useRef<HTMLDivElement>(null);
   const [columnCount, setColumnCount] = useState(columns.default);
 
+  // Use ref for onScrollChange to avoid recreating virtualizer options
+  const onScrollChangeRef = useRef(onScrollChange);
+  onScrollChangeRef.current = onScrollChange;
+
   // Calculate current column count based on container width
   const getColumnCount = useCallback((width: number) => {
     if (width >= 1280 && columns.xl) return columns.xl;
@@ -111,8 +115,8 @@ export function VirtualizedGrid<T>({
     gap,
     initialOffset,
     onChange: (instance) => {
-      if (onScrollChange && instance.scrollOffset !== null) {
-        onScrollChange(instance.scrollOffset);
+      if (onScrollChangeRef.current && instance.scrollOffset !== null) {
+        onScrollChangeRef.current(instance.scrollOffset);
       }
     },
   });
@@ -242,6 +246,10 @@ export function VirtualizedList<T>({
     return document.getElementById("main-scroll-container");
   }, []);
 
+  // Use ref for onScrollChange to avoid recreating virtualizer options
+  const onScrollChangeRef = useRef(onScrollChange);
+  onScrollChangeRef.current = onScrollChange;
+
   const effectiveTotalCount = totalCount ?? items.length;
 
   const virtualizer = useVirtualizer({
@@ -251,8 +259,8 @@ export function VirtualizedList<T>({
     overscan,
     initialOffset,
     onChange: (instance) => {
-      if (onScrollChange && instance.scrollOffset !== null) {
-        onScrollChange(instance.scrollOffset);
+      if (onScrollChangeRef.current && instance.scrollOffset !== null) {
+        onScrollChangeRef.current(instance.scrollOffset);
       }
     },
   });
@@ -288,12 +296,12 @@ export function VirtualizedList<T>({
             <div
               key={virtualItem.key}
               data-index={virtualItem.index}
-              ref={virtualizer.measureElement}
               style={{
                 position: "absolute",
                 top: 0,
                 left: 0,
                 width: "100%",
+                height: estimateItemHeight,
                 transform: `translateY(${virtualItem.start}px)`,
               }}
             >

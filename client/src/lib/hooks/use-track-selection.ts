@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { toast } from "sonner";
 import {
@@ -50,6 +50,11 @@ export function useItemSelection<T extends SelectableItem>(
   const selectedCount = useAtomValue(selectedCountAtom);
   const [isSelectingAll, setIsSelectingAll] = useState(false);
 
+  // Use a ref to track items for shift-click range selection
+  // This avoids handleSelect changing identity when items change
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
   // Determine if all items are loaded
   const allItemsLoaded = totalCount === undefined || items.length >= totalCount;
 
@@ -64,17 +69,17 @@ export function useItemSelection<T extends SelectableItem>(
     [selectionState.selectedIds]
   );
 
-  // Handle click with modifiers
+  // Handle click with modifiers - stable callback using ref for items
   const handleSelect = useCallback(
     (id: string, event?: React.MouseEvent) => {
       selectItem({
         id,
-        items,
+        items: itemsRef.current,
         shiftKey: event?.shiftKey ?? false,
         ctrlKey: event?.ctrlKey ?? event?.metaKey ?? false,
       });
     },
-    [selectItem, items]
+    [selectItem]
   );
 
   // Select all - either from loaded items or fetch from backend

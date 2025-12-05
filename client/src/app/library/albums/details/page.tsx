@@ -356,14 +356,14 @@ function AlbumDetailContent() {
           viewMode === "grid" ? (
             <VirtualizedGrid
               items={displaySongs}
-              renderItem={(song) => (
+              renderItem={(song, index) => (
                 <SongCard
                   song={song}
-                  queueSongs={displaySongs}
+                  index={index}
                   queueSource={albumQueueSource}
                   isSelected={selection.isSelected(song.id)}
                   isSelectionMode={selection.hasSelection}
-                  onSelect={(e) => selection.handleSelect(song.id, e)}
+                  onSelect={selection.handleSelect}
                 />
               )}
               renderSkeleton={() => <SongCardSkeleton />}
@@ -383,11 +383,10 @@ function AlbumDetailContent() {
                   showPlayCount={columnVisibility.playCount}
                   showYear={columnVisibility.year}
                   showDateAdded={columnVisibility.dateAdded}
-                  queueSongs={displaySongs}
                   queueSource={albumQueueSource}
                   isSelected={selection.isSelected(song.id)}
                   isSelectionMode={selection.hasSelection}
-                  onSelect={(e) => selection.handleSelect(song.id, e)}
+                  onSelect={selection.handleSelect}
                 />
               )}
               renderSkeleton={() => <SongRowSkeleton showCover showIndex />}

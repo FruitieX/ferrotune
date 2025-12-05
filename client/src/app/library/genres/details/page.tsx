@@ -376,14 +376,14 @@ function GenreDetailContent() {
             {viewMode === "grid" ? (
               <VirtualizedGrid
                 items={displaySongs}
-                renderItem={(song) => (
+                renderItem={(song, index) => (
                   <SongCard
                     song={song}
-                    queueSongs={displaySongs}
+                    index={index}
                     queueSource={genreQueueSource}
                     isSelected={selection.isSelected(song.id)}
                     isSelectionMode={selection.hasSelection}
-                    onSelect={(e) => selection.handleSelect(song.id, e)}
+                    onSelect={selection.handleSelect}
                   />
                 )}
                 renderSkeleton={() => <SongCardSkeleton />}
@@ -403,11 +403,10 @@ function GenreDetailContent() {
                     showPlayCount={columnVisibility.playCount}
                     showYear={columnVisibility.year}
                     showDateAdded={columnVisibility.dateAdded}
-                    queueSongs={displaySongs}
                     queueSource={genreQueueSource}
                     isSelected={selection.isSelected(song.id)}
                     isSelectionMode={selection.hasSelection}
-                    onSelect={(e) => selection.handleSelect(song.id, e)}
+                    onSelect={selection.handleSelect}
                   />
                 )}
                 renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
