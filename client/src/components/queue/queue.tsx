@@ -134,7 +134,7 @@ function getQueueSourceLink(source: QueueSourceInfo): string | null {
       return source.id ? `/playlists/details?id=${source.id}` : null;
     case "genre":
       // Genres use name as identifier, not id
-      return source.name ? `/library/genres/details?genre=${encodeURIComponent(source.name)}` : null;
+      return source.name ? `/library/genres/details?name=${encodeURIComponent(source.name)}` : null;
     default:
       return null;
   }
