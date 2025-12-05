@@ -282,43 +282,86 @@ pub async fn search3(
     };
 
     // ========================================================================
-    // Search artists using FTS5
+    // Search artists using FTS5 with filtering support
     // ========================================================================
-    let (artists, artist_total): (Vec<crate::db::models::Artist>, Option<i64>) = if is_wildcard {
-        // Wildcard: return all artists
-        let artists: Vec<crate::db::models::Artist> =
-            sqlx::query_as("SELECT * FROM artists ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?")
-                .bind(artist_count)
-                .bind(artist_offset)
-                .fetch_all(&state.pool)
-                .await?;
+    let artist_has_starred_filter = params.starred_only.unwrap_or(false);
+    let artist_has_rating_filter = params.min_rating.is_some() || params.max_rating.is_some();
 
-        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM artists")
-            .fetch_one(&state.pool)
+    // Build artist JOIN clauses
+    let mut artist_joins = String::new();
+    if artist_has_rating_filter {
+        artist_joins.push_str(&format!(
+            " LEFT JOIN ratings r ON r.item_id = a.id AND r.item_type = 'artist' AND r.user_id = {}",
+            user.user_id
+        ));
+    }
+    if artist_has_starred_filter {
+        artist_joins.push_str(&format!(
+            " LEFT JOIN starred st ON st.item_id = a.id AND st.item_type = 'artist' AND st.user_id = {}",
+            user.user_id
+        ));
+    }
+
+    // Build artist filter conditions
+    let mut artist_filter_conds: Vec<String> = Vec::new();
+    if artist_has_starred_filter {
+        artist_filter_conds.push("st.item_id IS NOT NULL".to_string());
+    }
+    if let Some(min_rating) = params.min_rating {
+        artist_filter_conds.push(format!("COALESCE(r.rating, 0) >= {}", min_rating));
+    }
+    if let Some(max_rating) = params.max_rating {
+        artist_filter_conds.push(format!("COALESCE(r.rating, 0) <= {}", max_rating));
+    }
+    let has_artist_filters = !artist_filter_conds.is_empty();
+
+    let (artists, artist_total): (Vec<crate::db::models::Artist>, Option<i64>) = if is_wildcard {
+        let where_clause = if has_artist_filters {
+            format!("WHERE {}", artist_filter_conds.join(" AND "))
+        } else {
+            String::new()
+        };
+
+        let query = format!(
+            "SELECT a.* FROM artists a {artist_joins} {where_clause} ORDER BY a.name COLLATE NOCASE LIMIT ? OFFSET ?"
+        );
+        let artists: Vec<crate::db::models::Artist> = sqlx::query_as(&query)
+            .bind(artist_count)
+            .bind(artist_offset)
+            .fetch_all(&state.pool)
             .await?;
+
+        let count_query = format!("SELECT COUNT(*) FROM artists a {artist_joins} {where_clause}");
+        let total: (i64,) = sqlx::query_as(&count_query).fetch_one(&state.pool).await?;
 
         (artists, Some(total.0))
     } else if let Some(ref fts_q) = fts_query {
-        // Use FTS5 for artist search
-        let artists: Vec<crate::db::models::Artist> = sqlx::query_as(
-            "SELECT a.* FROM artists a
-                 INNER JOIN artists_fts fts ON a.id = fts.artist_id
-                 WHERE artists_fts MATCH ?
-                 ORDER BY a.name COLLATE NOCASE
-                 LIMIT ? OFFSET ?",
-        )
-        .bind(fts_q)
-        .bind(artist_count)
-        .bind(artist_offset)
-        .fetch_all(&state.pool)
-        .await?;
+        let mut where_conditions = vec!["artists_fts MATCH ?".to_string()];
+        where_conditions.extend(artist_filter_conds.clone());
+        let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
 
-        // Get total count for FTS search
-        let total: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM artists_fts WHERE artists_fts MATCH ?")
-                .bind(fts_q)
-                .fetch_one(&state.pool)
-                .await?;
+        let query = format!(
+            "SELECT a.* FROM artists a
+             {artist_joins}
+             INNER JOIN artists_fts fts ON a.id = fts.artist_id
+             {where_clause}
+             ORDER BY a.name COLLATE NOCASE
+             LIMIT ? OFFSET ?"
+        );
+        let artists: Vec<crate::db::models::Artist> = sqlx::query_as(&query)
+            .bind(fts_q)
+            .bind(artist_count)
+            .bind(artist_offset)
+            .fetch_all(&state.pool)
+            .await?;
+
+        let count_query = format!(
+            "SELECT COUNT(*) FROM artists a {artist_joins} INNER JOIN artists_fts fts ON a.id = fts.artist_id {where_clause}"
+        );
+        let total: (i64,) = sqlx::query_as(&count_query)
+            .bind(fts_q)
+            .fetch_one(&state.pool)
+            .await?;
 
         (artists, Some(total.0))
     } else {
