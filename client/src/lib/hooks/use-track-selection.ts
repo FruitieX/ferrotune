@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { toast } from "sonner";
 import {
@@ -14,19 +14,43 @@ import {
 } from "@/lib/store/selection";
 import { addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
-import type { Song } from "@/lib/api/types";
+import type { Song, SearchParams } from "@/lib/api/types";
+
+/**
+ * Options for item selection hook.
+ */
+interface UseItemSelectionOptions {
+  /** 
+   * Total count of items in the full dataset.
+   * When provided, enables "select all" to fetch all IDs from backend.
+   */
+  totalCount?: number;
+  /**
+   * Search params for fetching all IDs when selecting all.
+   * Required when totalCount is provided.
+   */
+  searchParams?: Partial<SearchParams>;
+}
 
 /**
  * Generic hook for item selection.
  * Can be used with songs, albums, artists, or any item with an id.
  */
-export function useItemSelection<T extends SelectableItem>(items: T[]) {
+export function useItemSelection<T extends SelectableItem>(
+  items: T[],
+  options: UseItemSelectionOptions = {}
+) {
+  const { totalCount, searchParams } = options;
   const [selectionState] = useAtom(selectionStateAtom);
   const selectItem = useSetAtom(selectItemAtom);
   const clearSelection = useSetAtom(clearSelectionAtom);
-  const selectAll = useSetAtom(selectAllAtom);
+  const selectAllItems = useSetAtom(selectAllAtom);
   const hasSelection = useAtomValue(hasSelectionAtom);
   const selectedCount = useAtomValue(selectedCountAtom);
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
+
+  // Determine if all items are loaded
+  const allItemsLoaded = totalCount === undefined || items.length >= totalCount;
 
   // Get selected items in order
   const getSelectedItems = useCallback(() => {
@@ -52,6 +76,42 @@ export function useItemSelection<T extends SelectableItem>(items: T[]) {
     [selectItem, items]
   );
 
+  // Select all - either from loaded items or fetch from backend
+  const selectAll = useCallback(async () => {
+    // If all items are loaded locally, use them directly
+    if (allItemsLoaded) {
+      selectAllItems(items);
+      return;
+    }
+
+    // Otherwise, fetch all IDs from backend
+    const client = getClient();
+    if (!client || !searchParams) {
+      // Fallback to local items if no backend support
+      selectAllItems(items);
+      return;
+    }
+
+    setIsSelectingAll(true);
+    try {
+      const response = await client.getSongIds(searchParams);
+      // Create fake selectable items with just IDs
+      const allItems: SelectableItem[] = response.ids.map(id => ({ id }));
+      selectAllItems(allItems);
+      
+      if (response.total > items.length) {
+        toast.success(`Selected all ${response.total} matching songs`);
+      }
+    } catch (error) {
+      console.error("Failed to fetch all song IDs:", error);
+      // Fallback to local items
+      selectAllItems(items);
+      toast.error("Could not select all - using visible items only");
+    } finally {
+      setIsSelectingAll(false);
+    }
+  }, [allItemsLoaded, items, searchParams, selectAllItems]);
+
   // Keyboard shortcuts for selection
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -62,7 +122,7 @@ export function useItemSelection<T extends SelectableItem>(items: T[]) {
           return;
         }
         e.preventDefault();
-        selectAll(items);
+        selectAll();
       }
 
       // Escape to clear selection
@@ -73,7 +133,7 @@ export function useItemSelection<T extends SelectableItem>(items: T[]) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectAll, clearSelection, items, hasSelection]);
+  }, [selectAll, clearSelection, hasSelection]);
 
   return {
     selectedIds: selectionState.selectedIds,
@@ -82,8 +142,9 @@ export function useItemSelection<T extends SelectableItem>(items: T[]) {
     isSelected,
     handleSelect,
     clearSelection,
-    selectAll: () => selectAll(items),
+    selectAll,
     getSelectedItems,
+    isSelectingAll,
   };
 }
 
@@ -91,7 +152,10 @@ export function useItemSelection<T extends SelectableItem>(items: T[]) {
  * Track (song) specific selection hook.
  * Provides song-specific actions like add to queue and star/unstar.
  */
-export function useTrackSelection(songs: Song[]) {
+export function useTrackSelection(
+  songs: Song[],
+  options: UseItemSelectionOptions = {}
+) {
   const {
     selectedIds,
     selectedCount,
@@ -101,31 +165,35 @@ export function useTrackSelection(songs: Song[]) {
     clearSelection,
     selectAll,
     getSelectedItems,
-  } = useItemSelection(songs);
+    isSelectingAll,
+  } = useItemSelection(songs, options);
   
   const addToQueue = useSetAtom(addToQueueAtom);
 
   // Get selected songs (type-safe alias)
+  // NOTE: This only returns songs that are currently loaded in memory.
+  // For bulk actions after "select all", use selectedIds directly.
   const getSelectedSongs = useCallback(() => {
     return getSelectedItems() as Song[];
   }, [getSelectedItems]);
 
   // Bulk action handlers
+  // Uses selectedIds directly for operations that work with IDs
   const addSelectedToQueue = useCallback(
     (position: "next" | "end" = "end") => {
-      const selected = getSelectedSongs();
-      if (selected.length === 0) return;
+      const ids = Array.from(selectedIds);
+      if (ids.length === 0) return;
 
-      addToQueue({ songIds: selected.map(s => s.id), position });
+      addToQueue({ songIds: ids, position });
 
       toast.success(
         position === "next"
-          ? `Added ${selected.length} songs to play next`
-          : `Added ${selected.length} songs to queue`
+          ? `Added ${ids.length} songs to play next`
+          : `Added ${ids.length} songs to queue`
       );
       clearSelection();
     },
-    [getSelectedSongs, addToQueue, clearSelection]
+    [selectedIds, addToQueue, clearSelection]
   );
 
   const starSelected = useCallback(
@@ -133,16 +201,26 @@ export function useTrackSelection(songs: Song[]) {
       const client = getClient();
       if (!client) return;
 
-      const selected = getSelectedSongs();
-      if (selected.length === 0) return;
+      const ids = Array.from(selectedIds);
+      if (ids.length === 0) return;
 
       try {
+        // Star/unstar works with IDs
         if (star) {
-          await Promise.all(selected.map((s) => client.star({ id: s.id })));
-          toast.success(`Added ${selected.length} songs to favorites`);
+          // Star in batches to avoid overwhelming the server
+          const batchSize = 50;
+          for (let i = 0; i < ids.length; i += batchSize) {
+            const batch = ids.slice(i, i + batchSize);
+            await Promise.all(batch.map((id) => client.star({ id })));
+          }
+          toast.success(`Added ${ids.length} songs to favorites`);
         } else {
-          await Promise.all(selected.map((s) => client.unstar({ id: s.id })));
-          toast.success(`Removed ${selected.length} songs from favorites`);
+          const batchSize = 50;
+          for (let i = 0; i < ids.length; i += batchSize) {
+            const batch = ids.slice(i, i + batchSize);
+            await Promise.all(batch.map((id) => client.unstar({ id })));
+          }
+          toast.success(`Removed ${ids.length} songs from favorites`);
         }
         clearSelection();
       } catch (error) {
@@ -150,7 +228,7 @@ export function useTrackSelection(songs: Song[]) {
         console.error(error);
       }
     },
-    [getSelectedSongs, clearSelection]
+    [selectedIds, clearSelection]
   );
 
   return {
@@ -164,5 +242,6 @@ export function useTrackSelection(songs: Song[]) {
     getSelectedSongs,
     addSelectedToQueue,
     starSelected,
+    isSelectingAll,
   };
 }

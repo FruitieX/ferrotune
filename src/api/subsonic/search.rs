@@ -42,6 +42,7 @@ pub fn build_fts_query(query: &str) -> Option<String> {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct SearchParams {
+    #[serde(default)]
     pub query: String,
     pub artist_count: Option<u32>,
     pub artist_offset: Option<u32>,
