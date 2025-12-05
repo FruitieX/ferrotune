@@ -24,6 +24,7 @@ import {
   favoritesArtistColumnVisibilityAtom,
 } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
+import { useInvalidateFavorites } from "@/lib/store/starred";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -46,6 +47,7 @@ export default function FavoritesPage() {
   const isMounted = useIsMounted();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
+  const invalidateFavorites = useInvalidateFavorites();
   const [activeTab, setActiveTab] = useState<TabValue>("songs");
   
   // Separate search queries for each tab
@@ -243,6 +245,7 @@ export default function FavoritesPage() {
         await Promise.all(selected.map(a => client.unstar({ albumId: a.id })));
         toast.success(`Removed ${selected.length} albums from favorites`);
       }
+      invalidateFavorites("album");
       albumSelection.clearSelection();
     } catch (error) {
       toast.error("Failed to update favorites");
@@ -312,6 +315,7 @@ export default function FavoritesPage() {
         await Promise.all(selected.map(a => client.unstar({ artistId: a.id })));
         toast.success(`Removed ${selected.length} artists from favorites`);
       }
+      invalidateFavorites("artist");
       artistSelection.clearSelection();
     } catch (error) {
       toast.error("Failed to update favorites");

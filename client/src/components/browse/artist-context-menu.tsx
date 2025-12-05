@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
 import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
+import { useInvalidateFavorites } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
 import type { Artist, Song } from "@/lib/api/types";
 
@@ -66,6 +67,7 @@ async function fetchArtistSongs(artistId: string): Promise<Song[]> {
 export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
+  const invalidateFavorites = useInvalidateFavorites();
   const [isStarred, setIsStarred] = useState(!!artist.starred);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -131,10 +133,12 @@ export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) 
       if (isStarred) {
         await client.unstar({ artistId: artist.id });
         setIsStarred(false);
+        invalidateFavorites("artist");
         toast.success(`Removed "${artist.name}" from favorites`);
       } else {
         await client.star({ artistId: artist.id });
         setIsStarred(true);
+        invalidateFavorites("artist");
         toast.success(`Added "${artist.name}" to favorites`);
       }
     } catch (error) {
@@ -212,6 +216,7 @@ interface ArtistDropdownMenuProps {
 export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: ArtistDropdownMenuProps) {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
+  const invalidateFavorites = useInvalidateFavorites();
   const [isStarred, setIsStarred] = useState(!!artist.starred);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -285,10 +290,12 @@ export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: Artis
       if (isStarred) {
         await client.unstar({ artistId: artist.id });
         setIsStarred(false);
+        invalidateFavorites("artist");
         toast.success(`Removed "${artist.name}" from favorites`);
       } else {
         await client.star({ artistId: artist.id });
         setIsStarred(true);
+        invalidateFavorites("artist");
         toast.success(`Added "${artist.name}" to favorites`);
       }
     } catch (error) {
@@ -370,6 +377,7 @@ export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: Artis
 // Hook to manage artist star state (for use in pages where we need external control)
 export function useArtistStar(initialStarred: boolean, artistId: string, artistName: string) {
   const [isStarred, setIsStarred] = useState(initialStarred);
+  const invalidateFavorites = useInvalidateFavorites();
 
   const handleStar = async () => {
     const client = getClient();
@@ -379,10 +387,12 @@ export function useArtistStar(initialStarred: boolean, artistId: string, artistN
       if (isStarred) {
         await client.unstar({ artistId });
         setIsStarred(false);
+        invalidateFavorites("artist");
         toast.success(`Removed "${artistName}" from favorites`);
       } else {
         await client.star({ artistId });
         setIsStarred(true);
+        invalidateFavorites("artist");
         toast.success(`Added "${artistName}" to favorites`);
       }
     } catch (error) {

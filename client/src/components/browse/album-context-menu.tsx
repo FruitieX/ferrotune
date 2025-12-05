@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
 import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
+import { useInvalidateFavorites } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
 import type { Album, Song } from "@/lib/api/types";
 
@@ -44,6 +45,7 @@ interface AlbumContextMenuProps {
 export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
+  const invalidateFavorites = useInvalidateFavorites();
   const [isStarred, setIsStarred] = useState(!!album.starred);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -121,10 +123,12 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
       if (isStarred) {
         await client.unstar({ albumId: album.id });
         setIsStarred(false);
+        invalidateFavorites("album");
         toast.success(`Removed "${album.name}" from favorites`);
       } else {
         await client.star({ albumId: album.id });
         setIsStarred(true);
+        invalidateFavorites("album");
         toast.success(`Added "${album.name}" to favorites`);
       }
     } catch (error) {
@@ -207,6 +211,7 @@ interface AlbumDropdownMenuProps {
 export function AlbumDropdownMenu({ album, onPlay, trigger }: AlbumDropdownMenuProps) {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
+  const invalidateFavorites = useInvalidateFavorites();
   const [isStarred, setIsStarred] = useState(!!album.starred);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -288,10 +293,12 @@ export function AlbumDropdownMenu({ album, onPlay, trigger }: AlbumDropdownMenuP
       if (isStarred) {
         await client.unstar({ albumId: album.id });
         setIsStarred(false);
+        invalidateFavorites("album");
         toast.success(`Removed "${album.name}" from favorites`);
       } else {
         await client.star({ albumId: album.id });
         setIsStarred(true);
+        invalidateFavorites("album");
         toast.success(`Added "${album.name}" to favorites`);
       }
     } catch (error) {

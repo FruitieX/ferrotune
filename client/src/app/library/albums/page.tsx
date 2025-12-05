@@ -11,6 +11,7 @@ import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scr
 import { useItemSelection } from "@/lib/hooks/use-track-selection";
 import { albumViewModeAtom, libraryFilterAtom, librarySortAtom, advancedFiltersAtom, hasActiveFiltersAtom } from "@/lib/store/ui";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
+import { useInvalidateFavorites } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
 import { AlbumCard, AlbumCardSkeleton, AlbumCardCompact } from "@/components/browse/album-card";
 import { MediaRowSkeleton } from "@/components/shared/media-row";
@@ -30,6 +31,7 @@ export default function AlbumsPage() {
   const debouncedFilter = useDebounce(filter, 300);
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
+  const invalidateFavorites = useInvalidateFavorites();
   
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
@@ -188,6 +190,7 @@ export default function AlbumsPage() {
         await Promise.all(albums.map(a => client.unstar({ albumId: a.id })));
         toast.success(`Removed ${albums.length} albums from favorites`);
       }
+      invalidateFavorites("album");
       clearSelection();
     } catch (error) {
       toast.error("Failed to update favorites");
