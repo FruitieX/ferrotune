@@ -13,6 +13,10 @@ export const serverConnectionAtom = atomWithStorage<ServerConnection | null>(
 // and only reads from localStorage after hydration
 export const isHydratedAtom = atom(false);
 
+// Tracks whether the API client has been initialized
+// This is set to true after initializeClient() is called
+export const isClientInitializedAtom = atom(false);
+
 // Derived atom for checking if connected (only valid after hydration)
 export const isConnectedAtom = atom((get) => {
   const connection = get(serverConnectionAtom);
