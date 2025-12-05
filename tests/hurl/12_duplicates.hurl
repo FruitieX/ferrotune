@@ -39,9 +39,9 @@ Content-Type: application/json
   "full": true
 }
 ```
-HTTP 200
+HTTP 202
 [Asserts]
-jsonpath "$.status" == "ok"
+jsonpath "$.status" == "started"
 
 # Test: Get duplicates after scan still returns valid structure
 GET {{base_url}}/ferrotune/duplicates?u={{username}}&p={{password}}

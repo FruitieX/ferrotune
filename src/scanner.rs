@@ -133,7 +133,7 @@ pub async fn scan_library_with_progress(
         }
 
         tracing::info!("Scanning folder: {} ({})", folder.name, folder.path);
-        scan_folder_with_progress(
+        let folder_result = scan_folder_with_progress(
             pool,
             config,
             folder.id,
@@ -142,7 +142,29 @@ pub async fn scan_library_with_progress(
             dry_run,
             scan_state.clone(),
         )
-        .await?;
+        .await;
+
+        // Update folder scan timestamp/error based on result
+        if !dry_run {
+            match &folder_result {
+                Ok(()) => {
+                    // Update last_scanned_at timestamp on success
+                    if let Err(e) = crate::api::ferrotune::music_folders::update_folder_scan_timestamp(pool, folder.id).await {
+                        tracing::warn!("Failed to update folder scan timestamp: {}", e);
+                    }
+                }
+                Err(e) => {
+                    // Store error message on failure
+                    let error_msg = e.to_string();
+                    if let Err(update_err) = crate::api::ferrotune::music_folders::update_folder_scan_error(pool, folder.id, &error_msg).await {
+                        tracing::warn!("Failed to update folder scan error: {}", update_err);
+                    }
+                }
+            }
+        }
+
+        // Propagate the error if the folder scan failed
+        folder_result?;
     }
 
     // After scanning all folders, detect and resolve hash collisions

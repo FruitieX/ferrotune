@@ -144,6 +144,8 @@ pub struct MusicFolder {
     pub name: String,
     pub path: String,
     pub enabled: bool,
+    pub last_scanned_at: Option<DateTime<Utc>>,
+    pub scan_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
