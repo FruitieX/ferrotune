@@ -19,3 +19,16 @@ export const waveformCacheAtom = atom<Map<string, WaveformData>>(new Map());
 
 // Currently loading track ID (for showing loading state)
 export const loadingWaveformIdAtom = atom<string | null>(null);
+
+// Chunk animation info - tracks which bars were just updated
+// Used for animating new chunk bars from left to right
+export interface ChunkAnimationInfo {
+  // Start index of the bars that were just updated
+  startIndex: number;
+  // End index (exclusive) of the bars that were just updated
+  endIndex: number;
+  // Timestamp when this chunk was received
+  timestamp: number;
+}
+
+export const lastChunkInfoAtom = atom<ChunkAnimationInfo | null>(null);

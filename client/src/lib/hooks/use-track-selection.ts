@@ -13,6 +13,7 @@ import {
   type SelectableItem,
 } from "@/lib/store/selection";
 import { addToQueueAtom } from "@/lib/store/server-queue";
+import { starredItemsAtom } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
 import type { Song, SearchParams } from "@/lib/api/types";
 
@@ -169,6 +170,7 @@ export function useTrackSelection(
   } = useItemSelection(songs, options);
   
   const addToQueue = useSetAtom(addToQueueAtom);
+  const setStarredItems = useSetAtom(starredItemsAtom);
 
   // Get selected songs (type-safe alias)
   // NOTE: This only returns songs that are currently loaded in memory.
@@ -222,13 +224,24 @@ export function useTrackSelection(
           }
           toast.success(`Removed ${ids.length} songs from favorites`);
         }
+        
+        // Update the global starred state so UI reflects the change immediately
+        setStarredItems((current) => {
+          const updated = new Map(current);
+          for (const id of ids) {
+            // Use song: prefix to match the starred store key format
+            updated.set(`song:${id}`, star);
+          }
+          return updated;
+        });
+        
         clearSelection();
       } catch (error) {
         toast.error("Failed to update favorites");
         console.error(error);
       }
     },
-    [selectedIds, clearSelection]
+    [selectedIds, clearSelection, setStarredItems]
   );
 
   return {
