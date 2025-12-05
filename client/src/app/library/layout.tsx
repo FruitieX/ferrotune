@@ -276,16 +276,16 @@ export default function LibraryLayout({
           </div>
         </div>
         
-        {/* Active filter badges */}
-        {(isSongsTab || isAlbumsTab || isArtistsTab) && (
-          <div className="px-4 lg:px-6 pb-2">
+        {/* Active filter badges - reserve space to prevent layout shift */}
+        <div className="px-4 lg:px-6 min-h-2">
+          {(isSongsTab || isAlbumsTab || isArtistsTab) && (
             <ActiveFilterBadges />
-          </div>
-        )}
+          )}
+        </div>
       </header>
 
       {/* Tab Navigation */}
-      <nav className="sticky top-16 z-20 bg-background border-b border-border" aria-label="Library sections">
+      <nav className="sticky top-[73px] z-20 bg-background/80 backdrop-blur-lg border-b border-border" aria-label="Library sections">
         <div className="h-12 flex items-center px-4 lg:px-6 gap-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
