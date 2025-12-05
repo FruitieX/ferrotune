@@ -68,8 +68,9 @@ pub struct AdditionalTagBlock {
 }
 
 /// Request for PATCH /api/songs/:id/tags
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct UpdateTagsRequest {
     /// Tags to set (will overwrite existing values for these keys)
     #[serde(default)]

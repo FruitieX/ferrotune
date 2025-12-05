@@ -660,7 +660,7 @@ function PlaylistDetailContent() {
         <EditPlaylistDialog
           open={editDialogOpen}
           onOpenChange={setEditDialogOpen}
-          playlist={playlist}
+          playlist={{...playlist, comment: playlist.comment ?? undefined}}
         />
       )}
     </div>

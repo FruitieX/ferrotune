@@ -234,7 +234,7 @@ function SongDetails({ song, onDeleted }: { song: Song; onDeleted?: () => void }
             />
           )}
           {/* Play statistics */}
-          {fullSong.playCount !== undefined && fullSong.playCount > 0 && (
+          {(fullSong.playCount ?? 0) > 0 && (
             <DetailRow icon={Play} label="Play Count" value={`${fullSong.playCount} ${fullSong.playCount === 1 ? "play" : "plays"}`} />
           )}
           {fullSong.lastPlayed && (

@@ -80,13 +80,13 @@ export function usePreferencesSync() {
       if (serverPreferences.accentColor) {
         setAccentColor(serverPreferences.accentColor as AccentColor);
       }
-      if (serverPreferences.customAccentHue !== undefined) {
+      if (serverPreferences.customAccentHue !== undefined && serverPreferences.customAccentHue !== null) {
         setCustomHue(serverPreferences.customAccentHue);
       }
-      if (serverPreferences.customAccentLightness !== undefined) {
+      if (serverPreferences.customAccentLightness !== undefined && serverPreferences.customAccentLightness !== null) {
         setCustomLightness(serverPreferences.customAccentLightness);
       }
-      if (serverPreferences.customAccentChroma !== undefined) {
+      if (serverPreferences.customAccentChroma !== undefined && serverPreferences.customAccentChroma !== null) {
         setCustomChroma(serverPreferences.customAccentChroma);
       }
       
@@ -105,9 +105,9 @@ export function usePreferencesSync() {
     
     updateServerPreferences({
       accentColor,
-      customAccentHue: accentColor === "custom" ? customHue : undefined,
-      customAccentLightness: accentColor === "custom" ? customLightness : undefined,
-      customAccentChroma: accentColor === "custom" ? customChroma : undefined,
+      customAccentHue: accentColor === "custom" ? customHue : null,
+      customAccentLightness: accentColor === "custom" ? customLightness : null,
+      customAccentChroma: accentColor === "custom" ? customChroma : null,
     });
   }, [connection, accentColor, customHue, customLightness, customChroma, updateServerPreferences]);
 
@@ -151,9 +151,9 @@ export function useAccentColor() {
       try {
         await client.updatePreferences({
           accentColor: color,
-          customAccentHue: color === "custom" ? hue : undefined,
-          customAccentLightness: color === "custom" ? lightness : undefined,
-          customAccentChroma: color === "custom" ? chroma : undefined,
+          customAccentHue: color === "custom" ? hue ?? null : null,
+          customAccentLightness: color === "custom" ? lightness ?? null : null,
+          customAccentChroma: color === "custom" ? chroma ?? null : null,
         });
       } catch (error) {
         console.warn("Failed to sync preferences to server:", error);

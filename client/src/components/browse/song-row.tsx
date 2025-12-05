@@ -202,7 +202,7 @@ export function SongRow({
       <MediaRow
         coverArt={showCover ? coverArtUrl : undefined}
         title={song.title}
-        colorSeed={song.album}
+        colorSeed={song.album ?? undefined}
         coverType="song"
         isActive={isCurrentTrack}
         isPlaying={isPlaying}
@@ -380,7 +380,7 @@ export function SongCard({ song, queueSongs, queueSource, isSelected, isSelectio
       title={song.title}
       subtitleContent={subtitleContent}
       href={`/library/albums/details?id=${song.albumId}`}
-      colorSeed={song.album}
+      colorSeed={song.album ?? undefined}
       coverType="song"
       onPlay={handlePlay}
       onStar={handleStar}
@@ -424,8 +424,8 @@ export function SongRowCompact({
     <MediaRow
       coverArt={coverArtUrl}
       title={song.title}
-      subtitle={song.artist}
-      colorSeed={song.album}
+      subtitle={song.artist ?? undefined}
+      colorSeed={song.album ?? undefined}
       coverType="song"
       isActive={isCurrentTrack}
       rightContent={

@@ -66,7 +66,7 @@ export default function ArtistsPage() {
   });
 
   // Flatten artists from indexes, filter out artists with 0 albums
-  const allArtists = artistsData?.flatMap((index) => index.artist).filter((a) => a.albumCount > 0) ?? [];
+  const allArtists = artistsData?.flatMap((index) => index.artist).filter((a) => (a.albumCount ?? 0) > 0) ?? [];
   
   // Use search results when filtering or using advanced filters, otherwise use full list
   const displayArtists = (debouncedFilter || hasActiveFilters) ? (searchData ?? []) : allArtists;

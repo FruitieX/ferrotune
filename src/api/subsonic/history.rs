@@ -35,6 +35,7 @@ pub struct PlayHistoryContent {
     pub entry: Vec<PlayHistoryEntry>,
     /// Total count of play history entries
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub total: Option<i64>,
 }
 

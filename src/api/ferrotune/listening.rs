@@ -31,6 +31,7 @@ pub struct LogListeningRequest {
 pub struct LogListeningResponse {
     pub success: bool,
     /// The session ID (for updating in subsequent calls)
+    #[ts(type = "number")]
     pub session_id: i64,
 }
 
@@ -40,10 +41,13 @@ pub struct LogListeningResponse {
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ListeningStats {
     /// Total listening time in seconds
+    #[ts(type = "number")]
     pub total_seconds: i64,
     /// Number of listening sessions
+    #[ts(type = "number")]
     pub session_count: i64,
     /// Number of unique songs listened to
+    #[ts(type = "number")]
     pub unique_songs: i64,
 }
 
