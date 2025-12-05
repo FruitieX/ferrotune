@@ -30,7 +30,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
-import { playNowAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
+import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import type { Artist, Song } from "@/lib/api/types";
 
@@ -64,44 +64,39 @@ async function fetchArtistSongs(artistId: string): Promise<Song[]> {
 }
 
 export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) {
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!artist.starred);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [artistSongs, setArtistSongs] = useState<Song[] | null>(null);
 
-  const getQueueSource = (): QueueSourceInfo => ({
-    type: "artist",
-    id: artist.id,
-    name: artist.name,
-  });
-
-  const handlePlay = async () => {
-    const songs = await fetchArtistSongs(artist.id);
-    if (songs.length > 0) {
-      playNow(songs, 0, getQueueSource());
-      toast.success(`Playing "${artist.name}"`);
-    } else {
-      toast.error("No songs found for this artist");
-    }
+  const handlePlay = () => {
+    startQueue({
+      sourceType: "artist",
+      sourceId: artist.id,
+      sourceName: artist.name,
+      startIndex: 0,
+      shuffle: false,
+    });
+    toast.success(`Playing "${artist.name}"`);
   };
 
-  const handleShuffle = async () => {
-    const songs = await fetchArtistSongs(artist.id);
-    if (songs.length > 0) {
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, getQueueSource());
-      toast.success(`Shuffling "${artist.name}"`);
-    } else {
-      toast.error("No songs found for this artist");
-    }
+  const handleShuffle = () => {
+    startQueue({
+      sourceType: "artist",
+      sourceId: artist.id,
+      sourceName: artist.name,
+      startIndex: 0,
+      shuffle: true,
+    });
+    toast.success(`Shuffling "${artist.name}"`);
   };
 
   const handlePlayNext = async () => {
     const songs = await fetchArtistSongs(artist.id);
     if (songs.length > 0) {
-      addToQueue(songs, "next");
+      addToQueue({ songIds: songs.map(s => s.id), position: "next" });
       toast.success(`Added "${artist.name}" songs to play next`);
     } else {
       toast.error("No songs found for this artist");
@@ -111,7 +106,7 @@ export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) 
   const handleAddToQueue = async () => {
     const songs = await fetchArtistSongs(artist.id);
     if (songs.length > 0) {
-      addToQueue(songs, "last");
+      addToQueue({ songIds: songs.map(s => s.id), position: "end" });
       toast.success(`Added "${artist.name}" songs to queue`);
     } else {
       toast.error("No songs found for this artist");
@@ -215,52 +210,47 @@ interface ArtistDropdownMenuProps {
 }
 
 export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: ArtistDropdownMenuProps) {
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!artist.starred);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [artistSongs, setArtistSongs] = useState<Song[] | null>(null);
 
-  const getQueueSource = (): QueueSourceInfo => ({
-    type: "artist",
-    id: artist.id,
-    name: artist.name,
-  });
-
-  const handlePlay = async () => {
+  const handlePlay = () => {
     if (onPlay) {
       onPlay();
     } else {
-      const songs = await fetchArtistSongs(artist.id);
-      if (songs.length > 0) {
-        playNow(songs, 0, getQueueSource());
-        toast.success(`Playing "${artist.name}"`);
-      } else {
-        toast.error("No songs found for this artist");
-      }
+      startQueue({
+        sourceType: "artist",
+        sourceId: artist.id,
+        sourceName: artist.name,
+        startIndex: 0,
+        shuffle: false,
+      });
+      toast.success(`Playing "${artist.name}"`);
     }
   };
 
-  const handleShuffle = async () => {
+  const handleShuffle = () => {
     if (onShuffle) {
       onShuffle();
     } else {
-      const songs = await fetchArtistSongs(artist.id);
-      if (songs.length > 0) {
-        const shuffled = [...songs].sort(() => Math.random() - 0.5);
-        playNow(shuffled, 0, getQueueSource());
-        toast.success(`Shuffling "${artist.name}"`);
-      } else {
-        toast.error("No songs found for this artist");
-      }
+      startQueue({
+        sourceType: "artist",
+        sourceId: artist.id,
+        sourceName: artist.name,
+        startIndex: 0,
+        shuffle: true,
+      });
+      toast.success(`Shuffling "${artist.name}"`);
     }
   };
 
   const handlePlayNext = async () => {
     const songs = await fetchArtistSongs(artist.id);
     if (songs.length > 0) {
-      addToQueue(songs, "next");
+      addToQueue({ songIds: songs.map(s => s.id), position: "next" });
       toast.success(`Added "${artist.name}" songs to play next`);
     } else {
       toast.error("No songs found for this artist");
@@ -270,7 +260,7 @@ export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: Artis
   const handleAddToQueue = async () => {
     const songs = await fetchArtistSongs(artist.id);
     if (songs.length > 0) {
-      addToQueue(songs, "last");
+      addToQueue({ songIds: songs.map(s => s.id), position: "end" });
       toast.success(`Added "${artist.name}" songs to queue`);
     } else {
       toast.error("No songs found for this artist");

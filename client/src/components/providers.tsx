@@ -7,7 +7,6 @@ import { Toaster } from "@/components/ui/sonner";
 import { useState, useEffect, Suspense } from "react";
 import { useAudioEngineInit, useMediaSession } from "@/lib/audio/hooks";
 import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
-import { useQueuePersistence } from "@/lib/hooks/use-queue-persistence";
 import { useDocumentTitle } from "@/lib/hooks/use-document-title";
 import { usePreferencesSync } from "@/lib/hooks/use-preferences-sync";
 import { useClearSelectionOnNavigate } from "@/lib/hooks/use-clear-selection-on-navigate";
@@ -26,7 +25,6 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   useAudioEngineInit();
   useMediaSession();
   useKeyboardShortcuts();
-  useQueuePersistence();
   useDocumentTitle();
   usePreferencesSync(); // Load and sync user preferences from server
   return <>{children}</>;

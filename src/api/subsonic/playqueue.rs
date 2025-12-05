@@ -51,13 +51,15 @@ pub struct PlayQueueContent {
 }
 
 /// GET /rest/savePlayQueue - Save the current play queue
+///
+/// This is the OpenSubsonic-compatible endpoint. It saves the queue using
+/// the new server-side queue schema but maintains API compatibility.
 pub async fn save_play_queue(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
     QsQuery(params): QsQuery<SavePlayQueueParams>,
 ) -> Result<impl axum::response::IntoResponse> {
-    // Use a transaction to ensure atomicity and prevent race conditions
-    // that could cause UNIQUE constraint violations on (user_id, queue_position)
+    // Use a transaction to ensure atomicity
     let mut tx = state.pool.begin().await?;
 
     // Delete existing queue entries for this user
@@ -78,20 +80,33 @@ pub async fn save_play_queue(
         .await?;
     }
 
-    // Upsert the queue metadata
+    // Find current index from current song ID
+    let current_index = params
+        .current
+        .as_ref()
+        .and_then(|current_id| {
+            params
+                .id
+                .iter()
+                .position(|id| id == current_id)
+                .map(|i| i as i64)
+        })
+        .unwrap_or(0);
+
+    // Upsert the queue metadata using new schema
     sqlx::query(
-        "INSERT INTO play_queues (user_id, current_song_id, position, changed_at, changed_by)
-         VALUES (?, ?, ?, ?, ?)
+        "INSERT INTO play_queues (user_id, source_type, current_index, position_ms, 
+         is_shuffled, repeat_mode, created_at, updated_at, changed_by)
+         VALUES (?, 'other', ?, ?, 0, 'off', datetime('now'), datetime('now'), ?)
          ON CONFLICT(user_id) DO UPDATE SET
-            current_song_id = excluded.current_song_id,
-            position = excluded.position,
-            changed_at = excluded.changed_at,
+            current_index = excluded.current_index,
+            position_ms = excluded.position_ms,
+            updated_at = datetime('now'),
             changed_by = excluded.changed_by",
     )
     .bind(user.user_id)
-    .bind(&params.current)
+    .bind(current_index)
     .bind(params.position.unwrap_or(0))
-    .bind(Utc::now())
     .bind(&user.client)
     .execute(&mut *tx)
     .await?;
@@ -102,13 +117,16 @@ pub async fn save_play_queue(
 }
 
 /// GET /rest/getPlayQueue - Get the saved play queue
+///
+/// This is the OpenSubsonic-compatible endpoint. It reads from the new
+/// server-side queue schema but returns data in the OpenSubsonic format.
 pub async fn get_play_queue(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> Result<FormatResponse<PlayQueueResponse>> {
-    // Get queue metadata
-    let queue_meta: Option<(Option<String>, i64, chrono::DateTime<Utc>, String)> = sqlx::query_as(
-        "SELECT current_song_id, position, changed_at, changed_by FROM play_queues WHERE user_id = ?",
+    // Get queue metadata from new schema
+    let queue_meta: Option<(i64, i64, chrono::DateTime<Utc>, String)> = sqlx::query_as(
+        "SELECT current_index, position_ms, updated_at, changed_by FROM play_queues WHERE user_id = ?",
     )
     .bind(user.user_id)
     .fetch_optional(&state.pool)
@@ -134,24 +152,32 @@ pub async fn get_play_queue(
     let ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
 
     let song_responses: Vec<crate::api::subsonic::browse::SongResponse> = songs
-        .into_iter()
+        .iter()
         .map(|song| {
             let starred = starred_map.get(&song.id).cloned();
             let user_rating = ratings_map.get(&song.id).copied();
-            song_to_response(song, None, starred, user_rating)
+            song_to_response(song.clone(), None, starred, user_rating)
         })
         .collect();
 
-    let (current, position, changed, changed_by) = queue_meta
-        .map(|(cur, pos, changed, by)| {
+    // Convert from new schema to OpenSubsonic format
+    let (current, position, changed, changed_by) =
+        if let Some((current_index, position_ms, updated_at, by)) = queue_meta {
+            // Get the current song ID from the queue entries
+            let current_song_id = if (current_index as usize) < songs.len() {
+                Some(songs[current_index as usize].id.clone())
+            } else {
+                None
+            };
             (
-                cur,
-                Some(pos),
-                Some(changed.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+                current_song_id,
+                Some(position_ms),
+                Some(updated_at.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
                 Some(by),
             )
-        })
-        .unwrap_or((None, None, None, None));
+        } else {
+            (None, None, None, None)
+        };
 
     let response = PlayQueueResponse {
         play_queue: PlayQueueContent {

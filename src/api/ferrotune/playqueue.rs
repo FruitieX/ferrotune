@@ -8,7 +8,6 @@ use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::AppState;
 use crate::error::Result;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
@@ -36,6 +35,9 @@ pub struct SavePlayQueueResponse {
 ///
 /// Uses JSON body instead of query parameters for better handling of large queues.
 /// This is an alternative to the OpenSubsonic savePlayQueue endpoint.
+///
+/// Note: This endpoint uses the new server-side queue schema but maintains
+/// compatibility with the legacy API format.
 pub async fn save_play_queue(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
@@ -62,20 +64,25 @@ pub async fn save_play_queue(
         .await?;
     }
 
-    // Upsert the queue metadata
+    // Find current index from current song ID
+    let current_index = request.current.as_ref().and_then(|current_id| {
+        request.song_ids.iter().position(|id| id == current_id).map(|i| i as i64)
+    }).unwrap_or(0);
+
+    // Upsert the queue metadata using new schema
     sqlx::query(
-        "INSERT INTO play_queues (user_id, current_song_id, position, changed_at, changed_by)
-         VALUES (?, ?, ?, ?, ?)
+        "INSERT INTO play_queues (user_id, source_type, current_index, position_ms, 
+         is_shuffled, repeat_mode, created_at, updated_at, changed_by)
+         VALUES (?, 'other', ?, ?, 0, 'off', datetime('now'), datetime('now'), ?)
          ON CONFLICT(user_id) DO UPDATE SET
-            current_song_id = excluded.current_song_id,
-            position = excluded.position,
-            changed_at = excluded.changed_at,
+            current_index = excluded.current_index,
+            position_ms = excluded.position_ms,
+            updated_at = datetime('now'),
             changed_by = excluded.changed_by",
     )
     .bind(user.user_id)
-    .bind(&request.current)
+    .bind(current_index)
     .bind(request.position.unwrap_or(0))
-    .bind(Utc::now())
     .bind(&user.client)
     .execute(&mut *tx)
     .await?;

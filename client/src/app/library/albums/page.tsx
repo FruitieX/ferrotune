@@ -10,7 +10,7 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useItemSelection } from "@/lib/hooks/use-track-selection";
 import { albumViewModeAtom, libraryFilterAtom, librarySortAtom, advancedFiltersAtom, hasActiveFiltersAtom } from "@/lib/store/ui";
-import { playNowAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
+import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { AlbumCard, AlbumCardSkeleton, AlbumCardCompact } from "@/components/browse/album-card";
 import { MediaRowSkeleton } from "@/components/shared/media-row";
@@ -28,7 +28,7 @@ export default function AlbumsPage() {
   const advancedFilters = useAtomValue(advancedFiltersAtom);
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
   const debouncedFilter = useDebounce(filter, 300);
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   
   // Virtualized scroll restoration
@@ -142,7 +142,11 @@ export default function AlbumsPage() {
   const handlePlaySelected = async () => {
     const songs = await getSelectedAlbumsSongs();
     if (songs.length > 0) {
-      playNow(songs, 0, { type: "library", name: "Library" });
+      startQueue({
+        sourceType: "library",
+        sourceName: "Library",
+        songIds: songs.map(s => s.id),
+      });
       clearSelection();
       toast.success(`Playing ${songs.length} songs from ${selectedCount} albums`);
     }
@@ -151,20 +155,21 @@ export default function AlbumsPage() {
   const handleShuffleSelected = async () => {
     const songs = await getSelectedAlbumsSongs();
     if (songs.length > 0) {
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, { type: "library", name: "Library" });
+      startQueue({
+        sourceType: "library",
+        sourceName: "Library",
+        songIds: songs.map(s => s.id),
+        shuffle: true,
+      });
       clearSelection();
       toast.success(`Shuffling ${songs.length} songs from ${selectedCount} albums`);
     }
   };
 
   const handleAddSelectedToQueue = async (position: "next" | "last") => {
-    const client = getClient();
-    if (!client) return;
-    
     const songs = await getSelectedAlbumsSongs();
     if (songs.length > 0) {
-      songs.forEach(song => addToQueue(song, position));
+      addToQueue({ songIds: songs.map(s => s.id), position: position === "last" ? "end" : position });
       clearSelection();
       toast.success(`Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`);
     }
@@ -192,17 +197,11 @@ export default function AlbumsPage() {
 
   // Play album handler
   const handlePlayAlbum = async (album: Album) => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      const response = await client.getAlbum(album.id);
-      if (response.album.song?.length > 0) {
-        playNow(response.album.song, 0, { type: "album", id: album.id, name: album.name });
-      }
-    } catch (error) {
-      console.error("Failed to play album:", error);
-    }
+    startQueue({
+      sourceType: "album",
+      sourceId: album.id,
+      sourceName: album.name,
+    });
   };
 
   if (authLoading) {

@@ -205,3 +205,159 @@ pub struct UserPreferences {
     pub preferences_json: String,
     pub updated_at: DateTime<Utc>,
 }
+
+/// Queue source type - determines where the queue came from
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum QueueSourceType {
+    Library,
+    Album,
+    Artist,
+    Playlist,
+    Genre,
+    Search,
+    Favorites,
+    History,
+    #[default]
+    Other,
+}
+
+impl QueueSourceType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            QueueSourceType::Library => "library",
+            QueueSourceType::Album => "album",
+            QueueSourceType::Artist => "artist",
+            QueueSourceType::Playlist => "playlist",
+            QueueSourceType::Genre => "genre",
+            QueueSourceType::Search => "search",
+            QueueSourceType::Favorites => "favorites",
+            QueueSourceType::History => "history",
+            QueueSourceType::Other => "other",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "library" => QueueSourceType::Library,
+            "album" => QueueSourceType::Album,
+            "artist" => QueueSourceType::Artist,
+            "playlist" => QueueSourceType::Playlist,
+            "genre" => QueueSourceType::Genre,
+            "search" => QueueSourceType::Search,
+            "favorites" => QueueSourceType::Favorites,
+            "history" => QueueSourceType::History,
+            _ => QueueSourceType::Other,
+        }
+    }
+}
+
+/// Repeat mode for queue playback
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RepeatMode {
+    #[default]
+    Off,
+    All,
+    One,
+}
+
+impl RepeatMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RepeatMode::Off => "off",
+            RepeatMode::All => "all",
+            RepeatMode::One => "one",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "all" => RepeatMode::All,
+            "one" => RepeatMode::One,
+            _ => RepeatMode::Off,
+        }
+    }
+}
+
+/// Server-side play queue state
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PlayQueue {
+    pub user_id: i64,
+    pub source_type: String,
+    pub source_id: Option<String>,
+    pub source_name: Option<String>,
+    pub current_index: i64,
+    pub position_ms: i64,
+    pub is_shuffled: bool,
+    pub shuffle_seed: Option<i64>,
+    pub shuffle_indices_json: Option<String>,
+    pub repeat_mode: String,
+    pub filters_json: Option<String>,
+    pub sort_json: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub changed_by: String,
+}
+
+impl PlayQueue {
+    /// Get the source type as an enum
+    pub fn source_type_enum(&self) -> QueueSourceType {
+        QueueSourceType::from_str(&self.source_type)
+    }
+
+    /// Get the repeat mode as an enum
+    pub fn repeat_mode_enum(&self) -> RepeatMode {
+        RepeatMode::from_str(&self.repeat_mode)
+    }
+
+    /// Parse shuffle indices from JSON
+    pub fn shuffle_indices(&self) -> Option<Vec<usize>> {
+        self.shuffle_indices_json
+            .as_ref()
+            .and_then(|json| serde_json::from_str(json).ok())
+    }
+}
+
+/// Queue entry - a song in the queue at a specific position
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PlayQueueEntry {
+    pub user_id: i64,
+    pub song_id: String,
+    pub queue_position: i64,
+    /// Unique identifier for this queue entry (allows same song multiple times)
+    pub entry_id: String,
+}
+
+/// Queue entry with full song data - for API responses
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct QueueEntryWithSong {
+    /// Unique identifier for this queue entry
+    pub entry_id: String,
+    /// Position in the queue
+    pub queue_position: i64,
+    /// Song ID
+    pub id: String,
+    pub title: String,
+    pub album_id: Option<String>,
+    pub album_name: Option<String>,
+    pub artist_id: String,
+    pub artist_name: String,
+    pub track_number: Option<i32>,
+    pub disc_number: i32,
+    pub year: Option<i32>,
+    pub genre: Option<String>,
+    pub duration: i64,
+    pub bitrate: Option<i32>,
+    pub file_path: String,
+    pub file_size: i64,
+    pub file_format: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    #[sqlx(default)]
+    pub play_count: Option<i64>,
+    #[sqlx(default)]
+    pub last_played: Option<DateTime<Utc>>,
+    #[sqlx(default)]
+    pub starred_at: Option<DateTime<Utc>>,
+}

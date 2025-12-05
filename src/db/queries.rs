@@ -1,7 +1,11 @@
 use crate::db::models::*;
 use sqlx::SqlitePool;
+use uuid::Uuid;
 
+// ============================================================================
 // User queries
+// ============================================================================
+
 pub async fn get_user_by_username(pool: &SqlitePool, username: &str) -> sqlx::Result<Option<User>> {
     sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = ?")
         .bind(username)
@@ -190,6 +194,44 @@ pub async fn get_song_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<
     .bind(id)
     .fetch_optional(pool)
     .await
+}
+
+/// Get songs by a list of IDs, maintaining the order of the input IDs
+pub async fn get_songs_by_ids(pool: &SqlitePool, ids: &[String]) -> sqlx::Result<Vec<Song>> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Build the placeholder string for the IN clause
+    let placeholders: Vec<&str> = ids.iter().map(|_| "?").collect();
+    let placeholder_str = placeholders.join(", ");
+
+    let query = format!(
+        "SELECT s.*, ar.name as artist_name, al.name as album_name 
+         FROM songs s
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         WHERE s.id IN ({})",
+        placeholder_str
+    );
+
+    let mut query_builder = sqlx::query_as::<_, Song>(&query);
+    for id in ids {
+        query_builder = query_builder.bind(id);
+    }
+
+    let songs: Vec<Song> = query_builder.fetch_all(pool).await?;
+
+    // Reorder songs to match the input ID order
+    // Create a lookup map from id -> song
+    let song_map: std::collections::HashMap<String, Song> =
+        songs.into_iter().map(|s| (s.id.clone(), s)).collect();
+
+    // Return songs in the order of the input IDs
+    Ok(ids
+        .iter()
+        .filter_map(|id| song_map.get(id).cloned())
+        .collect())
 }
 
 /// Get a song by ID with its music folder path for full filesystem path construction
@@ -512,4 +554,491 @@ pub async fn delete_song(pool: &SqlitePool, id: &str) -> sqlx::Result<bool> {
     .await?;
 
     Ok(true)
+}
+
+// ============================================================================
+// Play Queue queries (server-side queue management)
+// ============================================================================
+
+/// Get the current play queue for a user
+pub async fn get_play_queue(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Option<PlayQueue>> {
+    sqlx::query_as::<_, PlayQueue>("SELECT * FROM play_queues WHERE user_id = ?")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+}
+
+/// Get the total number of songs in a user's queue
+pub async fn get_queue_length(pool: &SqlitePool, user_id: i64) -> sqlx::Result<i64> {
+    let result: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM play_queue_entries WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?;
+    Ok(result.0)
+}
+
+/// Get queue entries with pagination (returns songs in queue order)
+pub async fn get_queue_entries_paginated(
+    pool: &SqlitePool,
+    user_id: i64,
+    offset: i64,
+    limit: i64,
+) -> sqlx::Result<Vec<Song>> {
+    sqlx::query_as::<_, Song>(
+        "SELECT s.*, ar.name as artist_name, al.name as album_name
+         FROM play_queue_entries pqe
+         INNER JOIN songs s ON pqe.song_id = s.id
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         WHERE pqe.user_id = ?
+         ORDER BY pqe.queue_position ASC
+         LIMIT ? OFFSET ?",
+    )
+    .bind(user_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+}
+
+/// Get queue entries with full song data including entry_id (for API responses)
+pub async fn get_queue_entries_with_songs(
+    pool: &SqlitePool,
+    user_id: i64,
+) -> sqlx::Result<Vec<QueueEntryWithSong>> {
+    sqlx::query_as::<_, QueueEntryWithSong>(
+        "SELECT pqe.entry_id, pqe.queue_position, s.*, ar.name as artist_name, al.name as album_name
+         FROM play_queue_entries pqe
+         INNER JOIN songs s ON pqe.song_id = s.id
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         WHERE pqe.user_id = ?
+         ORDER BY pqe.queue_position ASC",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// Get all song IDs in queue order (for shuffle operations)
+pub async fn get_queue_song_ids(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<String>> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT song_id FROM play_queue_entries WHERE user_id = ? ORDER BY queue_position",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
+}
+
+/// Create or replace the play queue for a user
+pub async fn create_queue(
+    pool: &SqlitePool,
+    user_id: i64,
+    source_type: &str,
+    source_id: Option<&str>,
+    source_name: Option<&str>,
+    song_ids: &[String],
+    current_index: i64,
+    is_shuffled: bool,
+    shuffle_seed: Option<i64>,
+    shuffle_indices_json: Option<&str>,
+    repeat_mode: &str,
+    filters_json: Option<&str>,
+    sort_json: Option<&str>,
+    changed_by: &str,
+) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
+
+    // Delete existing queue entries
+    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // Insert new queue entries
+    for (position, song_id) in song_ids.iter().enumerate() {
+        let entry_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO play_queue_entries (user_id, song_id, queue_position, entry_id) VALUES (?, ?, ?, ?)",
+        )
+        .bind(user_id)
+        .bind(song_id)
+        .bind(position as i64)
+        .bind(&entry_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Upsert queue metadata
+    sqlx::query(
+        "INSERT INTO play_queues (user_id, source_type, source_id, source_name, current_index, 
+         position_ms, is_shuffled, shuffle_seed, shuffle_indices_json, repeat_mode,
+         filters_json, sort_json, created_at, updated_at, changed_by)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)
+         ON CONFLICT(user_id) DO UPDATE SET
+           source_type = excluded.source_type,
+           source_id = excluded.source_id,
+           source_name = excluded.source_name,
+           current_index = excluded.current_index,
+           position_ms = 0,
+           is_shuffled = excluded.is_shuffled,
+           shuffle_seed = excluded.shuffle_seed,
+           shuffle_indices_json = excluded.shuffle_indices_json,
+           repeat_mode = excluded.repeat_mode,
+           filters_json = excluded.filters_json,
+           sort_json = excluded.sort_json,
+           updated_at = datetime('now'),
+           changed_by = excluded.changed_by",
+    )
+    .bind(user_id)
+    .bind(source_type)
+    .bind(source_id)
+    .bind(source_name)
+    .bind(current_index)
+    .bind(is_shuffled)
+    .bind(shuffle_seed)
+    .bind(shuffle_indices_json)
+    .bind(repeat_mode)
+    .bind(filters_json)
+    .bind(sort_json)
+    .bind(changed_by)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Update queue current position
+pub async fn update_queue_position(
+    pool: &SqlitePool,
+    user_id: i64,
+    current_index: i64,
+    position_ms: i64,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query(
+        "UPDATE play_queues SET current_index = ?, position_ms = ?, updated_at = datetime('now')
+         WHERE user_id = ?",
+    )
+    .bind(current_index)
+    .bind(position_ms)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Update queue shuffle state
+pub async fn update_queue_shuffle(
+    pool: &SqlitePool,
+    user_id: i64,
+    is_shuffled: bool,
+    shuffle_seed: Option<i64>,
+    shuffle_indices_json: Option<&str>,
+    current_index: i64,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query(
+        "UPDATE play_queues SET 
+         is_shuffled = ?, shuffle_seed = ?, shuffle_indices_json = ?, 
+         current_index = ?, updated_at = datetime('now')
+         WHERE user_id = ?",
+    )
+    .bind(is_shuffled)
+    .bind(shuffle_seed)
+    .bind(shuffle_indices_json)
+    .bind(current_index)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Update queue repeat mode
+pub async fn update_queue_repeat_mode(
+    pool: &SqlitePool,
+    user_id: i64,
+    repeat_mode: &str,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query(
+        "UPDATE play_queues SET repeat_mode = ?, updated_at = datetime('now') WHERE user_id = ?",
+    )
+    .bind(repeat_mode)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Add songs to queue at a specific position
+/// Returns the new queue length
+pub async fn add_to_queue(
+    pool: &SqlitePool,
+    user_id: i64,
+    song_ids: &[String],
+    position: i64, // -1 means end, 0+ means insert at that position
+) -> sqlx::Result<i64> {
+    if song_ids.is_empty() {
+        return get_queue_length(pool, user_id).await;
+    }
+
+    let mut tx = pool.begin().await?;
+
+    // Get current queue length
+    let (queue_len,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM play_queue_entries WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+    // Determine insert position
+    let insert_pos = if position < 0 { queue_len } else { position };
+
+    // Shift existing entries if inserting in the middle
+    if insert_pos < queue_len {
+        sqlx::query(
+            "UPDATE play_queue_entries 
+             SET queue_position = queue_position + ? 
+             WHERE user_id = ? AND queue_position >= ?",
+        )
+        .bind(song_ids.len() as i64)
+        .bind(user_id)
+        .bind(insert_pos)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Insert new entries
+    for (i, song_id) in song_ids.iter().enumerate() {
+        let entry_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO play_queue_entries (user_id, song_id, queue_position, entry_id) VALUES (?, ?, ?, ?)",
+        )
+        .bind(user_id)
+        .bind(song_id)
+        .bind(insert_pos + i as i64)
+        .bind(&entry_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Update queue timestamp
+    sqlx::query("UPDATE play_queues SET updated_at = datetime('now') WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    Ok(queue_len + song_ids.len() as i64)
+}
+
+/// Remove a song from queue at a specific position
+/// Returns true if successful, adjusts subsequent positions
+pub async fn remove_from_queue(
+    pool: &SqlitePool,
+    user_id: i64,
+    position: i64,
+) -> sqlx::Result<bool> {
+    let mut tx = pool.begin().await?;
+
+    // Delete the entry at the specified position
+    let result =
+        sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ? AND queue_position = ?")
+            .bind(user_id)
+            .bind(position)
+            .execute(&mut *tx)
+            .await?;
+
+    if result.rows_affected() == 0 {
+        return Ok(false);
+    }
+
+    // Shift subsequent entries down
+    sqlx::query(
+        "UPDATE play_queue_entries 
+         SET queue_position = queue_position - 1 
+         WHERE user_id = ? AND queue_position > ?",
+    )
+    .bind(user_id)
+    .bind(position)
+    .execute(&mut *tx)
+    .await?;
+
+    // Update queue timestamp
+    sqlx::query("UPDATE play_queues SET updated_at = datetime('now') WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(true)
+}
+
+/// Move a song from one position to another in the queue
+pub async fn move_in_queue(
+    pool: &SqlitePool,
+    user_id: i64,
+    from_position: i64,
+    to_position: i64,
+) -> sqlx::Result<bool> {
+    if from_position == to_position {
+        return Ok(true);
+    }
+
+    let mut tx = pool.begin().await?;
+
+    // Check if from_position exists
+    let exists: Option<(i64,)> =
+        sqlx::query_as("SELECT 1 FROM play_queue_entries WHERE user_id = ? AND queue_position = ?")
+            .bind(user_id)
+            .bind(from_position)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    if exists.is_none() {
+        return Ok(false);
+    }
+
+    // Use a temporary negative position to avoid UNIQUE constraint conflicts during shift
+    // We move the entry to a temporary position, shift others, then move it to final position
+    let temp_position = -1i64;
+
+    // Move the entry to temporary position
+    sqlx::query(
+        "UPDATE play_queue_entries SET queue_position = ? WHERE user_id = ? AND queue_position = ?",
+    )
+    .bind(temp_position)
+    .bind(user_id)
+    .bind(from_position)
+    .execute(&mut *tx)
+    .await?;
+
+    // Shift entries between from and to
+    if from_position < to_position {
+        // Moving down: shift entries up (decrement)
+        // Process from lowest to highest to avoid conflicts
+        sqlx::query(
+            "UPDATE play_queue_entries 
+             SET queue_position = queue_position - 1 
+             WHERE user_id = ? AND queue_position > ? AND queue_position <= ?",
+        )
+        .bind(user_id)
+        .bind(from_position)
+        .bind(to_position)
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        // Moving up: shift entries down (increment)
+        // Process from highest to lowest to avoid conflicts
+        // We need to iterate manually to ensure ordering
+        let positions: Vec<(i64,)> = sqlx::query_as(
+            "SELECT queue_position FROM play_queue_entries 
+             WHERE user_id = ? AND queue_position >= ? AND queue_position < ?
+             ORDER BY queue_position DESC",
+        )
+        .bind(user_id)
+        .bind(to_position)
+        .bind(from_position)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        for (pos,) in positions {
+            sqlx::query(
+                "UPDATE play_queue_entries 
+                 SET queue_position = queue_position + 1 
+                 WHERE user_id = ? AND queue_position = ?",
+            )
+            .bind(user_id)
+            .bind(pos)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    // Move the entry from temporary position to final position
+    sqlx::query(
+        "UPDATE play_queue_entries SET queue_position = ? WHERE user_id = ? AND queue_position = ?",
+    )
+    .bind(to_position)
+    .bind(user_id)
+    .bind(temp_position)
+    .execute(&mut *tx)
+    .await?;
+
+    // Update queue timestamp
+    sqlx::query("UPDATE play_queues SET updated_at = datetime('now') WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(true)
+}
+
+/// Clear the entire queue for a user
+pub async fn clear_queue(pool: &SqlitePool, user_id: i64) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query("DELETE FROM play_queues WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+// ============================================================================
+// Queue source materialization helpers
+// ============================================================================
+
+/// Get all songs from the library (all songs)
+pub async fn get_all_songs(pool: &SqlitePool) -> sqlx::Result<Vec<Song>> {
+    sqlx::query_as::<_, Song>(
+        "SELECT s.*, ar.name as artist_name, al.name as album_name 
+         FROM songs s
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         ORDER BY s.title COLLATE NOCASE",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Get starred songs for a user
+pub async fn get_starred_songs(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<Song>> {
+    sqlx::query_as::<_, Song>(
+        "SELECT s.*, ar.name as artist_name, al.name as album_name 
+         FROM songs s
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         INNER JOIN starred st ON st.item_id = s.id AND st.item_type = 'song'
+         WHERE st.user_id = ?
+         ORDER BY st.starred_at DESC",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// Get songs by genre
+pub async fn get_songs_by_genre(pool: &SqlitePool, genre: &str) -> sqlx::Result<Vec<Song>> {
+    sqlx::query_as::<_, Song>(
+        "SELECT s.*, ar.name as artist_name, al.name as album_name 
+         FROM songs s
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         WHERE s.genre = ?
+         ORDER BY s.title COLLATE NOCASE",
+    )
+    .bind(genre)
+    .fetch_all(pool)
+    .await
 }

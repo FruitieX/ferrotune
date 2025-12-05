@@ -3,7 +3,7 @@
 import { Music } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
-import { SongRow, SongRowSkeleton } from "./song-row";
+import { SongRow, SongRowSkeleton, type QueueSource } from "./song-row";
 
 interface TrackListProps {
   songs: Song[];
@@ -14,6 +14,8 @@ interface TrackListProps {
   showHeader?: boolean;
   emptyMessage?: string;
   className?: string;
+  // Queue source for playing the list
+  queueSource?: QueueSource;
   // Selection props
   isSelected?: (id: string) => boolean;
   isSelectionMode?: boolean;
@@ -33,6 +35,7 @@ export function TrackList({
   showHeader = true,
   emptyMessage = "No tracks",
   className,
+  queueSource,
   isSelected,
   isSelectionMode,
   onSelect,
@@ -72,6 +75,7 @@ export function TrackList({
             showAlbum={showAlbum}
             showArtist={showArtist}
             queueSongs={songs}
+            queueSource={queueSource}
             isSelected={isSelected?.(song.id)}
             isSelectionMode={isSelectionMode}
             onSelect={onSelect ? (e) => onSelect(song.id, e) : undefined}

@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useAtomValue } from "jotai";
 import { cn } from "@/lib/utils";
 import { currentTimeAtom, durationAtom, playbackStateAtom, bufferedAtom } from "@/lib/store/player";
-import { currentTrackAtom } from "@/lib/store/queue";
+import { currentSongAtom } from "@/lib/store/server-queue";
 import { accentColorRgbAtom } from "@/lib/store/ui";
 import { useAudioEngine, getGlobalAudio } from "@/lib/audio/hooks";
 import { useWaveform } from "@/lib/hooks/use-waveform";
@@ -25,7 +25,7 @@ const ANIMATION_DURATION_MS = 600;
 const ANIMATION_STAGGER_MS = 3; // Stagger per bar
 
 export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
-  const currentTrack = useAtomValue(currentTrackAtom);
+  const currentTrack = useAtomValue(currentSongAtom);
   const currentTime = useAtomValue(currentTimeAtom);
   const duration = useAtomValue(durationAtom);
   const playbackState = useAtomValue(playbackStateAtom);

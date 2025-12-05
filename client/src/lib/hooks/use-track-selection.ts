@@ -12,7 +12,7 @@ import {
   selectedCountAtom,
   type SelectableItem,
 } from "@/lib/store/selection";
-import { addToQueueAtom } from "@/lib/store/queue";
+import { addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 
@@ -112,13 +112,11 @@ export function useTrackSelection(songs: Song[]) {
 
   // Bulk action handlers
   const addSelectedToQueue = useCallback(
-    (position: "next" | "last" = "last") => {
+    (position: "next" | "end" = "end") => {
       const selected = getSelectedSongs();
       if (selected.length === 0) return;
 
-      selected.forEach((song) => {
-        addToQueue(song, position);
-      });
+      addToQueue({ songIds: selected.map(s => s.id), position });
 
       toast.success(
         position === "next"

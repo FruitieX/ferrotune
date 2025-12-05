@@ -1,6 +1,6 @@
 "use client";
 
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useTheme } from "next-themes";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -36,8 +36,7 @@ import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useAccentColor } from "@/lib/hooks/use-preferences-sync";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { volumeAtom, repeatModeAtom } from "@/lib/store/player";
-import { isShuffledAtom } from "@/lib/store/queue";
-import { clearQueueAtom } from "@/lib/store/queue";
+import { serverQueueStateAtom, toggleShuffleAtom, clearQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { 
   ACCENT_PRESETS,
@@ -89,9 +88,13 @@ export default function SettingsPage() {
   const [volume, setVolume] = useAtom(volumeAtom);
   const [progressBarStyle, setProgressBarStyle] = useAtom(progressBarStyleAtom);
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
-  const [isShuffled, setIsShuffled] = useAtom(isShuffledAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
+  const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
   const { theme, setTheme } = useTheme();
+  
+  // Derive shuffle state from server queue state
+  const isShuffled = queueState?.isShuffled ?? false;
   
   // Fetch server stats
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -506,7 +509,7 @@ export default function SettingsPage() {
                 </label>
                 <Switch
                   checked={isShuffled}
-                  onCheckedChange={setIsShuffled}
+                  onCheckedChange={() => toggleShuffle()}
                 />
               </div>
             </CardContent>

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { waveformCacheAtom, loadingWaveformIdAtom, WAVEFORM_BAR_COUNT, FLAT_BAR_HEIGHT } from "@/lib/store/waveform";
-import { currentTrackAtom } from "@/lib/store/queue";
+import { currentSongAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 
 interface WaveformChunk {
@@ -51,7 +51,7 @@ function normalizeRmsToHeights(rmsValues: number[]): number[] {
  * Fetches waveform data from the server using SSE streaming.
  */
 export function useWaveform() {
-  const currentTrack = useAtomValue(currentTrackAtom);
+  const currentTrack = useAtomValue(currentSongAtom);
   const [waveformCache, setWaveformCache] = useAtom(waveformCacheAtom);
   const [loadingId, setLoadingId] = useAtom(loadingWaveformIdAtom);
   const [streamingHeights, setStreamingHeights] = useState<number[] | null>(null);

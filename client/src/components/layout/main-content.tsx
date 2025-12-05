@@ -40,10 +40,12 @@ export function MainContent({ children }: MainContentProps) {
 
   // CSS variables are set by the init script in layout.tsx head
   // so we can use them directly in className without worrying about flash
+  // Note: Queue sidebar uses shrink-0 in flex layout, so we don't need margin-right
+  // The sidebar component takes up space directly in the flex container
   return (
     <main 
       id="main-scroll-container"
-      className="flex-1 overflow-y-auto overflow-x-hidden transition-[margin] duration-200 lg:ml-[var(--sidebar-width)] xl:mr-[var(--queue-sidebar-width)]"
+      className="flex-1 overflow-y-auto overflow-x-hidden transition-[margin] duration-200 lg:ml-[var(--sidebar-width)]"
     >
       {children}
     </main>

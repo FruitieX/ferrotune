@@ -4,7 +4,7 @@ import { useCallback, useRef, useEffect, useState } from "react";
 import { useAtomValue } from "jotai";
 import { cn } from "@/lib/utils";
 import { currentTimeAtom, durationAtom, playbackStateAtom, bufferedAtom } from "@/lib/store/player";
-import { currentTrackAtom } from "@/lib/store/queue";
+import { currentSongAtom } from "@/lib/store/server-queue";
 import { accentColorRgbAtom } from "@/lib/store/ui";
 import { useAudioEngine, getGlobalAudio } from "@/lib/audio/hooks";
 
@@ -13,7 +13,7 @@ interface SimpleProgressBarProps {
 }
 
 export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
-  const currentTrack = useAtomValue(currentTrackAtom);
+  const currentTrack = useAtomValue(currentSongAtom);
   const currentTime = useAtomValue(currentTimeAtom);
   const duration = useAtomValue(durationAtom);
   const playbackState = useAtomValue(playbackStateAtom);

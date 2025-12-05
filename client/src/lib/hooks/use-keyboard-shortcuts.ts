@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useAudioEngine, useVolumeControl, useShuffle, useRepeatMode } from "@/lib/audio/hooks";
 import { playbackStateAtom, audioElementAtom, durationAtom } from "@/lib/store/player";
-import { queueAtom } from "@/lib/store/queue";
+import { serverQueueStateAtom } from "@/lib/store/server-queue";
 
 /**
  * Global keyboard shortcuts hook.
@@ -29,7 +29,7 @@ export function useKeyboardShortcuts() {
   const playbackState = useAtomValue(playbackStateAtom);
   const audioElement = useAtomValue(audioElementAtom);
   const duration = useAtomValue(durationAtom);
-  const queue = useAtomValue(queueAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
   
   const { togglePlayPause, next, previous } = useAudioEngine();
   const { changeVolume, volume, toggleMute } = useVolumeControl();
@@ -65,7 +65,7 @@ export function useKeyboardShortcuts() {
     switch (event.key) {
       case " ": // Space - Play/Pause
         event.preventDefault();
-        if (queue.length > 0 || playbackState === "playing" || playbackState === "paused") {
+        if ((queueState && queueState.totalCount > 0) || playbackState === "playing" || playbackState === "paused") {
           togglePlayPause();
         }
         break;
@@ -148,7 +148,7 @@ export function useKeyboardShortcuts() {
   }, [
     audioElement,
     duration,
-    queue,
+    queueState,
     playbackState,
     togglePlayPause,
     next,

@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { playNowAtom, isShuffledAtom, type QueueSourceInfo } from "@/lib/store/queue";
+import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { genreDetailViewModeAtom, genreDetailSortAtom, genreDetailColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -36,8 +36,7 @@ function GenreDetailContent() {
   const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const isMounted = useIsMounted();
-  const playNow = useSetAtom(playNowAtom);
-  const setIsShuffled = useSetAtom(isShuffledAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   
   // Filter state
@@ -177,84 +176,59 @@ function GenreDetailContent() {
     return filtered;
   }, [allSongs, debouncedFilter, sortConfig]);
   
+  // Queue source for genre songs - server materializes the genre's song list
+  const genreQueueSource = useMemo(() => ({
+    type: "genre" as QueueSourceType,
+    id: genreName,
+    name: genreName ?? "Genre",
+  }), [genreName]);
+  
   // Multi-selection support for songs
   const selection = useTrackSelection(displaySongs);
 
-  // Queue source for this genre
-  const getQueueSource = (): QueueSourceInfo => ({
-    type: "genre",
-    name: genreName ?? undefined,
-  });
-
   // Get songs from genre for play
-  const handlePlayAll = async () => {
-    // If we have filtered/sorted songs, play those
-    if (displaySongs.length > 0) {
-      setIsShuffled(false);
-      playNow(displaySongs, 0, getQueueSource());
-      return;
-    }
-    
-    // Otherwise fetch all songs for the genre
-    const client = getClient();
-    if (!client || !genreName) return;
-
-    try {
-      const response = await client.getSongsByGenre(genreName, { count: 500 });
-      if (response.songsByGenre.song && response.songsByGenre.song.length > 0) {
-        setIsShuffled(false);
-        playNow(response.songsByGenre.song, 0, getQueueSource());
-      }
-    } catch (error) {
-      console.error("Failed to play genre:", error);
-    }
+  const handlePlayAll = () => {
+    if (!genreName) return;
+    startQueue({
+      sourceType: "genre",
+      sourceId: genreName,
+      sourceName: genreName,
+      startIndex: 0,
+      shuffle: false,
+    });
   };
 
-  const handleShuffle = async () => {
-    // If we have filtered/sorted songs, shuffle those
-    if (displaySongs.length > 0) {
-      setIsShuffled(true);
-      const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, getQueueSource());
-      return;
-    }
-    
-    // Otherwise fetch all songs for the genre
-    const client = getClient();
-    if (!client || !genreName) return;
-
-    try {
-      const response = await client.getSongsByGenre(genreName, { count: 500 });
-      if (response.songsByGenre.song && response.songsByGenre.song.length > 0) {
-        setIsShuffled(true);
-        const shuffled = [...response.songsByGenre.song].sort(() => Math.random() - 0.5);
-        playNow(shuffled, 0, getQueueSource());
-      }
-    } catch (error) {
-      console.error("Failed to shuffle genre:", error);
-    }
+  const handleShuffle = () => {
+    if (!genreName) return;
+    startQueue({
+      sourceType: "genre",
+      sourceId: genreName,
+      sourceName: genreName,
+      startIndex: 0,
+      shuffle: true,
+    });
   };
 
   const handlePlaySelected = () => {
     const selectedSongs = selection.getSelectedSongs();
     if (selectedSongs.length > 0) {
-      playNow(selectedSongs, 0, getQueueSource());
+      startQueue({
+        sourceType: "other",
+        sourceName: `${genreName} (selection)`,
+        songIds: selectedSongs.map(s => s.id),
+      });
       selection.clearSelection();
     }
   };
 
-  const handlePlayAlbum = async (album: Album) => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      const response = await client.getAlbum(album.id);
-      if (response.album.song && response.album.song.length > 0) {
-        playNow(response.album.song, 0, { type: "album", id: album.id, name: album.name });
-      }
-    } catch (error) {
-      console.error("Failed to play album:", error);
-    }
+  const handlePlayAlbum = (album: Album) => {
+    startQueue({
+      sourceType: "album",
+      sourceId: album.id,
+      sourceName: album.name,
+      startIndex: 0,
+      shuffle: false,
+    });
   };
 
   // Always render the same loading state on server and during hydration
@@ -409,6 +383,7 @@ function GenreDetailContent() {
                   <SongCard
                     song={song}
                     queueSongs={displaySongs}
+                    queueSource={genreQueueSource}
                     isSelected={selection.isSelected(song.id)}
                     isSelectionMode={selection.hasSelection}
                     onSelect={(e) => selection.handleSelect(song.id, e)}
@@ -432,6 +407,7 @@ function GenreDetailContent() {
                     showYear={columnVisibility.year}
                     showDateAdded={columnVisibility.dateAdded}
                     queueSongs={displaySongs}
+                    queueSource={genreQueueSource}
                     isSelected={selection.isSelected(song.id)}
                     isSelectionMode={selection.hasSelection}
                     onSelect={(e) => selection.handleSelect(song.id, e)}
@@ -462,7 +438,7 @@ function GenreDetailContent() {
         onClear={selection.clearSelection}
         onPlayNow={handlePlaySelected}
         onPlayNext={() => selection.addSelectedToQueue("next")}
-        onAddToQueue={() => selection.addSelectedToQueue("last")}
+        onAddToQueue={() => selection.addSelectedToQueue("end")}
         onStar={() => selection.starSelected(true)}
         onUnstar={() => selection.starSelected(false)}
         onSelectAll={selection.selectAll}

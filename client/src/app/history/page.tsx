@@ -9,7 +9,7 @@ import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { playNowAtom, isShuffledAtom, type QueueSourceInfo } from "@/lib/store/queue";
+import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { playlistViewModeAtom, playlistSortAtom, playlistColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { DetailHeader } from "@/components/shared/detail-header";
@@ -24,14 +24,10 @@ import { cn } from "@/lib/utils";
 import { sortSongs } from "@/lib/utils/sort-songs";
 import type { Song } from "@/lib/api/types";
 
-// Queue source for history playback
-const HISTORY_QUEUE_SOURCE: QueueSourceInfo = { type: "history", name: "Recently Played" };
-
 export default function HistoryPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const isMounted = useIsMounted();
-  const playNow = useSetAtom(playNowAtom);
-  const setIsShuffled = useSetAtom(isShuffledAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   
   // Filter and view settings
   const [filter, setFilter] = useState("");
@@ -78,6 +74,12 @@ export default function HistoryPage() {
   
   const totalDuration = displaySongs.reduce((acc, song) => acc + song.duration, 0);
 
+  // Queue source for history - server materializes the history list
+  const historyQueueSource = useMemo(() => ({
+    type: "history" as QueueSourceType,
+    name: "Recently Played",
+  }), []);
+
   // Track selection
   const {
     selectedCount,
@@ -94,23 +96,34 @@ export default function HistoryPage() {
   const handlePlaySelected = () => {
     const selected = getSelectedSongs();
     if (selected.length > 0) {
-      playNow(selected, 0, HISTORY_QUEUE_SOURCE);
+      startQueue({
+        sourceType: "history",
+        sourceName: "Recently Played (selection)",
+        songIds: selected.map(s => s.id),
+      });
       clearSelection();
     }
   };
 
   const handlePlayAll = () => {
     if (displaySongs.length > 0) {
-      setIsShuffled(false);
-      playNow(displaySongs, 0, HISTORY_QUEUE_SOURCE);
+      startQueue({
+        sourceType: "history",
+        sourceName: "Recently Played",
+        startIndex: 0,
+        shuffle: false,
+      });
     }
   };
 
   const handleShuffle = () => {
     if (displaySongs.length > 0) {
-      setIsShuffled(true);
-      const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, HISTORY_QUEUE_SOURCE);
+      startQueue({
+        sourceType: "history",
+        sourceName: "Recently Played",
+        startIndex: 0,
+        shuffle: true,
+      });
     }
   };
 
@@ -166,6 +179,7 @@ export default function HistoryPage() {
                 <SongCard
                   song={song}
                   queueSongs={displaySongs}
+                  queueSource={historyQueueSource}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
                   onSelect={(e) => handleSelect(song.id, e)}
@@ -189,6 +203,7 @@ export default function HistoryPage() {
                   showYear={columnVisibility.year}
                   showDateAdded={columnVisibility.dateAdded}
                   queueSongs={displaySongs}
+                  queueSource={historyQueueSource}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
                   onSelect={(e) => handleSelect(song.id, e)}
@@ -216,7 +231,7 @@ export default function HistoryPage() {
         onClear={clearSelection}
         onPlayNow={handlePlaySelected}
         onPlayNext={() => addSelectedToQueue("next")}
-        onAddToQueue={() => addSelectedToQueue("last")}
+        onAddToQueue={() => addSelectedToQueue("end")}
         onStar={() => starSelected(true)}
         onUnstar={() => starSelected(false)}
         onSelectAll={selectAll}

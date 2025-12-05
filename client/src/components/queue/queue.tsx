@@ -4,32 +4,10 @@ import { useCallback } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-  useSortable,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
 import {
   ListMusic,
   Trash2,
-  GripVertical,
-  Play,
-  Pause,
-  Clock,
-  MoreHorizontal,
   PanelRightClose,
   Disc3,
   User,
@@ -43,44 +21,29 @@ import {
 import { cn } from "@/lib/utils";
 import { queuePanelOpenAtom } from "@/lib/store/ui";
 import {
-  queueAtom,
-  queueIndexAtom,
-  currentTrackAtom,
-  currentQueueItemAtom,
-  removeFromQueueAtom,
-  playAtIndexAtom,
-  isShuffledAtom,
-  shuffledIndicesAtom,
+  serverQueueStateAtom,
+  currentSongAtom,
   isQueueLoadingAtom,
-  queueSourceAtom,
-  type QueueItem,
-  type QueueSourceInfo,
-} from "@/lib/store/queue";
-import { playbackStateAtom } from "@/lib/store/player";
+  clearQueueAtom,
+  type QueueSourceType,
+} from "@/lib/store/server-queue";
 import { useIsDesktop } from "@/lib/hooks/use-media-query";
 import { useHydrated } from "@/lib/hooks/use-hydrated";
-import { useAudioEngine } from "@/lib/audio/hooks";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Skeleton } from "@/components/ui/skeleton";
-import { CoverImage } from "@/components/shared/cover-image";
-import { NowPlayingBars } from "@/components/shared/now-playing-bars";
-import { SongContextMenu, SongDropdownMenu } from "@/components/browse/song-context-menu";
-import { formatDuration } from "@/lib/utils/format";
-import { getClient } from "@/lib/api/client";
-import type { Song } from "@/lib/api/types";
+import { VirtualizedQueueDisplay } from "@/components/queue/virtualized-queue-display";
 
 const QUEUE_SIDEBAR_WIDTH = 360;
 
-function getCoverUrl(coverArt?: string): string | undefined {
-  if (!coverArt) return undefined;
-  const client = getClient();
-  return client?.getCoverArtUrl(coverArt, 100);
+// Queue source info type for display
+interface QueueSourceInfo {
+  type: QueueSourceType | string;
+  id?: string | null;
+  name?: string | null;
 }
 
 // Get icon component for queue source type
-function getQueueSourceIcon(type: QueueSourceInfo["type"]) {
+function getQueueSourceIcon(type: string) {
   switch (type) {
     case "library":
       return Library;
@@ -105,7 +68,7 @@ function getQueueSourceIcon(type: QueueSourceInfo["type"]) {
 
 // Get display label for queue source
 function getQueueSourceLabel(source: QueueSourceInfo): string {
-  const typeLabels: Record<QueueSourceInfo["type"], string> = {
+  const typeLabels: Record<string, string> = {
     library: "Library",
     album: "Album",
     artist: "Artist",
@@ -118,9 +81,9 @@ function getQueueSourceLabel(source: QueueSourceInfo): string {
   };
 
   if (source.name) {
-    return `${typeLabels[source.type]}: ${source.name}`;
+    return `${typeLabels[source.type] || "Queue"}: ${source.name}`;
   }
-  return typeLabels[source.type];
+  return typeLabels[source.type] || "Queue";
 }
 
 // Get link for queue source (if navigable)
@@ -133,7 +96,6 @@ function getQueueSourceLink(source: QueueSourceInfo): string | null {
     case "playlist":
       return source.id ? `/playlists/details?id=${source.id}` : null;
     case "genre":
-      // Genres use name as identifier, not id
       return source.name ? `/library/genres/details?name=${encodeURIComponent(source.name)}` : null;
     default:
       return null;
@@ -142,16 +104,15 @@ function getQueueSourceLink(source: QueueSourceInfo): string | null {
 
 // Queue source display component
 function QueueSourceDisplay({ variant }: { variant: "mobile" | "desktop" }) {
-  const queueSource = useAtomValue(queueSourceAtom);
-  const queue = useAtomValue(queueAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
 
   // Don't show if queue is empty or no meaningful source
-  if (queue.length === 0 || queueSource.type === "other") {
+  if (!queueState || queueState.totalCount === 0 || queueState.source.type === "other") {
     return null;
   }
 
+  const queueSource = queueState.source;
   const Icon = getQueueSourceIcon(queueSource.type);
-  const label = getQueueSourceLabel(queueSource);
   const link = getQueueSourceLink(queueSource);
   const isMobile = variant === "mobile";
 
@@ -161,7 +122,9 @@ function QueueSourceDisplay({ variant }: { variant: "mobile" | "desktop" }) {
       isMobile ? "text-sm" : "text-xs"
     )}>
       <Icon className="w-3.5 h-3.5 shrink-0" />
-      <span className="truncate">Playing from {queueSource.name || (queueSource.type === "library" ? "Library" : "Queue")}</span>
+      <span className="truncate">
+        Playing from {queueSource.name || (queueSource.type === "library" ? "Library" : "Queue")}
+      </span>
     </div>
   );
 
@@ -183,364 +146,6 @@ function QueueSourceDisplay({ variant }: { variant: "mobile" | "desktop" }) {
   );
 }
 
-// Skeleton item for loading state
-function QueueItemSkeleton() {
-  return (
-    <div className="flex items-center gap-3 p-2">
-      <Skeleton className="w-10 h-10 rounded shrink-0" />
-      <div className="flex-1 min-w-0 space-y-1.5">
-        <Skeleton className="h-4 w-32" />
-        <Skeleton className="h-3 w-24" />
-      </div>
-      <Skeleton className="w-10 h-4 shrink-0" />
-    </div>
-  );
-}
-
-// Skeleton UI shown while queue is loading
-function QueueLoadingSkeleton() {
-  return (
-    <div className="p-4 space-y-6">
-      {/* Now Playing skeleton */}
-      <section>
-        <Skeleton className="h-3 w-24 mb-3" />
-        <div className="flex items-center gap-3 p-2 rounded-lg border border-border bg-muted/30">
-          <Skeleton className="w-10 h-10 rounded shrink-0" />
-          <div className="flex-1 min-w-0 space-y-1.5">
-            <Skeleton className="h-4 w-36" />
-            <Skeleton className="h-3 w-28" />
-          </div>
-          <Skeleton className="w-10 h-4 shrink-0" />
-        </div>
-      </section>
-
-      {/* Up Next skeleton */}
-      <section>
-        <Skeleton className="h-3 w-16 mb-3" />
-        <div className="space-y-1">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <QueueItemSkeleton key={i} />
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-// Extended queue item with original index for queue management
-interface QueueDisplayItem {
-  queueItem: QueueItem;
-  originalIndex: number;
-}
-
-// Empty state component
-function QueueEmptyState({ iconSize = "lg" }: { iconSize?: "md" | "lg" }) {
-  const sizes = iconSize === "lg" 
-    ? { container: "w-20 h-20", icon: "w-10 h-10" }
-    : { container: "w-16 h-16", icon: "w-8 h-8" };
-    
-  return (
-    <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-      <div className={cn("rounded-full bg-muted flex items-center justify-center mb-4", sizes.container)}>
-        <ListMusic className={cn("text-muted-foreground", sizes.icon)} />
-      </div>
-      <h3 className="font-semibold mb-1">Your queue is empty</h3>
-      <p className="text-sm text-muted-foreground">Add songs to start listening</p>
-    </div>
-  );
-}
-
-interface QueueContentProps {
-  variant: "mobile" | "desktop";
-}
-
-function QueueContent({ variant }: QueueContentProps) {
-  const [queue, setQueue] = useAtom(queueAtom);
-  const queueIndex = useAtomValue(queueIndexAtom);
-  const currentTrack = useAtomValue(currentTrackAtom);
-  const currentQueueItem = useAtomValue(currentQueueItemAtom);
-  const playbackState = useAtomValue(playbackStateAtom);
-  const isQueueLoading = useAtomValue(isQueueLoadingAtom);
-  const removeFromQueue = useSetAtom(removeFromQueueAtom);
-  const playAtIndex = useSetAtom(playAtIndexAtom);
-  const isShuffled = useAtomValue(isShuffledAtom);
-  const shuffledIndices = useAtomValue(shuffledIndicesAtom);
-  const setShuffledIndices = useSetAtom(shuffledIndicesAtom);
-  const { togglePlayPause } = useAudioEngine();
-  const setIsOpen = useSetAtom(queuePanelOpenAtom);
-
-  // Calculate up next and previous tracks based on shuffle state
-  const getUpNextAndPrevious = () => {
-    if (isShuffled && shuffledIndices.length > 0) {
-      const currentShufflePosition = shuffledIndices.indexOf(queueIndex);
-
-      if (currentShufflePosition >= 0) {
-        const upNextIndices = shuffledIndices.slice(currentShufflePosition + 1);
-        const upNextTracks: QueueDisplayItem[] = upNextIndices.map((idx) => ({
-          queueItem: queue[idx],
-          originalIndex: idx,
-        }));
-        const previousIndices = shuffledIndices.slice(0, currentShufflePosition);
-        const previousTracks: QueueDisplayItem[] = previousIndices.map((idx) => ({
-          queueItem: queue[idx],
-          originalIndex: idx,
-        }));
-
-        return { upNext: upNextTracks, previous: previousTracks };
-      }
-    }
-
-    const upNextTracks: QueueDisplayItem[] = queue.slice(queueIndex + 1).map((queueItem, i) => ({
-      queueItem,
-      originalIndex: queueIndex + 1 + i,
-    }));
-    const previousTracks: QueueDisplayItem[] = queue.slice(0, queueIndex).map((queueItem, i) => ({
-      queueItem,
-      originalIndex: i,
-    }));
-
-    return { upNext: upNextTracks, previous: previousTracks };
-  };
-
-  const { upNext, previous: previousTracks } = getUpNextAndPrevious();
-
-  // dnd-kit sensors for drag and drop
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
-
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-
-      if (over && active.id !== over.id) {
-        const oldIndex = upNext.findIndex((item) => item.queueItem.queueItemId === active.id);
-        const newIndex = upNext.findIndex((item) => item.queueItem.queueItemId === over.id);
-
-        if (oldIndex !== -1 && newIndex !== -1) {
-          const newOrder = arrayMove(upNext, oldIndex, newIndex);
-
-          if (isShuffled && shuffledIndices.length > 0) {
-            const currentShufflePosition = shuffledIndices.indexOf(queueIndex);
-            const newShuffledIndices = [
-              ...shuffledIndices.slice(0, currentShufflePosition + 1),
-              ...newOrder.map((t) => t.originalIndex),
-            ];
-            setShuffledIndices(newShuffledIndices);
-          } else {
-            const newQueue: QueueItem[] = [
-              ...previousTracks.map((t) => t.queueItem),
-              currentQueueItem!,
-              ...newOrder.map((t) => t.queueItem),
-            ].filter(Boolean) as QueueItem[];
-            setQueue(newQueue);
-          }
-        }
-      }
-    },
-    [upNext, previousTracks, currentQueueItem, isShuffled, shuffledIndices, queueIndex, setShuffledIndices, setQueue]
-  );
-
-  const handlePlayTrack = (index: number) => {
-    playAtIndex(index);
-  };
-
-  const totalDuration = queue.reduce((acc, item) => acc + item.song.duration, 0);
-  const remainingDuration =
-    upNext.reduce((acc, item) => acc + item.queueItem.song.duration, 0) + (currentTrack?.duration ?? 0);
-
-  const isMobile = variant === "mobile";
-  const headerSizeClass = isMobile ? "text-sm" : "text-xs";
-
-  // Show skeleton while loading
-  if (isQueueLoading) {
-    return <QueueLoadingSkeleton />;
-  }
-
-  // Show empty state if queue is empty
-  if (queue.length === 0) {
-    return <QueueEmptyState iconSize={isMobile ? "lg" : "md"} />;
-  }
-
-  return (
-    <>
-      <ScrollArea className="flex-1 min-h-0">
-        <div className="p-4 space-y-6">
-          {/* Now Playing / Queue Ended */}
-          {currentTrack && (
-            <section>
-              <h3 className={cn("font-semibold text-muted-foreground uppercase tracking-wider mb-3", headerSizeClass)}>
-                {playbackState === "ended" ? "Queue Ended" : "Now Playing"}
-              </h3>
-              <SongContextMenu song={currentTrack} hideQueueActions>
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={cn(
-                    "flex items-center gap-3 p-2 rounded-lg border group",
-                    playbackState === "ended" ? "bg-muted/50 border-border" : "bg-primary/10 border-primary/20"
-                  )}
-                >
-                  {/* Now playing indicator - left of cover */}
-                  {playbackState !== "ended" && (
-                    <div className="shrink-0">
-                      <NowPlayingBars isAnimating={playbackState === "playing"} />
-                    </div>
-                  )}
-                  {/* Cover art - clickable play/pause */}
-                  <div className="group/cover relative shrink-0 cursor-pointer" onClick={togglePlayPause}>
-                    <CoverImage
-                      src={getCoverUrl(currentTrack.coverArt ?? undefined)}
-                      alt={currentTrack.title}
-                      colorSeed={currentTrack.album ?? undefined}
-                      type="song"
-                      size="sm"
-                    />
-                    <button
-                      type="button"
-                      className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
-                    >
-                      {playbackState === "playing" ? (
-                        <Pause className="w-4 h-4 text-white" />
-                      ) : (
-                        <Play className="w-4 h-4 ml-0.5 text-white" />
-                      )}
-                    </button>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className={cn(
-                        "font-medium truncate",
-                        isMobile ? "" : "text-sm",
-                        playbackState === "ended" ? "text-foreground" : "text-primary"
-                      )}
-                    >
-                      {currentTrack.title}
-                    </p>
-                    <p className={cn("text-muted-foreground truncate", isMobile ? "text-sm" : "text-xs")}>
-                      <Link
-                        href={`/library/artists/details?id=${currentTrack.artistId}`}
-                        className="hover:underline hover:text-foreground transition-colors"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {currentTrack.artist}
-                      </Link>
-                      {currentTrack.album && (
-                        <>
-                          {" · "}
-                          <Link
-                            href={`/library/albums/details?id=${currentTrack.albumId}`}
-                            className="hover:underline hover:text-foreground transition-colors"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {currentTrack.album}
-                          </Link>
-                        </>
-                      )}
-                    </p>
-                  </div>
-                  <SongDropdownMenu
-                    song={currentTrack}
-                    hideQueueActions
-                    trigger={
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label="More options"
-                        className={cn(
-                          "p-0 opacity-0 group-hover:opacity-100 text-muted-foreground",
-                          isMobile ? "h-8 w-8" : "h-7 w-7"
-                        )}
-                      >
-                        <MoreHorizontal className="w-4 h-4" />
-                      </Button>
-                    }
-                  />
-                  <span className={cn("text-muted-foreground tabular-nums", isMobile ? "text-sm" : "text-xs")}>
-                    {formatDuration(currentTrack.duration)}
-                  </span>
-                </motion.div>
-              </SongContextMenu>
-            </section>
-          )}
-
-          {/* Up Next */}
-          {upNext.length > 0 && (
-            <section>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className={cn("font-semibold text-muted-foreground uppercase tracking-wider", headerSizeClass)}>
-                  Up Next
-                </h3>
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
-                  {formatDuration(remainingDuration)}
-                </span>
-              </div>
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-              >
-                <SortableContext
-                  items={upNext.map((item) => item.queueItem.queueItemId)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  <div className="space-y-1">
-                    {upNext.map((item) => (
-                      <SortableQueueItem
-                        key={item.queueItem.queueItemId}
-                        item={item}
-                        song={item.queueItem.song}
-                        onPlay={() => handlePlayTrack(item.originalIndex)}
-                        onRemove={() => removeFromQueue(item.originalIndex)}
-                      />
-                    ))}
-                  </div>
-                </SortableContext>
-              </DndContext>
-            </section>
-          )}
-
-          {/* Previously Played */}
-          {previousTracks.length > 0 && (
-            <section>
-              <h3 className={cn("font-semibold text-muted-foreground uppercase tracking-wider mb-3", headerSizeClass)}>
-                Previously Played
-              </h3>
-              <div className="space-y-1 opacity-60">
-                {previousTracks.map((item) => (
-                  <PlayablePreviousItem
-                    key={item.queueItem.queueItemId}
-                    item={item}
-                    onPlay={() => handlePlayTrack(item.originalIndex)}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-        </div>
-      </ScrollArea>
-
-      {/* Footer with stats */}
-      {queue.length > 0 && (
-        <div
-          className={cn(
-            "px-4 py-3 border-t border-border bg-muted/30 text-muted-foreground shrink-0",
-            isMobile ? "text-sm" : "text-xs"
-          )}
-        >
-          {queue.length} tracks • {formatDuration(totalDuration)} total
-        </div>
-      )}
-    </>
-  );
-}
-
 /**
  * Mobile-only queue panel (Sheet/Drawer).
  * Used on screens smaller than xl breakpoint.
@@ -548,37 +153,15 @@ function QueueContent({ variant }: QueueContentProps) {
 export function QueuePanel() {
   const isDesktop = useIsDesktop();
   const [isOpen, setIsOpen] = useAtom(queuePanelOpenAtom);
-  const [queue, setQueue] = useAtom(queueAtom);
-  const [queueIndex, setQueueIndex] = useAtom(queueIndexAtom);
-  const [shuffledIndices, setShuffledIndices] = useAtom(shuffledIndicesAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
+  const clearQueue = useSetAtom(clearQueueAtom);
 
   const handleClearQueue = useCallback(() => {
-    // Save current state for undo
-    const savedQueue = queue;
-    const savedIndex = queueIndex;
-    const savedShuffled = shuffledIndices;
-    const trackCount = queue.length;
-    
-    // Clear the queue
-    setQueue([]);
-    setQueueIndex(-1);
-    setShuffledIndices([]);
-    
-    // Show toast with undo
-    toast.success(`Cleared ${trackCount} tracks from queue`, {
-      action: {
-        label: "Undo",
-        onClick: () => {
-          setQueue(savedQueue);
-          setQueueIndex(savedIndex);
-          setShuffledIndices(savedShuffled);
-          toast.success("Queue restored");
-        },
-      },
-      duration: 8000,
-    });
-  }, [queue, queueIndex, shuffledIndices, setQueue, setQueueIndex, setShuffledIndices]);
+    const trackCount = queueState?.totalCount ?? 0;
+    clearQueue();
+    toast.success(`Cleared ${trackCount} tracks from queue`);
+  }, [queueState, clearQueue]);
 
   // Don't render the Sheet on desktop - use QueueSidebar instead
   if (isDesktop) {
@@ -594,7 +177,7 @@ export function QueuePanel() {
               <ListMusic className="w-5 h-5" />
               Queue
             </SheetTitle>
-            {queue.length > 0 && !isQueueLoading && (
+            {queueState && queueState.totalCount > 0 && !isQueueLoading && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -609,7 +192,7 @@ export function QueuePanel() {
         </SheetHeader>
 
         <QueueSourceDisplay variant="mobile" />
-        <QueueContent variant="mobile" />
+        <VirtualizedQueueDisplay />
       </SheetContent>
     </Sheet>
   );
@@ -622,290 +205,74 @@ export function QueuePanel() {
 export function QueueSidebar() {
   const hydrated = useHydrated();
   const [isOpen, setIsOpen] = useAtom(queuePanelOpenAtom);
-  const [queue, setQueue] = useAtom(queueAtom);
-  const [queueIndex, setQueueIndex] = useAtom(queueIndexAtom);
-  const [shuffledIndices, setShuffledIndices] = useAtom(shuffledIndicesAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
+  const currentSong = useAtomValue(currentSongAtom);
+  const clearQueue = useSetAtom(clearQueueAtom);
 
   const handleClearQueue = useCallback(() => {
-    // Save current state for undo
-    const savedQueue = queue;
-    const savedIndex = queueIndex;
-    const savedShuffled = shuffledIndices;
-    const trackCount = queue.length;
-    
-    // Clear the queue
-    setQueue([]);
-    setQueueIndex(-1);
-    setShuffledIndices([]);
-    
-    // Show toast with undo
-    toast.success(`Cleared ${trackCount} tracks from queue`, {
-      action: {
-        label: "Undo",
-        onClick: () => {
-          setQueue(savedQueue);
-          setQueueIndex(savedIndex);
-          setShuffledIndices(savedShuffled);
-          toast.success("Queue restored");
-        },
-      },
-      duration: 8000,
-    });
-  }, [queue, queueIndex, shuffledIndices, setQueue, setQueueIndex, setShuffledIndices]);
+    const trackCount = queueState?.totalCount ?? 0;
+    clearQueue();
+    toast.success(`Cleared ${trackCount} tracks from queue`);
+  }, [queueState, clearQueue]);
 
-  // Don't render until hydrated to prevent hydration mismatch with atomWithStorage
+  // Wait for hydration to avoid flash
   if (!hydrated) {
     return null;
   }
 
   return (
     <motion.aside
-      initial={false}
-      animate={{
-        width: isOpen ? QUEUE_SIDEBAR_WIDTH : 0,
-        opacity: isOpen ? 1 : 0,
-      }}
+      initial={{ width: 0 }}
+      animate={{ width: isOpen ? QUEUE_SIDEBAR_WIDTH : 0 }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
-      className={cn(
-        "hidden xl:flex flex-col bg-background border-l border-border overflow-hidden",
-        "fixed right-0 top-0 bottom-[88px] z-40"
-      )}
+      className="shrink-0 h-full overflow-hidden border-l border-border bg-card hidden xl:block"
     >
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {isOpen && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col h-full w-[360px]"
+            transition={{ duration: 0.15 }}
+            className="flex flex-col h-full"
+            style={{ width: QUEUE_SIDEBAR_WIDTH }}
           >
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-              <div className="flex items-center gap-2">
-                <ListMusic className="w-5 h-5" />
-                <h2 className="font-semibold">Queue</h2>
-              </div>
+              <h2 className="font-semibold flex items-center gap-2 text-sm">
+                <ListMusic className="w-4 h-4" />
+                Queue
+              </h2>
               <div className="flex items-center gap-1">
-                {queue.length > 0 && !isQueueLoading && (
+                {queueState && queueState.totalCount > 0 && !isQueueLoading && (
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={handleClearQueue}
-                    className="text-muted-foreground hover:text-destructive h-8"
+                    className="text-muted-foreground hover:text-destructive h-8 px-2 text-xs"
                   >
                     <Trash2 className="w-4 h-4 mr-1" />
                     Clear
                   </Button>
                 )}
-                <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)} className="h-8 w-8" aria-label="Close queue">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setIsOpen(false)} 
+                  className="h-8 w-8" 
+                  aria-label="Close queue"
+                >
                   <PanelRightClose className="w-4 h-4" />
                 </Button>
               </div>
             </div>
 
             <QueueSourceDisplay variant="desktop" />
-            <QueueContent variant="desktop" />
+            <VirtualizedQueueDisplay />
           </motion.div>
         )}
       </AnimatePresence>
     </motion.aside>
-  );
-}
-
-interface PlayablePreviousItemProps {
-  item: QueueDisplayItem;
-  onPlay: () => void;
-}
-
-function PlayablePreviousItem({
-  item,
-  onPlay,
-}: PlayablePreviousItemProps) {
-  const song = item.queueItem.song;
-
-  return (
-    <SongContextMenu song={song}>
-      <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 cursor-default group">
-        {/* Cover with play button overlay on cover hover */}
-        <div className="group/cover relative shrink-0 cursor-pointer" onClick={onPlay}>
-          <CoverImage
-            src={getCoverUrl(song.coverArt ?? undefined)}
-            alt={song.title}
-            colorSeed={song.album ?? undefined}
-            type="song"
-            size="sm"
-          />
-          <button
-            type="button"
-            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
-          >
-            <Play className="w-4 h-4 ml-0.5 text-white" />
-          </button>
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{song.title}</p>
-          <p className="text-xs text-muted-foreground truncate">
-            <Link
-              href={`/library/artists/details?id=${song.artistId}`}
-              className="hover:underline hover:text-foreground transition-colors"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {song.artist}
-            </Link>
-            {song.album && (
-              <>
-                {" · "}
-                <Link
-                  href={`/library/albums/details?id=${song.albumId}`}
-                  className="hover:underline hover:text-foreground transition-colors"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {song.album}
-                </Link>
-              </>
-            )}
-          </p>
-        </div>
-
-        <SongDropdownMenu
-          song={song}
-          trigger={
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <MoreHorizontal className="w-4 h-4" />
-            </Button>
-          }
-        />
-
-        <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-          {formatDuration(song.duration)}
-        </span>
-      </div>
-    </SongContextMenu>
-  );
-}
-
-interface SortableQueueItemProps {
-  item: QueueDisplayItem;
-  song: Song;
-  onPlay: () => void;
-  onRemove: () => void;
-}
-
-function SortableQueueItem({
-  item,
-  song,
-  onPlay,
-  onRemove,
-}: SortableQueueItemProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: item.queueItem.queueItemId });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-  };
-
-  return (
-    <SongContextMenu 
-      song={song} 
-      hideQueueActions 
-      showRemoveFromQueue 
-      onRemoveFromQueue={onRemove}
-    >
-      <div
-        ref={setNodeRef}
-        style={style}
-        className={cn(
-          "flex items-center gap-2 p-2 rounded-lg bg-card hover:bg-muted/50 group select-none max-w-full",
-          isDragging && "opacity-50 bg-accent/20 shadow-lg"
-        )}
-      >
-        <button
-          type="button"
-          aria-label="Drag to reorder"
-          className="cursor-grab active:cursor-grabbing touch-none text-muted-foreground"
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="w-4 h-4 shrink-0" />
-        </button>
-
-        {/* Cover with play button overlay on cover hover only */}
-        <div className="group/cover relative shrink-0 cursor-pointer" onClick={onPlay}>
-          <CoverImage
-            src={getCoverUrl(song.coverArt ?? undefined)}
-            alt={song.title}
-            colorSeed={song.album ?? undefined}
-            type="song"
-            size="sm"
-          />
-          <button
-            type="button"
-            aria-label={`Play ${song.title}`}
-            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
-          >
-            <Play className="w-4 h-4 ml-0.5 text-white" />
-          </button>
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{song.title}</p>
-          <p className="text-xs text-muted-foreground truncate">
-            <Link
-              href={`/library/artists/details?id=${song.artistId}`}
-              className="hover:underline hover:text-foreground transition-colors"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {song.artist}
-            </Link>
-            {song.album && (
-              <>
-                {" · "}
-                <Link
-                  href={`/library/albums/details?id=${song.albumId}`}
-                  className="hover:underline hover:text-foreground transition-colors"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {song.album}
-                </Link>
-              </>
-            )}
-          </p>
-        </div>
-
-        <SongDropdownMenu
-          song={song}
-          hideQueueActions
-          showRemoveFromQueue
-          onRemoveFromQueue={onRemove}
-          trigger={
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
-              onClick={(e) => e.stopPropagation()}
-              aria-label="More options"
-            >
-              <MoreHorizontal className="w-4 h-4" />
-            </Button>
-          }
-        />
-
-        <span className="text-xs text-muted-foreground tabular-nums shrink-0">{formatDuration(song.duration)}</span>
-      </div>
-    </SongContextMenu>
   );
 }

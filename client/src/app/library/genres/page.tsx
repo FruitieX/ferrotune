@@ -11,7 +11,7 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useItemSelection } from "@/lib/hooks/use-track-selection";
 import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
-import { playNowAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
+import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
@@ -24,7 +24,7 @@ export default function GenresPage() {
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
   const debouncedFilter = useDebounce(filter, 300);
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   
   // Virtualized scroll restoration
@@ -85,7 +85,11 @@ export default function GenresPage() {
   const handlePlaySelected = async () => {
     const songs = await getSelectedGenresSongs();
     if (songs.length > 0) {
-      playNow(songs, 0, { type: "library", name: "Library" });
+      startQueue({
+        sourceType: "library",
+        sourceName: "Library",
+        songIds: songs.map(s => s.id),
+      });
       clearSelection();
       toast.success(`Playing ${songs.length} songs from ${selectedCount} genres`);
     }
@@ -94,8 +98,12 @@ export default function GenresPage() {
   const handleShuffleSelected = async () => {
     const songs = await getSelectedGenresSongs();
     if (songs.length > 0) {
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, { type: "library", name: "Library" });
+      startQueue({
+        sourceType: "library",
+        sourceName: "Library",
+        songIds: songs.map(s => s.id),
+        shuffle: true,
+      });
       clearSelection();
       toast.success(`Shuffling ${songs.length} songs from ${selectedCount} genres`);
     }
@@ -104,7 +112,7 @@ export default function GenresPage() {
   const handleAddSelectedToQueue = async (position: "next" | "last") => {
     const songs = await getSelectedGenresSongs();
     if (songs.length > 0) {
-      songs.forEach(song => addToQueue(song, position));
+      addToQueue({ songIds: songs.map(s => s.id), position: position === "last" ? "end" : position });
       clearSelection();
       toast.success(`Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`);
     }

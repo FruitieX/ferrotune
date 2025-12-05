@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { CoverImage } from "@/components/shared/cover-image";
 import { fullscreenPlayerOpenAtom, queuePanelOpenAtom } from "@/lib/store/ui";
-import { currentTrackAtom, queueAtom, queueIndexAtom, isShuffledAtom } from "@/lib/store/queue";
+import { currentSongAtom, queueWindowAtom, serverQueueStateAtom, toggleShuffleAtom } from "@/lib/store/server-queue";
 import { playbackStateAtom, currentTimeAtom, volumeAtom, repeatModeAtom, isMutedAtom } from "@/lib/store/player";
 import { useStarred } from "@/lib/store/starred";
 import { useAudioEngine } from "@/lib/audio/hooks";
@@ -33,16 +33,16 @@ import { SongDropdownMenu } from "@/components/browse/song-context-menu";
 
 export function FullscreenPlayer() {
   const [isOpen, setIsOpen] = useAtom(fullscreenPlayerOpenAtom);
-  const currentTrack = useAtomValue(currentTrackAtom);
+  const currentTrack = useAtomValue(currentSongAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const currentTime = useAtomValue(currentTimeAtom);
   const [volume, setVolume] = useAtom(volumeAtom);
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
   const [isMuted, setIsMuted] = useAtom(isMutedAtom);
-  const [isShuffled, setIsShuffled] = useAtom(isShuffledAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
+  const queueWindow = useAtomValue(queueWindowAtom);
+  const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
-  const queue = useAtomValue(queueAtom);
-  const queueIndex = useAtomValue(queueIndexAtom);
   
   const { togglePlayPause, seek, next, previous } = useAudioEngine();
   const { isStarred, toggleStar } = useStarred(
@@ -128,7 +128,7 @@ export function FullscreenPlayer() {
                   {isEnded ? "Queue Ended" : "Now Playing"}
                 </p>
                 <p className="text-sm font-medium">
-                  {queueIndex + 1} / {queue.length}
+                  {(queueState?.currentIndex ?? 0) + 1} / {queueState?.totalCount ?? 0}
                 </p>
               </div>
               <SongDropdownMenu song={currentTrack} />
@@ -207,8 +207,8 @@ export function FullscreenPlayer() {
               <Button
                 variant="ghost"
                 size="icon"
-                className={cn("rounded-full", isShuffled && "text-primary")}
-                onClick={() => setIsShuffled(!isShuffled)}
+                className={cn("rounded-full", queueState?.isShuffled && "text-primary")}
+                onClick={() => toggleShuffle()}
               >
                 <Shuffle className="w-5 h-5" />
               </Button>

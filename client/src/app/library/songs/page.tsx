@@ -10,7 +10,7 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { albumViewModeAtom, libraryFilterAtom, librarySortAtom, columnVisibilityAtom, advancedFiltersAtom, hasActiveFiltersAtom } from "@/lib/store/ui";
-import { playNowAtom, type QueueSourceInfo } from "@/lib/store/queue";
+import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
@@ -18,9 +18,6 @@ import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import type { Song } from "@/lib/api/types";
 
 const PAGE_SIZE = 50;
-
-// Queue source for library playback - shuffle-excluded songs will be filtered
-const LIBRARY_QUEUE_SOURCE: QueueSourceInfo = { type: "library", name: "Library" };
 
 export default function SongsPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
@@ -31,7 +28,7 @@ export default function SongsPage() {
   const advancedFilters = useAtomValue(advancedFiltersAtom);
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
   const debouncedFilter = useDebounce(filter, 300);
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
@@ -112,6 +109,20 @@ export default function SongsPage() {
   const displayCount = debouncedFilter ? displaySongs.length : totalSongs;
   const isLoadingData = debouncedFilter ? isSearching : isLoading;
 
+  // Build queue source with filters and sort for server-side materialization
+  const queueSource = useMemo(() => ({
+    type: (debouncedFilter ? "search" : "library") as QueueSourceType,
+    name: debouncedFilter ? `Search: ${debouncedFilter}` : "Library",
+    filters: {
+      query: debouncedFilter || "*",
+      ...advancedFilters,
+    },
+    sort: {
+      field: sortConfig.field,
+      direction: sortConfig.direction,
+    },
+  }), [debouncedFilter, advancedFilters, sortConfig]);
+
   // Track selection
   const {
     selectedCount,
@@ -128,7 +139,11 @@ export default function SongsPage() {
   const handlePlaySelected = () => {
     const selected = getSelectedSongs();
     if (selected.length > 0) {
-      playNow(selected, 0, LIBRARY_QUEUE_SOURCE);
+      startQueue({
+        sourceType: "library",
+        sourceName: "Library (selection)",
+        songIds: selected.map(s => s.id),
+      });
       clearSelection();
     }
   };
@@ -178,7 +193,7 @@ export default function SongsPage() {
               <SongCard
                 song={song}
                 queueSongs={displaySongs}
-                queueSource={LIBRARY_QUEUE_SOURCE}
+                queueSource={queueSource}
                 isSelected={isSelected(song.id)}
                 isSelectionMode={hasSelection}
                 onSelect={(e) => handleSelect(song.id, e)}
@@ -208,7 +223,7 @@ export default function SongsPage() {
                 showYear={columnVisibility.year}
                 showDateAdded={columnVisibility.dateAdded}
                 queueSongs={displaySongs}
-                queueSource={LIBRARY_QUEUE_SOURCE}
+                queueSource={queueSource}
                 isSelected={isSelected(song.id)}
                 isSelectionMode={hasSelection}
                 onSelect={(e) => handleSelect(song.id, e)}
@@ -234,7 +249,7 @@ export default function SongsPage() {
         onClear={clearSelection}
         onPlayNow={handlePlaySelected}
         onPlayNext={() => addSelectedToQueue("next")}
-        onAddToQueue={() => addSelectedToQueue("last")}
+        onAddToQueue={() => addSelectedToQueue("end")}
         onStar={() => starSelected(true)}
         onUnstar={() => starSelected(false)}
         onSelectAll={selectAll}
