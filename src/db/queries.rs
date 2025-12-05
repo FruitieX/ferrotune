@@ -152,10 +152,13 @@ pub async fn get_album_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option
 // Song queries
 pub async fn get_songs_by_album(pool: &SqlitePool, album_id: &str) -> sqlx::Result<Vec<Song>> {
     sqlx::query_as::<_, Song>(
-        "SELECT s.*, ar.name as artist_name, al.name as album_name 
+        "SELECT s.*, ar.name as artist_name, al.name as album_name,
+                pc.play_count, pc.last_played, NULL as starred_at
          FROM songs s
          INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
+         LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
+                    FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
          WHERE s.album_id = ? 
          ORDER BY s.disc_number, s.track_number, s.title",
     )
@@ -170,10 +173,13 @@ pub async fn get_songs_by_album(pool: &SqlitePool, album_id: &str) -> sqlx::Resu
 /// 2. Songs where the track artist matches (for compilations/features)
 pub async fn get_songs_by_artist(pool: &SqlitePool, artist_id: &str) -> sqlx::Result<Vec<Song>> {
     sqlx::query_as::<_, Song>(
-        "SELECT DISTINCT s.*, ar.name as artist_name, al.name as album_name 
+        "SELECT DISTINCT s.*, ar.name as artist_name, al.name as album_name,
+                pc.play_count, pc.last_played, NULL as starred_at
          FROM songs s
          INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
+         LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
+                    FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
          WHERE s.artist_id = ? OR al.artist_id = ?
          ORDER BY s.album_id, s.disc_number, s.track_number, s.title",
     )
@@ -277,14 +283,17 @@ pub async fn get_playlist_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Opt
         .await
 }
 
-/// Get songs in a playlist, ordered by position
+/// Get songs in a playlist, ordered by position (includes play stats for sorting)
 pub async fn get_playlist_songs(pool: &SqlitePool, playlist_id: &str) -> sqlx::Result<Vec<Song>> {
     sqlx::query_as::<_, Song>(
-        "SELECT s.*, ar.name as artist_name, al.name as album_name 
+        "SELECT s.*, ar.name as artist_name, al.name as album_name,
+                pc.play_count, pc.last_played, NULL as starred_at
          FROM songs s
          INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN playlist_songs ps ON s.id = ps.song_id
+         LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
+                    FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
          WHERE ps.playlist_id = ?
          ORDER BY ps.position",
     )
@@ -1012,14 +1021,17 @@ pub async fn get_all_songs(pool: &SqlitePool) -> sqlx::Result<Vec<Song>> {
     .await
 }
 
-/// Get starred songs for a user
+/// Get starred songs for a user (includes play stats for sorting)
 pub async fn get_starred_songs(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<Song>> {
     sqlx::query_as::<_, Song>(
-        "SELECT s.*, ar.name as artist_name, al.name as album_name 
+        "SELECT s.*, ar.name as artist_name, al.name as album_name,
+                pc.play_count, pc.last_played, st.starred_at
          FROM songs s
          INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN starred st ON st.item_id = s.id AND st.item_type = 'song'
+         LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
+                    FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
          WHERE st.user_id = ?
          ORDER BY st.starred_at DESC",
     )
@@ -1028,13 +1040,16 @@ pub async fn get_starred_songs(pool: &SqlitePool, user_id: i64) -> sqlx::Result<
     .await
 }
 
-/// Get songs by genre
+/// Get songs by genre (includes play stats for sorting)
 pub async fn get_songs_by_genre(pool: &SqlitePool, genre: &str) -> sqlx::Result<Vec<Song>> {
     sqlx::query_as::<_, Song>(
-        "SELECT s.*, ar.name as artist_name, al.name as album_name 
+        "SELECT s.*, ar.name as artist_name, al.name as album_name,
+                pc.play_count, pc.last_played, NULL as starred_at
          FROM songs s
          INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
+         LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
+                    FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
          WHERE s.genre = ?
          ORDER BY s.title COLLATE NOCASE",
     )

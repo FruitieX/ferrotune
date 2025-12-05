@@ -25,6 +25,7 @@ const albumSortOptions: { value: SortField; label: string }[] = [
   { value: "artist", label: "Artist" },
   { value: "year", label: "Year" },
   { value: "dateAdded", label: "Date Added" },
+  { value: "songCount", label: "Track Count" },
 ];
 
 // Sort options for artists

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useAtomValue } from "jotai";
 import { cn } from "@/lib/utils";
 import { currentTimeAtom, durationAtom, playbackStateAtom, bufferedAtom } from "@/lib/store/player";
@@ -23,8 +23,60 @@ const COLORS = {
 
 // Animation configuration
 const ANIMATION_DURATION_MS = 600;
-const ANIMATION_STAGGER_MS = 3; // Stagger per bar
-const CHUNK_ANIMATION_STAGGER_MS = 2; // Faster stagger for chunk updates
+const ANIMATION_STAGGER_MS = 3; // Stagger per bar for full track change
+const CHUNK_FADE_DURATION_MS = 300; // Duration for chunk fade-in animation
+const CHUNK_STAGGER_TOTAL_MS = 150; // Total stagger spread across a chunk
+
+// Bar sizing constraints
+const MIN_BAR_WIDTH = 2; // Minimum width per bar in pixels
+const BAR_GAP = 1; // Gap between bars in pixels
+
+/**
+ * Downsample waveform heights array by averaging adjacent bars.
+ * This ensures playback position still aligns correctly with visual bars.
+ */
+function downsampleHeights(heights: number[], sourceCount: number, targetCount: number): number[] {
+  if (targetCount >= sourceCount) {
+    return heights.slice(0, targetCount);
+  }
+  
+  const result = new Array(targetCount);
+  const ratio = sourceCount / targetCount;
+  
+  for (let i = 0; i < targetCount; i++) {
+    // Map target bar to source range
+    const sourceStart = i * ratio;
+    const sourceEnd = (i + 1) * ratio;
+    
+    // Average the source bars that fall within this target bar's range
+    const startIdx = Math.floor(sourceStart);
+    const endIdx = Math.min(Math.ceil(sourceEnd), sourceCount);
+    
+    let sum = 0;
+    let count = 0;
+    for (let j = startIdx; j < endIdx; j++) {
+      sum += heights[j] ?? FLAT_BAR_HEIGHT;
+      count++;
+    }
+    
+    result[i] = count > 0 ? sum / count : FLAT_BAR_HEIGHT;
+  }
+  
+  return result;
+}
+
+/**
+ * Calculate maximum number of bars that can fit in a given width.
+ */
+function calculateMaxBars(containerWidth: number): number {
+  // Each bar needs MIN_BAR_WIDTH + BAR_GAP (except last bar doesn't need gap after it)
+  // containerWidth = n * MIN_BAR_WIDTH + (n-1) * BAR_GAP
+  // containerWidth = n * MIN_BAR_WIDTH + n * BAR_GAP - BAR_GAP
+  // containerWidth + BAR_GAP = n * (MIN_BAR_WIDTH + BAR_GAP)
+  // n = (containerWidth + BAR_GAP) / (MIN_BAR_WIDTH + BAR_GAP)
+  const maxBars = Math.floor((containerWidth + BAR_GAP) / (MIN_BAR_WIDTH + BAR_GAP));
+  return Math.max(1, maxBars);
+}
 
 export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const currentTrack = useAtomValue(currentSongAtom);
@@ -35,7 +87,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const primaryColor = useAtomValue(accentColorRgbAtom);
   const lastChunkInfo = useAtomValue(lastChunkInfoAtom);
   const { seekPercent } = useAudioEngine();
-  const { heights, barCount } = useWaveform();
+  const { heights: sourceHeights, barCount: sourceBarCount } = useWaveform();
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -43,6 +95,43 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
   const [isHovering, setIsHovering] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [containerWidth, setContainerWidth] = useState(600); // Default to a reasonable width
+  
+  // Calculate how many bars we can display based on container width
+  const displayBarCount = useMemo(() => {
+    const maxBars = calculateMaxBars(containerWidth);
+    // Don't use more bars than we have data for
+    return Math.min(maxBars, sourceBarCount);
+  }, [containerWidth, sourceBarCount]);
+  
+  // Downsample heights to match display bar count
+  const heights = useMemo(() => {
+    return downsampleHeights(sourceHeights, sourceBarCount, displayBarCount);
+  }, [sourceHeights, sourceBarCount, displayBarCount]);
+  
+  // Use displayBarCount for rendering
+  const barCount = displayBarCount;
+  
+  // Track container width with ResizeObserver
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const updateWidth = () => {
+      const rect = container.getBoundingClientRect();
+      if (rect.width > 0) {
+        setContainerWidth(rect.width);
+      }
+    };
+    
+    // Initial measurement
+    updateWidth();
+    
+    const resizeObserver = new ResizeObserver(updateWidth);
+    resizeObserver.observe(container);
+    
+    return () => resizeObserver.disconnect();
+  }, []);
   
   // Smooth progress tracking - read directly from audio element for 60fps updates
   const smoothProgressRef = useRef<number>(0);
@@ -65,13 +154,31 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     ? (hoverPercent / 100) * duration 
     : null;
   
-  // Animation state for bar heights
-  const animatedHeightsRef = useRef<Float32Array>(new Float32Array(barCount).fill(FLAT_BAR_HEIGHT));
-  const targetHeightsRef = useRef<Float32Array>(new Float32Array(barCount).fill(FLAT_BAR_HEIGHT));
-  const startHeightsRef = useRef<Float32Array>(new Float32Array(barCount).fill(FLAT_BAR_HEIGHT));
-  const barAnimationStartRef = useRef<Float32Array>(new Float32Array(barCount).fill(0));
+  // Animation state for bar heights - use refs that we resize as needed
+  const animatedHeightsRef = useRef<Float32Array | null>(null);
+  const targetHeightsRef = useRef<Float32Array | null>(null);
+  const startHeightsRef = useRef<Float32Array | null>(null);
+  const barAnimationStartRef = useRef<Float32Array | null>(null);
   const barAnimationFrameRef = useRef<number | null>(null);
   const drawWaveformRef = useRef<((progress: number) => void) | null>(null);
+  const prevBarCountRef = useRef<number>(0);
+  
+  // Resize animation buffers when bar count changes
+  if (barCount !== prevBarCountRef.current) {
+    animatedHeightsRef.current = new Float32Array(barCount).fill(FLAT_BAR_HEIGHT);
+    targetHeightsRef.current = new Float32Array(barCount).fill(FLAT_BAR_HEIGHT);
+    startHeightsRef.current = new Float32Array(barCount).fill(FLAT_BAR_HEIGHT);
+    barAnimationStartRef.current = new Float32Array(barCount).fill(0);
+    prevBarCountRef.current = barCount;
+  }
+  
+  // Ensure buffers exist (for initial render)
+  if (!animatedHeightsRef.current) {
+    animatedHeightsRef.current = new Float32Array(barCount).fill(FLAT_BAR_HEIGHT);
+    targetHeightsRef.current = new Float32Array(barCount).fill(FLAT_BAR_HEIGHT);
+    startHeightsRef.current = new Float32Array(barCount).fill(FLAT_BAR_HEIGHT);
+    barAnimationStartRef.current = new Float32Array(barCount).fill(0);
+  }
   
   const isEnded = playbackState === "ended";
   // Fallback progress from atom (used when not playing)
@@ -113,6 +220,10 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   
   // Animate to new heights when they change
   useEffect(() => {
+    // Ensure refs exist
+    if (!animatedHeightsRef.current || !targetHeightsRef.current || 
+        !startHeightsRef.current || !barAnimationStartRef.current) return;
+        
     // Detect track change
     const trackChanged = trackId !== currentTrackIdRef.current;
     currentTrackIdRef.current = trackId;
@@ -122,6 +233,15 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     if (lastChunkInfo) {
       lastChunkTimestampRef.current = lastChunkInfo.timestamp;
     }
+    
+    // Map source chunk indices to display indices
+    const ratio = sourceBarCount / barCount;
+    const displayChunkStart = hasNewChunk ? Math.floor(lastChunkInfo.startIndex / ratio) : 0;
+    const displayChunkEnd = hasNewChunk ? Math.ceil(lastChunkInfo.endIndex / ratio) : 0;
+    const chunkBarCount = displayChunkEnd - displayChunkStart;
+    
+    // Calculate per-bar stagger for chunk animation (spread across CHUNK_STAGGER_TOTAL_MS)
+    const chunkStaggerPerBar = chunkBarCount > 1 ? CHUNK_STAGGER_TOTAL_MS / (chunkBarCount - 1) : 0;
     
     const now = performance.now();
     
@@ -139,10 +259,11 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
         if (trackChanged) {
           // Full track change: stagger all bars from left to right
           barAnimationStartRef.current[i] = now + i * ANIMATION_STAGGER_MS;
-        } else if (hasNewChunk && i >= lastChunkInfo.startIndex && i < lastChunkInfo.endIndex) {
-          // New chunk: stagger only the bars in this chunk, based on position within chunk
-          const positionInChunk = i - lastChunkInfo.startIndex;
-          barAnimationStartRef.current[i] = now + positionInChunk * CHUNK_ANIMATION_STAGGER_MS;
+        } else if (hasNewChunk && i >= displayChunkStart && i < displayChunkEnd) {
+          // New chunk: stagger bars with a fixed total duration spread
+          // This makes chunk loading feel smooth regardless of chunk size
+          const positionInChunk = i - displayChunkStart;
+          barAnimationStartRef.current[i] = now + positionInChunk * chunkStaggerPerBar;
         } else {
           // Other height changes (e.g., re-normalization): no stagger
           barAnimationStartRef.current[i] = now;
@@ -156,10 +277,15 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     }
     
     const animate = (animNow: number) => {
+      // Safety check for refs
+      if (!animatedHeightsRef.current || !targetHeightsRef.current || 
+          !startHeightsRef.current || !barAnimationStartRef.current) return;
+          
       let allComplete = true;
+      const currentBarCount = animatedHeightsRef.current.length;
       
       // Animate each bar independently
-      for (let i = 0; i < barCount; i++) {
+      for (let i = 0; i < currentBarCount; i++) {
         const barStart = barAnimationStartRef.current[i];
         const elapsed = Math.max(0, animNow - barStart);
         const t = Math.min(1, elapsed / ANIMATION_DURATION_MS);
@@ -191,7 +317,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
         cancelAnimationFrame(barAnimationFrameRef.current);
       }
     };
-  }, [heights, barCount, trackId, lastChunkInfo]);
+  }, [heights, barCount, sourceBarCount, trackId, lastChunkInfo]);
   
   // Helper function to draw all bars with a given color
   const drawBars = (
@@ -200,12 +326,15 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     color: string,
     barWidth: number,
     barGap: number,
-    centerY: number
+    centerY: number,
+    currentBarCount: number
   ) => {
+    if (!animatedHeightsRef.current) return;
+    
     ctx.fillStyle = color;
-    for (let i = 0; i < barCount; i++) {
+    for (let i = 0; i < currentBarCount; i++) {
       const x = i * (barWidth + barGap);
-      const displayHeight = animatedHeightsRef.current[i];
+      const displayHeight = animatedHeightsRef.current[i] ?? FLAT_BAR_HEIGHT;
       const barHeight = Math.max(2, displayHeight * rect.height);
       const y = centerY - barHeight / 2;
       
@@ -224,6 +353,9 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    
+    // Get the current bar count from the ref
+    const currentBarCount = animatedHeightsRef.current?.length ?? barCount;
     
     // Get actual pixel dimensions
     const rect = container.getBoundingClientRect();
@@ -246,10 +378,11 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     // Clear canvas
     ctx.clearRect(0, 0, rect.width, rect.height);
     
-    // Calculate bar dimensions
-    const barGap = 1;
-    const totalGaps = barCount - 1;
-    const barWidth = (rect.width - totalGaps * barGap) / barCount;
+    // Calculate bar dimensions - ensure bar width doesn't go negative
+    const barGap = BAR_GAP;
+    const totalGaps = Math.max(0, currentBarCount - 1);
+    const availableWidth = rect.width - totalGaps * barGap;
+    const barWidth = currentBarCount > 0 ? Math.max(MIN_BAR_WIDTH, availableWidth / currentBarCount) : MIN_BAR_WIDTH;
     const centerY = rect.height / 2;
     
     // Choose colors based on theme
@@ -266,7 +399,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       ctx.beginPath();
       ctx.rect(bufferedX, 0, rect.width - bufferedX, rect.height);
       ctx.clip();
-      drawBars(ctx, rect, unbufferedColor, barWidth, barGap, centerY);
+      drawBars(ctx, rect, unbufferedColor, barWidth, barGap, centerY, currentBarCount);
       ctx.restore();
     }
     
@@ -276,7 +409,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       ctx.beginPath();
       ctx.rect(progressX, 0, bufferedX - progressX, rect.height);
       ctx.clip();
-      drawBars(ctx, rect, bufferedColor, barWidth, barGap, centerY);
+      drawBars(ctx, rect, bufferedColor, barWidth, barGap, centerY, currentBarCount);
       ctx.restore();
     }
     
@@ -286,7 +419,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       ctx.beginPath();
       ctx.rect(0, 0, progressX, rect.height);
       ctx.clip();
-      drawBars(ctx, rect, primaryColor, barWidth, barGap, centerY);
+      drawBars(ctx, rect, primaryColor, barWidth, barGap, centerY, currentBarCount);
       ctx.restore();
     }
     

@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { formatDuration, formatDate } from "@/lib/utils/format";
-import { currentSongAtom, startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
+import { currentSongAtom, serverQueueStateAtom, startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { playbackStateAtom } from "@/lib/store/player";
 import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
 import { useStarred } from "@/lib/store/starred";
@@ -116,6 +116,13 @@ interface SongRowProps {
   // Playlist props
   showRemoveFromPlaylist?: boolean;
   onRemoveFromPlaylist?: () => void;
+  /**
+   * When true, this row is the currently playing track in the queue.
+   * Use this for views with duplicate songs (like playlists) where we need
+   * to distinguish between multiple instances of the same song.
+   * When undefined, the default behavior (matching by song ID) is used.
+   */
+  isCurrentQueuePosition?: boolean;
   className?: string;
 }
 
@@ -136,6 +143,7 @@ export function SongRow({
   onSelect,
   showRemoveFromPlaylist = false,
   onRemoveFromPlaylist,
+  isCurrentQueuePosition,
   className,
 }: SongRowProps) {
   const currentSong = useAtomValue(currentSongAtom);
@@ -146,7 +154,12 @@ export function SongRow({
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
 
   // Don't show track as current when playback has ended
-  const isCurrentTrack = currentSong?.id === song.id && playbackState !== "ended";
+  // If isCurrentQueuePosition is explicitly set (for views with duplicate songs like playlists),
+  // use that to determine if this specific row is the current track.
+  // Otherwise, fall back to matching by song ID.
+  const isCurrentTrack = isCurrentQueuePosition !== undefined
+    ? isCurrentQueuePosition && playbackState !== "ended"
+    : currentSong?.id === song.id && playbackState !== "ended";
   const isPlaying = isCurrentTrack && playbackState === "playing";
   const isExcludedFromShuffle = shuffleExcludes.has(song.id);
 
@@ -350,10 +363,17 @@ interface SongCardProps {
   isSelected?: boolean;
   isSelectionMode?: boolean;
   onSelect?: (id: string, e: React.MouseEvent) => void;
+  /**
+   * When true, this card is the currently playing track in the queue.
+   * Use this for views with duplicate songs (like playlists) where we need
+   * to distinguish between multiple instances of the same song.
+   * When undefined, the default behavior (matching by song ID) is used.
+   */
+  isCurrentQueuePosition?: boolean;
   className?: string;
 }
 
-export function SongCard({ song, index, queueSongs, queueSource, isSelected, isSelectionMode, onSelect, className }: SongCardProps) {
+export function SongCard({ song, index, queueSongs, queueSource, isSelected, isSelectionMode, onSelect, isCurrentQueuePosition, className }: SongCardProps) {
   const currentSong = useAtomValue(currentSongAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
@@ -361,7 +381,12 @@ export function SongCard({ song, index, queueSongs, queueSource, isSelected, isS
   const { togglePlayPause } = useAudioEngine();
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
 
-  const isCurrentTrack = currentSong?.id === song.id && playbackState !== "ended";
+  // If isCurrentQueuePosition is explicitly set (for views with duplicate songs like playlists),
+  // use that to determine if this specific card is the current track.
+  // Otherwise, fall back to matching by song ID.
+  const isCurrentTrack = isCurrentQueuePosition !== undefined
+    ? isCurrentQueuePosition && playbackState !== "ended"
+    : currentSong?.id === song.id && playbackState !== "ended";
   const isExcludedFromShuffle = shuffleExcludes.has(song.id);
 
   const coverArtUrl = song.coverArt

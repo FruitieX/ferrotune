@@ -233,10 +233,17 @@ function PlaylistDetailContent() {
       const { active, over } = event;
 
       if (over && active.id !== over.id) {
-        const oldIndex = localSongOrder.findIndex((item) => item.id === active.id);
-        const newIndex = localSongOrder.findIndex((item) => item.id === over.id);
+        // Parse indices from the IDs (format: "index-songId")
+        const parseIndex = (id: string | number): number => {
+          const idStr = String(id);
+          const dashIndex = idStr.indexOf('-');
+          return dashIndex !== -1 ? parseInt(idStr.substring(0, dashIndex), 10) : -1;
+        };
+        
+        const oldIndex = parseIndex(active.id);
+        const newIndex = parseIndex(over.id);
 
-        if (oldIndex !== -1 && newIndex !== -1) {
+        if (oldIndex !== -1 && newIndex !== -1 && oldIndex < localSongOrder.length && newIndex < localSongOrder.length) {
           const newOrder = arrayMove(localSongOrder, oldIndex, newIndex);
           setLocalSongOrder(newOrder);
           reorderMutation.mutate(newOrder.map((s) => s.id));
@@ -265,6 +272,27 @@ function PlaylistDetailContent() {
       direction: sortConfig.direction,
     } : undefined,
   }), [playlistId, playlist?.name, sortConfig.field, sortConfig.direction]);
+
+  // Check if a song at a given index is the currently playing track
+  // This handles playlists with duplicate songs by comparing the queue position
+  const isCurrentQueuePosition = useCallback((index: number, songId: string): boolean => {
+    if (!queueState) return false;
+    
+    // Check if the queue source is this playlist
+    const isPlaylistQueue = queueState.source?.type === "playlist" && queueState.source?.id === playlistId;
+    
+    if (isPlaylistQueue) {
+      // When playing from this playlist, only highlight the exact position
+      return queueState.currentIndex === index;
+    }
+    
+    // For other sources, we can't reliably determine position, so return undefined
+    // This will fall back to song ID matching in SongRow
+    return false;
+  }, [queueState, playlistId]);
+
+  // Determine if we should use position-based highlighting
+  const isPlaylistInQueue = queueState?.source?.type === "playlist" && queueState?.source?.id === playlistId;
 
   // Build breadcrumb items from playlist name (which includes folder path)
   const breadcrumbItems = useMemo(() => {
@@ -470,6 +498,7 @@ function PlaylistDetailContent() {
             onColumnVisibilityChange={setColumnVisibility}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
+            showCustomSort
           />
         }
       >
@@ -524,10 +553,11 @@ function PlaylistDetailContent() {
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
                   onSelect={handleSelect}
+                  isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(index, song.id) : undefined}
                 />
               )}
               renderSkeleton={() => <SongCardSkeleton />}
-              getItemKey={(song) => song.id}
+              getItemKey={(song, index) => `${index}-${song.id}`}
             />
           ) : isDragEnabled ? (
             <DndContext
@@ -536,15 +566,16 @@ function PlaylistDetailContent() {
               onDragEnd={handleDragEnd}
             >
               <SortableContext
-                items={displaySongs.map((s) => s.id)}
+                items={displaySongs.map((s, i) => `${i}-${s.id}`)}
                 strategy={verticalListSortingStrategy}
               >
                 <div className="space-y-1">
                   {displaySongs.map((song, index) => (
                     <SortableSongRow
-                      key={song.id}
+                      key={`${index}-${song.id}`}
                       song={song}
                       index={index}
+                      sortableId={`${index}-${song.id}`}
                       showCover
                       showArtist={columnVisibility.artist}
                       showAlbum={columnVisibility.album}
@@ -560,6 +591,7 @@ function PlaylistDetailContent() {
                       disabled={hasSelection}
                       showRemoveFromPlaylist
                       onRemoveFromPlaylist={() => handleRemoveSingleSong(song.id)}
+                      isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(index, song.id) : undefined}
                     />
                   ))}
                 </div>
@@ -585,10 +617,11 @@ function PlaylistDetailContent() {
                   onSelect={handleSelect}
                   showRemoveFromPlaylist
                   onRemoveFromPlaylist={() => handleRemoveSingleSong(song.id)}
+                  isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(index, song.id) : undefined}
                 />
               )}
               renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
-              getItemKey={(song) => song.id}
+              getItemKey={(song, index) => `${index}-${song.id}`}
               estimateItemHeight={56}
             />
           )

@@ -10,6 +10,8 @@ import type { Song } from "@/lib/api/types";
 interface SortableSongRowProps {
   song: Song;
   index: number;
+  /** Unique ID for sortable context - defaults to song.id but should be unique for playlists with duplicates */
+  sortableId?: string;
   showCover?: boolean;
   showArtist?: boolean;
   showAlbum?: boolean;
@@ -25,11 +27,18 @@ interface SortableSongRowProps {
   disabled?: boolean;
   showRemoveFromPlaylist?: boolean;
   onRemoveFromPlaylist?: () => void;
+  /**
+   * When true, this row is the currently playing track in the queue.
+   * Use this for views with duplicate songs (like playlists) where we need
+   * to distinguish between multiple instances of the same song.
+   */
+  isCurrentQueuePosition?: boolean;
 }
 
 export function SortableSongRow({
   song,
   index,
+  sortableId,
   showCover,
   showArtist,
   showAlbum,
@@ -45,6 +54,7 @@ export function SortableSongRow({
   disabled = false,
   showRemoveFromPlaylist,
   onRemoveFromPlaylist,
+  isCurrentQueuePosition,
 }: SortableSongRowProps) {
   const {
     attributes,
@@ -53,7 +63,7 @@ export function SortableSongRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: song.id, disabled });
+  } = useSortable({ id: sortableId ?? song.id, disabled });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -108,6 +118,7 @@ export function SortableSongRow({
             onSelect={onSelect}
             showRemoveFromPlaylist={showRemoveFromPlaylist}
             onRemoveFromPlaylist={onRemoveFromPlaylist}
+            isCurrentQueuePosition={isCurrentQueuePosition}
           />
         </div>
       </div>
