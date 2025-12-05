@@ -56,6 +56,7 @@ use axum::{
 };
 use serde::Serialize;
 use std::sync::Arc;
+use ts_rs::TS;
 
 /// Create the Ferrotune Admin API router.
 pub fn create_router(state: Arc<AppState>) -> Router {
@@ -151,7 +152,8 @@ async fn health() -> impl IntoResponse {
 }
 
 /// Standard error response for the admin API.
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ErrorResponse {
     pub error: String,
     #[serde(skip_serializing_if = "Option::is_none")]

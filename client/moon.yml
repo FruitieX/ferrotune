@@ -49,6 +49,7 @@ tasks:
       - '@group(sources)'
     deps:
       - 'install'
+      - 'ferrotune:generate-bindings'
     options:
       persistent: true
       runInCI: false
@@ -66,6 +67,7 @@ tasks:
       - '.next'
     deps:
       - 'install'
+      - 'ferrotune:generate-bindings'
 
   build-export:
     command: 'npm run build'
@@ -76,6 +78,7 @@ tasks:
       - 'out'
     deps:
       - 'install'
+      - 'ferrotune:generate-bindings'
     env:
       NEXT_OUTPUT_STATIC: '1'
 
@@ -89,6 +92,7 @@ tasks:
       - '@group(sources)'
     deps:
       - 'install'
+      - 'ferrotune:generate-bindings'
 
   typecheck:
     command: 'npx tsc --noEmit'
@@ -96,6 +100,7 @@ tasks:
       - '@group(sources)'
     deps:
       - 'install'
+      - 'ferrotune:generate-bindings'
 
   # ============================================================================
   # E2E TESTS

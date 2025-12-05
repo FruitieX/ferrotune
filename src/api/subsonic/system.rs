@@ -4,13 +4,15 @@ use crate::api::AppState;
 use axum::extract::State;
 use serde::Serialize;
 use std::sync::Arc;
+use ts_rs::TS;
 
 pub async fn ping(user: AuthenticatedUser) -> impl axum::response::IntoResponse {
     format_ok_empty(user.format)
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct License {
     pub valid: bool,
     pub email: String,
@@ -26,14 +28,16 @@ pub async fn get_license(user: AuthenticatedUser) -> FormatResponse<License> {
     FormatResponse::new(user.format, response)
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct OpenSubsonicExtensions {
     pub open_subsonic_extensions: Vec<OpenSubsonicExtension>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct OpenSubsonicExtension {
     pub name: String,
     pub versions: Vec<i32>,
@@ -51,20 +55,23 @@ pub async fn get_opensubsonic_extensions(
     FormatResponse::new(user.format, response)
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct MusicFolders {
     pub music_folders: MusicFoldersInner,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct MusicFoldersInner {
     pub music_folder: Vec<MusicFolderResponse>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct MusicFolderResponse {
     pub id: i64,
     pub name: String,

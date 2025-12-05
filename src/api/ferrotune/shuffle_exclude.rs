@@ -12,20 +12,23 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 
 use super::ErrorResponse;
 
 /// Response for getting shuffle exclude status
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ShuffleExcludeStatusResponse {
     pub song_id: String,
     pub excluded: bool,
 }
 
 /// Response for getting all excluded songs
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ShuffleExcludesResponse {
     pub song_ids: Vec<String>,
 }
@@ -46,8 +49,9 @@ pub struct BulkSetShuffleExcludeRequest {
 }
 
 /// Response for bulk operation
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct BulkShuffleExcludeResponse {
     pub count: usize,
     pub excluded: bool,

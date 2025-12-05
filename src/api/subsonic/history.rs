@@ -10,6 +10,7 @@ use crate::error::Result;
 use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 
 // ===== getPlayHistory - Ferrotune extension =====
 
@@ -20,14 +21,16 @@ pub struct PlayHistoryParams {
     offset: Option<u32>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlayHistoryResponse {
     pub play_history: PlayHistoryContent,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlayHistoryContent {
     pub entry: Vec<PlayHistoryEntry>,
     /// Total count of play history entries
@@ -35,10 +38,12 @@ pub struct PlayHistoryContent {
     pub total: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlayHistoryEntry {
     #[serde(flatten)]
+    #[ts(flatten)]
     pub song: SongResponse,
     pub played_at: String,
 }

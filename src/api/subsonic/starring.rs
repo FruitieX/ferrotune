@@ -11,6 +11,7 @@ use axum::extract::State;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 
 #[derive(Deserialize)]
 pub struct RatingParams {
@@ -185,20 +186,23 @@ pub async fn unstar(
     Ok(format_ok_empty(user.format))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct Starred2Response {
     pub starred2: Starred2Content,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct StarredResponse {
     pub starred: Starred2Content,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct Starred2Content {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub artist: Vec<ArtistResponse>,

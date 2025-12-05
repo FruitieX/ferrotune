@@ -10,6 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use std::sync::Arc;
+use ts_rs::TS;
 
 /// Request body for logging a listening session.
 #[derive(Debug, Deserialize)]
@@ -24,8 +25,9 @@ pub struct LogListeningRequest {
 }
 
 /// Response for logging a listening session.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct LogListeningResponse {
     pub success: bool,
     /// The session ID (for updating in subsequent calls)
@@ -33,8 +35,9 @@ pub struct LogListeningResponse {
 }
 
 /// Listening statistics for a time period.
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize, FromRow, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ListeningStats {
     /// Total listening time in seconds
     pub total_seconds: i64,
@@ -45,8 +48,9 @@ pub struct ListeningStats {
 }
 
 /// Response for getting listening statistics.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ListeningStatsResponse {
     /// Stats for the last 7 days
     pub last_7_days: ListeningStats,

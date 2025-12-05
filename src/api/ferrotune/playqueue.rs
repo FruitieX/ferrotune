@@ -11,6 +11,7 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 
 /// Request body for saving the play queue.
 #[derive(Deserialize)]
@@ -25,7 +26,8 @@ pub struct SavePlayQueueRequest {
 }
 
 /// Response for successful play queue save.
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct SavePlayQueueResponse {
     pub success: bool,
 }

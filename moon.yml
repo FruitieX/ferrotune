@@ -230,6 +230,18 @@ tasks:
       # This runs against an already-running server, not the test harness
 
   # ============================================================================
+  # TYPE GENERATION
+  # ============================================================================
+
+  generate-bindings:
+    command: 'bash scripts/generate-ts-bindings.sh'
+    inputs:
+      - '@group(sources)'
+      - 'scripts/generate-ts-bindings.sh'
+    outputs:
+      - 'client/src/lib/api/generated/**/*'
+
+  # ============================================================================
   # CODE QUALITY
   # ============================================================================
 

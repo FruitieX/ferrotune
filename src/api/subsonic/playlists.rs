@@ -9,6 +9,7 @@ use crate::error::{Error, Result};
 use axum::extract::State;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
@@ -50,18 +51,21 @@ pub struct UpdatePlaylistParams {
 }
 
 // Response types
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlaylistsResponse {
     pub playlists: PlaylistsWrapper,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlaylistsWrapper {
     pub playlist: Vec<PlaylistResponse>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlaylistResponse {
     pub id: String,
     pub name: String,
@@ -77,13 +81,15 @@ pub struct PlaylistResponse {
     pub cover_art: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlaylistWithSongsResponse {
     pub playlist: PlaylistDetailResponse,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlaylistDetailResponse {
     pub id: String,
     pub name: String,

@@ -6,6 +6,7 @@ use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use ts_rs::TS;
 
 #[derive(Deserialize)]
 pub struct IdParam {
@@ -20,27 +21,31 @@ pub struct MusicFolderParam {
 
 // ===== getArtists =====
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ArtistsResponse {
     pub artists: ArtistsIndex,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ArtistsIndex {
     pub index: Vec<ArtistIndex>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ArtistIndex {
     pub name: String,
     pub artist: Vec<ArtistResponse>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ArtistResponse {
     pub id: String,
     pub name: String,
@@ -125,14 +130,16 @@ pub async fn get_artists(
 
 // ===== getArtist =====
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ArtistDetailResponse {
     pub artist: ArtistDetail,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ArtistDetail {
     pub id: String,
     pub name: String,
@@ -149,8 +156,9 @@ pub struct ArtistDetail {
     pub song: Vec<SongResponse>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct AlbumResponse {
     pub id: String,
     pub name: String,
@@ -263,14 +271,16 @@ pub struct ArtistInfoParams {
     include_not_present: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ArtistInfo2Response {
     pub artist_info2: ArtistInfo2,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ArtistInfo2 {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub biography: Option<String>,
@@ -317,14 +327,16 @@ pub async fn get_artist_info2(
 
 // ===== getAlbum =====
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct AlbumDetailResponse {
     pub album: AlbumDetail,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct AlbumDetail {
     pub id: String,
     pub name: String,
@@ -346,8 +358,9 @@ pub struct AlbumDetail {
     pub song: Vec<SongResponse>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct SongResponse {
     pub id: String,
     pub title: String,
@@ -383,6 +396,7 @@ pub struct SongResponse {
     pub user_rating: Option<i32>,
     pub created: String,
     #[serde(rename = "type")]
+    #[ts(rename = "type")]
     pub media_type: String,
     // Ferrotune extensions for play statistics
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -453,8 +467,9 @@ pub async fn get_album(
 
 // ===== getSong =====
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct SongDetailResponse {
     pub song: SongResponse,
 }
@@ -505,22 +520,26 @@ pub async fn get_song(
 
 // ===== getGenres =====
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct GenresResponse {
     pub genres: GenresList,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct GenresList {
     pub genre: Vec<GenreResponse>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct GenreResponse {
     #[serde(rename = "value")]
+    #[ts(rename = "value")]
     pub name: String,
     pub song_count: i64,
     pub album_count: i64,

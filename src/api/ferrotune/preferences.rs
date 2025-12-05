@@ -6,10 +6,12 @@ use crate::db::queries;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 
 /// User preferences response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PreferencesResponse {
     pub accent_color: String,
     pub custom_accent_hue: Option<f64>,

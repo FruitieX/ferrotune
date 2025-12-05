@@ -9,6 +9,7 @@ use axum::extract::State;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,14 +25,16 @@ pub struct SavePlayQueueParams {
     position: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlayQueueResponse {
     #[serde(rename = "playQueue")]
     pub play_queue: PlayQueueContent,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlayQueueContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current: Option<String>,

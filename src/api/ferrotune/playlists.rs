@@ -9,13 +9,15 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 use uuid::Uuid;
 
 type ApiError = (StatusCode, Json<super::ErrorResponse>);
 
 /// A playlist folder in the response.
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlaylistFolderResponse {
     pub id: String,
     pub name: String,
@@ -25,8 +27,9 @@ pub struct PlaylistFolderResponse {
 }
 
 /// A playlist in the folder response.
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlaylistInFolder {
     pub id: String,
     pub name: String,
@@ -36,8 +39,9 @@ pub struct PlaylistInFolder {
 }
 
 /// Response containing all folders and playlists.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlaylistFoldersResponse {
     pub folders: Vec<PlaylistFolderResponse>,
     pub playlists: Vec<PlaylistInFolder>,

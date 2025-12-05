@@ -11,10 +11,12 @@ use axum::{
 };
 use serde::Serialize;
 use std::sync::Arc;
+use ts_rs::TS;
 
 use super::ErrorResponse;
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct DeleteSongResponse {
     success: bool,
     message: String,
