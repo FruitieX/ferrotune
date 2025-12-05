@@ -201,14 +201,14 @@ export default function SongsPage() {
           <VirtualizedGrid
             items={displaySongs}
             totalCount={displayCount}
-            renderItem={(song) => (
+            renderItem={(song, index) => (
               <SongCard
                 song={song}
-                queueSongs={displaySongs}
+                index={index}
                 queueSource={queueSource}
                 isSelected={isSelected(song.id)}
                 isSelectionMode={hasSelection}
-                onSelect={(e) => handleSelect(song.id, e)}
+                onSelect={handleSelect}
               />
             )}
             renderSkeleton={() => <SongCardSkeleton />}
@@ -234,11 +234,10 @@ export default function SongsPage() {
                 showPlayCount={columnVisibility.playCount}
                 showYear={columnVisibility.year}
                 showDateAdded={columnVisibility.dateAdded}
-                queueSongs={displaySongs}
                 queueSource={queueSource}
                 isSelected={isSelected(song.id)}
                 isSelectionMode={hasSelection}
-                onSelect={(e) => handleSelect(song.id, e)}
+                onSelect={handleSelect}
               />
             )}
             renderSkeleton={() => <SongRowSkeleton showCover showIndex />}

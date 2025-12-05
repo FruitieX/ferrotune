@@ -21,7 +21,7 @@ interface SortableSongRowProps {
   queueSource?: QueueSource;
   isSelected?: boolean;
   isSelectionMode?: boolean;
-  onSelect?: (e: React.MouseEvent) => void;
+  onSelect?: (id: string, e: React.MouseEvent) => void;
   disabled?: boolean;
   showRemoveFromPlaylist?: boolean;
   onRemoveFromPlaylist?: () => void;

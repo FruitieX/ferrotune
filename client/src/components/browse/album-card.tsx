@@ -12,10 +12,10 @@ import type { AlbumColumnVisibility } from "@/lib/store/ui";
 
 interface AlbumCardProps {
   album: Album;
-  onPlay?: () => void;
+  onPlay?: (id: string) => void;
   isSelected?: boolean;
   isSelectionMode?: boolean;
-  onSelect?: (e: React.MouseEvent) => void;
+  onSelect?: (id: string, e: React.MouseEvent) => void;
   className?: string;
 }
 
@@ -53,13 +53,13 @@ export function AlbumCard({ album, onPlay, isSelected, isSelectionMode, onSelect
       href={`/library/albums/details?id=${album.id}`}
       colorSeed={album.name}
       coverType="album"
-      onPlay={onPlay}
+      onPlay={onPlay ? () => onPlay(album.id) : undefined}
       onStar={handleStar}
       isStarred={isStarred}
       isSelected={isSelected}
       isSelectionMode={isSelectionMode}
-      onSelect={onSelect}
-      dropdownMenu={<AlbumDropdownMenu album={album} onPlay={onPlay} />}
+      onSelect={onSelect ? (e) => onSelect(album.id, e) : undefined}
+      dropdownMenu={<AlbumDropdownMenu album={album} onPlay={onPlay ? () => onPlay(album.id) : undefined} />}
       contextMenu={(children) => (
         <AlbumContextMenu album={album}>{children}</AlbumContextMenu>
       )}
@@ -77,10 +77,10 @@ export function AlbumCardSkeleton() {
 interface AlbumCardCompactProps {
   album: Album;
   index?: number;
-  onPlay?: () => void;
+  onPlay?: (id: string) => void;
   isSelected?: boolean;
   isSelectionMode?: boolean;
-  onSelect?: (e: React.MouseEvent) => void;
+  onSelect?: (id: string, e: React.MouseEvent) => void;
   className?: string;
   /** Column visibility settings */
   showArtist?: boolean;
@@ -156,12 +156,12 @@ export function AlbumCardCompact({
       href={`/library/albums/details?id=${album.id}`}
       colorSeed={album.name}
       coverType="album"
-      onPlay={() => onPlay?.()}
-      onDoubleClick={() => onPlay?.()}
+      onPlay={onPlay ? () => onPlay(album.id) : undefined}
+      onDoubleClick={onPlay ? () => onPlay(album.id) : undefined}
       isSelected={isSelected}
       isSelectionMode={isSelectionMode}
       index={index}
-      onSelect={onSelect}
+      onSelect={onSelect ? (e) => onSelect(album.id, e) : undefined}
       contextMenu={(children) => (
         <AlbumContextMenu album={album}>{children}</AlbumContextMenu>
       )}
@@ -172,7 +172,7 @@ export function AlbumCardCompact({
           dropdownMenu={
             <AlbumDropdownMenu
               album={album}
-              onPlay={onPlay}
+              onPlay={onPlay ? () => onPlay(album.id) : undefined}
               trigger={<RowDropdownTrigger />}
             />
           }

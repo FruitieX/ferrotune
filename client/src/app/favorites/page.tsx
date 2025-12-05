@@ -566,14 +566,14 @@ export default function FavoritesPage() {
               songViewMode === "grid" ? (
                 <VirtualizedGrid
                   items={displaySongs}
-                  renderItem={(song) => (
+                  renderItem={(song, index) => (
                     <SongCard 
-                      song={song} 
-                      queueSongs={displaySongs}
+                      song={song}
+                      index={index}
                       queueSource={favoritesQueueSource}
                       isSelected={songSelection.isSelected(song.id)}
                       isSelectionMode={songSelection.hasSelection}
-                      onSelect={(e) => songSelection.handleSelect(song.id, e)}
+                      onSelect={songSelection.handleSelect}
                     />
                   )}
                   renderSkeleton={() => <SongCardSkeleton />}
@@ -593,11 +593,10 @@ export default function FavoritesPage() {
                       showPlayCount={columnVisibility.playCount}
                       showYear={columnVisibility.year}
                       showDateAdded={columnVisibility.dateAdded}
-                      queueSongs={displaySongs}
                       queueSource={favoritesQueueSource}
                       isSelected={songSelection.isSelected(song.id)}
                       isSelectionMode={songSelection.hasSelection}
-                      onSelect={(e) => songSelection.handleSelect(song.id, e)}
+                      onSelect={songSelection.handleSelect}
                     />
                   )}
                   renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
@@ -637,7 +636,7 @@ export default function FavoritesPage() {
                       onPlay={() => handlePlayAlbum(album)}
                       isSelected={albumSelection.isSelected(album.id)}
                       isSelectionMode={albumSelection.hasSelection}
-                      onSelect={(e) => albumSelection.handleSelect(album.id, e)}
+                      onSelect={albumSelection.handleSelect}
                     />
                   )}
                   renderSkeleton={() => <AlbumCardSkeleton />}
@@ -653,7 +652,7 @@ export default function FavoritesPage() {
                       onPlay={() => handlePlayAlbum(album)}
                       isSelected={albumSelection.isSelected(album.id)}
                       isSelectionMode={albumSelection.hasSelection}
-                      onSelect={(e) => albumSelection.handleSelect(album.id, e)}
+                      onSelect={albumSelection.handleSelect}
                       showArtist={albumColumnVisibility.artist}
                       showYear={albumColumnVisibility.year}
                       showSongCount={albumColumnVisibility.songCount}
@@ -697,7 +696,7 @@ export default function FavoritesPage() {
                       onPlay={() => handlePlayArtist(artist)}
                       isSelected={artistSelection.isSelected(artist.id)}
                       isSelectionMode={artistSelection.hasSelection}
-                      onSelect={(e) => artistSelection.handleSelect(artist.id, e)}
+                      onSelect={artistSelection.handleSelect}
                     />
                   )}
                   renderSkeleton={() => <ArtistCardSkeleton />}
@@ -713,7 +712,7 @@ export default function FavoritesPage() {
                       onPlay={() => handlePlayArtist(artist)}
                       isSelected={artistSelection.isSelected(artist.id)}
                       isSelectionMode={artistSelection.hasSelection}
-                      onSelect={(e) => artistSelection.handleSelect(artist.id, e)}
+                      onSelect={artistSelection.handleSelect}
                       showAlbumCount={artistColumnVisibility.albumCount}
                     />
                   )}

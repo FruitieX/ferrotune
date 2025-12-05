@@ -10,10 +10,10 @@ import { ArtistContextMenu, ArtistDropdownMenu } from "./artist-context-menu";
 
 interface ArtistCardProps {
   artist: Artist;
-  onPlay?: () => void;
+  onPlay?: (id: string) => void;
   isSelected?: boolean;
   isSelectionMode?: boolean;
-  onSelect?: (e: React.MouseEvent) => void;
+  onSelect?: (id: string, e: React.MouseEvent) => void;
   className?: string;
 }
 
@@ -39,13 +39,13 @@ export function ArtistCard({ artist, onPlay, isSelected, isSelectionMode, onSele
       coverShape="circle"
       colorSeed={artist.name}
       coverType="artist"
-      onPlay={onPlay}
+      onPlay={onPlay ? () => onPlay(artist.id) : undefined}
       onStar={handleStar}
       isStarred={isStarred}
       isSelected={isSelected}
       isSelectionMode={isSelectionMode}
-      onSelect={onSelect}
-      dropdownMenu={<ArtistDropdownMenu artist={artist} onPlay={onPlay} />}
+      onSelect={onSelect ? (e) => onSelect(artist.id, e) : undefined}
+      dropdownMenu={<ArtistDropdownMenu artist={artist} onPlay={onPlay ? () => onPlay(artist.id) : undefined} />}
       contextMenu={(children) => (
         <ArtistContextMenu artist={artist}>{children}</ArtistContextMenu>
       )}
@@ -62,10 +62,10 @@ export function ArtistCardSkeleton() {
 interface ArtistCardCompactProps {
   artist: Artist;
   index?: number;
-  onPlay?: () => void;
+  onPlay?: (id: string) => void;
   isSelected?: boolean;
   isSelectionMode?: boolean;
-  onSelect?: (e: React.MouseEvent) => void;
+  onSelect?: (id: string, e: React.MouseEvent) => void;
   className?: string;
   /** Column visibility settings */
   showAlbumCount?: boolean;
@@ -102,12 +102,12 @@ export function ArtistCardCompact({
       coverShape="circle"
       colorSeed={artist.name}
       coverType="artist"
-      onPlay={() => onPlay?.()}
-      onDoubleClick={() => onPlay?.()}
+      onPlay={onPlay ? () => onPlay(artist.id) : undefined}
+      onDoubleClick={onPlay ? () => onPlay(artist.id) : undefined}
       isSelected={isSelected}
       isSelectionMode={isSelectionMode}
       index={index}
-      onSelect={onSelect}
+      onSelect={onSelect ? (e) => onSelect(artist.id, e) : undefined}
       contextMenu={(children) => (
         <ArtistContextMenu artist={artist}>{children}</ArtistContextMenu>
       )}
@@ -118,7 +118,7 @@ export function ArtistCardCompact({
           dropdownMenu={
             <ArtistDropdownMenu
               artist={artist}
-              onPlay={onPlay}
+              onPlay={onPlay ? () => onPlay(artist.id) : undefined}
               trigger={<RowDropdownTrigger />}
             />
           }

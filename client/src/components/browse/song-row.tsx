@@ -22,14 +22,15 @@ import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
 // Track number column - shows number, now playing indicator, or selection checkbox on hover
 interface TrackIndexProps {
   index: number;
+  songId: string;
   isCurrentTrack: boolean;
   isPlaying: boolean;
   isSelected?: boolean;
   isSelectionMode?: boolean;
-  onSelect?: (e: React.MouseEvent) => void;
+  onSelect?: (id: string, e: React.MouseEvent) => void;
 }
 
-function TrackIndex({ index, isCurrentTrack, isPlaying, isSelected, isSelectionMode, onSelect }: TrackIndexProps) {
+function TrackIndex({ index, songId, isCurrentTrack, isPlaying, isSelected, isSelectionMode, onSelect }: TrackIndexProps) {
   const showCheckbox = isSelected || isSelectionMode;
   
   return (
@@ -39,7 +40,7 @@ function TrackIndex({ index, isCurrentTrack, isPlaying, isSelected, isSelectionM
         if (onSelect) {
           e.preventDefault();
           e.stopPropagation();
-          onSelect(e);
+          onSelect(songId, e);
         }
       }}
     >
@@ -111,7 +112,7 @@ interface SongRowProps {
   // Selection props
   isSelected?: boolean;
   isSelectionMode?: boolean;
-  onSelect?: (e: React.MouseEvent) => void;
+  onSelect?: (id: string, e: React.MouseEvent) => void;
   // Playlist props
   showRemoveFromPlaylist?: boolean;
   onRemoveFromPlaylist?: () => void;
@@ -158,7 +159,8 @@ export function SongRow({
       togglePlayPause();
     } else if (queueSource?.type && queueSource.type !== "other") {
       // Use server-side queue materialization for known sources
-      const songIndex = queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
+      // Use the index prop if available, otherwise try to find from queueSongs
+      const songIndex = index ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
       startQueue({
         sourceType: queueSource.type,
         sourceId: queueSource.id ?? undefined,
@@ -190,7 +192,7 @@ export function SongRow({
     // If holding modifier keys or in selection mode, handle selection
     if (onSelect && (e.shiftKey || e.ctrlKey || e.metaKey || isSelectionMode)) {
       e.preventDefault();
-      onSelect(e);
+      onSelect(song.id, e);
     }
   };
 
@@ -246,6 +248,7 @@ export function SongRow({
           index !== undefined ? (
             <TrackIndex
               index={index}
+              songId={song.id}
               isCurrentTrack={isCurrentTrack}
               isPlaying={isPlaying}
               isSelected={isSelected}
@@ -341,15 +344,16 @@ export function SongRowSkeleton({ showCover = false, showIndex = true }: { showC
 // Song card for grid view
 interface SongCardProps {
   song: Song;
+  index?: number;
   queueSongs?: Song[];
   queueSource?: QueueSource;
   isSelected?: boolean;
   isSelectionMode?: boolean;
-  onSelect?: (e: React.MouseEvent) => void;
+  onSelect?: (id: string, e: React.MouseEvent) => void;
   className?: string;
 }
 
-export function SongCard({ song, queueSongs, queueSource, isSelected, isSelectionMode, onSelect, className }: SongCardProps) {
+export function SongCard({ song, index, queueSongs, queueSource, isSelected, isSelectionMode, onSelect, className }: SongCardProps) {
   const currentSong = useAtomValue(currentSongAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
@@ -369,7 +373,8 @@ export function SongCard({ song, queueSongs, queueSource, isSelected, isSelectio
       togglePlayPause();
     } else if (queueSource?.type && queueSource.type !== "other") {
       // Use server-side queue materialization for known sources
-      const songIndex = queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
+      // Use the index prop if available, otherwise try to find from queueSongs
+      const songIndex = index ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
       startQueue({
         sourceType: queueSource.type,
         sourceId: queueSource.id ?? undefined,
@@ -444,7 +449,7 @@ export function SongCard({ song, queueSongs, queueSource, isSelected, isSelectio
       isStarred={isStarred}
       isSelected={isSelected}
       isSelectionMode={isSelectionMode}
-      onSelect={onSelect}
+      onSelect={onSelect ? (e) => onSelect(song.id, e) : undefined}
       dropdownMenu={<SongDropdownMenu song={song} queueSongs={queueSongs} queueSource={queueSource} />}
       contextMenu={(children) => (
         <SongContextMenu song={song} queueSongs={queueSongs} queueSource={queueSource}>

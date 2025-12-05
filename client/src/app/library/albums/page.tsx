@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
@@ -116,6 +117,10 @@ export default function AlbumsPage() {
   const displayCount = debouncedFilter ? displayAlbums.length : totalAlbums;
   const isLoadingData = debouncedFilter ? isSearching : isLoading;
 
+  // Ref for displayAlbums to make callbacks stable
+  const displayAlbumsRef = useRef(displayAlbums);
+  displayAlbumsRef.current = displayAlbums;
+
   // Album selection
   const {
     selectedCount,
@@ -198,14 +203,17 @@ export default function AlbumsPage() {
     }
   };
 
-  // Play album handler
-  const handlePlayAlbum = async (album: Album) => {
-    startQueue({
-      sourceType: "album",
-      sourceId: album.id,
-      sourceName: album.name,
-    });
-  };
+  // Play album handler - accepts id for stable callback reference
+  const handlePlayAlbum = useCallback((id: string) => {
+    const album = displayAlbumsRef.current.find(a => a.id === id);
+    if (album) {
+      startQueue({
+        sourceType: "album",
+        sourceId: album.id,
+        sourceName: album.name,
+      });
+    }
+  }, [startQueue]);
 
   if (authLoading) {
     return (
@@ -251,10 +259,10 @@ export default function AlbumsPage() {
             renderItem={(album) => (
               <AlbumCard 
                 album={album} 
-                onPlay={() => handlePlayAlbum(album)}
+                onPlay={handlePlayAlbum}
                 isSelected={isSelected(album.id)}
                 isSelectionMode={hasSelection}
-                onSelect={(e) => handleSelect(album.id, e)}
+                onSelect={handleSelect}
               />
             )}
             renderSkeleton={() => <AlbumCardSkeleton />}
@@ -273,10 +281,10 @@ export default function AlbumsPage() {
               <AlbumCardCompact 
                 album={album} 
                 index={index}
-                onPlay={() => handlePlayAlbum(album)}
+                onPlay={handlePlayAlbum}
                 isSelected={isSelected(album.id)}
                 isSelectionMode={hasSelection}
-                onSelect={(e) => handleSelect(album.id, e)}
+                onSelect={handleSelect}
               />
             )}
             renderSkeleton={() => (

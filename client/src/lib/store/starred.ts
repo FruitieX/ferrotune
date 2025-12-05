@@ -1,7 +1,8 @@
 "use client";
 
-import { atom, useAtom } from "jotai";
-import { useCallback, useEffect } from "react";
+import { atom, useAtom, useAtomValue, useSetAtom } from "jotai";
+import { atomFamily, selectAtom } from "jotai/utils";
+import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
@@ -15,6 +16,21 @@ import { getClient } from "@/lib/api/client";
 // Map of item ID to starred status - shared across all item types
 // Exported for bulk operations (e.g., bulk star/unstar from selection)
 export const starredItemsAtom = atom<Map<string, boolean>>(new Map());
+
+// Atom family for individual item starred state - prevents unnecessary re-renders
+// when other items' starred state changes
+const starredItemAtomFamily = atomFamily((key: string) =>
+  atom(
+    (get) => get(starredItemsAtom).get(key),
+    (get, set, newValue: boolean) => {
+      set(starredItemsAtom, (current) => {
+        const updated = new Map(current);
+        updated.set(key, newValue);
+        return updated;
+      });
+    }
+  )
+);
 
 type StarType = "song" | "album" | "artist";
 export type { StarType };
@@ -75,28 +91,32 @@ export function useStarredArtist(id: string, initialStarred: boolean) {
 /**
  * Generic hook to manage starred state for any item type.
  * Returns the current starred status and a toggle function.
+ * 
+ * Uses atomFamily to ensure each item only re-renders when its own
+ * starred state changes, not when other items change.
  */
 function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
-  const [starredItems, setStarredItems] = useAtom(starredItemsAtom);
   const queryClient = useQueryClient();
   
   // Create a unique key that includes the type to avoid collisions
   const key = `${type}:${id}`;
   
-  // Initialize from server data on mount (only if not already in cache)
-  useEffect(() => {
-    if (!starredItems.has(key)) {
-      setStarredItems((current) => {
-        if (current.has(key)) return current;
-        const updated = new Map(current);
-        updated.set(key, initialStarred);
-        return updated;
-      });
-    }
-  }, [key, initialStarred, starredItems, setStarredItems]);
+  // Get the atom for this specific item
+  const itemAtom = useMemo(() => starredItemAtomFamily(key), [key]);
+  const [starredValue, setStarredValue] = useAtom(itemAtom);
   
-  // Get current value (fall back to initial if not in cache yet)
-  const isStarred = starredItems.get(key) ?? initialStarred;
+  // Initialize lazily - only set if undefined (not yet in the map)
+  // This avoids the useEffect that was causing cascading re-renders
+  const isStarred = starredValue ?? initialStarred;
+  
+  // If we haven't stored this value yet and it differs from undefined,
+  // store it on first access (during render is fine for initialization)
+  if (starredValue === undefined) {
+    // Use queueMicrotask to avoid setting state during render
+    queueMicrotask(() => {
+      setStarredValue(initialStarred);
+    });
+  }
 
   const toggleStar = useCallback(async () => {
     const client = getClient();
@@ -104,11 +124,7 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
 
     // Optimistic update
     const newStarred = !isStarred;
-    setStarredItems((current) => {
-      const updated = new Map(current);
-      updated.set(key, newStarred);
-      return updated;
-    });
+    setStarredValue(newStarred);
 
     try {
       if (newStarred) {
@@ -126,11 +142,7 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
           action: {
             label: "Undo",
             onClick: async () => {
-              setStarredItems((current) => {
-                const updated = new Map(current);
-                updated.set(key, false);
-                return updated;
-              });
+              setStarredValue(false);
               try {
                 if (type === "song") {
                   await client.unstar({ id });
@@ -143,11 +155,7 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
                 toast.success("Removed from favorites");
               } catch {
                 // Revert on error
-                setStarredItems((current) => {
-                  const updated = new Map(current);
-                  updated.set(key, true);
-                  return updated;
-                });
+                setStarredValue(true);
                 toast.error("Failed to update favorites");
               }
             },
@@ -169,11 +177,7 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
           action: {
             label: "Undo",
             onClick: async () => {
-              setStarredItems((current) => {
-                const updated = new Map(current);
-                updated.set(key, true);
-                return updated;
-              });
+              setStarredValue(true);
               try {
                 if (type === "song") {
                   await client.star({ id });
@@ -186,11 +190,7 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
                 toast.success("Added to favorites");
               } catch {
                 // Revert on error
-                setStarredItems((current) => {
-                  const updated = new Map(current);
-                  updated.set(key, false);
-                  return updated;
-                });
+                setStarredValue(false);
                 toast.error("Failed to update favorites");
               }
             },
@@ -200,15 +200,11 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
       }
     } catch (error) {
       // Revert on error
-      setStarredItems((current) => {
-        const updated = new Map(current);
-        updated.set(key, isStarred);
-        return updated;
-      });
+      setStarredValue(isStarred);
       toast.error("Failed to update favorites");
       console.error(error);
     }
-  }, [key, id, type, isStarred, setStarredItems, queryClient]);
+  }, [key, id, type, isStarred, setStarredValue, queryClient]);
 
   return { isStarred, toggleStar };
 }

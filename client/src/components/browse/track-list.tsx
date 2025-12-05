@@ -78,7 +78,7 @@ export function TrackList({
             queueSource={queueSource}
             isSelected={isSelected?.(song.id)}
             isSelectionMode={isSelectionMode}
-            onSelect={onSelect ? (e) => onSelect(song.id, e) : undefined}
+            onSelect={onSelect}
           />
         ))}
       </div>
