@@ -1,5 +1,5 @@
 import { atom } from "jotai";
-import { atomWithStorage } from "jotai/utils";
+import { atomWithServerStorage } from "./server-storage";
 import type { Song } from "@/lib/api/types";
 import { shuffleExcludesAtom } from "./shuffle-excludes";
 
@@ -82,7 +82,7 @@ export const currentQueueItemAtom = atom((get) => {
 export const playHistoryAtom = atom<Song[]>([]);
 
 // Shuffle state
-export const isShuffledAtom = atomWithStorage("ferrotune-shuffle", false);
+export const isShuffledAtom = atomWithServerStorage("shuffle", false);
 export const shuffledIndicesAtom = atom<number[]>([]);
 
 // Queue operations

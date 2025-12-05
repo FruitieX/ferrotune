@@ -1,16 +1,16 @@
 import { atom } from "jotai";
-import { atomWithStorage } from "jotai/utils";
+import { atomWithServerStorage } from "./server-storage";
 import { oklchToRgbString } from "@/lib/utils/color";
 
 // Sidebar state
-export const sidebarCollapsedAtom = atomWithStorage("ferrotune-sidebar-collapsed", false);
-export const sidebarWidthAtom = atomWithStorage("ferrotune-sidebar-width", 280);
+export const sidebarCollapsedAtom = atomWithServerStorage("sidebar-collapsed", false);
+export const sidebarWidthAtom = atomWithServerStorage("sidebar-width", 280);
 
 // Mobile menu state
 export const mobileMenuOpenAtom = atom<boolean>(false);
 
 // Queue panel state - persisted so sidebar stays open on reload
-export const queuePanelOpenAtom = atomWithStorage<boolean>("ferrotune-queue-panel-open", false);
+export const queuePanelOpenAtom = atomWithServerStorage<boolean>("queue-panel-open", false);
 
 // Fullscreen player state
 export const fullscreenPlayerOpenAtom = atom<boolean>(false);
@@ -24,8 +24,8 @@ export const libraryFilterAtom = atom<string>("");
 
 // View preferences
 export type ViewMode = "grid" | "list";
-export const albumViewModeAtom = atomWithStorage<ViewMode>("ferrotune-album-view", "grid");
-export const artistViewModeAtom = atomWithStorage<ViewMode>("ferrotune-artist-view", "grid");
+export const albumViewModeAtom = atomWithServerStorage<ViewMode>("album-view", "grid");
+export const artistViewModeAtom = atomWithServerStorage<ViewMode>("artist-view", "grid");
 
 // Library sorting
 export type SortField = "custom" | "name" | "artist" | "year" | "dateAdded" | "playCount" | "duration" | "albumCount" | "songCount";
@@ -36,7 +36,7 @@ export interface SortConfig {
   direction: SortDirection;
 }
 
-export const librarySortAtom = atomWithStorage<SortConfig>("ferrotune-library-sort", {
+export const librarySortAtom = atomWithServerStorage<SortConfig>("library-sort", {
   field: "name",
   direction: "asc",
 });
@@ -51,7 +51,7 @@ export interface ColumnVisibility {
   year: boolean;
 }
 
-export const columnVisibilityAtom = atomWithStorage<ColumnVisibility>("ferrotune-column-visibility", {
+export const columnVisibilityAtom = atomWithServerStorage<ColumnVisibility>("column-visibility", {
   artist: true,
   album: true,
   duration: true,
@@ -61,12 +61,12 @@ export const columnVisibilityAtom = atomWithStorage<ColumnVisibility>("ferrotune
 });
 
 // Playlist-style views settings (favorites, history, playlist details)
-export const playlistViewModeAtom = atomWithStorage<ViewMode>("ferrotune-playlist-view", "list");
-export const playlistSortAtom = atomWithStorage<SortConfig>("ferrotune-playlist-sort", {
+export const playlistViewModeAtom = atomWithServerStorage<ViewMode>("playlist-view", "list");
+export const playlistSortAtom = atomWithServerStorage<SortConfig>("playlist-sort", {
   field: "custom",
   direction: "asc",
 });
-export const playlistColumnVisibilityAtom = atomWithStorage<ColumnVisibility>("ferrotune-playlist-columns", {
+export const playlistColumnVisibilityAtom = atomWithServerStorage<ColumnVisibility>("playlist-columns", {
   artist: true,
   album: true,
   duration: true,
@@ -76,8 +76,8 @@ export const playlistColumnVisibilityAtom = atomWithStorage<ColumnVisibility>("f
 });
 
 // Favorites albums view settings
-export const favoritesAlbumViewModeAtom = atomWithStorage<ViewMode>("ferrotune-favorites-album-view", "grid");
-export const favoritesAlbumSortAtom = atomWithStorage<SortConfig>("ferrotune-favorites-album-sort", {
+export const favoritesAlbumViewModeAtom = atomWithServerStorage<ViewMode>("favorites-album-view", "grid");
+export const favoritesAlbumSortAtom = atomWithServerStorage<SortConfig>("favorites-album-sort", {
   field: "name",
   direction: "asc",
 });
@@ -90,7 +90,7 @@ export interface AlbumColumnVisibility {
   duration: boolean;
 }
 
-export const favoritesAlbumColumnVisibilityAtom = atomWithStorage<AlbumColumnVisibility>("ferrotune-favorites-album-columns", {
+export const favoritesAlbumColumnVisibilityAtom = atomWithServerStorage<AlbumColumnVisibility>("favorites-album-columns", {
   artist: true,
   year: true,
   songCount: true,
@@ -98,8 +98,8 @@ export const favoritesAlbumColumnVisibilityAtom = atomWithStorage<AlbumColumnVis
 });
 
 // Favorites artists view settings
-export const favoritesArtistViewModeAtom = atomWithStorage<ViewMode>("ferrotune-favorites-artist-view", "grid");
-export const favoritesArtistSortAtom = atomWithStorage<SortConfig>("ferrotune-favorites-artist-sort", {
+export const favoritesArtistViewModeAtom = atomWithServerStorage<ViewMode>("favorites-artist-view", "grid");
+export const favoritesArtistSortAtom = atomWithServerStorage<SortConfig>("favorites-artist-sort", {
   field: "name",
   direction: "asc",
 });
@@ -109,17 +109,17 @@ export interface ArtistColumnVisibility {
   albumCount: boolean;
 }
 
-export const favoritesArtistColumnVisibilityAtom = atomWithStorage<ArtistColumnVisibility>("ferrotune-favorites-artist-columns", {
+export const favoritesArtistColumnVisibilityAtom = atomWithServerStorage<ArtistColumnVisibility>("favorites-artist-columns", {
   albumCount: true,
 });
 
 // Album details view settings (for album songs list)
-export const albumDetailViewModeAtom = atomWithStorage<ViewMode>("ferrotune-album-detail-view", "list");
-export const albumDetailSortAtom = atomWithStorage<SortConfig>("ferrotune-album-detail-sort", {
+export const albumDetailViewModeAtom = atomWithServerStorage<ViewMode>("album-detail-view", "list");
+export const albumDetailSortAtom = atomWithServerStorage<SortConfig>("album-detail-sort", {
   field: "custom",  // Custom means track order
   direction: "asc",
 });
-export const albumDetailColumnVisibilityAtom = atomWithStorage<ColumnVisibility>("ferrotune-album-detail-columns", {
+export const albumDetailColumnVisibilityAtom = atomWithServerStorage<ColumnVisibility>("album-detail-columns", {
   artist: false,  // Album typically has same artist
   album: false,   // Already on album page
   duration: true,
@@ -129,12 +129,12 @@ export const albumDetailColumnVisibilityAtom = atomWithStorage<ColumnVisibility>
 });
 
 // Artist details view settings (for artist songs list)
-export const artistDetailViewModeAtom = atomWithStorage<ViewMode>("ferrotune-artist-detail-view", "list");
-export const artistDetailSortAtom = atomWithStorage<SortConfig>("ferrotune-artist-detail-sort", {
+export const artistDetailViewModeAtom = atomWithServerStorage<ViewMode>("artist-detail-view", "list");
+export const artistDetailSortAtom = atomWithServerStorage<SortConfig>("artist-detail-sort", {
   field: "name",
   direction: "asc",
 });
-export const artistDetailColumnVisibilityAtom = atomWithStorage<ColumnVisibility>("ferrotune-artist-detail-columns", {
+export const artistDetailColumnVisibilityAtom = atomWithServerStorage<ColumnVisibility>("artist-detail-columns", {
   artist: false,  // Already on artist page
   album: true,
   duration: true,
@@ -144,12 +144,12 @@ export const artistDetailColumnVisibilityAtom = atomWithStorage<ColumnVisibility
 });
 
 // Genre details view settings (for genre songs list)
-export const genreDetailViewModeAtom = atomWithStorage<ViewMode>("ferrotune-genre-detail-view", "list");
-export const genreDetailSortAtom = atomWithStorage<SortConfig>("ferrotune-genre-detail-sort", {
+export const genreDetailViewModeAtom = atomWithServerStorage<ViewMode>("genre-detail-view", "list");
+export const genreDetailSortAtom = atomWithServerStorage<SortConfig>("genre-detail-sort", {
   field: "name",
   direction: "asc",
 });
-export const genreDetailColumnVisibilityAtom = atomWithStorage<ColumnVisibility>("ferrotune-genre-detail-columns", {
+export const genreDetailColumnVisibilityAtom = atomWithServerStorage<ColumnVisibility>("genre-detail-columns", {
   artist: true,
   album: true,
   duration: true,
@@ -159,8 +159,8 @@ export const genreDetailColumnVisibilityAtom = atomWithStorage<ColumnVisibility>
 });
 
 // Playlists list view settings (for /playlists page listing playlists)
-export const playlistsViewModeAtom = atomWithStorage<ViewMode>("ferrotune-playlists-view", "grid");
-export const playlistsSortAtom = atomWithStorage<SortConfig>("ferrotune-playlists-sort", {
+export const playlistsViewModeAtom = atomWithServerStorage<ViewMode>("playlists-view", "grid");
+export const playlistsSortAtom = atomWithServerStorage<SortConfig>("playlists-sort", {
   field: "name",
   direction: "asc",
 });
@@ -173,7 +173,7 @@ export interface PlaylistColumnVisibility {
   created: boolean;
 }
 
-export const playlistsColumnVisibilityAtom = atomWithStorage<PlaylistColumnVisibility>("ferrotune-playlists-columns", {
+export const playlistsColumnVisibilityAtom = atomWithServerStorage<PlaylistColumnVisibility>("playlists-columns", {
   songCount: true,
   duration: true,
   owner: false,
@@ -225,27 +225,27 @@ export const contextMenuAtom = atom<{
 }>({ type: null, id: null, position: null });
 
 // Playlist sidebar expansion state
-export const playlistsSidebarExpandedAtom = atomWithStorage<boolean>(
-  "ferrotune-playlists-expanded",
+export const playlistsSidebarExpandedAtom = atomWithServerStorage<boolean>(
+  "playlists-expanded",
   true
 );
 
 // Library sidebar expansion state
-export const librarySidebarExpandedAtom = atomWithStorage<boolean>(
-  "ferrotune-library-expanded",
+export const librarySidebarExpandedAtom = atomWithServerStorage<boolean>(
+  "library-expanded",
   true
 );
 
 // Expanded playlist folders in sidebar
-export const expandedPlaylistFoldersAtom = atomWithStorage<string[]>(
-  "ferrotune-expanded-playlist-folders",
+export const expandedPlaylistFoldersAtom = atomWithServerStorage<string[]>(
+  "expanded-playlist-folders",
   []
 );
 
 // Progress bar style preference
 export type ProgressBarStyle = "waveform" | "simple";
-export const progressBarStyleAtom = atomWithStorage<ProgressBarStyle>(
-  "ferrotune-progress-bar-style",
+export const progressBarStyleAtom = atomWithServerStorage<ProgressBarStyle>(
+  "progress-bar-style",
   "waveform"
 );
 
@@ -263,12 +263,12 @@ export type AccentColor =
   | "crimson"  // 15° - red
   | "custom";
 
-export const accentColorAtom = atomWithStorage<AccentColor>("ferrotune-accent-color", "rust");
+export const accentColorAtom = atomWithServerStorage<AccentColor>("accent-color", "rust");
 
 // Custom accent color OKLCH values
-export const customAccentHueAtom = atomWithStorage<number>("ferrotune-custom-accent-hue", 45);
-export const customAccentLightnessAtom = atomWithStorage<number>("ferrotune-custom-accent-lightness", 0.65);
-export const customAccentChromaAtom = atomWithStorage<number>("ferrotune-custom-accent-chroma", 0.18);
+export const customAccentHueAtom = atomWithServerStorage<number>("custom-accent-hue", 45);
+export const customAccentLightnessAtom = atomWithServerStorage<number>("custom-accent-lightness", 0.65);
+export const customAccentChromaAtom = atomWithServerStorage<number>("custom-accent-chroma", 0.18);
 
 // Flag to indicate preferences have been loaded from server
 export const preferencesLoadedAtom = atom<boolean>(false);

@@ -59,15 +59,17 @@ pub async fn upsert_user_preferences(
     custom_accent_hue: Option<f64>,
     custom_accent_lightness: Option<f64>,
     custom_accent_chroma: Option<f64>,
+    preferences_json: &str,
 ) -> sqlx::Result<()> {
     sqlx::query(
-        "INSERT INTO user_preferences (user_id, accent_color, custom_accent_hue, custom_accent_lightness, custom_accent_chroma, updated_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now'))
+        "INSERT INTO user_preferences (user_id, accent_color, custom_accent_hue, custom_accent_lightness, custom_accent_chroma, preferences_json, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(user_id) DO UPDATE SET
            accent_color = excluded.accent_color,
            custom_accent_hue = excluded.custom_accent_hue,
            custom_accent_lightness = excluded.custom_accent_lightness,
            custom_accent_chroma = excluded.custom_accent_chroma,
+           preferences_json = excluded.preferences_json,
            updated_at = datetime('now')",
     )
     .bind(user_id)
@@ -75,6 +77,7 @@ pub async fn upsert_user_preferences(
     .bind(custom_accent_hue)
     .bind(custom_accent_lightness)
     .bind(custom_accent_chroma)
+    .bind(preferences_json)
     .execute(pool)
     .await?;
 

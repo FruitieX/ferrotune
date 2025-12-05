@@ -202,5 +202,6 @@ pub struct UserPreferences {
     pub custom_accent_hue: Option<f64>,
     pub custom_accent_lightness: Option<f64>,
     pub custom_accent_chroma: Option<f64>,
+    pub preferences_json: String,
     pub updated_at: DateTime<Utc>,
 }

@@ -103,6 +103,12 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/preferences",
             get(preferences::get_preferences).put(preferences::update_preferences),
         )
+        .route(
+            "/ferrotune/preferences/{key}",
+            get(preferences::get_preference)
+                .put(preferences::set_preference)
+                .delete(preferences::delete_preference),
+        )
         // Play queue endpoints
         .route("/ferrotune/play-queue", post(playqueue::save_play_queue))
         // Listening statistics endpoints

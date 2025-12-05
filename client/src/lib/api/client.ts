@@ -381,6 +381,23 @@ export class SubsonicClient {
     });
   }
 
+  async getPreference<T = unknown>(key: string): Promise<{ key: string; value: T | null }> {
+    return this.adminRequest(`/ferrotune/preferences/${encodeURIComponent(key)}`);
+  }
+
+  async setPreference<T = unknown>(key: string, value: T): Promise<{ key: string; value: T }> {
+    return this.adminRequest(`/ferrotune/preferences/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: JSON.stringify({ value }),
+    });
+  }
+
+  async deletePreference(key: string): Promise<void> {
+    await this.adminRequest(`/ferrotune/preferences/${encodeURIComponent(key)}`, {
+      method: "DELETE",
+    });
+  }
+
   // Server statistics endpoint (Admin API)
   async getStats(): Promise<ServerStats> {
     return this.adminRequest("/ferrotune/stats");
