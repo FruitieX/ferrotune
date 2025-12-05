@@ -83,6 +83,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatTotalDuration, formatFileSize, formatListeningTime } from "@/lib/utils/format";
 import { MusicLibraries } from "@/components/settings/music-libraries";
+import { UserManagement } from "@/components/settings/user-management";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -776,6 +777,15 @@ export default function SettingsPage() {
           transition={{ delay: 0.35 }}
         >
           <MusicLibraries />
+        </motion.div>
+
+        {/* User Management */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.37 }}
+        >
+          <UserManagement />
         </motion.div>
 
         {/* Administration */}

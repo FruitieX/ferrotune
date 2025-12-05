@@ -41,6 +41,15 @@ import type {
   MusicFoldersAdminResponse,
   MusicFolderInfo,
   CreateMusicFolderResponse,
+  UsersResponse,
+  UserInfo,
+  CreateUserRequest,
+  CreateUserResponse,
+  UpdateUserRequest,
+  LibraryAccessResponse,
+  SetLibraryAccessRequest,
+  ApiKeysResponse,
+  CreateApiKeyResponse,
 } from "./types";
 
 // Ping response is empty
@@ -845,6 +854,96 @@ export class SubsonicClient {
    */
   getScanProgressStreamUrl(): string {
     return this.buildAdminUrl("/ferrotune/scan/progress");
+  }
+
+  // ==========================================
+  // User Management (Admin API)
+  // ==========================================
+
+  /**
+   * List all users (admin only)
+   */
+  async getUsers(): Promise<UsersResponse> {
+    return this.adminRequest("/ferrotune/users");
+  }
+
+  /**
+   * Get a single user by ID (admin only)
+   */
+  async getUser(id: number): Promise<UserInfo> {
+    return this.adminRequest(`/ferrotune/users/${id}`);
+  }
+
+  /**
+   * Create a new user (admin only)
+   */
+  async createUser(request: CreateUserRequest): Promise<CreateUserResponse> {
+    return this.adminRequest("/ferrotune/users", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * Update a user (admin only)
+   */
+  async updateUser(id: number, request: UpdateUserRequest): Promise<UserInfo> {
+    return this.adminRequest(`/ferrotune/users/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * Delete a user (admin only)
+   */
+  async deleteUser(id: number): Promise<void> {
+    await this.adminRequest(`/ferrotune/users/${id}`, {
+      method: "DELETE",
+    });
+  }
+
+  /**
+   * Get a user's library access (admin only)
+   */
+  async getUserLibraryAccess(userId: number): Promise<LibraryAccessResponse> {
+    return this.adminRequest(`/ferrotune/users/${userId}/library-access`);
+  }
+
+  /**
+   * Set a user's library access (admin only)
+   */
+  async setUserLibraryAccess(userId: number, folderIds: number[]): Promise<LibraryAccessResponse> {
+    return this.adminRequest(`/ferrotune/users/${userId}/library-access`, {
+      method: "PUT",
+      body: JSON.stringify({ folderIds } as SetLibraryAccessRequest),
+    });
+  }
+
+  /**
+   * Get a user's API keys (admin or self)
+   */
+  async getUserApiKeys(userId: number): Promise<ApiKeysResponse> {
+    return this.adminRequest(`/ferrotune/users/${userId}/api-keys`);
+  }
+
+  /**
+   * Create an API key for a user (admin or self)
+   */
+  async createUserApiKey(userId: number, name: string): Promise<CreateApiKeyResponse> {
+    return this.adminRequest(`/ferrotune/users/${userId}/api-keys`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  /**
+   * Delete an API key for a user (admin or self)
+   */
+  async deleteUserApiKey(userId: number, keyName: string): Promise<void> {
+    await this.adminRequest(`/ferrotune/users/${userId}/api-keys/${encodeURIComponent(keyName)}`, {
+      method: "DELETE",
+    });
   }
 }
 

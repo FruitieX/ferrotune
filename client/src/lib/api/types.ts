@@ -232,6 +232,22 @@ export type { CreateMusicFolderResponse } from "./generated";
 export type { UpdateMusicFolderRequest } from "./generated";
 
 // ============================================================================
+// User Management Types (Admin API) - Generated from Rust
+// ============================================================================
+
+export type { UsersResponse } from "./generated";
+export type { UserInfo } from "./generated";
+export type { CreateUserRequest } from "./generated";
+export type { CreateUserResponse } from "./generated";
+export type { UpdateUserRequest } from "./generated";
+export type { LibraryAccessResponse } from "./generated";
+export type { SetLibraryAccessRequest } from "./generated";
+export type { ApiKeysResponse } from "./generated";
+export type { ApiKeyInfo } from "./generated";
+export type { CreateApiKeyRequest } from "./generated";
+export type { CreateApiKeyResponse } from "./generated";
+
+// ============================================================================
 // Connection Types (client-only)
 // ============================================================================
 

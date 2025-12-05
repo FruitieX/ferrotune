@@ -310,8 +310,24 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
 }
 
 async fn create_admin_user(pool: &sqlx::SqlitePool, username: &str, password: &str) -> Result<()> {
-    db::queries::create_user(pool, username, password, None, true).await?;
+    let user_id = db::queries::create_user(pool, username, password, None, true).await?;
     tracing::info!("Admin user '{}' created successfully", username);
+
+    // Grant access to all existing music folders
+    let folders: Vec<(i64,)> = sqlx::query_as("SELECT id FROM music_folders")
+        .fetch_all(pool)
+        .await?;
+
+    for (folder_id,) in folders {
+        sqlx::query(
+            "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)"
+        )
+        .bind(user_id)
+        .bind(folder_id)
+        .execute(pool)
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -329,7 +345,7 @@ async fn init_music_folders(pool: &sqlx::SqlitePool, config: &config::Config) ->
                     .await?;
 
             if existing.is_none() {
-                db::queries::create_music_folder(
+                let folder_id = db::queries::create_music_folder(
                     pool,
                     &folder.name,
                     &folder.path.to_string_lossy(),
@@ -340,6 +356,21 @@ async fn init_music_folders(pool: &sqlx::SqlitePool, config: &config::Config) ->
                     folder.name,
                     folder.path.display()
                 );
+
+                // Grant access to all existing users for new music folders
+                let users: Vec<(i64,)> = sqlx::query_as("SELECT id FROM users")
+                    .fetch_all(pool)
+                    .await?;
+
+                for (user_id,) in users {
+                    sqlx::query(
+                        "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)"
+                    )
+                    .bind(user_id)
+                    .bind(folder_id)
+                    .execute(pool)
+                    .await?;
+                }
             }
         }
     }

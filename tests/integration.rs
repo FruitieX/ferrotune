@@ -404,6 +404,23 @@ fn test_music_folders_endpoints() {
 }
 
 // ============================================================================
+// USER MANAGEMENT TESTS (admin API)
+// ============================================================================
+
+#[test]
+fn test_user_management_endpoints() {
+    if !hurl_available() {
+        eprintln!("Skipping test: hurl not available");
+        return;
+    }
+
+    let server = TestServer::new().expect("Failed to start test server");
+
+    run_hurl_script(&server, &hurl_script("15_users.hurl"))
+        .expect("User management endpoint tests failed");
+}
+
+// ============================================================================
 // SCANNER TESTS
 // ============================================================================
 

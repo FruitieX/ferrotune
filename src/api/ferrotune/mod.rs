@@ -85,6 +85,7 @@ pub mod scan_state;
 mod shuffle_exclude;
 mod stats;
 mod tags;
+pub mod users;
 mod waveform;
 
 use crate::api::AppState;
@@ -219,6 +220,29 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/queue/shuffle", post(queue::toggle_shuffle))
         .route("/ferrotune/queue/position", post(queue::update_position))
         .route("/ferrotune/queue/repeat", post(queue::update_repeat_mode))
+        // User management endpoints (admin only)
+        .route(
+            "/ferrotune/users",
+            get(users::list_users).post(users::create_user),
+        )
+        .route(
+            "/ferrotune/users/{id}",
+            get(users::get_user)
+                .patch(users::update_user)
+                .delete(users::delete_user),
+        )
+        .route(
+            "/ferrotune/users/{id}/library-access",
+            get(users::get_library_access).put(users::set_library_access),
+        )
+        .route(
+            "/ferrotune/users/{id}/api-keys",
+            get(users::list_api_keys).post(users::create_api_key),
+        )
+        .route(
+            "/ferrotune/users/{id}/api-keys/{name}",
+            delete(users::delete_api_key),
+        )
         .with_state(state)
 }
 
