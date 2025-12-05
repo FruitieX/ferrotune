@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback } from "react";
-import { useSetAtom } from "jotai";
+import { useSetAtom, useAtomValue } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useItemSelection } from "./use-track-selection";
-import { playNowAtom, addToQueueAtom, isShuffledAtom } from "@/lib/store/queue";
+import { startQueueAtom, addToQueueAtom, toggleShuffleAtom, serverQueueStateAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import type { Playlist, Song } from "@/lib/api/types";
 
@@ -25,9 +25,10 @@ export function usePlaylistSelection(playlists: Playlist[]) {
     getSelectedItems,
   } = useItemSelection(playlists);
   
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
-  const setIsShuffled = useSetAtom(isShuffledAtom);
+  const toggleShuffle = useSetAtom(toggleShuffleAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
   const queryClient = useQueryClient();
 
   // Get selected playlists (type-safe alias)
@@ -65,11 +66,18 @@ export function usePlaylistSelection(playlists: Playlist[]) {
       toast.error("Selected playlists are empty");
       return;
     }
-    setIsShuffled(false);
-    playNow(songs);
+    // Turn off shuffle if currently shuffled
+    if (queueState?.isShuffled) {
+      toggleShuffle();
+    }
+    startQueue({
+      sourceType: "playlist",
+      sourceName: `${getSelectedPlaylists().length} playlists`,
+      songIds: songs.map(s => s.id),
+    });
     toast.success(`Playing ${songs.length} songs from ${getSelectedPlaylists().length} playlists`);
     clearSelection();
-  }, [fetchPlaylistSongs, playNow, setIsShuffled, clearSelection, getSelectedPlaylists]);
+  }, [fetchPlaylistSongs, startQueue, queueState, toggleShuffle, clearSelection, getSelectedPlaylists]);
 
   // Shuffle play all songs from selected playlists
   const shuffleSelected = useCallback(async () => {
@@ -78,12 +86,15 @@ export function usePlaylistSelection(playlists: Playlist[]) {
       toast.error("Selected playlists are empty");
       return;
     }
-    setIsShuffled(true);
-    const shuffled = [...songs].sort(() => Math.random() - 0.5);
-    playNow(shuffled);
+    startQueue({
+      sourceType: "playlist",
+      sourceName: `${getSelectedPlaylists().length} playlists`,
+      songIds: songs.map(s => s.id),
+      shuffle: true,
+    });
     toast.success(`Shuffling ${songs.length} songs from ${getSelectedPlaylists().length} playlists`);
     clearSelection();
-  }, [fetchPlaylistSongs, playNow, setIsShuffled, clearSelection, getSelectedPlaylists]);
+  }, [fetchPlaylistSongs, startQueue, clearSelection, getSelectedPlaylists]);
 
   // Add selected playlist songs to queue
   const addSelectedToQueue = useCallback(
@@ -94,9 +105,7 @@ export function usePlaylistSelection(playlists: Playlist[]) {
         return;
       }
 
-      songs.forEach((song) => {
-        addToQueue(song, position);
-      });
+      addToQueue({ songIds: songs.map(s => s.id), position: position === "last" ? "end" : position });
 
       toast.success(
         position === "next"

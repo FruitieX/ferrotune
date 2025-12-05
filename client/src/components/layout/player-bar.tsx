@@ -35,7 +35,7 @@ import {
   durationAtom,
   playbackStateAtom,
 } from "@/lib/store/player";
-import { currentTrackAtom } from "@/lib/store/queue";
+import { currentSongAtom } from "@/lib/store/server-queue";
 import { queuePanelOpenAtom, fullscreenPlayerOpenAtom, progressBarStyleAtom } from "@/lib/store/ui";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { useStarred } from "@/lib/store/starred";
@@ -48,7 +48,7 @@ import { WaveformProgressBar } from "@/components/player/waveform-progress-bar";
 import { SimpleProgressBar } from "@/components/player/simple-progress-bar";
 
 export function PlayerBar() {
-  const currentTrack = useAtomValue(currentTrackAtom);
+  const currentTrack = useAtomValue(currentSongAtom);
   const currentTime = useAtomValue(currentTimeAtom);
   const duration = useAtomValue(durationAtom);
   const playbackState = useAtomValue(playbackStateAtom);

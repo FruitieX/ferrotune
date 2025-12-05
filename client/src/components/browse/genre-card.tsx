@@ -22,7 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MediaRow, MediaRowSkeleton, RowDropdownTrigger, RowActions } from "@/components/shared/media-row";
-import { playNowAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
+import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import type { Genre, Song } from "@/lib/api/types";
 
@@ -168,21 +168,17 @@ interface GenreRowProps {
  * Genre row for list view - uses MediaRow with genre-colored cover placeholder
  */
 export function GenreRow({ genre, className, index, isSelected, isSelectionMode, onSelect }: GenreRowProps) {
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
 
-  const getQueueSource = (): QueueSourceInfo => ({
-    type: "genre",
-    name: genre.value,
-  });
-
-  const handlePlay = async () => {
-    const songs = await fetchGenreSongs(genre.value);
-    if (songs.length > 0) {
-      playNow(songs, 0, getQueueSource());
-      toast.success(`Playing "${genre.value}"`);
-    } else {
-      toast.error("No songs found in this genre");
-    }
+  const handlePlay = () => {
+    startQueue({
+      sourceType: "genre",
+      sourceId: genre.value,
+      sourceName: genre.value,
+      startIndex: 0,
+      shuffle: false,
+    });
+    toast.success(`Playing "${genre.value}"`);
   };
 
   return (
@@ -223,39 +219,35 @@ interface GenreContextMenuProps {
 }
 
 function GenreContextMenu({ genre, children }: GenreContextMenuProps) {
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
 
-  const getQueueSource = (): QueueSourceInfo => ({
-    type: "genre",
-    name: genre.value,
-  });
-
-  const handlePlay = async () => {
-    const songs = await fetchGenreSongs(genre.value);
-    if (songs.length > 0) {
-      playNow(songs, 0, getQueueSource());
-      toast.success(`Playing "${genre.value}"`);
-    } else {
-      toast.error("No songs found in this genre");
-    }
+  const handlePlay = () => {
+    startQueue({
+      sourceType: "genre",
+      sourceId: genre.value,
+      sourceName: genre.value,
+      startIndex: 0,
+      shuffle: false,
+    });
+    toast.success(`Playing "${genre.value}"`);
   };
 
-  const handleShuffle = async () => {
-    const songs = await fetchGenreSongs(genre.value);
-    if (songs.length > 0) {
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, getQueueSource());
-      toast.success(`Shuffling "${genre.value}"`);
-    } else {
-      toast.error("No songs found in this genre");
-    }
+  const handleShuffle = () => {
+    startQueue({
+      sourceType: "genre",
+      sourceId: genre.value,
+      sourceName: genre.value,
+      startIndex: 0,
+      shuffle: true,
+    });
+    toast.success(`Shuffling "${genre.value}"`);
   };
 
   const handlePlayNext = async () => {
     const songs = await fetchGenreSongs(genre.value);
     if (songs.length > 0) {
-      addToQueue(songs, "next");
+      addToQueue({ songIds: songs.map(s => s.id), position: "next" });
       toast.success(`Added "${genre.value}" songs to play next`);
     } else {
       toast.error("No songs found in this genre");
@@ -265,7 +257,7 @@ function GenreContextMenu({ genre, children }: GenreContextMenuProps) {
   const handleAddToQueue = async () => {
     const songs = await fetchGenreSongs(genre.value);
     if (songs.length > 0) {
-      addToQueue(songs, "last");
+      addToQueue({ songIds: songs.map(s => s.id), position: "end" });
       toast.success(`Added "${genre.value}" songs to queue`);
     } else {
       toast.error("No songs found in this genre");
@@ -305,39 +297,35 @@ interface GenreDropdownMenuProps {
 }
 
 function GenreDropdownMenu({ genre, trigger }: GenreDropdownMenuProps) {
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
 
-  const getQueueSource = (): QueueSourceInfo => ({
-    type: "genre",
-    name: genre.value,
-  });
-
-  const handlePlay = async () => {
-    const songs = await fetchGenreSongs(genre.value);
-    if (songs.length > 0) {
-      playNow(songs, 0, getQueueSource());
-      toast.success(`Playing "${genre.value}"`);
-    } else {
-      toast.error("No songs found in this genre");
-    }
+  const handlePlay = () => {
+    startQueue({
+      sourceType: "genre",
+      sourceId: genre.value,
+      sourceName: genre.value,
+      startIndex: 0,
+      shuffle: false,
+    });
+    toast.success(`Playing "${genre.value}"`);
   };
 
-  const handleShuffle = async () => {
-    const songs = await fetchGenreSongs(genre.value);
-    if (songs.length > 0) {
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, getQueueSource());
-      toast.success(`Shuffling "${genre.value}"`);
-    } else {
-      toast.error("No songs found in this genre");
-    }
+  const handleShuffle = () => {
+    startQueue({
+      sourceType: "genre",
+      sourceId: genre.value,
+      sourceName: genre.value,
+      startIndex: 0,
+      shuffle: true,
+    });
+    toast.success(`Shuffling "${genre.value}"`);
   };
 
   const handlePlayNext = async () => {
     const songs = await fetchGenreSongs(genre.value);
     if (songs.length > 0) {
-      addToQueue(songs, "next");
+      addToQueue({ songIds: songs.map(s => s.id), position: "next" });
       toast.success(`Added "${genre.value}" songs to play next`);
     } else {
       toast.error("No songs found in this genre");
@@ -347,7 +335,7 @@ function GenreDropdownMenu({ genre, trigger }: GenreDropdownMenuProps) {
   const handleAddToQueue = async () => {
     const songs = await fetchGenreSongs(genre.value);
     if (songs.length > 0) {
-      addToQueue(songs, "last");
+      addToQueue({ songIds: songs.map(s => s.id), position: "end" });
       toast.success(`Added "${genre.value}" songs to queue`);
     } else {
       toast.error("No songs found in this genre");

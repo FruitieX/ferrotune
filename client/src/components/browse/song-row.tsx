@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { formatDuration, formatDate } from "@/lib/utils/format";
-import { currentTrackAtom, playNowAtom, type QueueSourceInfo } from "@/lib/store/queue";
+import { currentSongAtom, startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { playbackStateAtom } from "@/lib/store/player";
 import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
 import { useStarred } from "@/lib/store/starred";
@@ -85,6 +85,17 @@ function TrackIndex({ index, isCurrentTrack, isPlaying, isSelected, isSelectionM
   );
 }
 
+/** Source info for queueing from a collection */
+export interface QueueSource {
+  type: QueueSourceType;
+  id?: string | null;
+  name?: string | null;
+  /** Filters to apply when materializing (for library/search) */
+  filters?: Record<string, unknown>;
+  /** Sort configuration */
+  sort?: { field: string; direction: string };
+}
+
 interface SongRowProps {
   song: Song;
   index?: number;
@@ -95,8 +106,8 @@ interface SongRowProps {
   showPlayCount?: boolean;
   showYear?: boolean;
   showDateAdded?: boolean;
-  queueSongs?: Song[]; // All songs in current context for queue
-  queueSource?: QueueSourceInfo; // Source info for "Playing from X" display
+  queueSongs?: Song[]; // All songs in current context for queue (fallback for explicit song lists)
+  queueSource?: QueueSource; // Source info for server-side queue materialization
   // Selection props
   isSelected?: boolean;
   isSelectionMode?: boolean;
@@ -126,15 +137,15 @@ export function SongRow({
   onRemoveFromPlaylist,
   className,
 }: SongRowProps) {
-  const currentTrack = useAtomValue(currentTrackAtom);
+  const currentSong = useAtomValue(currentSongAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const { togglePlayPause } = useAudioEngine();
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
 
   // Don't show track as current when playback has ended
-  const isCurrentTrack = currentTrack?.id === song.id && playbackState !== "ended";
+  const isCurrentTrack = currentSong?.id === song.id && playbackState !== "ended";
   const isPlaying = isCurrentTrack && playbackState === "playing";
   const isExcludedFromShuffle = shuffleExcludes.has(song.id);
 
@@ -145,11 +156,33 @@ export function SongRow({
   const handlePlay = () => {
     if (isCurrentTrack) {
       togglePlayPause();
+    } else if (queueSource?.type && queueSource.type !== "other") {
+      // Use server-side queue materialization for known sources
+      const songIndex = queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
+      startQueue({
+        sourceType: queueSource.type,
+        sourceId: queueSource.id ?? undefined,
+        sourceName: queueSource.name ?? undefined,
+        startIndex: songIndex >= 0 ? songIndex : 0,
+        filters: queueSource.filters,
+        sort: queueSource.sort,
+      });
     } else if (queueSongs) {
+      // Fallback to explicit song IDs for custom lists (selections, etc.)
       const songIndex = queueSongs.findIndex((s) => s.id === song.id);
-      playNow(queueSongs, songIndex >= 0 ? songIndex : 0, queueSource);
+      startQueue({
+        sourceType: queueSource?.type || "other",
+        sourceName: queueSource?.name ?? undefined,
+        songIds: queueSongs.map(s => s.id),
+        startIndex: songIndex >= 0 ? songIndex : 0,
+      });
     } else {
-      playNow(song);
+      // Single song
+      startQueue({
+        sourceType: "other",
+        songIds: [song.id],
+        startIndex: 0,
+      });
     }
   };
 
@@ -229,6 +262,7 @@ export function SongRow({
               <SongDropdownMenu
                 song={song}
                 queueSongs={queueSongs}
+                queueSource={queueSource}
                 showRemoveFromPlaylist={showRemoveFromPlaylist}
                 onRemoveFromPlaylist={onRemoveFromPlaylist}
               />
@@ -270,6 +304,7 @@ export function SongRow({
           <SongContextMenu 
             song={song} 
             queueSongs={queueSongs}
+            queueSource={queueSource}
             showRemoveFromPlaylist={showRemoveFromPlaylist}
             onRemoveFromPlaylist={onRemoveFromPlaylist}
           >
@@ -307,7 +342,7 @@ export function SongRowSkeleton({ showCover = false, showIndex = true }: { showC
 interface SongCardProps {
   song: Song;
   queueSongs?: Song[];
-  queueSource?: QueueSourceInfo;
+  queueSource?: QueueSource;
   isSelected?: boolean;
   isSelectionMode?: boolean;
   onSelect?: (e: React.MouseEvent) => void;
@@ -315,14 +350,14 @@ interface SongCardProps {
 }
 
 export function SongCard({ song, queueSongs, queueSource, isSelected, isSelectionMode, onSelect, className }: SongCardProps) {
-  const currentTrack = useAtomValue(currentTrackAtom);
+  const currentSong = useAtomValue(currentSongAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const { togglePlayPause } = useAudioEngine();
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
 
-  const isCurrentTrack = currentTrack?.id === song.id && playbackState !== "ended";
+  const isCurrentTrack = currentSong?.id === song.id && playbackState !== "ended";
   const isExcludedFromShuffle = shuffleExcludes.has(song.id);
 
   const coverArtUrl = song.coverArt
@@ -332,11 +367,33 @@ export function SongCard({ song, queueSongs, queueSource, isSelected, isSelectio
   const handlePlay = () => {
     if (isCurrentTrack) {
       togglePlayPause();
+    } else if (queueSource?.type && queueSource.type !== "other") {
+      // Use server-side queue materialization for known sources
+      const songIndex = queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
+      startQueue({
+        sourceType: queueSource.type,
+        sourceId: queueSource.id ?? undefined,
+        sourceName: queueSource.name ?? undefined,
+        startIndex: songIndex >= 0 ? songIndex : 0,
+        filters: queueSource.filters,
+        sort: queueSource.sort,
+      });
     } else if (queueSongs) {
+      // Fallback to explicit song IDs for custom lists
       const songIndex = queueSongs.findIndex((s) => s.id === song.id);
-      playNow(queueSongs, songIndex >= 0 ? songIndex : 0, queueSource);
+      startQueue({
+        sourceType: queueSource?.type || "other",
+        sourceName: queueSource?.name ?? undefined,
+        songIds: queueSongs.map(s => s.id),
+        startIndex: songIndex >= 0 ? songIndex : 0,
+      });
     } else {
-      playNow(song);
+      // Single song
+      startQueue({
+        sourceType: "other",
+        songIds: [song.id],
+        startIndex: 0,
+      });
     }
   };
 
@@ -388,9 +445,9 @@ export function SongCard({ song, queueSongs, queueSource, isSelected, isSelectio
       isSelected={isSelected}
       isSelectionMode={isSelectionMode}
       onSelect={onSelect}
-      dropdownMenu={<SongDropdownMenu song={song} queueSongs={queueSongs} />}
+      dropdownMenu={<SongDropdownMenu song={song} queueSongs={queueSongs} queueSource={queueSource} />}
       contextMenu={(children) => (
-        <SongContextMenu song={song} queueSongs={queueSongs}>
+        <SongContextMenu song={song} queueSongs={queueSongs} queueSource={queueSource}>
           {children}
         </SongContextMenu>
       )}

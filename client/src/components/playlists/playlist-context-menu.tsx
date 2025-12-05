@@ -49,7 +49,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { playNowAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
+import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { EditPlaylistDialog } from "./edit-playlist-dialog";
 import { getPlaylistDisplayName, getUniqueFolderPaths, parsePlaylistPath } from "@/lib/utils/playlist-folders";
@@ -63,7 +63,7 @@ interface PlaylistContextMenuProps {
 export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -71,12 +71,6 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
   // Get current folder path for this playlist
   const { folderPath: currentFolderPath } = parsePlaylistPath(playlist.name);
   const currentFolder = currentFolderPath.join("/");
-
-  const getQueueSource = (): QueueSourceInfo => ({
-    type: "playlist",
-    id: playlist.id,
-    name: getPlaylistDisplayName(playlist),
-  });
 
   // Fetch all playlists to get available folders
   const { data: allPlaylists } = useQuery({
@@ -117,41 +111,26 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
     },
   });
 
-  const handlePlay = async () => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      const response = await client.getPlaylist(playlist.id);
-      if (response.playlist.entry?.length > 0) {
-        playNow(response.playlist.entry, 0, getQueueSource());
-        toast.success(`Playing "${playlist.name}"`);
-      } else {
-        toast.error("Playlist is empty");
-      }
-    } catch (error) {
-      toast.error("Failed to play playlist");
-      console.error(error);
-    }
+  const handlePlay = () => {
+    startQueue({
+      sourceType: "playlist",
+      sourceId: playlist.id,
+      sourceName: getPlaylistDisplayName(playlist),
+      startIndex: 0,
+      shuffle: false,
+    });
+    toast.success(`Playing "${playlist.name}"`);
   };
 
-  const handleShuffle = async () => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      const response = await client.getPlaylist(playlist.id);
-      if (response.playlist.entry?.length > 0) {
-        const shuffled = [...response.playlist.entry].sort(() => Math.random() - 0.5);
-        playNow(shuffled, 0, getQueueSource());
-        toast.success(`Shuffling "${playlist.name}"`);
-      } else {
-        toast.error("Playlist is empty");
-      }
-    } catch (error) {
-      toast.error("Failed to shuffle playlist");
-      console.error(error);
-    }
+  const handleShuffle = () => {
+    startQueue({
+      sourceType: "playlist",
+      sourceId: playlist.id,
+      sourceName: getPlaylistDisplayName(playlist),
+      startIndex: 0,
+      shuffle: true,
+    });
+    toast.success(`Shuffling "${playlist.name}"`);
   };
 
   const handlePlayNext = async () => {
@@ -161,7 +140,7 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
     try {
       const response = await client.getPlaylist(playlist.id);
       if (response.playlist.entry?.length > 0) {
-        addToQueue(response.playlist.entry, "next");
+        addToQueue({ songIds: response.playlist.entry.map(s => s.id), position: "next" });
         toast.success(`Added "${playlist.name}" to play next`);
       } else {
         toast.error("Playlist is empty");
@@ -179,7 +158,7 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
     try {
       const response = await client.getPlaylist(playlist.id);
       if (response.playlist.entry?.length > 0) {
-        addToQueue(response.playlist.entry, "last");
+        addToQueue({ songIds: response.playlist.entry.map(s => s.id), position: "end" });
         toast.success(`Added "${playlist.name}" to queue`);
       } else {
         toast.error("Playlist is empty");
@@ -313,7 +292,7 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
 // Dropdown variant for mobile and click-triggered menu
 export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: Playlist; inline?: boolean }) {
   const queryClient = useQueryClient();
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -321,12 +300,6 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
   // Get current folder path for this playlist
   const { folderPath: currentFolderPath } = parsePlaylistPath(playlist.name);
   const currentFolder = currentFolderPath.join("/");
-
-  const getQueueSource = (): QueueSourceInfo => ({
-    type: "playlist",
-    id: playlist.id,
-    name: getPlaylistDisplayName(playlist),
-  });
 
   // Fetch all playlists to get available folders
   const { data: allPlaylists } = useQuery({
@@ -367,41 +340,26 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
     },
   });
 
-  const handlePlay = async () => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      const response = await client.getPlaylist(playlist.id);
-      if (response.playlist.entry?.length > 0) {
-        playNow(response.playlist.entry, 0, getQueueSource());
-        toast.success(`Playing "${playlist.name}"`);
-      } else {
-        toast.error("Playlist is empty");
-      }
-    } catch (error) {
-      toast.error("Failed to play playlist");
-      console.error(error);
-    }
+  const handlePlay = () => {
+    startQueue({
+      sourceType: "playlist",
+      sourceId: playlist.id,
+      sourceName: getPlaylistDisplayName(playlist),
+      startIndex: 0,
+      shuffle: false,
+    });
+    toast.success(`Playing "${playlist.name}"`);
   };
 
-  const handleShuffle = async () => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      const response = await client.getPlaylist(playlist.id);
-      if (response.playlist.entry?.length > 0) {
-        const shuffled = [...response.playlist.entry].sort(() => Math.random() - 0.5);
-        playNow(shuffled, 0, getQueueSource());
-        toast.success(`Shuffling "${playlist.name}"`);
-      } else {
-        toast.error("Playlist is empty");
-      }
-    } catch (error) {
-      toast.error("Failed to shuffle playlist");
-      console.error(error);
-    }
+  const handleShuffle = () => {
+    startQueue({
+      sourceType: "playlist",
+      sourceId: playlist.id,
+      sourceName: getPlaylistDisplayName(playlist),
+      startIndex: 0,
+      shuffle: true,
+    });
+    toast.success(`Shuffling "${playlist.name}"`);
   };
 
   const handlePlayNext = async () => {
@@ -411,7 +369,7 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
     try {
       const response = await client.getPlaylist(playlist.id);
       if (response.playlist.entry?.length > 0) {
-        addToQueue(response.playlist.entry, "next");
+        addToQueue({ songIds: response.playlist.entry.map(s => s.id), position: "next" });
         toast.success(`Added "${playlist.name}" to play next`);
       } else {
         toast.error("Playlist is empty");
@@ -429,7 +387,7 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
     try {
       const response = await client.getPlaylist(playlist.id);
       if (response.playlist.entry?.length > 0) {
-        addToQueue(response.playlist.entry, "last");
+        addToQueue({ songIds: response.playlist.entry.map(s => s.id), position: "end" });
         toast.success(`Added "${playlist.name}" to queue`);
       } else {
         toast.error("Playlist is empty");

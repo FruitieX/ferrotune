@@ -18,8 +18,7 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { playNowAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
-import { isShuffledAtom } from "@/lib/store/queue";
+import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { albumDetailViewModeAtom, albumDetailSortAtom, albumDetailColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -48,9 +47,8 @@ function AlbumDetailContent() {
   const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const isMounted = useIsMounted();
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
-  const setIsShuffled = useSetAtom(isShuffledAtom);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   
   // Filter state
@@ -111,32 +109,38 @@ function AlbumDetailContent() {
 
   const totalDuration = displaySongs.reduce((acc, song) => acc + song.duration, 0);
 
-  // Queue source for this album
-  const getQueueSource = (): QueueSourceInfo => ({
-    type: "album",
-    id: id ?? undefined,
-    name: albumData?.name,
-  });
-
   const handlePlayAll = () => {
-    if (displaySongs.length > 0) {
-      setIsShuffled(false);
-      playNow(displaySongs, 0, getQueueSource());
+    if (id && displaySongs.length > 0) {
+      startQueue({
+        sourceType: "album",
+        sourceId: id,
+        sourceName: albumData?.name,
+        startIndex: 0,
+        shuffle: false,
+      });
     }
   };
 
   const handleShuffle = () => {
-    if (displaySongs.length > 0) {
-      setIsShuffled(true);
-      const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, getQueueSource());
+    if (id && displaySongs.length > 0) {
+      startQueue({
+        sourceType: "album",
+        sourceId: id,
+        sourceName: albumData?.name,
+        startIndex: 0,
+        shuffle: true,
+      });
     }
   };
 
   const handlePlaySelected = () => {
     const selectedSongs = selection.getSelectedSongs();
     if (selectedSongs.length > 0) {
-      playNow(selectedSongs, 0, getQueueSource());
+      startQueue({
+        sourceType: "other",
+        sourceName: `${albumData?.name} (selection)`,
+        songIds: selectedSongs.map(s => s.id),
+      });
       selection.clearSelection();
     }
   };
@@ -306,7 +310,7 @@ function AlbumDetailContent() {
             <DropdownMenuItem 
               onClick={() => {
                 if (displaySongs.length > 0) {
-                  displaySongs.forEach(song => addToQueue(song, "last"));
+                  addToQueue({ songIds: displaySongs.map(s => s.id), position: "end" });
                   toast.success(`Added ${displaySongs.length} songs to queue`);
                 }
               }}
@@ -399,7 +403,7 @@ function AlbumDetailContent() {
         onClear={selection.clearSelection}
         onPlayNow={handlePlaySelected}
         onPlayNext={() => selection.addSelectedToQueue("next")}
-        onAddToQueue={() => selection.addSelectedToQueue("last")}
+        onAddToQueue={() => selection.addSelectedToQueue("end")}
         onStar={() => selection.starSelected(true)}
         onUnstar={() => selection.starSelected(false)}
         onSelectAll={selection.selectAll}

@@ -41,7 +41,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
-import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
+import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { useStarred } from "@/lib/store/starred";
 import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
 import { getClient } from "@/lib/api/client";
@@ -58,6 +58,14 @@ interface SongContextMenuProps {
   song: Song;
   children: React.ReactNode;
   queueSongs?: Song[];
+  /** Source info for the queue when playing from a collection */
+  queueSource?: { 
+    type: string; 
+    id?: string | null; 
+    name?: string | null;
+    filters?: Record<string, unknown>;
+    sort?: { field: string; direction: string };
+  };
   /** Hide Play, Play Next, Add to Queue options (for queue items) */
   hideQueueActions?: boolean;
   /** Show "Remove from Queue" option */
@@ -74,13 +82,14 @@ export function SongContextMenu({
   song, 
   children, 
   queueSongs,
+  queueSource,
   hideQueueActions = false,
   showRemoveFromQueue = false,
   onRemoveFromQueue,
   showRemoveFromPlaylist = false,
   onRemoveFromPlaylist,
 }: SongContextMenuProps) {
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
   const [shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
@@ -118,21 +127,43 @@ export function SongContextMenu({
   };
 
   const handlePlay = () => {
-    if (queueSongs && queueSongs.length > 0) {
+    if (queueSource?.type && queueSource.type !== "other") {
+      // Use server-side queue materialization for known sources
+      const index = queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
+      startQueue({
+        sourceType: queueSource.type as QueueSourceType,
+        sourceId: queueSource.id ?? undefined,
+        sourceName: queueSource.name ?? undefined,
+        startIndex: index >= 0 ? index : 0,
+        filters: queueSource.filters,
+        sort: queueSource.sort,
+      });
+    } else if (queueSongs && queueSongs.length > 0) {
+      // Fallback to explicit song IDs for custom lists
       const index = queueSongs.findIndex((s) => s.id === song.id);
-      playNow(queueSongs, index >= 0 ? index : 0);
+      startQueue({
+        sourceType: (queueSource?.type as QueueSourceType) || "other",
+        sourceName: queueSource?.name ?? undefined,
+        startIndex: index >= 0 ? index : 0,
+        songIds: queueSongs.map(s => s.id),
+      });
     } else {
-      playNow(song);
+      // Single song
+      startQueue({
+        sourceType: "other",
+        startIndex: 0,
+        songIds: [song.id],
+      });
     }
   };
 
   const handlePlayNext = () => {
-    addToQueue(song, "next");
+    addToQueue({ songIds: [song.id], position: "next" });
     toast.success(`Added "${song.title}" to play next`);
   };
 
   const handleAddToQueue = () => {
-    addToQueue(song, "last");
+    addToQueue({ songIds: [song.id], position: "end" });
     toast.success(`Added "${song.title}" to queue`);
   };
 
@@ -286,6 +317,13 @@ export function SongContextMenu({
 interface SongDropdownMenuProps {
   song: Song;
   queueSongs?: Song[];
+  queueSource?: { 
+    type: string; 
+    id?: string | null; 
+    name?: string | null;
+    filters?: Record<string, unknown>;
+    sort?: { field: string; direction: string };
+  };
   trigger?: React.ReactNode;
   /** Hide Play, Play Next, Add to Queue options (for queue items) */
   hideQueueActions?: boolean;
@@ -301,7 +339,8 @@ interface SongDropdownMenuProps {
 
 export function SongDropdownMenu({ 
   song, 
-  queueSongs, 
+  queueSongs,
+  queueSource,
   trigger,
   hideQueueActions = false,
   showRemoveFromQueue = false,
@@ -309,7 +348,7 @@ export function SongDropdownMenu({
   showRemoveFromPlaylist = false,
   onRemoveFromPlaylist,
 }: SongDropdownMenuProps) {
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
   const [shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
@@ -347,21 +386,41 @@ export function SongDropdownMenu({
   };
 
   const handlePlay = () => {
-    if (queueSongs && queueSongs.length > 0) {
+    if (queueSource?.type && queueSource.type !== "other") {
+      // Use server-side queue materialization for known sources
+      const index = queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
+      startQueue({
+        sourceType: queueSource.type as QueueSourceType,
+        sourceId: queueSource.id ?? undefined,
+        sourceName: queueSource.name ?? undefined,
+        startIndex: index >= 0 ? index : 0,
+        filters: queueSource.filters,
+        sort: queueSource.sort,
+      });
+    } else if (queueSongs && queueSongs.length > 0) {
       const index = queueSongs.findIndex((s) => s.id === song.id);
-      playNow(queueSongs, index >= 0 ? index : 0);
+      startQueue({
+        sourceType: (queueSource?.type as QueueSourceType) || "other",
+        sourceName: queueSource?.name ?? undefined,
+        songIds: queueSongs.map(s => s.id),
+        startIndex: index >= 0 ? index : 0,
+      });
     } else {
-      playNow(song);
+      startQueue({
+        sourceType: "other",
+        songIds: [song.id],
+        startIndex: 0,
+      });
     }
   };
 
   const handlePlayNext = () => {
-    addToQueue(song, "next");
+    addToQueue({ songIds: [song.id], position: "next" });
     toast.success(`Added "${song.title}" to play next`);
   };
 
   const handleAddToQueue = () => {
-    addToQueue(song, "last");
+    addToQueue({ songIds: [song.id], position: "end" });
     toast.success(`Added "${song.title}" to queue`);
   };
 

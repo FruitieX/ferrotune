@@ -14,7 +14,7 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { playNowAtom, isShuffledAtom, type QueueSourceInfo } from "@/lib/store/queue";
+import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { artistDetailViewModeAtom, artistDetailSortAtom, artistDetailColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -39,8 +39,7 @@ function ArtistDetailContent() {
   const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const isMounted = useIsMounted();
-  const playNow = useSetAtom(playNowAtom);
-  const setIsShuffled = useSetAtom(isShuffledAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   
   // Filter state
   const [filter, setFilter] = useState("");
@@ -92,6 +91,13 @@ function ArtistDetailContent() {
     return filtered;
   }, [allSongs, debouncedFilter, sortConfig]);
 
+  // Queue source for artist songs - server materializes the artist's song list
+  const artistQueueSource = useMemo(() => ({
+    type: "artist" as QueueSourceType,
+    id: id,
+    name: artistData?.name ?? "Artist",
+  }), [id, artistData?.name]);
+
   // Multi-selection support for songs - use displaySongs for selection
   const selection = useTrackSelection(displaySongs);
 
@@ -113,48 +119,50 @@ function ArtistDetailContent() {
     ? getClient()?.getCoverArtUrl(artistData.coverArt, 400)
     : undefined;
 
-  // Queue source for this artist
-  const getQueueSource = (): QueueSourceInfo => ({
-    type: "artist",
-    id: id ?? undefined,
-    name: artistData?.name,
-  });
-
   const handlePlayAll = () => {
-    if (displaySongs && displaySongs.length > 0) {
-      setIsShuffled(false);
-      playNow(displaySongs, 0, getQueueSource());
+    if (id && displaySongs && displaySongs.length > 0) {
+      startQueue({
+        sourceType: "artist",
+        sourceId: id,
+        sourceName: artistData?.name,
+        startIndex: 0,
+        shuffle: false,
+      });
     }
   };
 
   const handleShuffle = () => {
-    if (displaySongs && displaySongs.length > 0) {
-      setIsShuffled(true);
-      const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, getQueueSource());
+    if (id && displaySongs && displaySongs.length > 0) {
+      startQueue({
+        sourceType: "artist",
+        sourceId: id,
+        sourceName: artistData?.name,
+        startIndex: 0,
+        shuffle: true,
+      });
     }
   };
 
   const handlePlaySelected = () => {
     const selectedSongs = selection.getSelectedSongs();
     if (selectedSongs.length > 0) {
-      playNow(selectedSongs, 0, getQueueSource());
+      startQueue({
+        sourceType: "other",
+        sourceName: `${artistData?.name} (selection)`,
+        songIds: selectedSongs.map(s => s.id),
+      });
       selection.clearSelection();
     }
   };
 
   const handlePlayAlbum = async (album: Album) => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      const response = await client.getAlbum(album.id);
-      if (response.album.song && response.album.song.length > 0) {
-        playNow(response.album.song, 0, { type: "album", id: album.id, name: album.name });
-      }
-    } catch (error) {
-      console.error("Failed to play album:", error);
-    }
+    startQueue({
+      sourceType: "album",
+      sourceId: album.id,
+      sourceName: album.name,
+      startIndex: 0,
+      shuffle: false,
+    });
   };
 
   // Always render the same loading state on server and during hydration
@@ -373,6 +381,7 @@ function ArtistDetailContent() {
                   <SongCard
                     song={song}
                     queueSongs={displaySongs}
+                    queueSource={artistQueueSource}
                     isSelected={selection.isSelected(song.id)}
                     isSelectionMode={selection.hasSelection}
                     onSelect={(e) => selection.handleSelect(song.id, e)}
@@ -396,6 +405,7 @@ function ArtistDetailContent() {
                     showYear={columnVisibility.year}
                     showDateAdded={columnVisibility.dateAdded}
                     queueSongs={displaySongs}
+                    queueSource={artistQueueSource}
                     isSelected={selection.isSelected(song.id)}
                     isSelectionMode={selection.hasSelection}
                     onSelect={(e) => selection.handleSelect(song.id, e)}
@@ -423,7 +433,7 @@ function ArtistDetailContent() {
         onClear={selection.clearSelection}
         onPlayNow={handlePlaySelected}
         onPlayNext={() => selection.addSelectedToQueue("next")}
-        onAddToQueue={() => selection.addSelectedToQueue("last")}
+        onAddToQueue={() => selection.addSelectedToQueue("end")}
         onStar={() => selection.starSelected(true)}
         onUnstar={() => selection.starSelected(false)}
         onSelectAll={selection.selectAll}

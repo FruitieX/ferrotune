@@ -20,7 +20,7 @@ use ts_rs::TS;
 /// - "24-7" -> "24* 7*" (prevents FTS5 interpreting as "24 NOT 7")
 ///
 /// Returns None if the query is empty after processing.
-fn build_fts_query(query: &str) -> Option<String> {
+pub fn build_fts_query(query: &str) -> Option<String> {
     // Split into words, filtering out empty strings and FTS5 operators
     let words: Vec<String> = query
         .split(|c: char| !c.is_alphanumeric())
@@ -122,7 +122,7 @@ pub struct SearchContent {
 }
 
 /// Get ORDER BY clause for song sorting
-fn get_song_order_clause(sort: Option<&String>, sort_dir: Option<&String>) -> String {
+pub fn get_song_order_clause(sort: Option<&String>, sort_dir: Option<&String>) -> String {
     let dir = match sort_dir.map(|s| s.as_str()) {
         Some("desc") => "DESC",
         _ => "ASC",
@@ -155,13 +155,13 @@ fn get_album_order_clause(sort: Option<&String>, sort_dir: Option<&String>) -> S
 }
 
 /// Build WHERE clause conditions for song filters
-struct SongFilterConditions {
-    conditions: Vec<String>,
-    has_rating_filter: bool,
-    has_starred_filter: bool,
+pub struct SongFilterConditions {
+    pub conditions: Vec<String>,
+    pub has_rating_filter: bool,
+    pub has_starred_filter: bool,
 }
 
-fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> SongFilterConditions {
+pub fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> SongFilterConditions {
     let mut conditions = Vec::new();
     let has_rating_filter = params.min_rating.is_some() || params.max_rating.is_some();
     let has_starred_filter = params.starred_only.unwrap_or(false);
@@ -641,4 +641,93 @@ pub async fn search3(
     };
 
     Ok(FormatResponse::new(user.format, response))
+}
+
+/// Search songs with filters and sorting, returning the raw Song models.
+/// This is a reusable function for materializing search-based queues.
+///
+/// If `query` is empty or "*", returns all songs matching the filters.
+pub async fn search_songs_for_queue(
+    pool: &sqlx::SqlitePool,
+    user_id: i64,
+    query: &str,
+    params: &SearchParams,
+) -> crate::error::Result<Vec<crate::db::models::Song>> {
+    let song_order =
+        get_song_order_clause(params.song_sort.as_ref(), params.song_sort_dir.as_ref());
+
+    // Check for wildcard query
+    let is_wildcard = query.is_empty() || query == "*";
+
+    // Build FTS query with prefix wildcards
+    let fts_query = if !is_wildcard {
+        build_fts_query(query)
+    } else {
+        None
+    };
+
+    let filter_conds = build_song_filter_conditions(params, user_id);
+    let has_filters = !filter_conds.conditions.is_empty();
+
+    // Build JOIN clauses based on filter requirements
+    let mut joins = String::from(
+        "INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id",
+    );
+    if filter_conds.has_rating_filter {
+        joins.push_str(&format!(
+            " LEFT JOIN ratings r ON r.item_id = s.id AND r.item_type = 'song' AND r.user_id = {}",
+            user_id
+        ));
+    }
+    if filter_conds.has_starred_filter {
+        joins.push_str(&format!(
+            " LEFT JOIN starred st ON st.item_id = s.id AND st.item_type = 'song' AND st.user_id = {}",
+            user_id
+        ));
+    }
+
+    let songs: Vec<crate::db::models::Song> = if is_wildcard {
+        // Build WHERE clause for filters
+        let where_clause = if has_filters {
+            format!("WHERE {}", filter_conds.conditions.join(" AND "))
+        } else {
+            String::new()
+        };
+
+        let query_str = format!(
+            "SELECT s.*, ar.name as artist_name, al.name as album_name, pc.play_count, pc.last_played, NULL as starred_at
+             FROM songs s 
+             {joins}
+             {where_clause}
+             ORDER BY {song_order}"
+        );
+
+        sqlx::query_as(&query_str).fetch_all(pool).await?
+    } else if let Some(ref fts_q) = fts_query {
+        // Build WHERE clause combining FTS and filters
+        let mut where_conditions = vec!["songs_fts MATCH ?".to_string()];
+        where_conditions.extend(filter_conds.conditions.clone());
+        let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
+
+        let query_str = format!(
+            "SELECT s.*, ar.name as artist_name, al.name as album_name, pc.play_count, pc.last_played, NULL as starred_at
+             FROM songs s 
+             {joins}
+             INNER JOIN songs_fts fts ON s.id = fts.song_id 
+             {where_clause}
+             ORDER BY {song_order}"
+        );
+
+        sqlx::query_as(&query_str)
+            .bind(fts_q)
+            .fetch_all(pool)
+            .await?
+    } else {
+        // Empty query after processing
+        vec![]
+    };
+
+    Ok(songs)
 }

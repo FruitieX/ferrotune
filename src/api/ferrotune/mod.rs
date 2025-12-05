@@ -21,7 +21,9 @@
 //! - `POST /ferrotune/playlist-folders` - Create a new playlist folder
 //! - `PATCH /ferrotune/playlist-folders/:id` - Update a playlist folder
 //! - `DELETE /ferrotune/playlist-folders/:id` - Delete a playlist folder
-//! - `PATCH /ferrotune/playlists/:id/move` - Move a playlist to a folder//! - `PUT /ferrotune/playlists/:id/reorder` - Reorder songs in a playlist//! - `DELETE /ferrotune/songs/:id` - Delete a song from the database
+//! - `PATCH /ferrotune/playlists/:id/move` - Move a playlist to a folder
+//! - `PUT /ferrotune/playlists/:id/reorder` - Reorder songs in a playlist
+//! - `DELETE /ferrotune/songs/:id` - Delete a song from the database
 //! - `GET /ferrotune/songs/:id/tags` - Get all tags from a song file
 //! - `PATCH /ferrotune/songs/:id/tags` - Update tags in a song file
 //! - `GET /ferrotune/preferences` - Get user preferences
@@ -34,6 +36,19 @@
 //! - `GET /ferrotune/songs/:id/shuffle-exclude` - Get shuffle exclude status for a song
 //! - `PUT /ferrotune/songs/:id/shuffle-exclude` - Set shuffle exclude status for a song
 //! - `GET /ferrotune/shuffle-excludes` - Get all songs excluded from shuffle
+//!
+//! ## Server-Side Queue Endpoints
+//!
+//! - `POST /ferrotune/queue/start` - Start a new queue from a source (album, artist, playlist, etc.)
+//! - `GET /ferrotune/queue` - Get current queue state with pagination
+//! - `DELETE /ferrotune/queue` - Clear the entire queue
+//! - `GET /ferrotune/queue/current-window` - Get songs around current position
+//! - `POST /ferrotune/queue/add` - Add songs to queue at position
+//! - `DELETE /ferrotune/queue/:position` - Remove song at position
+//! - `POST /ferrotune/queue/move` - Move song from one position to another
+//! - `POST /ferrotune/queue/shuffle` - Toggle shuffle mode
+//! - `POST /ferrotune/queue/position` - Update current playback position
+//! - `POST /ferrotune/queue/repeat` - Update repeat mode
 
 mod duplicates;
 mod listening;
@@ -41,6 +56,7 @@ mod media;
 mod playlists;
 mod playqueue;
 mod preferences;
+mod queue;
 mod scan;
 mod shuffle_exclude;
 mod stats;
@@ -139,6 +155,25 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/shuffle-excludes/bulk",
             post(shuffle_exclude::bulk_set_shuffle_excludes),
         )
+        // Server-side queue endpoints
+        .route("/ferrotune/queue/start", post(queue::start_queue))
+        .route(
+            "/ferrotune/queue",
+            get(queue::get_queue).delete(queue::clear_queue),
+        )
+        .route(
+            "/ferrotune/queue/current-window",
+            get(queue::get_current_window),
+        )
+        .route("/ferrotune/queue/add", post(queue::add_to_queue))
+        .route(
+            "/ferrotune/queue/{position}",
+            delete(queue::remove_from_queue),
+        )
+        .route("/ferrotune/queue/move", post(queue::move_in_queue))
+        .route("/ferrotune/queue/shuffle", post(queue::toggle_shuffle))
+        .route("/ferrotune/queue/position", post(queue::update_position))
+        .route("/ferrotune/queue/repeat", post(queue::update_repeat_mode))
         .with_state(state)
 }
 

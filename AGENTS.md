@@ -46,21 +46,92 @@ ferrotune/
 
 ## Development Commands
 
+All tasks are managed via [Moon](https://moonrepo.dev/). Run tasks with `moon run <task>` or `moon run <project>:<task>`.
+
+### Building
+
 ```bash
-# Build
-moon run build              # Release build
-cargo build                 # Debug build
+moon run build              # Debug build (Rust backend)
+moon run build-release      # Release build (Rust backend)
+moon run build-release-ui   # Release build with embedded web UI
+moon run client:build       # Build Next.js client
+```
 
-# Run server
-cargo run -- --config config.example.toml serve
+### Running Servers
 
-# Run tests
-moon run test               # Backend tests
-moon run client:test        # Frontend E2E tests
-moon run ci                 # Full CI pipeline
+```bash
+moon run dev                # Run backend dev server
+moon run client:dev         # Run frontend dev server (with HMR)
+moon run serve              # Run backend (after build)
+moon run client:start       # Run frontend production build
+```
 
-# Generate test fixtures (requires ffmpeg)
-./scripts/generate-test-fixtures.sh
+### Testing
+
+```bash
+# Full test suites
+moon run test               # Backend unit + integration tests
+moon run client:test        # Frontend E2E tests (Playwright)
+moon run ci                 # Full backend CI pipeline
+moon run ci-all             # Full stack CI (backend + client)
+
+# Backend tests
+moon run test-unit          # Unit tests only
+moon run test-integration   # Integration tests (Hurl)
+moon run test-integration-full  # Integration tests including ignored
+
+# Individual Hurl test scripts
+moon run hurl-system        # System endpoints
+moon run hurl-auth          # Authentication endpoints
+moon run hurl-browse        # Browse endpoints
+moon run hurl-streaming     # Streaming endpoints
+moon run hurl-search        # Search endpoints
+moon run hurl-starring      # Starring endpoints
+moon run hurl-playlists     # Playlist endpoints
+moon run hurl-lists         # List endpoints
+moon run hurl-playqueue     # Play queue endpoints
+
+# Frontend E2E tests
+moon run client:test-e2e          # All E2E tests
+moon run client:test-e2e-ui       # E2E tests with Playwright UI
+moon run client:test-e2e-headed   # E2E tests in headed browser
+moon run client:test-e2e-debug    # E2E tests in debug mode
+
+# Individual E2E test specs
+moon run client:test-auth         # Auth tests
+moon run client:test-browse       # Browse tests
+moon run client:test-search       # Search tests
+moon run client:test-playback     # Playback tests
+moon run client:test-queue        # Queue tests
+moon run client:test-starring     # Starring tests
+moon run client:test-playlists    # Playlist tests
+```
+
+### Code Quality
+
+```bash
+moon run lint               # Rust clippy
+moon run fmt                # Format Rust code
+moon run fmt-check          # Check Rust formatting
+moon run client:lint        # ESLint for frontend
+moon run client:typecheck   # TypeScript type checking
+```
+
+### Code Generation
+
+```bash
+moon run generate-bindings  # Generate TypeScript types from Rust
+moon run generate-fixtures  # Generate test audio fixtures (requires ffmpeg)
+```
+
+### Utilities
+
+```bash
+moon run scan               # Scan music library
+moon run clean              # Clean Rust build artifacts
+moon run client:clean       # Clean frontend build artifacts
+moon run client:playwright-install  # Install Playwright browsers
+moon run client:playwright-report   # View Playwright test report
 ```
 
 ---
@@ -79,11 +150,11 @@ For detailed testing guidance, see [docs/TESTING.md](docs/TESTING.md).
 
 ### Quick Test Commands
 ```bash
-# Backend
-cargo test test_browse_endpoints -- --nocapture
+# Backend - specific hurl test
+moon run hurl-browse
 
-# Frontend
-cd client && npx playwright test --ui
+# Frontend - E2E with UI
+moon run client:test-e2e-ui
 ```
 
 ---
@@ -133,7 +204,7 @@ pub async fn endpoint(user: AuthenticatedUser, ...) -> Result<FormatResponse<Res
 ### Adding a Frontend Feature
 1. Implement component/page
 2. **Write Playwright tests** in `client/e2e/`
-3. Run tests: `cd client && npm run test:e2e`
+3. Run tests: `moon run client:test-e2e`
 
 ### Adding a Database Field
 1. Create migration in `migrations/NNN_description.sql`

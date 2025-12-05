@@ -11,7 +11,7 @@ import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection, useItemSelection } from "@/lib/hooks/use-track-selection";
-import { playNowAtom, isShuffledAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
+import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { 
   playlistViewModeAtom, 
   playlistSortAtom, 
@@ -43,15 +43,11 @@ import { sortAlbums, sortArtists } from "@/lib/utils/sort-media";
 
 type TabValue = "songs" | "albums" | "artists";
 
-// Queue source for favorites playback
-const FAVORITES_QUEUE_SOURCE: QueueSourceInfo = { type: "favorites", name: "Favorites" };
-
 export default function FavoritesPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const isMounted = useIsMounted();
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
-  const setIsShuffled = useSetAtom(isShuffledAtom);
   const [activeTab, setActiveTab] = useState<TabValue>("songs");
   
   // Separate search queries for each tab
@@ -159,6 +155,12 @@ export default function FavoritesPage() {
 
   const totalDuration = displaySongs.reduce((acc, song) => acc + song.duration, 0);
 
+  // Queue source for favorites songs - server materializes the favorites list
+  const favoritesQueueSource = useMemo(() => ({
+    type: "favorites" as QueueSourceType,
+    name: "Favorites",
+  }), []);
+
   // Track selection for songs tab
   const songSelection = useTrackSelection(displaySongs);
 
@@ -171,7 +173,11 @@ export default function FavoritesPage() {
   const handlePlaySelectedSongs = () => {
     const selected = songSelection.getSelectedSongs();
     if (selected.length > 0) {
-      playNow(selected, 0, FAVORITES_QUEUE_SOURCE);
+      startQueue({
+        sourceType: "favorites",
+        sourceName: "Favorites (selection)",
+        songIds: selected.map(s => s.id),
+      });
       songSelection.clearSelection();
     }
   };
@@ -193,7 +199,11 @@ export default function FavoritesPage() {
   const handlePlaySelectedAlbums = async () => {
     const songs = await getSelectedAlbumsSongs();
     if (songs.length > 0) {
-      playNow(songs, 0, FAVORITES_QUEUE_SOURCE);
+      startQueue({
+        sourceType: "favorites",
+        sourceName: "Favorites (albums selection)",
+        songIds: songs.map(s => s.id),
+      });
       albumSelection.clearSelection();
       toast.success(`Playing ${songs.length} songs from ${albumSelection.selectedCount} albums`);
     }
@@ -202,18 +212,21 @@ export default function FavoritesPage() {
   const handleShuffleSelectedAlbums = async () => {
     const songs = await getSelectedAlbumsSongs();
     if (songs.length > 0) {
-      setIsShuffled(true);
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, FAVORITES_QUEUE_SOURCE);
+      startQueue({
+        sourceType: "favorites",
+        sourceName: "Favorites (albums selection)",
+        songIds: songs.map(s => s.id),
+        shuffle: true,
+      });
       albumSelection.clearSelection();
       toast.success(`Shuffling ${songs.length} songs from ${albumSelection.selectedCount} albums`);
     }
   };
 
-  const handleAddSelectedAlbumsToQueue = async (position: "next" | "last") => {
+  const handleAddSelectedAlbumsToQueue = async (position: "next" | "end") => {
     const songs = await getSelectedAlbumsSongs();
     if (songs.length > 0) {
-      songs.forEach(song => addToQueue(song, position));
+      addToQueue({ songIds: songs.map(s => s.id), position });
       albumSelection.clearSelection();
       toast.success(`Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`);
     }
@@ -255,7 +268,11 @@ export default function FavoritesPage() {
   const handlePlaySelectedArtists = async () => {
     const songs = await getSelectedArtistsSongs();
     if (songs.length > 0) {
-      playNow(songs, 0, FAVORITES_QUEUE_SOURCE);
+      startQueue({
+        sourceType: "favorites",
+        sourceName: "Favorites (artists selection)",
+        songIds: songs.map(s => s.id),
+      });
       artistSelection.clearSelection();
       toast.success(`Playing ${songs.length} songs from ${artistSelection.selectedCount} artists`);
     }
@@ -264,18 +281,21 @@ export default function FavoritesPage() {
   const handleShuffleSelectedArtists = async () => {
     const songs = await getSelectedArtistsSongs();
     if (songs.length > 0) {
-      setIsShuffled(true);
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, FAVORITES_QUEUE_SOURCE);
+      startQueue({
+        sourceType: "favorites",
+        sourceName: "Favorites (artists selection)",
+        songIds: songs.map(s => s.id),
+        shuffle: true,
+      });
       artistSelection.clearSelection();
       toast.success(`Shuffling ${songs.length} songs from ${artistSelection.selectedCount} artists`);
     }
   };
 
-  const handleAddSelectedArtistsToQueue = async (position: "next" | "last") => {
+  const handleAddSelectedArtistsToQueue = async (position: "next" | "end") => {
     const songs = await getSelectedArtistsSongs();
     if (songs.length > 0) {
-      songs.forEach(song => addToQueue(song, position));
+      addToQueue({ songIds: songs.map(s => s.id), position });
       artistSelection.clearSelection();
       toast.success(`Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`);
     }
@@ -315,45 +335,44 @@ export default function FavoritesPage() {
 
   const handlePlayAll = () => {
     if (displaySongs.length > 0) {
-      setIsShuffled(false);
-      playNow(displaySongs, 0, FAVORITES_QUEUE_SOURCE);
+      startQueue({
+        sourceType: "favorites",
+        sourceName: "Favorites",
+        startIndex: 0,
+        shuffle: false,
+      });
     }
   };
 
   const handleShuffle = () => {
     if (displaySongs.length > 0) {
-      setIsShuffled(true);
-      const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, FAVORITES_QUEUE_SOURCE);
+      startQueue({
+        sourceType: "favorites",
+        sourceName: "Favorites",
+        startIndex: 0,
+        shuffle: true,
+      });
     }
   };
 
-  const handlePlayAlbum = async (album: Album) => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      const response = await client.getAlbum(album.id);
-      if (response.album.song?.length > 0) {
-        playNow(response.album.song, 0, { type: "album", id: album.id, name: album.name });
-      }
-    } catch (error) {
-      console.error("Failed to play album:", error);
-    }
+  const handlePlayAlbum = (album: Album) => {
+    startQueue({
+      sourceType: "album",
+      sourceId: album.id,
+      sourceName: album.name,
+      startIndex: 0,
+      shuffle: false,
+    });
   };
 
-  const handlePlayArtist = async (artist: Artist) => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      const response = await client.getArtist(artist.id);
-      if (response.artist.song && response.artist.song.length > 0) {
-        playNow(response.artist.song, 0, { type: "artist", id: artist.id, name: artist.name });
-      }
-    } catch (error) {
-      console.error("Failed to play artist:", error);
-    }
+  const handlePlayArtist = (artist: Artist) => {
+    startQueue({
+      sourceType: "artist",
+      sourceId: artist.id,
+      sourceName: artist.name,
+      startIndex: 0,
+      shuffle: false,
+    });
   };
 
   // Always render the same loading state on server and during hydration
@@ -549,6 +568,7 @@ export default function FavoritesPage() {
                     <SongCard 
                       song={song} 
                       queueSongs={displaySongs}
+                      queueSource={favoritesQueueSource}
                       isSelected={songSelection.isSelected(song.id)}
                       isSelectionMode={songSelection.hasSelection}
                       onSelect={(e) => songSelection.handleSelect(song.id, e)}
@@ -572,6 +592,7 @@ export default function FavoritesPage() {
                       showYear={columnVisibility.year}
                       showDateAdded={columnVisibility.dateAdded}
                       queueSongs={displaySongs}
+                      queueSource={favoritesQueueSource}
                       isSelected={songSelection.isSelected(song.id)}
                       isSelectionMode={songSelection.hasSelection}
                       onSelect={(e) => songSelection.handleSelect(song.id, e)}
@@ -713,7 +734,7 @@ export default function FavoritesPage() {
           onClear={songSelection.clearSelection}
           onPlayNow={handlePlaySelectedSongs}
           onPlayNext={() => songSelection.addSelectedToQueue("next")}
-          onAddToQueue={() => songSelection.addSelectedToQueue("last")}
+          onAddToQueue={() => songSelection.addSelectedToQueue("end")}
           onStar={() => songSelection.starSelected(true)}
           onUnstar={() => songSelection.starSelected(false)}
           onSelectAll={songSelection.selectAll}
@@ -730,7 +751,7 @@ export default function FavoritesPage() {
           onPlayNow={handlePlaySelectedAlbums}
           onShuffle={handleShuffleSelectedAlbums}
           onPlayNext={() => handleAddSelectedAlbumsToQueue("next")}
-          onAddToQueue={() => handleAddSelectedAlbumsToQueue("last")}
+          onAddToQueue={() => handleAddSelectedAlbumsToQueue("end")}
           onStar={() => handleStarSelectedAlbums(true)}
           onUnstar={() => handleStarSelectedAlbums(false)}
           onSelectAll={albumSelection.selectAll}
@@ -747,7 +768,7 @@ export default function FavoritesPage() {
           onPlayNow={handlePlaySelectedArtists}
           onShuffle={handleShuffleSelectedArtists}
           onPlayNext={() => handleAddSelectedArtistsToQueue("next")}
-          onAddToQueue={() => handleAddSelectedArtistsToQueue("last")}
+          onAddToQueue={() => handleAddSelectedArtistsToQueue("end")}
           onStar={() => handleStarSelectedArtists(true)}
           onUnstar={() => handleStarSelectedArtists(false)}
           onSelectAll={artistSelection.selectAll}

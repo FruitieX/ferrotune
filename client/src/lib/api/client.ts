@@ -27,6 +27,9 @@ import type {
   UpdatePreferencesRequest,
   ServerStats,
   ListeningStatsResponse,
+  StartQueueResponse,
+  GetQueueResponse,
+  QueueSuccessResponse,
 } from "./types";
 
 // Ping response is empty
@@ -498,6 +501,134 @@ export class SubsonicClient {
     return this.adminRequest("/ferrotune/shuffle-excludes/bulk", {
       method: "POST",
       body: JSON.stringify({ songIds, excluded }),
+    });
+  }
+
+  // ============================================================================
+  // Server-Side Queue API (Admin API)
+  // ============================================================================
+
+  /**
+   * Start a new queue from a source (album, artist, playlist, etc.)
+   * 
+   * For sources like album, artist, playlist, genre, the server will
+   * materialize the songs automatically.
+   * 
+   * For search results or custom queues, provide songIds explicitly.
+   */
+  async startQueue(params: {
+    sourceType: string;
+    sourceId?: string;
+    sourceName?: string;
+    startIndex?: number;
+    shuffle?: boolean;
+    repeatMode?: string;
+    filters?: Record<string, unknown>;
+    sort?: Record<string, unknown>;
+    /** Explicit song IDs to use instead of materializing from source */
+    songIds?: string[];
+  }): Promise<StartQueueResponse> {
+    return this.adminRequest("/ferrotune/queue/start", {
+      method: "POST",
+      body: JSON.stringify(params),
+    });
+  }
+
+  /**
+   * Get the current queue state with optional pagination
+   */
+  async getServerQueue(params: { offset?: number; limit?: number } = {}): Promise<GetQueueResponse> {
+    const query = new URLSearchParams();
+    if (params.offset !== undefined) query.set("offset", String(params.offset));
+    if (params.limit !== undefined) query.set("limit", String(params.limit));
+    const queryStr = query.toString();
+    return this.adminRequest(`/ferrotune/queue${queryStr ? `?${queryStr}` : ""}`);
+  }
+
+  /**
+   * Get songs around the current position
+   */
+  async getQueueCurrentWindow(radius: number = 20): Promise<GetQueueResponse> {
+    return this.adminRequest(`/ferrotune/queue/current-window?radius=${radius}`);
+  }
+
+  /**
+   * Add songs to the queue
+   */
+  async addToServerQueue(params: {
+    songIds: string[];
+    position: "next" | "end" | number;
+  }): Promise<QueueSuccessResponse> {
+    return this.adminRequest("/ferrotune/queue/add", {
+      method: "POST",
+      body: JSON.stringify({
+        songIds: params.songIds,
+        position: params.position,
+      }),
+    });
+  }
+
+  /**
+   * Remove a song from the queue at a position
+   */
+  async removeFromServerQueue(position: number): Promise<QueueSuccessResponse> {
+    return this.adminRequest(`/ferrotune/queue/${position}`, {
+      method: "DELETE",
+    });
+  }
+
+  /**
+   * Move a song from one position to another
+   */
+  async moveInServerQueue(fromPosition: number, toPosition: number): Promise<QueueSuccessResponse> {
+    return this.adminRequest("/ferrotune/queue/move", {
+      method: "POST",
+      body: JSON.stringify({
+        fromPosition,
+        toPosition,
+      }),
+    });
+  }
+
+  /**
+   * Toggle shuffle mode
+   */
+  async toggleServerShuffle(enabled: boolean): Promise<QueueSuccessResponse> {
+    return this.adminRequest("/ferrotune/queue/shuffle", {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
+  /**
+   * Update the current playback position
+   */
+  async updateServerQueuePosition(currentIndex: number, positionMs: number = 0): Promise<QueueSuccessResponse> {
+    return this.adminRequest("/ferrotune/queue/position", {
+      method: "POST",
+      body: JSON.stringify({
+        currentIndex,
+        positionMs,
+      }),
+    });
+  }
+
+  /**
+   * Update repeat mode
+   */
+  async updateServerRepeatMode(mode: "off" | "all" | "one"): Promise<QueueSuccessResponse> {
+    return this.adminRequest("/ferrotune/queue/repeat", {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+  }
+
+  /**
+   * Clear the entire queue
+   */
+  async clearServerQueue(): Promise<QueueSuccessResponse> {
+    return this.adminRequest("/ferrotune/queue", {
+      method: "DELETE",
     });
   }
 }

@@ -364,7 +364,7 @@ pub struct AlbumDetail {
     pub song: Vec<SongResponse>,
 }
 
-#[derive(Serialize, TS)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct SongResponse {

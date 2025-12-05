@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
 import { Play, Clock, Sparkles, TrendingUp, Shuffle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { playNowAtom, isShuffledAtom, type QueueSourceInfo } from "@/lib/store/queue";
+import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -126,8 +126,7 @@ function AlbumSection({
 
 export default function HomePage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
-  const playNow = useSetAtom(playNowAtom);
-  const setIsShuffled = useSetAtom(isShuffledAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const isMounted = useIsMounted();
 
   // Fetch recently added albums
@@ -178,23 +177,18 @@ export default function HomePage() {
     enabled: isReady,
   });
 
-  // Play album
+  // Play album - uses server-side queue
   const handlePlayAlbum = async (album: Album) => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      const response = await client.getAlbum(album.id);
-      if (response.album.song && response.album.song.length > 0) {
-        setIsShuffled(false);
-        playNow(response.album.song, 0, { type: "album", id: album.id, name: album.name });
-      }
-    } catch (error) {
-      console.error("Failed to play album:", error);
-    }
+    startQueue({
+      sourceType: "album",
+      sourceId: album.id,
+      sourceName: album.name,
+      startIndex: 0,
+      shuffle: false,
+    });
   };
 
-  // Play all albums in a section
+  // Play all albums in a section - fetch songs and start with explicit IDs
   const handlePlayAllAlbums = async (albums: Album[] | undefined, sectionName: string) => {
     if (!albums?.length) return;
     
@@ -203,8 +197,13 @@ export default function HomePage() {
     toast.dismiss();
     
     if (songs.length > 0) {
-      setIsShuffled(false);
-      playNow(songs, 0, { type: "other", name: sectionName });
+      startQueue({
+        sourceType: "other",
+        sourceName: sectionName,
+        startIndex: 0,
+        shuffle: false,
+        songIds: songs.map(s => s.id),
+      });
       toast.success(`Playing ${songs.length} songs`);
     } else {
       toast.error("No songs found");
@@ -220,9 +219,13 @@ export default function HomePage() {
     toast.dismiss();
     
     if (songs.length > 0) {
-      setIsShuffled(true);
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, { type: "other", name: sectionName });
+      startQueue({
+        sourceType: "other",
+        sourceName: sectionName,
+        startIndex: 0,
+        shuffle: true,
+        songIds: songs.map(s => s.id),
+      });
       toast.success(`Shuffling ${songs.length} songs`);
     } else {
       toast.error("No songs found");

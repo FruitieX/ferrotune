@@ -32,7 +32,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
-import { playNowAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
+import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import type { Album, Song } from "@/lib/api/types";
 
@@ -42,7 +42,7 @@ interface AlbumContextMenuProps {
 }
 
 export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!album.starred);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
@@ -61,37 +61,32 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
     }
   };
 
-  const getQueueSource = (): QueueSourceInfo => ({
-    type: "album",
-    id: album.id,
-    name: album.name,
-  });
-
-  const handlePlay = async () => {
-    const songs = await fetchSongs();
-    if (songs && songs.length > 0) {
-      playNow(songs, 0, getQueueSource());
-      toast.success(`Playing "${album.name}"`);
-    } else {
-      toast.error("No songs in this album");
-    }
+  const handlePlay = () => {
+    startQueue({
+      sourceType: "album",
+      sourceId: album.id,
+      sourceName: album.name,
+      startIndex: 0,
+      shuffle: false,
+    });
+    toast.success(`Playing "${album.name}"`);
   };
 
-  const handleShuffle = async () => {
-    const songs = await fetchSongs();
-    if (songs && songs.length > 0) {
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, getQueueSource());
-      toast.success(`Shuffling "${album.name}"`);
-    } else {
-      toast.error("No songs in this album");
-    }
+  const handleShuffle = () => {
+    startQueue({
+      sourceType: "album",
+      sourceId: album.id,
+      sourceName: album.name,
+      startIndex: 0,
+      shuffle: true,
+    });
+    toast.success(`Shuffling "${album.name}"`);
   };
 
   const handlePlayNext = async () => {
     const songs = await fetchSongs();
     if (songs && songs.length > 0) {
-      addToQueue(songs, "next");
+      addToQueue({ songIds: songs.map(s => s.id), position: "next" });
       toast.success(`Added "${album.name}" to play next`);
     } else {
       toast.error("No songs in this album");
@@ -101,7 +96,7 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
   const handleAddToQueue = async () => {
     const songs = await fetchSongs();
     if (songs && songs.length > 0) {
-      addToQueue(songs, "last");
+      addToQueue({ songIds: songs.map(s => s.id), position: "end" });
       toast.success(`Added "${album.name}" to queue`);
     } else {
       toast.error("No songs in this album");
@@ -210,7 +205,7 @@ interface AlbumDropdownMenuProps {
 }
 
 export function AlbumDropdownMenu({ album, onPlay, trigger }: AlbumDropdownMenuProps) {
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [isStarred, setIsStarred] = useState(!!album.starred);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
@@ -229,41 +224,36 @@ export function AlbumDropdownMenu({ album, onPlay, trigger }: AlbumDropdownMenuP
     }
   };
 
-  const getQueueSource = (): QueueSourceInfo => ({
-    type: "album",
-    id: album.id,
-    name: album.name,
-  });
-
   const handlePlay = async () => {
     if (onPlay) {
       onPlay();
     } else {
-      const songs = await fetchSongs();
-      if (songs && songs.length > 0) {
-        playNow(songs, 0, getQueueSource());
-        toast.success(`Playing "${album.name}"`);
-      } else {
-        toast.error("No songs in this album");
-      }
+      startQueue({
+        sourceType: "album",
+        sourceId: album.id,
+        sourceName: album.name,
+        startIndex: 0,
+        shuffle: false,
+      });
+      toast.success(`Playing "${album.name}"`);
     }
   };
 
-  const handleShuffle = async () => {
-    const songs = await fetchSongs();
-    if (songs && songs.length > 0) {
-      const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, getQueueSource());
-      toast.success(`Shuffling "${album.name}"`);
-    } else {
-      toast.error("No songs in this album");
-    }
+  const handleShuffle = () => {
+    startQueue({
+      sourceType: "album",
+      sourceId: album.id,
+      sourceName: album.name,
+      startIndex: 0,
+      shuffle: true,
+    });
+    toast.success(`Shuffling "${album.name}"`);
   };
 
   const handlePlayNext = async () => {
     const songs = await fetchSongs();
     if (songs && songs.length > 0) {
-      addToQueue(songs, "next");
+      addToQueue({ songIds: songs.map(s => s.id), position: "next" });
       toast.success(`Added "${album.name}" to play next`);
     } else {
       toast.error("No songs in this album");
@@ -273,7 +263,7 @@ export function AlbumDropdownMenu({ album, onPlay, trigger }: AlbumDropdownMenuP
   const handleAddToQueue = async () => {
     const songs = await fetchSongs();
     if (songs && songs.length > 0) {
-      addToQueue(songs, "last");
+      addToQueue({ songIds: songs.map(s => s.id), position: "end" });
       toast.success(`Added "${album.name}" to queue`);
     } else {
       toast.error("No songs in this album");

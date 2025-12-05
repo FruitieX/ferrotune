@@ -64,14 +64,18 @@ export function CoverImage({
   const [isLoaded, setIsLoaded] = useState(false);
   const [isVisible, setIsVisible] = useState(!lazy);
   const containerRef = useRef<HTMLDivElement>(null);
+  const prevSrcRef = useRef<string | null | undefined>(src);
   
   const Icon = type === "artist" ? User : type === "playlist" ? ListMusic : type === "song" ? Music : type === "genre" ? Tag : Disc;
   const isRound = type === "artist";
 
-  // Reset state when src changes
+  // Reset state only when src actually changes to a different value
   useEffect(() => {
-    setHasError(false);
-    setIsLoaded(false);
+    if (prevSrcRef.current !== src) {
+      prevSrcRef.current = src;
+      setHasError(false);
+      setIsLoaded(false);
+    }
   }, [src]);
 
   // Generate a unique color based on colorSeed (album/artist name) or fall back to alt

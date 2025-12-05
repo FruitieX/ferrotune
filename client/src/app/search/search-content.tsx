@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
@@ -10,7 +10,7 @@ import { Search as SearchIcon, X, Loader2, ListMusic, Clock } from "lucide-react
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
-import { playNowAtom, type QueueSourceInfo } from "@/lib/store/queue";
+import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ export function SearchPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isReady } = useAuth({ redirectToLogin: true });
-  const playNow = useSetAtom(playNowAtom);
+  const startQueue = useSetAtom(startQueueAtom);
   
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
@@ -104,34 +104,38 @@ export function SearchPageContent() {
     genre.value.toLowerCase().includes(debouncedQuery.toLowerCase())
   ) ?? [];
 
-  const handlePlayAlbum = async (album: Album) => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      const response = await client.getAlbum(album.id);
-      if (response.album.song?.length > 0) {
-        playNow(response.album.song, 0, { type: "album", id: album.id, name: album.name });
-      }
-    } catch (error) {
-      console.error("Failed to play album:", error);
-    }
+  const handlePlayAlbum = (album: Album) => {
+    startQueue({
+      sourceType: "album",
+      sourceId: album.id,
+      sourceName: album.name,
+      startIndex: 0,
+      shuffle: false,
+    });
   };
 
-  const handlePlayArtist = async (artist: Artist) => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      const artistData = await client.getArtist(artist.id);
-      // Use the song array which contains all songs by this artist
-      if (artistData.artist.song?.length) {
-        playNow(artistData.artist.song, 0, { type: "artist", id: artist.id, name: artist.name });
-      }
-    } catch (error) {
-      console.error("Failed to play artist:", error);
-    }
+  const handlePlayArtist = (artist: Artist) => {
+    startQueue({
+      sourceType: "artist",
+      sourceId: artist.id,
+      sourceName: artist.name,
+      startIndex: 0,
+      shuffle: false,
+    });
   };
+
+  // Queue source for search results - uses server-side search materialization
+  const searchQueueSource = useMemo(() => ({
+    type: "search" as QueueSourceType,
+    name: `Search: ${debouncedQuery}`,
+    filters: {
+      query: debouncedQuery,
+    },
+    sort: {
+      field: "title",
+      direction: "asc",
+    },
+  }), [debouncedQuery]);
 
   const hasResults = 
     (searchResults?.artist?.length ?? 0) > 0 ||
@@ -250,6 +254,7 @@ export function SearchPageContent() {
                         index={index}
                         showCover
                         queueSongs={searchResults.song}
+                        queueSource={searchQueueSource}
                       />
                     ))}
                   </div>
@@ -319,6 +324,7 @@ export function SearchPageContent() {
                       index={index}
                       showCover
                       queueSongs={searchResults.song!}
+                      queueSource={searchQueueSource}
                     />
                   )}
                   renderSkeleton={() => <SongRowSkeleton showCover showIndex />}

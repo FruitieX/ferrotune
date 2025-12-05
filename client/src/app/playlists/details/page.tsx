@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -32,8 +32,8 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { playNowAtom, isShuffledAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { playlistViewModeAtom, playlistSortAtom, playlistColumnVisibilityAtom } from "@/lib/store/ui";
+import { startQueueAtom, serverQueueStateAtom, toggleShuffleAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -75,8 +75,9 @@ function PlaylistDetailContent() {
   const playlistId = searchParams.get("id");
 
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
-  const playNow = useSetAtom(playNowAtom);
-  const setIsShuffled = useSetAtom(isShuffledAtom);
+  const startQueue = useSetAtom(startQueueAtom);
+  const toggleShuffle = useSetAtom(toggleShuffleAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
   const queryClient = useQueryClient();
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -265,6 +266,13 @@ function PlaylistDetailContent() {
 
   const totalDuration = displaySongs.reduce((acc, song) => acc + (song.duration ?? 0), 0);
 
+  // Queue source for playlist - server materializes the playlist contents
+  const playlistQueueSource = useMemo(() => ({
+    type: "playlist" as const,
+    id: playlistId,
+    name: playlist?.name ?? "Playlist",
+  }), [playlistId, playlist?.name]);
+
   // Build breadcrumb items from playlist name (which includes folder path)
   const breadcrumbItems = useMemo(() => {
     const items: { label: string; path: string }[] = [{ label: "Playlists", path: "" }];
@@ -345,33 +353,41 @@ function PlaylistDetailContent() {
     setRemoveTracksDialogOpen(false);
   }, [getSelectedIndices, getSelectedSongs, removeSongsMutation, clearSelection]);
 
-  // Create queue source for this playlist
-  const getQueueSource = useCallback((): QueueSourceInfo => ({
-    type: "playlist",
-    id: playlistId ?? undefined,
-    name: displayName,
-  }), [playlistId, displayName]);
-
   const handlePlaySelected = () => {
     const selected = getSelectedSongs();
     if (selected.length > 0) {
-      playNow(selected, 0, getQueueSource());
+      startQueue({
+        sourceType: "playlist",
+        sourceId: playlistId ?? undefined,
+        sourceName: displayName,
+        songIds: selected.map(s => s.id),
+      });
       clearSelection();
     }
   };
 
   const handlePlayAll = () => {
     if (displaySongs.length > 0) {
-      setIsShuffled(false);
-      playNow(displaySongs, 0, getQueueSource());
+      // If currently shuffled, turn off shuffle first
+      if (queueState?.isShuffled) {
+        toggleShuffle();
+      }
+      startQueue({
+        sourceType: "playlist",
+        sourceId: playlistId ?? undefined,
+        sourceName: displayName,
+      });
     }
   };
 
   const handleShuffle = () => {
     if (displaySongs.length > 0) {
-      setIsShuffled(true);
-      const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
-      playNow(shuffled, 0, getQueueSource());
+      startQueue({
+        sourceType: "playlist",
+        sourceId: playlistId ?? undefined,
+        sourceName: displayName,
+        shuffle: true,
+      });
     }
   };
 
@@ -511,6 +527,7 @@ function PlaylistDetailContent() {
                 <SongCard
                   song={song}
                   queueSongs={displaySongs}
+                  queueSource={playlistQueueSource}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
                   onSelect={(e) => handleSelect(song.id, e)}
@@ -543,6 +560,7 @@ function PlaylistDetailContent() {
                       showYear={columnVisibility.year}
                       showDateAdded={columnVisibility.dateAdded}
                       queueSongs={displaySongs}
+                      queueSource={playlistQueueSource}
                       isSelected={isSelected(song.id)}
                       isSelectionMode={hasSelection}
                       onSelect={(e) => handleSelect(song.id, e)}
@@ -569,6 +587,7 @@ function PlaylistDetailContent() {
                   showYear={columnVisibility.year}
                   showDateAdded={columnVisibility.dateAdded}
                   queueSongs={displaySongs}
+                  queueSource={playlistQueueSource}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
                   onSelect={(e) => handleSelect(song.id, e)}
@@ -599,7 +618,7 @@ function PlaylistDetailContent() {
         onClear={clearSelection}
         onPlayNow={handlePlaySelected}
         onPlayNext={() => addSelectedToQueue("next")}
-        onAddToQueue={() => addSelectedToQueue("last")}
+        onAddToQueue={() => addSelectedToQueue("end")}
         onStar={() => starSelected(true)}
         onUnstar={() => starSelected(false)}
         onSelectAll={selectAll}

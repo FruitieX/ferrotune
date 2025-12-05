@@ -13,30 +13,28 @@ import {
   effectiveVolumeAtom,
   volumeAtom,
   isMutedAtom,
-  repeatModeAtom,
   hasScrobbledAtom,
   scrobbleThresholdAtom,
   audioElementAtom,
 } from "@/lib/store/player";
 import {
-  currentTrackAtom,
-  queueAtom,
-  queueIndexAtom,
-  queueSourceAtom,
-  isShuffledAtom,
-  shuffledIndicesAtom,
-  playHistoryAtom,
+  serverQueueStateAtom,
+  currentSongAtom,
   isRestoringQueueAtom,
-  clearRestoringFlagAtom,
-} from "@/lib/store/queue";
+  trackChangeSignalAtom,
+  goToNextAtom,
+  goToPreviousAtom,
+  toggleShuffleAtom,
+  setRepeatModeAtom,
+  fetchQueueAtom,
+  type RepeatMode,
+} from "@/lib/store/server-queue";
+import { serverConnectionAtom, isHydratedAtom } from "@/lib/store/auth";
 import { getClient } from "@/lib/api/client";
-import { shuffleArray } from "../utils";
 
 // Singleton audio element - only one instance across the entire app
 let globalAudio: HTMLAudioElement | null = null;
 
-// Track by queue index to handle duplicate songs
-let currentLoadedQueueIndex: number = -1;
 // Track the currently loaded track ID to avoid unnecessary reloads when queue changes
 let currentLoadedTrackId: string | null = null;
 // Flag to prevent handlePause from overwriting "ended" state
@@ -181,6 +179,8 @@ async function logListeningTimeAndReset(): Promise<void> {
 /**
  * Hook to initialize the audio engine. Should be called ONCE in a top-level component.
  * This sets up the audio element and all event listeners.
+ * 
+ * Uses server-side queue state for track information.
  */
 export function useAudioEngineInit() {
   const queryClient = useQueryClient();
@@ -194,18 +194,22 @@ export function useAudioEngineInit() {
   const scrobbleThreshold = useAtomValue(scrobbleThresholdAtom);
   const setAudioElement = useSetAtom(audioElementAtom);
   
-  const currentTrack = useAtomValue(currentTrackAtom);
-  const queue = useAtomValue(queueAtom);
-  const [queueIndex, setQueueIndex] = useAtom(queueIndexAtom);
-  const queueSource = useAtomValue(queueSourceAtom);
-  const repeatMode = useAtomValue(repeatModeAtom);
-  const isShuffled = useAtomValue(isShuffledAtom);
-  const [shuffledIndices, setShuffledIndices] = useAtom(shuffledIndicesAtom);
-  const setPlayHistory = useSetAtom(playHistoryAtom);
+  // Server-side queue state
+  const queueState = useAtomValue(serverQueueStateAtom);
+  const currentSong = useAtomValue(currentSongAtom);
   const isRestoringQueue = useAtomValue(isRestoringQueueAtom);
+  const trackChangeSignal = useAtomValue(trackChangeSignalAtom);
+  const goToNext = useSetAtom(goToNextAtom);
+  const fetchQueue = useSetAtom(fetchQueueAtom);
+  
+  // Track connection state for initial queue fetch
+  const serverConnection = useAtomValue(serverConnectionAtom);
+  const isHydrated = useAtomValue(isHydratedAtom);
 
   // Track if we've initialized
   const initializedRef = useRef(false);
+  // Track if we've fetched the initial queue
+  const hasInitialFetchRef = useRef(false);
 
   // Callback to invalidate queries that contain play count data
   const invalidatePlayCountQueries = useCallback(() => {
@@ -227,10 +231,8 @@ export function useAudioEngineInit() {
     setBuffered,
     setHasScrobbled,
     setAudioElement,
-    setQueueIndex,
-    setShuffledIndices,
-    setPlayHistory,
     invalidatePlayCountQueries,
+    goToNext,
   });
 
   // Keep setter refs in sync
@@ -243,10 +245,8 @@ export function useAudioEngineInit() {
       setBuffered,
       setHasScrobbled,
       setAudioElement,
-      setQueueIndex,
-      setShuffledIndices,
-      setPlayHistory,
       invalidatePlayCountQueries,
+      goToNext,
     };
   });
 
@@ -255,13 +255,8 @@ export function useAudioEngineInit() {
     playbackState,
     hasScrobbled,
     scrobbleThreshold,
-    currentTrack,
-    queue,
-    queueIndex,
-    queueSource,
-    repeatMode,
-    isShuffled,
-    shuffledIndices,
+    currentSong,
+    queueState,
     isRestoringQueue,
   });
 
@@ -271,16 +266,28 @@ export function useAudioEngineInit() {
       playbackState,
       hasScrobbled,
       scrobbleThreshold,
-      currentTrack,
-      queue,
-      queueIndex,
-      queueSource,
-      repeatMode,
-      isShuffled,
-      shuffledIndices,
+      currentSong,
+      queueState,
       isRestoringQueue,
     };
   });
+
+  // Fetch initial queue on mount - wait for hydration and client to be ready
+  useEffect(() => {
+    // Wait for hydration (localStorage has been read)
+    if (!isHydrated) return;
+    // Wait for connection to be available
+    if (!serverConnection) return;
+    // Only fetch once
+    if (hasInitialFetchRef.current) return;
+    
+    // Double-check client is available (should be since we have serverConnection)
+    const client = getClient();
+    if (!client) return;
+    
+    hasInitialFetchRef.current = true;
+    fetchQueue();
+  }, [isHydrated, serverConnection, fetchQueue]);
 
   // Initialize audio element and event listeners ONCE
   useEffect(() => {
@@ -297,7 +304,7 @@ export function useAudioEngineInit() {
       settersRef.current.setPlaybackState("playing");
       
       // Start tracking listening time
-      const currentSongId = stateRef.current.currentTrack?.id;
+      const currentSongId = stateRef.current.currentSong?.id;
       if (currentSongId) {
         // If this is a new song, reset tracking
         if (currentSongId !== playbackStartSongId) {
@@ -311,6 +318,7 @@ export function useAudioEngineInit() {
         startListeningUpdateInterval();
       }
     };
+    
     const handlePause = () => {
       console.log("[Audio] pause event fired");
       // Don't overwrite "ended" state - that's intentional when queue finishes
@@ -333,66 +341,32 @@ export function useAudioEngineInit() {
     };
     
     const handleEnded = () => {
+      console.log("[Audio] ended event fired");
       // Log listening time before moving to next track
       logListeningTimeAndReset();
       
-      // Handle next track
+      // Handle repeat-one mode: just restart the track
       const state = stateRef.current;
-      if (state.queue.length === 0) {
-        settersRef.current.setPlaybackState("idle");
-        return;
-      }
-
-      if (state.currentTrack) {
-        settersRef.current.setPlayHistory((prev) => [...prev, state.currentTrack!]);
-      }
-
-      if (state.repeatMode === "one") {
+      if (state.queueState?.repeatMode === "one") {
         audio.currentTime = 0;
         audio.play().catch(console.error);
         return;
       }
-
-      let nextIndex: number;
-
-      if (state.isShuffled && state.shuffledIndices.length > 0) {
-        const currentShuffleIndex = state.shuffledIndices.indexOf(state.queueIndex);
-        if (currentShuffleIndex < state.shuffledIndices.length - 1) {
-          nextIndex = state.shuffledIndices[currentShuffleIndex + 1];
-        } else if (state.repeatMode === "all") {
-          // Re-shuffle all indices for next loop
-          const indices = [...Array(state.queue.length).keys()];
-          const newShuffled = shuffleArray(indices);
-          settersRef.current.setShuffledIndices(newShuffled);
-          nextIndex = newShuffled[0];
-        } else {
-          // End of queue - keep position, just mark as ended
-          settersRef.current.setCurrentTime(0);
-          settersRef.current.setPlaybackState("ended");
-          return;
-        }
-      } else {
-        if (state.queueIndex < state.queue.length - 1) {
-          nextIndex = state.queueIndex + 1;
-        } else if (state.repeatMode === "all") {
-          nextIndex = 0;
-        } else {
-          // End of queue - keep position, just mark as ended
+      
+      // Check if we're at the end of the queue
+      if (state.queueState) {
+        const isLastTrack = state.queueState.currentIndex >= state.queueState.totalCount - 1;
+        if (isLastTrack && state.queueState.repeatMode !== "all") {
+          // End of queue - mark as ended
+          isEndingQueue = true;
           settersRef.current.setCurrentTime(0);
           settersRef.current.setPlaybackState("ended");
           return;
         }
       }
-
-      // Force reload if same track (duplicate in queue)
-      if (nextIndex === state.queueIndex || 
-          (state.queue[nextIndex]?.song.id === state.queue[state.queueIndex]?.song.id)) {
-        // Same track or same song ID - force reload
-        currentLoadedQueueIndex = -1;
-        currentLoadedTrackId = null;
-      }
-
-      settersRef.current.setQueueIndex(nextIndex);
+      
+      // Go to next track via server queue
+      settersRef.current.goToNext();
     };
 
     const handleTimeUpdate = () => {
@@ -402,8 +376,8 @@ export function useAudioEngineInit() {
       const duration = audio.duration || 0;
       if (!state.hasScrobbled && duration > 0 && audio.currentTime / duration >= state.scrobbleThreshold) {
         settersRef.current.setHasScrobbled(true);
-        if (state.currentTrack) {
-          getClient()?.scrobble(state.currentTrack.id)
+        if (state.currentSong) {
+          getClient()?.scrobble(state.currentSong.id)
             .then(() => {
               // Invalidate queries that display play counts so they update in real-time
               settersRef.current.invalidatePlayCountQueries();
@@ -448,8 +422,7 @@ export function useAudioEngineInit() {
         return;
       }
       isLoadingNewTrack = false;
-      // Always try to play when canplay fires - the play() call will trigger handlePlay
-      // which sets state to "playing"
+      // Always try to play when canplay fires
       audio.play().catch((err) => {
         console.error("[Audio] Failed to play on canplay:", err);
       });
@@ -496,14 +469,14 @@ export function useAudioEngineInit() {
       // Set error state
       settersRef.current.setPlaybackError({
         message: errorMessage,
-        trackId: state.currentTrack?.id,
-        trackTitle: state.currentTrack?.title,
+        trackId: state.currentSong?.id,
+        trackTitle: state.currentSong?.title,
         timestamp: Date.now(),
       });
       settersRef.current.setPlaybackState("error");
       
       // Show toast notification
-      const trackName = state.currentTrack?.title || "Unknown track";
+      const trackName = state.currentSong?.title || "Unknown track";
       toast.error(`Playback failed: ${trackName}`, {
         description: errorMessage,
         duration: 5000,
@@ -548,66 +521,53 @@ export function useAudioEngineInit() {
     }
   }, [effectiveVolume]);
 
-  // Load new track when queue index changes
+  // Load new track when current song changes (triggered by trackChangeSignal or currentSong)
   useEffect(() => {
     const audio = globalAudio;
     const client = getClient();
     
-    // Get current track from queue (don't use atom directly to avoid re-renders)
-    const queueItem = queueIndex >= 0 && queueIndex < queue.length ? queue[queueIndex] : null;
-    const track = queueItem?.song ?? null;
-    
-    // Skip if same track ID is already loaded at the same index
-    // This prevents restarts when items are added to the queue
-    if (track && track.id === currentLoadedTrackId && queueIndex === currentLoadedQueueIndex) {
-      return;
-    }
-    
-    // Log listening time for the track we're leaving (if jumping via queue click)
-    // Note: next(), previous(), and handleEnded() also call this, but it's safe
-    // because logListeningTimeAndReset() clears the tracking state
-    if (currentLoadedTrackId && track?.id !== currentLoadedTrackId) {
-      logListeningTimeAndReset();
-    }
-    
-    currentLoadedQueueIndex = queueIndex;
-    currentLoadedTrackId = track?.id ?? null;
-    
-    if (!audio || !track || !client || queueIndex < 0) {
-      if (audio && audio.src) {
+    if (!audio || !currentSong || !client) {
+      if (audio && audio.src && !currentSong) {
         audio.pause();
         audio.src = "";
-      }
-      if (queueIndex < 0) {
         setPlaybackState("idle");
       }
       return;
     }
-
-    // Check if this is a queue restore (don't auto-play on restore)
-    const isRestoring = stateRef.current.isRestoringQueue;
     
-    const streamUrl = client.getStreamUrl(track.id);
+    // Skip if same track is already loaded
+    if (currentSong.id === currentLoadedTrackId) {
+      return;
+    }
+    
+    // Log listening time for the track we're leaving
+    if (currentLoadedTrackId && currentSong.id !== currentLoadedTrackId) {
+      logListeningTimeAndReset();
+    }
+    
+    currentLoadedTrackId = currentSong.id;
+    
+    const streamUrl = client.getStreamUrl(currentSong.id);
     
     // Stop current playback
     audio.pause();
     audio.src = streamUrl;
     
-    if (isRestoring) {
+    if (isRestoringQueue) {
       // During restore: load the track but don't play, set to paused state
       setPlaybackState("paused");
       setHasScrobbled(false);
       setCurrentTime(0);
-      setDuration(track.duration || 0);
+      setDuration(currentSong.duration || 0);
       // Just load metadata, don't play
       audio.load();
     } else {
       // Normal playback: load and play
-      isLoadingNewTrack = true; // Signal to handleCanPlay that we want to play
+      isLoadingNewTrack = true;
       setPlaybackState("loading");
       setHasScrobbled(false);
       setCurrentTime(0);
-      setDuration(track.duration || 0);
+      setDuration(currentSong.duration || 0);
 
       audio.play().catch((err) => {
         console.error("Failed to play:", err);
@@ -615,7 +575,7 @@ export function useAudioEngineInit() {
         setPlaybackState("paused");
       });
     }
-  }, [queueIndex, queue, setPlaybackState, setHasScrobbled, setCurrentTime, setDuration]);
+  }, [currentSong, trackChangeSignal, isRestoringQueue, setPlaybackState, setHasScrobbled, setCurrentTime, setDuration]);
 }
 
 /**
@@ -626,19 +586,16 @@ export function useAudioEngine() {
   const [playbackState, setPlaybackState] = useAtom(playbackStateAtom);
   const setPlaybackError = useSetAtom(playbackErrorAtom);
   const setCurrentTime = useSetAtom(currentTimeAtom);
-  const clearRestoringFlag = useSetAtom(clearRestoringFlagAtom);
   
-  const currentTrack = useAtomValue(currentTrackAtom);
-  const [queue, setQueue] = useAtom(queueAtom);
-  const [queueIndex, setQueueIndex] = useAtom(queueIndexAtom);
-  const repeatMode = useAtomValue(repeatModeAtom);
-  const isShuffled = useAtomValue(isShuffledAtom);
-  const [shuffledIndices, setShuffledIndices] = useAtom(shuffledIndicesAtom);
-  const [playHistory, setPlayHistory] = useAtom(playHistoryAtom);
+  const currentSong = useAtomValue(currentSongAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
+  const goToNextAction = useSetAtom(goToNextAtom);
+  const goToPreviousAction = useSetAtom(goToPreviousAtom);
+  const setIsRestoring = useSetAtom(isRestoringQueueAtom);
 
   // Retry playback by forcing a fresh load of the current track
   const retryPlayback = useCallback(() => {
-    if (!globalAudio || !currentTrack) return;
+    if (!globalAudio || !currentSong) return;
     
     const client = getClient();
     if (!client) return;
@@ -648,11 +605,10 @@ export function useAudioEngine() {
     setPlaybackState("loading");
     
     // Force reload by clearing cached state
-    currentLoadedQueueIndex = -1;
     currentLoadedTrackId = null;
     
     // Get fresh stream URL and load
-    const streamUrl = client.getStreamUrl(currentTrack.id);
+    const streamUrl = client.getStreamUrl(currentSong.id);
     globalAudio.src = streamUrl;
     isLoadingNewTrack = true;
     
@@ -660,13 +616,13 @@ export function useAudioEngine() {
       console.error("[Audio] Retry playback failed:", err);
       setPlaybackState("error");
     });
-  }, [currentTrack, setPlaybackError, setPlaybackState]);
+  }, [currentSong, setPlaybackError, setPlaybackState]);
 
   const play = useCallback(() => {
     // Clear restore flag on explicit user interaction
-    clearRestoringFlag();
+    setIsRestoring(false);
     globalAudio?.play().catch(console.error);
-  }, [clearRestoringFlag]);
+  }, [setIsRestoring]);
 
   const pause = useCallback(() => {
     globalAudio?.pause();
@@ -681,11 +637,12 @@ export function useAudioEngine() {
       // If loading, pause to cancel the pending play
       pause();
     } else if (playbackState === "ended") {
-      // Queue finished - restart from beginning
-      if (queue.length > 0) {
-        currentLoadedQueueIndex = -1; // Force reload
-        currentLoadedTrackId = null;
-        setQueueIndex(0);
+      // Queue finished - the server will handle replay logic
+      if (queueState && queueState.totalCount > 0) {
+        currentLoadedTrackId = null; // Force reload
+        // Restart from beginning - trigger via setting restoring false and going to index 0
+        setIsRestoring(false);
+        play();
       }
     } else if (playbackState === "error") {
       // Retry playback after error
@@ -693,7 +650,7 @@ export function useAudioEngine() {
     } else {
       play();
     }
-  }, [playbackState, play, pause, queue.length, setQueueIndex, retryPlayback]);
+  }, [playbackState, play, pause, queueState, retryPlayback, setIsRestoring]);
 
   const seek = useCallback((time: number) => {
     if (globalAudio) {
@@ -710,120 +667,26 @@ export function useAudioEngine() {
   }, [seek]);
 
   const next = useCallback(() => {
-    if (queue.length === 0) return;
-
     // Log listening time before skipping
     logListeningTimeAndReset();
-    
     // Clear restore flag on explicit user interaction
-    clearRestoringFlag();
-
-    if (currentTrack) {
-      setPlayHistory((prev) => [...prev, currentTrack]);
-    }
-
-    // Note: repeatMode === "one" is NOT checked here - that's intentional!
-    // Repeat-one only repeats when track ends naturally (handled in handleEnded).
-    // User clicking "next" should always advance to the next track.
-
-    let nextIndex: number;
-
-    if (isShuffled && shuffledIndices.length > 0) {
-      const currentShuffleIndex = shuffledIndices.indexOf(queueIndex);
-      if (currentShuffleIndex < shuffledIndices.length - 1) {
-        nextIndex = shuffledIndices[currentShuffleIndex + 1];
-      } else if (repeatMode === "all") {
-        // Re-shuffle all indices for next loop
-        const indices = [...Array(queue.length).keys()];
-        const newShuffled = shuffleArray(indices);
-        setShuffledIndices(newShuffled);
-        nextIndex = newShuffled[0];
-      } else {
-        // End of queue - stop playback and mark as ended
-        isEndingQueue = true;
-        if (globalAudio) {
-          globalAudio.pause();
-        }
-        setCurrentTime(0);
-        setPlaybackState("ended");
-        return;
-      }
-    } else {
-      if (queueIndex < queue.length - 1) {
-        nextIndex = queueIndex + 1;
-      } else if (repeatMode === "all") {
-        nextIndex = 0;
-      } else {
-        // End of queue - stop playback and mark as ended
-        isEndingQueue = true;
-        if (globalAudio) {
-          globalAudio.pause();
-        }
-        setCurrentTime(0);
-        setPlaybackState("ended");
-        return;
-      }
-    }
-
-    // Force reload if same track (duplicate in queue)
-    if (queue[nextIndex]?.song.id === queue[queueIndex]?.song.id) {
-      currentLoadedQueueIndex = -1;
-      currentLoadedTrackId = null;
-    }
-
-    setQueueIndex(nextIndex);
-  }, [
-    queue,
-    queueIndex,
-    currentTrack,
-    repeatMode,
-    isShuffled,
-    shuffledIndices,
-    setQueueIndex,
-    setPlayHistory,
-    setPlaybackState,
-    setShuffledIndices,
-    setCurrentTime,
-    clearRestoringFlag,
-  ]);
+    setIsRestoring(false);
+    goToNextAction();
+  }, [goToNextAction, setIsRestoring]);
 
   const previous = useCallback(() => {
     // Clear restore flag on explicit user interaction
-    clearRestoringFlag();
-
+    setIsRestoring(false);
+    
     if (globalAudio && globalAudio.currentTime > 3) {
       globalAudio.currentTime = 0;
       return;
     }
-
+    
     // Log listening time before going to previous track
     logListeningTimeAndReset();
-
-    if (playHistory.length > 0) {
-      const previousTrack = playHistory[playHistory.length - 1];
-      setPlayHistory((prev) => prev.slice(0, -1));
-      
-      const trackIndex = queue.findIndex((t) => t.song.id === previousTrack.id);
-      if (trackIndex >= 0) {
-        setQueueIndex(trackIndex);
-      } else {
-        // Track not in queue - add it as a new queue item
-        const newQueue = [...queue];
-        newQueue.splice(queueIndex, 0, { 
-          queueItemId: crypto.randomUUID(), 
-          song: previousTrack 
-        });
-        setQueue(newQueue);
-      }
-      return;
-    }
-
-    if (queueIndex > 0) {
-      setQueueIndex(queueIndex - 1);
-    } else if (repeatMode === "all" && queue.length > 0) {
-      setQueueIndex(queue.length - 1);
-    }
-  }, [queue, queueIndex, playHistory, repeatMode, setQueueIndex, setQueue, setPlayHistory, clearRestoringFlag]);
+    goToPreviousAction();
+  }, [goToPreviousAction, setIsRestoring]);
 
   return {
     play,
@@ -860,47 +723,35 @@ export function useVolumeControl() {
   return { volume, isMuted, toggleMute, changeVolume };
 }
 
-// Hook for repeat mode cycling
+// Hook for repeat mode cycling (using server-side state)
 export function useRepeatMode() {
-  const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
+  const setRepeatModeAction = useSetAtom(setRepeatModeAtom);
+
+  const repeatMode = queueState?.repeatMode ?? "off";
 
   const cycleRepeatMode = useCallback(() => {
-    setRepeatMode((current) => {
-      switch (current) {
-        case "off":
-          return "all";
-        case "all":
-          return "one";
-        case "one":
-          return "off";
-      }
-    });
-  }, [setRepeatMode]);
+    const nextMode: Record<RepeatMode, RepeatMode> = {
+      off: "all",
+      all: "one",
+      one: "off",
+    };
+    setRepeatModeAction(nextMode[repeatMode]);
+  }, [repeatMode, setRepeatModeAction]);
 
   return { repeatMode, cycleRepeatMode };
 }
 
-// Hook for shuffle
+// Hook for shuffle (using server-side state)
 export function useShuffle() {
-  const [isShuffled, setIsShuffled] = useAtom(isShuffledAtom);
-  const queue = useAtomValue(queueAtom);
-  const queueIndex = useAtomValue(queueIndexAtom);
-  const setShuffledIndices = useSetAtom(shuffledIndicesAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
+  const toggleShuffleAction = useSetAtom(toggleShuffleAtom);
+
+  const isShuffled = queueState?.isShuffled ?? false;
 
   const toggleShuffle = useCallback(() => {
-    if (!isShuffled) {
-      // Turning shuffle on - create shuffled indices starting from current position
-      // Excluded songs are already filtered out at queue-add time for library playback
-      const indices = [...Array(queue.length).keys()].filter((i) => i !== queueIndex);
-      const shuffled = shuffleArray(indices);
-      setShuffledIndices([queueIndex, ...shuffled]);
-      setIsShuffled(true);
-    } else {
-      // Turning shuffle off
-      setShuffledIndices([]);
-      setIsShuffled(false);
-    }
-  }, [isShuffled, queue, queueIndex, setIsShuffled, setShuffledIndices]);
+    toggleShuffleAction();
+  }, [toggleShuffleAction]);
 
   return { isShuffled, toggleShuffle };
 }
@@ -911,7 +762,7 @@ export function useShuffle() {
  * Should be called in a component that has access to audio controls.
  */
 export function useMediaSession() {
-  const currentTrack = useAtomValue(currentTrackAtom);
+  const currentSong = useAtomValue(currentSongAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const currentTime = useAtomValue(currentTimeAtom);
   const duration = useAtomValue(durationAtom);
@@ -924,16 +775,16 @@ export function useMediaSession() {
       return;
     }
 
-    if (currentTrack) {
+    if (currentSong) {
       const client = getClient();
-      const coverArtUrl = currentTrack.coverArt && client
-        ? client.getCoverArtUrl(currentTrack.coverArt, 512)
+      const coverArtUrl = currentSong.coverArt && client
+        ? client.getCoverArtUrl(currentSong.coverArt, 512)
         : undefined;
 
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: currentTrack.title,
-        artist: currentTrack.artist || "Unknown Artist",
-        album: currentTrack.album || "Unknown Album",
+        title: currentSong.title,
+        artist: currentSong.artist || "Unknown Artist",
+        album: currentSong.album || "Unknown Album",
         artwork: coverArtUrl
           ? [
               { src: coverArtUrl, sizes: "96x96", type: "image/jpeg" },
@@ -945,7 +796,7 @@ export function useMediaSession() {
     } else {
       navigator.mediaSession.metadata = null;
     }
-  }, [currentTrack]);
+  }, [currentSong]);
 
   // Update playback state
   useEffect(() => {

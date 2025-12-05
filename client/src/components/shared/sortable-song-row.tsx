@@ -3,7 +3,7 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
-import { SongRow } from "@/components/browse/song-row";
+import { SongRow, type QueueSource } from "@/components/browse/song-row";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 
@@ -18,6 +18,7 @@ interface SortableSongRowProps {
   showYear?: boolean;
   showDateAdded?: boolean;
   queueSongs?: Song[];
+  queueSource?: QueueSource;
   isSelected?: boolean;
   isSelectionMode?: boolean;
   onSelect?: (e: React.MouseEvent) => void;
@@ -37,6 +38,7 @@ export function SortableSongRow({
   showYear,
   showDateAdded,
   queueSongs,
+  queueSource,
   isSelected,
   isSelectionMode,
   onSelect,
@@ -100,6 +102,7 @@ export function SortableSongRow({
             showYear={showYear}
             showDateAdded={showDateAdded}
             queueSongs={queueSongs}
+            queueSource={queueSource}
             isSelected={isSelected}
             isSelectionMode={isSelectionMode}
             onSelect={onSelect}

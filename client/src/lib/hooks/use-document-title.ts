@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useAtomValue } from "jotai";
-import { currentTrackAtom } from "@/lib/store/queue";
+import { currentSongAtom } from "@/lib/store/server-queue";
 
 const BASE_TITLE = "Ferrotune";
 
@@ -11,7 +11,7 @@ const BASE_TITLE = "Ferrotune";
  * Format: "Artist - Title | Ferrotune" when playing/paused, "Ferrotune" when no track.
  */
 export function useDocumentTitle() {
-  const currentTrack = useAtomValue(currentTrackAtom);
+  const currentTrack = useAtomValue(currentSongAtom);
 
   useEffect(() => {
     if (currentTrack) {

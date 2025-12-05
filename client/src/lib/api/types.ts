@@ -127,6 +127,14 @@ export type PlaylistResponse_Wrapper = _PlaylistWithSongsResponse;
 export type { PlayQueueResponse } from "./generated";
 export type { PlayQueueContent } from "./generated";
 
+// Server-side Queue (new API)
+export type { StartQueueResponse } from "./generated";
+export type { GetQueueResponse } from "./generated";
+export type { QueueWindow } from "./generated";
+export type { QueueSongEntry } from "./generated";
+export type { QueueSourceInfo } from "./generated";
+export type { QueueSuccessResponse } from "./generated";
+
 // Play History
 export type { PlayHistoryResponse } from "./generated";
 export type { PlayHistoryContent } from "./generated";
