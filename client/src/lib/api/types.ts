@@ -278,6 +278,10 @@ export interface SearchParams {
   albumSort?: string;
   /** Ferrotune extension: sort direction for albums (asc, desc) */
   albumSortDir?: string;
+  /** Ferrotune extension: sort field for artists (name) - client-side fallback if not implemented */
+  artistSort?: string;
+  /** Ferrotune extension: sort direction for artists (asc, desc) */
+  artistSortDir?: string;
   // ===== Advanced Filter Parameters (Ferrotune extension) =====
   /** Filter songs/albums by minimum year */
   minYear?: number;

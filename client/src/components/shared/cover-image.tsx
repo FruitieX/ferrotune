@@ -16,6 +16,8 @@ interface CoverImageProps {
   priority?: boolean;
   /** If true, only loads image when in viewport (default: true for non-priority) */
   lazy?: boolean;
+  /** If true, shows placeholder while image is loading (default: false - shows skeleton) */
+  showPlaceholderWhileLoading?: boolean;
 }
 
 const sizeClasses = {
@@ -56,17 +58,20 @@ export function CoverImage({
   className,
   priority = false,
   lazy = !priority,
+  showPlaceholderWhileLoading = false,
 }: CoverImageProps) {
   const [hasError, setHasError] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
   const [isVisible, setIsVisible] = useState(!lazy);
   const containerRef = useRef<HTMLDivElement>(null);
   
   const Icon = type === "artist" ? User : type === "playlist" ? ListMusic : type === "song" ? Music : type === "genre" ? Tag : Disc;
   const isRound = type === "artist";
 
-  // Reset error state when src changes
+  // Reset state when src changes
   useEffect(() => {
     setHasError(false);
+    setIsLoaded(false);
   }, [src]);
 
   // Generate a unique color based on colorSeed (album/artist name) or fall back to alt
@@ -97,7 +102,15 @@ export function CoverImage({
     return () => observer.disconnect();
   }, [lazy, isVisible]);
 
-  const showImage = src && !hasError && isVisible;
+  // Determine what to show:
+  // - If no src provided, show placeholder
+  // - If src provided and loaded successfully, show image
+  // - If src provided and error occurred, show placeholder  
+  // - If src provided and still loading, show skeleton (or placeholder if showPlaceholderWhileLoading is true)
+  const hasSrc = !!src;
+  const showImage = hasSrc && !hasError && isVisible;
+  const showPlaceholder = !hasSrc || hasError || (showPlaceholderWhileLoading && !isLoaded);
+  const showSkeleton = hasSrc && !hasError && !isLoaded && !showPlaceholderWhileLoading && isVisible;
 
   return (
     <div
@@ -109,12 +122,21 @@ export function CoverImage({
         className
       )}
     >
-      {showImage ? (
+      {/* Skeleton/loading state */}
+      {showSkeleton && (
+        <div className="absolute inset-0 animate-pulse bg-muted" />
+      )}
+      
+      {/* Image - render when we have a src, keep it mounted to handle load/error events */}
+      {showImage && (
         <Image
           src={src}
           alt={alt || "Cover art"}
           fill
-          className="object-cover"
+          className={cn(
+            "object-cover transition-opacity duration-200",
+            isLoaded ? "opacity-100" : "opacity-0"
+          )}
           sizes={
             size === "full"
               ? "(max-width: 640px) 100vw, 50vw"
@@ -126,11 +148,15 @@ export function CoverImage({
           }
           priority={priority}
           unoptimized
+          onLoad={() => setIsLoaded(true)}
           onError={() => setHasError(true)}
         />
-      ) : (
+      )}
+      
+      {/* Placeholder - shown when no src, or after error, or while loading if showPlaceholderWhileLoading */}
+      {showPlaceholder && !showSkeleton && (
         <div 
-          className="w-full h-full flex items-center justify-center"
+          className="absolute inset-0 flex items-center justify-center"
           style={{
             background: `linear-gradient(135deg, hsl(${placeholderHue}, 50%, 25%) 0%, hsl(${(placeholderHue + 40) % 360}, 45%, 18%) 100%)`,
           }}

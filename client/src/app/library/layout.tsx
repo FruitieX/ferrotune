@@ -113,6 +113,7 @@ export default function LibraryLayout({
   // Check which library tab we're on for conditional filter options
   const isSongsTab = pathname === "/library/songs";
   const isAlbumsTab = pathname === "/library/albums";
+  const isArtistsTab = pathname === "/library/artists";
   
   // Don't show tabs on detail pages
   const isDetailPage = pathname.includes("/details");
@@ -256,16 +257,19 @@ export default function LibraryLayout({
               <List className="w-4 h-4" />
             </Button>
             
-            {/* Advanced filters - only on songs and albums tabs */}
-            {(isSongsTab || isAlbumsTab) && (
+            {/* Advanced filters - on songs, albums, and artists tabs */}
+            {(isSongsTab || isAlbumsTab || isArtistsTab) && (
               <FilterPopover 
                 showOptions={{
-                  year: true,
-                  genre: true,
+                  year: isSongsTab || isAlbumsTab,
+                  genre: isSongsTab || isAlbumsTab,
                   duration: isSongsTab,
-                  rating: true,
+                  rating: isSongsTab || isAlbumsTab || isArtistsTab,
                   starred: true,
                   playCount: isSongsTab,
+                  bitrate: isSongsTab,
+                  dateAdded: isSongsTab,
+                  shuffleExcluded: isSongsTab,
                 }}
               />
             )}
@@ -273,7 +277,7 @@ export default function LibraryLayout({
         </div>
         
         {/* Active filter badges */}
-        {(isSongsTab || isAlbumsTab) && (
+        {(isSongsTab || isAlbumsTab || isArtistsTab) && (
           <div className="px-4 lg:px-6 pb-2">
             <ActiveFilterBadges />
           </div>

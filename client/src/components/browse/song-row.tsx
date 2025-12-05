@@ -16,31 +16,8 @@ import { useAudioEngine } from "@/lib/audio/hooks";
 import { MediaRow, MediaRowSkeleton, RowActions } from "@/components/shared/media-row";
 import { MediaCard, MediaCardSkeleton } from "@/components/shared/media-card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { NowPlayingBars } from "@/components/shared/now-playing-bars";
 import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
-
-// Audio bar visualizer for now playing indicator - uses CSS animations
-function NowPlayingBars({ className, isAnimating = true }: { className?: string; isAnimating?: boolean }) {
-  return (
-    <div className={cn("flex items-end justify-center gap-0.5 h-3", className)}>
-      <span 
-        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-1")}
-        style={{ animationDuration: "0.4s", height: isAnimating ? undefined : "6px" }}
-      />
-      <span 
-        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-2")}
-        style={{ animationDuration: "0.5s", height: isAnimating ? undefined : "10px" }}
-      />
-      <span 
-        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-3")}
-        style={{ animationDuration: "0.35s", height: isAnimating ? undefined : "6px" }}
-      />
-      <span 
-        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-4")}
-        style={{ animationDuration: "0.45s", height: isAnimating ? undefined : "8px" }}
-      />
-    </div>
-  );
-}
 
 // Track number column - shows number, now playing indicator, or selection checkbox on hover
 interface TrackIndexProps {

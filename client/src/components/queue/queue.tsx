@@ -65,6 +65,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CoverImage } from "@/components/shared/cover-image";
+import { NowPlayingBars } from "@/components/shared/now-playing-bars";
 import { SongContextMenu, SongDropdownMenu } from "@/components/browse/song-context-menu";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
@@ -179,30 +180,6 @@ function QueueSourceDisplay({ variant }: { variant: "mobile" | "desktop" }) {
   return (
     <div className="px-4 py-2 border-b border-border">
       {content}
-    </div>
-  );
-}
-
-// Audio bar visualizer for now playing indicator - uses CSS animations
-function NowPlayingBars({ isAnimating = true }: { isAnimating?: boolean }) {
-  return (
-    <div className="flex items-end justify-center gap-0.5 h-3 w-4">
-      <span
-        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-1")}
-        style={{ animationDuration: "0.4s", height: isAnimating ? undefined : "6px" }}
-      />
-      <span
-        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-2")}
-        style={{ animationDuration: "0.5s", height: isAnimating ? undefined : "10px" }}
-      />
-      <span
-        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-3")}
-        style={{ animationDuration: "0.35s", height: isAnimating ? undefined : "6px" }}
-      />
-      <span
-        className={cn("w-[3px] bg-primary rounded-sm", isAnimating && "animate-bar-4")}
-        style={{ animationDuration: "0.45s", height: isAnimating ? undefined : "8px" }}
-      />
     </div>
   );
 }

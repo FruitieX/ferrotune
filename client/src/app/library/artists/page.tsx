@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useItemSelection } from "@/lib/hooks/use-track-selection";
-import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
+import { albumViewModeAtom, libraryFilterAtom, advancedFiltersAtom, hasActiveFiltersAtom } from "@/lib/store/ui";
 import { playNowAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { ArtistCard, ArtistCardSkeleton, ArtistCardCompact } from "@/components/browse/artist-card";
@@ -23,13 +23,15 @@ export default function ArtistsPage() {
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
   const debouncedFilter = useDebounce(filter, 300);
+  const advancedFilters = useAtomValue(advancedFiltersAtom);
+  const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
   const playNow = useSetAtom(playNowAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
 
-  // Fetch all artists (when no filter)
+  // Fetch all artists (when no filter and no advanced filters)
   const { data: artistsData, isLoading } = useQuery({
     queryKey: ["artists"],
     queryFn: async () => {
@@ -38,24 +40,27 @@ export default function ArtistsPage() {
       const response = await client.getArtists();
       return response.artists?.index ?? [];
     },
-    enabled: isReady && !debouncedFilter,
+    enabled: isReady && !debouncedFilter && !hasActiveFilters,
   });
 
-  // Search artists when filter is active
+  // Search artists when filter or advanced filters are active
   const { data: searchData, isLoading: isSearching } = useQuery({
-    queryKey: ["artists", "search", debouncedFilter],
+    queryKey: ["artists", "search", debouncedFilter, advancedFilters],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.search3({
-        query: debouncedFilter,
-        artistCount: 100,
+        query: debouncedFilter || "*",
+        artistCount: 500,
         albumCount: 0,
         songCount: 0,
+        starredOnly: advancedFilters.starredOnly,
+        minRating: advancedFilters.minRating,
+        maxRating: advancedFilters.maxRating,
       });
       return response.searchResult3.artist ?? [];
     },
-    enabled: isReady && debouncedFilter.length >= 1,
+    enabled: isReady && (debouncedFilter.length >= 1 || hasActiveFilters),
     staleTime: 0,
     refetchOnMount: "always",
   });
@@ -63,9 +68,9 @@ export default function ArtistsPage() {
   // Flatten artists from indexes, filter out artists with 0 albums
   const allArtists = artistsData?.flatMap((index) => index.artist).filter((a) => a.albumCount > 0) ?? [];
   
-  // Use search results when filtering, otherwise use full list
-  const displayArtists = debouncedFilter ? (searchData ?? []) : allArtists;
-  const isLoadingData = debouncedFilter ? isSearching : isLoading;
+  // Use search results when filtering or using advanced filters, otherwise use full list
+  const displayArtists = (debouncedFilter || hasActiveFilters) ? (searchData ?? []) : allArtists;
+  const isLoadingData = (debouncedFilter || hasActiveFilters) ? isSearching : isLoading;
 
   // Artist selection
   const {
@@ -233,7 +238,7 @@ export default function ArtistsPage() {
           />
         )
       ) : (
-        <EmptyState message={debouncedFilter ? "No artists match your filter" : "No artists in your library"} />
+        <EmptyState message={(debouncedFilter || hasActiveFilters) ? "No artists match your filters" : "No artists in your library"} />
       )}
 
       {/* Bulk actions bar */}
