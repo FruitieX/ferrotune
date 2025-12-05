@@ -62,6 +62,7 @@ const librarySubItems = [
   { href: "/library/artists", icon: Users, label: "Artists" },
   { href: "/library/songs", icon: Music, label: "Songs" },
   { href: "/library/genres", icon: Tag, label: "Genres" },
+  { href: "/library/files", icon: Folder, label: "Files" },
 ];
 
 export function Sidebar() {

@@ -6,6 +6,7 @@
 pub mod auth;
 pub mod browse;
 pub mod coverart;
+pub mod directory;
 pub mod history;
 pub mod lists;
 pub mod playlists;
@@ -47,6 +48,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/rest/getAlbum", get(browse::get_album))
         .route("/rest/getSong", get(browse::get_song))
         .route("/rest/getGenres", get(browse::get_genres))
+        // Directory browsing endpoints
+        .route("/rest/getIndexes", get(directory::get_indexes))
+        .route("/rest/getMusicDirectory", get(directory::get_music_directory))
         // Media endpoints
         .route("/rest/stream", get(stream::stream))
         .route("/rest/download", get(stream::download))
