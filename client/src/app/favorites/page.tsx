@@ -11,7 +11,7 @@ import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection, useItemSelection } from "@/lib/hooks/use-track-selection";
-import { playNowAtom, isShuffledAtom, addToQueueAtom } from "@/lib/store/queue";
+import { playNowAtom, isShuffledAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { 
   playlistViewModeAtom, 
   playlistSortAtom, 
@@ -42,6 +42,9 @@ import { sortSongs } from "@/lib/utils/sort-songs";
 import { sortAlbums, sortArtists } from "@/lib/utils/sort-media";
 
 type TabValue = "songs" | "albums" | "artists";
+
+// Queue source for favorites playback
+const FAVORITES_QUEUE_SOURCE: QueueSourceInfo = { type: "favorites", name: "Favorites" };
 
 export default function FavoritesPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
@@ -169,7 +172,7 @@ export default function FavoritesPage() {
   const handlePlaySelectedSongs = () => {
     const selected = songSelection.getSelectedSongs();
     if (selected.length > 0) {
-      playNow(selected);
+      playNow(selected, 0, FAVORITES_QUEUE_SOURCE);
       songSelection.clearSelection();
     }
   };
@@ -191,7 +194,7 @@ export default function FavoritesPage() {
   const handlePlaySelectedAlbums = async () => {
     const songs = await getSelectedAlbumsSongs();
     if (songs.length > 0) {
-      playNow(songs);
+      playNow(songs, 0, FAVORITES_QUEUE_SOURCE);
       albumSelection.clearSelection();
       toast.success(`Playing ${songs.length} songs from ${albumSelection.selectedCount} albums`);
     }
@@ -202,7 +205,7 @@ export default function FavoritesPage() {
     if (songs.length > 0) {
       setIsShuffled(true);
       const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
+      playNow(shuffled, 0, FAVORITES_QUEUE_SOURCE);
       albumSelection.clearSelection();
       toast.success(`Shuffling ${songs.length} songs from ${albumSelection.selectedCount} albums`);
     }
@@ -253,7 +256,7 @@ export default function FavoritesPage() {
   const handlePlaySelectedArtists = async () => {
     const songs = await getSelectedArtistsSongs();
     if (songs.length > 0) {
-      playNow(songs);
+      playNow(songs, 0, FAVORITES_QUEUE_SOURCE);
       artistSelection.clearSelection();
       toast.success(`Playing ${songs.length} songs from ${artistSelection.selectedCount} artists`);
     }
@@ -264,7 +267,7 @@ export default function FavoritesPage() {
     if (songs.length > 0) {
       setIsShuffled(true);
       const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
+      playNow(shuffled, 0, FAVORITES_QUEUE_SOURCE);
       artistSelection.clearSelection();
       toast.success(`Shuffling ${songs.length} songs from ${artistSelection.selectedCount} artists`);
     }
@@ -314,7 +317,7 @@ export default function FavoritesPage() {
   const handlePlayAll = () => {
     if (displaySongs.length > 0) {
       setIsShuffled(false);
-      playNow(displaySongs);
+      playNow(displaySongs, 0, FAVORITES_QUEUE_SOURCE);
     }
   };
 
@@ -322,7 +325,7 @@ export default function FavoritesPage() {
     if (displaySongs.length > 0) {
       setIsShuffled(true);
       const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
+      playNow(shuffled, 0, FAVORITES_QUEUE_SOURCE);
     }
   };
 
@@ -333,7 +336,7 @@ export default function FavoritesPage() {
     try {
       const response = await client.getAlbum(album.id);
       if (response.album.song?.length > 0) {
-        playNow(response.album.song);
+        playNow(response.album.song, 0, { type: "album", id: album.id, name: album.name });
       }
     } catch (error) {
       console.error("Failed to play album:", error);
@@ -347,7 +350,7 @@ export default function FavoritesPage() {
     try {
       const response = await client.getArtist(artist.id);
       if (response.artist.song && response.artist.song.length > 0) {
-        playNow(response.artist.song);
+        playNow(response.artist.song, 0, { type: "artist", id: artist.id, name: artist.name });
       }
     } catch (error) {
       console.error("Failed to play artist:", error);

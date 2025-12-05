@@ -11,7 +11,7 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useItemSelection } from "@/lib/hooks/use-track-selection";
 import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
-import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
+import { playNowAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
@@ -85,7 +85,7 @@ export default function GenresPage() {
   const handlePlaySelected = async () => {
     const songs = await getSelectedGenresSongs();
     if (songs.length > 0) {
-      playNow(songs);
+      playNow(songs, 0, { type: "library", name: "Library" });
       clearSelection();
       toast.success(`Playing ${songs.length} songs from ${selectedCount} genres`);
     }
@@ -95,7 +95,7 @@ export default function GenresPage() {
     const songs = await getSelectedGenresSongs();
     if (songs.length > 0) {
       const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
+      playNow(shuffled, 0, { type: "library", name: "Library" });
       clearSelection();
       toast.success(`Shuffling ${songs.length} songs from ${selectedCount} genres`);
     }

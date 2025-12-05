@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { useQuery } from "@tanstack/react-query";
-import { Filter, X, Star, Clock, Calendar, Music, Disc, Shuffle } from "lucide-react";
+import { Filter, X, Star, Clock, Calendar, Music, Disc, Shuffle, HardDrive, CalendarPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,8 @@ interface FilterPopoverProps {
     starred?: boolean;
     playCount?: boolean;
     shuffleExcluded?: boolean;
+    bitrate?: boolean;
+    dateAdded?: boolean;
   };
   className?: string;
 }
@@ -46,6 +48,8 @@ export function FilterPopover({
     starred: true,
     playCount: true,
     shuffleExcluded: true,
+    bitrate: true,
+    dateAdded: true,
   },
   className 
 }: FilterPopoverProps) {
@@ -94,6 +98,10 @@ export function FilterPopover({
     if (localFilters.minPlayCount) cleanedFilters.minPlayCount = localFilters.minPlayCount;
     if (localFilters.maxPlayCount) cleanedFilters.maxPlayCount = localFilters.maxPlayCount;
     if (localFilters.shuffleExcludedOnly) cleanedFilters.shuffleExcludedOnly = localFilters.shuffleExcludedOnly;
+    if (localFilters.minBitrate) cleanedFilters.minBitrate = localFilters.minBitrate;
+    if (localFilters.maxBitrate) cleanedFilters.maxBitrate = localFilters.maxBitrate;
+    if (localFilters.addedAfter) cleanedFilters.addedAfter = localFilters.addedAfter;
+    if (localFilters.addedBefore) cleanedFilters.addedBefore = localFilters.addedBefore;
     
     setFilters(cleanedFilters);
     setOpen(false);
@@ -347,6 +355,80 @@ export function FilterPopover({
             </div>
           )}
 
+          {/* Bitrate Range */}
+          {showOptions.bitrate && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-sm">
+                <HardDrive className="h-4 w-4 text-muted-foreground" />
+                Bitrate
+              </Label>
+              <div className="flex gap-2">
+                <Select
+                  value={localFilters.minBitrate?.toString() ?? "__none__"}
+                  onValueChange={(value) => updateLocalFilter("minBitrate", value === "__none__" ? undefined : parseInt(value))}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="Min" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No min</SelectItem>
+                    <SelectItem value="128">128+ kbps</SelectItem>
+                    <SelectItem value="192">192+ kbps</SelectItem>
+                    <SelectItem value="256">256+ kbps</SelectItem>
+                    <SelectItem value="320">320+ kbps</SelectItem>
+                    <SelectItem value="500">500+ kbps</SelectItem>
+                    <SelectItem value="1000">1000+ kbps</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-muted-foreground self-center">–</span>
+                <Select
+                  value={localFilters.maxBitrate?.toString() ?? "__none__"}
+                  onValueChange={(value) => updateLocalFilter("maxBitrate", value === "__none__" ? undefined : parseInt(value))}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="Max" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No max</SelectItem>
+                    <SelectItem value="128">128 kbps</SelectItem>
+                    <SelectItem value="192">192 kbps</SelectItem>
+                    <SelectItem value="256">256 kbps</SelectItem>
+                    <SelectItem value="320">320 kbps</SelectItem>
+                    <SelectItem value="500">500 kbps</SelectItem>
+                    <SelectItem value="1000">1000 kbps</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {/* Date Added Range */}
+          {showOptions.dateAdded && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-sm">
+                <CalendarPlus className="h-4 w-4 text-muted-foreground" />
+                Date Added
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  type="date"
+                  placeholder="From"
+                  value={localFilters.addedAfter ?? ""}
+                  onChange={(e) => updateLocalFilter("addedAfter", e.target.value || undefined)}
+                  className="h-8"
+                />
+                <span className="text-muted-foreground self-center">–</span>
+                <Input
+                  type="date"
+                  placeholder="To"
+                  value={localFilters.addedBefore ?? ""}
+                  onChange={(e) => updateLocalFilter("addedBefore", e.target.value || undefined)}
+                  className="h-8"
+                />
+              </div>
+            </div>
+          )}
+
           {/* Apply Button */}
           <Button className="w-full" onClick={handleApply}>
             Apply Filters
@@ -424,6 +506,24 @@ export function ActiveFilterBadges({ className }: { className?: string }) {
     badges.push({ key: "shuffleExcludedOnly", label: "Shuffle Excluded" });
   }
 
+  if (filters.minBitrate || filters.maxBitrate) {
+    const brLabel = filters.minBitrate && filters.maxBitrate
+      ? `${filters.minBitrate}–${filters.maxBitrate} kbps`
+      : filters.minBitrate
+        ? `${filters.minBitrate}+ kbps`
+        : `≤${filters.maxBitrate} kbps`;
+    badges.push({ key: "minBitrate", label: `Bitrate: ${brLabel}` });
+  }
+
+  if (filters.addedAfter || filters.addedBefore) {
+    const dateLabel = filters.addedAfter && filters.addedBefore
+      ? `${filters.addedAfter} – ${filters.addedBefore}`
+      : filters.addedAfter
+        ? `After ${filters.addedAfter}`
+        : `Before ${filters.addedBefore}`;
+    badges.push({ key: "addedAfter", label: `Added: ${dateLabel}` });
+  }
+
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
       {badges.map(({ key, label }) => (
@@ -445,6 +545,12 @@ export function ActiveFilterBadges({ className }: { className?: string }) {
             } else if (key === "minPlayCount") {
               removeFilter("minPlayCount");
               removeFilter("maxPlayCount");
+            } else if (key === "minBitrate") {
+              removeFilter("minBitrate");
+              removeFilter("maxBitrate");
+            } else if (key === "addedAfter") {
+              removeFilter("addedAfter");
+              removeFilter("addedBefore");
             } else {
               removeFilter(key);
             }

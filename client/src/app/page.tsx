@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
 import { Play, Clock, Sparkles, TrendingUp, Shuffle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
+import { playNowAtom, isShuffledAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -187,7 +187,7 @@ export default function HomePage() {
       const response = await client.getAlbum(album.id);
       if (response.album.song && response.album.song.length > 0) {
         setIsShuffled(false);
-        playNow(response.album.song);
+        playNow(response.album.song, 0, { type: "album", id: album.id, name: album.name });
       }
     } catch (error) {
       console.error("Failed to play album:", error);
@@ -195,7 +195,7 @@ export default function HomePage() {
   };
 
   // Play all albums in a section
-  const handlePlayAllAlbums = async (albums: Album[] | undefined) => {
+  const handlePlayAllAlbums = async (albums: Album[] | undefined, sectionName: string) => {
     if (!albums?.length) return;
     
     toast.loading("Loading songs...");
@@ -204,7 +204,7 @@ export default function HomePage() {
     
     if (songs.length > 0) {
       setIsShuffled(false);
-      playNow(songs);
+      playNow(songs, 0, { type: "other", name: sectionName });
       toast.success(`Playing ${songs.length} songs`);
     } else {
       toast.error("No songs found");
@@ -212,7 +212,7 @@ export default function HomePage() {
   };
 
   // Shuffle all albums in a section
-  const handleShuffleAllAlbums = async (albums: Album[] | undefined) => {
+  const handleShuffleAllAlbums = async (albums: Album[] | undefined, sectionName: string) => {
     if (!albums?.length) return;
     
     toast.loading("Loading songs...");
@@ -222,7 +222,7 @@ export default function HomePage() {
     if (songs.length > 0) {
       setIsShuffled(true);
       const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
+      playNow(shuffled, 0, { type: "other", name: sectionName });
       toast.success(`Shuffling ${songs.length} songs`);
     } else {
       toast.error("No songs found");
@@ -257,8 +257,8 @@ export default function HomePage() {
           albums={newestAlbums}
           isLoading={loadingNewest}
           onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() => handlePlayAllAlbums(newestAlbums)}
-          onShuffleAll={() => handleShuffleAllAlbums(newestAlbums)}
+          onPlayAll={() => handlePlayAllAlbums(newestAlbums, "Recently Added")}
+          onShuffleAll={() => handleShuffleAllAlbums(newestAlbums, "Recently Added")}
         />
 
         {/* Continue Listening (Recently Played) */}
@@ -268,8 +268,8 @@ export default function HomePage() {
           albums={recentAlbums}
           isLoading={loadingRecent}
           onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() => handlePlayAllAlbums(recentAlbums)}
-          onShuffleAll={() => handleShuffleAllAlbums(recentAlbums)}
+          onPlayAll={() => handlePlayAllAlbums(recentAlbums, "Continue Listening")}
+          onShuffleAll={() => handleShuffleAllAlbums(recentAlbums, "Continue Listening")}
         />
 
         {/* Most Played */}
@@ -279,8 +279,8 @@ export default function HomePage() {
           albums={frequentAlbums}
           isLoading={loadingFrequent}
           onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() => handlePlayAllAlbums(frequentAlbums)}
-          onShuffleAll={() => handleShuffleAllAlbums(frequentAlbums)}
+          onPlayAll={() => handlePlayAllAlbums(frequentAlbums, "Most Played")}
+          onShuffleAll={() => handleShuffleAllAlbums(frequentAlbums, "Most Played")}
         />
 
         {/* Discover */}
@@ -290,8 +290,8 @@ export default function HomePage() {
           albums={randomAlbums}
           isLoading={loadingRandom}
           onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() => handlePlayAllAlbums(randomAlbums)}
-          onShuffleAll={() => handleShuffleAllAlbums(randomAlbums)}
+          onPlayAll={() => handlePlayAllAlbums(randomAlbums, "Discover")}
+          onShuffleAll={() => handleShuffleAllAlbums(randomAlbums, "Discover")}
         />
       </div>
     </div>

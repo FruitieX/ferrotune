@@ -193,6 +193,10 @@ export interface AdvancedFilters {
   minPlayCount?: number;
   maxPlayCount?: number;
   shuffleExcludedOnly?: boolean;  // Filter to only show shuffle-excluded tracks
+  minBitrate?: number;   // in kbps
+  maxBitrate?: number;   // in kbps
+  addedAfter?: string;   // ISO 8601 date string (YYYY-MM-DD)
+  addedBefore?: string;  // ISO 8601 date string (YYYY-MM-DD)
 }
 
 // Filter state (not persisted - resets on page reload)

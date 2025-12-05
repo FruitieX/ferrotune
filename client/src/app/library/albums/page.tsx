@@ -10,7 +10,7 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useItemSelection } from "@/lib/hooks/use-track-selection";
 import { albumViewModeAtom, libraryFilterAtom, librarySortAtom, advancedFiltersAtom, hasActiveFiltersAtom } from "@/lib/store/ui";
-import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
+import { playNowAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { AlbumCard, AlbumCardSkeleton, AlbumCardCompact } from "@/components/browse/album-card";
 import { MediaRowSkeleton } from "@/components/shared/media-row";
@@ -142,7 +142,7 @@ export default function AlbumsPage() {
   const handlePlaySelected = async () => {
     const songs = await getSelectedAlbumsSongs();
     if (songs.length > 0) {
-      playNow(songs);
+      playNow(songs, 0, { type: "library", name: "Library" });
       clearSelection();
       toast.success(`Playing ${songs.length} songs from ${selectedCount} albums`);
     }
@@ -152,7 +152,7 @@ export default function AlbumsPage() {
     const songs = await getSelectedAlbumsSongs();
     if (songs.length > 0) {
       const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
+      playNow(shuffled, 0, { type: "library", name: "Library" });
       clearSelection();
       toast.success(`Shuffling ${songs.length} songs from ${selectedCount} albums`);
     }
@@ -198,7 +198,7 @@ export default function AlbumsPage() {
     try {
       const response = await client.getAlbum(album.id);
       if (response.album.song?.length > 0) {
-        playNow(response.album.song);
+        playNow(response.album.song, 0, { type: "album", id: album.id, name: album.name });
       }
     } catch (error) {
       console.error("Failed to play album:", error);

@@ -14,7 +14,7 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
+import { playNowAtom, isShuffledAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { artistDetailViewModeAtom, artistDetailSortAtom, artistDetailColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -113,10 +113,17 @@ function ArtistDetailContent() {
     ? getClient()?.getCoverArtUrl(artistData.coverArt, 400)
     : undefined;
 
+  // Queue source for this artist
+  const getQueueSource = (): QueueSourceInfo => ({
+    type: "artist",
+    id: id ?? undefined,
+    name: artistData?.name,
+  });
+
   const handlePlayAll = () => {
     if (displaySongs && displaySongs.length > 0) {
       setIsShuffled(false);
-      playNow(displaySongs);
+      playNow(displaySongs, 0, getQueueSource());
     }
   };
 
@@ -124,14 +131,14 @@ function ArtistDetailContent() {
     if (displaySongs && displaySongs.length > 0) {
       setIsShuffled(true);
       const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
+      playNow(shuffled, 0, getQueueSource());
     }
   };
 
   const handlePlaySelected = () => {
     const selectedSongs = selection.getSelectedSongs();
     if (selectedSongs.length > 0) {
-      playNow(selectedSongs);
+      playNow(selectedSongs, 0, getQueueSource());
       selection.clearSelection();
     }
   };
@@ -143,7 +150,7 @@ function ArtistDetailContent() {
     try {
       const response = await client.getAlbum(album.id);
       if (response.album.song && response.album.song.length > 0) {
-        playNow(response.album.song);
+        playNow(response.album.song, 0, { type: "album", id: album.id, name: album.name });
       }
     } catch (error) {
       console.error("Failed to play album:", error);

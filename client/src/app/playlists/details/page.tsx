@@ -32,7 +32,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
+import { playNowAtom, isShuffledAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { playlistViewModeAtom, playlistSortAtom, playlistColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -345,10 +345,17 @@ function PlaylistDetailContent() {
     setRemoveTracksDialogOpen(false);
   }, [getSelectedIndices, getSelectedSongs, removeSongsMutation, clearSelection]);
 
+  // Create queue source for this playlist
+  const getQueueSource = useCallback((): QueueSourceInfo => ({
+    type: "playlist",
+    id: playlistId ?? undefined,
+    name: displayName,
+  }), [playlistId, displayName]);
+
   const handlePlaySelected = () => {
     const selected = getSelectedSongs();
     if (selected.length > 0) {
-      playNow(selected);
+      playNow(selected, 0, getQueueSource());
       clearSelection();
     }
   };
@@ -356,7 +363,7 @@ function PlaylistDetailContent() {
   const handlePlayAll = () => {
     if (displaySongs.length > 0) {
       setIsShuffled(false);
-      playNow(displaySongs);
+      playNow(displaySongs, 0, getQueueSource());
     }
   };
 
@@ -364,7 +371,7 @@ function PlaylistDetailContent() {
     if (displaySongs.length > 0) {
       setIsShuffled(true);
       const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
+      playNow(shuffled, 0, getQueueSource());
     }
   };
 

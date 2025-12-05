@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
+import { playNowAtom, isShuffledAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { genreDetailViewModeAtom, genreDetailSortAtom, genreDetailColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -180,12 +180,18 @@ function GenreDetailContent() {
   // Multi-selection support for songs
   const selection = useTrackSelection(displaySongs);
 
+  // Queue source for this genre
+  const getQueueSource = (): QueueSourceInfo => ({
+    type: "genre",
+    name: genreName ?? undefined,
+  });
+
   // Get songs from genre for play
   const handlePlayAll = async () => {
     // If we have filtered/sorted songs, play those
     if (displaySongs.length > 0) {
       setIsShuffled(false);
-      playNow(displaySongs);
+      playNow(displaySongs, 0, getQueueSource());
       return;
     }
     
@@ -197,7 +203,7 @@ function GenreDetailContent() {
       const response = await client.getSongsByGenre(genreName, { count: 500 });
       if (response.songsByGenre.song && response.songsByGenre.song.length > 0) {
         setIsShuffled(false);
-        playNow(response.songsByGenre.song);
+        playNow(response.songsByGenre.song, 0, getQueueSource());
       }
     } catch (error) {
       console.error("Failed to play genre:", error);
@@ -209,7 +215,7 @@ function GenreDetailContent() {
     if (displaySongs.length > 0) {
       setIsShuffled(true);
       const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
+      playNow(shuffled, 0, getQueueSource());
       return;
     }
     
@@ -222,7 +228,7 @@ function GenreDetailContent() {
       if (response.songsByGenre.song && response.songsByGenre.song.length > 0) {
         setIsShuffled(true);
         const shuffled = [...response.songsByGenre.song].sort(() => Math.random() - 0.5);
-        playNow(shuffled);
+        playNow(shuffled, 0, getQueueSource());
       }
     } catch (error) {
       console.error("Failed to shuffle genre:", error);
@@ -232,7 +238,7 @@ function GenreDetailContent() {
   const handlePlaySelected = () => {
     const selectedSongs = selection.getSelectedSongs();
     if (selectedSongs.length > 0) {
-      playNow(selectedSongs);
+      playNow(selectedSongs, 0, getQueueSource());
       selection.clearSelection();
     }
   };
@@ -244,7 +250,7 @@ function GenreDetailContent() {
     try {
       const response = await client.getAlbum(album.id);
       if (response.album.song && response.album.song.length > 0) {
-        playNow(response.album.song);
+        playNow(response.album.song, 0, { type: "album", id: album.id, name: album.name });
       }
     } catch (error) {
       console.error("Failed to play album:", error);

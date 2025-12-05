@@ -9,7 +9,7 @@ import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { playNowAtom, isShuffledAtom } from "@/lib/store/queue";
+import { playNowAtom, isShuffledAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { playlistViewModeAtom, playlistSortAtom, playlistColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { DetailHeader } from "@/components/shared/detail-header";
@@ -23,6 +23,9 @@ import { formatCount, formatTotalDuration } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import { sortSongs } from "@/lib/utils/sort-songs";
 import type { Song } from "@/lib/api/types";
+
+// Queue source for history playback
+const HISTORY_QUEUE_SOURCE: QueueSourceInfo = { type: "history", name: "Recently Played" };
 
 export default function HistoryPage() {
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
@@ -91,7 +94,7 @@ export default function HistoryPage() {
   const handlePlaySelected = () => {
     const selected = getSelectedSongs();
     if (selected.length > 0) {
-      playNow(selected);
+      playNow(selected, 0, HISTORY_QUEUE_SOURCE);
       clearSelection();
     }
   };
@@ -99,7 +102,7 @@ export default function HistoryPage() {
   const handlePlayAll = () => {
     if (displaySongs.length > 0) {
       setIsShuffled(false);
-      playNow(displaySongs);
+      playNow(displaySongs, 0, HISTORY_QUEUE_SOURCE);
     }
   };
 
@@ -107,7 +110,7 @@ export default function HistoryPage() {
     if (displaySongs.length > 0) {
       setIsShuffled(true);
       const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
+      playNow(shuffled, 0, HISTORY_QUEUE_SOURCE);
     }
   };
 

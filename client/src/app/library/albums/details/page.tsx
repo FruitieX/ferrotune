@@ -18,7 +18,7 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
+import { playNowAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { isShuffledAtom } from "@/lib/store/queue";
 import { albumDetailViewModeAtom, albumDetailSortAtom, albumDetailColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
@@ -111,10 +111,17 @@ function AlbumDetailContent() {
 
   const totalDuration = displaySongs.reduce((acc, song) => acc + song.duration, 0);
 
+  // Queue source for this album
+  const getQueueSource = (): QueueSourceInfo => ({
+    type: "album",
+    id: id ?? undefined,
+    name: albumData?.name,
+  });
+
   const handlePlayAll = () => {
     if (displaySongs.length > 0) {
       setIsShuffled(false);
-      playNow(displaySongs);
+      playNow(displaySongs, 0, getQueueSource());
     }
   };
 
@@ -122,14 +129,14 @@ function AlbumDetailContent() {
     if (displaySongs.length > 0) {
       setIsShuffled(true);
       const shuffled = [...displaySongs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
+      playNow(shuffled, 0, getQueueSource());
     }
   };
 
   const handlePlaySelected = () => {
     const selectedSongs = selection.getSelectedSongs();
     if (selectedSongs.length > 0) {
-      playNow(selectedSongs);
+      playNow(selectedSongs, 0, getQueueSource());
       selection.clearSelection();
     }
   };
