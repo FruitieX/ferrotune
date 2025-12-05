@@ -50,7 +50,8 @@ import { NowPlayingBars } from "@/components/shared/now-playing-bars";
 import { SongContextMenu, SongDropdownMenu } from "@/components/browse/song-context-menu";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
-import type { Song, QueueSongEntry } from "@/lib/api/types";
+import { isClientInitializedAtom } from "@/lib/store/auth";
+import type { QueueSongEntry } from "@/lib/api/types";
 
 // Item height for virtualization (px)
 const ITEM_HEIGHT = 56;
@@ -58,12 +59,6 @@ const ITEM_HEIGHT = 56;
 const OVERSCAN = 5;
 // Buffer threshold - fetch more when within N items of edge
 const FETCH_THRESHOLD = 10;
-
-function getCoverUrl(coverArt?: string): string | undefined {
-  if (!coverArt) return undefined;
-  const client = getClient();
-  return client?.getCoverArtUrl(coverArt, 100);
-}
 
 // Loading placeholder for unfetched items
 function QueueItemPlaceholder() {
@@ -109,6 +104,15 @@ function VirtualQueueItem({
   onRemove,
   onTogglePlayPause,
 }: VirtualQueueItemProps) {
+  // Subscribe to client initialization state to re-render when client becomes available
+  // This ensures cover art URLs are generated correctly after page reload
+  const isClientInitialized = useAtomValue(isClientInitializedAtom);
+  
+  // Get cover URL - only available after client is initialized
+  const coverUrl = isClientInitialized && entry.song.coverArt 
+    ? getClient()?.getCoverArtUrl(entry.song.coverArt, 100) 
+    : undefined;
+  
   // Use entry_id as stable identifier for dnd-kit (allows same song multiple times in queue)
   const {
     attributes,
@@ -175,11 +179,12 @@ function VirtualQueueItem({
           onClick={isCurrent ? onTogglePlayPause : onPlay}
         >
           <CoverImage
-            src={getCoverUrl(song.coverArt ?? undefined)}
+            src={coverUrl}
             alt={song.title}
             colorSeed={song.album ?? undefined}
             type="song"
             size="sm"
+            lazy={false}
           />
           <button
             type="button"

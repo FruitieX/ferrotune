@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { serverConnectionAtom, isConnectedAtom, isHydratedAtom } from "@/lib/store/auth";
+import { serverConnectionAtom, isConnectedAtom, isHydratedAtom, isClientInitializedAtom } from "@/lib/store/auth";
 import { initializeClient } from "@/lib/api/client";
 
 /**
@@ -24,6 +24,7 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
   const [isHydrated, setIsHydrated] = useAtom(isHydratedAtom);
   const isConnected = useAtomValue(isConnectedAtom);
   const connection = useAtomValue(serverConnectionAtom);
+  const setClientInitialized = useSetAtom(isClientInitializedAtom);
 
   // Mark as hydrated after first client-side render
   useEffect(() => {
@@ -34,8 +35,11 @@ export function useAuth(options: { redirectToLogin?: boolean } = {}) {
   useEffect(() => {
     if (connection) {
       initializeClient(connection);
+      setClientInitialized(true);
+    } else {
+      setClientInitialized(false);
     }
-  }, [connection]);
+  }, [connection, setClientInitialized]);
 
   // Redirect to login if not connected (only after hydration)
   useEffect(() => {
