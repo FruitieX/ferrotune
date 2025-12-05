@@ -354,9 +354,9 @@ export function Sidebar() {
                   <div className="pl-4 mt-1 space-y-0.5">
                     {playlistsLoading ? (
                       <>
-                        <PlaylistSkeletonItem />
-                        <PlaylistSkeletonItem />
-                        <PlaylistSkeletonItem />
+                        <PlaylistSkeletonItem index={0} />
+                        <PlaylistSkeletonItem index={1} />
+                        <PlaylistSkeletonItem index={2} />
                       </>
                     ) : playlistTree ? (
                       <PlaylistFolderTree
@@ -543,12 +543,17 @@ function PlaylistFolderTree({
   );
 }
 
-// Skeleton for playlist items in sidebar
-function PlaylistSkeletonItem() {
+// Skeleton for playlist items in sidebar with varied widths to simulate realistic names
+const SKELETON_WIDTHS = ["w-3/4", "w-1/2", "w-2/3", "w-4/5", "w-5/6"] as const;
+
+function PlaylistSkeletonItem({ index = 0 }: { index?: number }) {
+  // Use deterministic width based on index to avoid hydration issues
+  const widthClass = SKELETON_WIDTHS[index % SKELETON_WIDTHS.length];
+  
   return (
     <div className="flex items-center gap-2 h-8 px-2">
       <Skeleton className="w-4 h-4 rounded shrink-0" />
-      <Skeleton className="h-3 flex-1 rounded" />
+      <Skeleton className={cn("h-3 rounded", widthClass)} />
     </div>
   );
 }

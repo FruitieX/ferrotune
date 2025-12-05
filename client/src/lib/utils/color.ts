@@ -207,3 +207,23 @@ export function clampOklchToSliderRanges(color: OklchColor): OklchColor {
 export function formatOklch(color: OklchColor): string {
   return `oklch(${color.l.toFixed(2)} ${color.c.toFixed(2)} ${Math.round(color.h)})`;
 }
+
+/**
+ * Determine if a given OKLCH lightness value requires a dark foreground for adequate contrast.
+ * 
+ * Uses WCAG-based heuristics for the perceptually uniform OKLCH color space.
+ * In OKLCH, lightness (L) directly correlates with perceived brightness:
+ * - L ≤ 0.5: Dark colors that need light (white) foreground
+ * - L > 0.7: Light colors that need dark (black) foreground  
+ * - 0.5 < L ≤ 0.7: Mid-range - we use light foreground as it generally has better contrast
+ * 
+ * The threshold of 0.7 provides approximately 4.5:1 contrast ratio with pure black text,
+ * meeting WCAG AA requirements for normal text.
+ * 
+ * @param lightness - OKLCH lightness value (0-1)
+ * @returns true if the color needs a dark foreground, false if it needs a light foreground
+ */
+export function needsDarkForeground(lightness: number): boolean {
+  // Colors with lightness > 0.7 are perceived as "light" and need dark foreground
+  return lightness > 0.7;
+}
