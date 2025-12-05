@@ -29,6 +29,8 @@ import {
   Headphones,
   Calendar,
   Activity,
+  Shield,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -37,6 +39,7 @@ import { useAccentColor } from "@/lib/hooks/use-preferences-sync";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { volumeAtom, repeatModeAtom } from "@/lib/store/player";
 import { serverQueueStateAtom, toggleShuffleAtom, clearQueueAtom } from "@/lib/store/server-queue";
+import { scanDialogOpenAtom } from "@/lib/store/scan";
 import { getClient } from "@/lib/api/client";
 import { 
   ACCENT_PRESETS,
@@ -91,6 +94,7 @@ export default function SettingsPage() {
   const queueState = useAtomValue(serverQueueStateAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
+  const setScanDialogOpen = useSetAtom(scanDialogOpenAtom);
   const { theme, setTheme } = useTheme();
   
   // Derive shuffle state from server queue state
@@ -759,6 +763,43 @@ export default function SettingsPage() {
                     Simple
                   </Button>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Administration */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="w-5 h-5" />
+                Administration
+              </CardTitle>
+              <CardDescription>
+                Server management and maintenance
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-medium">Library Scanner</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Scan your music folders to update the database
+                  </p>
+                </div>
+                <Button 
+                  variant="outline"
+                  onClick={() => setScanDialogOpen(true)}
+                  className="gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Open Scanner
+                </Button>
               </div>
             </CardContent>
           </Card>

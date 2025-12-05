@@ -233,3 +233,4 @@ Read these when working on specific areas:
 ## Further instructions
 
 - After implementing a feature, suggest a conventional commits compliant commit message summarizing the change.
+- Use ts_rs for generating TypeScript types from Rust structs when applicable.

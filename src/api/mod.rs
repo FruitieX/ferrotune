@@ -20,11 +20,15 @@ pub use subsonic::QsQuery;
 
 use serde::Deserialize;
 use sqlx::SqlitePool;
+use std::sync::Arc;
+
+pub use ferrotune::scan_state::{create_scan_state, ScanState};
 
 /// Shared application state for all API handlers.
 pub struct AppState {
     pub pool: SqlitePool,
     pub config: crate::config::Config,
+    pub scan_state: Arc<ScanState>,
 }
 
 /// Common query parameters for OpenSubsonic API requests.

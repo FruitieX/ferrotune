@@ -1,14 +1,19 @@
 //! Library scanning endpoints.
 
+use super::scan_state::ScanProgressUpdate;
 use crate::api::ferrotune::ErrorResponse;
 use crate::api::AppState;
 use axum::{
     extract::State,
     http::StatusCode,
-    response::{IntoResponse, Json},
+    response::{
+        sse::{Event, Sse},
+        IntoResponse, Json,
+    },
 };
+use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{convert::Infallible, sync::Arc, time::Duration};
 use ts_rs::TS;
 
 /// Request body for starting a scan.
@@ -36,21 +41,26 @@ pub struct ScanResponse {
     pub status: &'static str,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub scanned: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub added: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub updated: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub removed: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub errors: Option<u64>,
 }
 
 /// Start a library scan.
 ///
-/// This endpoint triggers a synchronous library scan. For large libraries,
-/// this may take some time to complete.
+/// This endpoint triggers an async library scan. The scan runs in the background
+/// and progress can be monitored via the /scan/progress SSE endpoint.
 ///
 /// ## Request Body
 ///
@@ -73,52 +83,95 @@ pub async fn start_scan(
         "incremental"
     };
 
+    // Try to start the scan
+    if !state.scan_state.start(mode.to_string()).await {
+        return (
+            StatusCode::CONFLICT,
+            Json(ErrorResponse::new("A scan is already in progress")),
+        )
+            .into_response();
+    }
+
     tracing::info!(
         "Starting {} scan via API (folder_id: {:?})",
         mode,
         request.folder_id
     );
 
-    match crate::scanner::scan_library(
-        &state.pool,
-        &state.config,
-        request.full,
-        request.folder_id,
-        request.dry_run,
-    )
-    .await
-    {
-        Ok(()) => {
-            let message = if request.dry_run {
-                "Dry-run scan completed".to_string()
-            } else {
-                "Library scan completed".to_string()
-            };
+    // Clone what we need for the async task
+    let pool = state.pool.clone();
+    let config = state.config.clone();
+    let scan_state = state.scan_state.clone();
+    let full = request.full;
+    let folder_id = request.folder_id;
+    let dry_run = request.dry_run;
 
-            (
-                StatusCode::OK,
-                Json(ScanResponse {
-                    status: "ok",
-                    message,
-                    // TODO: Return actual counts from scan_library
-                    scanned: None,
-                    added: None,
-                    updated: None,
-                    removed: None,
-                    errors: None,
-                }),
-            )
-                .into_response()
+    // Spawn the scan in a background task
+    tokio::spawn(async move {
+        scan_state.log("INFO", "Starting library scan...").await;
+
+        match crate::scanner::scan_library_with_progress(
+            &pool,
+            &config,
+            full,
+            folder_id,
+            dry_run,
+            Some(scan_state.clone()),
+        )
+        .await
+        {
+            Ok(()) => {
+                scan_state
+                    .log("INFO", "Library scan completed successfully")
+                    .await;
+                scan_state.complete().await;
+            }
+            Err(e) => {
+                let error_msg = format!("Scan failed: {}", e);
+                tracing::error!("{}", error_msg);
+                scan_state.log("ERROR", &error_msg).await;
+                scan_state.fail(error_msg).await;
+            }
         }
-        Err(e) => {
-            tracing::error!("Scan failed: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details("Scan failed", e.to_string())),
-            )
-                .into_response()
-        }
+    });
+
+    // Return immediately with acknowledgement
+    let message = format!("{} scan started", mode);
+    (
+        StatusCode::ACCEPTED,
+        Json(ScanResponse {
+            status: "started",
+            message,
+            scanned: None,
+            added: None,
+            updated: None,
+            removed: None,
+            errors: None,
+        }),
+    )
+        .into_response()
+}
+
+/// Cancel an in-progress scan.
+pub async fn cancel_scan(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    if !state.scan_state.is_scanning() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("No scan is currently in progress")),
+        )
+            .into_response();
     }
+
+    state.scan_state.cancel().await;
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "cancelled",
+            "message": "Scan cancellation requested"
+        })),
+    )
+        .into_response()
 }
 
 /// Scan status response.
@@ -136,19 +189,107 @@ pub struct ScanStatusResponse {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ScanProgress {
+    #[ts(type = "number")]
     pub scanned: u64,
+    #[ts(type = "number | null")]
     pub total: Option<u64>,
     pub current_folder: Option<String>,
 }
 
 /// Get the current scan status.
-///
-/// Currently returns a placeholder response. In the future, this will
-/// support async scanning with progress tracking.
-pub async fn scan_status(State(_state): State<Arc<AppState>>) -> impl IntoResponse {
-    // TODO: Implement async scanning with status tracking
+pub async fn scan_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let progress = state.scan_state.get_progress().await;
+
     Json(ScanStatusResponse {
-        scanning: false,
-        progress: None,
+        scanning: progress.scanning,
+        progress: if progress.scanning || progress.finished {
+            Some(ScanProgress {
+                scanned: progress.scanned,
+                total: progress.total,
+                current_folder: progress.current_folder,
+            })
+        } else {
+            None
+        },
     })
+}
+
+/// Stream scan progress updates via Server-Sent Events.
+pub async fn scan_progress_stream(
+    State(state): State<Arc<AppState>>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    // Get a receiver for progress updates
+    let mut rx = state.scan_state.subscribe();
+
+    // Send initial state immediately
+    let initial = state.scan_state.get_progress().await;
+
+    let stream = async_stream::stream! {
+        // Send initial state
+        if let Ok(json) = serde_json::to_string(&initial) {
+            yield Ok(Event::default().data(json));
+        }
+
+        // Stream updates
+        loop {
+            match rx.recv().await {
+                Ok(update) => {
+                    if let Ok(json) = serde_json::to_string(&update) {
+                        yield Ok(Event::default().data(json));
+                    }
+
+                    // Stop streaming if scan is finished
+                    if update.finished {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    // Missed some updates, continue
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    // Channel closed, stop
+                    break;
+                }
+            }
+        }
+    };
+
+    Sse::new(stream).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("keep-alive"),
+    )
+}
+
+/// Response with scan logs.
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ScanLogsResponse {
+    pub logs: Vec<super::scan_state::ScanLogEntry>,
+}
+
+/// Get recent scan logs.
+pub async fn scan_logs(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let logs = state.scan_state.get_logs().await;
+    Json(ScanLogsResponse { logs })
+}
+
+/// Full scan progress response (combines status and logs).
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct FullScanStatusResponse {
+    #[serde(flatten)]
+    pub progress: ScanProgressUpdate,
+    pub logs: Vec<super::scan_state::ScanLogEntry>,
+}
+
+/// Get full scan status including progress and logs.
+pub async fn full_scan_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let progress = state.scan_state.get_progress().await;
+    let logs = state.scan_state.get_logs().await;
+
+    Json(FullScanStatusResponse { progress, logs })
 }

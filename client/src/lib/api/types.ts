@@ -202,6 +202,25 @@ export type { UpdateTagsRequest } from "./generated";
 export type { UpdatePreferencesRequest } from "./generated";
 
 // ============================================================================
+// Library Scanning Types (Admin API) - Generated from Rust
+// ============================================================================
+
+export type { ScanLogEntry } from "./generated";
+export type { ScanProgressUpdate } from "./generated";
+export type { ScanResponse } from "./generated";
+export type { ScanStatusResponse } from "./generated";
+export type { ScanProgress } from "./generated";
+export type { ScanLogsResponse } from "./generated";
+export type { FullScanStatusResponse } from "./generated";
+
+// ScanRequest is used only for requests, not generated from Rust
+export interface ScanRequest {
+  full?: boolean;
+  folderId?: number;
+  dryRun?: boolean;
+}
+
+// ============================================================================
 // Connection Types (client-only)
 // ============================================================================
 

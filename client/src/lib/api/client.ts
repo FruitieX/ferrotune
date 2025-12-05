@@ -33,6 +33,11 @@ import type {
   IndexesResponse,
   DirectoryResponse,
   SongIdsResponse,
+  ScanRequest,
+  ScanResponse,
+  ScanStatusResponse,
+  ScanLogsResponse,
+  FullScanStatusResponse,
 } from "./types";
 
 // Ping response is empty
@@ -705,6 +710,60 @@ export class SubsonicClient {
     return this.adminRequest("/ferrotune/queue", {
       method: "DELETE",
     });
+  }
+
+  // ============================================================================
+  // Library Scanning API (Admin API)
+  // ============================================================================
+
+  /**
+   * Start a library scan
+   * 
+   * @param request Scan options (full, folderId, dryRun)
+   * @returns Immediate response indicating scan has started
+   */
+  async startScan(request: ScanRequest = {}): Promise<ScanResponse> {
+    return this.adminRequest("/ferrotune/scan", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * Cancel an in-progress scan
+   */
+  async cancelScan(): Promise<{ status: string; message: string }> {
+    return this.adminRequest("/ferrotune/scan/cancel", {
+      method: "POST",
+    });
+  }
+
+  /**
+   * Get current scan status
+   */
+  async getScanStatus(): Promise<ScanStatusResponse> {
+    return this.adminRequest("/ferrotune/scan/status");
+  }
+
+  /**
+   * Get recent scan logs
+   */
+  async getScanLogs(): Promise<ScanLogsResponse> {
+    return this.adminRequest("/ferrotune/scan/logs");
+  }
+
+  /**
+   * Get full scan status including progress and logs
+   */
+  async getFullScanStatus(): Promise<FullScanStatusResponse> {
+    return this.adminRequest("/ferrotune/scan/full");
+  }
+
+  /**
+   * Get the SSE stream URL for scan progress updates
+   */
+  getScanProgressStreamUrl(): string {
+    return this.buildAdminUrl("/ferrotune/scan/progress");
   }
 }
 

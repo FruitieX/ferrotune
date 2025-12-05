@@ -37,6 +37,7 @@ symphonia = { version = "0.5", features = ["mp3", "flac", "ogg", "aac", "alac", 
 
 # Async streams
 futures = "0.3"
+async-stream = "0.3"
 
 # File system
 walkdir = "2.5"

@@ -10,6 +10,7 @@ import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
 import { useDocumentTitle } from "@/lib/hooks/use-document-title";
 import { usePreferencesSync } from "@/lib/hooks/use-preferences-sync";
 import { useClearSelectionOnNavigate } from "@/lib/hooks/use-clear-selection-on-navigate";
+import { useScanProgressStream } from "@/lib/hooks/use-scan-progress-stream";
 import { DynamicFavicon } from "@/components/dynamic-favicon";
 import { accentColorAtom, customAccentHueAtom, customAccentLightnessAtom, customAccentChromaAtom } from "@/lib/store/ui";
 import { needsDarkForeground } from "@/lib/utils/color";
@@ -28,6 +29,7 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   useKeyboardShortcuts();
   useDocumentTitle();
   usePreferencesSync(); // Load and sync user preferences from server
+  useScanProgressStream(); // Monitor scan progress in background
   return <>{children}</>;
 }
 
