@@ -32,6 +32,7 @@ import type {
   QueueSuccessResponse,
   IndexesResponse,
   DirectoryResponse,
+  SongIdsResponse,
 } from "./types";
 
 // Ping response is empty
@@ -369,6 +370,38 @@ export class SubsonicClient {
     return this.adminRequest(`/ferrotune/songs/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
+  }
+
+  /**
+   * Get all song IDs matching the given search/filter criteria.
+   * Useful for bulk operations like "select all matching songs".
+   */
+  async getSongIds(params: Partial<SearchParams> = {}): Promise<SongIdsResponse> {
+    const searchParams = new URLSearchParams();
+    
+    // Add search parameters (filter out null and undefined)
+    if (params.query != null) searchParams.set("query", params.query);
+    if (params.songSort != null) searchParams.set("songSort", params.songSort);
+    if (params.songSortDir != null) searchParams.set("songSortDir", params.songSortDir);
+    if (params.minYear != null) searchParams.set("minYear", String(params.minYear));
+    if (params.maxYear != null) searchParams.set("maxYear", String(params.maxYear));
+    if (params.genre != null) searchParams.set("genre", params.genre);
+    if (params.minDuration != null) searchParams.set("minDuration", String(params.minDuration));
+    if (params.maxDuration != null) searchParams.set("maxDuration", String(params.maxDuration));
+    if (params.minRating != null) searchParams.set("minRating", String(params.minRating));
+    if (params.maxRating != null) searchParams.set("maxRating", String(params.maxRating));
+    if (params.starredOnly != null) searchParams.set("starredOnly", String(params.starredOnly));
+    if (params.minPlayCount != null) searchParams.set("minPlayCount", String(params.minPlayCount));
+    if (params.maxPlayCount != null) searchParams.set("maxPlayCount", String(params.maxPlayCount));
+    if (params.shuffleExcludedOnly != null) searchParams.set("shuffleExcludedOnly", String(params.shuffleExcludedOnly));
+    if (params.minBitrate != null) searchParams.set("minBitrate", String(params.minBitrate));
+    if (params.maxBitrate != null) searchParams.set("maxBitrate", String(params.maxBitrate));
+    if (params.addedAfter != null) searchParams.set("addedAfter", params.addedAfter);
+    if (params.addedBefore != null) searchParams.set("addedBefore", params.addedBefore);
+
+    const queryString = searchParams.toString();
+    const endpoint = queryString ? `/ferrotune/songs/ids?${queryString}` : "/ferrotune/songs/ids";
+    return this.adminRequest<SongIdsResponse>(endpoint);
   }
 
   // Tag management endpoints (Admin API)

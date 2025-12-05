@@ -123,7 +123,15 @@ export default function SongsPage() {
     },
   }), [debouncedFilter, advancedFilters, sortConfig]);
 
-  // Track selection
+  // Build search params for "select all" functionality
+  const searchParamsForSelection = useMemo(() => ({
+    query: debouncedFilter || "*",
+    songSort: sortConfig.field,
+    songSortDir: sortConfig.direction,
+    ...advancedFilters,
+  }), [debouncedFilter, sortConfig, advancedFilters]);
+
+  // Track selection with support for selecting all songs from backend
   const {
     selectedCount,
     hasSelection,
@@ -131,18 +139,22 @@ export default function SongsPage() {
     handleSelect,
     clearSelection,
     selectAll,
+    selectedIds,
     getSelectedSongs,
     addSelectedToQueue,
     starSelected,
-  } = useTrackSelection(displaySongs);
+  } = useTrackSelection(displaySongs, {
+    totalCount: displayCount,
+    searchParams: searchParamsForSelection,
+  });
 
   const handlePlaySelected = () => {
-    const selected = getSelectedSongs();
-    if (selected.length > 0) {
+    const ids = Array.from(selectedIds);
+    if (ids.length > 0) {
       startQueue({
         sourceType: "library",
         sourceName: "Library (selection)",
-        songIds: selected.map(s => s.id),
+        songIds: ids,
       });
       clearSelection();
     }
@@ -254,6 +266,7 @@ export default function SongsPage() {
         onUnstar={() => starSelected(false)}
         onSelectAll={selectAll}
         getSelectedSongs={getSelectedSongs}
+        selectedIds={selectedIds}
       />
     </div>
   );

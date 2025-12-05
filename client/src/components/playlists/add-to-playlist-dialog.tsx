@@ -34,17 +34,27 @@ import { cn } from "@/lib/utils";
 interface AddToPlaylistDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  songs: Song[];
+  /** Songs to add (provides title info for display) */
+  songs?: Song[];
+  /** Alternative: just song IDs when full song data isn't loaded */
+  songIds?: string[];
 }
 
 interface DuplicateInfo {
   playlistId: string;
   playlistName: string;
-  duplicates: Song[];
-  nonDuplicates: Song[];
+  duplicateCount: number;
+  nonDuplicateIds: string[];
 }
 
-export function AddToPlaylistDialog({ open, onOpenChange, songs }: AddToPlaylistDialogProps) {
+export function AddToPlaylistDialog({ open, onOpenChange, songs = [], songIds }: AddToPlaylistDialogProps) {
+  // Determine the IDs and count to use
+  const idsToAdd = songIds ?? songs.map(s => s.id);
+  const songCount = idsToAdd.length;
+  
+  // For display, use song title if we have exactly one loaded song
+  const displayText = songs.length === 1 ? `"${songs[0].title}"` : `${songCount} songs`;
+  
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [showCreateNew, setShowCreateNew] = useState(false);
@@ -76,33 +86,33 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs }: AddToPlaylist
         playlistResponse.playlist.entry?.map(s => s.id) ?? []
       );
 
-      const duplicates = songs.filter(s => existingSongIds.has(s.id));
-      const nonDuplicates = songs.filter(s => !existingSongIds.has(s.id));
+      const duplicateIds = idsToAdd.filter(id => existingSongIds.has(id));
+      const nonDuplicateIds = idsToAdd.filter(id => !existingSongIds.has(id));
 
-      if (duplicates.length > 0) {
-        return { playlistId, playlistName, duplicates, nonDuplicates };
+      if (duplicateIds.length > 0) {
+        return { playlistId, playlistName, duplicateCount: duplicateIds.length, nonDuplicateIds };
       }
       return null;
     } catch (error) {
       console.error("Failed to check for duplicates:", error);
       return null;
     }
-  }, [songs]);
+  }, [idsToAdd]);
 
   // Add to existing playlist mutation
   const addToPlaylistMutation = useMutation({
-    mutationFn: async ({ playlistId, songIds }: { playlistId: string; songIds: string[] }) => {
+    mutationFn: async ({ playlistId, songIdsToAdd }: { playlistId: string; songIdsToAdd: string[] }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       await client.updatePlaylist({
         playlistId,
-        songIdToAdd: songIds,
+        songIdToAdd: songIdsToAdd,
       });
     },
-    onSuccess: (_, { songIds }) => {
-      const songText = songIds.length === 1 
-        ? songs.length === 1 ? `"${songs[0].title}"` : "1 song"
-        : `${songIds.length} songs`;
+    onSuccess: (_, { songIdsToAdd }) => {
+      const songText = songIdsToAdd.length === 1 && songs.length === 1
+        ? `"${songs[0].title}"` 
+        : `${songIdsToAdd.length} songs`;
       toast.success(`Added ${songText} to playlist`);
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       queryClient.invalidateQueries({ queryKey: ["playlist"] });
@@ -126,13 +136,12 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs }: AddToPlaylist
       // Then add songs
       await client.updatePlaylist({
         playlistId: response.playlist.id,
-        songIdToAdd: songs.map((s) => s.id),
+        songIdToAdd: idsToAdd,
       });
       return response.playlist;
     },
     onSuccess: (playlist) => {
-      const songText = songs.length === 1 ? `"${songs[0].title}"` : `${songs.length} songs`;
-      toast.success(`Created "${playlist.name}" and added ${songText}`);
+      toast.success(`Created "${playlist.name}" and added ${displayText}`);
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       onOpenChange(false);
       setNewPlaylistName("");
@@ -161,7 +170,7 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs }: AddToPlaylist
       // No duplicates, add all songs directly
       addToPlaylistMutation.mutate({ 
         playlistId, 
-        songIds: songs.map(s => s.id) 
+        songIdsToAdd: idsToAdd 
       });
     }
   };
@@ -170,10 +179,10 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs }: AddToPlaylist
     if (!duplicateInfo) return;
 
     if (action === "skip") {
-      if (duplicateInfo.nonDuplicates.length > 0) {
+      if (duplicateInfo.nonDuplicateIds.length > 0) {
         addToPlaylistMutation.mutate({
           playlistId: duplicateInfo.playlistId,
-          songIds: duplicateInfo.nonDuplicates.map(s => s.id),
+          songIdsToAdd: duplicateInfo.nonDuplicateIds,
         });
       } else {
         toast.info("All selected songs are already in the playlist");
@@ -184,7 +193,7 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs }: AddToPlaylist
       // Add all songs including duplicates
       addToPlaylistMutation.mutate({
         playlistId: duplicateInfo.playlistId,
-        songIds: songs.map(s => s.id),
+        songIdsToAdd: idsToAdd,
       });
     }
   };
@@ -207,9 +216,7 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs }: AddToPlaylist
               Add to Playlist
             </DialogTitle>
             <DialogDescription>
-              {songs.length === 1
-                ? `Add "${songs[0].title}" to a playlist`
-                : `Add ${songs.length} songs to a playlist`}
+              Add {displayText} to a playlist
             </DialogDescription>
           </DialogHeader>
 
@@ -318,27 +325,15 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs }: AddToPlaylist
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 <p>
-                  {duplicateInfo?.duplicates.length === 1 
-                    ? `1 song is already in "${duplicateInfo?.playlistName}":`
-                    : `${duplicateInfo?.duplicates.length} songs are already in "${duplicateInfo?.playlistName}":`}
+                  {duplicateInfo?.duplicateCount === 1 
+                    ? `1 song is already in "${duplicateInfo?.playlistName}".`
+                    : `${duplicateInfo?.duplicateCount} songs are already in "${duplicateInfo?.playlistName}".`}
                 </p>
-                <ul className="max-h-32 overflow-y-auto space-y-1 text-sm">
-                  {duplicateInfo?.duplicates.slice(0, 5).map((song) => (
-                    <li key={song.id} className="text-foreground font-medium">
-                      • {song.title} — {song.artist}
-                    </li>
-                  ))}
-                  {(duplicateInfo?.duplicates.length ?? 0) > 5 && (
-                    <li className="text-muted-foreground">
-                      ...and {(duplicateInfo?.duplicates.length ?? 0) - 5} more
-                    </li>
-                  )}
-                </ul>
-                {(duplicateInfo?.nonDuplicates.length ?? 0) > 0 && (
+                {(duplicateInfo?.nonDuplicateIds.length ?? 0) > 0 && (
                   <p className="text-foreground">
-                    {duplicateInfo?.nonDuplicates.length === 1 
+                    {duplicateInfo?.nonDuplicateIds.length === 1 
                       ? "1 new song can be added."
-                      : `${duplicateInfo?.nonDuplicates.length} new songs can be added.`}
+                      : `${duplicateInfo?.nonDuplicateIds.length} new songs can be added.`}
                   </p>
                 )}
               </div>
@@ -351,7 +346,7 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs }: AddToPlaylist
             }}>
               Cancel
             </AlertDialogCancel>
-            {(duplicateInfo?.nonDuplicates.length ?? 0) > 0 && (
+            {(duplicateInfo?.nonDuplicateIds.length ?? 0) > 0 && (
               <AlertDialogAction onClick={() => handleDuplicateResponse("skip")}>
                 Skip Duplicates
               </AlertDialogAction>

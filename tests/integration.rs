@@ -350,6 +350,33 @@ fn test_duplicates_endpoints() {
 }
 
 // ============================================================================
+// SONG IDS TESTS (require scanned library)
+// ============================================================================
+
+#[test]
+fn test_song_ids_endpoints() {
+    if !hurl_available() {
+        eprintln!("Skipping test: hurl not available");
+        return;
+    }
+
+    if !fixtures_exist() {
+        eprintln!(
+            "Skipping test: fixtures not generated. Run scripts/generate-test-fixtures.sh first."
+        );
+        return;
+    }
+
+    let server = TestServer::new().expect("Failed to start test server");
+
+    // Scan the library first
+    server.scan_library().expect("Failed to scan library");
+
+    run_hurl_script(&server, &hurl_script("13_song_ids.hurl"))
+        .expect("Song IDs endpoint tests failed");
+}
+
+// ============================================================================
 // SCANNER TESTS
 // ============================================================================
 
@@ -493,6 +520,10 @@ fn test_full_integration() {
         "07_playlists.hurl",
         "08_lists.hurl",
         "09_playqueue.hurl",
+        "10_admin_media.hurl",
+        "11_preferences.hurl",
+        "12_duplicates.hurl",
+        "13_song_ids.hurl",
     ];
 
     for script in &scripts {

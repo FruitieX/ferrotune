@@ -57,12 +57,15 @@ interface BaseBulkActionsBarProps {
   onStar?: () => void;
   onUnstar?: () => void;
   onSelectAll: () => void;
+  /** Selected IDs for bulk operations (used when not all songs are loaded) */
+  selectedIds?: Set<string>;
   className?: string;
 }
 
 // Props for song-specific bulk actions
 interface SongBulkActionsBarProps extends BaseBulkActionsBarProps {
   mediaType?: "song";
+  /** Returns loaded songs that are selected (may be subset of selectedIds) */
   getSelectedSongs: () => Song[];
 }
 
@@ -119,6 +122,7 @@ interface LegacyBulkActionsBarProps {
   onUnstar: () => void;
   onSelectAll: () => void;
   getSelectedSongs: () => Song[];
+  selectedIds?: Set<string>;
   className?: string;
 }
 
@@ -140,8 +144,19 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
   const canAddToPlaylist = (mediaType === 'song' || mediaType === 'playlist-songs') && 'getSelectedSongs' in props;
   const getSelectedSongs = canAddToPlaylist ? (props as SongBulkActionsBarProps | PlaylistSongsBulkActionsBarProps).getSelectedSongs : () => [];
 
+  // Get selected IDs (prefer selectedIds prop, fallback to getSelectedSongs)
+  const getSelectedIds = (): string[] => {
+    if ('selectedIds' in props && props.selectedIds) {
+      return Array.from(props.selectedIds);
+    }
+    if (canAddToPlaylist) {
+      return getSelectedSongs().map(s => s.id);
+    }
+    return [];
+  };
+
   // Check if shuffle exclude is supported (only for songs)
-  const canShuffleExclude = (mediaType === 'song' || mediaType === 'playlist-songs') && 'getSelectedSongs' in props;
+  const canShuffleExclude = (mediaType === 'song' || mediaType === 'playlist-songs') && ('getSelectedSongs' in props || 'selectedIds' in props);
 
   // Check for playlist-specific actions
   const isPlaylistType = mediaType === 'playlist' && 'onDelete' in props;
@@ -158,8 +173,8 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
     const client = getClient();
     if (!client || !canShuffleExclude) return;
 
-    const songs = getSelectedSongs();
-    const songIds = songs.map(s => s.id);
+    const songIds = getSelectedIds();
+    if (songIds.length === 0) return;
 
     try {
       await client.bulkSetShuffleExcludes(songIds, excluded);
@@ -177,8 +192,8 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
 
       toast.success(
         excluded
-          ? `Excluded ${songs.length} songs from shuffle`
-          : `Included ${songs.length} songs in shuffle`
+          ? `Excluded ${songIds.length} songs from shuffle`
+          : `Included ${songIds.length} songs in shuffle`
       );
       props.onClear();
     } catch (error) {
@@ -472,6 +487,7 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
           open={addToPlaylistOpen}
           onOpenChange={setAddToPlaylistOpen}
           songs={addToPlaylistOpen ? getSelectedSongs() : []}
+          songIds={addToPlaylistOpen && 'selectedIds' in props && props.selectedIds ? Array.from(props.selectedIds) : undefined}
         />
       )}
 

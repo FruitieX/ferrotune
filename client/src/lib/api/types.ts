@@ -178,6 +178,9 @@ export type { PreferencesResponse } from "./generated";
 import type { PreferencesResponse as _PreferencesResponse } from "./generated";
 export type UserPreferences = _PreferencesResponse;
 
+// Song IDs (for bulk selection)
+export type { SongIdsResponse } from "./generated";
+
 // ============================================================================
 // API Parameter Types (generated from Rust)
 // ============================================================================

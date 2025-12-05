@@ -23,6 +23,7 @@
 //! - `DELETE /ferrotune/playlist-folders/:id` - Delete a playlist folder
 //! - `PATCH /ferrotune/playlists/:id/move` - Move a playlist to a folder
 //! - `PUT /ferrotune/playlists/:id/reorder` - Reorder songs in a playlist
+//! - `GET /ferrotune/songs/ids` - Get all song IDs matching search/filter criteria (for bulk selection)
 //! - `DELETE /ferrotune/songs/:id` - Delete a song from the database
 //! - `GET /ferrotune/songs/:id/tags` - Get all tags from a song file
 //! - `PATCH /ferrotune/songs/:id/tags` - Update tags in a song file
@@ -107,6 +108,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/playlists/{id}/reorder",
             axum::routing::put(playlists::reorder_playlist_songs),
         )
+        // Song ID query endpoint (for bulk selection)
+        .route("/ferrotune/songs/ids", get(media::get_song_ids))
         // Media management endpoints
         .route("/ferrotune/songs/{id}", delete(media::delete_song))
         // Tag management endpoints
