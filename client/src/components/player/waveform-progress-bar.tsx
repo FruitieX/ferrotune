@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { currentTimeAtom, durationAtom, playbackStateAtom, bufferedAtom } from "@/lib/store/player";
 import { currentSongAtom } from "@/lib/store/server-queue";
 import { accentColorRgbAtom } from "@/lib/store/ui";
+import { lastChunkInfoAtom } from "@/lib/store/waveform";
 import { useAudioEngine, getGlobalAudio } from "@/lib/audio/hooks";
 import { useWaveform } from "@/lib/hooks/use-waveform";
 import { FLAT_BAR_HEIGHT } from "@/lib/store/waveform";
@@ -23,6 +24,7 @@ const COLORS = {
 // Animation configuration
 const ANIMATION_DURATION_MS = 600;
 const ANIMATION_STAGGER_MS = 3; // Stagger per bar
+const CHUNK_ANIMATION_STAGGER_MS = 2; // Faster stagger for chunk updates
 
 export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const currentTrack = useAtomValue(currentSongAtom);
@@ -31,6 +33,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const playbackState = useAtomValue(playbackStateAtom);
   const buffered = useAtomValue(bufferedAtom);
   const primaryColor = useAtomValue(accentColorRgbAtom);
+  const lastChunkInfo = useAtomValue(lastChunkInfoAtom);
   const { seekPercent } = useAudioEngine();
   const { heights, barCount } = useWaveform();
   
@@ -102,6 +105,9 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   // Track the track ID for reset detection
   const currentTrackIdRef = useRef<string | null>(null);
   
+  // Track the last processed chunk to detect new chunks
+  const lastChunkTimestampRef = useRef<number>(0);
+  
   // Get current track ID for reset detection
   const trackId = currentTrack?.id ?? null;
   
@@ -110,6 +116,12 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     // Detect track change
     const trackChanged = trackId !== currentTrackIdRef.current;
     currentTrackIdRef.current = trackId;
+    
+    // Detect if we have a new chunk (for staggered chunk animation)
+    const hasNewChunk = lastChunkInfo && lastChunkInfo.timestamp > lastChunkTimestampRef.current;
+    if (lastChunkInfo) {
+      lastChunkTimestampRef.current = lastChunkInfo.timestamp;
+    }
     
     const now = performance.now();
     
@@ -122,8 +134,19 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
         // Start this bar's animation from its current animated position
         startHeightsRef.current[i] = animatedHeightsRef.current[i];
         targetHeightsRef.current[i] = newTarget;
-        // Reset this bar's animation timer (with stagger for track changes)
-        barAnimationStartRef.current[i] = now + (trackChanged ? i * ANIMATION_STAGGER_MS : 0);
+        
+        // Determine stagger timing based on context
+        if (trackChanged) {
+          // Full track change: stagger all bars from left to right
+          barAnimationStartRef.current[i] = now + i * ANIMATION_STAGGER_MS;
+        } else if (hasNewChunk && i >= lastChunkInfo.startIndex && i < lastChunkInfo.endIndex) {
+          // New chunk: stagger only the bars in this chunk, based on position within chunk
+          const positionInChunk = i - lastChunkInfo.startIndex;
+          barAnimationStartRef.current[i] = now + positionInChunk * CHUNK_ANIMATION_STAGGER_MS;
+        } else {
+          // Other height changes (e.g., re-normalization): no stagger
+          barAnimationStartRef.current[i] = now;
+        }
       }
     }
     
@@ -168,7 +191,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
         cancelAnimationFrame(barAnimationFrameRef.current);
       }
     };
-  }, [heights, barCount, trackId]);
+  }, [heights, barCount, trackId, lastChunkInfo]);
   
   // Helper function to draw all bars with a given color
   const drawBars = (

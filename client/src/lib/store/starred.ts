@@ -12,7 +12,8 @@ import { getClient } from "@/lib/api/client";
  */
 
 // Map of item ID to starred status - shared across all item types
-const starredItemsAtom = atom<Map<string, boolean>>(new Map());
+// Exported for bulk operations (e.g., bulk star/unstar from selection)
+export const starredItemsAtom = atom<Map<string, boolean>>(new Map());
 
 type StarType = "song" | "album" | "artist";
 

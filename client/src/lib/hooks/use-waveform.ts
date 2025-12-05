@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useAtom, useAtomValue } from "jotai";
-import { waveformCacheAtom, loadingWaveformIdAtom, WAVEFORM_BAR_COUNT, FLAT_BAR_HEIGHT } from "@/lib/store/waveform";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { waveformCacheAtom, loadingWaveformIdAtom, lastChunkInfoAtom, WAVEFORM_BAR_COUNT, FLAT_BAR_HEIGHT } from "@/lib/store/waveform";
 import { currentSongAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 
@@ -54,6 +54,7 @@ export function useWaveform() {
   const currentTrack = useAtomValue(currentSongAtom);
   const [waveformCache, setWaveformCache] = useAtom(waveformCacheAtom);
   const [loadingId, setLoadingId] = useAtom(loadingWaveformIdAtom);
+  const setLastChunkInfo = useSetAtom(lastChunkInfoAtom);
   const [streamingHeights, setStreamingHeights] = useState<number[] | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -153,11 +154,22 @@ export function useWaveform() {
             try {
               const chunk: WaveformChunk = JSON.parse(jsonStr);
               
+              // Track the start index before adding new bars
+              const chunkStartIndex = currentBarIndex;
+              
               // Store raw RMS values at current position (sequential append)
               // Server sends chunks sequentially, so we just append
               for (let i = 0; i < chunk.rms_values.length && currentBarIndex < WAVEFORM_BAR_COUNT; i++) {
                 allRmsValues[currentBarIndex++] = chunk.rms_values[i];
               }
+
+              // Emit chunk info for animation (before setting heights)
+              // This tells the component which bars were just updated
+              setLastChunkInfo({
+                startIndex: chunkStartIndex,
+                endIndex: currentBarIndex,
+                timestamp: performance.now(),
+              });
 
               // Re-normalize across ALL received data so far
               const normalizedHeights = normalizeRmsToHeights(allRmsValues);
@@ -224,7 +236,7 @@ export function useWaveform() {
     return () => {
       abortController.abort();
     };
-  }, [trackId, waveformCache, setWaveformCache, setLoadingId]);
+  }, [trackId, waveformCache, setWaveformCache, setLoadingId, setLastChunkInfo]);
 
   // Get current waveform data
   const waveformData = trackId ? waveformCache.get(trackId) : null;

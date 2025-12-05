@@ -228,9 +228,40 @@ export class SubsonicClient {
   }
 
   async createPlaylist(params: { name: string; songId?: string[] }): Promise<PlaylistWithSongsResponse> {
-    const urlParams: Record<string, string> = { name: params.name };
-    // Note: songId handling for arrays would need URL construction adjustment
-    return this.request<PlaylistWithSongsResponse>("createPlaylist", urlParams);
+    // Build URL manually to handle array parameters (same as updatePlaylist)
+    const url = new URL(`${this.serverUrl}/rest/createPlaylist`);
+    url.searchParams.set("v", API_VERSION);
+    url.searchParams.set("c", CLIENT_NAME);
+    url.searchParams.set("f", "json");
+    
+    if (this.apiKey) {
+      url.searchParams.set("apiKey", this.apiKey);
+    } else if (this.username && this.password) {
+      url.searchParams.set("u", this.username);
+      url.searchParams.set("p", this.password);
+    }
+    
+    url.searchParams.set("name", params.name);
+    
+    // Handle array parameters - OpenSubsonic uses repeated params
+    if (params.songId) {
+      for (const songId of params.songId) {
+        url.searchParams.append("songId", songId);
+      }
+    }
+    
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    if (data["subsonic-response"].status === "failed") {
+      const error = data["subsonic-response"].error;
+      throw new SubsonicApiError(error.code, error.message);
+    }
+    
+    return data["subsonic-response"] as PlaylistWithSongsResponse;
   }
 
   async updatePlaylist(params: {
