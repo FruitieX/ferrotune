@@ -196,3 +196,83 @@ header "Content-Type" contains "application/json"
 jsonpath "$.subsonic-response.status" == "ok"
 jsonpath "$.subsonic-response.genres" exists
 jsonpath "$.subsonic-response.genres.genre" isCollection
+
+# ============================================================================
+# GET INDEXES (Directory Browsing)
+# ============================================================================
+
+# Test: getIndexes (XML) - get alphabetical folder index
+GET {{base_url}}/rest/getIndexes?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=xml
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/xml"
+xpath "string(//*[local-name()='subsonic-response']/@status)" == "ok"
+xpath "//*[local-name()='indexes']" exists
+# lastModified should be set
+xpath "//*[local-name()='indexes']/@lastModified" exists
+# Verify at least one index letter exists
+xpath "//*[local-name()='index']" exists
+xpath "//*[local-name()='index']/@name" exists
+# Verify artists exist in indexes
+xpath "//*[local-name()='artist']" exists
+xpath "//*[local-name()='artist']/@id" exists
+xpath "//*[local-name()='artist']/@name" exists
+
+# Test: getIndexes (JSON) - verify structure and capture first folder ID
+GET {{base_url}}/rest/getIndexes?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.subsonic-response.status" == "ok"
+jsonpath "$.subsonic-response.indexes" exists
+jsonpath "$.subsonic-response.indexes.lastModified" >= 0
+jsonpath "$.subsonic-response.indexes.index" isCollection
+# Verify artists in indexes
+jsonpath "$.subsonic-response.indexes.index[0].name" exists
+jsonpath "$.subsonic-response.indexes.index[0].artist" isCollection
+jsonpath "$.subsonic-response.indexes.index[0].artist[0].id" exists
+jsonpath "$.subsonic-response.indexes.index[0].artist[0].name" exists
+[Captures]
+indexes_first_folder_id: jsonpath "$.subsonic-response.indexes.index[0].artist[0].id"
+
+# ============================================================================
+# GET MUSIC DIRECTORY
+# ============================================================================
+
+# Test: getMusicDirectory (XML) - get directory contents
+GET {{base_url}}/rest/getMusicDirectory?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=xml&id={{indexes_first_folder_id}}
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/xml"
+xpath "string(//*[local-name()='subsonic-response']/@status)" == "ok"
+xpath "//*[local-name()='directory']" exists
+xpath "//*[local-name()='directory']/@id" exists
+xpath "//*[local-name()='directory']/@name" exists
+# Directory should have children (either folders or songs)
+xpath "//*[local-name()='child']" exists
+xpath "//*[local-name()='child']/@id" exists
+xpath "//*[local-name()='child']/@title" exists
+xpath "//*[local-name()='child']/@isDir" exists
+
+# Test: getMusicDirectory (JSON) - verify structure
+GET {{base_url}}/rest/getMusicDirectory?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&id={{indexes_first_folder_id}}
+HTTP 200
+[Asserts]
+header "Content-Type" contains "application/json"
+jsonpath "$.subsonic-response.status" == "ok"
+jsonpath "$.subsonic-response.directory" exists
+jsonpath "$.subsonic-response.directory.id" exists
+jsonpath "$.subsonic-response.directory.name" exists
+jsonpath "$.subsonic-response.directory.child" isCollection
+# Verify child has required fields
+jsonpath "$.subsonic-response.directory.child[0].id" exists
+jsonpath "$.subsonic-response.directory.child[0].title" exists
+jsonpath "$.subsonic-response.directory.child[0].isDir" exists
+
+# Test: getMusicDirectory - invalid ID (XML) - server returns 404 Not Found
+GET {{base_url}}/rest/getMusicDirectory?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=xml&id=nonexistent-folder-id
+HTTP 404
+
+# Test: getMusicDirectory - invalid ID (JSON) - server returns 404 Not Found
+GET {{base_url}}/rest/getMusicDirectory?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&id=nonexistent-folder-id
+HTTP 404

@@ -30,6 +30,8 @@ import type {
   StartQueueResponse,
   GetQueueResponse,
   QueueSuccessResponse,
+  IndexesResponse,
+  DirectoryResponse,
 } from "./types";
 
 // Ping response is empty
@@ -135,6 +137,15 @@ export class SubsonicClient {
 
   async getGenres(): Promise<GenresResponse> {
     return this.request<GenresResponse>("getGenres");
+  }
+
+  // Directory browsing endpoints
+  async getIndexes(musicFolderId?: number): Promise<IndexesResponse> {
+    return this.request<IndexesResponse>("getIndexes", { musicFolderId });
+  }
+
+  async getMusicDirectory(id: string): Promise<DirectoryResponse> {
+    return this.request<DirectoryResponse>("getMusicDirectory", { id });
   }
 
   // List endpoints

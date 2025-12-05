@@ -140,6 +140,15 @@ export type { PlayHistoryResponse } from "./generated";
 export type { PlayHistoryContent } from "./generated";
 export type { PlayHistoryEntry } from "./generated";
 
+// Directory browsing (getIndexes, getMusicDirectory)
+export type { IndexesResponse } from "./generated";
+export type { Indexes } from "./generated";
+export type { DirectoryIndex } from "./generated";
+export type { DirectoryArtist } from "./generated";
+export type { DirectoryResponse } from "./generated";
+export type { Directory } from "./generated";
+export type { DirectoryChild } from "./generated";
+
 // getMusicFolders response
 export type { MusicFolders } from "./generated";
 import type { MusicFolders as _MusicFolders } from "./generated";

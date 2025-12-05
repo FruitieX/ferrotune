@@ -1612,3 +1612,240 @@ impl ToXml for PlayHistoryResponse {
         })
     }
 }
+
+// --- Directory browsing XML types (getIndexes, getMusicDirectory) ---
+
+/// Indexes response (getIndexes)
+#[derive(Serialize)]
+#[serde(rename = "subsonic-response")]
+pub struct XmlIndexesResponse {
+    #[serde(rename = "@xmlns")]
+    pub xmlns: &'static str,
+    #[serde(rename = "@status")]
+    pub status: String,
+    #[serde(rename = "@version")]
+    pub version: String,
+    #[serde(rename = "@type")]
+    pub response_type: String,
+    #[serde(rename = "@serverVersion")]
+    pub server_version: String,
+    #[serde(rename = "@openSubsonic")]
+    pub open_subsonic: bool,
+    pub indexes: XmlIndexesInner,
+}
+
+impl XmlIndexesResponse {
+    pub fn ok(indexes: XmlIndexesInner) -> Self {
+        Self {
+            xmlns: "http://subsonic.org/restapi",
+            status: "ok".to_string(),
+            version: "1.16.1".to_string(),
+            response_type: "ferrotune".to_string(),
+            server_version: env!("CARGO_PKG_VERSION").to_string(),
+            open_subsonic: true,
+            indexes,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct XmlIndexesInner {
+    #[serde(rename = "@lastModified")]
+    pub last_modified: i64,
+    #[serde(rename = "@ignoredArticles")]
+    pub ignored_articles: String,
+    #[serde(rename = "shortcut", default, skip_serializing_if = "Vec::is_empty")]
+    pub shortcut: Vec<XmlDirectoryChild>,
+    #[serde(rename = "index", default)]
+    pub index: Vec<XmlDirectoryIndex>,
+    #[serde(rename = "child", default, skip_serializing_if = "Vec::is_empty")]
+    pub child: Vec<XmlDirectoryChild>,
+}
+
+#[derive(Serialize)]
+pub struct XmlDirectoryIndex {
+    #[serde(rename = "@name")]
+    pub name: String,
+    #[serde(rename = "artist", default)]
+    pub artist: Vec<XmlDirectoryArtist>,
+}
+
+#[derive(Serialize)]
+pub struct XmlDirectoryArtist {
+    #[serde(rename = "@id")]
+    pub id: String,
+    #[serde(rename = "@name")]
+    pub name: String,
+    #[serde(rename = "@starred", skip_serializing_if = "Option::is_none")]
+    pub starred: Option<String>,
+    #[serde(rename = "@userRating", skip_serializing_if = "Option::is_none")]
+    pub user_rating: Option<i32>,
+}
+
+/// Directory response (getMusicDirectory)
+#[derive(Serialize)]
+#[serde(rename = "subsonic-response")]
+pub struct XmlDirectoryResponse {
+    #[serde(rename = "@xmlns")]
+    pub xmlns: &'static str,
+    #[serde(rename = "@status")]
+    pub status: String,
+    #[serde(rename = "@version")]
+    pub version: String,
+    #[serde(rename = "@type")]
+    pub response_type: String,
+    #[serde(rename = "@serverVersion")]
+    pub server_version: String,
+    #[serde(rename = "@openSubsonic")]
+    pub open_subsonic: bool,
+    pub directory: XmlDirectoryInner,
+}
+
+impl XmlDirectoryResponse {
+    pub fn ok(directory: XmlDirectoryInner) -> Self {
+        Self {
+            xmlns: "http://subsonic.org/restapi",
+            status: "ok".to_string(),
+            version: "1.16.1".to_string(),
+            response_type: "ferrotune".to_string(),
+            server_version: env!("CARGO_PKG_VERSION").to_string(),
+            open_subsonic: true,
+            directory,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct XmlDirectoryInner {
+    #[serde(rename = "@id")]
+    pub id: String,
+    #[serde(rename = "@parent", skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    #[serde(rename = "@name")]
+    pub name: String,
+    #[serde(rename = "@starred", skip_serializing_if = "Option::is_none")]
+    pub starred: Option<String>,
+    #[serde(rename = "@userRating", skip_serializing_if = "Option::is_none")]
+    pub user_rating: Option<i32>,
+    #[serde(rename = "child", default, skip_serializing_if = "Vec::is_empty")]
+    pub child: Vec<XmlDirectoryChild>,
+}
+
+#[derive(Serialize)]
+pub struct XmlDirectoryChild {
+    #[serde(rename = "@id")]
+    pub id: String,
+    #[serde(rename = "@parent", skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    #[serde(rename = "@isDir")]
+    pub is_dir: bool,
+    #[serde(rename = "@title")]
+    pub title: String,
+    #[serde(rename = "@artist", skip_serializing_if = "Option::is_none")]
+    pub artist: Option<String>,
+    #[serde(rename = "@album", skip_serializing_if = "Option::is_none")]
+    pub album: Option<String>,
+    #[serde(rename = "@coverArt", skip_serializing_if = "Option::is_none")]
+    pub cover_art: Option<String>,
+    #[serde(rename = "@year", skip_serializing_if = "Option::is_none")]
+    pub year: Option<i32>,
+    #[serde(rename = "@genre", skip_serializing_if = "Option::is_none")]
+    pub genre: Option<String>,
+    #[serde(rename = "@track", skip_serializing_if = "Option::is_none")]
+    pub track: Option<i32>,
+    #[serde(rename = "@size", skip_serializing_if = "Option::is_none")]
+    pub size: Option<i64>,
+    #[serde(rename = "@contentType", skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(rename = "@suffix", skip_serializing_if = "Option::is_none")]
+    pub suffix: Option<String>,
+    #[serde(rename = "@duration", skip_serializing_if = "Option::is_none")]
+    pub duration: Option<i64>,
+    #[serde(rename = "@bitRate", skip_serializing_if = "Option::is_none")]
+    pub bit_rate: Option<i32>,
+    #[serde(rename = "@path", skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(rename = "@starred", skip_serializing_if = "Option::is_none")]
+    pub starred: Option<String>,
+    #[serde(rename = "@userRating", skip_serializing_if = "Option::is_none")]
+    pub user_rating: Option<i32>,
+    #[serde(rename = "@created", skip_serializing_if = "Option::is_none")]
+    pub created: Option<String>,
+}
+
+// --- directory.rs ToXml implementations ---
+
+use crate::api::subsonic::directory::{
+    DirectoryChild, DirectoryResponse, IndexesResponse,
+};
+
+/// Convert a JSON DirectoryChild to XmlDirectoryChild
+fn directory_child_to_xml(child: &DirectoryChild) -> XmlDirectoryChild {
+    XmlDirectoryChild {
+        id: child.id.clone(),
+        parent: child.parent.clone(),
+        is_dir: child.is_dir,
+        title: child.title.clone(),
+        artist: child.artist.clone(),
+        album: child.album.clone(),
+        cover_art: child.cover_art.clone(),
+        year: child.year,
+        genre: child.genre.clone(),
+        track: child.track,
+        size: child.size,
+        content_type: child.content_type.clone(),
+        suffix: child.suffix.clone(),
+        duration: child.duration,
+        bit_rate: child.bit_rate,
+        path: child.path.clone(),
+        starred: child.starred.clone(),
+        user_rating: child.user_rating,
+        created: child.created.clone(),
+    }
+}
+
+impl ToXml for IndexesResponse {
+    type XmlType = XmlIndexesResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlIndexesResponse::ok(XmlIndexesInner {
+            last_modified: self.indexes.last_modified,
+            ignored_articles: self.indexes.ignored_articles.clone(),
+            shortcut: self.indexes.shortcut.iter().map(directory_child_to_xml).collect(),
+            index: self
+                .indexes
+                .index
+                .iter()
+                .map(|idx| XmlDirectoryIndex {
+                    name: idx.name.clone(),
+                    artist: idx
+                        .artist
+                        .iter()
+                        .map(|a| XmlDirectoryArtist {
+                            id: a.id.clone(),
+                            name: a.name.clone(),
+                            starred: a.starred.clone(),
+                            user_rating: a.user_rating,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            child: self.indexes.child.iter().map(directory_child_to_xml).collect(),
+        })
+    }
+}
+
+impl ToXml for DirectoryResponse {
+    type XmlType = XmlDirectoryResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlDirectoryResponse::ok(XmlDirectoryInner {
+            id: self.directory.id.clone(),
+            parent: self.directory.parent.clone(),
+            name: self.directory.name.clone(),
+            starred: self.directory.starred.clone(),
+            user_rating: self.directory.user_rating,
+            child: self.directory.child.iter().map(directory_child_to_xml).collect(),
+        })
+    }
+}
