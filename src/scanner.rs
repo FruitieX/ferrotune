@@ -123,11 +123,12 @@ pub async fn scan_library_with_progress(
                 state.log("WARN", "Scan cancelled by user").await;
                 return Err(Error::InvalidRequest("Scan cancelled".to_string()));
             }
+            state.set_current_folder(Some(folder.name.clone())).await;
             state
-                .set_current_folder(Some(folder.name.clone()))
-                .await;
-            state
-                .log("INFO", format!("Scanning folder: {} ({})", folder.name, folder.path))
+                .log(
+                    "INFO",
+                    format!("Scanning folder: {} ({})", folder.name, folder.path),
+                )
                 .await;
         }
 
@@ -303,7 +304,9 @@ async fn scan_folder_with_progress(
     // This is much faster than checking exists() for each file, especially on network drives.
     tracing::info!("Loading existing songs from database...");
     if let Some(ref state) = scan_state {
-        state.log("INFO", "Loading existing songs from database...").await;
+        state
+            .log("INFO", "Loading existing songs from database...")
+            .await;
     }
 
     let existing_paths: Vec<(String, String)> =
@@ -392,7 +395,12 @@ async fn scan_folder_with_progress(
         if let Some(ref state) = scan_state {
             state.increment_scanned();
             state
-                .set_current_file(Some(path.file_name().unwrap_or_default().to_string_lossy().to_string()))
+                .set_current_file(Some(
+                    path.file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string(),
+                ))
                 .await;
             // Broadcast every 50 files to avoid too many updates
             if scanned % 50 == 0 {
@@ -484,7 +492,9 @@ async fn scan_folder_with_progress(
                     tracing::error!("Failed to save song metadata: {}", e);
                     if let Some(ref state) = scan_state {
                         state.increment_errors();
-                        state.log("ERROR", format!("Failed to save metadata: {}", e)).await;
+                        state
+                            .log("ERROR", format!("Failed to save metadata: {}", e))
+                            .await;
                     }
                     errors += 1;
                 }

@@ -17,6 +17,15 @@ use uuid::Uuid;
 pub struct PlaylistParams {
     #[serde(default, deserialize_with = "first_string_or_none")]
     id: Option<String>,
+    /// Sort field for songs: name, artist, album, year, dateAdded, playCount, duration, custom
+    #[serde(default)]
+    sort: Option<String>,
+    /// Sort direction: asc or desc
+    #[serde(default)]
+    sort_dir: Option<String>,
+    /// Filter text to match against song title, artist, album
+    #[serde(default)]
+    filter: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -175,6 +184,8 @@ pub async fn get_playlist(
     user: AuthenticatedUser,
     axum::extract::Query(params): axum::extract::Query<PlaylistParams>,
 ) -> Result<FormatResponse<PlaylistWithSongsResponse>> {
+    use super::sorting::filter_and_sort_songs;
+
     let id = params
         .id
         .ok_or_else(|| Error::InvalidRequest("Missing required parameter: id".to_string()))?;
@@ -195,6 +206,14 @@ pub async fn get_playlist(
     let songs = queries::get_playlist_songs(&state.pool, &id)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
+
+    // Apply server-side filtering and sorting
+    let songs = filter_and_sort_songs(
+        songs,
+        params.filter.as_deref(),
+        params.sort.as_deref(),
+        params.sort_dir.as_deref(),
+    );
 
     let song_responses: Vec<crate::api::subsonic::browse::SongResponse> =
         songs.iter().map(song_to_playlist_response).collect();

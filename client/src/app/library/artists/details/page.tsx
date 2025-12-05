@@ -29,7 +29,6 @@ import { ActionBar } from "@/components/shared/action-bar";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
 import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
 import { formatCount } from "@/lib/utils/format";
-import { sortSongs } from "@/lib/utils/sort-songs";
 import { cn } from "@/lib/utils";
 import type { Album } from "@/lib/api/types";
 
@@ -57,48 +56,42 @@ function ArtistDetailContent() {
     }
   }, [id, isMounted, authLoading, router]);
 
-  // Fetch artist data (includes songs from server)
+  // Fetch artist data with server-side sort/filter for songs
   const { data: artistData, isLoading } = useQuery({
-    queryKey: ["artist", id],
+    queryKey: ["artist", id, sortConfig.field, sortConfig.direction, debouncedFilter],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getArtist(id!);
+      const response = await client.getArtist(id!, {
+        sort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
+        sortDir: sortConfig.field !== "custom" ? sortConfig.direction : undefined,
+        filter: debouncedFilter.trim() || undefined,
+      });
       return response.artist;
     },
     enabled: isReady && !!id,
+    // Keep previous data while fetching new sort/filter results
+    placeholderData: (previousData) => previousData,
   });
 
-  // Songs come directly from server response - includes songs on compilations
-  const allSongs = artistData?.song ?? [];
+  // Songs come directly from server response - already sorted and filtered
+  const displaySongs = artistData?.song ?? [];
   
-  // Filter and sort songs
-  const displaySongs = useMemo(() => {
-    let filtered = allSongs;
-    
-    if (debouncedFilter.trim()) {
-      const query = debouncedFilter.toLowerCase();
-      filtered = allSongs.filter(song =>
-        song.title?.toLowerCase().includes(query) ||
-        song.album?.toLowerCase().includes(query)
-      );
-    }
-    
-    if (sortConfig.field !== "custom") {
-      return sortSongs(filtered, sortConfig.field, sortConfig.direction);
-    }
-    
-    return filtered;
-  }, [allSongs, debouncedFilter, sortConfig]);
+  // Track if we have any songs (before filtering) to show appropriate empty state
+  const hasAnySongs = displaySongs.length > 0 || debouncedFilter.trim() !== "";
 
-  // Queue source for artist songs - server materializes the artist's song list
+  // Queue source for artist songs - server materializes with same sort/filter
   const artistQueueSource = useMemo(() => ({
     type: "artist" as QueueSourceType,
     id: id,
     name: artistData?.name ?? "Artist",
-  }), [id, artistData?.name]);
+    sort: sortConfig.field !== "custom" ? {
+      field: sortConfig.field,
+      direction: sortConfig.direction,
+    } : undefined,
+  }), [id, artistData?.name, sortConfig.field, sortConfig.direction]);
 
-  // Multi-selection support for songs - use displaySongs for selection
+  // Multi-selection support for songs
   const selection = useTrackSelection(displaySongs);
 
   // Use the artist star hook
@@ -417,7 +410,7 @@ function ArtistDetailContent() {
               />
             )}
           </div>
-        ) : allSongs.length > 0 ? (
+        ) : debouncedFilter.trim() ? (
           <EmptyFilterState message="No songs match your filter" />
         ) : (
           <EmptyState

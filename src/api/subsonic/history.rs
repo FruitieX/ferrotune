@@ -19,6 +19,15 @@ use ts_rs::TS;
 pub struct PlayHistoryParams {
     size: Option<u32>,
     offset: Option<u32>,
+    /// Sort field for songs: name, artist, album, year, dateAdded, playCount, duration, custom
+    #[serde(default)]
+    sort: Option<String>,
+    /// Sort direction: asc or desc
+    #[serde(default)]
+    sort_dir: Option<String>,
+    /// Filter text to match against song title, artist, album
+    #[serde(default)]
+    filter: Option<String>,
 }
 
 #[derive(Serialize, TS)]
@@ -55,6 +64,8 @@ pub async fn get_play_history(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PlayHistoryParams>,
 ) -> Result<FormatResponse<PlayHistoryResponse>> {
+    use super::sorting::filter_and_sort_songs;
+
     let size = params.size.unwrap_or(50).min(500) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
 
@@ -92,6 +103,14 @@ pub async fn get_play_history(
     .bind(offset)
     .fetch_all(&state.pool)
     .await?;
+
+    // Apply server-side filtering and sorting
+    let songs = filter_and_sort_songs(
+        songs,
+        params.filter.as_deref(),
+        params.sort.as_deref(),
+        params.sort_dir.as_deref(),
+    );
 
     // Get total count of unique songs in history
     let total: (i64,) = sqlx::query_as(

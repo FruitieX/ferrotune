@@ -38,7 +38,6 @@ import { SongListToolbar } from "@/components/shared/song-list-toolbar";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
 import { formatTotalDuration, formatCount } from "@/lib/utils/format";
-import { sortSongs } from "@/lib/utils/sort-songs";
 import { cn } from "@/lib/utils";
 
 function AlbumDetailContent() {
@@ -67,41 +66,40 @@ function AlbumDetailContent() {
     }
   }, [id, isMounted, authLoading, router]);
 
-  // Fetch album data
+  // Fetch album data with server-side sort/filter for songs
   const { data: albumData, isLoading } = useQuery({
-    queryKey: ["album", id],
+    queryKey: ["album", id, sortConfig.field, sortConfig.direction, debouncedFilter],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getAlbum(id!);
+      const response = await client.getAlbum(id!, {
+        sort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
+        sortDir: sortConfig.field !== "custom" ? sortConfig.direction : undefined,
+        filter: debouncedFilter.trim() || undefined,
+      });
       return response.album;
     },
     enabled: isReady && !!id,
+    // Keep previous data while fetching new sort/filter results
+    placeholderData: (previousData) => previousData,
   });
 
-  const songs = albumData?.song ?? [];
+  // Songs come directly from server response - already sorted and filtered
+  const displaySongs = albumData?.song ?? [];
   
-  // Filter and sort songs
-  const displaySongs = useMemo(() => {
-    let filtered = songs;
-    
-    if (debouncedFilter.trim()) {
-      const query = debouncedFilter.toLowerCase();
-      filtered = songs.filter(song =>
-        song.title?.toLowerCase().includes(query) ||
-        song.artist?.toLowerCase().includes(query)
-      );
-    }
-    
-    if (sortConfig.field !== "custom") {
-      return sortSongs(filtered, sortConfig.field, sortConfig.direction);
-    }
-    
-    return filtered;
-  }, [songs, debouncedFilter, sortConfig]);
-  
-  // Multi-selection support - use displaySongs for selection
+  // Multi-selection support
   const selection = useTrackSelection(displaySongs);
+
+  // Queue source for album songs - server materializes with same sort
+  const albumQueueSource = useMemo(() => ({
+    type: "album" as QueueSourceType,
+    id: id,
+    name: albumData?.name ?? "Album",
+    sort: sortConfig.field !== "custom" ? {
+      field: sortConfig.field,
+      direction: sortConfig.direction,
+    } : undefined,
+  }), [id, albumData?.name, sortConfig.field, sortConfig.direction]);
 
   const coverArtUrl = albumData?.coverArt
     ? getClient()?.getCoverArtUrl(albumData.coverArt, 400)
@@ -117,6 +115,10 @@ function AlbumDetailContent() {
         sourceName: albumData?.name,
         startIndex: 0,
         shuffle: false,
+        sort: sortConfig.field !== "custom" ? {
+          field: sortConfig.field,
+          direction: sortConfig.direction,
+        } : undefined,
       });
     }
   };
@@ -129,6 +131,10 @@ function AlbumDetailContent() {
         sourceName: albumData?.name,
         startIndex: 0,
         shuffle: true,
+        sort: sortConfig.field !== "custom" ? {
+          field: sortConfig.field,
+          direction: sortConfig.direction,
+        } : undefined,
       });
     }
   };
@@ -354,6 +360,7 @@ function AlbumDetailContent() {
                 <SongCard
                   song={song}
                   queueSongs={displaySongs}
+                  queueSource={albumQueueSource}
                   isSelected={selection.isSelected(song.id)}
                   isSelectionMode={selection.hasSelection}
                   onSelect={(e) => selection.handleSelect(song.id, e)}
@@ -377,6 +384,7 @@ function AlbumDetailContent() {
                   showYear={columnVisibility.year}
                   showDateAdded={columnVisibility.dateAdded}
                   queueSongs={displaySongs}
+                  queueSource={albumQueueSource}
                   isSelected={selection.isSelected(song.id)}
                   isSelectionMode={selection.hasSelection}
                   onSelect={(e) => selection.handleSelect(song.id, e)}
@@ -387,7 +395,7 @@ function AlbumDetailContent() {
               estimateItemHeight={56}
             />
           )
-        ) : songs.length > 0 ? (
+        ) : debouncedFilter.trim() ? (
           <EmptyFilterState message="No songs match your filter" />
         ) : (
           <EmptyState

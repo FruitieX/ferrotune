@@ -129,12 +129,28 @@ export class SubsonicClient {
     return this.request<ArtistsResponse>("getArtists", { musicFolderId });
   }
 
-  async getArtist(id: string): Promise<ArtistDetailResponse> {
-    return this.request<ArtistDetailResponse>("getArtist", { id });
+  async getArtist(
+    id: string,
+    options?: { sort?: string; sortDir?: string; filter?: string }
+  ): Promise<ArtistDetailResponse> {
+    return this.request<ArtistDetailResponse>("getArtist", {
+      id,
+      sort: options?.sort,
+      sortDir: options?.sortDir,
+      filter: options?.filter,
+    });
   }
 
-  async getAlbum(id: string): Promise<AlbumDetailResponse> {
-    return this.request<AlbumDetailResponse>("getAlbum", { id });
+  async getAlbum(
+    id: string,
+    options?: { sort?: string; sortDir?: string; filter?: string }
+  ): Promise<AlbumDetailResponse> {
+    return this.request<AlbumDetailResponse>("getAlbum", {
+      id,
+      sort: options?.sort,
+      sortDir: options?.sortDir,
+      filter: options?.filter,
+    });
   }
 
   async getSong(id: string): Promise<SongDetailResponse> {
@@ -228,8 +244,17 @@ export class SubsonicClient {
     return this.request<PlaylistsResponse>("getPlaylists");
   }
 
-  async getPlaylist(id: string): Promise<PlaylistWithSongsResponse> {
-    return this.request<PlaylistWithSongsResponse>("getPlaylist", { id });
+  async getPlaylist(id: string, options?: {
+    sort?: string;
+    sortDir?: string;
+    filter?: string;
+  }): Promise<PlaylistWithSongsResponse> {
+    return this.request<PlaylistWithSongsResponse>("getPlaylist", { 
+      id,
+      sort: options?.sort,
+      sortDir: options?.sortDir,
+      filter: options?.filter,
+    });
   }
 
   async createPlaylist(params: { name: string; songId?: string[] }): Promise<PlaylistWithSongsResponse> {
@@ -346,7 +371,13 @@ export class SubsonicClient {
   }
 
   // Play History endpoints (Ferrotune extensions)
-  async getPlayHistory(params: { size?: number; offset?: number } = {}): Promise<PlayHistoryResponse> {
+  async getPlayHistory(params: { 
+    size?: number; 
+    offset?: number;
+    sort?: string;
+    sortDir?: string;
+    filter?: string;
+  } = {}): Promise<PlayHistoryResponse> {
     return this.request<PlayHistoryResponse>("getPlayHistory", params);
   }
 

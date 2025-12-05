@@ -65,7 +65,6 @@ import { SortableSongRow } from "@/components/shared/sortable-song-row";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
 import { formatDuration, formatCount, formatDate, formatTotalDuration } from "@/lib/utils/format";
-import { sortSongs } from "@/lib/utils/sort-songs";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 
@@ -99,16 +98,22 @@ function PlaylistDetailContent() {
     }
   }, [playlistId, isMounted, authLoading, router]);
 
-  // Fetch playlist details
+  // Fetch playlist details with server-side sort/filter
   const { data: playlist, isLoading } = useQuery({
-    queryKey: ["playlist", playlistId],
+    queryKey: ["playlist", playlistId, sortConfig.field, sortConfig.direction, debouncedFilter],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getPlaylist(playlistId!);
+      const response = await client.getPlaylist(playlistId!, {
+        sort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
+        sortDir: sortConfig.field !== "custom" ? sortConfig.direction : undefined,
+        filter: debouncedFilter.trim() || undefined,
+      });
       return response.playlist;
     },
     enabled: isReady && !!playlistId,
+    // Keep previous data while fetching new sort/filter results
+    placeholderData: (prev) => prev,
   });
 
   // Get the cover URL
@@ -244,34 +249,22 @@ function PlaylistDetailContent() {
   // Check if drag-and-drop should be enabled
   const isDragEnabled = !debouncedFilter.trim() && sortConfig.field === "custom" && viewMode === "list";
   
-  // Filter and sort songs
-  const displaySongs = useMemo(() => {
-    let filtered = orderedSongs;
-    
-    if (debouncedFilter.trim()) {
-      const query = debouncedFilter.toLowerCase();
-      filtered = orderedSongs.filter(song =>
-        song.title?.toLowerCase().includes(query) ||
-        song.artist?.toLowerCase().includes(query) ||
-        song.album?.toLowerCase().includes(query)
-      );
-    }
-    
-    if (sortConfig.field !== "custom") {
-      return sortSongs(filtered, sortConfig.field, sortConfig.direction);
-    }
-    
-    return filtered;
-  }, [orderedSongs, debouncedFilter, sortConfig]);
+  // Songs come from server already sorted and filtered
+  // For drag-and-drop reordering, we use localSongOrder when in custom sort mode
+  const displaySongs = isDragEnabled ? localSongOrder : orderedSongs;
 
   const totalDuration = displaySongs.reduce((acc, song) => acc + (song.duration ?? 0), 0);
 
-  // Queue source for playlist - server materializes the playlist contents
+  // Queue source for playlist - server materializes with same sort
   const playlistQueueSource = useMemo(() => ({
     type: "playlist" as const,
     id: playlistId,
     name: playlist?.name ?? "Playlist",
-  }), [playlistId, playlist?.name]);
+    sort: sortConfig.field !== "custom" ? {
+      field: sortConfig.field,
+      direction: sortConfig.direction,
+    } : undefined,
+  }), [playlistId, playlist?.name, sortConfig.field, sortConfig.direction]);
 
   // Build breadcrumb items from playlist name (which includes folder path)
   const breadcrumbItems = useMemo(() => {

@@ -131,6 +131,22 @@ pub async fn get_artists(
 
 // ===== getArtist =====
 
+/// Query params for getArtist endpoint
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetArtistParams {
+    id: String,
+    /// Sort field for songs: name, artist, album, year, dateAdded, playCount, duration, custom
+    #[serde(default)]
+    sort: Option<String>,
+    /// Sort direction: asc or desc
+    #[serde(default)]
+    sort_dir: Option<String>,
+    /// Filter text to match against song title, artist, album
+    #[serde(default)]
+    filter: Option<String>,
+}
+
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
@@ -186,8 +202,10 @@ pub struct AlbumResponse {
 pub async fn get_artist(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
-    Query(params): Query<IdParam>,
+    Query(params): Query<GetArtistParams>,
 ) -> crate::error::Result<FormatResponse<ArtistDetailResponse>> {
+    use super::sorting::filter_and_sort_songs;
+
     let artist = crate::db::queries::get_artist_by_id(&state.pool, &params.id)
         .await?
         .ok_or_else(|| crate::error::Error::NotFound(format!("Artist {} not found", params.id)))?;
@@ -196,6 +214,14 @@ pub async fn get_artist(
 
     // Get all songs by this artist (track artist, includes songs on compilations)
     let songs = crate::db::queries::get_songs_by_artist(&state.pool, &params.id).await?;
+
+    // Apply server-side filtering and sorting
+    let songs = filter_and_sort_songs(
+        songs,
+        params.filter.as_deref(),
+        params.sort.as_deref(),
+        params.sort_dir.as_deref(),
+    );
 
     // Get starred status and ratings for albums
     let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
@@ -413,16 +439,42 @@ pub struct SongResponse {
     pub last_played: Option<String>,
 }
 
+/// Query params for getAlbum endpoint
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetAlbumParams {
+    id: String,
+    /// Sort field for songs: name, artist, album, year, dateAdded, playCount, duration, custom
+    #[serde(default)]
+    sort: Option<String>,
+    /// Sort direction: asc or desc
+    #[serde(default)]
+    sort_dir: Option<String>,
+    /// Filter text to match against song title, artist
+    #[serde(default)]
+    filter: Option<String>,
+}
+
 pub async fn get_album(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
-    Query(params): Query<IdParam>,
+    Query(params): Query<GetAlbumParams>,
 ) -> crate::error::Result<FormatResponse<AlbumDetailResponse>> {
+    use super::sorting::filter_and_sort_songs;
+
     let album = crate::db::queries::get_album_by_id(&state.pool, &params.id)
         .await?
         .ok_or_else(|| crate::error::Error::NotFound(format!("Album {} not found", params.id)))?;
 
     let songs = crate::db::queries::get_songs_by_album(&state.pool, &params.id).await?;
+
+    // Apply server-side filtering and sorting
+    let songs = filter_and_sort_songs(
+        songs,
+        params.filter.as_deref(),
+        params.sort.as_deref(),
+        params.sort_dir.as_deref(),
+    );
 
     // Get starred status and ratings for songs
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
