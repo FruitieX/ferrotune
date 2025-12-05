@@ -56,6 +56,7 @@ const sortOptions: { value: SortField; label: string }[] = [
   { value: "year", label: "Year" },
   { value: "dateAdded", label: "Date Added" },
   { value: "playCount", label: "Play Count" },
+  { value: "lastPlayed", label: "Last Played" },
   { value: "duration", label: "Duration" },
 ];
 

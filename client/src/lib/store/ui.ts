@@ -28,7 +28,7 @@ export const albumViewModeAtom = atomWithServerStorage<ViewMode>("album-view", "
 export const artistViewModeAtom = atomWithServerStorage<ViewMode>("artist-view", "grid");
 
 // Library sorting
-export type SortField = "custom" | "name" | "artist" | "year" | "dateAdded" | "playCount" | "duration" | "albumCount" | "songCount";
+export type SortField = "custom" | "name" | "artist" | "year" | "dateAdded" | "playCount" | "lastPlayed" | "duration" | "albumCount" | "songCount";
 export type SortDirection = "asc" | "desc";
 
 export interface SortConfig {

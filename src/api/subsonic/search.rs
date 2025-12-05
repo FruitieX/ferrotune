@@ -151,6 +151,7 @@ fn get_album_order_clause(sort: Option<&String>, sort_dir: Option<&String>) -> S
         Some("artist") => format!("ar.name COLLATE NOCASE {dir}, a.name COLLATE NOCASE {dir}"),
         Some("year") => format!("a.year {dir}, a.name COLLATE NOCASE {dir}"),
         Some("dateAdded") => format!("a.created_at {dir}, a.name COLLATE NOCASE {dir}"),
+        Some("songCount") => format!("a.song_count {dir}, a.name COLLATE NOCASE {dir}"),
         _ => format!("a.name COLLATE NOCASE {dir}"), // default: name
     }
 }

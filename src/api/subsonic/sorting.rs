@@ -72,6 +72,7 @@ pub fn sort_songs(mut songs: Vec<Song>, sort: Option<&str>, sort_dir: Option<&st
             "year" => a.year.unwrap_or(0).cmp(&b.year.unwrap_or(0)),
             "dateAdded" | "created" => a.created_at.cmp(&b.created_at),
             "playCount" => a.play_count.unwrap_or(0).cmp(&b.play_count.unwrap_or(0)),
+            "lastPlayed" => a.last_played.cmp(&b.last_played),
             "duration" => a.duration.cmp(&b.duration),
             _ => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
         };
