@@ -12,6 +12,7 @@ import { usePreferencesSync } from "@/lib/hooks/use-preferences-sync";
 import { useClearSelectionOnNavigate } from "@/lib/hooks/use-clear-selection-on-navigate";
 import { DynamicFavicon } from "@/components/dynamic-favicon";
 import { accentColorAtom, customAccentHueAtom, customAccentLightnessAtom, customAccentChromaAtom } from "@/lib/store/ui";
+import { needsDarkForeground } from "@/lib/utils/color";
 
 // Component that handles clearing selection on navigation
 // Wrapped in Suspense because useSearchParams triggers Suspense on initial render
@@ -44,9 +45,11 @@ function AccentColorProvider({ children }: { children: React.ReactNode }) {
     
     // Clear any custom CSS variables
     html.style.removeProperty("--primary");
+    html.style.removeProperty("--primary-foreground");
     html.style.removeProperty("--ring");
     html.style.removeProperty("--chart-1");
     html.style.removeProperty("--sidebar-primary");
+    html.style.removeProperty("--sidebar-primary-foreground");
     html.style.removeProperty("--sidebar-ring");
     
     if (accentColor === "custom") {
@@ -57,6 +60,13 @@ function AccentColorProvider({ children }: { children: React.ReactNode }) {
       html.style.setProperty("--chart-1", customColor);
       html.style.setProperty("--sidebar-primary", customColor);
       html.style.setProperty("--sidebar-ring", customColor);
+      
+      // Adjust foreground color for contrast when using light custom colors
+      if (needsDarkForeground(customLightness)) {
+        const darkForeground = "oklch(0.1 0 0)";
+        html.style.setProperty("--primary-foreground", darkForeground);
+        html.style.setProperty("--sidebar-primary-foreground", darkForeground);
+      }
     } else if (accentColor !== "rust") {
       // Set data attribute for preset themes (rust is the default, handled by CSS variables directly)
       html.setAttribute("data-accent", accentColor);
