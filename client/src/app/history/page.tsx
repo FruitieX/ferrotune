@@ -21,7 +21,6 @@ import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/componen
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { formatCount, formatTotalDuration } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
-import { sortSongs } from "@/lib/utils/sort-songs";
 import type { Song } from "@/lib/api/types";
 
 export default function HistoryPage() {
@@ -39,46 +38,38 @@ export default function HistoryPage() {
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
 
-  // Fetch play history from the server
+  // Fetch play history from the server with server-side sort/filter
   const { data: historyData, isLoading } = useQuery({
-    queryKey: ["playHistory"],
+    queryKey: ["playHistory", sortConfig.field, sortConfig.direction, debouncedFilter],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getPlayHistory({ size: 500 });
+      const response = await client.getPlayHistory({ 
+        size: 500,
+        sort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
+        sortDir: sortConfig.field !== "custom" ? sortConfig.direction : undefined,
+        filter: debouncedFilter.trim() || undefined,
+      });
       return response.playHistory;
     },
     enabled: isReady,
+    placeholderData: (prev) => prev,
   });
 
-  // Extract songs from history entries (Song type already includes playedAt from the API)
-  const songs: Song[] = historyData?.entry ?? [];
-  
-  // Filter and sort songs
-  const displaySongs = useMemo(() => {
-    let filtered = songs;
-    
-    // Apply filter
-    if (debouncedFilter.trim()) {
-      const query = debouncedFilter.toLowerCase();
-      filtered = songs.filter(song =>
-        song.title?.toLowerCase().includes(query) ||
-        song.artist?.toLowerCase().includes(query) ||
-        song.album?.toLowerCase().includes(query)
-      );
-    }
-    
-    // Apply sort
-    return sortSongs(filtered, sortConfig.field, sortConfig.direction);
-  }, [songs, debouncedFilter, sortConfig]);
+  // Songs come from server already sorted and filtered
+  const displaySongs: Song[] = historyData?.entry ?? [];
   
   const totalDuration = displaySongs.reduce((acc, song) => acc + song.duration, 0);
 
-  // Queue source for history - server materializes the history list
+  // Queue source for history - server materializes with same sort
   const historyQueueSource = useMemo(() => ({
     type: "history" as QueueSourceType,
     name: "Recently Played",
-  }), []);
+    sort: sortConfig.field !== "custom" ? {
+      field: sortConfig.field,
+      direction: sortConfig.direction,
+    } : undefined,
+  }), [sortConfig.field, sortConfig.direction]);
 
   // Track selection
   const {
@@ -214,7 +205,7 @@ export default function HistoryPage() {
               estimateItemHeight={56}
             />
           )
-        ) : songs.length > 0 ? (
+        ) : debouncedFilter.trim() ? (
           <EmptyFilterState message="No songs match your filter" />
         ) : (
           <EmptyState

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -38,8 +38,6 @@ import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { formatCount, formatTotalDuration } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import type { Album, Artist, Song } from "@/lib/api/types";
-import { sortSongs } from "@/lib/utils/sort-songs";
-import { sortAlbums, sortArtists } from "@/lib/utils/sort-media";
 
 type TabValue = "songs" | "albums" | "artists";
 
@@ -76,90 +74,90 @@ export default function FavoritesPage() {
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
 
-  // Fetch starred items (when not searching)
-  const { data: starredData, isLoading } = useQuery({
-    queryKey: ["starred"],
+  // Fetch starred songs using search3 API with starredOnly for server-side sorting
+  const { data: songsData, isLoading: isSongsLoading } = useQuery({
+    queryKey: ["starred-songs", debouncedSongSearch, songSortConfig],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getStarred2();
-      return response.starred2;
-    },
-    enabled: isReady,
-  });
-
-  // Search within starred items using search3 API with starredOnly
-  const { data: searchResults, isLoading: isSearching } = useQuery({
-    queryKey: ["starred-search", debouncedSongSearch, debouncedAlbumSearch, debouncedArtistSearch, songSortConfig, albumSortConfig, artistSortConfig],
-    queryFn: async () => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      
-      // Determine which queries are active
-      const hasQuery = debouncedSongSearch || debouncedAlbumSearch || debouncedArtistSearch;
-      if (!hasQuery) return null;
-      
-      // Use the query from the active tab, or combine them
-      const query = debouncedSongSearch || debouncedAlbumSearch || debouncedArtistSearch;
       
       const response = await client.search3({
-        query,
-        songCount: debouncedSongSearch ? 200 : 0,
-        albumCount: debouncedAlbumSearch ? 200 : 0,
-        artistCount: debouncedArtistSearch ? 200 : 0,
+        query: debouncedSongSearch.trim() || "*",
+        songCount: 500,
+        albumCount: 0,
+        artistCount: 0,
         starredOnly: true,
-        songSort: debouncedSongSearch ? songSortConfig.field : null,
-        songSortDir: debouncedSongSearch ? songSortConfig.direction : null,
-        albumSort: debouncedAlbumSearch ? albumSortConfig.field : null,
-        albumSortDir: debouncedAlbumSearch ? albumSortConfig.direction : null,
-        // Note: artistSort not supported by backend - artists are sorted client-side
+        songSort: songSortConfig.field !== "custom" ? songSortConfig.field : null,
+        songSortDir: songSortConfig.field !== "custom" ? songSortConfig.direction : null,
       });
-      return response.searchResult3;
+      return response.searchResult3.song ?? [];
     },
-    enabled: isReady && !!(debouncedSongSearch || debouncedAlbumSearch || debouncedArtistSearch),
-    staleTime: 0,
-    refetchOnMount: "always",
+    enabled: isReady,
+    placeholderData: (prev) => prev,
   });
 
-  const songs = starredData?.song ?? [];
-  const albums = starredData?.album ?? [];
-  const artists = starredData?.artist ?? [];
+  // Fetch starred albums using search3 API with starredOnly for server-side sorting
+  const { data: albumsData, isLoading: isAlbumsLoading } = useQuery({
+    queryKey: ["starred-albums", debouncedAlbumSearch, albumSortConfig],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      
+      const response = await client.search3({
+        query: debouncedAlbumSearch.trim() || "*",
+        songCount: 0,
+        albumCount: 500,
+        artistCount: 0,
+        starredOnly: true,
+        albumSort: albumSortConfig.field !== "custom" ? albumSortConfig.field : null,
+        albumSortDir: albumSortConfig.field !== "custom" ? albumSortConfig.direction : null,
+      });
+      return response.searchResult3.album ?? [];
+    },
+    enabled: isReady,
+    placeholderData: (prev) => prev,
+  });
 
-  // Filter and sort songs
-  // When searching, use search API results; otherwise sort the full list
-  const displaySongs = useMemo(() => {
-    if (debouncedSongSearch.trim() && searchResults) {
-      // Results from API are already sorted server-side
-      return searchResults.song ?? [];
-    }
-    return sortSongs(songs as Song[], songSortConfig.field, songSortConfig.direction);
-  }, [songs, debouncedSongSearch, songSortConfig, searchResults]);
+  // Fetch starred artists using search3 API with starredOnly
+  // Note: artistSort not yet implemented server-side, but we still use search3 for consistency
+  const { data: artistsData, isLoading: isArtistsLoading } = useQuery({
+    queryKey: ["starred-artists", debouncedArtistSearch],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      
+      const response = await client.search3({
+        query: debouncedArtistSearch.trim() || "*",
+        songCount: 0,
+        albumCount: 0,
+        artistCount: 500,
+        starredOnly: true,
+      });
+      return response.searchResult3.artist ?? [];
+    },
+    enabled: isReady,
+    placeholderData: (prev) => prev,
+  });
 
-  // Filter and sort albums
-  const displayAlbums = useMemo(() => {
-    if (debouncedAlbumSearch.trim() && searchResults) {
-      // Results from API are already sorted server-side
-      return searchResults.album ?? [];
-    }
-    return sortAlbums(albums, albumSortConfig.field, albumSortConfig.direction);
-  }, [albums, debouncedAlbumSearch, albumSortConfig, searchResults]);
-
-  // Filter and sort artists
-  const displayArtists = useMemo(() => {
-    if (debouncedArtistSearch.trim() && searchResults) {
-      // Results from API are already sorted server-side
-      return searchResults.artist ?? [];
-    }
-    return sortArtists(artists, artistSortConfig.field, artistSortConfig.direction);
-  }, [artists, debouncedArtistSearch, artistSortConfig, searchResults]);
+  // Display data comes directly from server - already sorted and filtered
+  const displaySongs = songsData ?? [];
+  const displayAlbums = albumsData ?? [];
+  const displayArtists = artistsData ?? [];
+  
+  // Combined loading state
+  const isLoading = isSongsLoading || isAlbumsLoading || isArtistsLoading;
 
   const totalDuration = displaySongs.reduce((acc, song) => acc + song.duration, 0);
 
-  // Queue source for favorites songs - server materializes the favorites list
+  // Queue source for favorites songs - server materializes with same sort
   const favoritesQueueSource = useMemo(() => ({
     type: "favorites" as QueueSourceType,
     name: "Favorites",
-  }), []);
+    sort: songSortConfig.field !== "custom" ? {
+      field: songSortConfig.field,
+      direction: songSortConfig.direction,
+    } : undefined,
+  }), [songSortConfig.field, songSortConfig.direction]);
 
   // Track selection for songs tab
   const songSelection = useTrackSelection(displaySongs);

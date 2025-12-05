@@ -397,6 +397,15 @@ pub struct SongsByGenreParams {
     pub offset: Option<u32>,
     #[ts(type = "number | null")]
     pub music_folder_id: Option<i64>,
+    /// Sort field: name, artist, album, year, dateAdded, playCount, duration, custom
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// Sort direction: asc or desc
+    #[serde(default)]
+    pub sort_dir: Option<String>,
+    /// Filter text to match against song title, artist, album
+    #[serde(default)]
+    pub filter: Option<String>,
 }
 
 #[derive(Serialize, TS)]
@@ -419,6 +428,8 @@ pub async fn get_songs_by_genre(
     State(state): State<Arc<AppState>>,
     Query(params): Query<SongsByGenreParams>,
 ) -> Result<FormatResponse<SongsByGenreResponse>> {
+    use super::sorting::filter_and_sort_songs;
+
     let count = params.count.unwrap_or(10).min(500) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
 
@@ -436,6 +447,14 @@ pub async fn get_songs_by_genre(
     .bind(offset)
     .fetch_all(&state.pool)
     .await?;
+
+    // Apply server-side filtering and sorting
+    let songs = filter_and_sort_songs(
+        songs,
+        params.filter.as_deref(),
+        params.sort.as_deref(),
+        params.sort_dir.as_deref(),
+    );
 
     // Get starred status and ratings for songs
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();

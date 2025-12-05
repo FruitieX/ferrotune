@@ -14,6 +14,7 @@ pub mod playqueue;
 pub mod query;
 pub mod response;
 pub mod search;
+pub mod sorting;
 pub mod starring;
 pub mod stream;
 pub mod system;
@@ -50,7 +51,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/rest/getGenres", get(browse::get_genres))
         // Directory browsing endpoints
         .route("/rest/getIndexes", get(directory::get_indexes))
-        .route("/rest/getMusicDirectory", get(directory::get_music_directory))
+        .route(
+            "/rest/getMusicDirectory",
+            get(directory::get_music_directory),
+        )
         // Media endpoints
         .route("/rest/stream", get(stream::stream))
         .route("/rest/download", get(stream::download))

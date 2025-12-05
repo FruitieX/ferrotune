@@ -23,7 +23,6 @@ import { SongListToolbar } from "@/components/shared/song-list-toolbar";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
 import { formatCount } from "@/lib/utils/format";
-import { sortSongs } from "@/lib/utils/sort-songs";
 import { cn } from "@/lib/utils";
 import type { Album } from "@/lib/api/types";
 
@@ -102,7 +101,7 @@ function GenreDetailContent() {
     enabled: isReady && !!genreName,
   });
 
-  // Fetch songs by genre with infinite scroll
+  // Fetch songs by genre with infinite scroll - server-side sort/filter
   const {
     data: songsData,
     isLoading: loadingSongs,
@@ -110,11 +109,17 @@ function GenreDetailContent() {
     hasNextPage: hasNextSongsPage,
     isFetchingNextPage: isFetchingNextSongsPage,
   } = useInfiniteQuery({
-    queryKey: ["songs", "byGenre", genreName],
+    queryKey: ["songs", "byGenre", genreName, sortConfig.field, sortConfig.direction, debouncedFilter],
     queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getSongsByGenre(genreName!, { count: PAGE_SIZE, offset: pageParam });
+      const response = await client.getSongsByGenre(genreName!, {
+        count: PAGE_SIZE,
+        offset: pageParam,
+        sort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
+        sortDir: sortConfig.field !== "custom" ? sortConfig.direction : undefined,
+        filter: debouncedFilter.trim() || undefined,
+      });
       return {
         songs: response.songsByGenre.song ?? [],
         nextOffset: (response.songsByGenre.song?.length ?? 0) === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
@@ -153,35 +158,19 @@ function GenreDetailContent() {
   // Flatten albums from all pages
   const allAlbums = albumsData?.pages.flatMap((page) => page.albums) ?? [];
 
-  // Flatten songs from all pages
-  const allSongs = songsData?.pages.flatMap((page) => page.songs) ?? [];
+  // Flatten songs from all pages - already sorted and filtered by server
+  const displaySongs = songsData?.pages.flatMap((page) => page.songs) ?? [];
   
-  // Filter and sort songs
-  const displaySongs = useMemo(() => {
-    let filtered = allSongs;
-    
-    if (debouncedFilter.trim()) {
-      const query = debouncedFilter.toLowerCase();
-      filtered = allSongs.filter(song =>
-        song.title?.toLowerCase().includes(query) ||
-        song.artist?.toLowerCase().includes(query) ||
-        song.album?.toLowerCase().includes(query)
-      );
-    }
-    
-    if (sortConfig.field !== "custom") {
-      return sortSongs(filtered, sortConfig.field, sortConfig.direction);
-    }
-    
-    return filtered;
-  }, [allSongs, debouncedFilter, sortConfig]);
-  
-  // Queue source for genre songs - server materializes the genre's song list
+  // Queue source for genre songs - server materializes with same sort
   const genreQueueSource = useMemo(() => ({
     type: "genre" as QueueSourceType,
     id: genreName,
     name: genreName ?? "Genre",
-  }), [genreName]);
+    sort: sortConfig.field !== "custom" ? {
+      field: sortConfig.field,
+      direction: sortConfig.direction,
+    } : undefined,
+  }), [genreName, sortConfig.field, sortConfig.direction]);
   
   // Multi-selection support for songs
   const selection = useTrackSelection(displaySongs);
@@ -195,6 +184,10 @@ function GenreDetailContent() {
       sourceName: genreName,
       startIndex: 0,
       shuffle: false,
+      sort: sortConfig.field !== "custom" ? {
+        field: sortConfig.field,
+        direction: sortConfig.direction,
+      } : undefined,
     });
   };
 
@@ -206,6 +199,10 @@ function GenreDetailContent() {
       sourceName: genreName,
       startIndex: 0,
       shuffle: true,
+      sort: sortConfig.field !== "custom" ? {
+        field: sortConfig.field,
+        direction: sortConfig.direction,
+      } : undefined,
     });
   };
 
@@ -360,7 +357,7 @@ function GenreDetailContent() {
             onViewModeChange={setViewMode}
           />
         </div>
-        {loadingSongs && allSongs.length === 0 ? (
+        {loadingSongs && displaySongs.length === 0 ? (
           viewMode === "grid" ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
               {Array.from({ length: 12 }).map((_, i) => (
@@ -422,7 +419,7 @@ function GenreDetailContent() {
               />
             )}
           </div>
-        ) : allSongs.length > 0 ? (
+        ) : debouncedFilter.trim() ? (
           <EmptyFilterState message="No songs match your filter" />
         ) : (
           <EmptyState

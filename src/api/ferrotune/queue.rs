@@ -16,6 +16,7 @@ use crate::api::subsonic::browse::{
     get_ratings_map, get_starred_map, song_to_response, SongResponse,
 };
 use crate::api::subsonic::search::{search_songs_for_queue, SearchParams};
+use crate::api::subsonic::sorting;
 use crate::api::AppState;
 use crate::db::models::{QueueSourceType, RepeatMode};
 use crate::db::queries;
@@ -863,28 +864,63 @@ async fn materialize_queue_songs(
     filters: Option<&serde_json::Value>,
     sort: Option<&serde_json::Value>,
 ) -> Result<Vec<crate::db::models::Song>> {
+    // Parse sort params from JSON for use with non-search sources
+    let (sort_field, sort_dir) = sorting::parse_sort_from_json(sort);
+
     match source_type {
         QueueSourceType::Album => {
             let album_id =
                 source_id.ok_or_else(|| Error::InvalidRequest("Album ID required".to_string()))?;
-            Ok(queries::get_songs_by_album(pool, album_id).await?)
+            let songs = queries::get_songs_by_album(pool, album_id).await?;
+            // Apply sorting if provided (usually albums use default track order)
+            Ok(sorting::sort_songs(
+                songs,
+                sort_field.as_deref(),
+                sort_dir.as_deref(),
+            ))
         }
         QueueSourceType::Artist => {
             let artist_id =
                 source_id.ok_or_else(|| Error::InvalidRequest("Artist ID required".to_string()))?;
-            Ok(queries::get_songs_by_artist(pool, artist_id).await?)
+            let songs = queries::get_songs_by_artist(pool, artist_id).await?;
+            // Apply sorting if provided (client may have sorted the song list)
+            Ok(sorting::sort_songs(
+                songs,
+                sort_field.as_deref(),
+                sort_dir.as_deref(),
+            ))
         }
         QueueSourceType::Playlist => {
             let playlist_id = source_id
                 .ok_or_else(|| Error::InvalidRequest("Playlist ID required".to_string()))?;
-            Ok(queries::get_playlist_songs(pool, playlist_id).await?)
+            let songs = queries::get_playlist_songs(pool, playlist_id).await?;
+            // Apply sorting if provided (playlists usually have custom order)
+            Ok(sorting::sort_songs(
+                songs,
+                sort_field.as_deref(),
+                sort_dir.as_deref(),
+            ))
         }
         QueueSourceType::Genre => {
             let genre =
                 source_id.ok_or_else(|| Error::InvalidRequest("Genre required".to_string()))?;
-            Ok(queries::get_songs_by_genre(pool, genre).await?)
+            let songs = queries::get_songs_by_genre(pool, genre).await?;
+            // Apply sorting if provided
+            Ok(sorting::sort_songs(
+                songs,
+                sort_field.as_deref(),
+                sort_dir.as_deref(),
+            ))
         }
-        QueueSourceType::Favorites => Ok(queries::get_starred_songs(pool, user_id).await?),
+        QueueSourceType::Favorites => {
+            let songs = queries::get_starred_songs(pool, user_id).await?;
+            // Apply sorting if provided
+            Ok(sorting::sort_songs(
+                songs,
+                sort_field.as_deref(),
+                sort_dir.as_deref(),
+            ))
+        }
         QueueSourceType::Library | QueueSourceType::Search => {
             // For library/search, use the search function with filters and sort
             // source_id is used as the search query (empty or "*" for library)
@@ -1010,7 +1046,7 @@ fn build_search_params_from_json(
 }
 
 /// Generate shuffle indices that keep played tracks in order and only shuffle upcoming tracks.
-/// 
+///
 /// When shuffling:
 /// - Tracks from 0 to current_index (inclusive) remain in their original positions (already played)
 /// - Tracks after current_index are shuffled
@@ -1021,7 +1057,7 @@ fn generate_shuffle_indices(total: usize, current_index: usize, seed: u64) -> Ve
     }
 
     let mut indices: Vec<usize> = (0..total).collect();
-    
+
     // If current_index is at or beyond the end, nothing to shuffle
     if current_index >= total.saturating_sub(1) {
         return indices;
@@ -1030,7 +1066,7 @@ fn generate_shuffle_indices(total: usize, current_index: usize, seed: u64) -> Ve
     // Only shuffle the portion after current_index
     let upcoming_start = current_index + 1;
     let mut rng = StdRng::seed_from_u64(seed);
-    
+
     // Shuffle only the upcoming portion
     indices[upcoming_start..].shuffle(&mut rng);
 
