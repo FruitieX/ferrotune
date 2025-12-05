@@ -13,7 +13,8 @@ import {
   preferencesLoadedAtom,
   type AccentColor,
 } from "@/lib/store/ui";
-import type { UserPreferences, UpdatePreferencesRequest } from "@/lib/api/types";
+import { loadServerPreferences, resetServerPreferences, serverPreferencesLoadedAtom } from "@/lib/store/server-storage";
+import type { UpdatePreferencesRequest, PreferencesResponse } from "@/lib/api/types";
 
 // Debounce timeout for custom color changes (ms)
 const CUSTOM_COLOR_DEBOUNCE_MS = 500;
@@ -34,14 +35,24 @@ export function usePreferencesSync() {
   const [customLightness, setCustomLightness] = useAtom(customAccentLightnessAtom);
   const [customChroma, setCustomChroma] = useAtom(customAccentChromaAtom);
   const setPreferencesLoaded = useSetAtom(preferencesLoadedAtom);
+  const setServerPreferencesLoaded = useSetAtom(serverPreferencesLoadedAtom);
   
   // Track if we're currently applying server values to prevent feedback loops
   const isApplyingServerValues = useRef(false);
   // Track if we've already loaded preferences for this session
   const hasLoadedFromServer = useRef(false);
 
+  // Load server preferences (including generic preferences) when connected
+  useEffect(() => {
+    if (connection && !hasLoadedFromServer.current) {
+      loadServerPreferences(() => {
+        setServerPreferencesLoaded(true);
+      });
+    }
+  }, [connection, setServerPreferencesLoaded]);
+
   // Query to fetch preferences from server
-  const { data: serverPreferences, isSuccess } = useQuery<UserPreferences>({
+  const { data: serverPreferences, isSuccess } = useQuery<PreferencesResponse>({
     queryKey: ["preferences"],
     queryFn: async () => {
       const client = getClient();
@@ -116,6 +127,7 @@ export function usePreferencesSync() {
     if (!connection) {
       hasLoadedFromServer.current = false;
       setPreferencesLoaded(false);
+      resetServerPreferences();
     }
   }, [connection, setPreferencesLoaded]);
 

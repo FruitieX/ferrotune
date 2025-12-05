@@ -1,5 +1,5 @@
 import { atom } from "jotai";
-import { atomWithStorage } from "jotai/utils";
+import { atomWithServerStorage } from "./server-storage";
 
 // Playback state
 export type PlaybackState = "idle" | "loading" | "playing" | "paused" | "ended" | "error";
@@ -27,8 +27,8 @@ export const progressAtom = atom((get) => {
 });
 
 // Volume (0-1)
-export const volumeAtom = atomWithStorage("ferrotune-volume", 1);
-export const isMutedAtom = atomWithStorage("ferrotune-muted", false);
+export const volumeAtom = atomWithServerStorage("volume", 1);
+export const isMutedAtom = atomWithServerStorage("muted", false);
 
 // Effective volume (considering mute state)
 export const effectiveVolumeAtom = atom((get) => {
@@ -39,7 +39,7 @@ export const effectiveVolumeAtom = atom((get) => {
 
 // Repeat mode
 export type RepeatMode = "off" | "all" | "one";
-export const repeatModeAtom = atomWithStorage<RepeatMode>("ferrotune-repeat", "off");
+export const repeatModeAtom = atomWithServerStorage<RepeatMode>("repeat", "off");
 
 // Scrobble tracking
 export const hasScrobbledAtom = atom<boolean>(false);

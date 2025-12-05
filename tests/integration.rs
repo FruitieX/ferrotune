@@ -306,6 +306,23 @@ fn test_playqueue_endpoints() {
 }
 
 // ============================================================================
+// PREFERENCES TESTS
+// ============================================================================
+
+#[test]
+fn test_preferences_endpoints() {
+    if !hurl_available() {
+        eprintln!("Skipping test: hurl not available");
+        return;
+    }
+
+    let server = TestServer::new().expect("Failed to start test server");
+
+    run_hurl_script(&server, &hurl_script("11_preferences.hurl"))
+        .expect("Preferences endpoint tests failed");
+}
+
+// ============================================================================
 // DUPLICATES TESTS (require scanned library)
 // ============================================================================
 

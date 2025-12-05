@@ -3,8 +3,15 @@
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::AppState;
 use crate::db::queries;
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
 use ts_rs::TS;
 
@@ -17,9 +24,12 @@ pub struct PreferencesResponse {
     pub custom_accent_hue: Option<f64>,
     pub custom_accent_lightness: Option<f64>,
     pub custom_accent_chroma: Option<f64>,
+    /// Generic JSON preferences for client-side settings
+    #[ts(type = "Record<string, unknown>")]
+    pub preferences: HashMap<String, Value>,
 }
 
-/// Update preferences request
+/// Update preferences request (for accent color)
 #[derive(Debug, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
@@ -30,19 +40,45 @@ pub struct UpdatePreferencesRequest {
     pub custom_accent_chroma: Option<f64>,
 }
 
+/// Update a single generic preference
+#[derive(Debug, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct SetPreferenceRequest {
+    #[ts(type = "unknown")]
+    pub value: Value,
+}
+
+/// Response for getting a single preference
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct GetPreferenceResponse {
+    pub key: String,
+    #[ts(type = "unknown | null")]
+    pub value: Option<Value>,
+}
+
 /// Get user preferences
 pub async fn get_preferences(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     match queries::get_user_preferences(&state.pool, user.user_id).await {
-        Ok(Some(prefs)) => Json(PreferencesResponse {
-            accent_color: prefs.accent_color,
-            custom_accent_hue: prefs.custom_accent_hue,
-            custom_accent_lightness: prefs.custom_accent_lightness,
-            custom_accent_chroma: prefs.custom_accent_chroma,
-        })
-        .into_response(),
+        Ok(Some(prefs)) => {
+            // Parse preferences_json
+            let preferences: HashMap<String, Value> =
+                serde_json::from_str(&prefs.preferences_json).unwrap_or_default();
+
+            Json(PreferencesResponse {
+                accent_color: prefs.accent_color,
+                custom_accent_hue: prefs.custom_accent_hue,
+                custom_accent_lightness: prefs.custom_accent_lightness,
+                custom_accent_chroma: prefs.custom_accent_chroma,
+                preferences,
+            })
+            .into_response()
+        }
         Ok(None) => {
             // Return defaults if no preferences set
             Json(PreferencesResponse {
@@ -50,6 +86,7 @@ pub async fn get_preferences(
                 custom_accent_hue: None,
                 custom_accent_lightness: None,
                 custom_accent_chroma: None,
+                preferences: HashMap::new(),
             })
             .into_response()
         }
@@ -64,7 +101,7 @@ pub async fn get_preferences(
     }
 }
 
-/// Update user preferences
+/// Update user preferences (accent color)
 pub async fn update_preferences(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
@@ -126,6 +163,16 @@ pub async fn update_preferences(
         }
     }
 
+    // Get existing preferences to preserve preferences_json
+    let existing_prefs = queries::get_user_preferences(&state.pool, user.user_id)
+        .await
+        .ok()
+        .flatten();
+    let preferences: HashMap<String, Value> = existing_prefs
+        .as_ref()
+        .and_then(|p| serde_json::from_str(&p.preferences_json).ok())
+        .unwrap_or_default();
+
     match queries::upsert_user_preferences(
         &state.pool,
         user.user_id,
@@ -133,6 +180,10 @@ pub async fn update_preferences(
         request.custom_accent_hue,
         request.custom_accent_lightness,
         request.custom_accent_chroma,
+        existing_prefs
+            .as_ref()
+            .map(|p| p.preferences_json.as_str())
+            .unwrap_or("{}"),
     )
     .await
     {
@@ -141,6 +192,7 @@ pub async fn update_preferences(
             custom_accent_hue: request.custom_accent_hue,
             custom_accent_lightness: request.custom_accent_lightness,
             custom_accent_chroma: request.custom_accent_chroma,
+            preferences,
         })
         .into_response(),
         Err(e) => {
@@ -148,6 +200,149 @@ pub async fn update_preferences(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(super::ErrorResponse::new("Failed to update preferences")),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Get a single preference by key
+pub async fn get_preference(
+    user: AuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path(key): Path<String>,
+) -> impl IntoResponse {
+    match queries::get_user_preferences(&state.pool, user.user_id).await {
+        Ok(Some(prefs)) => {
+            let preferences: HashMap<String, Value> =
+                serde_json::from_str(&prefs.preferences_json).unwrap_or_default();
+            let value = preferences.get(&key).cloned();
+
+            Json(GetPreferenceResponse { key, value }).into_response()
+        }
+        Ok(None) => Json(GetPreferenceResponse { key, value: None }).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to get preference");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse::new("Failed to get preference")),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Set a single preference by key
+pub async fn set_preference(
+    user: AuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path(key): Path<String>,
+    Json(request): Json<SetPreferenceRequest>,
+) -> impl IntoResponse {
+    // Get existing preferences
+    let existing = queries::get_user_preferences(&state.pool, user.user_id)
+        .await
+        .ok()
+        .flatten();
+
+    let mut preferences: HashMap<String, Value> = existing
+        .as_ref()
+        .and_then(|p| serde_json::from_str(&p.preferences_json).ok())
+        .unwrap_or_default();
+
+    // Update the preference
+    preferences.insert(key.clone(), request.value.clone());
+
+    let preferences_json = serde_json::to_string(&preferences).unwrap_or_else(|_| "{}".to_string());
+
+    // Get existing accent color settings or defaults
+    let accent_color = existing
+        .as_ref()
+        .map(|p| p.accent_color.clone())
+        .unwrap_or_else(|| "rust".to_string());
+    let custom_accent_hue = existing.as_ref().and_then(|p| p.custom_accent_hue);
+    let custom_accent_lightness = existing.as_ref().and_then(|p| p.custom_accent_lightness);
+    let custom_accent_chroma = existing.as_ref().and_then(|p| p.custom_accent_chroma);
+
+    match queries::upsert_user_preferences(
+        &state.pool,
+        user.user_id,
+        &accent_color,
+        custom_accent_hue,
+        custom_accent_lightness,
+        custom_accent_chroma,
+        &preferences_json,
+    )
+    .await
+    {
+        Ok(()) => Json(GetPreferenceResponse {
+            key,
+            value: Some(request.value),
+        })
+        .into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to set preference");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse::new("Failed to set preference")),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Delete a single preference by key
+pub async fn delete_preference(
+    user: AuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path(key): Path<String>,
+) -> impl IntoResponse {
+    // Get existing preferences
+    let existing = queries::get_user_preferences(&state.pool, user.user_id)
+        .await
+        .ok()
+        .flatten();
+
+    let mut preferences: HashMap<String, Value> = existing
+        .as_ref()
+        .and_then(|p| serde_json::from_str(&p.preferences_json).ok())
+        .unwrap_or_default();
+
+    // Remove the preference
+    let removed = preferences.remove(&key);
+
+    if removed.is_none() {
+        return StatusCode::NO_CONTENT.into_response();
+    }
+
+    let preferences_json = serde_json::to_string(&preferences).unwrap_or_else(|_| "{}".to_string());
+
+    // Get existing accent color settings or defaults
+    let accent_color = existing
+        .as_ref()
+        .map(|p| p.accent_color.clone())
+        .unwrap_or_else(|| "rust".to_string());
+    let custom_accent_hue = existing.as_ref().and_then(|p| p.custom_accent_hue);
+    let custom_accent_lightness = existing.as_ref().and_then(|p| p.custom_accent_lightness);
+    let custom_accent_chroma = existing.as_ref().and_then(|p| p.custom_accent_chroma);
+
+    match queries::upsert_user_preferences(
+        &state.pool,
+        user.user_id,
+        &accent_color,
+        custom_accent_hue,
+        custom_accent_lightness,
+        custom_accent_chroma,
+        &preferences_json,
+    )
+    .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to delete preference");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse::new("Failed to delete preference")),
             )
                 .into_response()
         }
