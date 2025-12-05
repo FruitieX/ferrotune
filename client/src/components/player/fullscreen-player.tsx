@@ -144,8 +144,8 @@ export function FullscreenPlayer() {
               >
                 <CoverImage
                   src={coverArtUrl}
-                  alt={currentTrack.album}
-                  colorSeed={currentTrack.album}
+                  alt={currentTrack.album ?? currentTrack.title}
+                  colorSeed={currentTrack.album ?? undefined}
                   type="song"
                   size="full"
                   className="rounded-lg shadow-2xl"

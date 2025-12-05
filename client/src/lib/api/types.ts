@@ -1,6 +1,202 @@
 // OpenSubsonic API Response Types
+// Re-exports generated types from ts-rs with client-friendly type aliases
+//
+// NAMING CONVENTION:
+// - Entity types (Song, Album, Artist, Genre, Playlist) = base data objects
+// - *Response types = API response wrappers (e.g., { artist: ... }, { album: ... })
+// - *WithSongs / *WithAlbums = entities with nested child data
+//
+// The generated types use a different naming:
+// - SongResponse, AlbumResponse, ArtistResponse = entity types
+// - AlbumDetailResponse = { album: AlbumDetail } (wrapper)
+// - AlbumDetail = album entity with songs
+//
+// We re-export with aliases to match client expectations.
 
-// Base response wrapper
+// ============================================================================
+// Core Entity Types - Base data objects without nested data
+// ============================================================================
+
+// Song entity (generated SongResponse = entity, not a wrapper)
+export type { SongResponse } from "./generated";
+export type { SongResponse as Song } from "./generated";
+
+// Album entity (generated AlbumResponse = entity, not a wrapper)
+export type { AlbumResponse } from "./generated";
+export type { AlbumResponse as Album } from "./generated";
+
+// Artist entity (generated ArtistResponse = entity, not a wrapper)  
+export type { ArtistResponse } from "./generated";
+export type { ArtistResponse as Artist } from "./generated";
+
+// Genre entity
+export type { GenreResponse } from "./generated";
+export type { GenreResponse as Genre } from "./generated";
+
+// Playlist entity
+export type { PlaylistResponse } from "./generated";
+export type { PlaylistResponse as Playlist } from "./generated";
+
+// Music folder entity
+export type { MusicFolderResponse } from "./generated";
+export type { MusicFolderResponse as MusicFolder } from "./generated";
+
+// ============================================================================
+// Extended Entity Types - Entities with nested child data
+// ============================================================================
+
+// Album with its songs (for album detail pages)
+export type { AlbumDetail } from "./generated";
+export type { AlbumDetail as AlbumWithSongs } from "./generated";
+
+// Artist with albums and songs (for artist detail pages)
+export type { ArtistDetail } from "./generated";
+export type { ArtistDetail as ArtistWithAlbums } from "./generated";
+
+// Playlist with its songs (for playlist detail pages)
+export type { PlaylistDetailResponse } from "./generated";
+export type { PlaylistDetailResponse as PlaylistWithSongs } from "./generated";
+
+// ============================================================================
+// API Response Wrapper Types - What the endpoints actually return
+// ============================================================================
+
+// getArtists response: { artists: { index: [...] } }
+export type { ArtistsResponse } from "./generated";
+export type { ArtistsIndex } from "./generated";
+export type { ArtistIndex } from "./generated";
+
+// getArtist response: { artist: ArtistDetail }
+// NOTE: This is what getArtist() returns - wrapper with detail
+export type { ArtistDetailResponse } from "./generated";
+// Client alias: ArtistResponse used to mean the wrapper
+import type { ArtistDetailResponse as _ArtistDetailResponse } from "./generated";
+export type ArtistResponse_Wrapper = _ArtistDetailResponse;
+
+// getAlbum response: { album: AlbumDetail }
+export type { AlbumDetailResponse } from "./generated";
+// Client alias: AlbumResponse used to mean the wrapper
+import type { AlbumDetailResponse as _AlbumDetailResponse } from "./generated";
+export type AlbumResponse_Wrapper = _AlbumDetailResponse;
+
+// getSong response: { song: SongResponse }
+export type { SongDetailResponse } from "./generated";
+import type { SongDetailResponse as _SongDetailResponse } from "./generated";
+export type SongResponse_Wrapper = _SongDetailResponse;
+
+// getGenres response: { genres: { genre: [...] } }
+export type { GenresResponse } from "./generated";
+
+// getAlbumList2 response
+export type { AlbumList2Response } from "./generated";
+export type { AlbumList2Content } from "./generated";
+// Client alias for backward compat
+import type { AlbumList2Response as _AlbumList2Response } from "./generated";
+export type AlbumListResponse = _AlbumList2Response;
+
+// getRandomSongs response
+export type { RandomSongsResponse } from "./generated";
+
+// getSongsByGenre response
+export type { SongsByGenreResponse } from "./generated";
+
+// search3 response
+export type { SearchResult3 } from "./generated";
+export type { SearchContent } from "./generated";
+// Client alias for backward compat
+import type { SearchResult3 as _SearchResult3 } from "./generated";
+export type SearchResponse = _SearchResult3;
+
+// getStarred2 response
+export type { Starred2Response } from "./generated";
+export type { Starred2Content } from "./generated";
+// Client alias for backward compat
+import type { Starred2Response as _Starred2Response } from "./generated";
+export type StarredResponse = _Starred2Response;
+
+// getPlaylists response
+export type { PlaylistsResponse } from "./generated";
+
+// getPlaylist response: { playlist: PlaylistDetail }
+export type { PlaylistWithSongsResponse } from "./generated";
+// Client alias for backward compat
+import type { PlaylistWithSongsResponse as _PlaylistWithSongsResponse } from "./generated";
+export type PlaylistResponse_Wrapper = _PlaylistWithSongsResponse;
+
+// Play Queue
+export type { PlayQueueResponse } from "./generated";
+export type { PlayQueueContent } from "./generated";
+
+// Play History
+export type { PlayHistoryResponse } from "./generated";
+export type { PlayHistoryContent } from "./generated";
+export type { PlayHistoryEntry } from "./generated";
+
+// getMusicFolders response
+export type { MusicFolders } from "./generated";
+import type { MusicFolders as _MusicFolders } from "./generated";
+export type MusicFoldersResponse = _MusicFolders;
+
+// License
+export type { License } from "./generated";
+
+// Tag editing
+export type { TagEntry } from "./generated";
+export type { TagChange } from "./generated";
+export type { AdditionalTagBlock } from "./generated";
+export type { GetTagsResponse } from "./generated";
+export type { UpdateTagsResponse } from "./generated";
+
+// Stats
+export type { StatsResponse } from "./generated";
+import type { StatsResponse as _StatsResponse } from "./generated";
+export type ServerStats = _StatsResponse;
+
+// Listening stats
+export type { ListeningStats } from "./generated";
+export type { ListeningStatsResponse } from "./generated";
+
+// User preferences
+export type { PreferencesResponse } from "./generated";
+import type { PreferencesResponse as _PreferencesResponse } from "./generated";
+export type UserPreferences = _PreferencesResponse;
+
+// ============================================================================
+// API Parameter Types (generated from Rust)
+// ============================================================================
+
+// Re-export the enum type directly
+export type { AlbumListType } from "./generated";
+
+// Re-export parameter types
+export type { AlbumListParams } from "./generated";
+export type { SearchParams } from "./generated";
+export type { RandomSongsParams } from "./generated";
+export type { SongsByGenreParams } from "./generated";
+
+// ============================================================================
+// Admin API Request Types (generated from Rust)
+// ============================================================================
+
+export type { UpdateTagsRequest } from "./generated";
+export type { UpdatePreferencesRequest } from "./generated";
+
+// ============================================================================
+// Connection Types (client-only)
+// ============================================================================
+
+export interface ServerConnection {
+  serverUrl: string;
+  apiKey?: string;
+  username?: string;
+  password?: string;
+}
+
+// ============================================================================
+// Base Response Types (client-only - for wrapping API responses)
+// ============================================================================
+
+/** Subsonic API response wrapper */
 export interface SubsonicResponse<T = unknown> {
   "subsonic-response": {
     status: "ok" | "failed";
@@ -12,408 +208,8 @@ export interface SubsonicResponse<T = unknown> {
   } & T;
 }
 
+/** Subsonic API error */
 export interface SubsonicError {
   code: number;
   message: string;
-}
-
-// Music entities
-export interface Artist {
-  id: string;
-  name: string;
-  albumCount: number;
-  coverArt?: string;
-  starred?: string;
-  userRating?: number;
-}
-
-export interface ArtistWithAlbums extends Artist {
-  album: Album[];
-  song?: Song[];  // Songs by this artist (track artist), includes songs on compilations
-}
-
-export interface ArtistIndex {
-  name: string;
-  artist: Artist[];
-}
-
-export interface Album {
-  id: string;
-  name: string;
-  artist: string;
-  artistId: string;
-  coverArt?: string;
-  songCount: number;
-  duration: number;
-  year?: number;
-  genre?: string;
-  created: string;
-  starred?: string;
-  userRating?: number;
-}
-
-export interface AlbumWithSongs extends Album {
-  song: Song[];
-}
-
-export interface Song {
-  id: string;
-  title: string;
-  album: string;
-  albumId: string;
-  artist: string;
-  artistId: string;
-  track?: number;
-  discNumber?: number;
-  year?: number;
-  genre?: string;
-  coverArt?: string;
-  size: number;
-  contentType: string;
-  suffix: string;
-  duration: number;
-  bitRate?: number;
-  path: string;
-  starred?: string;
-  userRating?: number;
-  created: string;
-  type: "music";
-  // Ferrotune extensions
-  /** Full filesystem path (only available from getSong endpoint) */
-  fullPath?: string;
-  playCount?: number;
-  lastPlayed?: string;
-}
-
-export interface Genre {
-  songCount: number;
-  albumCount: number;
-  value: string;
-}
-
-export interface MusicFolder {
-  id: number;
-  name: string;
-}
-
-export interface Playlist {
-  id: string;
-  name: string;
-  comment?: string;
-  owner?: string;
-  public?: boolean;
-  songCount: number;
-  duration: number;
-  created: string;
-  changed?: string;
-  coverArt?: string;
-}
-
-export interface PlaylistWithSongs extends Playlist {
-  entry: Song[];
-}
-
-// Response payloads
-export interface PingResponse {
-  // Empty for ping
-}
-
-export interface LicenseResponse {
-  license: {
-    valid: boolean;
-    email?: string;
-    licenseExpires?: string;
-  };
-}
-
-export interface MusicFoldersResponse {
-  musicFolders: {
-    musicFolder: MusicFolder[];
-  };
-}
-
-export interface ArtistsResponse {
-  artists: {
-    index: ArtistIndex[];
-  };
-}
-
-export interface ArtistResponse {
-  artist: ArtistWithAlbums;
-}
-
-export interface AlbumResponse {
-  album: AlbumWithSongs;
-}
-
-export interface SongResponse {
-  song: Song;
-}
-
-export interface GenresResponse {
-  genres: {
-    genre: Genre[];
-  };
-}
-
-export interface AlbumListResponse {
-  albumList2: {
-    album: Album[];
-    /** Total count of albums (Ferrotune extension for pagination) */
-    total?: number;
-  };
-}
-
-export interface RandomSongsResponse {
-  randomSongs: {
-    song: Song[];
-  };
-}
-
-export interface SongsByGenreResponse {
-  songsByGenre: {
-    song?: Song[];
-  };
-}
-
-export interface SearchResponse {
-  searchResult3: {
-    artist?: Artist[];
-    album?: Album[];
-    song?: Song[];
-    /** Total count of matching artists (Ferrotune extension for pagination) */
-    artistTotal?: number;
-    /** Total count of matching albums (Ferrotune extension for pagination) */
-    albumTotal?: number;
-    /** Total count of matching songs (Ferrotune extension for pagination) */
-    songTotal?: number;
-  };
-}
-
-export interface StarredResponse {
-  starred2: {
-    artist?: Artist[];
-    album?: Album[];
-    song?: Song[];
-  };
-}
-
-export interface PlaylistsResponse {
-  playlists: {
-    playlist: Playlist[];
-  };
-}
-
-export interface PlaylistResponse {
-  playlist: PlaylistWithSongs;
-}
-
-// Play Queue types
-export interface PlayQueueEntry extends Song {
-  // Song with play queue context
-}
-
-export interface PlayQueue {
-  entry: PlayQueueEntry[];
-  current?: string;
-  position?: number;
-  username?: string;
-  changed?: string;
-  changedBy?: string;
-}
-
-export interface PlayQueueResponse {
-  playQueue: PlayQueue;
-}
-
-// Play History types (Ferrotune extension)
-export interface PlayHistoryEntry extends Song {
-  playedAt: string;
-}
-
-export interface PlayHistoryResponse {
-  playHistory: {
-    entry: PlayHistoryEntry[];
-    total?: number;
-  };
-}
-
-// Album list types
-export type AlbumListType =
-  | "random"
-  | "newest"
-  | "highest"
-  | "frequent"
-  | "recent"
-  | "starred"
-  | "alphabeticalByName"
-  | "alphabeticalByArtist"
-  | "byYear"
-  | "byGenre";
-
-// API Parameters
-export interface AlbumListParams {
-  type: AlbumListType;
-  size?: number;
-  offset?: number;
-  fromYear?: number;
-  toYear?: number;
-  genre?: string;
-  musicFolderId?: number;
-}
-
-export interface SearchParams {
-  query: string;
-  artistCount?: number;
-  artistOffset?: number;
-  albumCount?: number;
-  albumOffset?: number;
-  songCount?: number;
-  songOffset?: number;
-  /** Ferrotune extension: sort field for songs (name, artist, album, year, duration, playCount, dateAdded) */
-  songSort?: string;
-  /** Ferrotune extension: sort direction (asc, desc) */
-  songSortDir?: string;
-  /** Ferrotune extension: sort field for albums (name, artist, year, dateAdded) */
-  albumSort?: string;
-  /** Ferrotune extension: sort direction for albums (asc, desc) */
-  albumSortDir?: string;
-  /** Ferrotune extension: sort field for artists (name) - client-side fallback if not implemented */
-  artistSort?: string;
-  /** Ferrotune extension: sort direction for artists (asc, desc) */
-  artistSortDir?: string;
-  // ===== Advanced Filter Parameters (Ferrotune extension) =====
-  /** Filter songs/albums by minimum year */
-  minYear?: number;
-  /** Filter songs/albums by maximum year */
-  maxYear?: number;
-  /** Filter songs/albums by genre (exact match) */
-  genre?: string;
-  /** Filter songs by minimum duration in seconds */
-  minDuration?: number;
-  /** Filter songs by maximum duration in seconds */
-  maxDuration?: number;
-  /** Filter songs/albums by minimum user rating (1-5) */
-  minRating?: number;
-  /** Filter songs/albums by maximum user rating (1-5) */
-  maxRating?: number;
-  /** Filter to only starred items */
-  starredOnly?: boolean;
-  /** Filter songs by minimum play count */
-  minPlayCount?: number;
-  /** Filter songs by maximum play count */
-  maxPlayCount?: number;
-  /** Filter to only shuffle-excluded songs */
-  shuffleExcludedOnly?: boolean;
-  /** Filter songs by minimum bitrate in kbps */
-  minBitrate?: number;
-  /** Filter songs by maximum bitrate in kbps */
-  maxBitrate?: number;
-  /** Filter songs added after this date (ISO 8601: YYYY-MM-DD) */
-  addedAfter?: string;
-  /** Filter songs added before this date (ISO 8601: YYYY-MM-DD) */
-  addedBefore?: string;
-}
-
-export interface RandomSongsParams {
-  size?: number;
-  genre?: string;
-  fromYear?: number;
-  toYear?: number;
-  musicFolderId?: number;
-}
-
-export interface SongsByGenreParams {
-  count?: number;
-  offset?: number;
-  musicFolderId?: number;
-}
-
-// Connection settings
-export interface ServerConnection {
-  serverUrl: string;
-  apiKey?: string;
-  username?: string;
-  password?: string;
-}
-
-// Tag editing types (Admin API)
-export interface TagEntry {
-  key: string;
-  value: string;
-}
-
-export interface AdditionalTagBlock {
-  tagType: string;
-  tags: TagEntry[];
-}
-
-export interface GetTagsResponse {
-  id: string;
-  filePath: string;
-  fileFormat: string;
-  editingEnabled: boolean;
-  tagType?: string;
-  tags: TagEntry[];
-  additionalTags?: AdditionalTagBlock[];
-}
-
-export interface UpdateTagsRequest {
-  set?: TagEntry[];
-  delete?: string[];
-}
-
-export interface TagChange {
-  key: string;
-  action: "set" | "deleted";
-  oldValue?: string;
-  newValue?: string;
-}
-
-export interface UpdateTagsResponse {
-  success: boolean;
-  message: string;
-  changes: TagChange[];
-  rescanRecommended: boolean;
-}
-
-// Server statistics types (Admin API)
-export interface ServerStats {
-  songCount: number;
-  albumCount: number;
-  artistCount: number;
-  genreCount: number;
-  playlistCount: number;
-  totalDurationSeconds: number;
-  totalSizeBytes: number;
-  totalPlays: number;
-}
-
-// User preferences types (Admin API)
-export interface UserPreferences {
-  accentColor: string;
-  customAccentHue?: number;
-  customAccentLightness?: number;
-  customAccentChroma?: number;
-}
-
-export interface UpdatePreferencesRequest {
-  accentColor: string;
-  customAccentHue?: number;
-  customAccentLightness?: number;
-  customAccentChroma?: number;
-}
-
-// Listening statistics types (Admin API)
-export interface ListeningStats {
-  totalSeconds: number;
-  sessionCount: number;
-  uniqueSongs: number;
-}
-
-export interface ListeningStatsResponse {
-  last7Days: ListeningStats;
-  last30Days: ListeningStats;
-  thisYear: ListeningStats;
-  allTime: ListeningStats;
 }

@@ -73,7 +73,9 @@ pub struct PlaylistResponse {
     pub comment: Option<String>,
     pub owner: String,
     pub public: bool,
+    #[ts(type = "number")]
     pub song_count: i64,
+    #[ts(type = "number")]
     pub duration: i64,
     pub created: String,
     pub changed: String,
@@ -97,7 +99,9 @@ pub struct PlaylistDetailResponse {
     pub comment: Option<String>,
     pub owner: String,
     pub public: bool,
+    #[ts(type = "number")]
     pub song_count: i64,
+    #[ts(type = "number")]
     pub duration: i64,
     pub created: String,
     pub changed: String,

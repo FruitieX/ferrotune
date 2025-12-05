@@ -20,8 +20,9 @@ pub struct PreferencesResponse {
 }
 
 /// Update preferences request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct UpdatePreferencesRequest {
     pub accent_color: String,
     pub custom_accent_hue: Option<f64>,

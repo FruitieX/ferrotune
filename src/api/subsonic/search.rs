@@ -38,55 +38,56 @@ fn build_fts_query(query: &str) -> Option<String> {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct SearchParams {
-    query: String,
-    artist_count: Option<u32>,
-    artist_offset: Option<u32>,
-    album_count: Option<u32>,
-    album_offset: Option<u32>,
-    song_count: Option<u32>,
-    song_offset: Option<u32>,
+    pub query: String,
+    pub artist_count: Option<u32>,
+    pub artist_offset: Option<u32>,
+    pub album_count: Option<u32>,
+    pub album_offset: Option<u32>,
+    pub song_count: Option<u32>,
+    pub song_offset: Option<u32>,
     /// Ferrotune extension: sort field for songs (name, artist, album, year, duration, playCount, dateAdded)
-    song_sort: Option<String>,
+    pub song_sort: Option<String>,
     /// Ferrotune extension: sort direction (asc, desc)
-    song_sort_dir: Option<String>,
+    pub song_sort_dir: Option<String>,
     /// Ferrotune extension: sort field for albums (name, artist, year, dateAdded)
-    album_sort: Option<String>,
+    pub album_sort: Option<String>,
     /// Ferrotune extension: sort direction for albums (asc, desc)
-    album_sort_dir: Option<String>,
+    pub album_sort_dir: Option<String>,
     // ===== Advanced Filter Parameters (Ferrotune extension) =====
     /// Filter songs/albums by minimum year
-    min_year: Option<i32>,
+    pub min_year: Option<i32>,
     /// Filter songs/albums by maximum year
-    max_year: Option<i32>,
+    pub max_year: Option<i32>,
     /// Filter songs/albums by genre (exact match)
-    genre: Option<String>,
+    pub genre: Option<String>,
     /// Filter songs by minimum duration in seconds
-    min_duration: Option<i32>,
+    pub min_duration: Option<i32>,
     /// Filter songs by maximum duration in seconds
-    max_duration: Option<i32>,
+    pub max_duration: Option<i32>,
     /// Filter songs/albums by minimum user rating (1-5)
-    min_rating: Option<i32>,
+    pub min_rating: Option<i32>,
     /// Filter songs/albums by maximum user rating (1-5)
-    max_rating: Option<i32>,
+    pub max_rating: Option<i32>,
     /// Filter to only starred items
-    starred_only: Option<bool>,
+    pub starred_only: Option<bool>,
     /// Filter songs by minimum play count
-    min_play_count: Option<i32>,
+    pub min_play_count: Option<i32>,
     /// Filter songs by maximum play count
-    max_play_count: Option<i32>,
+    pub max_play_count: Option<i32>,
     /// Filter to only shuffle-excluded songs
-    shuffle_excluded_only: Option<bool>,
+    pub shuffle_excluded_only: Option<bool>,
     /// Filter songs by minimum bitrate in kbps
-    min_bitrate: Option<i32>,
+    pub min_bitrate: Option<i32>,
     /// Filter songs by maximum bitrate in kbps
-    max_bitrate: Option<i32>,
+    pub max_bitrate: Option<i32>,
     /// Filter songs added after this ISO 8601 date (e.g., "2024-01-01")
-    added_after: Option<String>,
+    pub added_after: Option<String>,
     /// Filter songs added before this ISO 8601 date (e.g., "2024-12-31")
-    added_before: Option<String>,
+    pub added_before: Option<String>,
 }
 
 #[derive(Serialize, TS)]
@@ -108,12 +109,15 @@ pub struct SearchContent {
     pub song: Vec<SongResponse>,
     /// Total count of matching artists (Ferrotune extension for pagination)
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub artist_total: Option<i64>,
     /// Total count of matching albums (Ferrotune extension for pagination)
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub album_total: Option<i64>,
     /// Total count of matching songs (Ferrotune extension for pagination)
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub song_total: Option<i64>,
 }
 

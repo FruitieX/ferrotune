@@ -50,6 +50,7 @@ pub struct ArtistResponse {
     pub id: String,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub album_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
@@ -144,6 +145,7 @@ pub struct ArtistDetail {
     pub id: String,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub album_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
@@ -166,7 +168,9 @@ pub struct AlbumResponse {
     pub artist_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    #[ts(type = "number")]
     pub song_count: i64,
+    #[ts(type = "number")]
     pub duration: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub year: Option<i32>,
@@ -344,7 +348,9 @@ pub struct AlbumDetail {
     pub artist_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    #[ts(type = "number")]
     pub song_count: i64,
+    #[ts(type = "number")]
     pub duration: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub year: Option<i32>,
@@ -380,9 +386,11 @@ pub struct SongResponse {
     pub genre: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    #[ts(type = "number")]
     pub size: i64,
     pub content_type: String,
     pub suffix: String,
+    #[ts(type = "number")]
     pub duration: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bit_rate: Option<i32>,
@@ -396,10 +404,10 @@ pub struct SongResponse {
     pub user_rating: Option<i32>,
     pub created: String,
     #[serde(rename = "type")]
-    #[ts(rename = "type")]
     pub media_type: String,
     // Ferrotune extensions for play statistics
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub play_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_played: Option<String>,
@@ -539,9 +547,10 @@ pub struct GenresList {
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct GenreResponse {
     #[serde(rename = "value")]
-    #[ts(rename = "value")]
     pub name: String,
+    #[ts(type = "number")]
     pub song_count: i64,
+    #[ts(type = "number")]
     pub album_count: i64,
 }
 

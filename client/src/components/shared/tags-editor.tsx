@@ -125,6 +125,7 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
           key,
           action: "deleted",
           oldValue: original.value,
+          newValue: null,
         });
       }
     }
@@ -134,6 +135,7 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
       result.push({
         key: tag.key,
         action: "set",
+        oldValue: null,
         newValue: tag.value,
       });
     }

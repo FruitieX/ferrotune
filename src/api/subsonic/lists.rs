@@ -11,17 +11,37 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
 
-#[derive(Deserialize)]
+/// Album list types for getAlbumList2
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub enum AlbumListType {
+    Random,
+    Newest,
+    Highest,
+    Frequent,
+    Recent,
+    Starred,
+    AlphabeticalByName,
+    AlphabeticalByArtist,
+    ByYear,
+    ByGenre,
+}
+
+#[derive(Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct AlbumListParams {
+    /// List type (serializes as "type" for API compatibility)
     #[serde(rename = "type")]
-    list_type: String,
-    size: Option<u32>,
-    offset: Option<u32>,
-    from_year: Option<i32>,
-    to_year: Option<i32>,
-    genre: Option<String>,
-    music_folder_id: Option<i64>,
+    pub list_type: AlbumListType,
+    pub size: Option<u32>,
+    pub offset: Option<u32>,
+    pub from_year: Option<i32>,
+    pub to_year: Option<i32>,
+    pub genre: Option<String>,
+    #[ts(type = "number | null")]
+    pub music_folder_id: Option<i64>,
 }
 
 #[derive(Serialize, TS)]
@@ -38,6 +58,7 @@ pub struct AlbumList2Content {
     pub album: Vec<AlbumResponse>,
     /// Total count of albums (Ferrotune extension for pagination)
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub total: Option<i64>,
 }
 
@@ -49,8 +70,8 @@ pub async fn get_album_list2(
     let size = params.size.unwrap_or(10).min(500) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
 
-    let albums: Vec<crate::db::models::Album> = match params.list_type.as_str() {
-        "random" => {
+    let albums: Vec<crate::db::models::Album> = match params.list_type {
+        AlbumListType::Random => {
             sqlx::query_as(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
@@ -63,7 +84,7 @@ pub async fn get_album_list2(
             .fetch_all(&state.pool)
             .await?
         }
-        "newest" => {
+        AlbumListType::Newest => {
             sqlx::query_as(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
@@ -76,7 +97,7 @@ pub async fn get_album_list2(
             .fetch_all(&state.pool)
             .await?
         }
-        "highest" => {
+        AlbumListType::Highest => {
             // Would need rating system
             sqlx::query_as(
                 "SELECT a.*, ar.name as artist_name 
@@ -90,7 +111,7 @@ pub async fn get_album_list2(
             .fetch_all(&state.pool)
             .await?
         }
-        "frequent" => {
+        AlbumListType::Frequent => {
             sqlx::query_as(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
@@ -105,7 +126,7 @@ pub async fn get_album_list2(
             .fetch_all(&state.pool)
             .await?
         }
-        "recent" => {
+        AlbumListType::Recent => {
             sqlx::query_as(
                 "SELECT DISTINCT a.*, ar.name as artist_name 
                  FROM albums a 
@@ -120,7 +141,7 @@ pub async fn get_album_list2(
             .fetch_all(&state.pool)
             .await?
         }
-        "starred" => {
+        AlbumListType::Starred => {
             sqlx::query_as(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
@@ -134,7 +155,7 @@ pub async fn get_album_list2(
             .fetch_all(&state.pool)
             .await?
         }
-        "alphabeticalByName" => {
+        AlbumListType::AlphabeticalByName => {
             sqlx::query_as(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
@@ -147,7 +168,7 @@ pub async fn get_album_list2(
             .fetch_all(&state.pool)
             .await?
         }
-        "alphabeticalByArtist" => {
+        AlbumListType::AlphabeticalByArtist => {
             sqlx::query_as(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
@@ -160,7 +181,7 @@ pub async fn get_album_list2(
             .fetch_all(&state.pool)
             .await?
         }
-        "byYear" => {
+        AlbumListType::ByYear => {
             sqlx::query_as(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
@@ -178,7 +199,7 @@ pub async fn get_album_list2(
             .fetch_all(&state.pool)
             .await?
         }
-        "byGenre" => {
+        AlbumListType::ByGenre => {
             if let Some(ref genre) = params.genre {
                 sqlx::query_as(
                     "SELECT a.*, ar.name as artist_name 
@@ -197,18 +218,21 @@ pub async fn get_album_list2(
                 Vec::new()
             }
         }
-        _ => Vec::new(),
     };
 
     // Get total count for pagination (only for list types that support it)
-    let total: Option<i64> = match params.list_type.as_str() {
-        "alphabeticalByName" | "alphabeticalByArtist" | "newest" | "highest" | "frequent" => {
+    let total: Option<i64> = match params.list_type {
+        AlbumListType::AlphabeticalByName
+        | AlbumListType::AlphabeticalByArtist
+        | AlbumListType::Newest
+        | AlbumListType::Highest
+        | AlbumListType::Frequent => {
             let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM albums")
                 .fetch_one(&state.pool)
                 .await?;
             Some(count.0)
         }
-        "starred" => {
+        AlbumListType::Starred => {
             let count: (i64,) = sqlx::query_as(
                 "SELECT COUNT(*) FROM starred WHERE item_type = 'album' AND user_id = ?",
             )
@@ -217,7 +241,7 @@ pub async fn get_album_list2(
             .await?;
             Some(count.0)
         }
-        "byGenre" => {
+        AlbumListType::ByGenre => {
             if let Some(ref genre) = params.genre {
                 let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM albums WHERE genre = ?")
                     .bind(genre)
@@ -228,7 +252,7 @@ pub async fn get_album_list2(
                 None
             }
         }
-        "byYear" => {
+        AlbumListType::ByYear => {
             let count: (i64,) = sqlx::query_as(
                 "SELECT COUNT(*) FROM albums 
                  WHERE (? IS NULL OR year >= ?) AND (? IS NULL OR year <= ?)",
@@ -241,7 +265,7 @@ pub async fn get_album_list2(
             .await?;
             Some(count.0)
         }
-        _ => None, // random, recent don't need total
+        AlbumListType::Random | AlbumListType::Recent => None, // random, recent don't need total
     };
 
     // Get starred status and ratings for albums
@@ -280,14 +304,16 @@ pub async fn get_album_list2(
     Ok(FormatResponse::new(user.format, response))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct RandomSongsParams {
-    size: Option<u32>,
-    genre: Option<String>,
-    from_year: Option<i32>,
-    to_year: Option<i32>,
-    music_folder_id: Option<i64>,
+    pub size: Option<u32>,
+    pub genre: Option<String>,
+    pub from_year: Option<i32>,
+    pub to_year: Option<i32>,
+    #[ts(type = "number | null")]
+    pub music_folder_id: Option<i64>,
 }
 
 #[derive(Serialize, TS)]
@@ -362,13 +388,15 @@ pub async fn get_random_songs(
 }
 
 // getSongsByGenre endpoint
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct SongsByGenreParams {
-    genre: String,
-    count: Option<u32>,
-    offset: Option<u32>,
-    music_folder_id: Option<i64>,
+    pub genre: String,
+    pub count: Option<u32>,
+    pub offset: Option<u32>,
+    #[ts(type = "number | null")]
+    pub music_folder_id: Option<i64>,
 }
 
 #[derive(Serialize, TS)]

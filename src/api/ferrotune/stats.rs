@@ -14,20 +14,28 @@ use ts_rs::TS;
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct StatsResponse {
     /// Total number of songs in the library
+    #[ts(type = "number")]
     pub song_count: i64,
     /// Total number of albums in the library
+    #[ts(type = "number")]
     pub album_count: i64,
     /// Total number of artists in the library
+    #[ts(type = "number")]
     pub artist_count: i64,
     /// Total number of genres in the library
+    #[ts(type = "number")]
     pub genre_count: i64,
     /// Total number of playlists
+    #[ts(type = "number")]
     pub playlist_count: i64,
     /// Total duration of all songs in seconds
+    #[ts(type = "number")]
     pub total_duration_seconds: i64,
     /// Total size of all songs in bytes
+    #[ts(type = "number")]
     pub total_size_bytes: i64,
     /// Total number of plays (scrobbles) for this user
+    #[ts(type = "number")]
     pub total_plays: i64,
 }
 

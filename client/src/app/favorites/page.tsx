@@ -112,12 +112,11 @@ export default function FavoritesPage() {
         albumCount: debouncedAlbumSearch ? 200 : 0,
         artistCount: debouncedArtistSearch ? 200 : 0,
         starredOnly: true,
-        songSort: debouncedSongSearch ? songSortConfig.field : undefined,
-        songSortDir: debouncedSongSearch ? songSortConfig.direction : undefined,
-        albumSort: debouncedAlbumSearch ? albumSortConfig.field : undefined,
-        albumSortDir: debouncedAlbumSearch ? albumSortConfig.direction : undefined,
-        artistSort: debouncedArtistSearch ? artistSortConfig.field : undefined,
-        artistSortDir: debouncedArtistSearch ? artistSortConfig.direction : undefined,
+        songSort: debouncedSongSearch ? songSortConfig.field : null,
+        songSortDir: debouncedSongSearch ? songSortConfig.direction : null,
+        albumSort: debouncedAlbumSearch ? albumSortConfig.field : null,
+        albumSortDir: debouncedAlbumSearch ? albumSortConfig.direction : null,
+        // Note: artistSort not supported by backend - artists are sorted client-side
       });
       return response.searchResult3;
     },

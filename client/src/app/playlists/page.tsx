@@ -744,7 +744,7 @@ function DraggablePlaylistListRow({ playlist, index, isSelected, isSelectionMode
       <MediaRow
         coverArt={coverArtUrl}
         title={getPlaylistDisplayName(playlist)}
-        subtitle={playlist.comment}
+        subtitle={playlist.comment ?? undefined}
         href={`/playlists/details?id=${playlist.id}`}
         coverType="playlist"
         colorSeed={playlist.name}

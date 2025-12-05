@@ -282,7 +282,7 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
       </ContextMenu>
 
       <EditPlaylistDialog
-        playlist={playlist}
+        playlist={{...playlist, comment: playlist.comment ?? undefined}}
         open={editDialogOpen}
         onOpenChange={setEditDialogOpen}
       />
@@ -544,7 +544,7 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
       </DropdownMenu>
 
       <EditPlaylistDialog
-        playlist={playlist}
+        playlist={{...playlist, comment: playlist.comment ?? undefined}}
         open={editDialogOpen}
         onOpenChange={setEditDialogOpen}
       />

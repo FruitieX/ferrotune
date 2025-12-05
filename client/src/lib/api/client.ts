@@ -1,12 +1,11 @@
 import type {
   SubsonicResponse,
   ServerConnection,
-  PingResponse,
   MusicFoldersResponse,
   ArtistsResponse,
-  ArtistResponse,
-  AlbumResponse,
-  SongResponse,
+  ArtistDetailResponse,
+  AlbumDetailResponse,
+  SongDetailResponse,
   GenresResponse,
   AlbumListResponse,
   RandomSongsResponse,
@@ -15,7 +14,7 @@ import type {
   SearchResponse,
   StarredResponse,
   PlaylistsResponse,
-  PlaylistResponse,
+  PlaylistWithSongsResponse,
   PlayQueueResponse,
   PlayHistoryResponse,
   AlbumListParams,
@@ -29,6 +28,11 @@ import type {
   ServerStats,
   ListeningStatsResponse,
 } from "./types";
+
+// Ping response is empty
+interface PingResponse {
+  // Empty for ping
+}
 
 const API_VERSION = "1.16.1";
 const CLIENT_NAME = "ferrotune-web";
@@ -56,7 +60,7 @@ export class SubsonicClient {
     this.password = connection.password;
   }
 
-  private buildUrl(endpoint: string, params: Record<string, string | number | boolean | undefined> = {}): string {
+  private buildUrl(endpoint: string, params: Record<string, string | number | boolean | null | undefined> = {}): string {
     const url = new URL(`${this.serverUrl}/rest/${endpoint}`);
 
     // Add required params
@@ -72,9 +76,9 @@ export class SubsonicClient {
       url.searchParams.set("p", this.password);
     }
 
-    // Add custom params
+    // Add custom params (skip null and undefined)
     for (const [key, value] of Object.entries(params)) {
-      if (value !== undefined) {
+      if (value !== undefined && value !== null) {
         url.searchParams.set(key, String(value));
       }
     }
@@ -82,7 +86,7 @@ export class SubsonicClient {
     return url.toString();
   }
 
-  private async request<T>(endpoint: string, params: Record<string, string | number | boolean | undefined> = {}): Promise<T> {
+  private async request<T>(endpoint: string, params: Record<string, string | number | boolean | null | undefined> = {}): Promise<T> {
     const url = this.buildUrl(endpoint, params);
     const response = await fetch(url);
 
@@ -114,16 +118,16 @@ export class SubsonicClient {
     return this.request<ArtistsResponse>("getArtists", { musicFolderId });
   }
 
-  async getArtist(id: string): Promise<ArtistResponse> {
-    return this.request<ArtistResponse>("getArtist", { id });
+  async getArtist(id: string): Promise<ArtistDetailResponse> {
+    return this.request<ArtistDetailResponse>("getArtist", { id });
   }
 
-  async getAlbum(id: string): Promise<AlbumResponse> {
-    return this.request<AlbumResponse>("getAlbum", { id });
+  async getAlbum(id: string): Promise<AlbumDetailResponse> {
+    return this.request<AlbumDetailResponse>("getAlbum", { id });
   }
 
-  async getSong(id: string): Promise<SongResponse> {
-    return this.request<SongResponse>("getSong", { id });
+  async getSong(id: string): Promise<SongDetailResponse> {
+    return this.request<SongDetailResponse>("getSong", { id });
   }
 
   async getGenres(): Promise<GenresResponse> {
@@ -131,20 +135,22 @@ export class SubsonicClient {
   }
 
   // List endpoints
-  async getAlbumList2(params: AlbumListParams): Promise<AlbumListResponse> {
+  // AlbumListParams requires 'type', other fields are optional
+  async getAlbumList2(params: Pick<AlbumListParams, 'type'> & Partial<Omit<AlbumListParams, 'type'>>): Promise<AlbumListResponse> {
     return this.request<AlbumListResponse>("getAlbumList2", { ...params });
   }
 
-  async getRandomSongs(params: RandomSongsParams = {}): Promise<RandomSongsResponse> {
+  async getRandomSongs(params: Partial<RandomSongsParams> = {}): Promise<RandomSongsResponse> {
     return this.request<RandomSongsResponse>("getRandomSongs", { ...params });
   }
 
-  async getSongsByGenre(genre: string, params: SongsByGenreParams = {}): Promise<SongsByGenreResponse> {
+  async getSongsByGenre(genre: string, params: Partial<Omit<SongsByGenreParams, 'genre'>> = {}): Promise<SongsByGenreResponse> {
     return this.request<SongsByGenreResponse>("getSongsByGenre", { genre, ...params });
   }
 
   // Search endpoint
-  async search3(params: SearchParams): Promise<SearchResponse> {
+  // SearchParams requires 'query', other fields are optional
+  async search3(params: Pick<SearchParams, 'query'> & Partial<Omit<SearchParams, 'query'>>): Promise<SearchResponse> {
     return this.request<SearchResponse>("search3", { ...params });
   }
 
@@ -202,14 +208,14 @@ export class SubsonicClient {
     return this.request<PlaylistsResponse>("getPlaylists");
   }
 
-  async getPlaylist(id: string): Promise<PlaylistResponse> {
-    return this.request<PlaylistResponse>("getPlaylist", { id });
+  async getPlaylist(id: string): Promise<PlaylistWithSongsResponse> {
+    return this.request<PlaylistWithSongsResponse>("getPlaylist", { id });
   }
 
-  async createPlaylist(params: { name: string; songId?: string[] }): Promise<PlaylistResponse> {
+  async createPlaylist(params: { name: string; songId?: string[] }): Promise<PlaylistWithSongsResponse> {
     const urlParams: Record<string, string> = { name: params.name };
     // Note: songId handling for arrays would need URL construction adjustment
-    return this.request<PlaylistResponse>("createPlaylist", urlParams);
+    return this.request<PlaylistWithSongsResponse>("createPlaylist", urlParams);
   }
 
   async updatePlaylist(params: {

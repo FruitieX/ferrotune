@@ -395,9 +395,9 @@ function QueueContent({ variant }: QueueContentProps) {
                   {/* Cover art - clickable play/pause */}
                   <div className="group/cover relative shrink-0 cursor-pointer" onClick={togglePlayPause}>
                     <CoverImage
-                      src={getCoverUrl(currentTrack.coverArt)}
+                      src={getCoverUrl(currentTrack.coverArt ?? undefined)}
                       alt={currentTrack.title}
-                      colorSeed={currentTrack.album}
+                      colorSeed={currentTrack.album ?? undefined}
                       type="song"
                       size="sm"
                     />
@@ -730,9 +730,9 @@ function PlayablePreviousItem({
         {/* Cover with play button overlay on cover hover */}
         <div className="group/cover relative shrink-0 cursor-pointer" onClick={onPlay}>
           <CoverImage
-            src={getCoverUrl(song.coverArt)}
+            src={getCoverUrl(song.coverArt ?? undefined)}
             alt={song.title}
-            colorSeed={song.album}
+            colorSeed={song.album ?? undefined}
             type="song"
             size="sm"
           />
@@ -846,9 +846,9 @@ function SortableQueueItem({
         {/* Cover with play button overlay on cover hover only */}
         <div className="group/cover relative shrink-0 cursor-pointer" onClick={onPlay}>
           <CoverImage
-            src={getCoverUrl(song.coverArt)}
+            src={getCoverUrl(song.coverArt ?? undefined)}
             alt={song.title}
-            colorSeed={song.album}
+            colorSeed={song.album ?? undefined}
             type="song"
             size="sm"
           />

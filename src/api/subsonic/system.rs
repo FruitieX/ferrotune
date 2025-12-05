@@ -73,6 +73,7 @@ pub struct MusicFoldersInner {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct MusicFolderResponse {
+    #[ts(type = "number")]
     pub id: i64,
     pub name: String,
 }

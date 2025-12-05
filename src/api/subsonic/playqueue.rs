@@ -39,6 +39,7 @@ pub struct PlayQueueContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub position: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,

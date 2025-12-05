@@ -34,7 +34,7 @@ export function ArtistCard({ artist, onPlay, isSelected, isSelectionMode, onSele
     <MediaCard
       coverArt={coverArtUrl}
       title={artist.name}
-      subtitle={formatCount(artist.albumCount, "album")}
+      subtitle={formatCount(artist.albumCount ?? 0, "album")}
       href={`/library/artists/details?id=${artist.id}`}
       coverShape="circle"
       colorSeed={artist.name}
@@ -97,7 +97,7 @@ export function ArtistCardCompact({
     <MediaRow
       coverArt={coverArtUrl}
       title={artist.name}
-      subtitle={showAlbumCount ? formatCount(artist.albumCount, "album") : undefined}
+      subtitle={showAlbumCount ? formatCount(artist.albumCount ?? 0, "album") : undefined}
       href={`/library/artists/details?id=${artist.id}`}
       coverShape="circle"
       colorSeed={artist.name}
