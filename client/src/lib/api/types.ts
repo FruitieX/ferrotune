@@ -221,6 +221,17 @@ export interface ScanRequest {
 }
 
 // ============================================================================
+// Music Folder Management Types (Admin API) - Generated from Rust
+// ============================================================================
+
+export type { MusicFoldersResponse as MusicFoldersAdminResponse } from "./generated";
+export type { MusicFolderInfo } from "./generated";
+export type { MusicFolderStats } from "./generated";
+export type { CreateMusicFolderRequest } from "./generated";
+export type { CreateMusicFolderResponse } from "./generated";
+export type { UpdateMusicFolderRequest } from "./generated";
+
+// ============================================================================
 // Connection Types (client-only)
 // ============================================================================
 

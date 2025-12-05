@@ -17,18 +17,39 @@
 //! - `POST /ferrotune/scan` - Trigger a library scan
 //! - `GET /ferrotune/scan/status` - Get current scan status (placeholder for future async scanning)
 //! - `GET /ferrotune/duplicates` - Get duplicate files detected during scanning
+//!
+//! ## Music Folder Endpoints
+//!
+//! - `GET /ferrotune/music-folders` - List all music folders with stats
+//! - `POST /ferrotune/music-folders` - Add a new music folder
+//! - `GET /ferrotune/music-folders/:id` - Get a music folder with stats
+//! - `PATCH /ferrotune/music-folders/:id` - Update a music folder (name, enabled)
+//! - `DELETE /ferrotune/music-folders/:id` - Delete a music folder (cascades to songs)
+//! - `GET /ferrotune/music-folders/:id/stats` - Get detailed stats for a music folder
+//!
+//! ## Playlist Folder Endpoints
+//!
 //! - `GET /ferrotune/playlist-folders` - Get all playlist folders and playlists
 //! - `POST /ferrotune/playlist-folders` - Create a new playlist folder
 //! - `PATCH /ferrotune/playlist-folders/:id` - Update a playlist folder
 //! - `DELETE /ferrotune/playlist-folders/:id` - Delete a playlist folder
 //! - `PATCH /ferrotune/playlists/:id/move` - Move a playlist to a folder
 //! - `PUT /ferrotune/playlists/:id/reorder` - Reorder songs in a playlist
+//!
+//! ## Song Management Endpoints
+//!
 //! - `GET /ferrotune/songs/ids` - Get all song IDs matching search/filter criteria (for bulk selection)
 //! - `DELETE /ferrotune/songs/:id` - Delete a song from the database
 //! - `GET /ferrotune/songs/:id/tags` - Get all tags from a song file
 //! - `PATCH /ferrotune/songs/:id/tags` - Update tags in a song file
+//!
+//! ## User Preferences Endpoints
+//!
 //! - `GET /ferrotune/preferences` - Get user preferences
 //! - `PUT /ferrotune/preferences` - Update user preferences
+//!
+//! ## Playback Endpoints
+//!
 //! - `POST /ferrotune/play-queue` - Save play queue (JSON body, scalable alternative to OpenSubsonic)
 //! - `POST /ferrotune/listening` - Log a listening session
 //! - `GET /ferrotune/listening/stats` - Get listening statistics
@@ -54,6 +75,7 @@
 mod duplicates;
 mod listening;
 mod media;
+pub mod music_folders;
 mod playlists;
 mod playqueue;
 mod preferences;
@@ -88,6 +110,21 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/scan/full", get(scan::full_scan_status))
         .route("/ferrotune/scan/cancel", post(scan::cancel_scan))
         .route("/ferrotune/duplicates", get(duplicates::get_duplicates))
+        // Music folder management endpoints
+        .route(
+            "/ferrotune/music-folders",
+            get(music_folders::list_music_folders).post(music_folders::create_music_folder),
+        )
+        .route(
+            "/ferrotune/music-folders/{id}",
+            get(music_folders::get_music_folder)
+                .patch(music_folders::update_music_folder)
+                .delete(music_folders::delete_music_folder),
+        )
+        .route(
+            "/ferrotune/music-folders/{id}/stats",
+            get(music_folders::get_music_folder_stats),
+        )
         // Playlist folder endpoints
         .route(
             "/ferrotune/playlist-folders",

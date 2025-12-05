@@ -82,6 +82,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatTotalDuration, formatFileSize, formatListeningTime } from "@/lib/utils/format";
+import { MusicLibraries } from "@/components/settings/music-libraries";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -768,11 +769,20 @@ export default function SettingsPage() {
           </Card>
         </motion.div>
 
-        {/* Administration */}
+        {/* Music Libraries */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.35 }}
+        >
+          <MusicLibraries />
+        </motion.div>
+
+        {/* Administration */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
         >
           <Card>
             <CardHeader>
@@ -809,7 +819,7 @@ export default function SettingsPage() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
+          transition={{ delay: 0.45 }}
         >
           <Card>
             <CardHeader>

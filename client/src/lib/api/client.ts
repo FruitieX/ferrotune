@@ -38,6 +38,9 @@ import type {
   ScanStatusResponse,
   ScanLogsResponse,
   FullScanStatusResponse,
+  MusicFoldersAdminResponse,
+  MusicFolderInfo,
+  CreateMusicFolderResponse,
 } from "./types";
 
 // Ping response is empty
@@ -766,6 +769,53 @@ export class SubsonicClient {
   async cancelScan(): Promise<{ status: string; message: string }> {
     return this.adminRequest("/ferrotune/scan/cancel", {
       method: "POST",
+    });
+  }
+
+  // ==========================================
+  // Music Folder Management (Admin API)
+  // ==========================================
+
+  /**
+   * List all music folders with their stats (Admin API)
+   */
+  async getAdminMusicFolders(): Promise<MusicFoldersAdminResponse> {
+    return this.adminRequest("/ferrotune/music-folders");
+  }
+
+  /**
+   * Get a single music folder with stats
+   */
+  async getAdminMusicFolder(id: number): Promise<MusicFolderInfo> {
+    return this.adminRequest(`/ferrotune/music-folders/${id}`);
+  }
+
+  /**
+   * Create a new music folder
+   */
+  async createMusicFolder(name: string, path: string): Promise<CreateMusicFolderResponse> {
+    return this.adminRequest("/ferrotune/music-folders", {
+      method: "POST",
+      body: JSON.stringify({ name, path }),
+    });
+  }
+
+  /**
+   * Update a music folder (name and/or enabled status)
+   */
+  async updateMusicFolder(id: number, updates: { name?: string; enabled?: boolean }): Promise<void> {
+    await this.adminRequest(`/ferrotune/music-folders/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    });
+  }
+
+  /**
+   * Delete a music folder and all its songs
+   */
+  async deleteMusicFolder(id: number): Promise<void> {
+    await this.adminRequest(`/ferrotune/music-folders/${id}`, {
+      method: "DELETE",
     });
   }
 
