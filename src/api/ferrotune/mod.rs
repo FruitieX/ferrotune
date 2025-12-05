@@ -59,6 +59,7 @@ mod playqueue;
 mod preferences;
 mod queue;
 mod scan;
+pub mod scan_state;
 mod shuffle_exclude;
 mod stats;
 mod tags;
@@ -82,6 +83,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/stats", get(stats::get_stats))
         .route("/ferrotune/scan", post(scan::start_scan))
         .route("/ferrotune/scan/status", get(scan::scan_status))
+        .route("/ferrotune/scan/progress", get(scan::scan_progress_stream))
+        .route("/ferrotune/scan/logs", get(scan::scan_logs))
+        .route("/ferrotune/scan/full", get(scan::full_scan_status))
+        .route("/ferrotune/scan/cancel", post(scan::cancel_scan))
         .route("/ferrotune/duplicates", get(duplicates::get_duplicates))
         // Playlist folder endpoints
         .route(

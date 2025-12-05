@@ -208,9 +208,11 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
     init_music_folders(&pool, &config).await?;
 
     // Create shared app state
+    let scan_state = api::create_scan_state();
     let state = Arc::new(api::AppState {
         pool,
         config: config.clone(),
+        scan_state,
     });
 
     // CORS layer - must be applied first (added last) to handle preflight requests

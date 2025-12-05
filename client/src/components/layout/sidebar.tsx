@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   Collapsible,
   CollapsibleContent,
@@ -45,6 +46,8 @@ import {
 } from "@/lib/store/ui";
 import { isConnectedAtom } from "@/lib/store/auth";
 import { getClient } from "@/lib/api/client";
+import { ScanStatusIndicator } from "@/components/admin/scan-status-indicator";
+import { ScanDialog } from "@/components/admin/scan-dialog";
 import {
   organizePlaylistsIntoFolders,
   getPlaylistDisplayName,
@@ -141,21 +144,32 @@ export function Sidebar() {
       )}
     >
       {/* Logo */}
-      <div className="flex items-center h-16 px-4 gap-3 overflow-hidden shrink-0">
-        <div className="flex items-center justify-center w-10 h-10 shrink-0 rounded-lg bg-primary">
-          <Music className="w-6 h-6 text-primary-foreground" />
+      <div className="flex items-center justify-between h-16 px-4 overflow-hidden shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center w-10 h-10 shrink-0 rounded-lg bg-primary">
+            <Music className="w-6 h-6 text-primary-foreground" />
+          </div>
+          {!collapsed && (
+            <motion.span
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="font-bold text-xl text-foreground whitespace-nowrap"
+            >
+              Ferrotune
+            </motion.span>
+          )}
         </div>
-        {!collapsed && (
-          <motion.span
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="font-bold text-xl text-foreground whitespace-nowrap"
-          >
-            Ferrotune
-          </motion.span>
+        {/* Scan Status Indicator */}
+        {isConnected && (
+          <TooltipProvider>
+            <ScanStatusIndicator collapsed={collapsed} />
+          </TooltipProvider>
         )}
       </div>
+
+      {/* Scan Dialog - rendered once, controlled by atom */}
+      <ScanDialog />
 
       {/* Scrollable content - wraps nav and library section */}
       <ScrollArea className="flex-1 min-h-0">
