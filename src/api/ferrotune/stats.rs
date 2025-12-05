@@ -6,10 +6,12 @@ use crate::error::Result;
 use axum::{extract::State, Json};
 use serde::Serialize;
 use std::sync::Arc;
+use ts_rs::TS;
 
 /// Server statistics response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct StatsResponse {
     /// Total number of songs in the library
     pub song_count: i64,

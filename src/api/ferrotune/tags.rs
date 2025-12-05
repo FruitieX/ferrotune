@@ -19,11 +19,13 @@ use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagItem, TagType};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
+use ts_rs::TS;
 
 use super::ErrorResponse;
 
 /// A single tag entry with key-value pair
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct TagEntry {
     /// The tag key (e.g., "TITLE", "ARTIST", "REPLAYGAIN_TRACK_GAIN")
     pub key: String,
@@ -32,8 +34,9 @@ pub struct TagEntry {
 }
 
 /// Response for GET /api/songs/:id/tags
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct GetTagsResponse {
     /// The song ID
     pub id: String,
@@ -54,8 +57,9 @@ pub struct GetTagsResponse {
 }
 
 /// A secondary tag block
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct AdditionalTagBlock {
     /// Tag type name
     pub tag_type: String,
@@ -76,8 +80,9 @@ pub struct UpdateTagsRequest {
 }
 
 /// Response for PATCH /api/songs/:id/tags
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct UpdateTagsResponse {
     pub success: bool,
     pub message: String,
@@ -88,8 +93,9 @@ pub struct UpdateTagsResponse {
 }
 
 /// A single tag change
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct TagChange {
     pub key: String,
     pub action: String, // "set", "deleted"

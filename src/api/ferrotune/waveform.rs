@@ -25,6 +25,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use tokio::sync::mpsc;
+use ts_rs::TS;
 
 /// Query parameters for waveform endpoint.
 #[derive(Deserialize)]
@@ -39,7 +40,8 @@ fn default_resolution() -> usize {
 }
 
 /// Waveform response.
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct WaveformResponse {
     /// Normalized heights (0.0 to 1.0) for each bar
     pub heights: Vec<f32>,
@@ -48,7 +50,8 @@ pub struct WaveformResponse {
 }
 
 /// Streaming chunk for progressive waveform loading.
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct WaveformChunk {
     /// Chunk index (0-based)
     pub chunk_index: usize,

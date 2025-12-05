@@ -9,6 +9,7 @@ use axum::extract::{Query, State};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,14 +24,16 @@ pub struct AlbumListParams {
     music_folder_id: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct AlbumList2Response {
     pub album_list2: AlbumList2Content,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct AlbumList2Content {
     pub album: Vec<AlbumResponse>,
     /// Total count of albums (Ferrotune extension for pagination)
@@ -287,14 +290,16 @@ pub struct RandomSongsParams {
     music_folder_id: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct RandomSongsResponse {
     pub random_songs: RandomSongsContent,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct RandomSongsContent {
     pub song: Vec<SongResponse>,
 }
@@ -366,14 +371,16 @@ pub struct SongsByGenreParams {
     music_folder_id: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct SongsByGenreResponse {
     pub songs_by_genre: SongsByGenreContent,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct SongsByGenreContent {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub song: Vec<SongResponse>,

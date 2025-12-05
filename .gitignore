@@ -8,4 +8,7 @@
 # Moon cache
 /.moon/cache/
 
+# Generated TypeScript bindings (regenerate with cargo test)
+/client/src/lib/api/generated/
+
 /*TODO*.md

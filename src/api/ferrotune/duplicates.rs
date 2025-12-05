@@ -7,10 +7,12 @@ use axum::{
 };
 use serde::Serialize;
 use std::sync::Arc;
+use ts_rs::TS;
 
 /// A group of duplicate files sharing the same content hash.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct DuplicateGroup {
     /// The full content hash shared by all files in this group.
     pub hash: String,
@@ -23,8 +25,9 @@ pub struct DuplicateGroup {
 }
 
 /// Information about a duplicate file.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct DuplicateFile {
     /// Song ID.
     pub id: String,
@@ -43,8 +46,9 @@ pub struct DuplicateFile {
 }
 
 /// Response from the duplicates endpoint.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct DuplicatesResponse {
     /// Total number of duplicate groups.
     pub group_count: usize,

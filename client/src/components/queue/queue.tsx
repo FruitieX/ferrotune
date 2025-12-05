@@ -125,17 +125,16 @@ function getQueueSourceLabel(source: QueueSourceInfo): string {
 
 // Get link for queue source (if navigable)
 function getQueueSourceLink(source: QueueSourceInfo): string | null {
-  if (!source.id) return null;
-
   switch (source.type) {
     case "album":
-      return `/library/albums/details?id=${source.id}`;
+      return source.id ? `/library/albums/details?id=${source.id}` : null;
     case "artist":
-      return `/library/artists/details?id=${source.id}`;
+      return source.id ? `/library/artists/details?id=${source.id}` : null;
     case "playlist":
-      return `/playlists/details?id=${source.id}`;
+      return source.id ? `/playlists/details?id=${source.id}` : null;
     case "genre":
-      return `/library/genres/details?genre=${encodeURIComponent(source.name || "")}`;
+      // Genres use name as identifier, not id
+      return source.name ? `/library/genres/details?genre=${encodeURIComponent(source.name)}` : null;
     default:
       return null;
   }

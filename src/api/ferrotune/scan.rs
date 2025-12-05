@@ -9,6 +9,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 
 /// Request body for starting a scan.
 #[derive(Debug, Deserialize)]
@@ -28,8 +29,9 @@ pub struct ScanRequest {
 }
 
 /// Response from a scan operation.
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ScanResponse {
     pub status: &'static str,
     pub message: String,
@@ -120,8 +122,9 @@ pub async fn start_scan(
 }
 
 /// Scan status response.
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ScanStatusResponse {
     pub scanning: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -129,8 +132,9 @@ pub struct ScanStatusResponse {
 }
 
 /// Progress information for an ongoing scan.
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ScanProgress {
     pub scanned: u64,
     pub total: Option<u64>,
