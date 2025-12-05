@@ -301,6 +301,14 @@ export interface SearchParams {
   maxPlayCount?: number;
   /** Filter to only shuffle-excluded songs */
   shuffleExcludedOnly?: boolean;
+  /** Filter songs by minimum bitrate in kbps */
+  minBitrate?: number;
+  /** Filter songs by maximum bitrate in kbps */
+  maxBitrate?: number;
+  /** Filter songs added after this date (ISO 8601: YYYY-MM-DD) */
+  addedAfter?: string;
+  /** Filter songs added before this date (ISO 8601: YYYY-MM-DD) */
+  addedBefore?: string;
 }
 
 export interface RandomSongsParams {

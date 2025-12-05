@@ -78,6 +78,14 @@ pub struct SearchParams {
     max_play_count: Option<i32>,
     /// Filter to only shuffle-excluded songs
     shuffle_excluded_only: Option<bool>,
+    /// Filter songs by minimum bitrate in kbps
+    min_bitrate: Option<i32>,
+    /// Filter songs by maximum bitrate in kbps
+    max_bitrate: Option<i32>,
+    /// Filter songs added after this ISO 8601 date (e.g., "2024-01-01")
+    added_after: Option<String>,
+    /// Filter songs added before this ISO 8601 date (e.g., "2024-12-31")
+    added_before: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -191,6 +199,22 @@ fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> SongFilt
             "EXISTS (SELECT 1 FROM shuffle_excludes se WHERE se.song_id = s.id AND se.user_id = {})",
             user_id
         ));
+    }
+    // Bitrate filters
+    if let Some(min_bitrate) = params.min_bitrate {
+        conditions.push(format!("COALESCE(s.bitrate, 0) >= {}", min_bitrate));
+    }
+    if let Some(max_bitrate) = params.max_bitrate {
+        conditions.push(format!("COALESCE(s.bitrate, 999999) <= {}", max_bitrate));
+    }
+    // Date added filters (ISO 8601 date strings)
+    if let Some(ref added_after) = params.added_after {
+        let escaped_date = added_after.replace('\'', "''");
+        conditions.push(format!("date(s.created_at) >= '{}'", escaped_date));
+    }
+    if let Some(ref added_before) = params.added_before {
+        let escaped_date = added_before.replace('\'', "''");
+        conditions.push(format!("date(s.created_at) <= '{}'", escaped_date));
     }
 
     SongFilterConditions {

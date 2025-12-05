@@ -10,7 +10,7 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useItemSelection } from "@/lib/hooks/use-track-selection";
 import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
-import { playNowAtom, addToQueueAtom } from "@/lib/store/queue";
+import { playNowAtom, addToQueueAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { ArtistCard, ArtistCardSkeleton, ArtistCardCompact } from "@/components/browse/artist-card";
 import { MediaRowSkeleton } from "@/components/shared/media-row";
@@ -95,7 +95,7 @@ export default function ArtistsPage() {
   const handlePlaySelected = async () => {
     const songs = await getSelectedArtistsSongs();
     if (songs.length > 0) {
-      playNow(songs);
+      playNow(songs, 0, { type: "library", name: "Library" });
       clearSelection();
       toast.success(`Playing ${songs.length} songs from ${selectedCount} artists`);
     }
@@ -105,7 +105,7 @@ export default function ArtistsPage() {
     const songs = await getSelectedArtistsSongs();
     if (songs.length > 0) {
       const shuffled = [...songs].sort(() => Math.random() - 0.5);
-      playNow(shuffled);
+      playNow(shuffled, 0, { type: "library", name: "Library" });
       clearSelection();
       toast.success(`Shuffling ${songs.length} songs from ${selectedCount} artists`);
     }
@@ -149,7 +149,7 @@ export default function ArtistsPage() {
       const artistData = await client.getArtist(artist.id);
       // Use the song array which contains all songs by this artist
       if (artistData.artist.song?.length) {
-        playNow(artistData.artist.song);
+        playNow(artistData.artist.song, 0, { type: "artist", id: artist.id, name: artist.name });
       }
     } catch (error) {
       console.error("Failed to play artist:", error);

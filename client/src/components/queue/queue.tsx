@@ -31,6 +31,14 @@ import {
   Clock,
   MoreHorizontal,
   PanelRightClose,
+  Disc3,
+  User,
+  ListMusic as PlaylistIcon,
+  Music2,
+  Search,
+  Heart,
+  History,
+  Library,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { queuePanelOpenAtom } from "@/lib/store/ui";
@@ -44,7 +52,9 @@ import {
   isShuffledAtom,
   shuffledIndicesAtom,
   isQueueLoadingAtom,
+  queueSourceAtom,
   type QueueItem,
+  type QueueSourceInfo,
 } from "@/lib/store/queue";
 import { playbackStateAtom } from "@/lib/store/player";
 import { useIsDesktop } from "@/lib/hooks/use-media-query";
@@ -66,6 +76,111 @@ function getCoverUrl(coverArt?: string): string | undefined {
   if (!coverArt) return undefined;
   const client = getClient();
   return client?.getCoverArtUrl(coverArt, 100);
+}
+
+// Get icon component for queue source type
+function getQueueSourceIcon(type: QueueSourceInfo["type"]) {
+  switch (type) {
+    case "library":
+      return Library;
+    case "album":
+      return Disc3;
+    case "artist":
+      return User;
+    case "playlist":
+      return PlaylistIcon;
+    case "genre":
+      return Music2;
+    case "search":
+      return Search;
+    case "favorites":
+      return Heart;
+    case "history":
+      return History;
+    default:
+      return ListMusic;
+  }
+}
+
+// Get display label for queue source
+function getQueueSourceLabel(source: QueueSourceInfo): string {
+  const typeLabels: Record<QueueSourceInfo["type"], string> = {
+    library: "Library",
+    album: "Album",
+    artist: "Artist",
+    playlist: "Playlist",
+    genre: "Genre",
+    search: "Search Results",
+    favorites: "Favorites",
+    history: "Recently Played",
+    other: "Queue",
+  };
+
+  if (source.name) {
+    return `${typeLabels[source.type]}: ${source.name}`;
+  }
+  return typeLabels[source.type];
+}
+
+// Get link for queue source (if navigable)
+function getQueueSourceLink(source: QueueSourceInfo): string | null {
+  if (!source.id) return null;
+
+  switch (source.type) {
+    case "album":
+      return `/library/albums/details?id=${source.id}`;
+    case "artist":
+      return `/library/artists/details?id=${source.id}`;
+    case "playlist":
+      return `/playlists/details?id=${source.id}`;
+    case "genre":
+      return `/library/genres/details?genre=${encodeURIComponent(source.name || "")}`;
+    default:
+      return null;
+  }
+}
+
+// Queue source display component
+function QueueSourceDisplay({ variant }: { variant: "mobile" | "desktop" }) {
+  const queueSource = useAtomValue(queueSourceAtom);
+  const queue = useAtomValue(queueAtom);
+
+  // Don't show if queue is empty or no meaningful source
+  if (queue.length === 0 || queueSource.type === "other") {
+    return null;
+  }
+
+  const Icon = getQueueSourceIcon(queueSource.type);
+  const label = getQueueSourceLabel(queueSource);
+  const link = getQueueSourceLink(queueSource);
+  const isMobile = variant === "mobile";
+
+  const content = (
+    <div className={cn(
+      "flex items-center gap-2 text-muted-foreground",
+      isMobile ? "text-sm" : "text-xs"
+    )}>
+      <Icon className="w-3.5 h-3.5 shrink-0" />
+      <span className="truncate">Playing from {queueSource.name || (queueSource.type === "library" ? "Library" : "Queue")}</span>
+    </div>
+  );
+
+  if (link) {
+    return (
+      <Link 
+        href={link} 
+        className="block px-4 py-2 border-b border-border hover:bg-muted/50 transition-colors"
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <div className="px-4 py-2 border-b border-border">
+      {content}
+    </div>
+  );
 }
 
 // Audio bar visualizer for now playing indicator - uses CSS animations
@@ -517,6 +632,7 @@ export function QueuePanel() {
           </div>
         </SheetHeader>
 
+        <QueueSourceDisplay variant="mobile" />
         <QueueContent variant="mobile" />
       </SheetContent>
     </Sheet>
@@ -612,6 +728,7 @@ export function QueueSidebar() {
               </div>
             </div>
 
+            <QueueSourceDisplay variant="desktop" />
             <QueueContent variant="desktop" />
           </motion.div>
         )}

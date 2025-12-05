@@ -10,7 +10,7 @@ import { Search as SearchIcon, X, Loader2, ListMusic, Clock } from "lucide-react
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
-import { playNowAtom } from "@/lib/store/queue";
+import { playNowAtom, type QueueSourceInfo } from "@/lib/store/queue";
 import { getClient } from "@/lib/api/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -111,7 +111,7 @@ export function SearchPageContent() {
     try {
       const response = await client.getAlbum(album.id);
       if (response.album.song?.length > 0) {
-        playNow(response.album.song);
+        playNow(response.album.song, 0, { type: "album", id: album.id, name: album.name });
       }
     } catch (error) {
       console.error("Failed to play album:", error);
@@ -126,7 +126,7 @@ export function SearchPageContent() {
       const artistData = await client.getArtist(artist.id);
       // Use the song array which contains all songs by this artist
       if (artistData.artist.song?.length) {
-        playNow(artistData.artist.song);
+        playNow(artistData.artist.song, 0, { type: "artist", id: artist.id, name: artist.name });
       }
     } catch (error) {
       console.error("Failed to play artist:", error);
