@@ -78,11 +78,11 @@ interface SongContextMenuProps {
   /** Show "Remove from Playlist" option */
   showRemoveFromPlaylist?: boolean;
   /** Callback for removing from playlist */
-  onRemoveFromPlaylist?: () => void;
+  onRemoveFromPlaylist?: (songId: string) => void;
   /** Show "Move to Position" option */
   showMoveToPosition?: boolean;
   /** Callback for move to position */
-  onMoveToPosition?: () => void;
+  onMoveToPosition?: (song: Song, index: number) => void;
   /** Label for move to position action */
   moveToPositionLabel?: string;
 }
@@ -232,14 +232,14 @@ export function SongContextMenu({
           Remove from Queue
         </ContextMenuItem>
       )}
-      {showMoveToPosition && onMoveToPosition && (
-        <ContextMenuItem onClick={onMoveToPosition}>
+      {showMoveToPosition && onMoveToPosition && songIndex !== undefined && (
+        <ContextMenuItem onClick={() => onMoveToPosition(song, songIndex)}>
           <Move className="w-4 h-4 mr-2" />
           {moveToPositionLabel}
         </ContextMenuItem>
       )}
       {showRemoveFromPlaylist && onRemoveFromPlaylist && (
-        <ContextMenuItem onClick={onRemoveFromPlaylist} className="text-destructive">
+        <ContextMenuItem onClick={() => onRemoveFromPlaylist(song.id)} className="text-destructive">
           <X className="w-4 h-4 mr-2" />
           Remove from Playlist
         </ContextMenuItem>
@@ -357,11 +357,11 @@ interface SongDropdownMenuProps {
   /** Show "Remove from Playlist" option */
   showRemoveFromPlaylist?: boolean;
   /** Callback for removing from playlist */
-  onRemoveFromPlaylist?: () => void;
+  onRemoveFromPlaylist?: (songId: string) => void;
   /** Show "Move to Position" option */
   showMoveToPosition?: boolean;
   /** Callback for move to position */
-  onMoveToPosition?: () => void;
+  onMoveToPosition?: (song: Song, index: number) => void;
   /** Label for move to position action */
   moveToPositionLabel?: string;
 }
@@ -536,14 +536,14 @@ export function SongDropdownMenu({
               Remove from Queue
             </DropdownMenuItem>
           )}
-          {showMoveToPosition && onMoveToPosition && (
-            <DropdownMenuItem onClick={onMoveToPosition}>
+          {showMoveToPosition && onMoveToPosition && songIndex !== undefined && (
+            <DropdownMenuItem onClick={() => onMoveToPosition(song, songIndex)}>
               <Move className="w-4 h-4 mr-2" />
               {moveToPositionLabel}
             </DropdownMenuItem>
           )}
           {showRemoveFromPlaylist && onRemoveFromPlaylist && (
-            <DropdownMenuItem onClick={onRemoveFromPlaylist} className="text-destructive">
+            <DropdownMenuItem onClick={() => onRemoveFromPlaylist(song.id)} className="text-destructive">
               <X className="w-4 h-4 mr-2" />
               Remove from Playlist
             </DropdownMenuItem>

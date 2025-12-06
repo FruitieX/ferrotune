@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, Suspense, useCallback } from "react";
+import { useState, useEffect, useMemo, Suspense, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
@@ -184,14 +184,19 @@ function PlaylistDetailContent() {
   });
 
   const songs = playlist?.entry ?? [];
+  
+  // Use ref to access current songs without adding to callback dependencies
+  const songsRef = useRef(songs);
+  songsRef.current = songs;
 
   // Helper to remove a single song by its ID (for context menu)
+  // Uses songsRef to avoid recreating callback when songs change
   const handleRemoveSingleSong = useCallback((songId: string) => {
     // Find the index of the song in the original playlist order
-    const index = songs.findIndex((s) => s.id === songId);
+    const index = songsRef.current.findIndex((s) => s.id === songId);
     if (index === -1) return;
     removeSongsMutation.mutate({ indices: [index], songIds: [songId] });
-  }, [songs, removeSongsMutation]);
+  }, [removeSongsMutation]);
   
   // Handle move to position for playlists
   const handleMoveToPosition = useCallback((song: Song, currentIndex: number) => {
@@ -513,7 +518,7 @@ function PlaylistDetailContent() {
                   onSelect={handleSelect}
                   isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(index, song.id) : undefined}
                   showMoveToPosition={sortConfig.field === "custom"}
-                  onMoveToPosition={() => handleMoveToPosition(song, index)}
+                  onMoveToPosition={handleMoveToPosition}
                 />
               )}
               renderSkeleton={() => <SongCardSkeleton />}
@@ -538,10 +543,10 @@ function PlaylistDetailContent() {
                   isSelectionMode={hasSelection}
                   onSelect={handleSelect}
                   showRemoveFromPlaylist
-                  onRemoveFromPlaylist={() => handleRemoveSingleSong(song.id)}
+                  onRemoveFromPlaylist={handleRemoveSingleSong}
                   isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(index, song.id) : undefined}
                   showMoveToPosition={sortConfig.field === "custom"}
-                  onMoveToPosition={() => handleMoveToPosition(song, index)}
+                  onMoveToPosition={handleMoveToPosition}
                 />
               )}
               renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
