@@ -8,7 +8,8 @@ GENERATED_DIR="client/src/lib/api/generated"
 
 echo "🔨 Generating TypeScript bindings..."
 
-# Create output directory if it doesn't exist
+# Clean and recreate output directory to avoid stale files
+rm -rf "$GENERATED_DIR"
 mkdir -p "$GENERATED_DIR"
 
 # Run cargo test to trigger ts-rs exports
