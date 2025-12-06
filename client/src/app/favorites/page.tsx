@@ -342,6 +342,11 @@ export default function FavoritesPage() {
         sourceName: "Favorites",
         startIndex: 0,
         shuffle: false,
+        // Pass sort config so server materializes queue in same order as displayed
+        sort: songSortConfig.field !== "custom" ? {
+          field: songSortConfig.field,
+          direction: songSortConfig.direction,
+        } : undefined,
       });
     }
   };
@@ -353,6 +358,11 @@ export default function FavoritesPage() {
         sourceName: "Favorites",
         startIndex: 0,
         shuffle: true,
+        // Pass sort config for consistent ordering before shuffle
+        sort: songSortConfig.field !== "custom" ? {
+          field: songSortConfig.field,
+          direction: songSortConfig.direction,
+        } : undefined,
       });
     }
   };

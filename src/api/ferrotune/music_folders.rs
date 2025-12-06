@@ -135,11 +135,10 @@ pub async fn create_music_folder(
     }
 
     // Check if path is already registered
-    let existing: Option<(i64,)> =
-        sqlx::query_as("SELECT id FROM music_folders WHERE path = ?")
-            .bind(&request.path)
-            .fetch_optional(&state.pool)
-            .await?;
+    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM music_folders WHERE path = ?")
+        .bind(&request.path)
+        .fetch_optional(&state.pool)
+        .await?;
 
     if existing.is_some() {
         return Err(Error::InvalidRequest(format!(
@@ -149,13 +148,11 @@ pub async fn create_music_folder(
     }
 
     // Create the folder
-    let result = sqlx::query(
-        "INSERT INTO music_folders (name, path, enabled) VALUES (?, ?, 1)"
-    )
-    .bind(&request.name)
-    .bind(&request.path)
-    .execute(&state.pool)
-    .await?;
+    let result = sqlx::query("INSERT INTO music_folders (name, path, enabled) VALUES (?, ?, 1)")
+        .bind(&request.name)
+        .bind(&request.path)
+        .execute(&state.pool)
+        .await?;
 
     let id = result.last_insert_rowid();
 
@@ -197,21 +194,28 @@ pub async fn update_music_folder(
     }
     if let Some(enabled) = request.enabled {
         updates.push("enabled = ?");
-        values.push(if enabled { "1".to_string() } else { "0".to_string() });
+        values.push(if enabled {
+            "1".to_string()
+        } else {
+            "0".to_string()
+        });
     }
 
     if updates.is_empty() {
         return Ok(StatusCode::OK.into_response());
     }
 
-    let query = format!("UPDATE music_folders SET {} WHERE id = ?", updates.join(", "));
+    let query = format!(
+        "UPDATE music_folders SET {} WHERE id = ?",
+        updates.join(", ")
+    );
     let mut q = sqlx::query(&query);
-    
+
     for value in &values {
         q = q.bind(value);
     }
     q = q.bind(id);
-    
+
     q.execute(&state.pool).await?;
 
     Ok(StatusCode::OK.into_response())
@@ -224,11 +228,10 @@ pub async fn delete_music_folder(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse> {
     // Check if folder exists
-    let existing: Option<(i64,)> =
-        sqlx::query_as("SELECT id FROM music_folders WHERE id = ?")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?;
+    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM music_folders WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?;
 
     if existing.is_none() {
         return Err(Error::NotFound(format!("Music folder {} not found", id)));
@@ -258,11 +261,10 @@ pub async fn get_music_folder_stats(
     Path(id): Path<i64>,
 ) -> Result<Json<MusicFolderStats>> {
     // Check if folder exists
-    let existing: Option<(i64,)> =
-        sqlx::query_as("SELECT id FROM music_folders WHERE id = ?")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?;
+    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM music_folders WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?;
 
     if existing.is_none() {
         return Err(Error::NotFound(format!("Music folder {} not found", id)));
@@ -325,12 +327,11 @@ async fn get_music_folder_with_stats(state: &AppState, id: i64) -> Result<Option
 
 /// Helper: Get statistics for a specific folder
 async fn get_folder_stats(pool: &sqlx::SqlitePool, folder_id: i64) -> Result<MusicFolderStats> {
-    let (song_count,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM songs WHERE music_folder_id = ?"
-    )
-    .bind(folder_id)
-    .fetch_one(pool)
-    .await?;
+    let (song_count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM songs WHERE music_folder_id = ?")
+            .bind(folder_id)
+            .fetch_one(pool)
+            .await?;
 
     let (album_count,): (i64,) = sqlx::query_as(
         "SELECT COUNT(DISTINCT album_id) FROM songs WHERE music_folder_id = ? AND album_id IS NOT NULL"
@@ -346,12 +347,11 @@ async fn get_folder_stats(pool: &sqlx::SqlitePool, folder_id: i64) -> Result<Mus
     .fetch_one(pool)
     .await?;
 
-    let (total_duration, total_size): (Option<i64>, Option<i64>) = sqlx::query_as(
-        "SELECT SUM(duration), SUM(file_size) FROM songs WHERE music_folder_id = ?"
-    )
-    .bind(folder_id)
-    .fetch_one(pool)
-    .await?;
+    let (total_duration, total_size): (Option<i64>, Option<i64>) =
+        sqlx::query_as("SELECT SUM(duration), SUM(file_size) FROM songs WHERE music_folder_id = ?")
+            .bind(folder_id)
+            .fetch_one(pool)
+            .await?;
 
     Ok(MusicFolderStats {
         song_count,
@@ -373,7 +373,11 @@ pub async fn update_folder_scan_timestamp(pool: &sqlx::SqlitePool, folder_id: i6
 }
 
 /// Update the scan_error for a folder after a failed scan.
-pub async fn update_folder_scan_error(pool: &sqlx::SqlitePool, folder_id: i64, error: &str) -> Result<()> {
+pub async fn update_folder_scan_error(
+    pool: &sqlx::SqlitePool,
+    folder_id: i64,
+    error: &str,
+) -> Result<()> {
     sqlx::query("UPDATE music_folders SET scan_error = ? WHERE id = ?")
         .bind(error)
         .bind(folder_id)
