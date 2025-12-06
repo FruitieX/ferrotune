@@ -116,6 +116,9 @@ interface SongRowProps {
   // Playlist props
   showRemoveFromPlaylist?: boolean;
   onRemoveFromPlaylist?: () => void;
+  // Move to position props
+  showMoveToPosition?: boolean;
+  onMoveToPosition?: () => void;
   /**
    * When true, this row is the currently playing track in the queue.
    * Use this for views with duplicate songs (like playlists) where we need
@@ -143,6 +146,8 @@ export function SongRow({
   onSelect,
   showRemoveFromPlaylist = false,
   onRemoveFromPlaylist,
+  showMoveToPosition = false,
+  onMoveToPosition,
   isCurrentQueuePosition,
   className,
 }: SongRowProps) {
@@ -280,8 +285,9 @@ export function SongRow({
                 queueSongs={queueSongs}
                 queueSource={queueSource}
                 showRemoveFromPlaylist={showRemoveFromPlaylist}
-                onRemoveFromPlaylist={onRemoveFromPlaylist}
-              />
+                onRemoveFromPlaylist={onRemoveFromPlaylist}                showMoveToPosition={showMoveToPosition}
+                onMoveToPosition={onMoveToPosition}
+                moveToPositionLabel="Move to Position"              />
             }
           />
         }
@@ -322,8 +328,9 @@ export function SongRow({
             queueSongs={queueSongs}
             queueSource={queueSource}
             showRemoveFromPlaylist={showRemoveFromPlaylist}
-            onRemoveFromPlaylist={onRemoveFromPlaylist}
-          >
+            onRemoveFromPlaylist={onRemoveFromPlaylist}            showMoveToPosition={showMoveToPosition}
+            onMoveToPosition={onMoveToPosition}
+            moveToPositionLabel="Move to Position"          >
             {children}
           </SongContextMenu>
         )}
@@ -363,6 +370,9 @@ interface SongCardProps {
   isSelected?: boolean;
   isSelectionMode?: boolean;
   onSelect?: (id: string, e: React.MouseEvent) => void;
+  // Move to position props
+  showMoveToPosition?: boolean;
+  onMoveToPosition?: () => void;
   /**
    * When true, this card is the currently playing track in the queue.
    * Use this for views with duplicate songs (like playlists) where we need
@@ -373,7 +383,7 @@ interface SongCardProps {
   className?: string;
 }
 
-export function SongCard({ song, index, queueSongs, queueSource, isSelected, isSelectionMode, onSelect, isCurrentQueuePosition, className }: SongCardProps) {
+export function SongCard({ song, index, queueSongs, queueSource, isSelected, isSelectionMode, onSelect, showMoveToPosition, onMoveToPosition, isCurrentQueuePosition, className }: SongCardProps) {
   const currentSong = useAtomValue(currentSongAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
@@ -475,9 +485,9 @@ export function SongCard({ song, index, queueSongs, queueSource, isSelected, isS
       isSelected={isSelected}
       isSelectionMode={isSelectionMode}
       onSelect={onSelect ? (e) => onSelect(song.id, e) : undefined}
-      dropdownMenu={<SongDropdownMenu song={song} queueSongs={queueSongs} queueSource={queueSource} />}
+      dropdownMenu={<SongDropdownMenu song={song} queueSongs={queueSongs} queueSource={queueSource} showMoveToPosition={showMoveToPosition} onMoveToPosition={onMoveToPosition} moveToPositionLabel="Move to Position" />}
       contextMenu={(children) => (
-        <SongContextMenu song={song} queueSongs={queueSongs} queueSource={queueSource}>
+        <SongContextMenu song={song} queueSongs={queueSongs} queueSource={queueSource} showMoveToPosition={showMoveToPosition} onMoveToPosition={onMoveToPosition} moveToPositionLabel="Move to Position">
           {children}
         </SongContextMenu>
       )}

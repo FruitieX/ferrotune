@@ -364,6 +364,84 @@ where
     deserializer.deserialize_any(FirstBoolOrNone)
 }
 
+/// Deserializer for Option<u32> that extracts the first element from an array and parses it.
+pub fn first_u32_or_none<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+
+    struct FirstU32OrNone;
+
+    impl<'de> Visitor<'de> for FirstU32OrNone {
+        type Value = Option<u32>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a u32, string number, sequence, or null")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(v as u32))
+        }
+
+        fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(v as u32))
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            v.parse::<u32>().map(Some).map_err(de::Error::custom)
+        }
+
+        fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            v.parse::<u32>().map(Some).map_err(de::Error::custom)
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            // Return the first element parsed as u32 if present
+            if let Some(value) = seq.next_element::<String>()? {
+                if value.is_empty() {
+                    Ok(None)
+                } else {
+                    value.parse::<u32>().map(Some).map_err(de::Error::custom)
+                }
+            } else {
+                Ok(None)
+            }
+        }
+    }
+
+    deserializer.deserialize_any(FirstU32OrNone)
+}
+
 /// Deserializer for Option<i64> that extracts the first element from an array and parses it.
 pub fn first_i64_or_none<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
 where

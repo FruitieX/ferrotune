@@ -1,28 +1,11 @@
 "use client";
 
-import { useRef, useEffect, useCallback, useMemo, memo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import Link from "next/link";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-  useSortable,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import {
   ListMusic,
-  GripVertical,
   Play,
   Pause,
   MoreHorizontal,
@@ -46,6 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CoverImage } from "@/components/shared/cover-image";
 import { NowPlayingBars } from "@/components/shared/now-playing-bars";
 import { SongContextMenu, SongDropdownMenu } from "@/components/browse/song-context-menu";
+import { MoveToPositionDialog } from "@/components/shared/move-to-position-dialog";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import { isClientInitializedAtom } from "@/lib/store/auth";
@@ -89,9 +73,11 @@ interface VirtualQueueItemProps {
   entry: QueueSongEntry;
   isCurrent: boolean;
   isPlaying: boolean;
+  totalCount: number;
   onPlay: () => void;
   onRemove: () => void;
   onTogglePlayPause: () => void;
+  onMoveToPosition: () => void;
 }
 
 /**
@@ -102,9 +88,11 @@ const VirtualQueueItem = memo(function VirtualQueueItem({
   entry,
   isCurrent,
   isPlaying,
+  totalCount,
   onPlay,
   onRemove,
   onTogglePlayPause,
+  onMoveToPosition,
 }: VirtualQueueItemProps) {
   // Subscribe to client initialization state to re-render when client becomes available
   // This ensures cover art URLs are generated correctly after page reload
@@ -115,26 +103,6 @@ const VirtualQueueItem = memo(function VirtualQueueItem({
     ? getClient()?.getCoverArtUrl(entry.song.coverArt, 100) 
     : undefined;
   
-  // Use entry_id as stable identifier for dnd-kit (allows same song multiple times in queue)
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ 
-    id: entry.entryId,
-    data: { position: entry.position },
-  });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-    height: ITEM_HEIGHT,
-  };
-
   const song = entry.song;
 
   return (
@@ -143,31 +111,19 @@ const VirtualQueueItem = memo(function VirtualQueueItem({
       hideQueueActions={isCurrent}
       showRemoveFromQueue={!isCurrent}
       onRemoveFromQueue={onRemove}
+      showMoveToPosition={!isCurrent}
+      onMoveToPosition={onMoveToPosition}
+      moveToPositionLabel="Move to Position"
     >
       <div
-        ref={setNodeRef}
-        style={style}
         className={cn(
-          "flex items-center gap-2 p-2 rounded-lg group select-none",
+          "flex items-center gap-2 p-2 rounded-lg group",
           isCurrent
             ? "bg-primary/10 border border-primary/20"
-            : "bg-card hover:bg-muted/50",
-          isDragging && "opacity-50 bg-accent/20 shadow-lg"
+            : "bg-card hover:bg-muted/50"
         )}
+        style={{ height: ITEM_HEIGHT }}
       >
-        {/* Drag handle (not for current track) */}
-        {!isCurrent && (
-          <button
-            type="button"
-            aria-label="Drag to reorder"
-            className="cursor-grab active:cursor-grabbing touch-none text-muted-foreground"
-            {...attributes}
-            {...listeners}
-          >
-            <GripVertical className="w-4 h-4 shrink-0" />
-          </button>
-        )}
-
         {/* Now playing indicator for current track */}
         {isCurrent && (
           <div className="shrink-0 w-5">
@@ -239,6 +195,9 @@ const VirtualQueueItem = memo(function VirtualQueueItem({
           hideQueueActions={isCurrent}
           showRemoveFromQueue={!isCurrent}
           onRemoveFromQueue={onRemove}
+          showMoveToPosition={!isCurrent}
+          onMoveToPosition={onMoveToPosition}
+          moveToPositionLabel="Move to Position"
           trigger={
             <Button
               variant="ghost"
@@ -270,7 +229,6 @@ interface VirtualizedQueueDisplayProps {
  * 
  * Performance optimizations:
  * - songsByPosition Map is memoized to prevent recreation on every render
- * - sortableIds array is memoized to prevent dnd-kit recalculations
  * - VirtualQueueItem is wrapped in React.memo
  * - Callbacks are stabilized with useCallback
  */
@@ -289,6 +247,10 @@ export function VirtualizedQueueDisplay({ variant: _variant = "desktop" }: Virtu
   const moveInQueue = useSetAtom(moveInQueueAtom);
   
   const { togglePlayPause } = useAudioEngine();
+  
+  // Move to position dialog state
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [moveDialogEntry, setMoveDialogEntry] = useState<QueueSongEntry | null>(null);
 
   const totalCount = queueState?.totalCount ?? 0;
   const currentIndex = queueState?.currentIndex ?? 0;
@@ -372,43 +334,16 @@ export function VirtualizedQueueDisplay({ variant: _variant = "desktop" }: Virtu
     fetchedRangesRef.current.clear();
   }, [queueState?.source.id, queueState?.isShuffled]);
 
-  // dnd-kit sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
+  // Handle move to position
+  const handleMoveToPosition = useCallback((entry: QueueSongEntry) => {
+    setMoveDialogEntry(entry);
+    setMoveDialogOpen(true);
+  }, []);
 
-  const handleDragEnd = useCallback(
-    async (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-
-      // Get positions from the data we stored in useSortable
-      const fromPosition = active.data.current?.position as number | undefined;
-      const toPosition = over.data.current?.position as number | undefined;
-
-      if (fromPosition !== undefined && toPosition !== undefined) {
-        // Optimistic update: temporarily update local window state
-        // This prevents React key issues during the transition
-        await moveInQueue({ fromPosition, toPosition });
-      }
-    },
-    [moveInQueue]
-  );
-
-  // Memoize sortable IDs to prevent dnd-kit from recalculating on every render
-  // Only recalculate when the songs array changes
-  // Note: This must be defined before early returns to follow React Hooks rules
-  const sortableIds = useMemo(() => 
-    Array.from(songsByPosition.values())
-      .sort((a, b) => a.position - b.position)
-      .map((entry) => entry.entryId),
-    [songsByPosition]
-  );
+  const handleMove = useCallback(async (newPosition: number) => {
+    if (!moveDialogEntry) return;
+    await moveInQueue({ fromPosition: moveDialogEntry.position, toPosition: newPosition });
+  }, [moveDialogEntry, moveInQueue]);
 
   // Show loading state
   if (isLoading) {
@@ -438,50 +373,56 @@ export function VirtualizedQueueDisplay({ variant: _variant = "desktop" }: Virtu
 
       {/* Virtualized list */}
       <div ref={parentRef} className="flex-1 overflow-auto">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
+        <div
+          className="relative px-2"
+          style={{ height: virtualizer.getTotalSize() }}
         >
-          <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-            <div
-              className="relative px-2"
-              style={{ height: virtualizer.getTotalSize() }}
-            >
-              {virtualItems.map((virtualItem) => {
-                const entry = songsByPosition.get(virtualItem.index);
-                const isCurrent = virtualItem.index === currentIndex;
-                // Use entry_id as key for stable React reconciliation (allows same song multiple times)
-                const itemKey = entry ? entry.entryId : `placeholder-${virtualItem.index}`;
+          {virtualItems.map((virtualItem) => {
+            const entry = songsByPosition.get(virtualItem.index);
+            const isCurrent = virtualItem.index === currentIndex;
+            // Use entry_id as key for stable React reconciliation (allows same song multiple times)
+            const itemKey = entry ? entry.entryId : `placeholder-${virtualItem.index}`;
 
-                return (
-                  <div
-                    key={itemKey}
-                    className="absolute left-0 right-0 px-2"
-                    style={{
-                      height: virtualItem.size,
-                      transform: `translateY(${virtualItem.start}px)`,
-                    }}
-                  >
-                    {entry ? (
-                      <VirtualQueueItem
-                        entry={entry}
-                        isCurrent={isCurrent}
-                        isPlaying={isCurrent && playbackState === "playing"}
-                        onPlay={() => playAtIndex(virtualItem.index)}
-                        onRemove={() => removeFromQueue(virtualItem.index)}
-                        onTogglePlayPause={togglePlayPause}
-                      />
-                    ) : (
-                      <QueueItemPlaceholder />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </SortableContext>
-        </DndContext>
+            return (
+              <div
+                key={itemKey}
+                className="absolute left-0 right-0 px-2"
+                style={{
+                  height: virtualItem.size,
+                  transform: `translateY(${virtualItem.start}px)`,
+                }}
+              >
+                {entry ? (
+                  <VirtualQueueItem
+                    entry={entry}
+                    isCurrent={isCurrent}
+                    isPlaying={isCurrent && playbackState === "playing"}
+                    totalCount={totalCount}
+                    onPlay={() => playAtIndex(virtualItem.index)}
+                    onRemove={() => removeFromQueue(virtualItem.index)}
+                    onTogglePlayPause={togglePlayPause}
+                    onMoveToPosition={() => handleMoveToPosition(entry)}
+                  />
+                ) : (
+                  <QueueItemPlaceholder />
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
+
+      {/* Move to position dialog */}
+      {moveDialogEntry && (
+        <MoveToPositionDialog
+          open={moveDialogOpen}
+          onOpenChange={setMoveDialogOpen}
+          currentPosition={moveDialogEntry.position}
+          totalCount={totalCount}
+          itemName={moveDialogEntry.song.title}
+          onMove={handleMove}
+        />
+      )}
     </div>
   );
 }

@@ -260,12 +260,16 @@ export class SubsonicClient {
     sort?: string;
     sortDir?: string;
     filter?: string;
+    offset?: number;
+    count?: number;
   }): Promise<PlaylistWithSongsResponse> {
     return this.request<PlaylistWithSongsResponse>("getPlaylist", { 
       id,
       sort: options?.sort,
       sortDir: options?.sortDir,
       filter: options?.filter,
+      offset: options?.offset,
+      count: options?.count,
     });
   }
 
