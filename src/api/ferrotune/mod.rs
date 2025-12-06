@@ -193,6 +193,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/listening/stats",
             get(listening::get_listening_stats),
         )
+        .route(
+            "/ferrotune/listening/review",
+            get(listening::get_period_review),
+        )
         // Waveform generation endpoint
         .route(
             "/ferrotune/songs/{id}/waveform",
@@ -235,6 +239,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/queue/position", post(queue::update_position))
         .route("/ferrotune/queue/repeat", post(queue::update_repeat_mode))
         // User management endpoints (admin only)
+        .route("/ferrotune/users/me", get(users::get_current_user))
         .route(
             "/ferrotune/users",
             get(users::list_users).post(users::create_user),

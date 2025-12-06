@@ -4,6 +4,7 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useTheme } from "next-themes";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
+import Link from "next/link";
 import {
   Settings as SettingsIcon,
   Server,
@@ -11,7 +12,6 @@ import {
   Repeat,
   Shuffle,
   Palette,
-  LogOut,
   Check,
   ExternalLink,
   Music2,
@@ -26,28 +26,21 @@ import {
   ListMusic,
   Clock,
   PlayCircle,
-  Headphones,
-  Calendar,
   Activity,
-  Shield,
-  RefreshCw,
 } from "lucide-react";
-import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useAccentColor } from "@/lib/hooks/use-preferences-sync";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { volumeAtom, repeatModeAtom } from "@/lib/store/player";
-import { serverQueueStateAtom, toggleShuffleAtom, clearQueueAtom } from "@/lib/store/server-queue";
-import { scanDialogOpenAtom } from "@/lib/store/scan";
+import { serverQueueStateAtom, toggleShuffleAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { 
   ACCENT_PRESETS,
   type AccentColor,
   progressBarStyleAtom,
-  type ProgressBarStyle,
 } from "@/lib/store/ui";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { parseCssColorToOklch, clampOklchToSliderRanges } from "@/lib/utils/color";
 import { Button } from "@/components/ui/button";
@@ -69,35 +62,19 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatTotalDuration, formatFileSize, formatListeningTime } from "@/lib/utils/format";
-import { MusicLibraries } from "@/components/settings/music-libraries";
-import { UserManagement } from "@/components/settings/user-management";
-import { ServerConfig } from "@/components/settings/server-config";
+import { formatTotalDuration, formatFileSize } from "@/lib/utils/format";
 
 export default function SettingsPage() {
-  const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
   const isMounted = useIsMounted();
-  const [connection, setConnection] = useAtom(serverConnectionAtom);
+  const { isAdmin } = useCurrentUser();
+  const [connection] = useAtom(serverConnectionAtom);
   const [volume, setVolume] = useAtom(volumeAtom);
   const [progressBarStyle, setProgressBarStyle] = useAtom(progressBarStyleAtom);
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
-  const clearQueue = useSetAtom(clearQueueAtom);
-  const setScanDialogOpen = useSetAtom(scanDialogOpenAtom);
   const { theme, setTheme } = useTheme();
   
   // Derive shuffle state from server queue state
@@ -110,18 +87,6 @@ export default function SettingsPage() {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       return client.getStats();
-    },
-    enabled: isReady,
-    staleTime: 60000, // Cache for 1 minute
-  });
-  
-  // Fetch listening stats
-  const { data: listeningStats, isLoading: listeningStatsLoading } = useQuery({
-    queryKey: ["listeningStats"],
-    queryFn: async () => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      return client.getListeningStats();
     },
     enabled: isReady,
     staleTime: 60000, // Cache for 1 minute
@@ -183,13 +148,6 @@ export default function SettingsPage() {
 
   const handleCustomChromaChange = (chroma: number) => {
     setCustomChroma(chroma);
-  };
-
-  const handleLogout = () => {
-    setConnection(null);
-    clearQueue();
-    router.push("/login");
-    toast.success("Logged out successfully");
   };
 
   // Always render the same loading state on server and during hydration
@@ -380,79 +338,11 @@ export default function SettingsPage() {
           </Card>
         </motion.div>
 
-        {/* Listening Activity */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.17 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Headphones className="w-5 h-5" />
-                Listening Activity
-              </CardTitle>
-              <CardDescription>
-                Your music listening statistics
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {listeningStatsLoading ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="p-3 rounded-lg bg-muted/30">
-                      <Skeleton className="h-4 w-16 mb-2" />
-                      <Skeleton className="h-6 w-20" />
-                    </div>
-                  ))}
-                </div>
-              ) : listeningStats ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="p-3 rounded-lg bg-muted/30">
-                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                      <Calendar className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">Last 7 Days</span>
-                    </div>
-                    <p className="text-lg font-bold">{formatListeningTime(listeningStats.last7Days.totalSeconds)}</p>
-                    <p className="text-xs text-muted-foreground">{listeningStats.last7Days.uniqueSongs} songs</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/30">
-                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                      <Calendar className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">Last 30 Days</span>
-                    </div>
-                    <p className="text-lg font-bold">{formatListeningTime(listeningStats.last30Days.totalSeconds)}</p>
-                    <p className="text-xs text-muted-foreground">{listeningStats.last30Days.uniqueSongs} songs</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/30">
-                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                      <Calendar className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">This Year</span>
-                    </div>
-                    <p className="text-lg font-bold">{formatListeningTime(listeningStats.thisYear.totalSeconds)}</p>
-                    <p className="text-xs text-muted-foreground">{listeningStats.thisYear.uniqueSongs} songs</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/30">
-                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                      <Clock className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">All Time</span>
-                    </div>
-                    <p className="text-lg font-bold">{formatListeningTime(listeningStats.allTime.totalSeconds)}</p>
-                    <p className="text-xs text-muted-foreground">{listeningStats.allTime.uniqueSongs} songs</p>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-sm">No listening data yet. Start playing some music!</p>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-
         {/* Playback Settings */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
+          transition={{ delay: 0.17 }}
         >
           <Card>
             <CardHeader>
@@ -771,75 +661,11 @@ export default function SettingsPage() {
           </Card>
         </motion.div>
 
-        {/* Music Libraries */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.35 }}
-        >
-          <MusicLibraries />
-        </motion.div>
-
-        {/* User Management */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.37 }}
-        >
-          <UserManagement />
-        </motion.div>
-
-        {/* Server Configuration */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.38 }}
-        >
-          <ServerConfig />
-        </motion.div>
-
-        {/* Administration */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="w-5 h-5" />
-                Administration
-              </CardTitle>
-              <CardDescription>
-                Server management and maintenance
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-sm font-medium">Library Scanner</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Scan your music folders to update the database
-                  </p>
-                </div>
-                <Button 
-                  variant="outline"
-                  onClick={() => setScanDialogOpen(true)}
-                  className="gap-2"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  Open Scanner
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
         {/* About */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.45 }}
+          transition={{ delay: 0.35 }}
         >
           <Card>
             <CardHeader>
@@ -859,50 +685,6 @@ export default function SettingsPage() {
                 Ferrotune is a modern music player for your personal music
                 library. Built with Next.js and powered by the OpenSubsonic API.
               </p>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Logout */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-        >
-          <Card className="border-destructive/30">
-            <CardHeader>
-              <CardTitle className="text-destructive flex items-center gap-2">
-                <LogOut className="w-5 h-5" />
-                Sign Out
-              </CardTitle>
-              <CardDescription>
-                Disconnect from the server and clear your session
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" className="w-full">
-                    <LogOut className="w-4 h-4 mr-2" />
-                    Sign Out
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Sign out?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      You will be disconnected from the server and your playback
-                      queue will be cleared.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleLogout}>
-                      Sign Out
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
             </CardContent>
           </Card>
         </motion.div>

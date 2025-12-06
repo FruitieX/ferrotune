@@ -168,6 +168,29 @@ fn require_admin(user: &AuthenticatedUser) -> Result<()> {
 // User CRUD Endpoints
 // ============================================================================
 
+/// GET /ferrotune/users/me - Get current user info (any authenticated user)
+pub async fn get_current_user(
+    user: AuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<UserInfo>> {
+    // Fetch the full user record from database to get all fields
+    let u: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
+        .bind(user.user_id)
+        .fetch_one(&state.pool)
+        .await?;
+
+    let library_access = get_user_library_access(&state, user.user_id).await?;
+
+    Ok(Json(UserInfo {
+        id: u.id,
+        username: u.username,
+        email: u.email,
+        is_admin: u.is_admin,
+        created_at: u.created_at,
+        library_access,
+    }))
+}
+
 /// GET /ferrotune/users - List all users (admin only)
 pub async fn list_users(
     user: AuthenticatedUser,
