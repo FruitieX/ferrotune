@@ -275,8 +275,9 @@ function PlaylistDetailContent() {
 
   // Check if a song at a given index is the currently playing track
   // This handles playlists with duplicate songs by comparing the queue position
-  const isCurrentQueuePosition = useCallback((index: number, songId: string): boolean => {
-    if (!queueState) return false;
+  // Returns undefined if we can't determine (falls back to song ID matching in SongRow)
+  const isCurrentQueuePosition = useCallback((index: number, _songId: string): boolean | undefined => {
+    if (!queueState) return undefined;
     
     // Check if the queue source is this playlist
     const isPlaylistQueue = queueState.source?.type === "playlist" && queueState.source?.id === playlistId;
@@ -286,9 +287,9 @@ function PlaylistDetailContent() {
       return queueState.currentIndex === index;
     }
     
-    // For other sources, we can't reliably determine position, so return undefined
-    // This will fall back to song ID matching in SongRow
-    return false;
+    // For other sources, we can't reliably determine position
+    // Return undefined to let SongRow fall back to song ID matching
+    return undefined;
   }, [queueState, playlistId]);
 
   // Determine if we should use position-based highlighting
