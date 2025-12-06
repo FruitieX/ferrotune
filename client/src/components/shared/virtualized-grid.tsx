@@ -33,6 +33,11 @@ interface VirtualizedGridProps<T> {
   initialOffset?: number;
   /** Callback when scroll position changes */
   onScrollChange?: (offset: number) => void;
+  /**
+   * Auto-measure the scrollMargin from container position
+   * This is useful when the virtualized grid is not at the top of the scroll container
+   */
+  autoScrollMargin?: boolean;
 }
 
 export function VirtualizedGrid<T>({
@@ -51,13 +56,20 @@ export function VirtualizedGrid<T>({
   fetchNextPage,
   initialOffset = 0,
   onScrollChange,
+  autoScrollMargin = false,
 }: VirtualizedGridProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [columnCount, setColumnCount] = useState(columns.default);
+  const [scrollMargin, setScrollMargin] = useState(0);
 
   // Use ref for onScrollChange to avoid recreating virtualizer options
   const onScrollChangeRef = useRef(onScrollChange);
   onScrollChangeRef.current = onScrollChange;
+
+  // Get scroll element (main content area)
+  const getScrollElement = useCallback(() => {
+    return document.getElementById("main-scroll-container");
+  }, []);
 
   // Calculate current column count based on container width
   const getColumnCount = useCallback((width: number) => {
@@ -68,33 +80,48 @@ export function VirtualizedGrid<T>({
     return columns.default;
   }, [columns]);
 
-  // Update column count on resize
+  // Update column count and scroll margin on resize
   useEffect(() => {
-    const updateColumns = () => {
+    const updateLayout = () => {
       if (containerRef.current) {
         setColumnCount(getColumnCount(containerRef.current.offsetWidth));
+        
+        // Update scroll margin if autoScrollMargin is enabled
+        if (autoScrollMargin) {
+          const scrollElement = getScrollElement();
+          if (scrollElement) {
+            const scrollRect = scrollElement.getBoundingClientRect();
+            const containerRect = containerRef.current.getBoundingClientRect();
+            const margin = containerRect.top - scrollRect.top + scrollElement.scrollTop;
+            setScrollMargin(margin);
+          }
+        }
       }
     };
     
-    updateColumns();
+    updateLayout();
     
-    const resizeObserver = new ResizeObserver(updateColumns);
+    const resizeObserver = new ResizeObserver(updateLayout);
     if (containerRef.current) {
       resizeObserver.observe(containerRef.current);
+      
+      // Also observe parent elements that might change size
+      if (autoScrollMargin) {
+        let parent = containerRef.current.parentElement;
+        while (parent && parent !== document.body) {
+          resizeObserver.observe(parent);
+          parent = parent.parentElement;
+        }
+      }
     }
     
     return () => resizeObserver.disconnect();
-  }, [getColumnCount]);
+  }, [getColumnCount, autoScrollMargin, getScrollElement]);
 
   // Calculate total rows
   const effectiveTotalCount = totalCount ?? items.length;
   const totalRows = Math.ceil(effectiveTotalCount / columnCount);
   const loadedRows = Math.ceil(items.length / columnCount);
-
-  // Get scroll element (main content area)
-  const getScrollElement = useCallback(() => {
-    return document.getElementById("main-scroll-container");
-  }, []);
 
   // Calculate dynamic estimate based on container and column count
   // This accounts for aspect-square images + padding + text
@@ -114,6 +141,7 @@ export function VirtualizedGrid<T>({
     overscan,
     gap,
     initialOffset,
+    scrollMargin: autoScrollMargin ? scrollMargin : 0,
     onChange: (instance) => {
       if (onScrollChangeRef.current && instance.scrollOffset !== null) {
         onScrollChangeRef.current(instance.scrollOffset);
@@ -161,7 +189,8 @@ export function VirtualizedGrid<T>({
                 top: 0,
                 left: 0,
                 width: "100%",
-                transform: `translateY(${virtualRow.start}px)`,
+                // Subtract scrollMargin when using autoScrollMargin per TanStack Virtual docs
+                transform: `translateY(${virtualRow.start - (autoScrollMargin ? scrollMargin : 0)}px)`,
               }}
             >
               <div
@@ -224,6 +253,11 @@ interface VirtualizedListProps<T> {
   initialOffset?: number;
   /** Callback when scroll position changes */
   onScrollChange?: (offset: number) => void;
+  /**
+   * Auto-measure the scrollMargin from container position
+   * This is useful when the virtualized list is not at the top of the scroll container
+   */
+  autoScrollMargin?: boolean;
 }
 
 export function VirtualizedList<T>({
@@ -240,7 +274,11 @@ export function VirtualizedList<T>({
   fetchNextPage,
   initialOffset = 0,
   onScrollChange,
+  autoScrollMargin = false,
 }: VirtualizedListProps<T>) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+
   // Get scroll element (main content area)
   const getScrollElement = useCallback(() => {
     return document.getElementById("main-scroll-container");
@@ -250,6 +288,37 @@ export function VirtualizedList<T>({
   const onScrollChangeRef = useRef(onScrollChange);
   onScrollChangeRef.current = onScrollChange;
 
+  // Measure scroll margin when autoScrollMargin is enabled
+  useEffect(() => {
+    if (!autoScrollMargin || !containerRef.current) return;
+
+    const updateScrollMargin = () => {
+      const scrollElement = getScrollElement();
+      if (!scrollElement || !containerRef.current) return;
+
+      const scrollRect = scrollElement.getBoundingClientRect();
+      const containerRect = containerRef.current.getBoundingClientRect();
+      // Calculate how far the container is from the top of the scroll element
+      const margin = containerRect.top - scrollRect.top + scrollElement.scrollTop;
+      setScrollMargin(margin);
+    };
+
+    updateScrollMargin();
+
+    // Update on resize
+    const resizeObserver = new ResizeObserver(updateScrollMargin);
+    resizeObserver.observe(containerRef.current);
+
+    // Also observe parent elements that might change size
+    let parent = containerRef.current.parentElement;
+    while (parent && parent !== document.body) {
+      resizeObserver.observe(parent);
+      parent = parent.parentElement;
+    }
+
+    return () => resizeObserver.disconnect();
+  }, [autoScrollMargin, getScrollElement]);
+
   const effectiveTotalCount = totalCount ?? items.length;
 
   const virtualizer = useVirtualizer({
@@ -258,6 +327,7 @@ export function VirtualizedList<T>({
     estimateSize: () => estimateItemHeight,
     overscan,
     initialOffset,
+    scrollMargin: autoScrollMargin ? scrollMargin : 0,
     onChange: (instance) => {
       if (onScrollChangeRef.current && instance.scrollOffset !== null) {
         onScrollChangeRef.current(instance.scrollOffset);
@@ -280,7 +350,7 @@ export function VirtualizedList<T>({
   }, [virtualItems, items.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
-    <div className={cn("w-full", className)}>
+    <div ref={containerRef} className={cn("w-full", className)}>
       <div
         style={{
           height: virtualizer.getTotalSize(),
@@ -302,7 +372,8 @@ export function VirtualizedList<T>({
                 left: 0,
                 width: "100%",
                 height: estimateItemHeight,
-                transform: `translateY(${virtualItem.start}px)`,
+                // Subtract scrollMargin when using autoScrollMargin per TanStack Virtual docs
+                transform: `translateY(${virtualItem.start - (autoScrollMargin ? scrollMargin : 0)}px)`,
               }}
             >
               {isLoaded 

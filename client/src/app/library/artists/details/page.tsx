@@ -382,6 +382,7 @@ function ArtistDetailContent() {
                 )}
                 renderSkeleton={() => <SongCardSkeleton />}
                 getItemKey={(song) => song.id}
+                autoScrollMargin
               />
             ) : (
               <VirtualizedList
@@ -406,6 +407,7 @@ function ArtistDetailContent() {
                 renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
                 getItemKey={(song) => song.id}
                 estimateItemHeight={56}
+                autoScrollMargin
               />
             )}
           </div>
