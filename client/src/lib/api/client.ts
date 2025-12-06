@@ -53,6 +53,8 @@ import type {
 } from "./types";
 import type { DirectoryPagedResponse } from "./generated/DirectoryPagedResponse";
 import type { GetDirectoryPagedParams } from "./generated/GetDirectoryPagedParams";
+import type { ServerConfigResponse } from "./generated/ServerConfigResponse";
+import type { UpdateServerConfigRequest } from "./generated/UpdateServerConfigRequest";
 
 // Ping response is empty
 interface PingResponse {
@@ -966,6 +968,27 @@ export class SubsonicClient {
   async deleteUserApiKey(userId: number, keyName: string): Promise<void> {
     await this.adminRequest(`/ferrotune/users/${userId}/api-keys/${encodeURIComponent(keyName)}`, {
       method: "DELETE",
+    });
+  }
+
+  // ==========================================
+  // Server Configuration (Admin API)
+  // ==========================================
+
+  /**
+   * Get server configuration (admin only)
+   */
+  async getServerConfig(): Promise<ServerConfigResponse> {
+    return this.adminRequest("/ferrotune/config");
+  }
+
+  /**
+   * Update server configuration (admin only)
+   */
+  async updateServerConfig(request: UpdateServerConfigRequest): Promise<ServerConfigResponse> {
+    return this.adminRequest("/ferrotune/config", {
+      method: "PUT",
+      body: JSON.stringify(request),
     });
   }
 }
