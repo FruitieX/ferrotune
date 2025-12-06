@@ -77,7 +77,7 @@ interface VirtualQueueItemProps {
   onPlay: () => void;
   onRemove: () => void;
   onTogglePlayPause: () => void;
-  onMoveToPosition: () => void;
+  onMoveToPosition: (song: QueueSongEntry["song"], index: number) => void;
 }
 
 /**
@@ -108,6 +108,7 @@ const VirtualQueueItem = memo(function VirtualQueueItem({
   return (
     <SongContextMenu
       song={song}
+      songIndex={entry.position}
       hideQueueActions={isCurrent}
       showRemoveFromQueue={!isCurrent}
       onRemoveFromQueue={onRemove}
@@ -192,6 +193,7 @@ const VirtualQueueItem = memo(function VirtualQueueItem({
         {/* Actions */}
         <SongDropdownMenu
           song={song}
+          songIndex={entry.position}
           hideQueueActions={isCurrent}
           showRemoveFromQueue={!isCurrent}
           onRemoveFromQueue={onRemove}
@@ -335,10 +337,13 @@ export function VirtualizedQueueDisplay({ variant: _variant = "desktop" }: Virtu
   }, [queueState?.source.id, queueState?.isShuffled]);
 
   // Handle move to position
-  const handleMoveToPosition = useCallback((entry: QueueSongEntry) => {
+  const handleMoveToPosition = useCallback((_song: QueueSongEntry["song"], index: number) => {
+    // Find the entry by position
+    const entry = songsByPosition.get(index);
+    if (!entry) return;
     setMoveDialogEntry(entry);
     setMoveDialogOpen(true);
-  }, []);
+  }, [songsByPosition]);
 
   const handleMove = useCallback(async (newPosition: number) => {
     if (!moveDialogEntry) return;
@@ -401,7 +406,7 @@ export function VirtualizedQueueDisplay({ variant: _variant = "desktop" }: Virtu
                     onPlay={() => playAtIndex(virtualItem.index)}
                     onRemove={() => removeFromQueue(virtualItem.index)}
                     onTogglePlayPause={togglePlayPause}
-                    onMoveToPosition={() => handleMoveToPosition(entry)}
+                    onMoveToPosition={handleMoveToPosition}
                   />
                 ) : (
                   <QueueItemPlaceholder />

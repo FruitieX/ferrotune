@@ -115,10 +115,10 @@ interface SongRowProps {
   onSelect?: (id: string, e: React.MouseEvent) => void;
   // Playlist props
   showRemoveFromPlaylist?: boolean;
-  onRemoveFromPlaylist?: () => void;
+  onRemoveFromPlaylist?: (songId: string) => void;
   // Move to position props
   showMoveToPosition?: boolean;
-  onMoveToPosition?: () => void;
+  onMoveToPosition?: (song: Song, index: number) => void;
   /**
    * When true, this row is the currently playing track in the queue.
    * Use this for views with duplicate songs (like playlists) where we need
@@ -378,7 +378,7 @@ interface SongCardProps {
   onSelect?: (id: string, e: React.MouseEvent) => void;
   // Move to position props
   showMoveToPosition?: boolean;
-  onMoveToPosition?: () => void;
+  onMoveToPosition?: (song: Song, index: number) => void;
   /**
    * When true, this card is the currently playing track in the queue.
    * Use this for views with duplicate songs (like playlists) where we need

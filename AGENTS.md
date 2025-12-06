@@ -238,3 +238,4 @@ Read these when working on specific areas:
 - Always use virtualization (react-virtual) and "infinite scroll" for lists showing data from the library (e.g., library views, playlists, queue, search results, etc.) to ensure good performance with large libraries.
 - Always use moon tasks where applicable since these make use of caching
 - Only opensubsonic API endpoints need to support both JSON and XML responses. The ferrotune API is JSON-only. We should keep the opensubsonic API compatible with the spec as much as possible. If there's anything requiring out of spec behaviour, we should create a ferrotune-specific endpoint instead and implement the behaviour there.
+- We're using React Compiler, so we do not need to use React.memo or useMemo/useCallback anywhere.
