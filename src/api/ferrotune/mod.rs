@@ -75,6 +75,12 @@
 //! ## Directory Browsing Endpoints
 //!
 //! - `GET /ferrotune/directory` - Get paginated directory contents with sorting, filtering, and folder sizes
+//!
+//! ## Server Configuration Endpoints
+//!
+//! - `GET /ferrotune/config` - Get server configuration
+//! - `PUT /ferrotune/config` - Update server configuration
+//! - `GET /ferrotune/config/all` - Get all configuration as key-value pairs
 
 mod directory;
 mod duplicates;
@@ -87,6 +93,7 @@ mod preferences;
 mod queue;
 mod scan;
 pub mod scan_state;
+mod server_config;
 mod shuffle_exclude;
 mod stats;
 mod tags;
@@ -97,7 +104,7 @@ use crate::api::AppState;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Json},
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use serde::Serialize;
@@ -250,6 +257,12 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/users/{id}/api-keys/{name}",
             delete(users::delete_api_key),
         )
+        // Server configuration endpoints (admin only)
+        .route(
+            "/ferrotune/config",
+            get(server_config::get_server_config).put(server_config::update_server_config),
+        )
+        .route("/ferrotune/config/all", get(server_config::get_all_config))
         .with_state(state)
 }
 
