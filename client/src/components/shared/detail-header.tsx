@@ -71,7 +71,7 @@ export function DetailHeader({
     <div className="relative">
       {/* Background */}
       <div 
-        className="absolute inset-0 h-[300px]"
+        className="absolute inset-0"
         style={{
           background: useBlurredBackground && coverUrl 
             ? undefined 
@@ -82,13 +82,13 @@ export function DetailHeader({
           <>
             {/* Blurred background image */}
             <div 
-              className="absolute inset-0 bg-cover bg-center blur-3xl scale-110 opacity-30"
+              className="absolute inset-0 bg-cover bg-center blur-3xl opacity-30 h-full"
               style={{ backgroundImage: `url(${coverUrl})` }}
             />
             {/* Gradient overlay */}
             <div 
-              className="absolute inset-0"
-              style={{ background: "linear-gradient(180deg, transparent 0%, rgba(10,10,10,1) 100%)" }}
+              className="absolute inset-0 h-[150%]"
+              style={{ background: "linear-gradient(180deg, transparent 0%, rgba(7,7,7,1) 100%)" }}
             />
           </>
         )}
