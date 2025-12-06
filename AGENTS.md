@@ -233,6 +233,7 @@ Read these when working on specific areas:
 ## Further instructions
 
 - After implementing a feature, suggest a conventional commits compliant commit message summarizing the change.
-- Use ts_rs for generating TypeScript types from Rust structs when applicable.
-- Filtering and sorting logic is always implemented serverside, NEVER clientside. The server will anyway need to support filtering and sorting, since it's supposed to materialize playback queues from queueSource info
+- Always use ts_rs for generating TypeScript types from Rust structs for API request/response data. Use the generated types in the frontend.
+- Filtering and sorting logic is always implemented serverside, NEVER clientside. The server will anyway need to support filtering and sorting, since it's supposed to materialize playback queues from queueSource info so that we can efficiently start playback of giant track lists without loading everything clientside.
 - Always use virtualization (react-virtual) and "infinite scroll" for lists showing data from the library (e.g., library views, playlists, queue, search results, etc.) to ensure good performance with large libraries.
+- Always use moon tasks where applicable since these make use of caching

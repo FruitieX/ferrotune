@@ -26,6 +26,18 @@ pub struct PlaylistParams {
     /// Filter text to match against song title, artist, album
     #[serde(default)]
     filter: Option<String>,
+    /// Offset for pagination (number of songs to skip)
+    #[serde(
+        default,
+        deserialize_with = "crate::api::subsonic::query::first_u32_or_none"
+    )]
+    offset: Option<u32>,
+    /// Number of songs to return (for pagination)
+    #[serde(
+        default,
+        deserialize_with = "crate::api::subsonic::query::first_u32_or_none"
+    )]
+    count: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,6 +128,10 @@ pub struct PlaylistDetailResponse {
     pub changed: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    /// Total songs after filtering (before pagination)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
+    pub song_total: Option<i64>,
     pub entry: Vec<crate::api::subsonic::browse::SongResponse>,
 }
 
@@ -215,6 +231,20 @@ pub async fn get_playlist(
         params.sort_dir.as_deref(),
     );
 
+    // Get total after filtering for pagination
+    let total_after_filter = songs.len() as i64;
+
+    // Apply pagination if offset/count provided
+    let songs = if let (Some(offset), Some(count)) = (params.offset, params.count) {
+        songs
+            .into_iter()
+            .skip(offset as usize)
+            .take(count as usize)
+            .collect()
+    } else {
+        songs
+    };
+
     let song_responses: Vec<crate::api::subsonic::browse::SongResponse> =
         songs.iter().map(song_to_playlist_response).collect();
 
@@ -243,6 +273,7 @@ pub async fn get_playlist(
                 .format("%Y-%m-%dT%H:%M:%S%.3fZ")
                 .to_string(),
             cover_art,
+            song_total: Some(total_after_filter),
             entry: song_responses,
         },
     };
@@ -355,6 +386,7 @@ async fn get_playlist_response(
                 .format("%Y-%m-%dT%H:%M:%S%.3fZ")
                 .to_string(),
             cover_art,
+            song_total: None, // Not used in create_playlist
             entry: song_responses,
         },
     };

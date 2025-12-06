@@ -6,21 +6,6 @@ import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import {
   MoreHorizontal,
   Pencil,
   Trash2,
@@ -61,7 +46,7 @@ import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
-import { SortableSongRow } from "@/components/shared/sortable-song-row";
+import { MoveToPositionDialog } from "@/components/shared/move-to-position-dialog";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
 import { formatDuration, formatCount, formatDate, formatTotalDuration } from "@/lib/utils/format";
@@ -82,6 +67,8 @@ function PlaylistDetailContent() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [removeTracksDialogOpen, setRemoveTracksDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [moveDialogSong, setMoveDialogSong] = useState<{ song: Song; index: number } | null>(null);
   const [filter, setFilter] = useState("");
   const debouncedFilter = useDebounce(filter, 300);
   const isMounted = useIsMounted();
@@ -206,59 +193,29 @@ function PlaylistDetailContent() {
     removeSongsMutation.mutate({ indices: [index], songIds: [songId] });
   }, [songs, removeSongsMutation]);
   
-  // Local state for optimistic reordering
-  const [localSongOrder, setLocalSongOrder] = useState<Song[]>([]);
-  
-  // Sync local order with fetched data
-  useEffect(() => {
-    setLocalSongOrder(songs);
-  }, [playlistId, songs]);
+  // Handle move to position for playlists
+  const handleMoveToPosition = useCallback((song: Song, currentIndex: number) => {
+    setMoveDialogSong({ song, index: currentIndex });
+    setMoveDialogOpen(true);
+  }, []);
 
-  // Use local order for display (allows optimistic updates)
-  const orderedSongs = localSongOrder.length > 0 ? localSongOrder : songs;
-  
-  // DnD sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
-
-  // Handle drag end
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-
-      if (over && active.id !== over.id) {
-        // Parse indices from the IDs (format: "index-songId")
-        const parseIndex = (id: string | number): number => {
-          const idStr = String(id);
-          const dashIndex = idStr.indexOf('-');
-          return dashIndex !== -1 ? parseInt(idStr.substring(0, dashIndex), 10) : -1;
-        };
-        
-        const oldIndex = parseIndex(active.id);
-        const newIndex = parseIndex(over.id);
-
-        if (oldIndex !== -1 && newIndex !== -1 && oldIndex < localSongOrder.length && newIndex < localSongOrder.length) {
-          const newOrder = arrayMove(localSongOrder, oldIndex, newIndex);
-          setLocalSongOrder(newOrder);
-          reorderMutation.mutate(newOrder.map((s) => s.id));
-        }
-      }
-    },
-    [localSongOrder, reorderMutation]
-  );
-
-  // Check if drag-and-drop should be enabled
-  const isDragEnabled = !debouncedFilter.trim() && sortConfig.field === "custom" && viewMode === "list";
+  const handleMoveSong = useCallback((newIndex: number) => {
+    if (!moveDialogSong) return;
+    
+    const { index: oldIndex } = moveDialogSong;
+    if (oldIndex === newIndex) return;
+    
+    // Create new order by moving the song
+    const newOrder = [...songs];
+    const [movedSong] = newOrder.splice(oldIndex, 1);
+    newOrder.splice(newIndex, 0, movedSong);
+    
+    // Submit reorder with all song IDs in new order
+    reorderMutation.mutate(newOrder.map(s => s.id));
+  }, [moveDialogSong, songs, reorderMutation]);
   
   // Songs come from server already sorted and filtered
-  // For drag-and-drop reordering, we use localSongOrder when in custom sort mode
-  const displaySongs = isDragEnabled ? localSongOrder : orderedSongs;
+  const displaySongs = songs;
 
   const totalDuration = displaySongs.reduce((acc, song) => acc + (song.duration ?? 0), 0);
 
@@ -350,13 +307,13 @@ function PlaylistDetailContent() {
     const selected = getSelectedSongs();
     const selectedIds = new Set(selected.map(s => s.id));
     const indices: number[] = [];
-    orderedSongs.forEach((song, index) => {
+    songs.forEach((song, index) => {
       if (selectedIds.has(song.id)) {
         indices.push(index);
       }
     });
     return indices;
-  }, [getSelectedSongs, orderedSongs]);
+  }, [getSelectedSongs, songs]);
 
   const handleRemoveSelected = useCallback(() => {
     const indices = getSelectedIndices();
@@ -555,49 +512,13 @@ function PlaylistDetailContent() {
                   isSelectionMode={hasSelection}
                   onSelect={handleSelect}
                   isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(index, song.id) : undefined}
+                  showMoveToPosition={sortConfig.field === "custom"}
+                  onMoveToPosition={() => handleMoveToPosition(song, index)}
                 />
               )}
               renderSkeleton={() => <SongCardSkeleton />}
               getItemKey={(song, index) => `${index}-${song.id}`}
             />
-          ) : isDragEnabled ? (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={displaySongs.map((s, i) => `${i}-${s.id}`)}
-                strategy={verticalListSortingStrategy}
-              >
-                <div className="space-y-1">
-                  {displaySongs.map((song, index) => (
-                    <SortableSongRow
-                      key={`${index}-${song.id}`}
-                      song={song}
-                      index={index}
-                      sortableId={`${index}-${song.id}`}
-                      showCover
-                      showArtist={columnVisibility.artist}
-                      showAlbum={columnVisibility.album}
-                      showDuration={columnVisibility.duration}
-                      showPlayCount={columnVisibility.playCount}
-                      showYear={columnVisibility.year}
-                      showDateAdded={columnVisibility.dateAdded}
-                      queueSongs={displaySongs}
-                      queueSource={playlistQueueSource}
-                      isSelected={isSelected(song.id)}
-                      isSelectionMode={hasSelection}
-                      onSelect={handleSelect}
-                      disabled={hasSelection}
-                      showRemoveFromPlaylist
-                      onRemoveFromPlaylist={() => handleRemoveSingleSong(song.id)}
-                      isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(index, song.id) : undefined}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
           ) : (
             <VirtualizedList
               items={displaySongs}
@@ -619,6 +540,8 @@ function PlaylistDetailContent() {
                   showRemoveFromPlaylist
                   onRemoveFromPlaylist={() => handleRemoveSingleSong(song.id)}
                   isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(index, song.id) : undefined}
+                  showMoveToPosition={sortConfig.field === "custom"}
+                  onMoveToPosition={() => handleMoveToPosition(song, index)}
                 />
               )}
               renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
@@ -706,6 +629,18 @@ function PlaylistDetailContent() {
           open={editDialogOpen}
           onOpenChange={setEditDialogOpen}
           playlist={{...playlist, comment: playlist.comment ?? undefined}}
+        />
+      )}
+      
+      {/* Move to position dialog */}
+      {moveDialogSong && (
+        <MoveToPositionDialog
+          open={moveDialogOpen}
+          onOpenChange={setMoveDialogOpen}
+          currentPosition={moveDialogSong.index}
+          totalCount={displaySongs.length}
+          itemName={moveDialogSong.song.title}
+          onMove={handleMoveSong}
         />
       )}
     </div>

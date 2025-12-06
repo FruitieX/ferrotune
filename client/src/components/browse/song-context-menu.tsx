@@ -17,6 +17,7 @@ import {
   Info,
   X,
   Shuffle,
+  Move,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -76,6 +77,12 @@ interface SongContextMenuProps {
   showRemoveFromPlaylist?: boolean;
   /** Callback for removing from playlist */
   onRemoveFromPlaylist?: () => void;
+  /** Show "Move to Position" option */
+  showMoveToPosition?: boolean;
+  /** Callback for move to position */
+  onMoveToPosition?: () => void;
+  /** Label for move to position action */
+  moveToPositionLabel?: string;
 }
 
 export function SongContextMenu({ 
@@ -88,6 +95,9 @@ export function SongContextMenu({
   onRemoveFromQueue,
   showRemoveFromPlaylist = false,
   onRemoveFromPlaylist,
+  showMoveToPosition = false,
+  onMoveToPosition,
+  moveToPositionLabel = "Move to Position",
 }: SongContextMenuProps) {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -217,6 +227,12 @@ export function SongContextMenu({
           Remove from Queue
         </ContextMenuItem>
       )}
+      {showMoveToPosition && onMoveToPosition && (
+        <ContextMenuItem onClick={onMoveToPosition}>
+          <Move className="w-4 h-4 mr-2" />
+          {moveToPositionLabel}
+        </ContextMenuItem>
+      )}
       {showRemoveFromPlaylist && onRemoveFromPlaylist && (
         <ContextMenuItem onClick={onRemoveFromPlaylist} className="text-destructive">
           <X className="w-4 h-4 mr-2" />
@@ -335,6 +351,12 @@ interface SongDropdownMenuProps {
   showRemoveFromPlaylist?: boolean;
   /** Callback for removing from playlist */
   onRemoveFromPlaylist?: () => void;
+  /** Show "Move to Position" option */
+  showMoveToPosition?: boolean;
+  /** Callback for move to position */
+  onMoveToPosition?: () => void;
+  /** Label for move to position action */
+  moveToPositionLabel?: string;
 }
 
 export function SongDropdownMenu({ 
@@ -347,6 +369,9 @@ export function SongDropdownMenu({
   onRemoveFromQueue,
   showRemoveFromPlaylist = false,
   onRemoveFromPlaylist,
+  showMoveToPosition = false,
+  onMoveToPosition,
+  moveToPositionLabel = "Move to Position",
 }: SongDropdownMenuProps) {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -499,6 +524,12 @@ export function SongDropdownMenu({
             <DropdownMenuItem onClick={onRemoveFromQueue}>
               <X className="w-4 h-4 mr-2" />
               Remove from Queue
+            </DropdownMenuItem>
+          )}
+          {showMoveToPosition && onMoveToPosition && (
+            <DropdownMenuItem onClick={onMoveToPosition}>
+              <Move className="w-4 h-4 mr-2" />
+              {moveToPositionLabel}
             </DropdownMenuItem>
           )}
           {showRemoveFromPlaylist && onRemoveFromPlaylist && (
