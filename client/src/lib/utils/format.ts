@@ -82,6 +82,11 @@ export function formatFileSize(bytes: number): string {
 }
 
 /**
+ * Alias for formatFileSize for convenience
+ */
+export const formatBytes = formatFileSize;
+
+/**
  * Format bitrate in kbps
  */
 export function formatBitrate(kbps: number | undefined): string {
