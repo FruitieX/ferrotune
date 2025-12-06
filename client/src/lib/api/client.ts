@@ -55,6 +55,7 @@ import type { DirectoryPagedResponse } from "./generated/DirectoryPagedResponse"
 import type { GetDirectoryPagedParams } from "./generated/GetDirectoryPagedParams";
 import type { ServerConfigResponse } from "./generated/ServerConfigResponse";
 import type { UpdateServerConfigRequest } from "./generated/UpdateServerConfigRequest";
+import type { PeriodReviewResponse } from "./generated/PeriodReviewResponse";
 
 // Ping response is empty
 interface PingResponse {
@@ -574,6 +575,14 @@ export class SubsonicClient {
     return this.adminRequest("/ferrotune/listening/stats");
   }
 
+  async getPeriodReview(year?: number, month?: number): Promise<PeriodReviewResponse> {
+    const params = new URLSearchParams();
+    if (year !== undefined) params.set("year", year.toString());
+    if (month !== undefined) params.set("month", month.toString());
+    const query = params.toString();
+    return this.adminRequest(`/ferrotune/listening/review${query ? `?${query}` : ""}`);
+  }
+
   // Waveform data (Admin API)
   async getWaveform(songId: string, resolution: number = 200): Promise<{ heights: number[]; peak_rms: number }> {
     const url = `${this.buildAdminUrl(`/ferrotune/songs/${encodeURIComponent(songId)}/waveform`)}?resolution=${resolution}`;
@@ -884,6 +893,13 @@ export class SubsonicClient {
   // ==========================================
   // User Management (Admin API)
   // ==========================================
+
+  /**
+   * Get current user info
+   */
+  async getCurrentUser(): Promise<UserInfo> {
+    return this.adminRequest("/ferrotune/users/me");
+  }
 
   /**
    * List all users (admin only)

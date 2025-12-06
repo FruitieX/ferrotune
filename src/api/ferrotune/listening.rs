@@ -3,7 +3,7 @@
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::AppState;
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Json},
 };
@@ -241,3 +241,291 @@ pub async fn get_listening_stats(
             .into_response(),
     }
 }
+
+// ============ Period Review Types ============
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct TopArtist {
+    pub artist_id: String,
+    pub artist_name: String,
+    pub play_count: i64,
+    pub total_duration_secs: i64,
+    pub cover_art: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct TopAlbum {
+    pub album_id: String,
+    pub album_name: String,
+    pub artist_name: Option<String>,
+    pub play_count: i64,
+    pub total_duration_secs: i64,
+    pub cover_art: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct TopTrack {
+    pub track_id: String,
+    pub track_title: String,
+    pub artist_name: Option<String>,
+    pub album_name: Option<String>,
+    pub play_count: i64,
+    pub total_duration_secs: i64,
+    pub cover_art: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PeriodReview {
+    pub year: i32,
+    pub month: Option<i32>,
+    pub total_listening_secs: i64,
+    pub total_play_count: i64,
+    pub unique_tracks: i64,
+    pub unique_albums: i64,
+    pub unique_artists: i64,
+    pub top_artists: Vec<TopArtist>,
+    pub top_albums: Vec<TopAlbum>,
+    pub top_tracks: Vec<TopTrack>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct AvailablePeriod {
+    pub year: i32,
+    pub month: Option<i32>,
+    pub has_data: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PeriodReviewResponse {
+    pub review: PeriodReview,
+    pub available_periods: Vec<AvailablePeriod>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PeriodReviewQuery {
+    pub year: Option<i32>,
+    pub month: Option<i32>,
+}
+
+/// Get period review (year in review or month in review)
+pub async fn get_period_review(
+    user: AuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<PeriodReviewQuery>,
+) -> impl IntoResponse {
+    // Default to current year if not specified
+    let now = chrono::Utc::now();
+    let year = query.year.unwrap_or(now.year() as i32);
+    let month = query.month;
+
+    // Build date filter based on year and optional month
+    let date_filter = if let Some(m) = month {
+        format!(
+            "AND strftime('%Y', listened_at) = '{}' AND strftime('%m', listened_at) = '{:02}'",
+            year, m
+        )
+    } else {
+        format!("AND strftime('%Y', listened_at) = '{}'", year)
+    };
+
+    // Get overall stats for the period
+    let stats_query = format!(
+        r#"
+        SELECT 
+            COALESCE(SUM(duration_secs), 0) as total_listening_secs,
+            COUNT(*) as total_play_count,
+            COUNT(DISTINCT song_id) as unique_tracks,
+            COUNT(DISTINCT album_id) as unique_albums,
+            COUNT(DISTINCT artist_id) as unique_artists
+        FROM listening_history lh
+        LEFT JOIN songs s ON lh.song_id = s.id
+        WHERE lh.user_id = ? {}
+        "#,
+        date_filter
+    );
+
+    let stats_result = sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(&stats_query)
+        .bind(user.user_id)
+        .fetch_optional(&state.pool)
+        .await;
+
+    let (total_listening_secs, total_play_count, unique_tracks, unique_albums, unique_artists) =
+        match stats_result {
+            Ok(Some(row)) => row,
+            Ok(None) => (0, 0, 0, 0, 0),
+            Err(e) => {
+                tracing::error!("Failed to fetch period stats: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::new("Failed to fetch period review")),
+                )
+                    .into_response();
+            }
+        };
+
+    // Get top artists
+    let top_artists_query = format!(
+        r#"
+        SELECT 
+            COALESCE(s.artist_id, 'unknown') as artist_id,
+            COALESCE(a.name, s.artist, 'Unknown Artist') as artist_name,
+            COUNT(*) as play_count,
+            COALESCE(SUM(lh.duration_secs), 0) as total_duration_secs,
+            a.cover_art as cover_art
+        FROM listening_history lh
+        LEFT JOIN songs s ON lh.song_id = s.id
+        LEFT JOIN artists a ON s.artist_id = a.id
+        WHERE lh.user_id = ? {}
+        GROUP BY COALESCE(s.artist_id, s.artist)
+        ORDER BY play_count DESC
+        LIMIT 10
+        "#,
+        date_filter
+    );
+
+    let top_artists: Vec<TopArtist> = sqlx::query_as(&top_artists_query)
+        .bind(user.user_id)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
+    // Get top albums
+    let top_albums_query = format!(
+        r#"
+        SELECT 
+            COALESCE(s.album_id, 'unknown') as album_id,
+            COALESCE(al.name, s.album, 'Unknown Album') as album_name,
+            COALESCE(a.name, s.artist, 'Unknown Artist') as artist_name,
+            COUNT(*) as play_count,
+            COALESCE(SUM(lh.duration_secs), 0) as total_duration_secs,
+            al.cover_art as cover_art
+        FROM listening_history lh
+        LEFT JOIN songs s ON lh.song_id = s.id
+        LEFT JOIN albums al ON s.album_id = al.id
+        LEFT JOIN artists a ON s.artist_id = a.id
+        WHERE lh.user_id = ? {}
+        GROUP BY COALESCE(s.album_id, s.album)
+        ORDER BY play_count DESC
+        LIMIT 10
+        "#,
+        date_filter
+    );
+
+    let top_albums: Vec<TopAlbum> = sqlx::query_as(&top_albums_query)
+        .bind(user.user_id)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
+    // Get top tracks
+    let top_tracks_query = format!(
+        r#"
+        SELECT 
+            s.id as track_id,
+            COALESCE(s.title, 'Unknown Track') as track_title,
+            COALESCE(a.name, s.artist, 'Unknown Artist') as artist_name,
+            COALESCE(al.name, s.album, 'Unknown Album') as album_name,
+            COUNT(*) as play_count,
+            COALESCE(SUM(lh.duration_secs), 0) as total_duration_secs,
+            s.cover_art as cover_art
+        FROM listening_history lh
+        LEFT JOIN songs s ON lh.song_id = s.id
+        LEFT JOIN albums al ON s.album_id = al.id
+        LEFT JOIN artists a ON s.artist_id = a.id
+        WHERE lh.user_id = ? {}
+        GROUP BY s.id
+        ORDER BY play_count DESC
+        LIMIT 10
+        "#,
+        date_filter
+    );
+
+    let top_tracks: Vec<TopTrack> = sqlx::query_as(&top_tracks_query)
+        .bind(user.user_id)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
+    // Get available periods (years and months with data)
+    let available_periods_query = r#"
+        SELECT DISTINCT 
+            CAST(strftime('%Y', listened_at) AS INTEGER) as year,
+            CAST(strftime('%m', listened_at) AS INTEGER) as month
+        FROM listening_history
+        WHERE user_id = ?
+        ORDER BY year DESC, month DESC
+    "#;
+
+    let period_rows: Vec<(i32, i32)> = sqlx::query_as(available_periods_query)
+        .bind(user.user_id)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
+    // Build available periods list - include both year summaries and monthly breakdowns
+    let mut available_periods = Vec::new();
+    let mut seen_years = std::collections::HashSet::new();
+
+    for (y, m) in &period_rows {
+        // Add monthly period
+        available_periods.push(AvailablePeriod {
+            year: *y,
+            month: Some(*m),
+            has_data: true,
+        });
+
+        // Add yearly period if not already added
+        if !seen_years.contains(y) {
+            seen_years.insert(*y);
+            available_periods.push(AvailablePeriod {
+                year: *y,
+                month: None,
+                has_data: true,
+            });
+        }
+    }
+
+    // Sort: years first (no month), then by year desc, month desc
+    available_periods.sort_by(|a, b| {
+        match (a.month, b.month) {
+            (None, Some(_)) => std::cmp::Ordering::Less,
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            _ => b.year.cmp(&a.year).then_with(|| {
+                b.month.unwrap_or(0).cmp(&a.month.unwrap_or(0))
+            }),
+        }
+    });
+
+    let review = PeriodReview {
+        year,
+        month,
+        total_listening_secs,
+        total_play_count,
+        unique_tracks,
+        unique_albums,
+        unique_artists,
+        top_artists,
+        top_albums,
+        top_tracks,
+    };
+
+    Json(PeriodReviewResponse {
+        review,
+        available_periods,
+    })
+    .into_response()
+}
+
+use chrono::Datelike;

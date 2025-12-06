@@ -75,7 +75,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
   const [isHovering, setIsHovering] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
-  const [containerWidth, setContainerWidth] = useState(600);
+  const [containerWidth, setContainerWidth] = useState(0); // Start at 0, update on mount
   
   // Animation state in a single ref object for atomic updates
   const anim = useRef({
@@ -102,8 +102,9 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const smoothProgressRef = useRef(0);
   const progressRafRef = useRef<number | null>(null);
   
-  // Derived values
+  // Derived values - handle zero width gracefully during SSR and before mount
   const displayBarCount = useMemo(() => {
+    if (containerWidth === 0) return sourceBarCount; // Use source count until measured
     const maxBars = calculateMaxBars(containerWidth);
     return Math.min(maxBars, sourceBarCount);
   }, [containerWidth, sourceBarCount]);
@@ -135,10 +136,16 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       const rect = container.getBoundingClientRect();
       if (rect.width > 0) setContainerWidth(rect.width);
     };
+    // Initial measurement
     updateWidth();
+    // Use requestAnimationFrame to ensure layout is complete
+    const rafId = requestAnimationFrame(updateWidth);
     const resizeObserver = new ResizeObserver(updateWidth);
     resizeObserver.observe(container);
-    return () => resizeObserver.disconnect();
+    return () => {
+      cancelAnimationFrame(rafId);
+      resizeObserver.disconnect();
+    };
   }, []);
   
   // Detect dark mode
@@ -160,10 +167,12 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     const a = anim.current;
     if (!canvas || !container || !a.heights) return;
     
+    const rect = container.getBoundingClientRect();
+    // Don't render if container has no size yet (prevents wrong initial render)
+    if (rect.width === 0 || rect.height === 0) return;
+    
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    
-    const rect = container.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     const width = rect.width * dpr;
     const height = rect.height * dpr;
@@ -512,10 +521,10 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     };
   }, [playbackState, atomProgress, draw]);
   
-  // Redraw on visual changes
+  // Redraw on visual changes or container resize
   useEffect(() => {
     draw();
-  }, [draw]);
+  }, [draw, containerWidth]);
   
   // Event handlers
   const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
