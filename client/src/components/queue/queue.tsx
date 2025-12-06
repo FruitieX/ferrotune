@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -17,12 +17,12 @@ import {
   Heart,
   History,
   Library,
+  ListStart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { queuePanelOpenAtom } from "@/lib/store/ui";
 import {
   serverQueueStateAtom,
-  currentSongAtom,
   isQueueLoadingAtom,
   clearQueueAtom,
   type QueueSourceType,
@@ -30,8 +30,9 @@ import {
 import { useIsDesktop } from "@/lib/hooks/use-media-query";
 import { useHydrated } from "@/lib/hooks/use-hydrated";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { VirtualizedQueueDisplay } from "@/components/queue/virtualized-queue-display";
+import { VirtualizedQueueDisplay, type VirtualizedQueueDisplayHandle } from "@/components/queue/virtualized-queue-display";
 
 const QUEUE_SIDEBAR_WIDTH = 360;
 
@@ -156,12 +157,17 @@ export function QueuePanel() {
   const queueState = useAtomValue(serverQueueStateAtom);
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
+  const queueDisplayRef = useRef<VirtualizedQueueDisplayHandle>(null);
 
   const handleClearQueue = useCallback(() => {
     const trackCount = queueState?.totalCount ?? 0;
     clearQueue();
     toast.success(`Cleared ${trackCount} tracks from queue`);
   }, [queueState, clearQueue]);
+
+  const handleJumpToNowPlaying = useCallback(() => {
+    queueDisplayRef.current?.scrollToNowPlaying("smooth");
+  }, []);
 
   // Don't render the Sheet on desktop - use QueueSidebar instead
   if (isDesktop) {
@@ -177,22 +183,40 @@ export function QueuePanel() {
               <ListMusic className="w-5 h-5" />
               Queue
             </SheetTitle>
-            {queueState && queueState.totalCount > 0 && !isQueueLoading && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleClearQueue}
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Clear
-              </Button>
-            )}
+            <div className="flex items-center gap-1">
+              {queueState && queueState.totalCount > 0 && !isQueueLoading && (
+                <>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={handleJumpToNowPlaying}
+                        className="text-muted-foreground hover:text-foreground h-8 w-8"
+                        aria-label="Jump to now playing"
+                      >
+                        <ListStart className="w-4 h-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Jump to now playing</TooltipContent>
+                  </Tooltip>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleClearQueue}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Clear
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
         </SheetHeader>
 
         <QueueSourceDisplay variant="mobile" />
-        <VirtualizedQueueDisplay />
+        <VirtualizedQueueDisplay ref={queueDisplayRef} />
       </SheetContent>
     </Sheet>
   );
@@ -207,14 +231,18 @@ export function QueueSidebar() {
   const [isOpen, setIsOpen] = useAtom(queuePanelOpenAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
-  const currentSong = useAtomValue(currentSongAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
+  const queueDisplayRef = useRef<VirtualizedQueueDisplayHandle>(null);
 
   const handleClearQueue = useCallback(() => {
     const trackCount = queueState?.totalCount ?? 0;
     clearQueue();
     toast.success(`Cleared ${trackCount} tracks from queue`);
   }, [queueState, clearQueue]);
+
+  const handleJumpToNowPlaying = useCallback(() => {
+    queueDisplayRef.current?.scrollToNowPlaying("smooth");
+  }, []);
 
   // Wait for hydration to avoid flash
   if (!hydrated) {
@@ -246,15 +274,31 @@ export function QueueSidebar() {
               </h2>
               <div className="flex items-center gap-1">
                 {queueState && queueState.totalCount > 0 && !isQueueLoading && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleClearQueue}
-                    className="text-muted-foreground hover:text-destructive h-8 px-2 text-xs"
-                  >
-                    <Trash2 className="w-4 h-4 mr-1" />
-                    Clear
-                  </Button>
+                  <>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={handleJumpToNowPlaying}
+                          className="text-muted-foreground hover:text-foreground h-8 w-8"
+                          aria-label="Jump to now playing"
+                        >
+                          <ListStart className="w-4 h-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Jump to now playing</TooltipContent>
+                    </Tooltip>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleClearQueue}
+                      className="text-muted-foreground hover:text-destructive h-8 px-2 text-xs"
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      Clear
+                    </Button>
+                  </>
                 )}
                 <Button 
                   variant="ghost" 
@@ -269,7 +313,7 @@ export function QueueSidebar() {
             </div>
 
             <QueueSourceDisplay variant="desktop" />
-            <VirtualizedQueueDisplay />
+            <VirtualizedQueueDisplay ref={queueDisplayRef} />
           </motion.div>
         )}
       </AnimatePresence>

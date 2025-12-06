@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo, forwardRef, useImperativeHandle } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import Link from "next/link";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -17,6 +17,8 @@ import {
   queueWindowAtom,
   isQueueLoadingAtom,
   isQueueOperationPendingAtom,
+  isRestoringQueueAtom,
+  trackChangeSignalAtom,
   fetchQueueRangeAtom,
   playAtIndexAtom,
   removeFromQueueAtom,
@@ -225,6 +227,11 @@ interface VirtualizedQueueDisplayProps {
   variant?: "mobile" | "desktop";
 }
 
+/** Handle exposed by VirtualizedQueueDisplay for imperative control */
+export interface VirtualizedQueueDisplayHandle {
+  scrollToNowPlaying: (behavior?: "auto" | "smooth") => void;
+}
+
 /**
  * Virtualized queue display using server-side queue state.
  * Fetches song windows on demand as user scrolls.
@@ -234,13 +241,16 @@ interface VirtualizedQueueDisplayProps {
  * - VirtualQueueItem is wrapped in React.memo
  * - Callbacks are stabilized with useCallback
  */
-export function VirtualizedQueueDisplay({ variant: _variant = "desktop" }: VirtualizedQueueDisplayProps) {
+export const VirtualizedQueueDisplay = forwardRef<VirtualizedQueueDisplayHandle, VirtualizedQueueDisplayProps>(
+  function VirtualizedQueueDisplay({ variant: _variant = "desktop" }, ref) {
   const parentRef = useRef<HTMLDivElement>(null);
   
   const queueState = useAtomValue(serverQueueStateAtom);
   const queueWindow = useAtomValue(queueWindowAtom);
   const isLoading = useAtomValue(isQueueLoadingAtom);
   const isPending = useAtomValue(isQueueOperationPendingAtom);
+  const isRestoring = useAtomValue(isRestoringQueueAtom);
+  const trackChangeSignal = useAtomValue(trackChangeSignalAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   
   const fetchQueueRange = useSetAtom(fetchQueueRangeAtom);
@@ -253,6 +263,11 @@ export function VirtualizedQueueDisplay({ variant: _variant = "desktop" }: Virtu
   // Move to position dialog state
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveDialogEntry, setMoveDialogEntry] = useState<QueueSongEntry | null>(null);
+  
+  // Track previous current index to detect track changes
+  const prevCurrentIndexRef = useRef<number | null>(null);
+  // Track if we should skip the next auto-scroll (user scrolled away)
+  const userScrolledAwayRef = useRef(false);
 
   const totalCount = queueState?.totalCount ?? 0;
   const currentIndex = queueState?.currentIndex ?? 0;
@@ -289,6 +304,86 @@ export function VirtualizedQueueDisplay({ variant: _variant = "desktop" }: Virtu
   // Memoize the first and last visible indices to stabilize callback dependencies
   const firstVisible = virtualItems[0]?.index ?? 0;
   const lastVisible = virtualItems[virtualItems.length - 1]?.index ?? 0;
+
+  // Scroll to now playing track
+  const scrollToNowPlaying = useCallback((behavior: "auto" | "smooth" = "smooth") => {
+    if (totalCount === 0) return;
+    virtualizer.scrollToIndex(currentIndex, { align: "start", behavior });
+    userScrolledAwayRef.current = false;
+  }, [virtualizer, currentIndex, totalCount]);
+
+  // Expose imperative handle
+  useImperativeHandle(ref, () => ({
+    scrollToNowPlaying,
+  }), [scrollToNowPlaying]);
+
+  // Track when user scrolls away from the now playing track
+  // We detect this by checking if now playing was visible before scrolling stopped
+  useEffect(() => {
+    const scrollElement = parentRef.current;
+    if (!scrollElement) return;
+
+    let scrollTimeout: ReturnType<typeof setTimeout>;
+    
+    const handleScroll = () => {
+      // Clear any pending timeout
+      clearTimeout(scrollTimeout);
+      
+      // After scroll ends, check if user scrolled away from now playing
+      scrollTimeout = setTimeout(() => {
+        const virtualItems = virtualizer.getVirtualItems();
+        const first = virtualItems[0]?.index ?? 0;
+        const last = virtualItems[virtualItems.length - 1]?.index ?? 0;
+        
+        // If now playing is no longer visible, mark that user scrolled away
+        if (currentIndex < first || currentIndex > last) {
+          userScrolledAwayRef.current = true;
+        }
+      }, 150);
+    };
+
+    scrollElement.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      scrollElement.removeEventListener("scroll", handleScroll);
+      clearTimeout(scrollTimeout);
+    };
+  }, [virtualizer, currentIndex]);
+
+  // Auto-scroll to now playing when track changes
+  // Only scroll if the user hasn't scrolled away (i.e., now playing is still "nearby")
+  useEffect(() => {
+    // Skip during queue restoration (page load)
+    if (isRestoring) return;
+    
+    // Skip on initial mount
+    if (prevCurrentIndexRef.current === null) {
+      prevCurrentIndexRef.current = currentIndex;
+      return;
+    }
+    
+    // Track changed
+    if (prevCurrentIndexRef.current !== currentIndex) {
+      prevCurrentIndexRef.current = currentIndex;
+      
+      // Only auto-scroll if user hasn't scrolled away from the queue
+      if (!userScrolledAwayRef.current) {
+        // Use instant scroll for automatic track progression to avoid jarring animation
+        virtualizer.scrollToIndex(currentIndex, { align: "start", behavior: "auto" });
+      }
+    }
+  }, [currentIndex, isRestoring, virtualizer]);
+
+  // When playback starts from library (trackChangeSignal changes while not restoring),
+  // always scroll to the new now playing track
+  const prevTrackChangeSignalRef = useRef(trackChangeSignal);
+  useEffect(() => {
+    if (prevTrackChangeSignalRef.current !== trackChangeSignal && !isRestoring) {
+      prevTrackChangeSignalRef.current = trackChangeSignal;
+      // Scroll to now playing with smooth animation when user starts playback from library
+      virtualizer.scrollToIndex(currentIndex, { align: "start", behavior: "smooth" });
+      userScrolledAwayRef.current = false;
+    }
+  }, [trackChangeSignal, isRestoring, virtualizer, currentIndex]);
 
   // Fetch more songs when scrolling near edges of loaded data
   const checkAndFetchMore = useCallback(async () => {
@@ -430,4 +525,4 @@ export function VirtualizedQueueDisplay({ variant: _variant = "desktop" }: Virtu
       )}
     </div>
   );
-}
+});
