@@ -344,14 +344,14 @@ pub async fn get_period_review(
     let stats_query = format!(
         r#"
         SELECT 
-            COALESCE(SUM(duration_secs), 0) as total_listening_secs,
+            COALESCE(SUM(ls.duration_seconds), 0) as total_listening_secs,
             COUNT(*) as total_play_count,
-            COUNT(DISTINCT song_id) as unique_tracks,
-            COUNT(DISTINCT album_id) as unique_albums,
-            COUNT(DISTINCT artist_id) as unique_artists
-        FROM listening_history lh
-        LEFT JOIN songs s ON lh.song_id = s.id
-        WHERE lh.user_id = ? {}
+            COUNT(DISTINCT ls.song_id) as unique_tracks,
+            COUNT(DISTINCT s.album_id) as unique_albums,
+            COUNT(DISTINCT s.artist_id) as unique_artists
+        FROM listening_sessions ls
+        LEFT JOIN songs s ON ls.song_id = s.id
+        WHERE ls.user_id = ? {}
         "#,
         date_filter
     );
@@ -380,15 +380,15 @@ pub async fn get_period_review(
         r#"
         SELECT 
             COALESCE(s.artist_id, 'unknown') as artist_id,
-            COALESCE(a.name, s.artist, 'Unknown Artist') as artist_name,
+            COALESCE(a.name, 'Unknown Artist') as artist_name,
             COUNT(*) as play_count,
-            COALESCE(SUM(lh.duration_secs), 0) as total_duration_secs,
-            a.cover_art as cover_art
-        FROM listening_history lh
-        LEFT JOIN songs s ON lh.song_id = s.id
+            COALESCE(SUM(ls.duration_seconds), 0) as total_duration_secs,
+            (SELECT al2.id FROM albums al2 WHERE al2.artist_id = s.artist_id LIMIT 1) as cover_art
+        FROM listening_sessions ls
+        LEFT JOIN songs s ON ls.song_id = s.id
         LEFT JOIN artists a ON s.artist_id = a.id
-        WHERE lh.user_id = ? {}
-        GROUP BY COALESCE(s.artist_id, s.artist)
+        WHERE ls.user_id = ? {}
+        GROUP BY s.artist_id
         ORDER BY play_count DESC
         LIMIT 10
         "#,
@@ -406,17 +406,17 @@ pub async fn get_period_review(
         r#"
         SELECT 
             COALESCE(s.album_id, 'unknown') as album_id,
-            COALESCE(al.name, s.album, 'Unknown Album') as album_name,
-            COALESCE(a.name, s.artist, 'Unknown Artist') as artist_name,
+            COALESCE(al.name, 'Unknown Album') as album_name,
+            COALESCE(a.name, 'Unknown Artist') as artist_name,
             COUNT(*) as play_count,
-            COALESCE(SUM(lh.duration_secs), 0) as total_duration_secs,
-            al.cover_art as cover_art
-        FROM listening_history lh
-        LEFT JOIN songs s ON lh.song_id = s.id
+            COALESCE(SUM(ls.duration_seconds), 0) as total_duration_secs,
+            s.album_id as cover_art
+        FROM listening_sessions ls
+        LEFT JOIN songs s ON ls.song_id = s.id
         LEFT JOIN albums al ON s.album_id = al.id
         LEFT JOIN artists a ON s.artist_id = a.id
-        WHERE lh.user_id = ? {}
-        GROUP BY COALESCE(s.album_id, s.album)
+        WHERE ls.user_id = ? {}
+        GROUP BY s.album_id
         ORDER BY play_count DESC
         LIMIT 10
         "#,
@@ -435,16 +435,16 @@ pub async fn get_period_review(
         SELECT 
             s.id as track_id,
             COALESCE(s.title, 'Unknown Track') as track_title,
-            COALESCE(a.name, s.artist, 'Unknown Artist') as artist_name,
-            COALESCE(al.name, s.album, 'Unknown Album') as album_name,
+            COALESCE(a.name, 'Unknown Artist') as artist_name,
+            COALESCE(al.name, 'Unknown Album') as album_name,
             COUNT(*) as play_count,
-            COALESCE(SUM(lh.duration_secs), 0) as total_duration_secs,
-            s.cover_art as cover_art
-        FROM listening_history lh
-        LEFT JOIN songs s ON lh.song_id = s.id
+            COALESCE(SUM(ls.duration_seconds), 0) as total_duration_secs,
+            s.album_id as cover_art
+        FROM listening_sessions ls
+        LEFT JOIN songs s ON ls.song_id = s.id
         LEFT JOIN albums al ON s.album_id = al.id
         LEFT JOIN artists a ON s.artist_id = a.id
-        WHERE lh.user_id = ? {}
+        WHERE ls.user_id = ? {}
         GROUP BY s.id
         ORDER BY play_count DESC
         LIMIT 10
@@ -463,7 +463,7 @@ pub async fn get_period_review(
         SELECT DISTINCT 
             CAST(strftime('%Y', listened_at) AS INTEGER) as year,
             CAST(strftime('%m', listened_at) AS INTEGER) as month
-        FROM listening_history
+        FROM listening_sessions
         WHERE user_id = ?
         ORDER BY year DESC, month DESC
     "#;

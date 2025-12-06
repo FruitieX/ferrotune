@@ -131,6 +131,8 @@ function PlaylistDetailContent() {
       await client.reorderPlaylistSongs(playlistId!, songIds);
     },
     onSuccess: () => {
+      // Invalidate to ensure we have the correct order from server
+      queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
       toast.success("Playlist order updated");
     },
     onError: () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Calendar,
@@ -201,6 +201,8 @@ export default function ReviewPage() {
     staleTime: 60000, // Cache for 1 minute
   });
 
+  const queryClient = useQueryClient();
+
   // Helper to handle creating a playlist from top tracks
   const handleCreatePlaylist = async () => {
     if (!reviewData?.review.topTracks.length) return;
@@ -217,6 +219,9 @@ export default function ReviewPage() {
       // Create playlist with top track IDs
       const trackIds = reviewData.review.topTracks.map(t => t.trackId);
       await client.createPlaylist({ name, songId: trackIds });
+      
+      // Invalidate playlists query so the new playlist shows up
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
       
       toast.success(`Created playlist "${name}"`);
     } catch (error) {
@@ -328,8 +333,7 @@ export default function ReviewPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <Card className="overflow-hidden">
-            <div className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent">
+          <Card className="overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Award className="w-5 h-5 text-primary" />
@@ -397,7 +401,6 @@ export default function ReviewPage() {
                   </p>
                 )}
               </CardContent>
-            </div>
           </Card>
         </motion.div>
 
@@ -427,8 +430,12 @@ export default function ReviewPage() {
                 )}
               </CardHeader>
               <CardContent>
-                <Tabs defaultValue="artists" className="w-full">
+                <Tabs defaultValue="tracks" className="w-full">
                   <TabsList className="w-full grid grid-cols-3 mb-4">
+                    <TabsTrigger value="tracks" className="gap-2">
+                      <Music2 className="w-4 h-4 hidden sm:block" />
+                      Tracks
+                    </TabsTrigger>
                     <TabsTrigger value="artists" className="gap-2">
                       <User2 className="w-4 h-4 hidden sm:block" />
                       Artists
@@ -437,13 +444,23 @@ export default function ReviewPage() {
                       <Disc3 className="w-4 h-4 hidden sm:block" />
                       Albums
                     </TabsTrigger>
-                    <TabsTrigger value="tracks" className="gap-2">
-                      <Music2 className="w-4 h-4 hidden sm:block" />
-                      Tracks
-                    </TabsTrigger>
                   </TabsList>
                   
                   <AnimatePresence mode="wait">
+                    <TabsContent value="tracks" className="mt-0">
+                      <div className="space-y-2">
+                        {review.topTracks.length > 0 ? (
+                          review.topTracks.map((track, i) => (
+                            <TopTrackCard key={track.trackId} track={track} rank={i + 1} />
+                          ))
+                        ) : (
+                          <p className="text-muted-foreground text-sm py-4 text-center">
+                            No track data for this period
+                          </p>
+                        )}
+                      </div>
+                    </TabsContent>
+                    
                     <TabsContent value="artists" className="mt-0">
                       <div className="space-y-2">
                         {review.topArtists.length > 0 ? (
@@ -467,20 +484,6 @@ export default function ReviewPage() {
                         ) : (
                           <p className="text-muted-foreground text-sm py-4 text-center">
                             No album data for this period
-                          </p>
-                        )}
-                      </div>
-                    </TabsContent>
-                    
-                    <TabsContent value="tracks" className="mt-0">
-                      <div className="space-y-2">
-                        {review.topTracks.length > 0 ? (
-                          review.topTracks.map((track, i) => (
-                            <TopTrackCard key={track.trackId} track={track} rank={i + 1} />
-                          ))
-                        ) : (
-                          <p className="text-muted-foreground text-sm py-4 text-center">
-                            No track data for this period
                           </p>
                         )}
                       </div>

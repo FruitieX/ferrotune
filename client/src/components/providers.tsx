@@ -82,6 +82,7 @@ function AccentColorProvider({ children }: { children: React.ReactNode }) {
 function ResponsiveToaster() {
   const queueOpen = useAtomValue(queuePanelOpenAtom);
   const QUEUE_SIDEBAR_WIDTH = 360;
+  const GAP_FROM_EDGE = 16;
   
   return (
     <Toaster 
@@ -89,8 +90,7 @@ function ResponsiveToaster() {
       richColors 
       offset={100}
       style={{
-        // Account for queue sidebar when open
-        right: queueOpen ? QUEUE_SIDEBAR_WIDTH : 0,
+        right: GAP_FROM_EDGE,
       }}
     />
   );
