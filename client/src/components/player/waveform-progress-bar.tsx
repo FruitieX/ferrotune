@@ -17,65 +17,46 @@ interface WaveformProgressBarProps {
 
 // Colors for different bar states
 const COLORS = {
-  buffered: { light: "#a1a1aa", dark: "#71717a" }, // zinc-400 / zinc-500
-  unbuffered: { light: "#d4d4d8", dark: "#52525b" }, // zinc-300 / zinc-600
+  buffered: { light: "#a1a1aa", dark: "#71717a" },
+  unbuffered: { light: "#d4d4d8", dark: "#52525b" },
 };
 
 // Animation configuration
-const ANIMATION_DURATION_MS = 600;
-const ANIMATION_STAGGER_MS = 3; // Stagger per bar for full track change
-const CHUNK_FADE_DURATION_MS = 300; // Duration for chunk fade-in animation
-const CHUNK_STAGGER_TOTAL_MS = 150; // Total stagger spread across a chunk
+const WAVE_WIDTH = 0.15; // Width of transition wave (fraction of total)
+const PROGRESS_GAP = 0.4; // Gap between outgoing and incoming (fraction of total)
+const ANIMATION_SPEED = 0.5; // Progress per second (0.5 = 2 seconds for full animation)
+const TARGET_CHUNK_BUFFER = 3; // Aim to stay 2-4 chunks behind the data
+const MIN_CHUNK_BUFFER = 2; // Minimum chunks ahead before continuing
+const MAX_CHUNK_BUFFER = 4; // Maximum chunks ahead before speeding up
+const NORMALIZATION_LERP_SPEED = 0.05; // Speed of height normalization adjustment per frame
 
-// Bar sizing constraints
-const MIN_BAR_WIDTH = 2; // Minimum width per bar in pixels
-const BAR_GAP = 1; // Gap between bars in pixels
+// Bar sizing
+const MIN_BAR_WIDTH = 2;
+const BAR_GAP = 1;
 
-/**
- * Downsample waveform heights array by averaging adjacent bars.
- * This ensures playback position still aligns correctly with visual bars.
- */
 function downsampleHeights(heights: number[], sourceCount: number, targetCount: number): number[] {
-  if (targetCount >= sourceCount) {
-    return heights.slice(0, targetCount);
-  }
-  
+  if (targetCount >= sourceCount) return heights.slice(0, targetCount);
   const result = new Array(targetCount);
   const ratio = sourceCount / targetCount;
-  
   for (let i = 0; i < targetCount; i++) {
-    // Map target bar to source range
-    const sourceStart = i * ratio;
-    const sourceEnd = (i + 1) * ratio;
-    
-    // Average the source bars that fall within this target bar's range
-    const startIdx = Math.floor(sourceStart);
-    const endIdx = Math.min(Math.ceil(sourceEnd), sourceCount);
-    
-    let sum = 0;
-    let count = 0;
+    const startIdx = Math.floor(i * ratio);
+    const endIdx = Math.min(Math.ceil((i + 1) * ratio), sourceCount);
+    let sum = 0, count = 0;
     for (let j = startIdx; j < endIdx; j++) {
       sum += heights[j] ?? FLAT_BAR_HEIGHT;
       count++;
     }
-    
     result[i] = count > 0 ? sum / count : FLAT_BAR_HEIGHT;
   }
-  
   return result;
 }
 
-/**
- * Calculate maximum number of bars that can fit in a given width.
- */
 function calculateMaxBars(containerWidth: number): number {
-  // Each bar needs MIN_BAR_WIDTH + BAR_GAP (except last bar doesn't need gap after it)
-  // containerWidth = n * MIN_BAR_WIDTH + (n-1) * BAR_GAP
-  // containerWidth = n * MIN_BAR_WIDTH + n * BAR_GAP - BAR_GAP
-  // containerWidth + BAR_GAP = n * (MIN_BAR_WIDTH + BAR_GAP)
-  // n = (containerWidth + BAR_GAP) / (MIN_BAR_WIDTH + BAR_GAP)
-  const maxBars = Math.floor((containerWidth + BAR_GAP) / (MIN_BAR_WIDTH + BAR_GAP));
-  return Math.max(1, maxBars);
+  return Math.max(1, Math.floor((containerWidth + BAR_GAP) / (MIN_BAR_WIDTH + BAR_GAP)));
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
 }
 
 export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
@@ -87,358 +68,418 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const primaryColor = useAtomValue(accentColorRgbAtom);
   const lastChunkInfo = useAtomValue(lastChunkInfoAtom);
   const { seekPercent } = useAudioEngine();
-  const { heights: sourceHeights, barCount: sourceBarCount } = useWaveform();
+  const { heights: sourceHeights, barCount: sourceBarCount, isLoaded } = useWaveform();
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const tooltipRef = useRef<HTMLDivElement>(null);
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
   const [isHovering, setIsHovering] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
-  const [containerWidth, setContainerWidth] = useState(600); // Default to a reasonable width
+  const [containerWidth, setContainerWidth] = useState(600);
   
-  // Calculate how many bars we can display based on container width
+  // Animation state in a single ref object for atomic updates
+  const anim = useRef({
+    // Visual heights for each bar
+    heights: null as Float32Array | null,
+    // Target heights for incoming/outgoing (smoothly lerped)
+    incoming: null as Float32Array | null,
+    outgoing: null as Float32Array | null,
+    // Wave positions (0-1+, where > 1 means past the end)
+    inProgress: 0,
+    outProgress: 0,
+    // Data tracking - chunk-based
+    receivedChunks: 0,
+    lastChunkEndIndex: 0, // Track last chunk's end index
+    loadComplete: false,
+    // Current track
+    trackId: null as string | null,
+    // RAF state
+    rafId: null as number | null,
+    lastTime: 0,
+  });
+  
+  // Playback progress (separate from waveform animation)
+  const smoothProgressRef = useRef(0);
+  const progressRafRef = useRef<number | null>(null);
+  
+  // Derived values
   const displayBarCount = useMemo(() => {
     const maxBars = calculateMaxBars(containerWidth);
-    // Don't use more bars than we have data for
     return Math.min(maxBars, sourceBarCount);
   }, [containerWidth, sourceBarCount]);
   
-  // Downsample heights to match display bar count
   const heights = useMemo(() => {
     return downsampleHeights(sourceHeights, sourceBarCount, displayBarCount);
   }, [sourceHeights, sourceBarCount, displayBarCount]);
   
-  // Use displayBarCount for rendering
-  const barCount = displayBarCount;
-  
-  // Track container width with ResizeObserver
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    
-    const updateWidth = () => {
-      const rect = container.getBoundingClientRect();
-      if (rect.width > 0) {
-        setContainerWidth(rect.width);
-      }
-    };
-    
-    // Initial measurement
-    updateWidth();
-    
-    const resizeObserver = new ResizeObserver(updateWidth);
-    resizeObserver.observe(container);
-    
-    return () => resizeObserver.disconnect();
-  }, []);
-  
-  // Smooth progress tracking - read directly from audio element for 60fps updates
-  const smoothProgressRef = useRef<number>(0);
-  const progressAnimationRef = useRef<number | null>(null);
-  
-  // Format time as h:mm:ss or mm:ss depending on duration
-  const formatTime = (seconds: number): string => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    
-    if (hrs > 0) {
-      return `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-    }
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
-  
-  // Calculate hover time
-  const hoverTime = hoverPercent !== null && duration > 0 
-    ? (hoverPercent / 100) * duration 
-    : null;
-  
-  // Animation state for bar heights - use refs that we resize as needed
-  const animatedHeightsRef = useRef<Float32Array | null>(null);
-  const targetHeightsRef = useRef<Float32Array | null>(null);
-  const startHeightsRef = useRef<Float32Array | null>(null);
-  const barAnimationStartRef = useRef<Float32Array | null>(null);
-  const barAnimationFrameRef = useRef<number | null>(null);
-  const drawWaveformRef = useRef<((progress: number) => void) | null>(null);
-  const prevBarCountRef = useRef<number>(0);
-  
-  // Resize animation buffers when bar count changes
-  if (barCount !== prevBarCountRef.current) {
-    animatedHeightsRef.current = new Float32Array(barCount).fill(FLAT_BAR_HEIGHT);
-    targetHeightsRef.current = new Float32Array(barCount).fill(FLAT_BAR_HEIGHT);
-    startHeightsRef.current = new Float32Array(barCount).fill(FLAT_BAR_HEIGHT);
-    barAnimationStartRef.current = new Float32Array(barCount).fill(0);
-    prevBarCountRef.current = barCount;
-  }
-  
-  // Ensure buffers exist (for initial render)
-  if (!animatedHeightsRef.current) {
-    animatedHeightsRef.current = new Float32Array(barCount).fill(FLAT_BAR_HEIGHT);
-    targetHeightsRef.current = new Float32Array(barCount).fill(FLAT_BAR_HEIGHT);
-    startHeightsRef.current = new Float32Array(barCount).fill(FLAT_BAR_HEIGHT);
-    barAnimationStartRef.current = new Float32Array(barCount).fill(0);
-  }
-  
+  const trackId = currentTrack?.id ?? null;
   const isEnded = playbackState === "ended";
-  // Fallback progress from atom (used when not playing)
   const atomProgress = isEnded ? 0 : (duration > 0 ? (currentTime / duration) * 100 : 0);
   const bufferedPercent = duration > 0 ? (buffered / duration) * 100 : 0;
   
-  // Detect dark mode for bar colors
+  // Ensure buffers are correctly sized
+  useEffect(() => {
+    const a = anim.current;
+    if (!a.heights || a.heights.length !== displayBarCount) {
+      a.heights = new Float32Array(displayBarCount).fill(FLAT_BAR_HEIGHT);
+      a.incoming = new Float32Array(displayBarCount).fill(FLAT_BAR_HEIGHT);
+      a.outgoing = new Float32Array(displayBarCount).fill(FLAT_BAR_HEIGHT);
+    }
+  }, [displayBarCount]);
+  
+  // Track container width
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const updateWidth = () => {
+      const rect = container.getBoundingClientRect();
+      if (rect.width > 0) setContainerWidth(rect.width);
+    };
+    updateWidth();
+    const resizeObserver = new ResizeObserver(updateWidth);
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, []);
+  
+  // Detect dark mode
   useEffect(() => {
     const updateDarkMode = () => {
       setIsDarkMode(document.documentElement.classList.contains("dark") || 
                     !document.documentElement.classList.contains("light"));
     };
-    
     updateDarkMode();
-    
-    // Watch for theme changes
     const observer = new MutationObserver(updateDarkMode);
-    observer.observe(document.documentElement, { 
-      attributes: true, 
-      attributeFilter: ["class"] 
-    });
-    
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => observer.disconnect();
   }, []);
   
-  // Easing function for smooth animation
-  const easeOutCubic = (t: number): number => {
-    return 1 - Math.pow(1 - t, 3);
-  };
-  
-  // Track the track ID for reset detection
-  const currentTrackIdRef = useRef<string | null>(null);
-  
-  // Track the last processed chunk to detect new chunks
-  const lastChunkTimestampRef = useRef<number>(0);
-  
-  // Get current track ID for reset detection
-  const trackId = currentTrack?.id ?? null;
-  
-  // Animate to new heights when they change
-  useEffect(() => {
-    // Ensure refs exist
-    if (!animatedHeightsRef.current || !targetHeightsRef.current || 
-        !startHeightsRef.current || !barAnimationStartRef.current) return;
-        
-    // Detect track change
-    const trackChanged = trackId !== currentTrackIdRef.current;
-    currentTrackIdRef.current = trackId;
-    
-    // Detect if we have a new chunk (for staggered chunk animation)
-    const hasNewChunk = lastChunkInfo && lastChunkInfo.timestamp > lastChunkTimestampRef.current;
-    if (lastChunkInfo) {
-      lastChunkTimestampRef.current = lastChunkInfo.timestamp;
-    }
-    
-    // Map source chunk indices to display indices
-    const ratio = sourceBarCount / barCount;
-    const displayChunkStart = hasNewChunk ? Math.floor(lastChunkInfo.startIndex / ratio) : 0;
-    const displayChunkEnd = hasNewChunk ? Math.ceil(lastChunkInfo.endIndex / ratio) : 0;
-    const chunkBarCount = displayChunkEnd - displayChunkStart;
-    
-    // Calculate per-bar stagger for chunk animation (spread across CHUNK_STAGGER_TOTAL_MS)
-    const chunkStaggerPerBar = chunkBarCount > 1 ? CHUNK_STAGGER_TOTAL_MS / (chunkBarCount - 1) : 0;
-    
-    const now = performance.now();
-    
-    for (let i = 0; i < barCount; i++) {
-      const newTarget = heights[i] ?? FLAT_BAR_HEIGHT;
-      const currentTarget = targetHeightsRef.current[i];
-      
-      // Check if this bar's target changed
-      if (Math.abs(newTarget - currentTarget) > 0.001 || trackChanged) {
-        // Start this bar's animation from its current animated position
-        startHeightsRef.current[i] = animatedHeightsRef.current[i];
-        targetHeightsRef.current[i] = newTarget;
-        
-        // Determine stagger timing based on context
-        if (trackChanged) {
-          // Full track change: stagger all bars from left to right
-          barAnimationStartRef.current[i] = now + i * ANIMATION_STAGGER_MS;
-        } else if (hasNewChunk && i >= displayChunkStart && i < displayChunkEnd) {
-          // New chunk: stagger bars with a fixed total duration spread
-          // This makes chunk loading feel smooth regardless of chunk size
-          const positionInChunk = i - displayChunkStart;
-          barAnimationStartRef.current[i] = now + positionInChunk * chunkStaggerPerBar;
-        } else {
-          // Other height changes (e.g., re-normalization): no stagger
-          barAnimationStartRef.current[i] = now;
-        }
-      }
-    }
-    
-    // Cancel existing animation frame
-    if (barAnimationFrameRef.current !== null) {
-      cancelAnimationFrame(barAnimationFrameRef.current);
-    }
-    
-    const animate = (animNow: number) => {
-      // Safety check for refs
-      if (!animatedHeightsRef.current || !targetHeightsRef.current || 
-          !startHeightsRef.current || !barAnimationStartRef.current) return;
-          
-      let allComplete = true;
-      const currentBarCount = animatedHeightsRef.current.length;
-      
-      // Animate each bar independently
-      for (let i = 0; i < currentBarCount; i++) {
-        const barStart = barAnimationStartRef.current[i];
-        const elapsed = Math.max(0, animNow - barStart);
-        const t = Math.min(1, elapsed / ANIMATION_DURATION_MS);
-        
-        if (t < 1) {
-          allComplete = false;
-          const easedT = easeOutCubic(t);
-          const start = startHeightsRef.current[i];
-          const target = targetHeightsRef.current[i];
-          animatedHeightsRef.current[i] = start + (target - start) * easedT;
-        } else {
-          // Animation complete for this bar - snap to target
-          animatedHeightsRef.current[i] = targetHeightsRef.current[i];
-        }
-      }
-      
-      // Force redraw via ref (avoids stale closure)
-      drawWaveformRef.current?.(smoothProgressRef.current);
-      
-      if (!allComplete) {
-        barAnimationFrameRef.current = requestAnimationFrame(animate);
-      }
-    };
-    
-    barAnimationFrameRef.current = requestAnimationFrame(animate);
-    
-    return () => {
-      if (barAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(barAnimationFrameRef.current);
-      }
-    };
-  }, [heights, barCount, sourceBarCount, trackId, lastChunkInfo]);
-  
-  // Helper function to draw all bars with a given color
-  const drawBars = (
-    ctx: CanvasRenderingContext2D, 
-    rect: DOMRect, 
-    color: string,
-    barWidth: number,
-    barGap: number,
-    centerY: number,
-    currentBarCount: number
-  ) => {
-    if (!animatedHeightsRef.current) return;
-    
-    ctx.fillStyle = color;
-    for (let i = 0; i < currentBarCount; i++) {
-      const x = i * (barWidth + barGap);
-      const displayHeight = animatedHeightsRef.current[i] ?? FLAT_BAR_HEIGHT;
-      const barHeight = Math.max(2, displayHeight * rect.height);
-      const y = centerY - barHeight / 2;
-      
-      ctx.beginPath();
-      const radius = Math.min(barWidth / 2, barHeight / 2, 2);
-      ctx.roundRect(x, y, barWidth, barHeight, radius);
-      ctx.fill();
-    }
-  };
-  
-  // Draw waveform on canvas with smooth clip-based progress fill
-  const drawWaveform = useCallback((progress: number) => {
+  // Draw function
+  const draw = useCallback(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
-    if (!canvas || !container) return;
+    const a = anim.current;
+    if (!canvas || !container || !a.heights) return;
     
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     
-    // Get the current bar count from the ref
-    const currentBarCount = animatedHeightsRef.current?.length ?? barCount;
-    
-    // Get actual pixel dimensions
     const rect = container.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     const width = rect.width * dpr;
     const height = rect.height * dpr;
     
-    // Set canvas size only if dimensions changed
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
       canvas.style.width = `${rect.width}px`;
       canvas.style.height = `${rect.height}px`;
-      ctx.scale(dpr, dpr);
-    } else {
-      // Reset transform if size didn't change
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
-    
-    // Clear canvas
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, rect.width, rect.height);
     
-    // Calculate bar dimensions - ensure bar width doesn't go negative
-    const barGap = BAR_GAP;
-    const totalGaps = Math.max(0, currentBarCount - 1);
-    const availableWidth = rect.width - totalGaps * barGap;
-    const barWidth = currentBarCount > 0 ? Math.max(MIN_BAR_WIDTH, availableWidth / currentBarCount) : MIN_BAR_WIDTH;
+    const barCount = a.heights.length;
+    const totalGaps = Math.max(0, barCount - 1);
+    const availableWidth = rect.width - totalGaps * BAR_GAP;
+    const barWidth = barCount > 0 ? Math.max(MIN_BAR_WIDTH, availableWidth / barCount) : MIN_BAR_WIDTH;
     const centerY = rect.height / 2;
     
-    // Choose colors based on theme
     const bufferedColor = isDarkMode ? COLORS.buffered.dark : COLORS.buffered.light;
     const unbufferedColor = isDarkMode ? COLORS.unbuffered.dark : COLORS.unbuffered.light;
-    
-    // Calculate progress X position for smooth fill
+    const progress = smoothProgressRef.current;
     const progressX = (progress / 100) * rect.width;
     const bufferedX = (bufferedPercent / 100) * rect.width;
     
-    // Pass 1: Draw unbuffered bars (lightest gray)
-    if (bufferedX < rect.width) {
+    const drawBars = (color: string, clipX: number, clipWidth: number) => {
+      if (clipWidth <= 0) return;
       ctx.save();
       ctx.beginPath();
-      ctx.rect(bufferedX, 0, rect.width - bufferedX, rect.height);
+      ctx.rect(clipX, 0, clipWidth, rect.height);
       ctx.clip();
-      drawBars(ctx, rect, unbufferedColor, barWidth, barGap, centerY, currentBarCount);
+      ctx.fillStyle = color;
+      for (let i = 0; i < barCount; i++) {
+        const x = i * (barWidth + BAR_GAP);
+        const barHeight = Math.max(2, (a.heights![i] ?? FLAT_BAR_HEIGHT) * rect.height);
+        const y = centerY - barHeight / 2;
+        ctx.beginPath();
+        ctx.roundRect(x, y, barWidth, barHeight, Math.min(barWidth / 2, barHeight / 2, 2));
+        ctx.fill();
+      }
       ctx.restore();
-    }
+    };
     
-    // Pass 2: Draw buffered bars (medium gray) - only the portion not yet played
-    if (bufferedX > progressX) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(progressX, 0, bufferedX - progressX, rect.height);
-      ctx.clip();
-      drawBars(ctx, rect, bufferedColor, barWidth, barGap, centerY, currentBarCount);
-      ctx.restore();
-    }
+    if (bufferedX < rect.width) drawBars(unbufferedColor, bufferedX, rect.width - bufferedX);
+    if (bufferedX > progressX) drawBars(bufferedColor, progressX, bufferedX - progressX);
+    if (progressX > 0) drawBars(primaryColor, 0, progressX);
     
-    // Pass 3: Draw played bars (accent color) with smooth clip
-    if (progressX > 0) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, progressX, rect.height);
-      ctx.clip();
-      drawBars(ctx, rect, primaryColor, barWidth, barGap, centerY, currentBarCount);
-      ctx.restore();
-    }
-    
-    // Draw hover indicator line (taller, no bar coloring)
     if (isHovering && hoverPercent !== null) {
       const x = (hoverPercent / 100) * rect.width;
-      const cursorHeight = rect.height + 8; // 4px above and below
-      const cursorY = -4;
       ctx.fillStyle = isDarkMode ? "rgba(255,255,255,0.9)" : "rgba(0,0,0,0.9)";
-      ctx.fillRect(x - 1.5, cursorY, 2, cursorHeight);
+      ctx.fillRect(x - 1.5, -4, 2, rect.height + 8);
     }
-  }, [barCount, bufferedPercent, hoverPercent, isHovering, primaryColor, isDarkMode]);
+  }, [isDarkMode, bufferedPercent, primaryColor, isHovering, hoverPercent]);
   
-  // Keep ref updated so animation loop can call latest version
+  // Update heights based on wave positions
+  const updateHeights = useCallback(() => {
+    const a = anim.current;
+    if (!a.heights || !a.incoming || !a.outgoing) return;
+    
+    const barCount = a.heights.length;
+    const endPos = 1 + WAVE_WIDTH;
+    
+    for (let i = 0; i < barCount; i++) {
+      const barPos = i / barCount;
+      
+      // Calculate outgoing wave effect (fading to flat)
+      let outT = 0; // 0 = original height, 1 = flat
+      if (a.outProgress > 0 && a.outProgress < endPos) {
+        const waveT = (a.outProgress - barPos) / WAVE_WIDTH;
+        outT = easeOutCubic(Math.max(0, Math.min(1, waveT)));
+      } else if (a.outProgress >= endPos) {
+        outT = 1; // Fully faded to flat
+      }
+      
+      // Calculate incoming wave effect (fading from flat to target)
+      let inT = 0; // 0 = flat, 1 = target height
+      if (a.inProgress > 0) {
+        const waveT = (a.inProgress - barPos) / WAVE_WIDTH;
+        inT = easeOutCubic(Math.max(0, Math.min(1, waveT)));
+      }
+      
+      // Blend both effects: outgoing fades to flat, incoming fades from flat
+      // Start from outgoing height, fade toward flat, then from flat toward incoming
+      const outHeight = a.outgoing[i];
+      const inHeight = a.incoming[i];
+      
+      // outT: 0 = outgoing visible, 1 = flat
+      // inT: 0 = flat, 1 = incoming visible
+      // Result: lerp(lerp(outHeight, FLAT, outT), inHeight, inT)
+      const afterOut = outHeight * (1 - outT) + FLAT_BAR_HEIGHT * outT;
+      a.heights[i] = afterOut * (1 - inT) + inHeight * inT;
+    }
+  }, []);
+  
+  // Animation loop
+  const animate = useCallback((time: number) => {
+    const a = anim.current;
+    const delta = a.lastTime === 0 ? 16 : time - a.lastTime;
+    a.lastTime = time;
+    
+    const barCount = a.heights?.length ?? 0;
+    if (barCount === 0) {
+      a.rafId = requestAnimationFrame(animate);
+      return;
+    }
+    
+    const endPos = 1 + WAVE_WIDTH;
+    const speed = (ANIMATION_SPEED * delta) / 1000;
+    let changed = false;
+    
+    // Advance outgoing wave
+    if (a.outProgress > 0 && a.outProgress < endPos) {
+      a.outProgress = Math.min(endPos, a.outProgress + speed);
+      changed = true;
+    }
+    
+    // Start incoming when outgoing has advanced enough AND we have sufficient data buffered
+    // Use chunk-based buffer: need at least MIN_CHUNK_BUFFER chunks
+    const hasEnoughData = a.loadComplete || a.receivedChunks >= MIN_CHUNK_BUFFER;
+    if (a.inProgress === 0 && hasEnoughData && a.outProgress >= PROGRESS_GAP) {
+      a.inProgress = 0.001;
+    }
+    
+    // Advance incoming wave
+    if (a.inProgress > 0 && a.inProgress < endPos) {
+      // Calculate how far we can animate based on chunk buffer
+      const dataProgress = a.lastChunkEndIndex / barCount;
+      
+      // Adaptive speed based on chunk buffer
+      let inSpeed = speed;
+      if (a.loadComplete) {
+        // All data loaded - animate at full speed
+        inSpeed = speed;
+      } else {
+        // Calculate chunks ahead of animation
+        const animatedBarIndex = a.inProgress * barCount;
+        const chunksAhead = a.receivedChunks - Math.floor((animatedBarIndex / a.lastChunkEndIndex) * a.receivedChunks);
+        
+        if (chunksAhead < MIN_CHUNK_BUFFER) {
+          // Too close to data edge - pause/very slow
+          inSpeed *= 0.05;
+        } else if (chunksAhead < TARGET_CHUNK_BUFFER) {
+          // Below target - slow down
+          inSpeed *= 0.3;
+        } else if (chunksAhead > MAX_CHUNK_BUFFER) {
+          // Too far ahead - speed up
+          inSpeed *= 1.5;
+        }
+        // else: in sweet spot, use base speed
+      }
+      
+      // Only advance if we have data ahead or loading is complete
+      const maxProgress = a.loadComplete ? endPos : dataProgress;
+      if (a.inProgress < maxProgress || a.loadComplete) {
+        a.inProgress = Math.min(endPos, a.inProgress + inSpeed);
+        changed = true;
+      }
+    }
+    
+    // Check if done - both waves must have completed their full animation
+    const outComplete = a.outProgress >= endPos;
+    const inComplete = a.inProgress >= endPos;
+    
+    // Only stop when both are complete (or outgoing was never started, which shouldn't happen)
+    if (outComplete && inComplete) {
+      // Reset for next track change
+      a.outProgress = 0;
+      a.rafId = null;
+      a.lastTime = 0;
+      return;
+    }
+    
+    if (changed) {
+      updateHeights();
+      draw();
+    }
+    
+    a.rafId = requestAnimationFrame(animate);
+  }, [updateHeights, draw]);
+  
+  // Start animation
+  const startAnim = useCallback(() => {
+    const a = anim.current;
+    if (a.rafId === null) {
+      a.lastTime = 0;
+      a.rafId = requestAnimationFrame(animate);
+    }
+  }, [animate]);
+  
+  // Handle track changes
   useEffect(() => {
-    drawWaveformRef.current = drawWaveform;
-  }, [drawWaveform]);
+    const a = anim.current;
+    
+    if (trackId !== a.trackId) {
+      // Save current heights for outgoing animation
+      if (a.heights && a.outgoing) {
+        a.outgoing.set(a.heights);
+      }
+      
+      // Start outgoing wave
+      a.outProgress = 0.001;
+      
+      // Reset incoming
+      a.inProgress = 0;
+      if (a.incoming) a.incoming.fill(FLAT_BAR_HEIGHT);
+      
+      // Reset data tracking
+      a.receivedChunks = 0;
+      a.lastChunkEndIndex = 0;
+      a.loadComplete = false;
+      
+      a.trackId = trackId;
+      startAnim();
+    }
+  }, [trackId, startAnim]);
   
-  // Smooth progress animation loop - runs during playback for 60fps updates
+  // Update incoming heights when data arrives - smooth lerp to avoid jarring changes
+  useEffect(() => {
+    const a = anim.current;
+    if (!a.incoming || trackId !== a.trackId) return;
+    
+    // Smoothly lerp incoming heights toward new target heights
+    // This prevents jarring stutters from normalization changes
+    const lerpToNewHeights = () => {
+      if (!a.incoming) return;
+      
+      let hasChanges = false;
+      for (let i = 0; i < displayBarCount; i++) {
+        const target = heights[i] ?? FLAT_BAR_HEIGHT;
+        const current = a.incoming[i];
+        const diff = target - current;
+        
+        if (Math.abs(diff) > 0.001) {
+          a.incoming[i] = current + diff * NORMALIZATION_LERP_SPEED;
+          hasChanges = true;
+        } else {
+          a.incoming[i] = target;
+        }
+      }
+      
+      if (hasChanges && a.rafId !== null) {
+        // Request redraw if animation is active
+        requestAnimationFrame(() => {
+          const a2 = anim.current;
+          if (!a2.heights || !a2.incoming || !a2.outgoing) return;
+          
+          for (let i = 0; i < displayBarCount; i++) {
+            const barPos = i / displayBarCount;
+            const endPos = 1 + WAVE_WIDTH;
+            
+            let outT = 0;
+            if (a2.outProgress > 0 && a2.outProgress < endPos) {
+              const waveT = (a2.outProgress - barPos) / WAVE_WIDTH;
+              outT = easeOutCubic(Math.max(0, Math.min(1, waveT)));
+            } else if (a2.outProgress >= endPos) {
+              outT = 1;
+            }
+            
+            let inT = 0;
+            if (a2.inProgress > 0) {
+              const waveT = (a2.inProgress - barPos) / WAVE_WIDTH;
+              inT = easeOutCubic(Math.max(0, Math.min(1, waveT)));
+            }
+            
+            const outHeight = a2.outgoing[i];
+            const inHeight = a2.incoming[i];
+            const afterOut = outHeight * (1 - outT) + FLAT_BAR_HEIGHT * outT;
+            a2.heights[i] = afterOut * (1 - inT) + inHeight * inT;
+          }
+        });
+      }
+    };
+    
+    // Start lerping
+    const lerpInterval = setInterval(lerpToNewHeights, 16);
+    return () => clearInterval(lerpInterval);
+  }, [heights, displayBarCount, trackId]);
+  
+  // Handle chunk arrivals
+  useEffect(() => {
+    if (!lastChunkInfo) return;
+    
+    const a = anim.current;
+    const ratio = sourceBarCount / displayBarCount;
+    
+    // Track chunk count (chunks arrive approximately every 30 seconds of audio)
+    if (lastChunkInfo.endIndex > a.lastChunkEndIndex) {
+      a.receivedChunks++;
+      a.lastChunkEndIndex = Math.ceil(lastChunkInfo.endIndex / ratio);
+    }
+    
+    a.loadComplete = isLoaded || lastChunkInfo.endIndex >= sourceBarCount - 1;
+    
+    // Kickstart incoming if we have enough chunks buffered
+    const hasEnoughData = a.loadComplete || a.receivedChunks >= MIN_CHUNK_BUFFER;
+    if (hasEnoughData && a.inProgress === 0) {
+      if (a.outProgress === 0 || a.outProgress >= PROGRESS_GAP) {
+        a.inProgress = 0.001;
+      }
+    }
+    
+    startAnim();
+  }, [lastChunkInfo, sourceBarCount, displayBarCount, isLoaded, startAnim]);
+  
+  // Cleanup
+  useEffect(() => {
+    return () => {
+      const a = anim.current;
+      if (a.rafId !== null) {
+        cancelAnimationFrame(a.rafId);
+        a.rafId = null;
+      }
+    };
+  }, []);
+  
+  // Playback progress animation (separate from waveform height animation)
   useEffect(() => {
     const isPlaying = playbackState === "playing";
     
@@ -450,58 +491,43 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
         } else {
           smoothProgressRef.current = atomProgress;
         }
-        drawWaveformRef.current?.(smoothProgressRef.current);
-        progressAnimationRef.current = requestAnimationFrame(animateProgress);
+        draw();
+        progressRafRef.current = requestAnimationFrame(animateProgress);
       };
-      
-      progressAnimationRef.current = requestAnimationFrame(animateProgress);
+      progressRafRef.current = requestAnimationFrame(animateProgress);
     } else {
-      // When not playing, use atom-based progress and cancel animation loop
-      if (progressAnimationRef.current !== null) {
-        cancelAnimationFrame(progressAnimationRef.current);
-        progressAnimationRef.current = null;
+      if (progressRafRef.current !== null) {
+        cancelAnimationFrame(progressRafRef.current);
+        progressRafRef.current = null;
       }
       smoothProgressRef.current = atomProgress;
-      drawWaveformRef.current?.(atomProgress);
+      draw();
     }
     
     return () => {
-      if (progressAnimationRef.current !== null) {
-        cancelAnimationFrame(progressAnimationRef.current);
-        progressAnimationRef.current = null;
+      if (progressRafRef.current !== null) {
+        cancelAnimationFrame(progressRafRef.current);
+        progressRafRef.current = null;
       }
     };
-  }, [playbackState, atomProgress]);
+  }, [playbackState, atomProgress, draw]);
   
-  // Redraw when visual dependencies change (but not progress - that's handled by animation loop)
+  // Redraw on visual changes
   useEffect(() => {
-    drawWaveform(smoothProgressRef.current);
-  }, [drawWaveform]);
+    draw();
+  }, [draw]);
   
-  // Handle click to seek
+  // Event handlers
   const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const percent = ((e.clientX - rect.left) / rect.width) * 100;
-    seekPercent(percent);
+    seekPercent(((e.clientX - rect.left) / rect.width) * 100);
   }, [seekPercent]);
   
-  // Handle mouse move for hover indicator
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const percent = ((e.clientX - rect.left) / rect.width) * 100;
-    setHoverPercent(Math.max(0, Math.min(100, percent)));
+    setHoverPercent(Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)));
   }, []);
   
-  const handleMouseEnter = useCallback(() => {
-    setIsHovering(true);
-  }, []);
-  
-  const handleMouseLeave = useCallback(() => {
-    setIsHovering(false);
-    setHoverPercent(null);
-  }, []);
-  
-  // Handle keyboard navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     const step = e.shiftKey ? 10 : 2;
     if (e.key === "ArrowRight") {
@@ -513,64 +539,59 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     }
   }, [seekPercent]);
   
+  const formatTime = (seconds: number): string => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    return hrs > 0 
+      ? `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+      : `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+  
+  const hoverTime = hoverPercent !== null && duration > 0 ? (hoverPercent / 100) * duration : null;
   const hasTrack = !!currentTrack && playbackState !== "idle" && playbackState !== "ended";
-
-  // Total height of the waveform container (bars are centered on the border)
-  const waveformHeight = 16; // pixels, centered on border
+  const waveformHeight = 16;
   
   return (
-    <>
-      <div
-        ref={containerRef}
-        role="slider"
-        aria-label="Playback progress"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(smoothProgressRef.current)}
-        tabIndex={hasTrack ? 0 : -1}
-        className={cn(
-          "absolute left-0 right-0 cursor-pointer overflow-visible",
-          "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-          !hasTrack && "opacity-50 cursor-default",
-          className
-        )}
-        style={{
-          top: `-${waveformHeight / 2}px`,
-          height: `${waveformHeight}px`,
-          zIndex: 100, // Ensure above sidebar (z-40) - parent footer is z-50 with relative
-        }}
-        onClick={hasTrack ? handleClick : undefined}
-        onKeyDown={hasTrack ? handleKeyDown : undefined}
-        onMouseMove={hasTrack ? handleMouseMove : undefined}
-        onMouseEnter={hasTrack ? handleMouseEnter : undefined}
-        onMouseLeave={handleMouseLeave}
-      >
-        {/* Expand click target area */}
-        <div className="absolute inset-0 -top-2 -bottom-2" />
-        
-        {/* Hardware-accelerated canvas for waveform */}
-        <canvas
-          ref={canvasRef}
-          className="absolute inset-0 w-full h-full"
-          style={{ 
-            imageRendering: "pixelated",
-          }}
-        />
-        
-        {/* Hover time tooltip */}
-        {isHovering && hoverPercent !== null && hoverTime !== null && (
-          <div
-            ref={tooltipRef}
-            className="absolute bottom-full mb-2 px-2 py-1 text-xs font-medium rounded bg-popover text-popover-foreground shadow-md border border-border whitespace-nowrap pointer-events-none"
-            style={{
-              left: `${hoverPercent}%`,
-              transform: "translateX(-50%)",
-            }}
-          >
-            {formatTime(hoverTime)}
-          </div>
-        )}
-      </div>
-    </>
+    <div
+      ref={containerRef}
+      role="slider"
+      aria-label="Playback progress"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(smoothProgressRef.current)}
+      tabIndex={hasTrack ? 0 : -1}
+      className={cn(
+        "absolute left-0 right-0 cursor-pointer overflow-visible",
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        !hasTrack && "opacity-50 cursor-default",
+        className
+      )}
+      style={{
+        top: `-${waveformHeight / 2}px`,
+        height: `${waveformHeight}px`,
+        zIndex: 100,
+      }}
+      onClick={hasTrack ? handleClick : undefined}
+      onKeyDown={hasTrack ? handleKeyDown : undefined}
+      onMouseMove={hasTrack ? handleMouseMove : undefined}
+      onMouseEnter={hasTrack ? () => setIsHovering(true) : undefined}
+      onMouseLeave={() => { setIsHovering(false); setHoverPercent(null); }}
+    >
+      <div className="absolute inset-0 -top-2 -bottom-2" />
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 w-full h-full"
+        style={{ imageRendering: "pixelated" }}
+      />
+      {isHovering && hoverPercent !== null && hoverTime !== null && (
+        <div
+          className="absolute bottom-full mb-2 px-2 py-1 text-xs font-medium rounded bg-popover text-popover-foreground shadow-md border border-border whitespace-nowrap pointer-events-none"
+          style={{ left: `${hoverPercent}%`, transform: "translateX(-50%)" }}
+        >
+          {formatTime(hoverTime)}
+        </div>
+      )}
+    </div>
   );
 }
