@@ -226,7 +226,7 @@ export function QueueSidebar() {
       initial={{ width: 0 }}
       animate={{ width: isOpen ? QUEUE_SIDEBAR_WIDTH : 0 }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
-      className="shrink-0 h-full overflow-hidden border-l border-border bg-card hidden xl:block"
+      className="shrink-0 overflow-hidden border-l border-border bg-card hidden xl:flex"
     >
       <AnimatePresence mode="wait">
         {isOpen && (
@@ -235,7 +235,7 @@ export function QueueSidebar() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="flex flex-col h-full"
+            className="flex flex-col flex-1 min-h-0"
             style={{ width: QUEUE_SIDEBAR_WIDTH }}
           >
             {/* Header */}

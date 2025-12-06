@@ -45,7 +45,7 @@ export function MainContent({ children }: MainContentProps) {
   return (
     <main 
       id="main-scroll-container"
-      className="flex-1 overflow-y-auto overflow-x-hidden transition-[margin] duration-200 lg:ml-[var(--sidebar-width)]"
+      className="flex-1 overflow-y-auto overflow-x-hidden transition-[margin] duration-200"
     >
       {children}
     </main>

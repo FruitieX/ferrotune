@@ -360,7 +360,7 @@ export function VirtualizedQueueDisplay({ variant: _variant = "desktop" }: Virtu
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Header with stats */}
       <div className="px-4 py-2 flex items-center justify-between text-xs text-muted-foreground border-b border-border">
         <span>

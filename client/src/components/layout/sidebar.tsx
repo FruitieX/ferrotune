@@ -119,8 +119,7 @@ export function Sidebar() {
       <aside
         style={{ width: 'var(--sidebar-width)' }}
         className={cn(
-          "hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden",
-          "fixed left-0 top-0 bottom-[88px] z-40"
+          "hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden shrink-0"
         )}
       >
         {/* Minimal skeleton content */}
@@ -139,8 +138,7 @@ export function Sidebar() {
       animate={{ width: collapsed ? 72 : sidebarWidth }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className={cn(
-        "hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden",
-        "fixed left-0 top-0 bottom-[88px] z-40"
+        "hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden shrink-0"
       )}
     >
       {/* Logo */}

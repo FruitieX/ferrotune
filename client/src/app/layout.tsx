@@ -166,9 +166,9 @@ export default function RootLayout({
       >
         <Providers>
           <div className="h-screen flex flex-col">
-            {/* Main content row */}
+            {/* Main container - takes up all space except footer */}
             <div className="flex flex-1 min-h-0">
-              {/* Sidebar - hidden on mobile */}
+              {/* Sidebar - hidden on mobile, spans full height of main container */}
               <Suspense fallback={<SidebarSkeleton />}>
                 <Sidebar />
               </Suspense>
@@ -178,7 +178,7 @@ export default function RootLayout({
                 {children}
               </MainContent>
               
-              {/* Queue sidebar - desktop only, fixed right side */}
+              {/* Queue sidebar - desktop only, fixed right side, spans full height of main container */}
               <QueueSidebar />
               
               {/* Queue panel - mobile/tablet only sheet/drawer */}
@@ -187,14 +187,15 @@ export default function RootLayout({
               </div>
             </div>
             
-            {/* Player bar - fixed height at bottom */}
+            {/* Footer section - player bar and mobile nav */}
             <div className="shrink-0">
+              {/* Player bar */}
               <PlayerBar />
-            </div>
-            
-            {/* Mobile navigation - fixed at bottom on mobile */}
-            <div className="shrink-0 lg:hidden">
-              <MobileNav />
+              
+              {/* Mobile navigation - only on mobile */}
+              <div className="lg:hidden">
+                <MobileNav />
+              </div>
             </div>
             
             {/* Fullscreen player - modal overlay */}
