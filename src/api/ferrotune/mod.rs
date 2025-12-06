@@ -71,7 +71,12 @@
 //! - `POST /ferrotune/queue/shuffle` - Toggle shuffle mode
 //! - `POST /ferrotune/queue/position` - Update current playback position
 //! - `POST /ferrotune/queue/repeat` - Update repeat mode
+//!
+//! ## Directory Browsing Endpoints
+//!
+//! - `GET /ferrotune/directory` - Get paginated directory contents with sorting, filtering, and folder sizes
 
+mod directory;
 mod duplicates;
 mod listening;
 mod media;
@@ -92,7 +97,7 @@ use crate::api::AppState;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Json},
-    routing::{delete, get, patch, post, put},
+    routing::{delete, get, patch, post},
     Router,
 };
 use serde::Serialize;
@@ -111,6 +116,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/scan/full", get(scan::full_scan_status))
         .route("/ferrotune/scan/cancel", post(scan::cancel_scan))
         .route("/ferrotune/duplicates", get(duplicates::get_duplicates))
+        // Directory browsing endpoint
+        .route("/ferrotune/directory", get(directory::get_directory_paged))
         // Music folder management endpoints
         .route(
             "/ferrotune/music-folders",

@@ -51,6 +51,8 @@ import type {
   ApiKeysResponse,
   CreateApiKeyResponse,
 } from "./types";
+import type { DirectoryPagedResponse } from "./generated/DirectoryPagedResponse";
+import type { GetDirectoryPagedParams } from "./generated/GetDirectoryPagedParams";
 
 // Ping response is empty
 interface PingResponse {
@@ -180,6 +182,23 @@ export class SubsonicClient {
 
   async getMusicDirectory(id: string): Promise<DirectoryResponse> {
     return this.request<DirectoryResponse>("getMusicDirectory", { id });
+  }
+
+  // Paginated directory browsing (Ferrotune extension)
+  async getDirectoryPaged(params: Partial<GetDirectoryPagedParams> = {}): Promise<DirectoryPagedResponse> {
+    const queryParams = new URLSearchParams();
+    if (params.id != null) queryParams.set("id", params.id);
+    if (params.count != null) queryParams.set("count", String(params.count));
+    if (params.offset != null) queryParams.set("offset", String(params.offset));
+    if (params.sort != null) queryParams.set("sort", params.sort);
+    if (params.sortDir != null) queryParams.set("sortDir", params.sortDir);
+    if (params.filter != null) queryParams.set("filter", params.filter);
+    if (params.foldersOnly != null) queryParams.set("foldersOnly", String(params.foldersOnly));
+    if (params.filesOnly != null) queryParams.set("filesOnly", String(params.filesOnly));
+    
+    const queryString = queryParams.toString();
+    const endpoint = queryString ? `/ferrotune/directory?${queryString}` : "/ferrotune/directory";
+    return this.adminRequest<DirectoryPagedResponse>(endpoint);
   }
 
   // List endpoints
