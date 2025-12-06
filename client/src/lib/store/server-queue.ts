@@ -254,7 +254,11 @@ export const goToNextAtom = atom(
       if (state.repeatMode === "all") {
         nextIndex = 0;
       } else {
-        return; // End of queue
+        // End of queue - stop playback and clear state
+        const { playbackStateAtom, currentTimeAtom } = await import("./player");
+        set(currentTimeAtom, 0);
+        set(playbackStateAtom, "ended");
+        return;
       }
     }
     

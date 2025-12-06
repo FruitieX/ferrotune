@@ -41,6 +41,8 @@ let currentLoadedTrackId: string | null = null;
 let isEndingQueue: boolean = false;
 // Flag to indicate we're intentionally loading a new track (overrides "ended" state check)
 let isLoadingNewTrack: boolean = false;
+// Flag to indicate we're intentionally stopping/clearing (prevents error toasts)
+let isIntentionalStop: boolean = false;
 // Track when playback started for listening time logging
 let playbackStartTime: number | null = null;
 let playbackStartSongId: string | null = null;
@@ -398,7 +400,8 @@ export function useAudioEngineInit() {
     const handleLoadStart = () => {
       console.log("[Audio] loadstart event");
       // Don't set loading state during restore - we want to stay paused
-      if (!stateRef.current.isRestoringQueue) {
+      // Also skip if we're intentionally stopping (clearing queue)
+      if (!stateRef.current.isRestoringQueue && !isIntentionalStop) {
         settersRef.current.setPlaybackState("loading");
       }
     };
@@ -406,6 +409,12 @@ export function useAudioEngineInit() {
     const handleCanPlay = () => {
       console.log("[Audio] canplay event");
       const state = stateRef.current;
+      
+      // Don't try to play if src is empty or cleared
+      if (!audio.src || audio.src === "" || audio.src === window.location.href) {
+        console.log("[Audio] Skipping auto-play because src is empty");
+        return;
+      }
       
       // Don't auto-play if we're restoring queue from server
       if (state.isRestoringQueue) {
@@ -419,6 +428,7 @@ export function useAudioEngineInit() {
       // Don't auto-play if queue has ended (unless we're loading a new track)
       if (state.playbackState === "ended" && !isLoadingNewTrack) {
         console.log("[Audio] Skipping auto-play because queue has ended");
+        settersRef.current.setPlaybackState("ended");
         return;
       }
       isLoadingNewTrack = false;
@@ -430,7 +440,11 @@ export function useAudioEngineInit() {
 
     const handleWaiting = () => {
       console.log("[Audio] waiting event (buffering)");
-      settersRef.current.setPlaybackState("loading");
+      const state = stateRef.current;
+      // Don't set loading if queue has ended or is idle
+      if (state.playbackState !== "ended" && state.playbackState !== "idle") {
+        settersRef.current.setPlaybackState("loading");
+      }
     };
 
     const handlePlaying = () => {
@@ -441,9 +455,21 @@ export function useAudioEngineInit() {
     };
 
     const handleError = (e: Event) => {
+      // Skip error handling if we're intentionally stopping/clearing
+      if (isIntentionalStop) {
+        console.log("[Audio] Ignoring error during intentional stop");
+        return;
+      }
+      
       const audioElement = e.target as HTMLAudioElement;
       const mediaError = audioElement?.error;
       const state = stateRef.current;
+      
+      // Ignore errors from empty src (happens during cleanup)
+      if (!audioElement?.src || audioElement.src === "" || audioElement.src === window.location.href) {
+        console.log("[Audio] Ignoring error from empty/cleared src");
+        return;
+      }
       
       // Determine error message based on error code
       let errorMessage = "Failed to play track";
@@ -528,9 +554,28 @@ export function useAudioEngineInit() {
     
     if (!audio || !currentSong || !client) {
       if (audio && audio.src && !currentSong) {
+        // Set flag BEFORE any audio operation to prevent error toasts
+        isIntentionalStop = true;
+        isEndingQueue = false; // Clear ending flag
+        isLoadingNewTrack = false; // Clear loading flag
+        
+        // Pause first to stop any pending operations
         audio.pause();
-        audio.src = "";
+        
+        // Clear the source - this must be done carefully to avoid errors
+        try {
+          audio.removeAttribute("src");
+          audio.load(); // Reset the media element
+        } catch (e) {
+          // Fallback if removeAttribute fails
+          audio.src = "";
+        }
+        
         setPlaybackState("idle");
+        currentLoadedTrackId = null;
+        
+        // Reset flag after sufficient delay to allow all error events to process
+        setTimeout(() => { isIntentionalStop = false; }, 200);
       }
       return;
     }
