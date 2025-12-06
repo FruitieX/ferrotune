@@ -59,6 +59,8 @@ interface SongContextMenuProps {
   song: Song;
   children: React.ReactNode;
   queueSongs?: Song[];
+  /** The index of this song in the queue/list (for views with duplicate songs) */
+  songIndex?: number;
   /** Source info for the queue when playing from a collection */
   queueSource?: { 
     type: string; 
@@ -89,6 +91,7 @@ export function SongContextMenu({
   song, 
   children, 
   queueSongs,
+  songIndex,
   queueSource,
   hideQueueActions = false,
   showRemoveFromQueue = false,
@@ -139,7 +142,8 @@ export function SongContextMenu({
   const handlePlay = () => {
     if (queueSource?.type && queueSource.type !== "other") {
       // Use server-side queue materialization for known sources
-      const index = queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
+      // Prefer songIndex if provided (handles duplicate songs), otherwise find by ID
+      const index = songIndex ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
       startQueue({
         sourceType: queueSource.type as QueueSourceType,
         sourceId: queueSource.id ?? undefined,
@@ -150,7 +154,8 @@ export function SongContextMenu({
       });
     } else if (queueSongs && queueSongs.length > 0) {
       // Fallback to explicit song IDs for custom lists
-      const index = queueSongs.findIndex((s) => s.id === song.id);
+      // Prefer songIndex if provided, otherwise find by ID
+      const index = songIndex ?? queueSongs.findIndex((s) => s.id === song.id);
       startQueue({
         sourceType: (queueSource?.type as QueueSourceType) || "other",
         sourceName: queueSource?.name ?? undefined,
@@ -333,6 +338,8 @@ export function SongContextMenu({
 interface SongDropdownMenuProps {
   song: Song;
   queueSongs?: Song[];
+  /** The index of this song in the queue/list (for views with duplicate songs) */
+  songIndex?: number;
   queueSource?: { 
     type: string; 
     id?: string | null; 
@@ -362,6 +369,7 @@ interface SongDropdownMenuProps {
 export function SongDropdownMenu({ 
   song, 
   queueSongs,
+  songIndex,
   queueSource,
   trigger,
   hideQueueActions = false,
@@ -413,7 +421,8 @@ export function SongDropdownMenu({
   const handlePlay = () => {
     if (queueSource?.type && queueSource.type !== "other") {
       // Use server-side queue materialization for known sources
-      const index = queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
+      // Prefer songIndex if provided (handles duplicate songs), otherwise find by ID
+      const index = songIndex ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
       startQueue({
         sourceType: queueSource.type as QueueSourceType,
         sourceId: queueSource.id ?? undefined,
@@ -423,7 +432,8 @@ export function SongDropdownMenu({
         sort: queueSource.sort,
       });
     } else if (queueSongs && queueSongs.length > 0) {
-      const index = queueSongs.findIndex((s) => s.id === song.id);
+      // Prefer songIndex if provided, otherwise find by ID
+      const index = songIndex ?? queueSongs.findIndex((s) => s.id === song.id);
       startQueue({
         sourceType: (queueSource?.type as QueueSourceType) || "other",
         sourceName: queueSource?.name ?? undefined,

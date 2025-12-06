@@ -283,11 +283,14 @@ export function SongRow({
               <SongDropdownMenu
                 song={song}
                 queueSongs={queueSongs}
+                songIndex={index}
                 queueSource={queueSource}
                 showRemoveFromPlaylist={showRemoveFromPlaylist}
-                onRemoveFromPlaylist={onRemoveFromPlaylist}                showMoveToPosition={showMoveToPosition}
+                onRemoveFromPlaylist={onRemoveFromPlaylist}
+                showMoveToPosition={showMoveToPosition}
                 onMoveToPosition={onMoveToPosition}
-                moveToPositionLabel="Move to Position"              />
+                moveToPositionLabel="Move to Position"
+              />
             }
           />
         }
@@ -326,11 +329,14 @@ export function SongRow({
           <SongContextMenu 
             song={song} 
             queueSongs={queueSongs}
+            songIndex={index}
             queueSource={queueSource}
             showRemoveFromPlaylist={showRemoveFromPlaylist}
-            onRemoveFromPlaylist={onRemoveFromPlaylist}            showMoveToPosition={showMoveToPosition}
+            onRemoveFromPlaylist={onRemoveFromPlaylist}
+            showMoveToPosition={showMoveToPosition}
             onMoveToPosition={onMoveToPosition}
-            moveToPositionLabel="Move to Position"          >
+            moveToPositionLabel="Move to Position"
+          >
             {children}
           </SongContextMenu>
         )}
@@ -485,9 +491,9 @@ export function SongCard({ song, index, queueSongs, queueSource, isSelected, isS
       isSelected={isSelected}
       isSelectionMode={isSelectionMode}
       onSelect={onSelect ? (e) => onSelect(song.id, e) : undefined}
-      dropdownMenu={<SongDropdownMenu song={song} queueSongs={queueSongs} queueSource={queueSource} showMoveToPosition={showMoveToPosition} onMoveToPosition={onMoveToPosition} moveToPositionLabel="Move to Position" />}
+      dropdownMenu={<SongDropdownMenu song={song} queueSongs={queueSongs} songIndex={index} queueSource={queueSource} showMoveToPosition={showMoveToPosition} onMoveToPosition={onMoveToPosition} moveToPositionLabel="Move to Position" />}
       contextMenu={(children) => (
-        <SongContextMenu song={song} queueSongs={queueSongs} queueSource={queueSource} showMoveToPosition={showMoveToPosition} onMoveToPosition={onMoveToPosition} moveToPositionLabel="Move to Position">
+        <SongContextMenu song={song} queueSongs={queueSongs} songIndex={index} queueSource={queueSource} showMoveToPosition={showMoveToPosition} onMoveToPosition={onMoveToPosition} moveToPositionLabel="Move to Position">
           {children}
         </SongContextMenu>
       )}

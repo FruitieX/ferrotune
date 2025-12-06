@@ -12,7 +12,7 @@ import { usePreferencesSync } from "@/lib/hooks/use-preferences-sync";
 import { useClearSelectionOnNavigate } from "@/lib/hooks/use-clear-selection-on-navigate";
 import { useScanProgressStream } from "@/lib/hooks/use-scan-progress-stream";
 import { DynamicFavicon } from "@/components/dynamic-favicon";
-import { accentColorAtom, customAccentHueAtom, customAccentLightnessAtom, customAccentChromaAtom } from "@/lib/store/ui";
+import { accentColorAtom, customAccentHueAtom, customAccentLightnessAtom, customAccentChromaAtom, queuePanelOpenAtom } from "@/lib/store/ui";
 import { needsDarkForeground } from "@/lib/utils/color";
 
 // Component that handles clearing selection on navigation
@@ -78,6 +78,24 @@ function AccentColorProvider({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Toaster with dynamic positioning based on queue panel state
+function ResponsiveToaster() {
+  const queueOpen = useAtomValue(queuePanelOpenAtom);
+  const QUEUE_SIDEBAR_WIDTH = 360;
+  
+  return (
+    <Toaster 
+      position="bottom-right" 
+      richColors 
+      offset={100}
+      style={{
+        // Account for queue sidebar when open
+        right: queueOpen ? QUEUE_SIDEBAR_WIDTH : 0,
+      }}
+    />
+  );
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
     () =>
@@ -109,17 +127,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
                 {children}
               </AudioEngineProvider>
             </AccentColorProvider>
-          <Toaster 
-            position="bottom-right" 
-            richColors 
-            offset={100}
-            toastOptions={{
-              style: {
-                // Match right margin to bottom offset (footer height)
-                marginRight: '16px',
-              }
-            }}
-          />
+          <ResponsiveToaster />
         </ThemeProvider>
       </QueryClientProvider>
     </JotaiProvider>
