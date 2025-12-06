@@ -43,7 +43,7 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* Ferrotune Dark Theme - Spotify-inspired with unique identity */
+/* Ferrotune Dark Theme */
 :root {
   --radius: 0.5rem;
   --sidebar-width: 280px;

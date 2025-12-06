@@ -343,10 +343,10 @@ export function Sidebar() {
                       className={cn(
                         "w-full justify-start gap-4 h-10 px-3 pr-10 overflow-hidden",
                         "hover:bg-sidebar-accent",
-                        pathname.startsWith("/playlists") && "bg-sidebar-accent text-sidebar-primary"
+                        pathname === "/playlists" && "bg-sidebar-accent text-sidebar-primary"
                       )}
                     >
-                      <ListMusic className={cn("w-5 h-5 shrink-0", pathname.startsWith("/playlists") && "text-sidebar-primary")} />
+                      <ListMusic className={cn("w-5 h-5 shrink-0", pathname === "/playlists" && "text-sidebar-primary")} />
                       <span className="truncate whitespace-nowrap flex-1 text-left">Playlists</span>
                     </Button>
                   </Link>

@@ -3,7 +3,6 @@
 import { useState, useMemo } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import { Heart, Play, Shuffle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -33,6 +32,7 @@ import { ArtistCard, ArtistCardSkeleton, ArtistCardCompact } from "@/components/
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { MediaRowSkeleton } from "@/components/shared/media-row";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
+import { DetailHeader } from "@/components/shared/detail-header";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
 import { MediaListToolbar } from "@/components/shared/media-list-toolbar";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
@@ -433,37 +433,15 @@ export default function FavoritesPage() {
   return (
     <div className="min-h-screen">
       {/* Header */}
-      <div className="relative">
-        <div 
-          className="absolute inset-0 h-[300px]"
-          style={{
-            background: `linear-gradient(180deg, rgba(239,68,68,0.2) 0%, rgba(10,10,10,1) 100%)`
-          }}
-        />
-
-        <div className="relative z-10 px-4 lg:px-6 pt-8 pb-6">
-          <div className="flex items-center gap-6">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="w-48 h-48 rounded-lg bg-linear-to-br from-red-500 to-red-800 flex items-center justify-center shadow-xl"
-            >
-              <Heart className="w-20 h-20 text-white fill-white" />
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-            >
-              <h1 className="text-4xl lg:text-5xl font-bold mt-2">Favorites</h1>
-              <p className="mt-4 text-muted-foreground">
-                {getSubtitle()}
-              </p>
-            </motion.div>
-          </div>
-        </div>
-      </div>
+      <DetailHeader
+        icon={Heart}
+        iconClassName="bg-linear-to-br from-red-500 to-red-800 [&>svg]:fill-white"
+        gradientColor="rgba(239,68,68,0.2)"
+        backgroundHeight={300}
+        title="Favorites"
+        isLoading={isLoading}
+        subtitle={!isLoading && getSubtitle()}
+      />
 
       {/* Action buttons */}
       <div className="sticky top-0 z-20 bg-background/80 backdrop-blur-lg border-b border-border">

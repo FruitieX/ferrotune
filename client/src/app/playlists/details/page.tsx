@@ -378,8 +378,43 @@ function PlaylistDetailContent() {
   // Loading state
   if (!isMounted || authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-pulse">Loading...</div>
+      <div className="min-h-screen">
+        <DetailHeader
+          showBackButton
+          icon={ListMusic}
+          iconClassName="bg-linear-to-br from-emerald-500 to-emerald-800"
+          coverSize="lg"
+          gradientColor="rgba(16,185,129,0.2)"
+          label="Playlist"
+          title=""
+          isLoading
+        />
+        
+        {/* Action bar skeleton */}
+        <div className="px-4 lg:px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center gap-4 border-b border-border">
+          {/* Play/Shuffle buttons */}
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-12 w-12 rounded-full" />
+            <Skeleton className="h-12 w-12 rounded-full" />
+          </div>
+          
+          <div className="flex-1" />
+          
+          {/* Toolbar with dropdown */}
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-10 w-10 rounded-md" />
+            <Skeleton className="h-10 w-64" />
+          </div>
+        </div>
+
+        {/* Content skeleton */}
+        <div className="px-4 lg:px-6 py-4">
+          <div className="space-y-1">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <SongRowSkeleton key={i} showCover showIndex />
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -401,7 +436,8 @@ function PlaylistDetailContent() {
         useBlurredBackground={!!coverUrl}
         gradientColor="rgba(16,185,129,0.2)"
         label="Playlist"
-        title={isLoading ? "Loading..." : displayName}
+        title={displayName}
+        isLoading={isLoading}
         subtitle={playlist?.comment}
         metadata={
           playlist && (
@@ -655,8 +691,17 @@ function PlaylistDetailContent() {
 export default function PlaylistDetailPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-pulse">Loading...</div>
+      <div className="min-h-screen">
+        <DetailHeader
+          showBackButton
+          icon={ListMusic}
+          iconClassName="bg-linear-to-br from-emerald-500 to-emerald-800"
+          coverSize="lg"
+          gradientColor="rgba(16,185,129,0.2)"
+          label="Playlist"
+          title=""
+          isLoading
+        />
       </div>
     }>
       <PlaylistDetailContent />

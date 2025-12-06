@@ -101,7 +101,7 @@ export function FullscreenPlayer() {
           className="fixed inset-0 z-50 bg-gradient-to-b from-background/95 to-background flex flex-col"
           style={{
             backgroundImage: coverArtUrl
-              ? `linear-gradient(to bottom, rgba(0,0,0,0.1), rgba(10,10,10,0.98)), url(${coverArtUrl})`
+              ? `linear-gradient(to bottom, rgba(0,0,0,0.1), var(--background)), url(${coverArtUrl})`
               : undefined,
             backgroundSize: "cover",
             backgroundPosition: "center",

@@ -26,6 +26,7 @@ import { usePlaylistSelection } from "@/lib/hooks/use-playlist-selection";
 import { playlistsViewModeAtom, playlistsSortAtom, playlistsColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
@@ -269,8 +270,44 @@ function PlaylistsPageContent() {
   // Always render the same loading state on server and during hydration
   if (!isMounted || authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-pulse">Loading...</div>
+      <div className="min-h-screen">
+        <DetailHeader
+          icon={ListMusic}
+          iconClassName="bg-linear-to-br from-emerald-500 to-emerald-800"
+          gradientColor="rgba(16,185,129,0.2)"
+          label="Collection"
+          title="Playlists"
+          isLoading
+        />
+        
+        {/* Action bar skeleton */}
+        <div className="px-4 lg:px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center gap-4 border-b border-border">
+          {/* Play/Shuffle buttons */}
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-12 w-12 rounded-full" />
+            <Skeleton className="h-12 w-12 rounded-full" />
+          </div>
+          
+          {/* Action buttons */}
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-10 w-24 rounded-full" />
+            <Skeleton className="h-10 w-24 rounded-full" />
+            <Skeleton className="h-10 w-24 rounded-full" />
+          </div>
+          
+          <div className="flex-1" />
+          
+          {/* Toolbar */}
+          <Skeleton className="h-10 w-64" />
+        </div>
+
+        <div className="px-4 lg:px-6 py-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <MediaCardSkeleton key={i} />
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -289,10 +326,9 @@ function PlaylistsPageContent() {
           gradientColor="rgba(16,185,129,0.2)"
           label={currentPath ? "Folder" : "Collection"}
           title={currentPath ? pathParts[pathParts.length - 1] : "Playlists"}
+          isLoading={isLoading}
           subtitle={
-            isLoading 
-              ? "Loading..." 
-              : `${formatCount(displayFolders.length, "folder")} • ${formatCount(displayPlaylists.length, "playlist")} • ${formatTotalDuration(totalDuration)}`
+            !isLoading && `${formatCount(displayFolders.length, "folder")} • ${formatCount(displayPlaylists.length, "playlist")} • ${formatTotalDuration(totalDuration)}`
           }
         />
 
@@ -780,8 +816,15 @@ function DraggablePlaylistListRow({ playlist, index, isSelected, isSelectionMode
 export default function PlaylistsPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-pulse">Loading...</div>
+      <div className="min-h-screen">
+        <DetailHeader
+          icon={ListMusic}
+          iconClassName="bg-linear-to-br from-emerald-500 to-emerald-800"
+          gradientColor="rgba(16,185,129,0.2)"
+          label="Collection"
+          title="Playlists"
+          isLoading
+        />
       </div>
     }>
       <PlaylistsPageContent />

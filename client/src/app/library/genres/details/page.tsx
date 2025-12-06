@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAtom, useSetAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft } from "lucide-react";
+import { Tag } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useDebounce } from "@/lib/hooks/use-debounce";
@@ -13,11 +13,11 @@ import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { genreDetailViewModeAtom, genreDetailSortAtom, genreDetailColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
+import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
@@ -245,50 +245,24 @@ function GenreDetailContent() {
   return (
     <div className="min-h-screen">
       {/* Header with gradient background */}
-      <div className="relative overflow-hidden">
-        {/* Background gradient based on genre color */}
-        <div 
-          className="absolute inset-0"
-          style={{
-            background: `linear-gradient(180deg, hsl(${hue}, 70%, 25%) 0%, rgba(10,10,10,1) 100%)`
-          }}
-        />
-
-        {/* Back button */}
-        <div className="relative z-10 p-4 lg:p-6">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-10 w-10 rounded-full bg-background/50 hover:bg-background/80"
-            onClick={() => router.back()}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-        </div>
-
-        {/* Genre header */}
-        <div className="relative z-10 px-4 lg:px-6 pb-6">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex flex-col"
-          >
-            <span className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-              Genre
-            </span>
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mt-2 text-foreground">
-              {genreName}
-            </h1>
-            {loadingGenreInfo ? (
-              <Skeleton className="h-5 w-48 mt-4" />
-            ) : genreInfo ? (
-              <p className="mt-4 text-muted-foreground">
-                {formatCount(genreInfo.albumCount, "album")} • {formatCount(genreInfo.songCount, "song")}
-              </p>
-            ) : null}
-          </motion.div>
-        </div>
-      </div>
+      <DetailHeader
+        showBackButton
+        icon={Tag}
+        iconClassName={`bg-linear-to-br from-[hsl(${hue},70%,40%)] to-[hsl(${hue},70%,25%)]`}
+        gradientColor={`hsl(${hue}, 70%, 25%)`}
+        label="Genre"
+        title={genreName}
+        isLoading={loadingGenreInfo}
+        subtitle={
+          genreInfo && (
+            <>
+              <span>{formatCount(genreInfo.albumCount, "album")}</span>
+              <span>•</span>
+              <span>{formatCount(genreInfo.songCount, "song")}</span>
+            </>
+          )
+        }
+      />
 
       {/* Action bar */}
       <ActionBar

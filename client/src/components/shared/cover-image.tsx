@@ -39,7 +39,7 @@ const iconSizes = {
 /**
  * Generate a stable hue value from a string (0-360)
  */
-function stringToHue(str: string): number {
+export function stringToHue(str: string): number {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);

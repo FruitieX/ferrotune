@@ -236,8 +236,33 @@ export default function HomePage() {
   // This prevents hydration mismatches
   if (!isMounted || authLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Skeleton className="w-32 h-8" />
+      <div className="min-h-screen">
+        {/* Header */}
+        <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
+          <div className="flex items-center justify-between h-16 px-4 lg:px-6">
+            <h1 className="text-2xl font-bold">Home</h1>
+          </div>
+        </header>
+
+        {/* Content skeleton */}
+        <div className="py-6 space-y-8">
+          {/* Four sections */}
+          {Array.from({ length: 4 }).map((_, sectionIndex) => (
+            <section key={sectionIndex} className="space-y-4">
+              <div className="flex items-center gap-2 px-4 lg:px-6">
+                <Skeleton className="w-5 h-5" />
+                <Skeleton className="h-7 w-48" />
+              </div>
+              <div className="flex gap-4 px-4 lg:px-6 pb-4 overflow-hidden">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="w-[180px] shrink-0">
+                    <AlbumCardSkeleton />
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
       </div>
     );
   }

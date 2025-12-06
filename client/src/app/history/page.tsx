@@ -122,8 +122,15 @@ export default function HistoryPage() {
   // This prevents hydration mismatches
   if (!isMounted || authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-pulse">Loading...</div>
+      <div className="min-h-screen">
+        <DetailHeader
+          icon={History}
+          iconClassName="bg-linear-to-br from-purple-500 to-purple-800"
+          gradientColor="rgba(147,51,234,0.2)"
+          label="History"
+          title="Recently Played"
+          isLoading
+        />
       </div>
     );
   }
@@ -137,7 +144,8 @@ export default function HistoryPage() {
         gradientColor="rgba(147,51,234,0.2)"
         label="History"
         title="Recently Played"
-        subtitle={`${formatCount(displaySongs.length, "song")} • ${formatTotalDuration(totalDuration)}`}
+        isLoading={isLoading}
+        subtitle={!isLoading && `${formatCount(displaySongs.length, "song")} • ${formatTotalDuration(totalDuration)}`}
       />
 
       {/* Action buttons and toolbar */}

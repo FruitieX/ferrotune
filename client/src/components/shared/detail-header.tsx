@@ -5,7 +5,8 @@ import { motion } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { CoverImage } from "./cover-image";
+import { CoverImage, stringToHue } from "./cover-image";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,17 +17,23 @@ interface DetailHeaderProps {
   /** Image/icon display */
   coverUrl?: string | null;
   coverAlt?: string;
+  /** Color seed for placeholder generation */
+  colorSeed?: string;
   icon?: LucideIcon;
   iconClassName?: string;
+  /** Cover type for placeholder - artist, album, playlist */
+  coverType?: "album" | "artist" | "song" | "playlist" | "genre";
   /** Whether to use circular shape (for artists) */
   circular?: boolean;
   /** Cover size - defaults to 48 (w-48 = 192px) */
   coverSize?: "sm" | "md" | "lg";
   
-  /** Gradient color for background */
+  /** Gradient color for background (used when no cover or not using blurred background) */
   gradientColor?: string;
   /** Whether to use blurred cover as background */
   useBlurredBackground?: boolean;
+  /** Background height when using blurred background - defaults to 400px */
+  backgroundHeight?: number;
   
   /** Text content */
   label?: string;
@@ -39,140 +46,196 @@ interface DetailHeaderProps {
   /** Additional content in header (e.g., action buttons) */
   headerActions?: ReactNode;
   
+  /** Whether the content is loading */
+  isLoading?: boolean;
+  
   children?: ReactNode;
 }
 
 const coverSizes = {
   sm: "w-32 h-32",
-  md: "w-48 h-48",
+  md: "w-48 h-48 md:w-56 md:h-56",
   lg: "w-56 h-56",
+};
+
+const responsiveCoverSizes = {
+  sm: "w-32 h-32",
+  md: "w-48 h-48 md:w-56 md:h-56",
+  lg: "w-48 h-48 md:w-56 md:h-56",
 };
 
 export function DetailHeader({
   showBackButton = false,
   coverUrl,
   coverAlt = "Cover",
+  colorSeed,
   icon: Icon,
   iconClassName,
+  coverType = "album",
   circular = false,
   coverSize = "md",
   gradientColor = "rgba(100,100,100,0.2)",
   useBlurredBackground = false,
+  backgroundHeight = 400,
   label,
   title,
   subtitle,
   metadata,
   headerActions,
+  isLoading = false,
   children,
 }: DetailHeaderProps) {
   const router = useRouter();
+  const shouldBlur = useBlurredBackground && coverUrl;
+  
+  // Generate gradient color from colorSeed if provided, otherwise use gradientColor
+  const backgroundGradient = colorSeed 
+    ? `hsl(${stringToHue(colorSeed)}, 70%, 25%)`
+    : gradientColor;
   
   return (
     <div className="relative">
-      {/* Background */}
+      {/* Gradient background - always shown */}
       <div 
-        className="absolute inset-0 h-[300px]"
+        className="absolute inset-0"
         style={{
-          background: useBlurredBackground && coverUrl 
-            ? undefined 
-            : `linear-gradient(180deg, ${gradientColor} 0%, rgba(10,10,10,1) 100%)`
+          height: `${backgroundHeight}px`,
+          background: `linear-gradient(180deg, ${backgroundGradient} 0%, var(--background) 100%)`
         }}
-      >
-        {useBlurredBackground && coverUrl && (
-          <>
-            {/* Blurred background image */}
-            <div 
-              className="absolute inset-0 bg-cover bg-center blur-3xl scale-110 opacity-30"
-              style={{ backgroundImage: `url(${coverUrl})` }}
-            />
-            {/* Gradient overlay */}
+      />
+      
+      {/* Blurred cover overlay - only when cover exists and blur is enabled */}
+      {shouldBlur && (
+        <div 
+          className="absolute inset-0 overflow-hidden"
+          style={{ height: `${backgroundHeight}px` }}
+        >
+          <div 
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url(${coverUrl})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          >
+            {/* Blur and gradient overlay */}
+            <div className="absolute inset-0 backdrop-blur-3xl bg-background/60" />
             <div 
               className="absolute inset-0"
-              style={{ background: "linear-gradient(180deg, transparent 0%, rgba(10,10,10,1) 100%)" }}
+              style={{
+                background: `linear-gradient(180deg, transparent 0%, var(--background) 100%)`
+              }}
             />
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
 
-      <div className="relative z-10 px-4 lg:px-6 pt-8 pb-6">
-        {/* Back button */}
-        {showBackButton && (
+      {/* Back button */}
+      {showBackButton && (
+        <div className="relative z-10 p-4 lg:p-6">
           <Button
             variant="ghost"
             size="icon"
-            className="mb-4"
+            className="h-10 w-10 rounded-full bg-background/50 hover:bg-background/80"
             onClick={() => router.back()}
             aria-label="Go back"
           >
             <ArrowLeft className="w-5 h-5" />
           </Button>
-        )}
-
-        <div className="flex items-center gap-6">
-          {/* Cover image or icon */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className={cn(
-              coverSizes[coverSize],
-              circular ? "rounded-full" : "rounded-lg",
-              "shadow-xl shrink-0 overflow-hidden"
-            )}
-          >
-            {coverUrl ? (
-              <CoverImage
-                src={coverUrl}
-                alt={coverAlt}
-                size="full"
-                className={cn("w-full h-full object-cover", circular && "rounded-full")}
-              />
-            ) : Icon ? (
-              <div className={cn(
-                "w-full h-full flex items-center justify-center",
-                iconClassName || "bg-linear-to-br from-primary/80 to-primary"
-              )}>
-                <Icon className="w-20 h-20 text-white" />
-              </div>
-            ) : (
-              <div className="w-full h-full bg-muted flex items-center justify-center">
-                <span className="text-4xl text-muted-foreground">{title[0]}</span>
-              </div>
-            )}
-          </motion.div>
-
-          {/* Text content */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="flex-1 min-w-0"
-          >
-            {label && (
-              <span className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-                {label}
-              </span>
-            )}
-            <h1 className="text-4xl lg:text-5xl font-bold mt-2 truncate">{title}</h1>
-            {subtitle && (
-              <div className="mt-4 text-muted-foreground">
-                {subtitle}
-              </div>
-            )}
-            {metadata && (
-              <div className="mt-2 text-sm text-muted-foreground">
-                {metadata}
-              </div>
-            )}
-            {headerActions && (
-              <div className="mt-4 flex items-center gap-2">
-                {headerActions}
-              </div>
-            )}
-          </motion.div>
         </div>
-        
-        {children}
+      )}
+
+      {/* Main content */}
+      <div className={cn(
+        "relative z-10 flex flex-col md:flex-row gap-6 px-4 lg:px-6 pb-6",
+        !showBackButton && "pt-8"
+      )}>
+        {/* Cover image or icon */}
+        <motion.div
+          initial={coverUrl || isLoading ? { opacity: 0, scale: 0.9 } : false}
+          animate={{ opacity: 1, scale: 1 }}
+          className={cn(
+            responsiveCoverSizes[coverSize],
+            circular ? "rounded-full drop-shadow-2xl" : "rounded-lg album-glow",
+            "mx-auto md:mx-0 shrink-0"
+          )}
+        >
+          {isLoading ? (
+            <Skeleton className={cn("w-full h-full", circular ? "rounded-full" : "rounded-lg")} />
+          ) : coverUrl ? (
+            <CoverImage
+              src={coverUrl}
+              alt={coverAlt}
+              colorSeed={colorSeed}
+              type={coverType}
+              size="full"
+              priority
+              className={circular ? "rounded-full" : "rounded-lg"}
+            />
+          ) : Icon ? (
+            <div className={cn(
+              "w-full h-full flex items-center justify-center",
+              circular ? "rounded-full" : "rounded-lg",
+              iconClassName || "bg-linear-to-br from-primary/80 to-primary"
+            )}>
+              <Icon className="w-20 h-20 text-white" />
+            </div>
+          ) : (
+            <CoverImage
+              src={undefined}
+              alt={coverAlt}
+              colorSeed={colorSeed || title}
+              type={coverType}
+              size="full"
+              priority
+              className={circular ? "rounded-full" : "rounded-lg"}
+            />
+          )}
+        </motion.div>
+
+        {/* Text content */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="flex flex-col justify-end text-center md:text-left"
+        >
+          {label && (
+            <span className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+              {label}
+            </span>
+          )}
+          {isLoading ? (
+            <>
+              <Skeleton className="h-10 w-64 mt-2" />
+              <Skeleton className="h-4 w-56 mt-4 mb-8" />
+            </>
+          ) : (
+            <>
+              <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold mt-2 text-foreground">
+                {title}
+              </h1>
+              {subtitle && (
+                <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 mt-4 text-sm text-muted-foreground">
+                  {subtitle}
+                </div>
+              )}
+              {metadata && (
+                <div className="mt-2 text-sm text-muted-foreground">
+                  {metadata}
+                </div>
+              )}
+            </>
+          )}
+          {headerActions && (
+            <div className="mt-4 flex items-center justify-center md:justify-start gap-2">
+              {headerActions}
+            </div>
+          )}
+        </motion.div>
       </div>
+      
+      {children}
     </div>
   );
 }
