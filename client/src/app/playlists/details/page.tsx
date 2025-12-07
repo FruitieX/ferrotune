@@ -65,7 +65,7 @@ const PAGE_SIZE = 50;
 
 // Display item types for rendering
 type DisplayItem = 
-  | { type: "song"; song: Song; position: number; missing?: MissingEntryDataResponse | null }
+  | { type: "song"; song: Song; position: number; songIndex?: number; missing?: MissingEntryDataResponse | null }
   | { type: "missing"; entry: PlaylistSongEntry; position: number };
 
 function PlaylistDetailContent() {
@@ -145,13 +145,14 @@ function PlaylistDetailContent() {
   // Flatten entries from all pages
   const allEntries = playlistData?.pages.flatMap((page) => page.entries) ?? [];
   
-  // Convert entries to display items
+  // Convert entries to display items, including the server-provided songIndex
   const displayItems: DisplayItem[] = allEntries.map((entry) => {
     if (entry.entryType === "song" && entry.song) {
       return {
         type: "song" as const,
         song: entry.song as Song,
         position: entry.position,
+        songIndex: entry.songIndex ?? undefined,
         missing: entry.missing,
       };
     } else {
@@ -347,18 +348,18 @@ function PlaylistDetailContent() {
     } : undefined,
   }), [playlistId, playlist?.name, debouncedFilter, sortConfig.field, sortConfig.direction]);
 
-  // Check if a song at a given index is the currently playing track
-  // This handles playlists with duplicate songs by comparing the queue position
+  // Check if a song at a given playlist position is the currently playing track
+  // Uses the server-provided songIndex which maps directly to queue indices
   // Returns undefined if we can't determine (falls back to song ID matching in SongRow)
-  const isCurrentQueuePosition = useCallback((index: number, _songId: string): boolean | undefined => {
-    if (!queueState) return undefined;
+  const isCurrentQueuePosition = useCallback((songIndex: number | undefined, _songId: string): boolean | undefined => {
+    if (!queueState || songIndex === undefined) return undefined;
     
     // Check if the queue source is this playlist
     const isPlaylistQueue = queueState.source?.type === "playlist" && queueState.source?.id === playlistId;
     
     if (isPlaylistQueue) {
-      // When playing from this playlist, only highlight the exact position
-      return queueState.currentIndex === index;
+      // songIndex from server maps directly to queue index
+      return queueState.currentIndex === songIndex;
     }
     
     // For other sources, we can't reliably determine position
@@ -830,7 +831,7 @@ function PlaylistDetailContent() {
                     isSelected={isSelected(songItem.song.id)}
                     isSelectionMode={totalSelectedCount > 0}
                     onSelect={handleSongSelect}
-                    isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(songItem.position, songItem.song.id) : undefined}
+                    isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(songItem.songIndex, songItem.song.id) : undefined}
                     showMoveToPosition={sortConfig.field === "custom"}
                     onMoveToPosition={handleSongMoveToPosition}
                     showRefineMatch={!!songItem.missing}
@@ -889,7 +890,7 @@ function PlaylistDetailContent() {
                     onSelect={handleSongSelect}
                     showRemoveFromPlaylist
                     onRemoveFromPlaylist={handleRemoveSingleSong}
-                    isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(songItem.position, songItem.song.id) : undefined}
+                    isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(songItem.songIndex, songItem.song.id) : undefined}
                     showMoveToPosition={sortConfig.field === "custom"}
                     onMoveToPosition={handleSongMoveToPosition}
                     showRefineMatch={!!songItem.missing}

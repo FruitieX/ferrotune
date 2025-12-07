@@ -1131,6 +1131,11 @@ pub struct PlaylistSongEntry {
     pub position: i32,
     /// Type of entry: "song" or "missing"
     pub entry_type: String,
+    /// Index among songs only (excluding missing entries) in the current filtered/sorted view.
+    /// This maps directly to the queue index when playing from this playlist.
+    /// Only present for song entries, not for missing entries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub song_index: Option<i32>,
     /// Song data (only present if entry_type is "song")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub song: Option<crate::api::subsonic::browse::SongResponse>,
@@ -1362,10 +1367,28 @@ pub async fn get_playlist_songs(
 
     let filtered_count = unified_entries.len() as i64;
 
+    // Compute song indices (index among songs only, excluding missing entries)
+    // This is computed before pagination so indices are correct across pages
+    let mut song_idx = 0i32;
+    let entries_with_song_idx: Vec<_> = unified_entries
+        .into_iter()
+        .map(|entry| {
+            let idx = match &entry {
+                EntryData::Song { .. } => {
+                    let current = song_idx;
+                    song_idx += 1;
+                    Some(current)
+                }
+                EntryData::Missing { .. } => None,
+            };
+            (entry, idx)
+        })
+        .collect();
+
     // Apply pagination
     let offset = params.offset.unwrap_or(0) as usize;
     let count = params.count.unwrap_or(50) as usize;
-    let page_entries: Vec<_> = unified_entries
+    let page_entries: Vec<_> = entries_with_song_idx
         .into_iter()
         .skip(offset)
         .take(count)
@@ -1374,10 +1397,11 @@ pub async fn get_playlist_songs(
     // Convert to response format
     let entries: Vec<PlaylistSongEntry> = page_entries
         .into_iter()
-        .map(|entry| match entry {
+        .map(|(entry, song_index)| match entry {
             EntryData::Song { position, song, missing_data } => PlaylistSongEntry {
                 position: position as i32,
                 entry_type: "song".to_string(),
+                song_index,
                 song: Some(song_to_response(song, None, None, None)),
                 missing: missing_data.map(|data| MissingEntryDataResponse {
                     title: data.title,
@@ -1390,6 +1414,7 @@ pub async fn get_playlist_songs(
             EntryData::Missing { position, data } => PlaylistSongEntry {
                 position: position as i32,
                 entry_type: "missing".to_string(),
+                song_index: None,
                 song: None,
                 missing: Some(MissingEntryDataResponse {
                     title: data.title,
