@@ -291,6 +291,18 @@ tasks:
       persistent: true
       runInCI: false
 
+  serve-release:
+    command: './target/release/ferrotune serve'
+    inputs:
+      - '@group(sources)'
+      - 'client/src/**/*'
+      - 'client/package.json'
+    deps:
+      - 'build-release-ui'
+    options:
+      persistent: true
+      runInCI: false
+
   scan:
     command: 'cargo run -- scan'
     inputs:
