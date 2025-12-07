@@ -38,11 +38,13 @@ import {
 interface ImportPlaylistDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Current folder path to prefix suggested playlist names */
+  folderPath?: string;
 }
 
 type ImportStep = "upload" | "matching" | "preview" | "importing";
 
-export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialogProps) {
+export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportPlaylistDialogProps) {
   const [step, setStep] = useState<ImportStep>("upload");
   const [playlistName, setPlaylistName] = useState("");
   const [parsedTracks, setParsedTracks] = useState<ParsedTrack[]>([]);
@@ -117,7 +119,9 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
       }
       
       setParsedTracks(result.tracks);
-      setPlaylistName(file.name.replace(/\.[^.]+$/, ""));
+      // Prefix with folder path if we're in a folder
+      const baseName = file.name.replace(/\.[^.]+$/, "");
+      setPlaylistName(folderPath ? `${folderPath}/${baseName}` : baseName);
       setOriginalFormat(result.format);
       setOriginalHeaderLine(result.headerLine);
       

@@ -558,7 +558,8 @@ function PlaylistsPageContent() {
         {/* Import Playlist Dialog */}
         <ImportPlaylistDialog 
           open={importDialogOpen} 
-          onOpenChange={setImportDialogOpen} 
+          onOpenChange={setImportDialogOpen}
+          folderPath={currentPath}
         />
 
         {/* Spacer for player bar */}
