@@ -478,6 +478,8 @@ pub async fn add_songs_to_playlist(
 pub struct PlaylistEntry {
     pub song_id: Option<String>,
     pub missing_entry_data: Option<MissingEntryData>,
+    /// Denormalized search text for filtering missing entries
+    pub missing_search_text: Option<String>,
 }
 
 /// Add entries to end of playlist (supports both matched songs and missing entries)
@@ -506,12 +508,13 @@ pub async fn add_entries_to_playlist(
         });
         
         sqlx::query(
-            "INSERT INTO playlist_songs (playlist_id, song_id, position, missing_entry_data) VALUES (?, ?, ?, ?)"
+            "INSERT INTO playlist_songs (playlist_id, song_id, position, missing_entry_data, missing_search_text) VALUES (?, ?, ?, ?, ?)"
         )
             .bind(playlist_id)
             .bind(&entry.song_id)
             .bind(position)
             .bind(&missing_json)
+            .bind(&entry.missing_search_text)
             .execute(pool)
             .await?;
         position += 1;

@@ -52,7 +52,7 @@ import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/componen
 import { MoveToPositionDialog } from "@/components/shared/move-to-position-dialog";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
-import { MissingEntryRow } from "@/components/playlists/missing-entry-row";
+import { MissingEntryRow, MissingEntryCard } from "@/components/playlists/missing-entry-row";
 import { MassResolveDialog } from "@/components/playlists/mass-resolve-dialog";
 import { formatDuration, formatCount, formatDate, formatTotalDuration } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
@@ -277,11 +277,12 @@ function PlaylistDetailContent() {
       }));
     }
 
-    // Only show missing entries in custom sort mode with no filter
-    const showMissing = sortConfig.field === "custom" && !debouncedFilter.trim();
+    // Only show missing entries in custom sort mode
+    // When not in custom sort, the order is determined by the sort and missing entries don't have sortable fields
+    const showMissing = sortConfig.field === "custom";
     
     if (!showMissing) {
-      // When filtering or sorting, only show matched songs
+      // When sorting by a specific field, only show matched songs
       return displaySongs.map((song, index) => ({
         type: "song" as const,
         song,
@@ -296,6 +297,21 @@ function PlaylistDetailContent() {
     // Create a map of song_id to Song for quick lookup
     const songMap = new Map(songs.map(s => [s.id, s]));
 
+    // Filter function for missing entries
+    const filterLower = debouncedFilter.trim().toLowerCase();
+    const matchesFilter = (entry: PlaylistEntryResponse): boolean => {
+      if (!filterLower || !entry.missing) return true;
+      
+      // Check title, artist, album, and raw fields
+      const { title, artist, album, raw } = entry.missing;
+      return (
+        (title?.toLowerCase().includes(filterLower) ?? false) ||
+        (artist?.toLowerCase().includes(filterLower) ?? false) ||
+        (album?.toLowerCase().includes(filterLower) ?? false) ||
+        (raw?.toLowerCase().includes(filterLower) ?? false)
+      );
+    };
+
     // Build display items from entries
     const items: DisplayItem[] = [];
     for (const entry of playlistEntries.entries) {
@@ -305,7 +321,8 @@ function PlaylistDetailContent() {
           song: songMap.get(entry.songId)!,
           position: entry.position,
         });
-      } else if (entry.missing) {
+      } else if (entry.missing && matchesFilter(entry)) {
+        // Apply filter to missing entries
         items.push({
           type: "missing",
           entry,
@@ -653,22 +670,42 @@ function PlaylistDetailContent() {
         ) : displayItems.length > 0 ? (
           viewMode === "grid" ? (
             <VirtualizedGrid
-              items={displayItems.filter((item): item is Extract<typeof item, { type: "song" }> => item.type === "song")}
-              renderItem={(item, index) => (
-                <SongCard
-                  song={item.song}
-                  index={item.position}
-                  queueSource={playlistQueueSource}
-                  isSelected={isSelected(item.song.id)}
-                  isSelectionMode={hasSelection}
-                  onSelect={handleSelect}
-                  isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(item.position, item.song.id) : undefined}
-                  showMoveToPosition={sortConfig.field === "custom"}
-                  onMoveToPosition={handleMoveToPosition}
-                />
-              )}
+              items={displayItems}
+              renderItem={(item, index) => {
+                if (item.type === "missing" && item.entry.missing) {
+                  return (
+                    <MissingEntryCard
+                      playlistId={playlistId!}
+                      position={item.position}
+                      missing={item.entry.missing}
+                      isSelected={false}
+                      isSelectionMode={hasSelection}
+                      onRemove={handleRemoveMissingEntry}
+                    />
+                  );
+                }
+                // Song item
+                const songItem = item as Extract<typeof item, { type: "song" }>;
+                return (
+                  <SongCard
+                    song={songItem.song}
+                    index={songItem.position}
+                    queueSource={playlistQueueSource}
+                    isSelected={isSelected(songItem.song.id)}
+                    isSelectionMode={hasSelection}
+                    onSelect={handleSelect}
+                    isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(songItem.position, songItem.song.id) : undefined}
+                    showMoveToPosition={sortConfig.field === "custom"}
+                    onMoveToPosition={handleMoveToPosition}
+                  />
+                );
+              }}
               renderSkeleton={() => <SongCardSkeleton />}
-              getItemKey={(item, index) => `${item.position}-${item.song.id}`}
+              getItemKey={(item, index) => 
+                item.type === "song" 
+                  ? `${item.position}-${item.song.id}`
+                  : `missing-${item.position}`
+              }
             />
           ) : (
             <VirtualizedList

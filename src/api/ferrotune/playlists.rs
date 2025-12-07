@@ -769,6 +769,31 @@ pub async fn import_playlist(
     use crate::db::queries::{add_entries_to_playlist, create_playlist, PlaylistEntry};
     use crate::db::models::MissingEntryData;
     
+    /// Build search text from missing entry fields in "artist - album - title" format
+    fn build_missing_search_text(artist: Option<&str>, album: Option<&str>, title: Option<&str>, raw: &str) -> String {
+        let mut parts = Vec::new();
+        if let Some(a) = artist {
+            if !a.is_empty() {
+                parts.push(a);
+            }
+        }
+        if let Some(a) = album {
+            if !a.is_empty() {
+                parts.push(a);
+            }
+        }
+        if let Some(t) = title {
+            if !t.is_empty() {
+                parts.push(t);
+            }
+        }
+        if parts.is_empty() {
+            raw.to_string()
+        } else {
+            parts.join(" - ")
+        }
+    }
+    
     // Generate playlist ID
     let playlist_id = format!("pl-{}", Uuid::new_v4());
 
@@ -798,9 +823,17 @@ pub async fn import_playlist(
                 PlaylistEntry {
                     song_id: Some(song_id),
                     missing_entry_data: None,
+                    missing_search_text: None,
                 }
             } else if let Some(missing) = entry.missing {
                 missing_count += 1;
+                // Build search text from missing entry fields
+                let search_text = build_missing_search_text(
+                    missing.artist.as_deref(),
+                    missing.album.as_deref(),
+                    missing.title.as_deref(),
+                    &missing.raw,
+                );
                 PlaylistEntry {
                     song_id: None,
                     missing_entry_data: Some(MissingEntryData {
@@ -810,12 +843,14 @@ pub async fn import_playlist(
                         duration: missing.duration,
                         raw: missing.raw,
                     }),
+                    missing_search_text: Some(search_text),
                 }
             } else {
                 // Skip empty entries
                 PlaylistEntry {
                     song_id: None,
                     missing_entry_data: None,
+                    missing_search_text: None,
                 }
             }
         })
