@@ -274,11 +274,33 @@ function parseCSV(content: string): ParseResult {
   // Parse header
   const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
   
-  // Find column indices
-  const artistIdx = headers.findIndex(h => h === "artist" || h === "artists");
-  const titleIdx = headers.findIndex(h => h === "title" || h === "track" || h === "song" || h === "name" || h === "track name" || h === "song name");
-  const albumIdx = headers.findIndex(h => h === "album" || h === "album name");
-  const durationIdx = headers.findIndex(h => h === "duration" || h === "length" || h === "time");
+  // Find column indices - support various common header names including Spotify exports
+  const artistIdx = headers.findIndex(h => 
+    h === "artist" || 
+    h === "artists" || 
+    h === "artist name" || 
+    h === "artist name(s)" ||
+    h === "artist names"
+  );
+  const titleIdx = headers.findIndex(h => 
+    h === "title" || 
+    h === "track" || 
+    h === "song" || 
+    h === "name" || 
+    h === "track name" ||
+    h === "song name"
+  );
+  const albumIdx = headers.findIndex(h => 
+    h === "album" || 
+    h === "album name"
+  );
+  const durationIdx = headers.findIndex(h => 
+    h === "duration" || 
+    h === "length" || 
+    h === "time" ||
+    h === "duration (ms)"
+  );
+  const durationIsMillis = headers[durationIdx] === "duration (ms)";
   
   // If no title column found, error
   if (titleIdx === -1 && artistIdx === -1) {
@@ -320,7 +342,8 @@ function parseCSV(content: string): ParseResult {
     if (durationIdx !== -1 && values[durationIdx]) {
       const dur = parseInt(values[durationIdx], 10);
       if (!isNaN(dur)) {
-        track.duration = dur;
+        // Convert milliseconds to seconds if needed
+        track.duration = durationIsMillis ? Math.round(dur / 1000) : dur;
       }
     }
     
