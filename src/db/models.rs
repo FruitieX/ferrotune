@@ -184,8 +184,24 @@ pub struct PlaylistFolder {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PlaylistSong {
     pub playlist_id: String,
-    pub song_id: String,
+    pub song_id: Option<String>,
     pub position: i64,
+    pub missing_entry_data: Option<String>,
+}
+
+/// Data for a playlist entry that couldn't be matched to a library song
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MissingEntryData {
+    /// Track title
+    pub title: Option<String>,
+    /// Artist name
+    pub artist: Option<String>,
+    /// Album name
+    pub album: Option<String>,
+    /// Duration in seconds (if known)
+    pub duration: Option<i32>,
+    /// Original raw line from the playlist file
+    pub raw: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

@@ -251,6 +251,11 @@ pub async fn start_queue(
 ) -> Result<impl IntoResponse> {
     let source_type = QueueSourceType::from_str(&request.source_type);
 
+    // For playlists with missing entries, we need to track position mappings
+    // to correctly translate the client's start_index (based on full playlist positions)
+    // to the actual index in the materialized songs array
+    let mut position_to_index_map: Option<std::collections::HashMap<i64, usize>> = None;
+
     // Get songs either from explicit IDs or by materializing from source
     let songs = if let Some(ref song_ids) = request.song_ids {
         // Use explicit song IDs provided by client
@@ -258,6 +263,38 @@ pub async fn start_queue(
             return Err(Error::NotFound("No songs provided".to_string()));
         }
         queries::get_songs_by_ids(&state.pool, song_ids).await?
+    } else if source_type == QueueSourceType::Playlist {
+        // For playlists, use the position-aware function to handle missing entries
+        let playlist_id = request
+            .source_id
+            .as_deref()
+            .ok_or_else(|| Error::InvalidRequest("Playlist ID required".to_string()))?;
+        let songs_with_positions =
+            queries::get_playlist_songs_with_positions(&state.pool, playlist_id).await?;
+
+        // Check if custom sorting is requested
+        let has_custom_sort = request.sort.as_ref()
+            .and_then(|s| s.get("field"))
+            .and_then(|v| v.as_str())
+            .is_some();
+
+        // Build position-to-index mapping for start_index translation
+        // Only useful when using playlist's natural order (no custom sort)
+        if !has_custom_sort {
+            let mut mapping = std::collections::HashMap::new();
+            for (idx, (position, _)) in songs_with_positions.iter().enumerate() {
+                mapping.insert(*position, idx);
+            }
+            position_to_index_map = Some(mapping);
+        }
+
+        // Extract just the songs, apply sorting if needed
+        let songs: Vec<_> = songs_with_positions.into_iter().map(|(_, song)| song).collect();
+        sorting::sort_songs(
+            songs,
+            request.sort.as_ref().and_then(|s| s.get("field")).and_then(|v| v.as_str()),
+            request.sort.as_ref().and_then(|s| s.get("direction")).and_then(|v| v.as_str()),
+        )
     } else {
         // Materialize songs from the source
         materialize_queue_songs(
@@ -280,8 +317,27 @@ pub async fn start_queue(
     let total_count = songs.len();
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
 
-    // Validate start index
-    let start_index = request.start_index.min(total_count - 1);
+    // Translate start_index for playlists with missing entries
+    // The client sends the position in the full playlist (including gaps),
+    // but we need the index in our materialized songs array
+    let start_index = if let Some(ref mapping) = position_to_index_map {
+        // Try to find exact position match first
+        if let Some(&idx) = mapping.get(&(request.start_index as i64)) {
+            idx
+        } else {
+            // Position not found (might be a missing entry position)
+            // Find the nearest valid position that's <= the requested position
+            let requested_pos = request.start_index as i64;
+            mapping
+                .iter()
+                .filter(|(&pos, _)| pos <= requested_pos)
+                .max_by_key(|(&pos, _)| pos)
+                .map(|(_, &idx)| idx)
+                .unwrap_or(0)
+        }
+    } else {
+        request.start_index.min(total_count - 1)
+    };
 
     // Handle shuffle - only shuffle tracks after the starting position
     let (is_shuffled, shuffle_seed, shuffle_indices, current_index) = if request.shuffle {

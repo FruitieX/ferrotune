@@ -165,6 +165,18 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/playlists/{id}/reorder",
             axum::routing::put(playlists::reorder_playlist_songs),
         )
+        .route(
+            "/ferrotune/playlists/{id}/match-missing",
+            post(playlists::match_missing_entry),
+        )
+        .route(
+            "/ferrotune/playlists/{id}/entries",
+            get(playlists::get_playlist_entries),
+        )
+        .route(
+            "/ferrotune/playlists/import",
+            post(playlists::import_playlist),
+        )
         // Song ID query endpoint (for bulk selection)
         .route("/ferrotune/songs/ids", get(media::get_song_ids))
         // Media management endpoints

@@ -377,6 +377,7 @@ function GenreDetailContent() {
                     showPlayCount={columnVisibility.playCount}
                     showYear={columnVisibility.year}
                     showDateAdded={columnVisibility.dateAdded}
+                    showLastPlayed={columnVisibility.lastPlayed}
                     queueSource={genreQueueSource}
                     isSelected={selection.isSelected(song.id)}
                     isSelectionMode={selection.hasSelection}

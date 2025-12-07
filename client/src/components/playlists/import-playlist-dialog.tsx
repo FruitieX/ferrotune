@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { getClient } from "@/lib/api/client";
 import { parsePlaylist, exportOriginalLines, getFormatExtension, getFormatMimeType, type ParsedTrack, type ParseResult } from "@/lib/utils/playlist-parser";
 import type { Song } from "@/lib/api/types";
+import type { ImportPlaylistEntry } from "@/lib/api/generated/ImportPlaylistEntry";
 
 interface ImportPlaylistDialogProps {
   open: boolean;
@@ -75,6 +76,7 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
     useArtist: true,
     useAlbum: false,
   });
+  const [includeMissing, setIncludeMissing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const queryClient = useQueryClient();
@@ -96,33 +98,80 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
       setOriginalFormat("m3u");
       setOriginalHeaderLine(undefined);
       setSearchOptions({ useTitle: true, useArtist: true, useAlbum: false });
+      setIncludeMissing(false);
     }
     onOpenChange(open);
   };
 
-  // Handle file selection
-  const handleFileSelect = useCallback(async (file: File) => {
-    try {
-      const content = await file.text();
-      const result = parsePlaylist(content, file.name);
-      
-      if (result.tracks.length === 0) {
-        toast.error("No tracks found in the file");
-        return;
-      }
-      
-      setParsedTracks(result.tracks);
-      setPlaylistName(file.name.replace(/\.[^.]+$/, ""));
-      setOriginalFormat(result.format);
-      setOriginalHeaderLine(result.headerLine);
-      
-      // Auto-start matching
-      await matchTracks(result.tracks);
-    } catch (error) {
-      console.error("Failed to parse file:", error);
-      toast.error("Failed to parse playlist file");
+  // Levenshtein distance
+  const levenshteinDistance = (a: string, b: string): number => {
+    const matrix: number[][] = [];
+    
+    for (let i = 0; i <= b.length; i++) {
+      matrix[i] = [i];
     }
-  }, []);
+    for (let j = 0; j <= a.length; j++) {
+      matrix[0][j] = j;
+    }
+    
+    for (let i = 1; i <= b.length; i++) {
+      for (let j = 1; j <= a.length; j++) {
+        if (b.charAt(i - 1) === a.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+    
+    return matrix[b.length][a.length];
+  };
+
+  // Simple string similarity (case-insensitive)
+  const stringSimilarity = (a: string, b: string): number => {
+    const aLower = a.toLowerCase().trim();
+    const bLower = b.toLowerCase().trim();
+    
+    if (aLower === bLower) return 1;
+    if (aLower.includes(bLower) || bLower.includes(aLower)) return 0.9;
+    
+    // Levenshtein-based similarity
+    const maxLen = Math.max(aLower.length, bLower.length);
+    if (maxLen === 0) return 1;
+    
+    const distance = levenshteinDistance(aLower, bLower);
+    return 1 - distance / maxLen;
+  };
+
+  // Calculate match score between parsed track and library song
+  const calculateMatchScore = (parsed: ParsedTrack, song: Song): number => {
+    let score = 0;
+    let factors = 0;
+    
+    if (parsed.title && song.title) {
+      const similarity = stringSimilarity(parsed.title, song.title);
+      score += similarity * 2; // Title is weighted more
+      factors += 2;
+    }
+    
+    if (parsed.artist && song.artist) {
+      const similarity = stringSimilarity(parsed.artist, song.artist);
+      score += similarity;
+      factors += 1;
+    }
+    
+    if (parsed.album && song.album) {
+      const similarity = stringSimilarity(parsed.album, song.album);
+      score += similarity * 0.5;
+      factors += 0.5;
+    }
+    
+    return factors > 0 ? score / factors : 0;
+  };
 
   // Match tracks against library
   const matchTracks = async (tracks: ParsedTrack[]) => {
@@ -219,74 +268,28 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
     }
   };
 
-  // Calculate match score between parsed track and library song
-  const calculateMatchScore = (parsed: ParsedTrack, song: Song): number => {
-    let score = 0;
-    let factors = 0;
-    
-    if (parsed.title && song.title) {
-      const similarity = stringSimilarity(parsed.title, song.title);
-      score += similarity * 2; // Title is weighted more
-      factors += 2;
-    }
-    
-    if (parsed.artist && song.artist) {
-      const similarity = stringSimilarity(parsed.artist, song.artist);
-      score += similarity;
-      factors += 1;
-    }
-    
-    if (parsed.album && song.album) {
-      const similarity = stringSimilarity(parsed.album, song.album);
-      score += similarity * 0.5;
-      factors += 0.5;
-    }
-    
-    return factors > 0 ? score / factors : 0;
-  };
-
-  // Simple string similarity (case-insensitive)
-  const stringSimilarity = (a: string, b: string): number => {
-    const aLower = a.toLowerCase().trim();
-    const bLower = b.toLowerCase().trim();
-    
-    if (aLower === bLower) return 1;
-    if (aLower.includes(bLower) || bLower.includes(aLower)) return 0.9;
-    
-    // Levenshtein-based similarity
-    const maxLen = Math.max(aLower.length, bLower.length);
-    if (maxLen === 0) return 1;
-    
-    const distance = levenshteinDistance(aLower, bLower);
-    return 1 - distance / maxLen;
-  };
-
-  // Levenshtein distance
-  const levenshteinDistance = (a: string, b: string): number => {
-    const matrix: number[][] = [];
-    
-    for (let i = 0; i <= b.length; i++) {
-      matrix[i] = [i];
-    }
-    for (let j = 0; j <= a.length; j++) {
-      matrix[0][j] = j;
-    }
-    
-    for (let i = 1; i <= b.length; i++) {
-      for (let j = 1; j <= a.length; j++) {
-        if (b.charAt(i - 1) === a.charAt(j - 1)) {
-          matrix[i][j] = matrix[i - 1][j - 1];
-        } else {
-          matrix[i][j] = Math.min(
-            matrix[i - 1][j - 1] + 1,
-            matrix[i][j - 1] + 1,
-            matrix[i - 1][j] + 1
-          );
-        }
+  // Handle file selection
+  const handleFileSelect = async (file: File) => {
+    try {
+      const content = await file.text();
+      const result = parsePlaylist(content, file.name);
+      
+      if (result.tracks.length === 0) {
+        toast.error("No tracks found in the file");
+        return;
       }
+      
+      setParsedTracks(result.tracks);
+      setPlaylistName(file.name.replace(/\.[^.]+$/, ""));
+      setOriginalFormat(result.format);
+      setOriginalHeaderLine(result.headerLine);
+      
+      // Auto-start matching
+      await matchTracks(result.tracks);
+    } catch (error) {
+      console.error("Failed to parse file:", error);
+      toast.error("Failed to parse playlist file");
     }
-    
-    return matrix[b.length][a.length];
   };
 
   // Create playlist mutation
@@ -295,6 +298,39 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
       const client = getClient();
       if (!client) throw new Error("Not connected");
       
+      // When includeMissing is enabled, use the new import API
+      if (includeMissing) {
+        // Build entries array preserving order
+        const entries: ImportPlaylistEntry[] = matchedTracks.map(t => {
+          if (t.match) {
+            return { songId: t.match.id, missing: null };
+          } else {
+            return {
+              songId: null,
+              missing: {
+                title: t.parsed.title || null,
+                artist: t.parsed.artist || null,
+                album: t.parsed.album || null,
+                duration: t.parsed.duration ? Math.round(t.parsed.duration) : null,
+                raw: t.parsed.raw,
+              },
+            };
+          }
+        });
+
+        const response = await client.importPlaylist({
+          name: playlistName.trim(),
+          comment: null,
+          entries,
+        });
+
+        return { 
+          matchedCount: response.matchedCount, 
+          missingCount: response.missingCount 
+        };
+      }
+
+      // Standard import - only matched tracks
       const matchedSongIds = matchedTracks
         .filter(t => t.match)
         .map(t => t.match!.id);
@@ -318,10 +354,16 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
         songIdToAdd: matchedSongIds,
       });
       
-      return { matchedCount: matchedSongIds.length };
+      return { matchedCount: matchedSongIds.length, missingCount: 0 };
     },
     onSuccess: async (data) => {
-      toast.success(`Playlist "${playlistName}" created with ${data.matchedCount} songs`);
+      if (data.missingCount > 0) {
+        toast.success(
+          `Playlist "${playlistName}" created with ${data.matchedCount} matched tracks and ${data.missingCount} missing entries`
+        );
+      } else {
+        toast.success(`Playlist "${playlistName}" created with ${data.matchedCount} songs`);
+      }
       await queryClient.invalidateQueries({ queryKey: ["playlists"] });
       handleOpenChange(false);
     },
@@ -494,6 +536,68 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
                 />
               </div>
               
+              {/* Search options - can be changed after file selection */}
+              <div className="p-4 rounded-lg border bg-muted/30">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-medium">Search options</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => matchTracks(parsedTracks)}
+                    disabled={isMatching}
+                    className="h-7"
+                  >
+                    {isMatching ? (
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3 h-3 mr-1" />
+                    )}
+                    Re-match
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Choose which fields to use when matching tracks, then click Re-match
+                </p>
+                <div className="flex flex-wrap gap-4">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="search-title-preview"
+                      checked={searchOptions.useTitle}
+                      onCheckedChange={(checked) => 
+                        setSearchOptions(prev => ({ ...prev, useTitle: checked === true }))
+                      }
+                    />
+                    <label htmlFor="search-title-preview" className="text-sm font-medium leading-none cursor-pointer">
+                      Title
+                    </label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="search-artist-preview"
+                      checked={searchOptions.useArtist}
+                      onCheckedChange={(checked) => 
+                        setSearchOptions(prev => ({ ...prev, useArtist: checked === true }))
+                      }
+                    />
+                    <label htmlFor="search-artist-preview" className="text-sm font-medium leading-none cursor-pointer">
+                      Artist
+                    </label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="search-album-preview"
+                      checked={searchOptions.useAlbum}
+                      onCheckedChange={(checked) => 
+                        setSearchOptions(prev => ({ ...prev, useAlbum: checked === true }))
+                      }
+                    />
+                    <label htmlFor="search-album-preview" className="text-sm font-medium leading-none cursor-pointer">
+                      Album
+                    </label>
+                  </div>
+                </div>
+              </div>
+              
               {/* Match summary */}
               <div className="flex gap-4">
                 <div className="flex items-center gap-2 text-sm">
@@ -509,6 +613,26 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
                   </Badge>
                 </div>
               </div>
+              
+              {/* Include missing entries option */}
+              {unmatchedCount > 0 && (
+                <div className="flex items-center space-x-2 pt-2">
+                  <Checkbox
+                    id="include-missing"
+                    checked={includeMissing}
+                    onCheckedChange={(checked) => setIncludeMissing(checked === true)}
+                  />
+                  <label
+                    htmlFor="include-missing"
+                    className="text-sm font-medium leading-none cursor-pointer"
+                  >
+                    Include missing entries in playlist
+                  </label>
+                  <span className="text-xs text-muted-foreground">
+                    (you can match them later from playlist details)
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Track list */}
@@ -594,13 +718,19 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
                 setStep("importing");
                 createPlaylist.mutate();
               }}
-              disabled={!playlistName.trim() || matchedCount === 0 || createPlaylist.isPending}
+              disabled={
+                !playlistName.trim() || 
+                (matchedCount === 0 && (!includeMissing || unmatchedCount === 0)) || 
+                createPlaylist.isPending
+              }
             >
               {createPlaylist.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Creating...
                 </>
+              ) : includeMissing && unmatchedCount > 0 ? (
+                <>Import {matchedCount + unmatchedCount} Entries</>
               ) : (
                 <>Import {matchedCount} Tracks</>
               )}
@@ -657,6 +787,28 @@ function TrackRow({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Song[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  // Quick search toggles - which fields to include in search
+  const [includeTitle, setIncludeTitle] = useState(true);
+  const [includeArtist, setIncludeArtist] = useState(true);
+  const [includeAlbum, setIncludeAlbum] = useState(true);
+
+  // Build search query from selected fields in "artist - album - title" format
+  const buildSearchQuery = (title: boolean, artist: boolean, album: boolean) => {
+    const parts: string[] = [];
+    // Build in order: artist, album, title (common search format)
+    if (artist && track.parsed.artist) parts.push(track.parsed.artist);
+    if (album && track.parsed.album) parts.push(track.parsed.album);
+    if (title && track.parsed.title) parts.push(track.parsed.title);
+    return parts.join(" - ").trim() || track.parsed.raw;
+  };
+
+  // Update search query when toggles change
+  const updateSearchFromToggles = (title: boolean, artist: boolean, album: boolean) => {
+    setIncludeTitle(title);
+    setIncludeArtist(artist);
+    setIncludeAlbum(album);
+    setSearchQuery(buildSearchQuery(title, artist, album));
+  };
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -688,12 +840,17 @@ function TrackRow({
     setSearchOpen(false);
   };
 
-  // Initialize search query with parsed track info
+  // Initialize search query with all available track info when opening
   const openSearch = () => {
-    const parts: string[] = [];
-    if (track.parsed.artist) parts.push(track.parsed.artist);
-    if (track.parsed.title) parts.push(track.parsed.title);
-    setSearchQuery(parts.join(" ").trim() || track.parsed.raw);
+    // Reset toggles based on what data is available
+    const hasTitle = !!track.parsed.title;
+    const hasArtist = !!track.parsed.artist;
+    const hasAlbum = !!track.parsed.album;
+    
+    setIncludeTitle(hasTitle);
+    setIncludeArtist(hasArtist);
+    setIncludeAlbum(hasAlbum);
+    setSearchQuery(buildSearchQuery(hasTitle, hasArtist, hasAlbum));
     setSearchResults([]);
     setSearchOpen(true);
   };
@@ -756,6 +913,55 @@ function TrackRow({
         <PopoverContent className="w-[400px] p-3" align="end">
           <div className="space-y-3">
             <div className="font-medium text-sm">Find alternative match</div>
+            
+            {/* Quick field toggles */}
+            <div className="flex flex-wrap gap-3 pb-2 border-b">
+              {track.parsed.title && (
+                <div className="flex items-center space-x-1.5">
+                  <Checkbox
+                    id={`title-${index}`}
+                    checked={includeTitle}
+                    onCheckedChange={(checked) => 
+                      updateSearchFromToggles(checked === true, includeArtist, includeAlbum)
+                    }
+                    className="h-3.5 w-3.5"
+                  />
+                  <label htmlFor={`title-${index}`} className="text-xs cursor-pointer">
+                    Title
+                  </label>
+                </div>
+              )}
+              {track.parsed.artist && (
+                <div className="flex items-center space-x-1.5">
+                  <Checkbox
+                    id={`artist-${index}`}
+                    checked={includeArtist}
+                    onCheckedChange={(checked) => 
+                      updateSearchFromToggles(includeTitle, checked === true, includeAlbum)
+                    }
+                    className="h-3.5 w-3.5"
+                  />
+                  <label htmlFor={`artist-${index}`} className="text-xs cursor-pointer">
+                    Artist
+                  </label>
+                </div>
+              )}
+              {track.parsed.album && (
+                <div className="flex items-center space-x-1.5">
+                  <Checkbox
+                    id={`album-${index}`}
+                    checked={includeAlbum}
+                    onCheckedChange={(checked) => 
+                      updateSearchFromToggles(includeTitle, includeArtist, checked === true)
+                    }
+                    className="h-3.5 w-3.5"
+                  />
+                  <label htmlFor={`album-${index}`} className="text-xs cursor-pointer">
+                    Album
+                  </label>
+                </div>
+              )}
+            </div>
             
             <div className="flex gap-2">
               <Input

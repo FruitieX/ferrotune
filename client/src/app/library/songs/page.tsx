@@ -234,6 +234,7 @@ export default function SongsPage() {
                 showPlayCount={columnVisibility.playCount}
                 showYear={columnVisibility.year}
                 showDateAdded={columnVisibility.dateAdded}
+                showLastPlayed={columnVisibility.lastPlayed}
                 queueSource={queueSource}
                 isSelected={isSelected(song.id)}
                 isSelectionMode={hasSelection}

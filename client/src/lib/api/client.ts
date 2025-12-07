@@ -56,6 +56,9 @@ import type { GetDirectoryPagedParams } from "./generated/GetDirectoryPagedParam
 import type { ServerConfigResponse } from "./generated/ServerConfigResponse";
 import type { UpdateServerConfigRequest } from "./generated/UpdateServerConfigRequest";
 import type { PeriodReviewResponse } from "./generated/PeriodReviewResponse";
+import type { ImportPlaylistRequest } from "./generated/ImportPlaylistRequest";
+import type { ImportPlaylistResponse } from "./generated/ImportPlaylistResponse";
+import type { PlaylistEntriesResponse } from "./generated/PlaylistEntriesResponse";
 
 // Ping response is empty
 interface PingResponse {
@@ -561,6 +564,24 @@ export class SubsonicClient {
       method: "PUT",
       body: JSON.stringify({ songIds }),
     });
+  }
+
+  async importPlaylist(request: ImportPlaylistRequest): Promise<ImportPlaylistResponse> {
+    return this.adminRequest("/ferrotune/playlists/import", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  async matchMissingEntry(playlistId: string, position: number, songId: string): Promise<void> {
+    await this.adminRequest(`/ferrotune/playlists/${encodeURIComponent(playlistId)}/match-missing`, {
+      method: "POST",
+      body: JSON.stringify({ position, songId }),
+    });
+  }
+
+  async getPlaylistEntries(playlistId: string): Promise<PlaylistEntriesResponse> {
+    return this.adminRequest(`/ferrotune/playlists/${encodeURIComponent(playlistId)}/entries`);
   }
 
   // Listening statistics (Admin API)

@@ -42,7 +42,7 @@ export function ScanDialog() {
 
   // Local state for scan options
   const [fullScan, setFullScan] = useState(false);
-  const [dryRun, setDryRun] = useState(false);
+  const [dryRun, setDryRun] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
 
   // Auto-scroll to bottom of logs

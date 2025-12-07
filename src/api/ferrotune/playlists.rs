@@ -592,3 +592,394 @@ pub async fn reorder_playlist_songs(
 
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// Request to match a missing playlist entry to a song
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct MatchMissingEntryRequest {
+    /// The position of the missing entry in the playlist
+    pub position: i32,
+    /// The song ID to match the entry to
+    pub song_id: String,
+}
+
+/// Match a missing entry in a playlist to an existing song
+pub async fn match_missing_entry(
+    State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
+    Path(playlist_id): Path<String>,
+    Json(request): Json<MatchMissingEntryRequest>,
+) -> Result<StatusCode, ApiError> {
+    // Check playlist exists and belongs to user
+    let playlist: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
+            .bind(&playlist_id)
+            .bind(user.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::with_details(
+                        "Database error",
+                        e.to_string(),
+                    )),
+                )
+            })?;
+
+    if playlist.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(super::ErrorResponse::new("Playlist not found")),
+        ));
+    }
+
+    // Verify the entry exists at this position and is missing
+    let entry: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND position = ?"
+    )
+    .bind(&playlist_id)
+    .bind(request.position)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    let Some((song_id, missing_data)) = entry else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(super::ErrorResponse::new("Entry not found at position")),
+        ));
+    };
+
+    // Only allow matching if this is a missing entry
+    if song_id.is_some() && missing_data.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(super::ErrorResponse::new("Entry is already matched")),
+        ));
+    }
+
+    // Verify the song exists
+    let song_exists: Option<(String,)> = sqlx::query_as("SELECT id FROM songs WHERE id = ?")
+        .bind(&request.song_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse::with_details(
+                    "Database error",
+                    e.to_string(),
+                )),
+            )
+        })?;
+
+    if song_exists.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(super::ErrorResponse::new("Song not found")),
+        ));
+    }
+
+    // Update the entry to link to the song
+    crate::db::queries::match_missing_entry(&state.pool, &playlist_id, request.position, &request.song_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse::with_details(
+                    "Database error",
+                    e.to_string(),
+                )),
+            )
+        })?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// A missing entry in an import request
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ImportMissingEntry {
+    /// Track title
+    pub title: Option<String>,
+    /// Artist name
+    pub artist: Option<String>,
+    /// Album name
+    pub album: Option<String>,
+    /// Duration in seconds (if known)
+    pub duration: Option<i32>,
+    /// Original raw line from the playlist file
+    pub raw: String,
+}
+
+/// Entry for the import request - either a matched song or a missing entry
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ImportPlaylistEntry {
+    /// Song ID if matched
+    pub song_id: Option<String>,
+    /// Missing entry data if not matched
+    pub missing: Option<ImportMissingEntry>,
+}
+
+/// Request to import a playlist with optional missing entries
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ImportPlaylistRequest {
+    /// Name of the playlist to create
+    pub name: String,
+    /// Optional comment/description
+    pub comment: Option<String>,
+    /// Entries in the playlist (can include missing entries)
+    pub entries: Vec<ImportPlaylistEntry>,
+}
+
+/// Response from importing a playlist
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ImportPlaylistResponse {
+    /// ID of the created playlist
+    pub playlist_id: String,
+    /// Number of matched tracks
+    pub matched_count: i32,
+    /// Number of missing/unmatched tracks
+    pub missing_count: i32,
+}
+
+/// Import a playlist with support for missing entries
+pub async fn import_playlist(
+    State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
+    Json(request): Json<ImportPlaylistRequest>,
+) -> Result<Json<ImportPlaylistResponse>, ApiError> {
+    use crate::db::queries::{add_entries_to_playlist, create_playlist, PlaylistEntry};
+    use crate::db::models::MissingEntryData;
+    
+    // Generate playlist ID
+    let playlist_id = format!("pl-{}", Uuid::new_v4());
+
+    // Create the playlist
+    create_playlist(&state.pool, &playlist_id, &request.name, user.user_id, request.comment.as_deref(), false)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse::with_details(
+                    "Failed to create playlist",
+                    e.to_string(),
+                )),
+            )
+        })?;
+
+    // Convert import entries to playlist entries
+    let mut matched_count = 0i32;
+    let mut missing_count = 0i32;
+    
+    let entries: Vec<PlaylistEntry> = request
+        .entries
+        .into_iter()
+        .map(|entry| {
+            if let Some(song_id) = entry.song_id {
+                matched_count += 1;
+                PlaylistEntry {
+                    song_id: Some(song_id),
+                    missing_entry_data: None,
+                }
+            } else if let Some(missing) = entry.missing {
+                missing_count += 1;
+                PlaylistEntry {
+                    song_id: None,
+                    missing_entry_data: Some(MissingEntryData {
+                        title: missing.title,
+                        artist: missing.artist,
+                        album: missing.album,
+                        duration: missing.duration,
+                        raw: missing.raw,
+                    }),
+                }
+            } else {
+                // Skip empty entries
+                PlaylistEntry {
+                    song_id: None,
+                    missing_entry_data: None,
+                }
+            }
+        })
+        .filter(|e| e.song_id.is_some() || e.missing_entry_data.is_some())
+        .collect();
+
+    // Add entries to the playlist
+    add_entries_to_playlist(&state.pool, &playlist_id, &entries)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse::with_details(
+                    "Failed to add entries to playlist",
+                    e.to_string(),
+                )),
+            )
+        })?;
+
+    Ok(Json(ImportPlaylistResponse {
+        playlist_id,
+        matched_count,
+        missing_count,
+    }))
+}
+
+/// An entry in the playlist entries response
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PlaylistEntryResponse {
+    /// Position in the playlist (0-indexed)
+    pub position: i32,
+    /// Song ID if matched (null for missing entries)
+    pub song_id: Option<String>,
+    /// Missing entry data if not matched
+    pub missing: Option<MissingEntryDataResponse>,
+}
+
+/// Missing entry data in the response
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct MissingEntryDataResponse {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration: Option<i32>,
+    pub raw: String,
+}
+
+/// Response containing playlist entries (including missing)
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PlaylistEntriesResponse {
+    /// Total entries in the playlist
+    pub total: i32,
+    /// Number of matched entries
+    pub matched: i32,
+    /// Number of missing entries
+    pub missing: i32,
+    /// Entries in position order
+    pub entries: Vec<PlaylistEntryResponse>,
+}
+
+/// Get playlist entries including missing ones
+pub async fn get_playlist_entries(
+    State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
+    Path(playlist_id): Path<String>,
+) -> Result<Json<PlaylistEntriesResponse>, ApiError> {
+    use crate::db::models::MissingEntryData;
+    
+    // Check playlist exists and belongs to user
+    let playlist: Option<(String, i64, bool)> = sqlx::query_as(
+        "SELECT id, owner_id, is_public FROM playlists WHERE id = ?"
+    )
+    .bind(&playlist_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    let Some((_, owner_id, is_public)) = playlist else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(super::ErrorResponse::new("Playlist not found")),
+        ));
+    };
+
+    // Check access
+    if owner_id != user.user_id as i64 && !is_public {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(super::ErrorResponse::new("Not authorized to access this playlist")),
+        ));
+    }
+
+    // Get all entries (both matched and missing)
+    let rows: Vec<(i64, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT position, song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? ORDER BY position"
+    )
+    .bind(&playlist_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    let mut matched_count = 0i32;
+    let mut missing_count = 0i32;
+
+    let entries: Vec<PlaylistEntryResponse> = rows
+        .into_iter()
+        .map(|(position, song_id, missing_data)| {
+            if song_id.is_some() {
+                matched_count += 1;
+            }
+            
+            let missing = if let Some(data_str) = missing_data {
+                if let Ok(data) = serde_json::from_str::<MissingEntryData>(&data_str) {
+                    missing_count += 1;
+                    Some(MissingEntryDataResponse {
+                        title: data.title,
+                        artist: data.artist,
+                        album: data.album,
+                        duration: data.duration,
+                        raw: data.raw,
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            PlaylistEntryResponse {
+                position: position as i32,
+                song_id,
+                missing,
+            }
+        })
+        .collect();
+
+    let total = entries.len() as i32;
+
+    Ok(Json(PlaylistEntriesResponse {
+        total,
+        matched: matched_count,
+        missing: missing_count,
+        entries,
+    }))
+}

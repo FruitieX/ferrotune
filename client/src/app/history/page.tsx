@@ -201,6 +201,7 @@ export default function HistoryPage() {
                   showPlayCount={columnVisibility.playCount}
                   showYear={columnVisibility.year}
                   showDateAdded={columnVisibility.dateAdded}
+                  showLastPlayed={columnVisibility.lastPlayed}
                   queueSource={historyQueueSource}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}

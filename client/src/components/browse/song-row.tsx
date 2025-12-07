@@ -107,6 +107,7 @@ interface SongRowProps {
   showPlayCount?: boolean;
   showYear?: boolean;
   showDateAdded?: boolean;
+  showLastPlayed?: boolean;
   queueSongs?: Song[]; // All songs in current context for queue (fallback for explicit song lists)
   queueSource?: QueueSource; // Source info for server-side queue materialization
   // Selection props
@@ -139,6 +140,7 @@ export function SongRow({
   showPlayCount = false,
   showYear = false,
   showDateAdded = false,
+  showLastPlayed = false,
   queueSongs,
   queueSource,
   isSelected = false,
@@ -316,6 +318,9 @@ export function SongRow({
             )}
             {showPlayCount && (
               <span className="hidden md:inline w-12 text-right">{song.playCount ?? 0}</span>
+            )}
+            {showLastPlayed && (
+              <span className="hidden lg:inline w-24 text-right">{song.lastPlayed ? formatDate(song.lastPlayed) : "Never"}</span>
             )}
             {showDateAdded && song.created && (
               <span className="hidden lg:inline w-24 text-right">{formatDate(song.created)}</span>

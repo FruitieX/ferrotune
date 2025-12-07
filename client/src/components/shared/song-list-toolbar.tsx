@@ -37,6 +37,7 @@ const columnOptions: { key: keyof ColumnVisibility; label: string }[] = [
   { key: "duration", label: "Duration" },
   { key: "playCount", label: "Play Count" },
   { key: "dateAdded", label: "Date Added" },
+  { key: "lastPlayed", label: "Last Played" },
   { key: "year", label: "Year" },
 ];
 

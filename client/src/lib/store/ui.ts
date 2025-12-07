@@ -48,6 +48,7 @@ export interface ColumnVisibility {
   duration: boolean;
   playCount: boolean;
   dateAdded: boolean;
+  lastPlayed: boolean;
   year: boolean;
 }
 
@@ -57,6 +58,7 @@ export const columnVisibilityAtom = atomWithServerStorage<ColumnVisibility>("col
   duration: true,
   playCount: false,
   dateAdded: false,
+  lastPlayed: false,
   year: false,
 });
 
@@ -72,6 +74,7 @@ export const playlistColumnVisibilityAtom = atomWithServerStorage<ColumnVisibili
   duration: true,
   playCount: false,
   dateAdded: false,
+  lastPlayed: false,
   year: false,
 });
 
@@ -125,6 +128,7 @@ export const albumDetailColumnVisibilityAtom = atomWithServerStorage<ColumnVisib
   duration: true,
   playCount: false,
   dateAdded: false,
+  lastPlayed: false,
   year: false,
 });
 
@@ -140,6 +144,7 @@ export const artistDetailColumnVisibilityAtom = atomWithServerStorage<ColumnVisi
   duration: true,
   playCount: false,
   dateAdded: false,
+  lastPlayed: false,
   year: true,
 });
 
@@ -155,6 +160,7 @@ export const genreDetailColumnVisibilityAtom = atomWithServerStorage<ColumnVisib
   duration: true,
   playCount: false,
   dateAdded: false,
+  lastPlayed: false,
   year: true,
 });
 

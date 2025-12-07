@@ -581,6 +581,7 @@ export default function FavoritesPage() {
                       showPlayCount={columnVisibility.playCount}
                       showYear={columnVisibility.year}
                       showDateAdded={columnVisibility.dateAdded}
+                      showLastPlayed={columnVisibility.lastPlayed}
                       queueSource={favoritesQueueSource}
                       isSelected={songSelection.isSelected(song.id)}
                       isSelectionMode={songSelection.hasSelection}

@@ -306,6 +306,7 @@ function AlbumDetailContent() {
                   showPlayCount={columnVisibility.playCount}
                   showYear={columnVisibility.year}
                   showDateAdded={columnVisibility.dateAdded}
+                  showLastPlayed={columnVisibility.lastPlayed}
                   queueSource={albumQueueSource}
                   isSelected={selection.isSelected(song.id)}
                   isSelectionMode={selection.hasSelection}

@@ -12,6 +12,8 @@ import {
   ListMusic,
   ChevronRight,
   Home,
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -22,6 +24,7 @@ import { startQueueAtom, serverQueueStateAtom, toggleShuffleAtom } from "@/lib/s
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,9 +52,12 @@ import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/componen
 import { MoveToPositionDialog } from "@/components/shared/move-to-position-dialog";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
+import { MissingEntryRow } from "@/components/playlists/missing-entry-row";
+import { MassResolveDialog } from "@/components/playlists/mass-resolve-dialog";
 import { formatDuration, formatCount, formatDate, formatTotalDuration } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
+import type { PlaylistEntryResponse } from "@/lib/api/generated/PlaylistEntryResponse";
 
 function PlaylistDetailContent() {
   const router = useRouter();
@@ -67,6 +73,7 @@ function PlaylistDetailContent() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [removeTracksDialogOpen, setRemoveTracksDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [massResolveDialogOpen, setMassResolveDialogOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveDialogSong, setMoveDialogSong] = useState<{ song: Song; index: number } | null>(null);
   const [filter, setFilter] = useState("");
@@ -102,6 +109,22 @@ function PlaylistDetailContent() {
     // Keep previous data while fetching new sort/filter results
     placeholderData: (prev) => prev,
   });
+
+  // Fetch playlist entries (to check for missing entries)
+  // This is separate from the main playlist query because it needs to include missing entries
+  const { data: playlistEntries } = useQuery({
+    queryKey: ["playlistEntries", playlistId],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.getPlaylistEntries(playlistId!);
+    },
+    enabled: isReady && !!playlistId,
+  });
+
+  // Check if there are missing entries
+  const hasMissingEntries = (playlistEntries?.missing ?? 0) > 0;
+  const missingEntryCount = playlistEntries?.missing ?? 0;
 
   // Get the cover URL
   const coverUrl = usePlaylistCoverUrl(playlist?.id ?? null, 400, playlist?.coverArt);
@@ -199,6 +222,20 @@ function PlaylistDetailContent() {
     if (index === -1) return;
     removeSongsMutation.mutate({ indices: [index], songIds: [songId] });
   }, [removeSongsMutation]);
+
+  // Helper to remove a missing entry by position (no undo since we can't add it back)
+  const handleRemoveMissingEntry = useCallback(async (position: number) => {
+    const client = getClient();
+    if (!client) return;
+    try {
+      await client.updatePlaylist({ playlistId: playlistId!, songIndexToRemove: [position] });
+      queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
+      queryClient.invalidateQueries({ queryKey: ["playlistEntries", playlistId] });
+      toast.success("Entry removed from playlist");
+    } catch {
+      toast.error("Failed to remove entry from playlist");
+    }
+  }, [playlistId, queryClient]);
   
   // Handle move to position for playlists
   const handleMoveToPosition = useCallback((song: Song, currentIndex: number) => {
@@ -223,6 +260,62 @@ function PlaylistDetailContent() {
   
   // Songs come from server already sorted and filtered
   const displaySongs = songs;
+
+  // Build display items that include both songs and missing entries
+  // Only show missing entries in custom sort mode with no filter
+  type DisplayItem = 
+    | { type: "song"; song: Song; position: number }
+    | { type: "missing"; entry: PlaylistEntryResponse; position: number };
+
+  const displayItems = useMemo((): DisplayItem[] => {
+    // If there are no missing entries, just show songs as usual
+    if (!hasMissingEntries || !playlistEntries) {
+      return displaySongs.map((song, index) => ({
+        type: "song" as const,
+        song,
+        position: index,
+      }));
+    }
+
+    // Only show missing entries in custom sort mode with no filter
+    const showMissing = sortConfig.field === "custom" && !debouncedFilter.trim();
+    
+    if (!showMissing) {
+      // When filtering or sorting, only show matched songs
+      return displaySongs.map((song, index) => ({
+        type: "song" as const,
+        song,
+        position: index,
+      }));
+    }
+
+    // Build unified list with both songs and missing entries in position order
+    // The playlist entries have position info, but songs from getPlaylist may be filtered/sorted
+    // We need to match them up by position
+
+    // Create a map of song_id to Song for quick lookup
+    const songMap = new Map(songs.map(s => [s.id, s]));
+
+    // Build display items from entries
+    const items: DisplayItem[] = [];
+    for (const entry of playlistEntries.entries) {
+      if (entry.songId && songMap.has(entry.songId)) {
+        items.push({
+          type: "song",
+          song: songMap.get(entry.songId)!,
+          position: entry.position,
+        });
+      } else if (entry.missing) {
+        items.push({
+          type: "missing",
+          entry,
+          position: entry.position,
+        });
+      }
+    }
+
+    return items;
+  }, [displaySongs, songs, hasMissingEntries, playlistEntries, sortConfig.field, debouncedFilter]);
 
   const totalDuration = displaySongs.reduce((acc, song) => acc + (song.duration ?? 0), 0);
 
@@ -451,6 +544,15 @@ function PlaylistDetailContent() {
                 </>
               )}
               <span>{formatCount(displaySongs.length, "song")}</span>
+              {hasMissingEntries && (
+                <>
+                  <span>•</span>
+                  <Badge variant="secondary" className="bg-orange-500/20 text-orange-500 h-5">
+                    <AlertCircle className="w-3 h-3 mr-1" />
+                    {missingEntryCount} not found
+                  </Badge>
+                </>
+              )}
               <span>•</span>
               <span>{formatTotalDuration(totalDuration)}</span>
               {playlist.created && (
@@ -514,6 +616,12 @@ function PlaylistDetailContent() {
               <Pencil className="w-4 h-4 mr-2" />
               Edit Playlist
             </DropdownMenuItem>
+            {hasMissingEntries && (
+              <DropdownMenuItem onClick={() => setMassResolveDialogOpen(true)}>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Resolve Missing Entries
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive"
@@ -542,53 +650,74 @@ function PlaylistDetailContent() {
               ))}
             </div>
           )
-        ) : displaySongs.length > 0 ? (
+        ) : displayItems.length > 0 ? (
           viewMode === "grid" ? (
             <VirtualizedGrid
-              items={displaySongs}
-              renderItem={(song, index) => (
+              items={displayItems.filter((item): item is Extract<typeof item, { type: "song" }> => item.type === "song")}
+              renderItem={(item, index) => (
                 <SongCard
-                  song={song}
-                  index={index}
+                  song={item.song}
+                  index={item.position}
                   queueSource={playlistQueueSource}
-                  isSelected={isSelected(song.id)}
+                  isSelected={isSelected(item.song.id)}
                   isSelectionMode={hasSelection}
                   onSelect={handleSelect}
-                  isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(index, song.id) : undefined}
+                  isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(item.position, item.song.id) : undefined}
                   showMoveToPosition={sortConfig.field === "custom"}
                   onMoveToPosition={handleMoveToPosition}
                 />
               )}
               renderSkeleton={() => <SongCardSkeleton />}
-              getItemKey={(song, index) => `${index}-${song.id}`}
+              getItemKey={(item, index) => `${item.position}-${item.song.id}`}
             />
           ) : (
             <VirtualizedList
-              items={displaySongs}
-              renderItem={(song, index) => (
-                <SongRow
-                  song={song}
-                  index={index}
-                  showCover
-                  showArtist={columnVisibility.artist}
-                  showAlbum={columnVisibility.album}
-                  showDuration={columnVisibility.duration}
-                  showPlayCount={columnVisibility.playCount}
-                  showYear={columnVisibility.year}
-                  showDateAdded={columnVisibility.dateAdded}
-                  queueSource={playlistQueueSource}
-                  isSelected={isSelected(song.id)}
-                  isSelectionMode={hasSelection}
-                  onSelect={handleSelect}
-                  showRemoveFromPlaylist
-                  onRemoveFromPlaylist={handleRemoveSingleSong}
-                  isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(index, song.id) : undefined}
-                  showMoveToPosition={sortConfig.field === "custom"}
-                  onMoveToPosition={handleMoveToPosition}
-                />
-              )}
+              items={displayItems}
+              renderItem={(item, index) => {
+                if (item.type === "missing" && item.entry.missing) {
+                  return (
+                    <MissingEntryRow
+                      playlistId={playlistId!}
+                      position={item.position}
+                      missing={item.entry.missing}
+                      isSelected={false}
+                      isSelectionMode={hasSelection}
+                      onRemove={handleRemoveMissingEntry}
+                    />
+                  );
+                }
+                // Song item
+                const songItem = item as Extract<typeof item, { type: "song" }>;
+                return (
+                  <SongRow
+                    song={songItem.song}
+                    index={songItem.position}
+                    showCover
+                    showArtist={columnVisibility.artist}
+                    showAlbum={columnVisibility.album}
+                    showDuration={columnVisibility.duration}
+                    showPlayCount={columnVisibility.playCount}
+                    showYear={columnVisibility.year}
+                    showDateAdded={columnVisibility.dateAdded}
+                    showLastPlayed={columnVisibility.lastPlayed}
+                    queueSource={playlistQueueSource}
+                    isSelected={isSelected(songItem.song.id)}
+                    isSelectionMode={hasSelection}
+                    onSelect={handleSelect}
+                    showRemoveFromPlaylist
+                    onRemoveFromPlaylist={handleRemoveSingleSong}
+                    isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(songItem.position, songItem.song.id) : undefined}
+                    showMoveToPosition={sortConfig.field === "custom"}
+                    onMoveToPosition={handleMoveToPosition}
+                  />
+                );
+              }}
               renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
-              getItemKey={(song, index) => `${index}-${song.id}`}
+              getItemKey={(item, index) => 
+                item.type === "song" 
+                  ? `${item.position}-${item.song.id}`
+                  : `missing-${item.position}`
+              }
               estimateItemHeight={56}
             />
           )
@@ -672,6 +801,16 @@ function PlaylistDetailContent() {
           open={editDialogOpen}
           onOpenChange={setEditDialogOpen}
           playlist={{...playlist, comment: playlist.comment ?? undefined}}
+        />
+      )}
+
+      {/* Mass resolve missing entries dialog */}
+      {playlistEntries && hasMissingEntries && (
+        <MassResolveDialog
+          open={massResolveDialogOpen}
+          onOpenChange={setMassResolveDialogOpen}
+          playlistId={playlistId!}
+          entries={playlistEntries.entries}
         />
       )}
       
