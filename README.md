@@ -8,7 +8,7 @@ An OpenSubsonic-compatible music server written in Rust.
 - **Tokio-based async I/O** - High performance asynchronous operations
 - **Metadata extraction** - Reads ID3 tags from MP3, FLAC, OGG, M4A files using lofty
 - **SQLite database** - Embedded database with full-text search (FTS5)
-- **Multiple authentication methods** - API keys, token+salt, legacy password
+- **Multiple authentication methods** - API keys, token+salt, password (with Argon2 hashing)
 - **User management** - Multi-user support with admin capabilities
 - **Cover art** - Extraction and serving of album artwork
 - **Playlists** - Support for M3U/XSPF playlist formats
@@ -194,7 +194,7 @@ This project is in active development. Currently implemented:
 - ✅ Project structure and dependencies
 - ✅ Configuration management with TOML
 - ✅ Database schema and migrations (SQLite with FTS5)
-- ✅ OpenSubsonic authentication (token+salt, API keys, legacy password)
+- ✅ OpenSubsonic authentication (token+salt, API keys, password with Argon2)
 - ✅ CLI with clap (serve, scan, create-user, generate-config)
 - ✅ System endpoints (ping, getLicense, getOpenSubsonicExtensions, getMusicFolders)
 - ✅ Filesystem scanner with lofty metadata extraction

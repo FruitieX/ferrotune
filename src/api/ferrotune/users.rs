@@ -11,6 +11,7 @@ use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::User;
 use crate::error::{Error, Result};
+use crate::password;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -282,13 +283,19 @@ pub async fn create_user(
         )));
     }
 
-    // Create the user
-    // TODO: Use proper password hashing (argon2) instead of storing plaintext
+    // Hash the password using argon2
+    let password_hash = password::hash_password(&request.password)
+        .map_err(|e| Error::Internal(format!("Failed to hash password: {}", e)))?;
+    // Create subsonic token for legacy token+salt authentication
+    let subsonic_token = password::create_subsonic_token(&request.password);
+
+    // Create the user with hashed password
     let result = sqlx::query(
-        "INSERT INTO users (username, password_hash, email, is_admin) VALUES (?, ?, ?, ?)",
+        "INSERT INTO users (username, password_hash, subsonic_token, email, is_admin) VALUES (?, ?, ?, ?, ?)",
     )
     .bind(&request.username)
-    .bind(&request.password) // Should be hashed!
+    .bind(&password_hash)
+    .bind(&subsonic_token)
     .bind(&request.email)
     .bind(request.is_admin)
     .execute(&state.pool)
@@ -345,7 +352,6 @@ pub async fn update_user(
 
     // Build update query dynamically
     let mut updates = Vec::new();
-    let mut has_updates = false;
 
     if let Some(username) = &request.username {
         if username.len() < 3 {
@@ -367,22 +373,32 @@ pub async fn update_user(
             )));
         }
         updates.push(("username", username.clone()));
-        has_updates = true;
     }
 
+    // Handle password update specially - need to hash it
     if let Some(password) = &request.password {
         if password.len() < 8 {
             return Err(Error::InvalidRequest(
                 "Password must be at least 8 characters".to_string(),
             ));
         }
-        updates.push(("password_hash", password.clone()));
-        has_updates = true;
+        // Hash the password using argon2
+        let password_hash = password::hash_password(password)
+            .map_err(|e| Error::Internal(format!("Failed to hash password: {}", e)))?;
+        // Create subsonic token for legacy token+salt authentication
+        let subsonic_token = password::create_subsonic_token(password);
+        
+        // Update both password_hash and subsonic_token
+        sqlx::query("UPDATE users SET password_hash = ?, subsonic_token = ? WHERE id = ?")
+            .bind(&password_hash)
+            .bind(&subsonic_token)
+            .bind(id)
+            .execute(&state.pool)
+            .await?;
     }
 
     if let Some(email) = &request.email {
         updates.push(("email", email.clone()));
-        has_updates = true;
     }
 
     if let Some(is_admin) = request.is_admin {
@@ -396,11 +412,10 @@ pub async fn update_user(
             "is_admin",
             if is_admin { "1" } else { "0" }.to_string(),
         ));
-        has_updates = true;
     }
 
-    // Apply updates
-    if has_updates {
+    // Apply non-password updates
+    if !updates.is_empty() {
         for (field, value) in &updates {
             let query = format!("UPDATE users SET {} = ? WHERE id = ?", field);
             sqlx::query(&query)

@@ -2,6 +2,7 @@ mod api;
 mod config;
 mod db;
 mod error;
+mod password;
 mod scanner;
 
 use anyhow::Result;
@@ -75,6 +76,17 @@ enum Commands {
         /// Make this user an admin
         #[arg(long)]
         admin: bool,
+    },
+
+    /// Set a user's password
+    SetPassword {
+        /// Username of the user
+        #[arg(long)]
+        username: String,
+
+        /// New password
+        #[arg(long)]
+        password: String,
     },
 
     /// Generate example configuration file
@@ -157,8 +169,30 @@ async fn main() -> Result<()> {
             email,
             admin,
         }) => {
-            db::queries::create_user(&pool, &username, &password, email.as_deref(), admin).await?;
+            // Hash the password using argon2
+            let password_hash = password::hash_password(&password)
+                .map_err(|e| error::Error::Internal(format!("Failed to hash password: {}", e)))?;
+            // Create subsonic token for legacy token+salt authentication
+            let subsonic_token = password::create_subsonic_token(&password);
+            
+            db::queries::create_user(&pool, &username, &password_hash, &subsonic_token, email.as_deref(), admin).await?;
             tracing::info!("User '{}' created successfully", username);
+            return Ok(());
+        }
+        Some(Commands::SetPassword { username, password }) => {
+            // Hash the password using argon2
+            let password_hash = password::hash_password(&password)
+                .map_err(|e| error::Error::Internal(format!("Failed to hash password: {}", e)))?;
+            // Create subsonic token for token+salt authentication
+            let subsonic_token = password::create_subsonic_token(&password);
+            
+            let updated = db::queries::update_user_password(&pool, &username, &password_hash, &subsonic_token).await?;
+            if updated {
+                tracing::info!("Password updated for user '{}'", username);
+            } else {
+                tracing::error!("User '{}' not found", username);
+                return Err(error::Error::NotFound(format!("User '{}' not found", username)).into());
+            }
             return Ok(());
         }
         Some(Commands::Serve { host, port }) => {
@@ -310,7 +344,13 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
 }
 
 async fn create_admin_user(pool: &sqlx::SqlitePool, username: &str, password: &str) -> Result<()> {
-    let user_id = db::queries::create_user(pool, username, password, None, true).await?;
+    // Hash the password using argon2
+    let password_hash = password::hash_password(password)
+        .map_err(|e| error::Error::Internal(format!("Failed to hash password: {}", e)))?;
+    // Create subsonic token for legacy token+salt authentication
+    let subsonic_token = password::create_subsonic_token(password);
+    
+    let user_id = db::queries::create_user(pool, username, &password_hash, &subsonic_token, None, true).await?;
     tracing::info!("Admin user '{}' created successfully", username);
 
     // Grant access to all existing music folders

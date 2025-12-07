@@ -28,21 +28,41 @@ pub async fn create_user(
     pool: &SqlitePool,
     username: &str,
     password_hash: &str,
+    subsonic_token: &str,
     email: Option<&str>,
     is_admin: bool,
 ) -> sqlx::Result<i64> {
     let result = sqlx::query(
-        "INSERT INTO users (username, password_hash, email, is_admin, created_at) 
-         VALUES (?, ?, ?, ?, datetime('now'))",
+        "INSERT INTO users (username, password_hash, subsonic_token, email, is_admin, created_at) 
+         VALUES (?, ?, ?, ?, ?, datetime('now'))",
     )
     .bind(username)
     .bind(password_hash)
+    .bind(subsonic_token)
     .bind(email)
     .bind(is_admin)
     .execute(pool)
     .await?;
 
     Ok(result.last_insert_rowid())
+}
+
+pub async fn update_user_password(
+    pool: &SqlitePool,
+    username: &str,
+    password_hash: &str,
+    subsonic_token: &str,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query(
+        "UPDATE users SET password_hash = ?, subsonic_token = ? WHERE username = ?",
+    )
+    .bind(password_hash)
+    .bind(subsonic_token)
+    .bind(username)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
 }
 
 // User preferences queries

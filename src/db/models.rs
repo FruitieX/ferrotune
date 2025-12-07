@@ -5,10 +5,15 @@ use serde::{Deserialize, Serialize};
 pub struct User {
     pub id: i64,
     pub username: String,
+    /// Argon2 hash of the password for direct password authentication
     pub password_hash: String,
     pub email: Option<String>,
     pub is_admin: bool,
     pub created_at: DateTime<Utc>,
+    /// Plaintext password for OpenSubsonic token+salt authentication (MD5-based)
+    /// This is required for legacy Subsonic protocol compatibility.
+    /// For better security, users should use API key authentication.
+    pub subsonic_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

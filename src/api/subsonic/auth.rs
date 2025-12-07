@@ -2,6 +2,7 @@ use crate::api::subsonic::xml::ResponseFormat;
 use crate::api::CommonParams;
 use crate::db::queries;
 use crate::error::{Error, Result};
+use crate::password;
 use axum::{
     extract::FromRequestParts,
     http::{header::AUTHORIZATION, request::Parts},
@@ -224,14 +225,12 @@ async fn authenticate_with_token(
             Error::Auth("Invalid username or password".to_string())
         })?;
 
-    // For now, we'll store a plaintext password in the database for testing
-    // In production, this would be properly hashed with argon2
-    let expected_token = format!(
-        "{:x}",
-        md5::compute(format!("{}{}", user.password_hash, salt))
-    );
+    let stored_token = user.subsonic_token.as_deref().ok_or_else(|| {
+        tracing::warn!(username = %username, "Token auth failed: no subsonic_token set");
+        Error::Auth("Invalid username or password".to_string())
+    })?;
 
-    if token != expected_token {
+    if !password::verify_subsonic_token(token, salt, stored_token) {
         tracing::warn!(username = %username, "Token auth failed: invalid token");
         return Err(Error::Auth("Invalid username or password".to_string()));
     }
@@ -272,9 +271,7 @@ async fn authenticate_with_password(
             Error::Auth("Invalid username or password".to_string())
         })?;
 
-    // For now, storing plaintext for development
-    // TODO: Use argon2 for proper password hashing
-    if password != user.password_hash {
+    if !password::verify_password(&password, &user.password_hash) {
         tracing::warn!(username = %username, "Password auth failed: invalid password");
         return Err(Error::Auth("Invalid username or password".to_string()));
     }

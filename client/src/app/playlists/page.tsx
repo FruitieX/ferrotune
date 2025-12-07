@@ -798,7 +798,7 @@ function DraggablePlaylistListRow({ playlist, index, isSelected, isSelectionMode
   return (
     <div 
       ref={setNodeRef}
-      className={cn("flex items-center", isDragging && "opacity-50")}
+      className={cn(isDragging && "opacity-50")}
       {...attributes}
       {...listeners}
     >

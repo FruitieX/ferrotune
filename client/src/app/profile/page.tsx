@@ -72,13 +72,61 @@ export default function ProfilePage() {
     toast.success("Logged out successfully");
   };
 
+  // Sign Out card - always render this even during loading so users can log out if there's an error
+  const signOutCard = (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.3 }}
+    >
+      <Card className="border-destructive/30">
+        <CardHeader>
+          <CardTitle className="text-destructive flex items-center gap-2">
+            <LogOut className="w-5 h-5" />
+            Sign Out
+          </CardTitle>
+          <CardDescription>
+            Disconnect from the server and clear your session
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" className="w-full">
+                <LogOut className="w-4 h-4 mr-2" />
+                Sign Out
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Sign out?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  You will be disconnected from the server and your playback
+                  queue will be cleared.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleLogout}>
+                  Sign Out
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+
   // Always render the same loading state on server and during hydration
+  // But always show the sign out card so users can log out if there's an auth error
   if (!isMounted || authLoading || userLoading) {
     return (
       <div className="p-4 lg:p-6 space-y-6">
         <Skeleton className="h-8 w-32" />
         <Skeleton className="h-[200px] w-full" />
         <Skeleton className="h-[200px] w-full" />
+        {signOutCard}
       </div>
     );
   }
@@ -247,48 +295,7 @@ export default function ProfilePage() {
         </motion.div>
 
         {/* Sign Out */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-        >
-          <Card className="border-destructive/30">
-            <CardHeader>
-              <CardTitle className="text-destructive flex items-center gap-2">
-                <LogOut className="w-5 h-5" />
-                Sign Out
-              </CardTitle>
-              <CardDescription>
-                Disconnect from the server and clear your session
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" className="w-full">
-                    <LogOut className="w-4 h-4 mr-2" />
-                    Sign Out
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Sign out?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      You will be disconnected from the server and your playback
-                      queue will be cleared.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleLogout}>
-                      Sign Out
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </CardContent>
-          </Card>
-        </motion.div>
+        {signOutCard}
       </div>
     </div>
   );
