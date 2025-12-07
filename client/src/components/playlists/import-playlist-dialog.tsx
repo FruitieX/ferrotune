@@ -138,19 +138,23 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
       // When includeMissing is enabled, use the new import API
       if (includeMissing) {
         // Build entries array preserving order
+        // Always include missing data so matched tracks can be refined later
         const entries: ImportPlaylistEntry[] = matchedTracks.map(t => {
+          const missingData = {
+            title: t.parsed.title || null,
+            artist: t.parsed.artist || null,
+            album: t.parsed.album || null,
+            duration: t.parsed.duration ? Math.round(t.parsed.duration) : null,
+            raw: buildSearchText(t.parsed),
+          };
+          
           if (t.match) {
-            return { songId: t.match.id, missing: null };
+            // Include missing data even for matched tracks so they can be refined later
+            return { songId: t.match.id, missing: missingData };
           } else {
             return {
               songId: null,
-              missing: {
-                title: t.parsed.title || null,
-                artist: t.parsed.artist || null,
-                album: t.parsed.album || null,
-                duration: t.parsed.duration ? Math.round(t.parsed.duration) : null,
-                raw: buildSearchText(t.parsed),
-              },
+              missing: missingData,
             };
           }
         });

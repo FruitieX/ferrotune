@@ -120,6 +120,9 @@ interface SongRowProps {
   // Move to position props
   showMoveToPosition?: boolean;
   onMoveToPosition?: (song: Song, index: number) => void;
+  // Refine match props (for auto-matched playlist entries)
+  showRefineMatch?: boolean;
+  onRefineMatch?: (song: Song, index: number) => void;
   /**
    * When true, this row is the currently playing track in the queue.
    * Use this for views with duplicate songs (like playlists) where we need
@@ -150,6 +153,8 @@ export function SongRow({
   onRemoveFromPlaylist,
   showMoveToPosition = false,
   onMoveToPosition,
+  showRefineMatch = false,
+  onRefineMatch,
   isCurrentQueuePosition,
   className,
 }: SongRowProps) {
@@ -292,6 +297,8 @@ export function SongRow({
                 showMoveToPosition={showMoveToPosition}
                 onMoveToPosition={onMoveToPosition}
                 moveToPositionLabel="Move to Position"
+                showRefineMatch={showRefineMatch}
+                onRefineMatch={onRefineMatch}
               />
             }
           />
@@ -341,6 +348,8 @@ export function SongRow({
             showMoveToPosition={showMoveToPosition}
             onMoveToPosition={onMoveToPosition}
             moveToPositionLabel="Move to Position"
+            showRefineMatch={showRefineMatch}
+            onRefineMatch={onRefineMatch}
           >
             {children}
           </SongContextMenu>
@@ -384,6 +393,9 @@ interface SongCardProps {
   // Move to position props
   showMoveToPosition?: boolean;
   onMoveToPosition?: (song: Song, index: number) => void;
+  // Refine match props (for auto-matched playlist entries)
+  showRefineMatch?: boolean;
+  onRefineMatch?: (song: Song, index: number) => void;
   /**
    * When true, this card is the currently playing track in the queue.
    * Use this for views with duplicate songs (like playlists) where we need
@@ -394,7 +406,7 @@ interface SongCardProps {
   className?: string;
 }
 
-export function SongCard({ song, index, queueSongs, queueSource, isSelected, isSelectionMode, onSelect, showMoveToPosition, onMoveToPosition, isCurrentQueuePosition, className }: SongCardProps) {
+export function SongCard({ song, index, queueSongs, queueSource, isSelected, isSelectionMode, onSelect, showMoveToPosition, onMoveToPosition, showRefineMatch, onRefineMatch, isCurrentQueuePosition, className }: SongCardProps) {
   const currentSong = useAtomValue(currentSongAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
@@ -496,9 +508,9 @@ export function SongCard({ song, index, queueSongs, queueSource, isSelected, isS
       isSelected={isSelected}
       isSelectionMode={isSelectionMode}
       onSelect={onSelect ? (e) => onSelect(song.id, e) : undefined}
-      dropdownMenu={<SongDropdownMenu song={song} queueSongs={queueSongs} songIndex={index} queueSource={queueSource} showMoveToPosition={showMoveToPosition} onMoveToPosition={onMoveToPosition} moveToPositionLabel="Move to Position" />}
+      dropdownMenu={<SongDropdownMenu song={song} queueSongs={queueSongs} songIndex={index} queueSource={queueSource} showMoveToPosition={showMoveToPosition} onMoveToPosition={onMoveToPosition} moveToPositionLabel="Move to Position" showRefineMatch={showRefineMatch} onRefineMatch={onRefineMatch} />}
       contextMenu={(children) => (
-        <SongContextMenu song={song} queueSongs={queueSongs} songIndex={index} queueSource={queueSource} showMoveToPosition={showMoveToPosition} onMoveToPosition={onMoveToPosition} moveToPositionLabel="Move to Position">
+        <SongContextMenu song={song} queueSongs={queueSongs} songIndex={index} queueSource={queueSource} showMoveToPosition={showMoveToPosition} onMoveToPosition={onMoveToPosition} moveToPositionLabel="Move to Position" showRefineMatch={showRefineMatch} onRefineMatch={onRefineMatch}>
           {children}
         </SongContextMenu>
       )}

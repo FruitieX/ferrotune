@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Search, Music, AlertCircle, Loader2, RefreshCw, MoreHorizontal, Trash2, ArrowRightLeft, Check } from "lucide-react";
+import { Search, Music, AlertCircle, Loader2, RefreshCw, MoreHorizontal, Trash2, ArrowRightLeft, Check, Play, Pause, CheckCircle, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Slider } from "@/components/ui/slider";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +38,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { getClient } from "@/lib/api/client";
+import { usePreviewAudio } from "@/lib/hooks/use-preview-audio";
 import type { Song } from "@/lib/api/types";
 import type { MissingEntryDataResponse } from "@/lib/api/generated/MissingEntryDataResponse";
 
@@ -73,6 +75,10 @@ export function MissingEntryRow({
   const [includeArtist, setIncludeArtist] = useState(true);
   const [includeAlbum, setIncludeAlbum] = useState(true);
   
+  // Selection and preview state
+  const [selectedSong, setSelectedSong] = useState<Song | null>(null);
+  const preview = usePreviewAudio();
+  
   const queryClient = useQueryClient();
   
   // Mutation for matching the entry
@@ -89,6 +95,8 @@ export function MissingEntryRow({
       setRefineDialogOpen(false);
       setSearchQuery("");
       setSearchResults([]);
+      setSelectedSong(null);
+      preview.stop();
     },
     onError: (error) => {
       toast.error(`Failed to match entry: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -131,6 +139,54 @@ export function MissingEntryRow({
     }
   };
 
+  // Selection and preview handlers
+  const handleSelectSong = (song: Song) => {
+    if (selectedSong?.id === song.id) {
+      setSelectedSong(null);
+      preview.stop();
+      return;
+    }
+    // If preview was playing, auto-start the new track
+    const wasPlaying = preview.isPlaying;
+    preview.stop();
+    setSelectedSong(song);
+    if (wasPlaying) {
+      preview.play(song.id, 30);
+    }
+  };
+  
+  const handleConfirmMatch = () => {
+    if (!selectedSong) return;
+    preview.stop();
+    matchMutation.mutate(selectedSong.id);
+  };
+  
+  const handlePreviewToggle = () => {
+    if (!selectedSong) return;
+    if (preview.isPlaying) {
+      preview.pause();
+    } else {
+      preview.play(selectedSong.id, 30);
+    }
+  };
+  
+  const handleSeek = (value: number[]) => {
+    preview.seek(value[0]);
+  };
+
+  const handleVolumeChange = (value: number[]) => {
+    preview.setVolume(value[0]);
+  };
+  
+  // Handle dialog close - stop preview
+  const handleDialogOpenChange = (open: boolean) => {
+    if (!open) {
+      preview.stop();
+      setSelectedSong(null);
+    }
+    setRefineDialogOpen(open);
+  };
+
   // Initialize search query when opening
   const openRefineDialog = () => {
     const hasTitle = !!missing.title;
@@ -142,6 +198,7 @@ export function MissingEntryRow({
     setIncludeAlbum(hasAlbum);
     setSearchQuery(buildSearchQuery(hasTitle, hasArtist, hasAlbum));
     setSearchResults([]);
+    setSelectedSong(null);
     setRefineDialogOpen(true);
   };
 
@@ -298,12 +355,12 @@ export function MissingEntryRow({
       </ContextMenu>
 
       {/* Refine Match Dialog */}
-      <Dialog open={refineDialogOpen} onOpenChange={setRefineDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+      <Dialog open={refineDialogOpen} onOpenChange={handleDialogOpenChange}>
+        <DialogContent className="sm:max-w-[600px] overflow-hidden">
           <DialogHeader>
             <DialogTitle>Find matching track</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-3 min-w-0">
             {/* Quick field toggles */}
             <div className="flex flex-wrap gap-3 pb-2 border-b">
               {missing.title && (
@@ -382,29 +439,91 @@ export function MissingEntryRow({
 
             {searchResults.length > 0 && (
               <div 
-                className="h-[200px] rounded border overflow-y-auto"
+                className="h-[200px] max-w-full rounded border overflow-y-auto overflow-x-hidden"
                 onWheel={(e) => e.stopPropagation()}
               >
                 <div className="p-1">
-                  {searchResults.map((song) => (
-                    <button
-                      key={song.id}
-                      className="w-full text-left p-2 rounded hover:bg-accent text-sm flex items-center gap-2"
-                      onClick={() => matchMutation.mutate(song.id)}
-                      disabled={matchMutation.isPending}
-                    >
-                      <Music className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium truncate">{song.title}</div>
-                        <div className="text-muted-foreground text-xs truncate">
-                          {song.artist}{song.album ? ` • ${song.album}` : ""}
+                  {searchResults.map((song) => {
+                    const isSelectedSong = selectedSong?.id === song.id;
+                    return (
+                      <button
+                        key={song.id}
+                        className={cn(
+                          "w-full text-left p-2 rounded text-sm flex items-center gap-2 overflow-hidden",
+                          isSelectedSong ? "bg-primary/10 ring-1 ring-primary" : "hover:bg-accent"
+                        )}
+                        onClick={() => handleSelectSong(song)}
+                      >
+                        {isSelectedSong ? (
+                          <CheckCircle className="w-4 h-4 shrink-0 text-primary" />
+                        ) : (
+                          <Music className="w-4 h-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <div className="min-w-0 flex-1 overflow-hidden">
+                          <div className="font-medium truncate">{song.title}</div>
+                          <div className="text-muted-foreground text-xs truncate">
+                            {song.artist}{song.album ? ` • ${song.album}` : ""}
+                          </div>
                         </div>
-                      </div>
-                      {matchMutation.isPending && (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      )}
-                    </button>
-                  ))}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            
+            {/* Preview controls for selected song */}
+            {selectedSong && (
+              <div className="pt-2 border-t space-y-2">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={handlePreviewToggle}
+                    disabled={preview.isLoading}
+                  >
+                    {preview.isLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : preview.isPlaying ? (
+                      <Pause className="w-4 h-4" />
+                    ) : (
+                      <Play className="w-4 h-4" />
+                    )}
+                  </Button>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{selectedSong.title}</div>
+                    <Slider
+                      value={[preview.progress]}
+                      onValueChange={handleSeek}
+                      max={100}
+                      step={0.1}
+                      className="cursor-pointer"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Volume2 className="w-3.5 h-3.5 text-muted-foreground" />
+                    <Slider
+                      value={[preview.volume]}
+                      onValueChange={handleVolumeChange}
+                      max={100}
+                      step={1}
+                      className="w-16 cursor-pointer"
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={handleConfirmMatch}
+                    disabled={matchMutation.isPending}
+                    className="shrink-0"
+                  >
+                    {matchMutation.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5 mr-1" />
+                    )}
+                    Use
+                  </Button>
                 </div>
               </div>
             )}
@@ -417,9 +536,9 @@ export function MissingEntryRow({
 
             {/* Original raw text */}
             {missing.raw && (
-              <div className="text-xs text-muted-foreground pt-2 border-t">
+              <div className="text-xs text-muted-foreground pt-2 border-t overflow-hidden">
                 <span className="font-medium">Original entry:</span>{" "}
-                <span className="font-mono">{missing.raw}</span>
+                <span className="font-mono break-all">{missing.raw}</span>
               </div>
             )}
           </div>
@@ -497,8 +616,10 @@ export function MissingEntryCard({
   const [includeTitle, setIncludeTitle] = useState(true);
   const [includeArtist, setIncludeArtist] = useState(true);
   const [includeAlbum, setIncludeAlbum] = useState(true);
+  const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   
   const queryClient = useQueryClient();
+  const preview = usePreviewAudio();
   
   // Mutation for matching the entry
   const matchMutation = useMutation({
@@ -513,6 +634,8 @@ export function MissingEntryCard({
       setRefineDialogOpen(false);
       setSearchQuery("");
       setSearchResults([]);
+      setSelectedSong(null);
+      preview.stop();
     },
     onError: (error) => {
       toast.error(`Failed to match entry: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -562,7 +685,52 @@ export function MissingEntryCard({
     setIncludeAlbum(hasAlbum);
     setSearchQuery(buildSearchQuery(hasTitle, hasArtist, hasAlbum));
     setSearchResults([]);
+    setSelectedSong(null);
     setRefineDialogOpen(true);
+  };
+
+  const handleSelectSong = (song: Song) => {
+    if (selectedSong?.id === song.id) {
+      setSelectedSong(null);
+      preview.stop();
+    } else {
+      // If preview was playing, auto-start the new track
+      const wasPlaying = preview.isPlaying;
+      preview.stop();
+      setSelectedSong(song);
+      if (wasPlaying) {
+        preview.play(song.id, 30);
+      }
+    }
+  };
+
+  const handleConfirmMatch = () => {
+    if (selectedSong) {
+      matchMutation.mutate(selectedSong.id);
+    }
+  };
+
+  const handlePreviewToggle = () => {
+    if (selectedSong) {
+      preview.toggle();
+    }
+  };
+
+  const handleSeek = (values: number[]) => {
+    const newPosition = values[0];
+    preview.seek(newPosition);
+  };
+
+  const handleVolumeChange = (values: number[]) => {
+    preview.setVolume(values[0]);
+  };
+
+  const handleDialogOpenChange = (open: boolean) => {
+    if (!open) {
+      preview.stop();
+      setSelectedSong(null);
+    }
+    setRefineDialogOpen(open);
   };
 
   const entryId = `missing-${position}`;
@@ -706,12 +874,12 @@ export function MissingEntryCard({
       </ContextMenu>
 
       {/* Refine Match Dialog */}
-      <Dialog open={refineDialogOpen} onOpenChange={setRefineDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+      <Dialog open={refineDialogOpen} onOpenChange={handleDialogOpenChange}>
+        <DialogContent className="sm:max-w-[600px] overflow-hidden">
           <DialogHeader>
             <DialogTitle>Find matching track</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-3 min-w-0">
             <div className="flex flex-wrap gap-3 pb-2 border-b">
               {missing.title && (
                 <div className="flex items-center space-x-1.5">
@@ -789,29 +957,91 @@ export function MissingEntryCard({
 
             {searchResults.length > 0 && (
               <div 
-                className="h-[200px] rounded border overflow-y-auto"
+                className="h-[200px] max-w-full rounded border overflow-y-auto overflow-x-hidden"
                 onWheel={(e) => e.stopPropagation()}
               >
                 <div className="p-1">
-                  {searchResults.map((song) => (
-                    <button
-                      key={song.id}
-                      className="w-full text-left p-2 rounded hover:bg-accent text-sm flex items-center gap-2"
-                      onClick={() => matchMutation.mutate(song.id)}
-                      disabled={matchMutation.isPending}
-                    >
-                      <Music className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium truncate">{song.title}</div>
-                        <div className="text-muted-foreground text-xs truncate">
-                          {song.artist}{song.album ? ` • ${song.album}` : ""}
+                  {searchResults.map((song) => {
+                    const isSelectedSong = selectedSong?.id === song.id;
+                    return (
+                      <button
+                        key={song.id}
+                        className={cn(
+                          "w-full text-left p-2 rounded text-sm flex items-center gap-2 overflow-hidden",
+                          isSelectedSong ? "bg-primary/10 ring-1 ring-primary" : "hover:bg-accent"
+                        )}
+                        onClick={() => handleSelectSong(song)}
+                      >
+                        {isSelectedSong ? (
+                          <CheckCircle className="w-4 h-4 shrink-0 text-primary" />
+                        ) : (
+                          <Music className="w-4 h-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <div className="min-w-0 flex-1 overflow-hidden">
+                          <div className="font-medium truncate">{song.title}</div>
+                          <div className="text-muted-foreground text-xs truncate">
+                            {song.artist}{song.album ? ` • ${song.album}` : ""}
+                          </div>
                         </div>
-                      </div>
-                      {matchMutation.isPending && (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      )}
-                    </button>
-                  ))}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Preview controls for selected song */}
+            {selectedSong && (
+              <div className="pt-2 border-t space-y-2">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={handlePreviewToggle}
+                    disabled={preview.isLoading}
+                  >
+                    {preview.isLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : preview.isPlaying ? (
+                      <Pause className="w-4 h-4" />
+                    ) : (
+                      <Play className="w-4 h-4" />
+                    )}
+                  </Button>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{selectedSong.title}</div>
+                    <Slider
+                      value={[preview.progress]}
+                      onValueChange={handleSeek}
+                      max={100}
+                      step={0.1}
+                      className="cursor-pointer"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Volume2 className="w-3.5 h-3.5 text-muted-foreground" />
+                    <Slider
+                      value={[preview.volume]}
+                      onValueChange={handleVolumeChange}
+                      max={100}
+                      step={1}
+                      className="w-16 cursor-pointer"
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={handleConfirmMatch}
+                    disabled={matchMutation.isPending}
+                    className="shrink-0"
+                  >
+                    {matchMutation.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5 mr-1" />
+                    )}
+                    Use
+                  </Button>
                 </div>
               </div>
             )}
@@ -823,9 +1053,9 @@ export function MissingEntryCard({
             )}
 
             {missing.raw && (
-              <div className="text-xs text-muted-foreground pt-2 border-t">
+              <div className="text-xs text-muted-foreground pt-2 border-t overflow-hidden">
                 <span className="font-medium">Original entry:</span>{" "}
-                <span className="font-mono">{missing.raw}</span>
+                <span className="font-mono break-all">{missing.raw}</span>
               </div>
             )}
           </div>

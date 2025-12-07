@@ -660,11 +660,12 @@ pub async fn match_missing_entry(
         ));
     };
 
-    // Only allow matching if this is a missing entry
-    if song_id.is_some() && missing_data.is_none() {
+    // Only allow matching if this entry has missing_entry_data (either unmatched or previously matched)
+    // This allows re-matching songs that were incorrectly matched
+    if missing_data.is_none() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(super::ErrorResponse::new("Entry is already matched")),
+            Json(super::ErrorResponse::new("Entry has no missing data to match")),
         ));
     }
 
@@ -995,44 +996,45 @@ pub async fn import_playlist(
     let entries: Vec<PlaylistEntry> = request
         .entries
         .into_iter()
-        .map(|entry| {
+        .filter_map(|entry| {
+            // Parse missing data if present (used for refine match later)
+            let missing_data = entry.missing.map(|m| {
+                let search_text = build_missing_search_text(
+                    m.artist.as_deref(),
+                    m.album.as_deref(),
+                    m.title.as_deref(),
+                    &m.raw,
+                );
+                (MissingEntryData {
+                    title: m.title,
+                    artist: m.artist,
+                    album: m.album,
+                    duration: m.duration,
+                    raw: m.raw,
+                }, search_text)
+            });
+            
             if let Some(song_id) = entry.song_id {
                 matched_count += 1;
-                PlaylistEntry {
+                // Store missing data even for matched tracks so they can be refined later
+                Some(PlaylistEntry {
                     song_id: Some(song_id),
-                    missing_entry_data: None,
+                    missing_entry_data: missing_data.as_ref().map(|(d, _)| d.clone()),
+                    // Don't store search text for matched entries (not needed for filtering)
                     missing_search_text: None,
-                }
-            } else if let Some(missing) = entry.missing {
+                })
+            } else if let Some((data, search_text)) = missing_data {
                 missing_count += 1;
-                // Build search text from missing entry fields
-                let search_text = build_missing_search_text(
-                    missing.artist.as_deref(),
-                    missing.album.as_deref(),
-                    missing.title.as_deref(),
-                    &missing.raw,
-                );
-                PlaylistEntry {
+                Some(PlaylistEntry {
                     song_id: None,
-                    missing_entry_data: Some(MissingEntryData {
-                        title: missing.title,
-                        artist: missing.artist,
-                        album: missing.album,
-                        duration: missing.duration,
-                        raw: missing.raw,
-                    }),
+                    missing_entry_data: Some(data),
                     missing_search_text: Some(search_text),
-                }
+                })
             } else {
                 // Skip empty entries
-                PlaylistEntry {
-                    song_id: None,
-                    missing_entry_data: None,
-                    missing_search_text: None,
-                }
+                None
             }
         })
-        .filter(|e| e.song_id.is_some() || e.missing_entry_data.is_some())
         .collect();
 
     // Add entries to the playlist
@@ -1235,7 +1237,8 @@ pub async fn get_playlist_songs(
     // Count totals
     let total_entries = entries_raw.len() as i64;
     let matched_count = entries_raw.iter().filter(|(_, sid, _, _)| sid.is_some()).count() as i64;
-    let missing_count = entries_raw.iter().filter(|(_, _, md, _)| md.is_some()).count() as i64;
+    // Only count as "missing" if there's no song_id (truly unmatched entries)
+    let missing_count = entries_raw.iter().filter(|(_, sid, md, _)| sid.is_none() && md.is_some()).count() as i64;
 
     // Get all song IDs that are not null
     let song_ids: Vec<String> = entries_raw
@@ -1271,27 +1274,27 @@ pub async fn get_playlist_songs(
     // Build unified entry list with position info
     #[derive(Clone)]
     enum EntryData {
-        Song { position: i64, song: crate::db::models::Song },
+        Song { position: i64, song: crate::db::models::Song, missing_data: Option<MissingEntryData> },
         Missing { position: i64, data: MissingEntryData },
     }
 
     let mut unified_entries: Vec<EntryData> = entries_raw
         .into_iter()
         .filter_map(|(position, song_id, missing_json, _missing_search_text)| {
+            // Parse missing data if present
+            let missing_data = missing_json.as_ref()
+                .and_then(|json| serde_json::from_str::<MissingEntryData>(json).ok());
+            
             if let Some(sid) = song_id {
-                // Matched song
+                // Matched song - include the missing_data so UI can show "Refine Match" option
                 if let Some(song) = song_map.get(&sid) {
-                    Some(EntryData::Song { position, song: song.clone() })
+                    Some(EntryData::Song { position, song: song.clone(), missing_data })
                 } else {
                     None // Song was deleted?
                 }
-            } else if let Some(json) = missing_json {
+            } else if let Some(data) = missing_data {
                 // Missing entry
-                if let Ok(data) = serde_json::from_str::<MissingEntryData>(&json) {
-                    Some(EntryData::Missing { position, data })
-                } else {
-                    None
-                }
+                Some(EntryData::Missing { position, data })
             } else {
                 None // Empty entry?
             }
@@ -1372,11 +1375,17 @@ pub async fn get_playlist_songs(
     let entries: Vec<PlaylistSongEntry> = page_entries
         .into_iter()
         .map(|entry| match entry {
-            EntryData::Song { position, song } => PlaylistSongEntry {
+            EntryData::Song { position, song, missing_data } => PlaylistSongEntry {
                 position: position as i32,
                 entry_type: "song".to_string(),
                 song: Some(song_to_response(song, None, None, None)),
-                missing: None,
+                missing: missing_data.map(|data| MissingEntryDataResponse {
+                    title: data.title,
+                    artist: data.artist,
+                    album: data.album,
+                    duration: data.duration,
+                    raw: data.raw,
+                }),
             },
             EntryData::Missing { position, data } => PlaylistSongEntry {
                 position: position as i32,
@@ -1490,7 +1499,10 @@ pub async fn get_playlist_entries(
             
             let missing = if let Some(data_str) = missing_data {
                 if let Ok(data) = serde_json::from_str::<MissingEntryData>(&data_str) {
-                    missing_count += 1;
+                    // Only count as missing if there's no song_id (truly unmatched)
+                    if song_id.is_none() {
+                        missing_count += 1;
+                    }
                     Some(MissingEntryDataResponse {
                         title: data.title,
                         artist: data.artist,

@@ -53,17 +53,19 @@ import { MoveToPositionDialog } from "@/components/shared/move-to-position-dialo
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
 import { MissingEntryRow, MissingEntryCard } from "@/components/playlists/missing-entry-row";
+import { RefineMatchDialog } from "@/components/playlists/refine-match-dialog";
 import { MassResolveDialog } from "@/components/playlists/mass-resolve-dialog";
 import { formatCount, formatDate, formatTotalDuration } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 import type { PlaylistSongEntry } from "@/lib/api/generated/PlaylistSongEntry";
+import type { MissingEntryDataResponse } from "@/lib/api/generated/MissingEntryDataResponse";
 
 const PAGE_SIZE = 50;
 
 // Display item types for rendering
 type DisplayItem = 
-  | { type: "song"; song: Song; position: number }
+  | { type: "song"; song: Song; position: number; missing?: MissingEntryDataResponse | null }
   | { type: "missing"; entry: PlaylistSongEntry; position: number };
 
 function PlaylistDetailContent() {
@@ -83,6 +85,11 @@ function PlaylistDetailContent() {
   const [massResolveDialogOpen, setMassResolveDialogOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveDialogItem, setMoveDialogItem] = useState<{ name: string; position: number } | null>(null);
+  const [refineMatchDialogOpen, setRefineMatchDialogOpen] = useState(false);
+  const [refineMatchItem, setRefineMatchItem] = useState<{ 
+    position: number; 
+    missing: MissingEntryDataResponse;
+  } | null>(null);
   const [filter, setFilter] = useState("");
   // Track selected missing entry IDs separately (format: "missing-{position}")
   const [selectedMissingIds, setSelectedMissingIds] = useState<Set<string>>(new Set());
@@ -145,6 +152,7 @@ function PlaylistDetailContent() {
         type: "song" as const,
         song: entry.song as Song,
         position: entry.position,
+        missing: entry.missing,
       };
     } else {
       return {
@@ -291,6 +299,21 @@ function PlaylistDetailContent() {
   const handleMissingMoveToPosition = useCallback((name: string, position: number) => {
     handleMoveToPosition({ name, position });
   }, [handleMoveToPosition]);
+
+  // Handler for refine match (for songs that have associated missing data)
+  const handleRefineMatch = useCallback((song: Song, index: number) => {
+    // Find the display item to get the missing data
+    const item = displayItemsRef.current.find(
+      (i) => i.type === "song" && i.song.id === song.id && i.position === index
+    );
+    if (!item || item.type !== "song" || !item.missing) return;
+    
+    setRefineMatchItem({
+      position: index,
+      missing: item.missing,
+    });
+    setRefineMatchDialogOpen(true);
+  }, []);
 
   const handleMoveItem = useCallback(async (newPosition: number) => {
     if (!moveDialogItem) return;
@@ -810,6 +833,8 @@ function PlaylistDetailContent() {
                     isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(songItem.position, songItem.song.id) : undefined}
                     showMoveToPosition={sortConfig.field === "custom"}
                     onMoveToPosition={handleSongMoveToPosition}
+                    showRefineMatch={!!songItem.missing}
+                    onRefineMatch={handleRefineMatch}
                   />
                 );
               }}
@@ -867,6 +892,8 @@ function PlaylistDetailContent() {
                     isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(songItem.position, songItem.song.id) : undefined}
                     showMoveToPosition={sortConfig.field === "custom"}
                     onMoveToPosition={handleSongMoveToPosition}
+                    showRefineMatch={!!songItem.missing}
+                    onRefineMatch={handleRefineMatch}
                   />
                 );
               }}
@@ -994,6 +1021,17 @@ function PlaylistDetailContent() {
           totalCount={totalEntries}
           itemName={moveDialogItem.name}
           onMove={handleMoveItem}
+        />
+      )}
+
+      {/* Refine match dialog */}
+      {refineMatchItem && playlistId && (
+        <RefineMatchDialog
+          open={refineMatchDialogOpen}
+          onOpenChange={setRefineMatchDialogOpen}
+          playlistId={playlistId}
+          position={refineMatchItem.position}
+          missing={refineMatchItem.missing}
         />
       )}
     </div>

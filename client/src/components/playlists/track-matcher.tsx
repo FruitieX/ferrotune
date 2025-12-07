@@ -10,6 +10,10 @@ import {
   Music,
   Loader2,
   RefreshCw,
+  Play,
+  Pause,
+  CheckCircle,
+  Volume2,
 } from "lucide-react";
 import {
   Popover,
@@ -20,12 +24,14 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Slider } from "@/components/ui/slider";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
+import { usePreviewAudio } from "@/lib/hooks/use-preview-audio";
 
 // Parsed track info - can come from import or from missing entry data
 export interface ParsedTrackInfo {
@@ -327,6 +333,10 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
   const [includeTitle, setIncludeTitle] = useState(true);
   const [includeArtist, setIncludeArtist] = useState(true);
   const [includeAlbum, setIncludeAlbum] = useState(true);
+  
+  // Selection and preview state
+  const [selectedSong, setSelectedSong] = useState<Song | null>(null);
+  const preview = usePreviewAudio();
 
   // Build search query from selected fields in "artist - album - title" format
   const buildSearchQuery = (title: boolean, artist: boolean, album: boolean) => {
@@ -338,23 +348,16 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
     return parts.join(" - ").trim() || track.parsed.raw || "";
   };
 
-  // Update search query when toggles change
-  const updateSearchFromToggles = (title: boolean, artist: boolean, album: boolean) => {
-    setIncludeTitle(title);
-    setIncludeArtist(artist);
-    setIncludeAlbum(album);
-    setSearchQuery(buildSearchQuery(title, artist, album));
-  };
-
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
+  // Perform search
+  const doSearch = async (query: string) => {
+    if (!query.trim()) return;
     
     setIsSearching(true);
     try {
       const client = getClient();
       if (!client) return;
       
-      const response = await client.search3({ query: searchQuery.trim(), songCount: 20 });
+      const response = await client.search3({ query: query.trim(), songCount: 20 });
       setSearchResults(response.searchResult3?.song ?? []);
     } catch (error) {
       console.error("Search error:", error);
@@ -364,11 +367,70 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
     }
   };
 
-  const handleSelectMatch = (song: Song) => {
-    onUpdateMatch(index, song, 1); // Manual selection = 100% match
+  // Update search query when toggles change and auto-search
+  const updateSearchFromToggles = (title: boolean, artist: boolean, album: boolean) => {
+    setIncludeTitle(title);
+    setIncludeArtist(artist);
+    setIncludeAlbum(album);
+    const newQuery = buildSearchQuery(title, artist, album);
+    setSearchQuery(newQuery);
+    doSearch(newQuery);
+  };
+
+  const handleSelectSong = (song: Song) => {
+    // If clicking the already selected song, deselect it
+    if (selectedSong?.id === song.id) {
+      setSelectedSong(null);
+      preview.stop();
+      return;
+    }
+    
+    // If preview was playing, auto-start the new track
+    const wasPlaying = preview.isPlaying;
+    preview.stop();
+    setSelectedSong(song);
+    if (wasPlaying) {
+      preview.play(song.id, 30);
+    }
+  };
+  
+  const handleConfirmMatch = () => {
+    if (!selectedSong) return;
+    // Stop preview when confirming
+    preview.stop();
+    onUpdateMatch(index, selectedSong, 1); // Manual selection = 100% match
     setSearchOpen(false);
     setSearchQuery("");
     setSearchResults([]);
+    setSelectedSong(null);
+  };
+  
+  const handlePreviewToggle = () => {
+    if (!selectedSong) return;
+    
+    if (preview.isPlaying) {
+      preview.pause();
+    } else {
+      // Start/resume preview at 30%
+      preview.play(selectedSong.id, 30);
+    }
+  };
+  
+  const handleSeek = (value: number[]) => {
+    preview.seek(value[0]);
+  };
+
+  const handleVolumeChange = (value: number[]) => {
+    preview.setVolume(value[0]);
+  };
+  
+  // Handle popover close - stop preview
+  const handleOpenChange = (open: boolean) => {
+    if (!open) {
+      preview.stop();
+      setSelectedSong(null);
+    }
+    setSearchOpen(open);
   };
 
   const handleClearMatch = () => {
@@ -376,7 +438,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
     setSearchOpen(false);
   };
 
-  // Initialize search query with all available track info when opening
+  // Initialize search query with all available track info when opening and auto-search
   const openSearch = () => {
     if (track.locked) return;
     
@@ -388,9 +450,14 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
     setIncludeTitle(hasTitle);
     setIncludeArtist(hasArtist);
     setIncludeAlbum(hasAlbum);
-    setSearchQuery(buildSearchQuery(hasTitle, hasArtist, hasAlbum));
+    const initialQuery = buildSearchQuery(hasTitle, hasArtist, hasAlbum);
+    setSearchQuery(initialQuery);
     setSearchResults([]);
+    setSelectedSong(null);
     setSearchOpen(true);
+    
+    // Auto-search after opening
+    doSearch(initialQuery);
   };
 
   return (
@@ -446,7 +513,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
       )}
 
       {!track.locked && (
-        <Popover open={searchOpen} onOpenChange={setSearchOpen}>
+        <Popover open={searchOpen} onOpenChange={handleOpenChange}>
           <PopoverTrigger asChild>
             <Button 
               variant="ghost" 
@@ -457,7 +524,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
               <RefreshCw className="w-3.5 h-3.5" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-[400px] p-3" align="end">
+          <PopoverContent className="w-[500px] p-3" align="end">
             <div className="space-y-3">
               <div className="font-medium text-sm">Find alternative match</div>
               
@@ -519,13 +586,13 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      handleSearch();
+                      doSearch(searchQuery);
                     }
                   }}
                 />
                 <Button 
                   size="sm" 
-                  onClick={handleSearch}
+                  onClick={() => doSearch(searchQuery)}
                   disabled={isSearching || !searchQuery.trim()}
                   className="h-8"
                 >
@@ -539,28 +606,89 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
 
               {searchResults.length > 0 && (
                 <div 
-                  className="h-[200px] rounded border overflow-y-auto"
+                  className="h-[200px] max-w-full rounded border overflow-y-auto overflow-x-hidden"
                   onWheel={(e) => {
                     // Prevent popover from capturing wheel events
                     e.stopPropagation();
                   }}
                 >
                   <div className="p-1">
-                    {searchResults.map((song) => (
-                      <button
-                        key={song.id}
-                        className="w-full text-left p-2 rounded hover:bg-accent text-sm flex items-center gap-2"
-                        onClick={() => handleSelectMatch(song)}
-                      >
-                        <Music className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0 flex-1">
-                          <div className="font-medium truncate">{song.title}</div>
-                          <div className="text-muted-foreground text-xs truncate">
-                            {song.artist}{song.album ? ` • ${song.album}` : ""}
+                    {searchResults.map((song) => {
+                      const isSelected = selectedSong?.id === song.id;
+                      return (
+                        <button
+                          key={song.id}
+                          className={cn(
+                            "w-full text-left p-2 rounded text-sm flex items-center gap-2",
+                            isSelected ? "bg-primary/10 ring-1 ring-primary" : "hover:bg-accent"
+                          )}
+                          onClick={() => handleSelectSong(song)}
+                        >
+                          {isSelected ? (
+                            <CheckCircle className="w-4 h-4 shrink-0 text-primary" />
+                          ) : (
+                            <Music className="w-4 h-4 shrink-0 text-muted-foreground" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium truncate">{song.title}</div>
+                            <div className="text-muted-foreground text-xs truncate">
+                              {song.artist}{song.album ? ` • ${song.album}` : ""}
+                            </div>
                           </div>
-                        </div>
-                      </button>
-                    ))}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              
+              {/* Preview controls for selected song */}
+              {selectedSong && (
+                <div className="pt-2 border-t space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0"
+                      onClick={handlePreviewToggle}
+                      disabled={preview.isLoading}
+                    >
+                      {preview.isLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : preview.isPlaying ? (
+                        <Pause className="w-4 h-4" />
+                      ) : (
+                        <Play className="w-4 h-4" />
+                      )}
+                    </Button>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{selectedSong.title}</div>
+                      <Slider
+                        value={[preview.progress]}
+                        onValueChange={handleSeek}
+                        max={100}
+                        step={0.1}
+                        className="cursor-pointer"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Volume2 className="w-3.5 h-3.5 text-muted-foreground" />
+                      <Slider
+                        value={[preview.volume]}
+                        onValueChange={handleVolumeChange}
+                        max={100}
+                        step={1}
+                        className="w-16 cursor-pointer"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={handleConfirmMatch}
+                      className="shrink-0"
+                    >
+                      <Check className="w-3.5 h-3.5 mr-1" />
+                      Use
+                    </Button>
                   </div>
                 </div>
               )}

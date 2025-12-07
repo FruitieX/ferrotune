@@ -566,9 +566,10 @@ pub async fn match_missing_entry(
     position: i32,
     song_id: &str,
 ) -> sqlx::Result<()> {
-    // Set song_id and clear the missing entry data since it's now matched
+    // Set song_id but preserve missing_entry_data so we can re-match if needed
+    // Only clear missing_search_text since we no longer need to search for it
     sqlx::query(
-        "UPDATE playlist_songs SET song_id = ?, missing_entry_data = NULL, missing_search_text = NULL WHERE playlist_id = ? AND position = ?"
+        "UPDATE playlist_songs SET song_id = ?, missing_search_text = NULL WHERE playlist_id = ? AND position = ?"
     )
     .bind(song_id)
     .bind(playlist_id)

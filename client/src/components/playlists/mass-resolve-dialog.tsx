@@ -160,7 +160,7 @@ export function MassResolveDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
+      <DialogContent className="sm:max-w-[900px] max-h-[80vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Wand2 className="w-5 h-5" />

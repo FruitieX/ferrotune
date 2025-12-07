@@ -596,3 +596,63 @@ export const clearQueueAtom = atom(
     }
   }
 );
+
+// Stop playback and clear queue
+export const stopPlaybackAtom = atom(
+  null,
+  async (_get, set) => {
+    const client = getClient();
+    if (!client) return;
+    
+    try {
+      await client.clearServerQueue();
+      set(serverQueueStateAtom, null);
+      set(queueWindowAtom, null);
+    } catch (error) {
+      console.error("Failed to stop playback:", error);
+    }
+  }
+);
+
+// Preview a single song (starts playback at ~30% position)
+// This is used for previewing songs in the track matcher dialog
+export const previewSongAtom = atom(
+  null,
+  async (get, set, song: Song) => {
+    const client = getClient();
+    if (!client) return;
+    
+    set(isQueueOperationPendingAtom, true);
+    set(isRestoringQueueAtom, false);
+    
+    try {
+      const response = await client.startQueue({
+        sourceType: "other",
+        sourceName: `Preview: ${song.title}`,
+        songIds: [song.id],
+        startIndex: 0,
+      });
+      
+      set(serverQueueStateAtom, {
+        totalCount: response.totalCount,
+        currentIndex: response.currentIndex,
+        // Start at 30% of the song duration
+        positionMs: Math.floor((song.duration || 0) * 1000 * 0.3),
+        isShuffled: response.isShuffled,
+        repeatMode: response.repeatMode as RepeatMode,
+        source: {
+          type: "other",
+          id: null,
+          name: `Preview: ${song.title}`,
+        },
+      });
+      
+      set(queueWindowAtom, response.window);
+      set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
+    } catch (error) {
+      console.error("Failed to preview song:", error);
+    } finally {
+      set(isQueueOperationPendingAtom, false);
+    }
+  }
+);

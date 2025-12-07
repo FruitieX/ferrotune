@@ -18,6 +18,7 @@ import {
   X,
   Shuffle,
   Move,
+  RefreshCw,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -85,6 +86,10 @@ interface SongContextMenuProps {
   onMoveToPosition?: (song: Song, index: number) => void;
   /** Label for move to position action */
   moveToPositionLabel?: string;
+  /** Show "Refine Match" option (for songs that were auto-matched from playlist imports) */
+  showRefineMatch?: boolean;
+  /** Callback for refine match */
+  onRefineMatch?: (song: Song, index: number) => void;
 }
 
 export function SongContextMenu({ 
@@ -101,6 +106,8 @@ export function SongContextMenu({
   showMoveToPosition = false,
   onMoveToPosition,
   moveToPositionLabel = "Move to Position",
+  showRefineMatch = false,
+  onRefineMatch,
 }: SongContextMenuProps) {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -244,6 +251,12 @@ export function SongContextMenu({
           Remove from Playlist
         </ContextMenuItem>
       )}
+      {showRefineMatch && onRefineMatch && songIndex !== undefined && (
+        <ContextMenuItem onClick={() => onRefineMatch(song, songIndex)}>
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Refine Match
+        </ContextMenuItem>
+      )}
 
       <ContextMenuSeparator />
 
@@ -364,6 +377,10 @@ interface SongDropdownMenuProps {
   onMoveToPosition?: (song: Song, index: number) => void;
   /** Label for move to position action */
   moveToPositionLabel?: string;
+  /** Show "Refine Match" option (for songs that were auto-matched from playlist imports) */
+  showRefineMatch?: boolean;
+  /** Callback for refine match */
+  onRefineMatch?: (song: Song, index: number) => void;
 }
 
 export function SongDropdownMenu({ 
@@ -380,6 +397,8 @@ export function SongDropdownMenu({
   showMoveToPosition = false,
   onMoveToPosition,
   moveToPositionLabel = "Move to Position",
+  showRefineMatch = false,
+  onRefineMatch,
 }: SongDropdownMenuProps) {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -546,6 +565,12 @@ export function SongDropdownMenu({
             <DropdownMenuItem onClick={() => onRemoveFromPlaylist(song.id)} className="text-destructive">
               <X className="w-4 h-4 mr-2" />
               Remove from Playlist
+            </DropdownMenuItem>
+          )}
+          {showRefineMatch && onRefineMatch && songIndex !== undefined && (
+            <DropdownMenuItem onClick={() => onRefineMatch(song, songIndex)}>
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refine Match
             </DropdownMenuItem>
           )}
 
