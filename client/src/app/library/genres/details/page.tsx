@@ -161,16 +161,17 @@ function GenreDetailContent() {
   // Flatten songs from all pages - already sorted and filtered by server
   const displaySongs = songsData?.pages.flatMap((page) => page.songs) ?? [];
   
-  // Queue source for genre songs - server materializes with same sort
+  // Queue source for genre songs - server materializes with same sort/filter
   const genreQueueSource = useMemo(() => ({
     type: "genre" as QueueSourceType,
     id: genreName,
     name: genreName ?? "Genre",
+    filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
     sort: sortConfig.field !== "custom" ? {
       field: sortConfig.field,
       direction: sortConfig.direction,
     } : undefined,
-  }), [genreName, sortConfig.field, sortConfig.direction]);
+  }), [genreName, debouncedFilter, sortConfig.field, sortConfig.direction]);
   
   // Multi-selection support for songs
   const selection = useTrackSelection(displaySongs);
@@ -184,6 +185,7 @@ function GenreDetailContent() {
       sourceName: genreName,
       startIndex: 0,
       shuffle: false,
+      filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
       sort: sortConfig.field !== "custom" ? {
         field: sortConfig.field,
         direction: sortConfig.direction,
@@ -199,6 +201,7 @@ function GenreDetailContent() {
       sourceName: genreName,
       startIndex: 0,
       shuffle: true,
+      filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
       sort: sortConfig.field !== "custom" ? {
         field: sortConfig.field,
         direction: sortConfig.direction,

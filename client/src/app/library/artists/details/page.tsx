@@ -84,11 +84,12 @@ function ArtistDetailContent() {
     type: "artist" as QueueSourceType,
     id: id,
     name: artistData?.name ?? "Artist",
+    filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
     sort: sortConfig.field !== "custom" ? {
       field: sortConfig.field,
       direction: sortConfig.direction,
     } : undefined,
-  }), [id, artistData?.name, sortConfig.field, sortConfig.direction]);
+  }), [id, artistData?.name, debouncedFilter, sortConfig.field, sortConfig.direction]);
 
   // Multi-selection support for songs
   const selection = useTrackSelection(displaySongs);
@@ -119,6 +120,11 @@ function ArtistDetailContent() {
         sourceName: artistData?.name,
         startIndex: 0,
         shuffle: false,
+        filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
+        sort: sortConfig.field !== "custom" ? {
+          field: sortConfig.field,
+          direction: sortConfig.direction,
+        } : undefined,
       });
     }
   };
@@ -131,6 +137,11 @@ function ArtistDetailContent() {
         sourceName: artistData?.name,
         startIndex: 0,
         shuffle: true,
+        filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
+        sort: sortConfig.field !== "custom" ? {
+          field: sortConfig.field,
+          direction: sortConfig.direction,
+        } : undefined,
       });
     }
   };

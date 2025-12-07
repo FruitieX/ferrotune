@@ -88,16 +88,17 @@ function AlbumDetailContent() {
   // Multi-selection support
   const selection = useTrackSelection(displaySongs);
 
-  // Queue source for album songs - server materializes with same sort
+  // Queue source for album songs - server materializes with same sort/filter
   const albumQueueSource = useMemo(() => ({
     type: "album" as QueueSourceType,
     id: id,
     name: albumData?.name ?? "Album",
+    filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
     sort: sortConfig.field !== "custom" ? {
       field: sortConfig.field,
       direction: sortConfig.direction,
     } : undefined,
-  }), [id, albumData?.name, sortConfig.field, sortConfig.direction]);
+  }), [id, albumData?.name, debouncedFilter, sortConfig.field, sortConfig.direction]);
 
   const coverArtUrl = albumData?.coverArt
     ? getClient()?.getCoverArtUrl(albumData.coverArt, 400)
@@ -113,6 +114,7 @@ function AlbumDetailContent() {
         sourceName: albumData?.name,
         startIndex: 0,
         shuffle: false,
+        filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
         sort: sortConfig.field !== "custom" ? {
           field: sortConfig.field,
           direction: sortConfig.direction,
@@ -129,6 +131,7 @@ function AlbumDetailContent() {
         sourceName: albumData?.name,
         startIndex: 0,
         shuffle: true,
+        filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
         sort: sortConfig.field !== "custom" ? {
           field: sortConfig.field,
           direction: sortConfig.direction,

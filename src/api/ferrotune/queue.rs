@@ -922,15 +922,21 @@ async fn materialize_queue_songs(
 ) -> Result<Vec<crate::db::models::Song>> {
     // Parse sort params from JSON for use with non-search sources
     let (sort_field, sort_dir) = sorting::parse_sort_from_json(sort);
+    
+    // Extract text filter from filters JSON (used by artist/album/genre/playlist pages)
+    let text_filter = filters
+        .and_then(|f| f.get("filter"))
+        .and_then(|v| v.as_str());
 
     match source_type {
         QueueSourceType::Album => {
             let album_id =
                 source_id.ok_or_else(|| Error::InvalidRequest("Album ID required".to_string()))?;
             let songs = queries::get_songs_by_album(pool, album_id).await?;
-            // Apply sorting if provided (usually albums use default track order)
-            Ok(sorting::sort_songs(
+            // Apply text filtering and sorting if provided
+            Ok(sorting::filter_and_sort_songs(
                 songs,
+                text_filter,
                 sort_field.as_deref(),
                 sort_dir.as_deref(),
             ))
@@ -939,9 +945,10 @@ async fn materialize_queue_songs(
             let artist_id =
                 source_id.ok_or_else(|| Error::InvalidRequest("Artist ID required".to_string()))?;
             let songs = queries::get_songs_by_artist(pool, artist_id).await?;
-            // Apply sorting if provided (client may have sorted the song list)
-            Ok(sorting::sort_songs(
+            // Apply text filtering and sorting if provided
+            Ok(sorting::filter_and_sort_songs(
                 songs,
+                text_filter,
                 sort_field.as_deref(),
                 sort_dir.as_deref(),
             ))
@@ -950,9 +957,10 @@ async fn materialize_queue_songs(
             let playlist_id = source_id
                 .ok_or_else(|| Error::InvalidRequest("Playlist ID required".to_string()))?;
             let songs = queries::get_playlist_songs(pool, playlist_id).await?;
-            // Apply sorting if provided (playlists usually have custom order)
-            Ok(sorting::sort_songs(
+            // Apply text filtering and sorting if provided
+            Ok(sorting::filter_and_sort_songs(
                 songs,
+                text_filter,
                 sort_field.as_deref(),
                 sort_dir.as_deref(),
             ))
@@ -961,26 +969,34 @@ async fn materialize_queue_songs(
             let genre =
                 source_id.ok_or_else(|| Error::InvalidRequest("Genre required".to_string()))?;
             let songs = queries::get_songs_by_genre(pool, genre).await?;
-            // Apply sorting if provided
-            Ok(sorting::sort_songs(
+            // Apply text filtering and sorting if provided
+            Ok(sorting::filter_and_sort_songs(
                 songs,
+                text_filter,
                 sort_field.as_deref(),
                 sort_dir.as_deref(),
             ))
         }
         QueueSourceType::Favorites => {
             let songs = queries::get_starred_songs(pool, user_id).await?;
-            // Apply sorting if provided
-            Ok(sorting::sort_songs(
+            // Apply text filtering and sorting if provided
+            Ok(sorting::filter_and_sort_songs(
                 songs,
+                text_filter,
                 sort_field.as_deref(),
                 sort_dir.as_deref(),
             ))
         }
         QueueSourceType::Library | QueueSourceType::Search => {
             // For library/search, use the search function with filters and sort
-            // source_id is used as the search query (empty or "*" for library)
-            let query = source_id.unwrap_or("*");
+            // The query can come from either source_id or filters.query
+            // (client uses filters.query for search results, source_id for library filtering)
+            let query_from_filters = filters
+                .and_then(|f| f.get("query"))
+                .and_then(|v| v.as_str());
+            let query = query_from_filters
+                .or(source_id)
+                .unwrap_or("*");
 
             // Parse filters and sort from JSON into SearchParams
             let search_params = build_search_params_from_json(filters, sort);

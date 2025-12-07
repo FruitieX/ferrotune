@@ -312,16 +312,17 @@ function PlaylistDetailContent() {
     }
   }, [moveDialogItem, playlistId, queryClient]);
 
-  // Queue source for playlist - server materializes with same sort
+  // Queue source for playlist - server materializes with same sort/filter
   const playlistQueueSource = useMemo(() => ({
     type: "playlist" as const,
     id: playlistId,
     name: playlist?.name ?? "Playlist",
+    filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
     sort: sortConfig.field !== "custom" ? {
       field: sortConfig.field,
       direction: sortConfig.direction,
     } : undefined,
-  }), [playlistId, playlist?.name, sortConfig.field, sortConfig.direction]);
+  }), [playlistId, playlist?.name, debouncedFilter, sortConfig.field, sortConfig.direction]);
 
   // Check if a song at a given index is the currently playing track
   // This handles playlists with duplicate songs by comparing the queue position
@@ -569,6 +570,11 @@ function PlaylistDetailContent() {
         sourceType: "playlist",
         sourceId: playlistId ?? undefined,
         sourceName: displayName,
+        filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
+        sort: sortConfig.field !== "custom" ? {
+          field: sortConfig.field,
+          direction: sortConfig.direction,
+        } : undefined,
       });
     }
   };
@@ -580,6 +586,11 @@ function PlaylistDetailContent() {
         sourceId: playlistId ?? undefined,
         sourceName: displayName,
         shuffle: true,
+        filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
+        sort: sortConfig.field !== "custom" ? {
+          field: sortConfig.field,
+          direction: sortConfig.direction,
+        } : undefined,
       });
     }
   };
