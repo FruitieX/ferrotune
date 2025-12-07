@@ -188,7 +188,7 @@ export default function ProfilePage() {
                 </CardDescription>
               </div>
               <Link href="/review">
-                <Button variant="outline" size="sm" className="gap-2">
+                <Button size="sm" className="gap-2 bg-primary hover:bg-primary/80">
                   <TrendingUp className="w-4 h-4" />
                   Your Review
                 </Button>

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback, Suspense } from "react";
-import { useAtom } from "jotai";
+import { useState, useMemo, useCallback, useRef, Suspense } from "react";
+import { useAtom, useSetAtom } from "jotai";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -23,6 +23,7 @@ import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { usePlaylistSelection } from "@/lib/hooks/use-playlist-selection";
+import { startQueueAtom } from "@/lib/store/server-queue";
 import { playlistsViewModeAtom, playlistsSortAtom, playlistsColumnVisibilityAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -67,6 +68,9 @@ function PlaylistsPageContent() {
   const [viewMode, setViewMode] = useAtom(playlistsViewModeAtom);
   const [sortConfig, setSortConfig] = useAtom(playlistsSortAtom);
   const [columnVisibility, setColumnVisibility] = useAtom(playlistsColumnVisibilityAtom);
+  
+  // Queue management for play button
+  const startQueue = useSetAtom(startQueueAtom);
   
   // DnD sensors
   const sensors = useSensors(
@@ -209,6 +213,22 @@ function PlaylistsPageContent() {
     const filtered = filterPlaylists(folderItems.playlists, debouncedFilter);
     return sortPlaylists(filtered, sortConfig.field, sortConfig.direction);
   }, [folderItems.playlists, debouncedFilter, sortConfig]);
+
+  // Ref for displayPlaylists to make callbacks stable
+  const displayPlaylistsRef = useRef(displayPlaylists);
+  displayPlaylistsRef.current = displayPlaylists;
+
+  // Play playlist handler - accepts id for stable callback reference
+  const handlePlayPlaylist = useCallback((id: string) => {
+    const playlist = displayPlaylistsRef.current.find(p => p.id === id);
+    if (playlist) {
+      startQueue({
+        sourceType: "playlist",
+        sourceId: playlist.id,
+        sourceName: getPlaylistDisplayName(playlist),
+      });
+    }
+  }, [startQueue]);
 
   // Filter folders
   const displayFolders = useMemo(() => {
@@ -442,6 +462,7 @@ function PlaylistsPageContent() {
                       isSelected={isSelected(item.data.id)}
                       isSelectionMode={hasSelection}
                       onSelect={(e) => handleSelect(item.data.id, e)}
+                      onPlay={() => handlePlayPlaylist(item.data.id)}
                     />
                   )
                 }
@@ -471,6 +492,7 @@ function PlaylistsPageContent() {
                       isSelected={isSelected(item.data.id)}
                       isSelectionMode={hasSelection}
                       onSelect={(e) => handleSelect(item.data.id, e)}
+                      onPlay={() => handlePlayPlaylist(item.data.id)}
                       columnVisibility={columnVisibility}
                     />
                   )
@@ -705,9 +727,10 @@ interface DraggablePlaylistGridCardProps {
   isSelected: boolean;
   isSelectionMode: boolean;
   onSelect: (e: React.MouseEvent) => void;
+  onPlay?: () => void;
 }
 
-function DraggablePlaylistGridCard({ playlist, isSelected, isSelectionMode, onSelect }: DraggablePlaylistGridCardProps) {
+function DraggablePlaylistGridCard({ playlist, isSelected, isSelectionMode, onSelect, onPlay }: DraggablePlaylistGridCardProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `playlist-${playlist.id}`,
   });
@@ -737,6 +760,7 @@ function DraggablePlaylistGridCard({ playlist, isSelected, isSelectionMode, onSe
         isSelected={isSelected}
         isSelectionMode={isSelectionMode}
         onSelect={onSelect}
+        onPlay={onPlay}
         dropdownMenu={<PlaylistDropdownMenu playlist={playlist} />}
         contextMenu={(children) => (
           <PlaylistContextMenu playlist={playlist}>{children}</PlaylistContextMenu>
@@ -753,6 +777,7 @@ interface DraggablePlaylistListRowProps {
   isSelected: boolean;
   isSelectionMode: boolean;
   onSelect: (e: React.MouseEvent) => void;
+  onPlay?: () => void;
   columnVisibility: {
     songCount: boolean;
     duration: boolean;
@@ -761,7 +786,7 @@ interface DraggablePlaylistListRowProps {
   };
 }
 
-function DraggablePlaylistListRow({ playlist, index, isSelected, isSelectionMode, onSelect, columnVisibility }: DraggablePlaylistListRowProps) {
+function DraggablePlaylistListRow({ playlist, index, isSelected, isSelectionMode, onSelect, onPlay, columnVisibility }: DraggablePlaylistListRowProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `playlist-${playlist.id}`,
   });
@@ -788,6 +813,7 @@ function DraggablePlaylistListRow({ playlist, index, isSelected, isSelectionMode
         isSelected={isSelected}
         isSelectionMode={isSelectionMode}
         onSelect={onSelect}
+        onPlay={onPlay}
         actions={<PlaylistDropdownMenu playlist={playlist} inline />}
         rightContent={
           <div className="flex items-center gap-6 text-sm text-muted-foreground">

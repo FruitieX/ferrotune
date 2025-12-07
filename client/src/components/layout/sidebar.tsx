@@ -25,11 +25,9 @@ import {
   User,
   Music,
   Tag,
-  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useHydrated } from "@/lib/hooks/use-hydrated";
-import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -81,7 +79,6 @@ export function Sidebar() {
   const [playlistsExpanded, setPlaylistsExpanded] = useAtom(playlistsSidebarExpandedAtom);
   const [libraryExpanded, setLibraryExpanded] = useAtom(librarySidebarExpandedAtom);
   const [expandedFolders, setExpandedFolders] = useAtom(expandedPlaylistFoldersAtom);
-  const { isAdmin } = useCurrentUser();
 
   // Fetch playlists
   const { data: playlists, isLoading: playlistsLoading } = useQuery({
@@ -452,23 +449,6 @@ export function Sidebar() {
             {!collapsed && <span className="truncate whitespace-nowrap">Settings</span>}
           </Button>
         </Link>
-
-        {/* Admin link (only for admin users) */}
-        {isAdmin && (
-          <Link href="/admin">
-            <Button
-              variant="ghost"
-              className={cn(
-                "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent overflow-hidden",
-                pathname.startsWith("/admin") && "bg-sidebar-accent text-sidebar-primary font-semibold",
-                collapsed && "justify-center px-0"
-              )}
-            >
-              <Shield className={cn("w-5 h-5 shrink-0", pathname.startsWith("/admin") && "text-sidebar-primary")} />
-              {!collapsed && <span className="truncate whitespace-nowrap">Administration</span>}
-            </Button>
-          </Link>
-        )}
 
         {/* Collapse Toggle */}
         <Button

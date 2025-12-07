@@ -224,7 +224,7 @@ export function FullscreenPlayer() {
 
               <Button
                 size="icon"
-                className="rounded-full w-16 h-16 bg-primary hover:bg-primary/90"
+                className="rounded-full w-16 h-16 bg-primary hover:bg-primary/80"
                 onClick={togglePlayPause}
               >
                 {playbackState === "playing" ? (

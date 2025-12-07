@@ -27,6 +27,7 @@ import {
   Clock,
   PlayCircle,
   Activity,
+  Shield,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
@@ -247,6 +248,35 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </motion.div>
+
+        {/* Administration (admin only) */}
+        {isAdmin && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.12 }}
+          >
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Shield className="w-5 h-5" />
+                    Server Administration
+                  </CardTitle>
+                  <CardDescription>
+                    Manage users, libraries, and server settings
+                  </CardDescription>
+                </div>
+                <Link href="/admin">
+                  <Button size="sm" className="gap-2 bg-primary hover:bg-primary/80">
+                    <Shield className="w-4 h-4" />
+                    Administration
+                  </Button>
+                </Link>
+              </CardHeader>
+            </Card>
+          </motion.div>
+        )}
 
         {/* Library Statistics */}
         <motion.div

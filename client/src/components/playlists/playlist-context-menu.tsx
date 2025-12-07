@@ -278,7 +278,7 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
             >
               Delete
             </AlertDialogAction>
@@ -519,7 +519,7 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
             >
               Delete
             </AlertDialogAction>

@@ -57,7 +57,7 @@ export function ImportPlaylistDialog({ open, onOpenChange }: ImportPlaylistDialo
     useArtist: true,
     useAlbum: false,
   });
-  const [includeMissing, setIncludeMissing] = useState(false);
+  const [includeMissing, setIncludeMissing] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const { matchTracks, cancel: cancelMatching } = useTrackMatcher();
