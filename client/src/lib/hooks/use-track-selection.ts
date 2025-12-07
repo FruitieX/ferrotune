@@ -31,6 +31,11 @@ interface UseItemSelectionOptions {
    * Required when totalCount is provided.
    */
   searchParams?: Partial<SearchParams>;
+  /**
+   * Callback invoked when selection is cleared (e.g., via Escape key).
+   * Useful for clearing related state that's not managed by the hook.
+   */
+  onClear?: () => void;
 }
 
 /**
@@ -41,7 +46,7 @@ export function useItemSelection<T extends SelectableItem>(
   items: T[],
   options: UseItemSelectionOptions = {}
 ) {
-  const { totalCount, searchParams } = options;
+  const { totalCount, searchParams, onClear } = options;
   const [selectionState] = useAtom(selectionStateAtom);
   const selectItem = useSetAtom(selectItemAtom);
   const clearSelection = useSetAtom(clearSelectionAtom);
@@ -134,12 +139,13 @@ export function useItemSelection<T extends SelectableItem>(
       // Escape to clear selection
       if (e.key === "Escape" && hasSelection) {
         clearSelection();
+        onClear?.();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectAll, clearSelection, hasSelection]);
+  }, [selectAll, clearSelection, hasSelection, onClear]);
 
   return {
     selectedIds: selectionState.selectedIds,

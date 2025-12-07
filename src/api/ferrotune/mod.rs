@@ -170,6 +170,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(playlists::match_missing_entry),
         )
         .route(
+            "/ferrotune/playlists/{id}/move-entry",
+            post(playlists::move_playlist_entry),
+        )
+        .route(
             "/ferrotune/playlists/{id}/songs",
             get(playlists::get_playlist_songs),
         )

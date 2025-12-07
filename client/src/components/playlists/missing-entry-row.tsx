@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Search, Music, AlertCircle, Loader2, RefreshCw, MoreHorizontal, Trash2 } from "lucide-react";
+import { Search, Music, AlertCircle, Loader2, RefreshCw, MoreHorizontal, Trash2, ArrowRightLeft, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -46,8 +46,10 @@ interface MissingEntryRowProps {
   missing: MissingEntryDataResponse;
   isSelected?: boolean;
   isSelectionMode?: boolean;
-  onSelect?: (id: string, selected: boolean) => void;
+  onSelect?: (id: string, selected: boolean, event?: React.MouseEvent) => void;
   onRemove?: (position: number) => void;
+  showMoveToPosition?: boolean;
+  onMoveToPosition?: (name: string, position: number) => void;
 }
 
 export function MissingEntryRow({
@@ -58,6 +60,8 @@ export function MissingEntryRow({
   isSelectionMode,
   onSelect,
   onRemove,
+  showMoveToPosition,
+  onMoveToPosition,
 }: MissingEntryRowProps) {
   const [refineDialogOpen, setRefineDialogOpen] = useState(false);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
@@ -153,6 +157,8 @@ export function MissingEntryRow({
     setRemoveDialogOpen(false);
   };
 
+  const showCheckbox = isSelected || isSelectionMode;
+
   const rowContent = (
     <div
       className={cn(
@@ -162,20 +168,50 @@ export function MissingEntryRow({
         isSelected && "ring-2 ring-primary bg-primary/20"
       )}
     >
-      {/* Selection checkbox */}
-      {isSelectionMode && (
-        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-          <Checkbox
-            checked={isSelected}
-            onCheckedChange={(checked) => onSelect?.(entryId, checked === true)}
-            className="h-4 w-4"
-          />
+      {/* Position/Index with selection checkbox overlay (matches SongRow) */}
+      <div 
+        className="w-8 text-center shrink-0 relative cursor-pointer"
+        onClick={(e) => {
+          if (onSelect) {
+            e.preventDefault();
+            e.stopPropagation();
+            onSelect(entryId, !isSelected, e);
+          }
+        }}
+      >
+        {/* Checkbox - shows when selected, in selection mode, or on hover */}
+        <div
+          className={cn(
+            "absolute inset-0 flex items-center justify-center transition-opacity",
+            showCheckbox
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100"
+          )}
+        >
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={isSelected}
+            aria-label={`Select entry ${position + 1}`}
+            className={cn(
+              "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
+              isSelected
+                ? "bg-primary border-primary text-primary-foreground"
+                : "border-muted-foreground/50 hover:border-primary/50"
+            )}
+          >
+            {isSelected && <Check className="w-3 h-3" />}
+          </button>
         </div>
-      )}
-
-      {/* Position/Index */}
-      <div className="shrink-0 w-6 sm:w-8 text-center text-sm text-muted-foreground tabular-nums">
-        {position + 1}
+        {/* Track number - hidden when checkbox is visible */}
+        <span
+          className={cn(
+            "text-sm tabular-nums text-muted-foreground transition-opacity",
+            showCheckbox ? "opacity-0 pointer-events-none" : "group-hover:opacity-0 group-hover:pointer-events-none"
+          )}
+        >
+          {position + 1}
+        </span>
       </div>
 
       {/* Placeholder cover */}
@@ -194,13 +230,7 @@ export function MissingEntryRow({
         </div>
       </div>
 
-      {/* Missing badge */}
-      <div className="hidden sm:flex shrink-0 items-center gap-1 text-xs text-orange-500 bg-orange-500/20 px-2 py-1 rounded">
-        <AlertCircle className="w-3 h-3" />
-        Not Found
-      </div>
-
-      {/* Actions: Dropdown menu only */}
+      {/* Actions: Dropdown menu (before Not Found badge to match SongRow) */}
       <div className="flex items-center gap-1 shrink-0">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -219,6 +249,12 @@ export function MissingEntryRow({
               <RefreshCw className="w-4 h-4 mr-2" />
               Refine Match
             </DropdownMenuItem>
+            {showMoveToPosition && onMoveToPosition && (
+              <DropdownMenuItem onClick={() => onMoveToPosition(missing.title || missing.raw || "Unknown Track", position)}>
+                <ArrowRightLeft className="w-4 h-4 mr-2" />
+                Move to Position
+              </DropdownMenuItem>
+            )}
             {onRemove && (
               <DropdownMenuItem onClick={handleRemoveClick} className="text-destructive focus:text-destructive">
                 <Trash2 className="w-4 h-4 mr-2" />
@@ -227,6 +263,12 @@ export function MissingEntryRow({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+      </div>
+
+      {/* Missing badge */}
+      <div className="hidden sm:flex shrink-0 items-center gap-1 text-xs text-orange-500 bg-orange-500/20 px-2 py-1 rounded">
+        <AlertCircle className="w-3 h-3" />
+        Not Found
       </div>
     </div>
   );
@@ -240,6 +282,12 @@ export function MissingEntryRow({
             <RefreshCw className="w-4 h-4 mr-2" />
             Refine Match
           </ContextMenuItem>
+          {showMoveToPosition && onMoveToPosition && (
+            <ContextMenuItem onClick={() => onMoveToPosition(missing.title || missing.raw || "Unknown Track", position)}>
+              <ArrowRightLeft className="w-4 h-4 mr-2" />
+              Move to Position
+            </ContextMenuItem>
+          )}
           {onRemove && (
             <ContextMenuItem onClick={handleRemoveClick} className="text-destructive focus:text-destructive">
               <Trash2 className="w-4 h-4 mr-2" />
@@ -424,8 +472,10 @@ interface MissingEntryCardProps {
   missing: MissingEntryDataResponse;
   isSelected?: boolean;
   isSelectionMode?: boolean;
-  onSelect?: (id: string, selected: boolean) => void;
+  onSelect?: (id: string, selected: boolean, event?: React.MouseEvent) => void;
   onRemove?: (position: number) => void;
+  showMoveToPosition?: boolean;
+  onMoveToPosition?: (name: string, position: number) => void;
 }
 
 export function MissingEntryCard({
@@ -436,6 +486,8 @@ export function MissingEntryCard({
   isSelectionMode,
   onSelect,
   onRemove,
+  showMoveToPosition,
+  onMoveToPosition,
 }: MissingEntryCardProps) {
   const [refineDialogOpen, setRefineDialogOpen] = useState(false);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
@@ -560,7 +612,7 @@ export function MissingEntryCard({
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                onSelect(entryId, !isSelected);
+                onSelect(entryId, !isSelected, e);
               }}
             >
               {isSelected && <AlertCircle className="w-4 h-4" />}
@@ -586,6 +638,12 @@ export function MissingEntryCard({
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Refine Match
               </DropdownMenuItem>
+              {showMoveToPosition && onMoveToPosition && (
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onMoveToPosition(missing.title || missing.raw || "Unknown Track", position); }}>
+                  <ArrowRightLeft className="w-4 h-4 mr-2" />
+                  Move to Position
+                </DropdownMenuItem>
+              )}
               {onRemove && (
                 <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleRemoveClick(); }} className="text-destructive focus:text-destructive">
                   <Trash2 className="w-4 h-4 mr-2" />
@@ -632,6 +690,12 @@ export function MissingEntryCard({
             <RefreshCw className="w-4 h-4 mr-2" />
             Refine Match
           </ContextMenuItem>
+          {showMoveToPosition && onMoveToPosition && (
+            <ContextMenuItem onClick={() => onMoveToPosition(missing.title || missing.raw || "Unknown Track", position)}>
+              <ArrowRightLeft className="w-4 h-4 mr-2" />
+              Move to Position
+            </ContextMenuItem>
+          )}
           {onRemove && (
             <ContextMenuItem onClick={handleRemoveClick} className="text-destructive focus:text-destructive">
               <Trash2 className="w-4 h-4 mr-2" />

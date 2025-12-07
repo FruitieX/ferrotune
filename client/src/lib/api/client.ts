@@ -582,6 +582,17 @@ export class SubsonicClient {
   }
 
   /**
+   * Move a playlist entry to a new position.
+   * Works for both songs and missing entries.
+   */
+  async movePlaylistEntry(playlistId: string, fromPosition: number, toPosition: number): Promise<void> {
+    await this.adminRequest(`/ferrotune/playlists/${encodeURIComponent(playlistId)}/move-entry`, {
+      method: "POST",
+      body: JSON.stringify({ fromPosition, toPosition }),
+    });
+  }
+
+  /**
    * Get paginated playlist songs with interleaved missing entries.
    * This endpoint returns both matched songs and missing entries in their original
    * playlist positions, supporting filtering and sorting.

@@ -706,6 +706,184 @@ pub async fn match_missing_entry(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Request to move a playlist entry to a new position
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MovePlaylistEntryRequest {
+    /// Current position of the entry (0-indexed)
+    pub from_position: i32,
+    /// New position to move to (0-indexed)
+    pub to_position: i32,
+}
+
+/// Move a playlist entry to a new position
+pub async fn move_playlist_entry(
+    State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
+    Path(playlist_id): Path<String>,
+    Json(request): Json<MovePlaylistEntryRequest>,
+) -> Result<StatusCode, ApiError> {
+    let from_pos = request.from_position as i64;
+    let to_pos = request.to_position as i64;
+    
+    if from_pos == to_pos {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    // Check playlist exists and belongs to user
+    let playlist: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
+            .bind(&playlist_id)
+            .bind(user.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::with_details(
+                        "Database error",
+                        e.to_string(),
+                    )),
+                )
+            })?;
+
+    if playlist.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(super::ErrorResponse::new("Playlist not found")),
+        ));
+    }
+
+    // Get count of entries to validate positions
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = ?"
+    )
+    .bind(&playlist_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    if from_pos < 0 || from_pos >= count || to_pos < 0 || to_pos >= count {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(super::ErrorResponse::new("Invalid position")),
+        ));
+    }
+
+    // Move the entry in a transaction
+    let mut tx = state.pool.begin().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    // Temporarily move the item to a negative position to avoid conflicts
+    sqlx::query(
+        "UPDATE playlist_songs SET position = -1 WHERE playlist_id = ? AND position = ?"
+    )
+    .bind(&playlist_id)
+    .bind(from_pos)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    // Shift positions of entries between from and to
+    // We shift one row at a time to avoid UNIQUE constraint violations
+    if from_pos < to_pos {
+        // Moving down: shift entries up one at a time, starting from the lowest position
+        for pos in (from_pos + 1)..=to_pos {
+            sqlx::query(
+                "UPDATE playlist_songs SET position = position - 1 
+                 WHERE playlist_id = ? AND position = ?"
+            )
+            .bind(&playlist_id)
+            .bind(pos)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::with_details(
+                        "Database error",
+                        e.to_string(),
+                    )),
+                )
+            })?;
+        }
+    } else {
+        // Moving up: shift entries down one at a time, starting from the highest position
+        for pos in (to_pos..from_pos).rev() {
+            sqlx::query(
+                "UPDATE playlist_songs SET position = position + 1 
+                 WHERE playlist_id = ? AND position = ?"
+            )
+            .bind(&playlist_id)
+            .bind(pos)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::with_details(
+                        "Database error",
+                        e.to_string(),
+                    )),
+                )
+            })?;
+        }
+    }
+
+    // Move the item to its final position
+    sqlx::query(
+        "UPDATE playlist_songs SET position = ? WHERE playlist_id = ? AND position = -1"
+    )
+    .bind(to_pos)
+    .bind(&playlist_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    tx.commit().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// A missing entry in an import request
 #[derive(Debug, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

@@ -100,6 +100,10 @@ interface PlaylistSongsBulkActionsBarProps extends BaseBulkActionsBarProps {
   mediaType: "playlist-songs";
   getSelectedSongs: () => Song[];
   onRemoveFromPlaylist?: () => void;
+  /** Disable playback-related actions (play, shuffle, add to queue) when selection includes non-playable items */
+  disablePlaybackActions?: boolean;
+  /** Number of selected missing entries (for label display) */
+  missingCount?: number;
 }
 
 type BulkActionsBarProps = 
@@ -167,6 +171,19 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
   // Check for playlist-songs-specific actions
   const isPlaylistSongsType = mediaType === 'playlist-songs' && 'onRemoveFromPlaylist' in props;
   const onRemoveFromPlaylist = isPlaylistSongsType ? (props as PlaylistSongsBulkActionsBarProps).onRemoveFromPlaylist : undefined;
+  const disablePlaybackActions = isPlaylistSongsType && 'disablePlaybackActions' in props ? (props as PlaylistSongsBulkActionsBarProps).disablePlaybackActions : false;
+  const missingCount = isPlaylistSongsType && 'missingCount' in props ? (props as PlaylistSongsBulkActionsBarProps).missingCount ?? 0 : 0;
+
+  // Build selection label - show breakdown for playlist-songs with missing entries
+  const getSelectionLabel = () => {
+    if (missingCount > 0 && isPlaylistSongsType) {
+      const songCount = props.selectedCount - missingCount;
+      const songLabel = songCount === 1 ? 'song' : 'songs';
+      const missingLabel = missingCount === 1 ? 'not found' : 'not found';
+      return `${songCount} ${songLabel} (${missingCount} ${missingLabel})`;
+    }
+    return `${props.selectedCount} ${pluralLabel}`;
+  };
 
   // Handler for bulk shuffle exclude
   const handleBulkShuffleExclude = async (excluded: boolean) => {
@@ -225,7 +242,7 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
               {/* Selection count and clear */}
               <div className="flex items-center gap-2 px-3 border-r border-border">
                 <span className="text-sm font-medium text-primary tabular-nums" aria-live="polite">
-                  {props.selectedCount} {pluralLabel}
+                  {getSelectionLabel()}
                 </span>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -268,11 +285,12 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                       className="h-9 w-9"
                       onClick={props.onPlayNow}
                       aria-label="Play now"
+                      disabled={disablePlaybackActions}
                     >
                       <Play className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="top">Play now</TooltipContent>
+                  <TooltipContent side="top">{disablePlaybackActions ? "Deselect missing entries to play" : "Play now"}</TooltipContent>
                 </Tooltip>
 
                 {props.onShuffle && (
@@ -284,11 +302,12 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                         className="h-9 w-9"
                         onClick={props.onShuffle}
                         aria-label="Shuffle play"
+                        disabled={disablePlaybackActions}
                       >
                         <Shuffle className="w-4 h-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="top">Shuffle</TooltipContent>
+                    <TooltipContent side="top">{disablePlaybackActions ? "Deselect missing entries to shuffle" : "Shuffle"}</TooltipContent>
                   </Tooltip>
                 )}
 
@@ -301,11 +320,12 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                         className="h-9 w-9"
                         onClick={props.onPlayNext}
                         aria-label="Play next"
+                        disabled={disablePlaybackActions}
                       >
                         <ListPlus className="w-4 h-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="top">Play next</TooltipContent>
+                    <TooltipContent side="top">{disablePlaybackActions ? "Deselect missing entries to play next" : "Play next"}</TooltipContent>
                   </Tooltip>
                 )}
 
@@ -318,11 +338,12 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                         className="h-9 w-9"
                         onClick={props.onAddToQueue}
                         aria-label="Add to queue"
+                        disabled={disablePlaybackActions}
                       >
                         <ListEnd className="w-4 h-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="top">Add to queue</TooltipContent>
+                    <TooltipContent side="top">{disablePlaybackActions ? "Deselect missing entries to add to queue" : "Add to queue"}</TooltipContent>
                   </Tooltip>
                 )}
 
@@ -335,11 +356,12 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                         className="h-9 w-9"
                         onClick={() => setAddToPlaylistOpen(true)}
                         aria-label="Add to playlist"
+                        disabled={disablePlaybackActions}
                       >
                         <FolderPlus className="w-4 h-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="top">Add to playlist</TooltipContent>
+                    <TooltipContent side="top">{disablePlaybackActions ? "Deselect missing entries to add to playlist" : "Add to playlist"}</TooltipContent>
                   </Tooltip>
                 )}
 
@@ -443,7 +465,7 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                 )}
 
                 {/* More actions dropdown for songs */}
-                {canShuffleExclude && (
+                {canShuffleExclude && !disablePlaybackActions && (
                   <>
                     <div className="w-px h-6 bg-border mx-1" role="separator" aria-orientation="vertical" />
                     

@@ -82,8 +82,12 @@ function PlaylistDetailContent() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [massResolveDialogOpen, setMassResolveDialogOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
-  const [moveDialogSong, setMoveDialogSong] = useState<{ song: Song; index: number } | null>(null);
+  const [moveDialogItem, setMoveDialogItem] = useState<{ name: string; position: number } | null>(null);
   const [filter, setFilter] = useState("");
+  // Track selected missing entry IDs separately (format: "missing-{position}")
+  const [selectedMissingIds, setSelectedMissingIds] = useState<Set<string>>(new Set());
+  // Track anchor position for shift-selection across all items (songs + missing)
+  const [selectionAnchorPosition, setSelectionAnchorPosition] = useState<number | null>(null);
   const debouncedFilter = useDebounce(filter, 300);
   const isMounted = useIsMounted();
   
@@ -272,33 +276,41 @@ function PlaylistDetailContent() {
     }
   }, [playlistId, queryClient]);
   
-  // Handle move to position for playlists
-  const handleMoveToPosition = useCallback((song: Song, currentIndex: number) => {
-    setMoveDialogSong({ song, index: currentIndex });
+  // Handle move to position for playlists (works for both songs and missing entries)
+  const handleMoveToPosition = useCallback((item: { name: string; position: number }) => {
+    setMoveDialogItem(item);
     setMoveDialogOpen(true);
   }, []);
 
-  const handleMoveSong = useCallback((newIndex: number) => {
-    if (!moveDialogSong) return;
+  // Wrapper for song move to position (adapts Song to the generic interface)
+  const handleSongMoveToPosition = useCallback((song: Song, currentIndex: number) => {
+    handleMoveToPosition({ name: song.title, position: currentIndex });
+  }, [handleMoveToPosition]);
+
+  // Handler for missing entry move to position
+  const handleMissingMoveToPosition = useCallback((name: string, position: number) => {
+    handleMoveToPosition({ name, position });
+  }, [handleMoveToPosition]);
+
+  const handleMoveItem = useCallback(async (newPosition: number) => {
+    if (!moveDialogItem) return;
     
-    const { index: oldIndex } = moveDialogSong;
-    if (oldIndex === newIndex) return;
+    const { position: oldPosition } = moveDialogItem;
+    if (oldPosition === newPosition) return;
     
-    // Note: For move operations, we need all songs - this may not work correctly
-    // with pagination. For now, we only support move for small playlists.
-    // TODO: Implement server-side move operation
-    const songs = displayItems
-      .filter((item): item is Extract<DisplayItem, { type: "song" }> => item.type === "song")
-      .map((item) => item.song);
+    // Use the server-side move endpoint
+    const client = getClient();
+    if (!client) return;
     
-    // Create new order by moving the song
-    const newOrder = [...songs];
-    const [movedSong] = newOrder.splice(oldIndex, 1);
-    newOrder.splice(newIndex, 0, movedSong);
-    
-    // Submit reorder with all song IDs in new order
-    reorderMutation.mutate(newOrder.map(s => s.id));
-  }, [moveDialogSong, displayItems, reorderMutation]);
+    try {
+      await client.movePlaylistEntry(playlistId!, oldPosition, newPosition);
+      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
+      toast.success("Entry moved");
+    } catch (error) {
+      toast.error("Failed to move entry");
+      console.error(error);
+    }
+  }, [moveDialogItem, playlistId, queryClient]);
 
   // Queue source for playlist - server materializes with same sort
   const playlistQueueSource = useMemo(() => ({
@@ -370,6 +382,12 @@ function PlaylistDetailContent() {
     }
   }, [router]);
 
+  // Clear missing entries selection
+  const clearMissingSelection = useCallback(() => {
+    setSelectedMissingIds(new Set());
+    setSelectionAnchorPosition(null);
+  }, []);
+
   // Track selection
   const {
     selectedCount,
@@ -381,7 +399,7 @@ function PlaylistDetailContent() {
     getSelectedSongs,
     addSelectedToQueue,
     starSelected,
-  } = useTrackSelection(displaySongs);
+  } = useTrackSelection(displaySongs, { onClear: clearMissingSelection });
 
   // Get indices of selected songs in the original order (for removal)
   const getSelectedIndices = useCallback(() => {
@@ -396,22 +414,137 @@ function PlaylistDetailContent() {
     return indices;
   }, [getSelectedSongs, displayItems]);
 
+  // Get all selected indices including missing entries
+  const getAllSelectedIndices = useCallback(() => {
+    const songIndices = getSelectedIndices();
+    const missingIndices: number[] = [];
+    selectedMissingIds.forEach(id => {
+      // Extract position from "missing-{position}" format
+      const match = id.match(/^missing-(\d+)$/);
+      if (match) {
+        missingIndices.push(parseInt(match[1], 10));
+      }
+    });
+    // Combine and sort in descending order (remove from end first to preserve indices)
+    return [...songIndices, ...missingIndices].sort((a, b) => b - a);
+  }, [getSelectedIndices, selectedMissingIds]);
+
   const handleRemoveSelected = useCallback(() => {
-    const indices = getSelectedIndices();
+    const indices = getAllSelectedIndices();
     if (indices.length > 0) {
       setRemoveTracksDialogOpen(true);
     }
-  }, [getSelectedIndices]);
+  }, [getAllSelectedIndices]);
+
+  // Unified selection handler for both songs and missing entries with shift-click support
+  const handleUnifiedSelect = useCallback((
+    itemId: string,
+    position: number,
+    isMissing: boolean,
+    event?: React.MouseEvent
+  ) => {
+    const shiftKey = event?.shiftKey ?? false;
+    
+    if (shiftKey && selectionAnchorPosition !== null) {
+      // Range selection: select all items between anchor and current position
+      const start = Math.min(selectionAnchorPosition, position);
+      const end = Math.max(selectionAnchorPosition, position);
+      
+      const newMissingIds = new Set(selectedMissingIds);
+      
+      displayItems.forEach(item => {
+        if (item.position >= start && item.position <= end) {
+          if (item.type === "missing") {
+            newMissingIds.add(`missing-${item.position}`);
+          } else {
+            // For songs, we use the handleSelect from useTrackSelection
+            // but we need to add them without shift since we're handling range ourselves
+            handleSelect(item.song.id);
+          }
+        }
+      });
+      
+      setSelectedMissingIds(newMissingIds);
+      // Don't update anchor on shift-click to allow extending selection
+    } else {
+      // Normal selection - toggle the item
+      if (isMissing) {
+        setSelectedMissingIds(prev => {
+          const next = new Set(prev);
+          if (next.has(itemId)) {
+            next.delete(itemId);
+          } else {
+            next.add(itemId);
+          }
+          return next;
+        });
+      } else {
+        handleSelect(itemId, event);
+      }
+      // Update anchor position
+      setSelectionAnchorPosition(position);
+    }
+  }, [selectionAnchorPosition, selectedMissingIds, displayItems, handleSelect]);
+
+  // Missing entry selection handler (wrapper for unified handler)
+  const handleMissingSelect = useCallback((id: string, selected: boolean, event?: React.MouseEvent) => {
+    // Extract position from "missing-{position}" format
+    const match = id.match(/^missing-(\d+)$/);
+    if (match) {
+      const position = parseInt(match[1], 10);
+      handleUnifiedSelect(id, position, true, event);
+    }
+  }, [handleUnifiedSelect]);
+
+  // Song selection handler (wrapper for unified handler with position tracking)
+  const handleSongSelect = useCallback((id: string, event?: React.MouseEvent) => {
+    const item = displayItems.find(i => i.type === "song" && i.song.id === id);
+    if (item) {
+      handleUnifiedSelect(id, item.position, false, event);
+    } else {
+      // Fallback to original handler if item not found
+      handleSelect(id, event);
+    }
+  }, [displayItems, handleUnifiedSelect, handleSelect]);
+
+  const isMissingSelected = useCallback((id: string) => {
+    return selectedMissingIds.has(id);
+  }, [selectedMissingIds]);
+
+  // Clear all selection (songs + missing)
+  const clearAllSelection = useCallback(() => {
+    clearSelection();
+    setSelectedMissingIds(new Set());
+    setSelectionAnchorPosition(null);
+  }, [clearSelection]);
+
+  // Select all items (songs + missing entries)
+  const selectAllItems = useCallback(() => {
+    // Select all songs
+    selectAll();
+    // Select all missing entries
+    const allMissingIds = new Set<string>();
+    displayItems.forEach(item => {
+      if (item.type === "missing") {
+        allMissingIds.add(`missing-${item.position}`);
+      }
+    });
+    setSelectedMissingIds(allMissingIds);
+  }, [selectAll, displayItems]);
+
+  // Total selection count
+  const totalSelectedCount = selectedCount + selectedMissingIds.size;
+  const hasMissingInSelection = selectedMissingIds.size > 0;
 
   const confirmRemoveSelected = useCallback(() => {
-    const indices = getSelectedIndices();
+    const indices = getAllSelectedIndices();
     const songIds = getSelectedSongs().map(s => s.id);
     if (indices.length > 0) {
       removeSongsMutation.mutate({ indices, songIds });
-      clearSelection();
+      clearAllSelection();
     }
     setRemoveTracksDialogOpen(false);
-  }, [getSelectedIndices, getSelectedSongs, removeSongsMutation, clearSelection]);
+  }, [getAllSelectedIndices, getSelectedSongs, removeSongsMutation, clearAllSelection]);
 
   const handlePlaySelected = () => {
     const selected = getSelectedSongs();
@@ -422,7 +555,7 @@ function PlaylistDetailContent() {
         sourceName: displayName,
         songIds: selected.map(s => s.id),
       });
-      clearSelection();
+      clearAllSelection();
     }
   };
 
@@ -638,14 +771,18 @@ function PlaylistDetailContent() {
               totalCount={filteredCount}
               renderItem={(item, index) => {
                 if (item.type === "missing" && item.entry.missing) {
+                  const missingId = `missing-${item.position}`;
                   return (
                     <MissingEntryCard
                       playlistId={playlistId!}
                       position={item.position}
                       missing={item.entry.missing}
-                      isSelected={false}
-                      isSelectionMode={hasSelection}
+                      isSelected={isMissingSelected(missingId)}
+                      isSelectionMode={totalSelectedCount > 0}
+                      onSelect={handleMissingSelect}
                       onRemove={handleRemoveMissingEntry}
+                      showMoveToPosition={sortConfig.field === "custom"}
+                      onMoveToPosition={handleMissingMoveToPosition}
                     />
                   );
                 }
@@ -657,11 +794,11 @@ function PlaylistDetailContent() {
                     index={songItem.position}
                     queueSource={playlistQueueSource}
                     isSelected={isSelected(songItem.song.id)}
-                    isSelectionMode={hasSelection}
-                    onSelect={handleSelect}
+                    isSelectionMode={totalSelectedCount > 0}
+                    onSelect={handleSongSelect}
                     isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(songItem.position, songItem.song.id) : undefined}
                     showMoveToPosition={sortConfig.field === "custom"}
-                    onMoveToPosition={handleMoveToPosition}
+                    onMoveToPosition={handleSongMoveToPosition}
                   />
                 );
               }}
@@ -681,14 +818,18 @@ function PlaylistDetailContent() {
               totalCount={filteredCount}
               renderItem={(item, index) => {
                 if (item.type === "missing" && item.entry.missing) {
+                  const missingId = `missing-${item.position}`;
                   return (
                     <MissingEntryRow
                       playlistId={playlistId!}
                       position={item.position}
                       missing={item.entry.missing}
-                      isSelected={false}
-                      isSelectionMode={hasSelection}
+                      isSelected={isMissingSelected(missingId)}
+                      isSelectionMode={totalSelectedCount > 0}
+                      onSelect={handleMissingSelect}
                       onRemove={handleRemoveMissingEntry}
+                      showMoveToPosition={sortConfig.field === "custom"}
+                      onMoveToPosition={handleMissingMoveToPosition}
                     />
                   );
                 }
@@ -708,13 +849,13 @@ function PlaylistDetailContent() {
                     showLastPlayed={columnVisibility.lastPlayed}
                     queueSource={playlistQueueSource}
                     isSelected={isSelected(songItem.song.id)}
-                    isSelectionMode={hasSelection}
-                    onSelect={handleSelect}
+                    isSelectionMode={totalSelectedCount > 0}
+                    onSelect={handleSongSelect}
                     showRemoveFromPlaylist
                     onRemoveFromPlaylist={handleRemoveSingleSong}
                     isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(songItem.position, songItem.song.id) : undefined}
                     showMoveToPosition={sortConfig.field === "custom"}
-                    onMoveToPosition={handleMoveToPosition}
+                    onMoveToPosition={handleSongMoveToPosition}
                   />
                 );
               }}
@@ -744,16 +885,18 @@ function PlaylistDetailContent() {
       {/* Bulk actions bar */}
       <BulkActionsBar
         mediaType="playlist-songs"
-        selectedCount={selectedCount}
-        onClear={clearSelection}
+        selectedCount={totalSelectedCount}
+        onClear={clearAllSelection}
         onPlayNow={handlePlaySelected}
         onPlayNext={() => addSelectedToQueue("next")}
         onAddToQueue={() => addSelectedToQueue("end")}
         onStar={() => starSelected(true)}
         onUnstar={() => starSelected(false)}
-        onSelectAll={selectAll}
+        onSelectAll={selectAllItems}
         getSelectedSongs={getSelectedSongs}
         onRemoveFromPlaylist={handleRemoveSelected}
+        disablePlaybackActions={hasMissingInSelection}
+        missingCount={selectedMissingIds.size}
       />
 
       {/* Spacer for player bar */}
@@ -785,11 +928,11 @@ function PlaylistDetailContent() {
       <AlertDialog open={removeTracksDialogOpen} onOpenChange={setRemoveTracksDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove tracks from playlist?</AlertDialogTitle>
+            <AlertDialogTitle>Remove {totalSelectedCount === 1 ? "entry" : "entries"} from playlist?</AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedCount === 1
-                ? "This will remove 1 track from the playlist."
-                : `This will remove ${selectedCount} tracks from the playlist.`}
+              {totalSelectedCount === 1
+                ? "This will remove 1 entry from the playlist."
+                : `This will remove ${totalSelectedCount} entries from the playlist.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -832,14 +975,14 @@ function PlaylistDetailContent() {
       )}
       
       {/* Move to position dialog */}
-      {moveDialogSong && (
+      {moveDialogItem && (
         <MoveToPositionDialog
           open={moveDialogOpen}
           onOpenChange={setMoveDialogOpen}
-          currentPosition={moveDialogSong.index}
-          totalCount={displaySongs.length}
-          itemName={moveDialogSong.song.title}
-          onMove={handleMoveSong}
+          currentPosition={moveDialogItem.position}
+          totalCount={totalEntries}
+          itemName={moveDialogItem.name}
+          onMove={handleMoveItem}
         />
       )}
     </div>
