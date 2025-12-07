@@ -790,7 +790,7 @@ export function TabbedTrackList({
   );
 }
 
-// Hook to perform automatic matching
+// Hook to perform automatic matching with parallel batch processing
 export function useTrackMatcher() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -814,31 +814,19 @@ export function useTrackMatcher() {
       return null;
     }
     
-    const matched: MatchableTrack[] = [];
-    
-    for (let i = 0; i < tracks.length; i++) {
-      // Check if cancelled
-      if (abortController.signal.aborted) {
-        return null;
-      }
-      
-      const track = tracks[i];
-      onProgress(Math.round(((i + 1) / tracks.length) * 100));
-      
-      // Build search query based on enabled options
+    // Process a single track
+    const processTrack = async (track: ParsedTrackInfo): Promise<MatchableTrack> => {
       const query = buildTrackSearchQuery(track, searchOptions);
       
       if (!query) {
-        matched.push({ parsed: track, match: null, matchScore: 0 });
-        continue;
+        return { parsed: track, match: null, matchScore: 0 };
       }
       
       try {
         const response = await client.search3({ query, songCount: 10 });
         
-        // Check if cancelled after await
         if (abortController.signal.aborted) {
-          return null;
+          throw new Error("Aborted");
         }
         
         const songs = response.searchResult3?.song ?? [];
@@ -857,24 +845,63 @@ export function useTrackMatcher() {
         
         // Only accept matches above threshold
         if (bestScore >= 0.5) {
-          matched.push({ parsed: track, match: bestMatch, matchScore: bestScore });
+          return { parsed: track, match: bestMatch, matchScore: bestScore };
         } else {
-          matched.push({ parsed: track, match: null, matchScore: 0 });
+          return { parsed: track, match: null, matchScore: 0 };
         }
       } catch (error) {
-        // Check if this was an abort
+        if (abortController.signal.aborted) {
+          throw error;
+        }
+        console.error("Search error:", error);
+        return { parsed: track, match: null, matchScore: 0 };
+      }
+    };
+    
+    // Process tracks in parallel batches
+    const BATCH_SIZE = 5; // Process 5 tracks concurrently
+    const results: MatchableTrack[] = new Array(tracks.length);
+    let completedCount = 0;
+    
+    for (let batchStart = 0; batchStart < tracks.length; batchStart += BATCH_SIZE) {
+      if (abortController.signal.aborted) {
+        return null;
+      }
+      
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, tracks.length);
+      const batchTracks = tracks.slice(batchStart, batchEnd);
+      
+      try {
+        // Process batch in parallel
+        const batchResults = await Promise.all(
+          batchTracks.map((track, i) => 
+            processTrack(track).then(result => ({ index: batchStart + i, result }))
+          )
+        );
+        
+        // Store results in correct positions
+        for (const { index, result } of batchResults) {
+          results[index] = result;
+        }
+        
+        completedCount += batchTracks.length;
+        onProgress(Math.round((completedCount / tracks.length) * 100));
+      } catch (error) {
         if (abortController.signal.aborted) {
           return null;
         }
-        console.error("Search error:", error);
-        matched.push({ parsed: track, match: null, matchScore: 0 });
+        // If batch fails, process remaining tracks individually
+        for (let i = 0; i < batchTracks.length; i++) {
+          if (!results[batchStart + i]) {
+            results[batchStart + i] = { parsed: batchTracks[i], match: null, matchScore: 0 };
+          }
+        }
+        completedCount += batchTracks.length;
+        onProgress(Math.round((completedCount / tracks.length) * 100));
       }
-      
-      // Small delay to avoid overwhelming the server
-      await new Promise(resolve => setTimeout(resolve, 50));
     }
     
-    return matched;
+    return results;
   };
 
   const cancel = () => {
