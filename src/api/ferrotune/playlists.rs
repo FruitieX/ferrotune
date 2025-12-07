@@ -917,7 +917,333 @@ pub struct PlaylistEntriesResponse {
     pub entries: Vec<PlaylistEntryResponse>,
 }
 
+// ============================================================================
+// Paginated Playlist Songs Endpoint (unified songs + missing entries)
+// ============================================================================
+
+/// Query parameters for paginated playlist songs
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetPlaylistSongsParams {
+    /// Offset for pagination (number of entries to skip)
+    #[serde(default)]
+    pub offset: Option<u32>,
+    /// Number of entries to return (for pagination)
+    #[serde(default)]
+    pub count: Option<u32>,
+    /// Sort field: name, artist, album, year, dateAdded, playCount, duration, custom
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// Sort direction: asc or desc
+    #[serde(default)]
+    pub sort_dir: Option<String>,
+    /// Filter text to match against song title, artist, album
+    #[serde(default)]
+    pub filter: Option<String>,
+}
+
+/// A unified playlist entry - either a song or a missing entry
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PlaylistSongEntry {
+    /// Position in the playlist (0-indexed, from original playlist order)
+    pub position: i32,
+    /// Type of entry: "song" or "missing"
+    pub entry_type: String,
+    /// Song data (only present if entry_type is "song")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub song: Option<crate::api::subsonic::browse::SongResponse>,
+    /// Missing entry data (only present if entry_type is "missing")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub missing: Option<MissingEntryDataResponse>,
+}
+
+/// Response for paginated playlist songs
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PlaylistSongsResponse {
+    /// Playlist metadata
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    pub owner: String,
+    pub public: bool,
+    /// Total entries in playlist (songs + missing)
+    #[ts(type = "number")]
+    pub total_entries: i64,
+    /// Total matched songs
+    #[ts(type = "number")]
+    pub matched_count: i64,
+    /// Total missing entries
+    #[ts(type = "number")]
+    pub missing_count: i64,
+    /// Total duration of matched songs in seconds
+    #[ts(type = "number")]
+    pub duration: i64,
+    /// Total count after filtering (before pagination)
+    #[ts(type = "number")]
+    pub filtered_count: i64,
+    /// Created timestamp
+    pub created: String,
+    /// Last changed timestamp
+    pub changed: String,
+    /// Cover art ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art: Option<String>,
+    /// Entries in the requested page (interleaved songs and missing entries)
+    pub entries: Vec<PlaylistSongEntry>,
+}
+
+/// Get paginated playlist songs with interleaved missing entries.
+/// 
+/// This endpoint replaces both `getPlaylist` (for songs) and `get_playlist_entries` 
+/// (for missing entries) with a single endpoint that returns both interleaved.
+/// 
+/// The entries are returned in their original playlist positions, which is important
+/// for queue materialization to correctly map display indices to playback indices.
+pub async fn get_playlist_songs(
+    State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
+    Path(playlist_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<GetPlaylistSongsParams>,
+) -> Result<Json<PlaylistSongsResponse>, ApiError> {
+    use crate::api::subsonic::browse::song_to_response;
+    use crate::db::models::MissingEntryData;
+
+    // Get playlist metadata
+    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse::with_details("Database error", e.to_string())),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(super::ErrorResponse::new("Playlist not found")),
+            )
+        })?;
+
+    // Check access: user must own playlist or it must be public
+    if playlist.owner_id != user.user_id && !playlist.is_public {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(super::ErrorResponse::new("Not authorized to access this playlist")),
+        ));
+    }
+
+    // Get all playlist entries (positions, song_ids, missing data)
+    let entries_raw: Vec<(i64, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT position, song_id, missing_entry_data, missing_search_text 
+         FROM playlist_songs 
+         WHERE playlist_id = ? 
+         ORDER BY position"
+    )
+    .bind(&playlist_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details("Database error", e.to_string())),
+        )
+    })?;
+
+    // Count totals
+    let total_entries = entries_raw.len() as i64;
+    let matched_count = entries_raw.iter().filter(|(_, sid, _, _)| sid.is_some()).count() as i64;
+    let missing_count = entries_raw.iter().filter(|(_, _, md, _)| md.is_some()).count() as i64;
+
+    // Get all song IDs that are not null
+    let song_ids: Vec<String> = entries_raw
+        .iter()
+        .filter_map(|(_, sid, _, _)| sid.clone())
+        .collect();
+
+    // Fetch all songs at once
+    let songs = if !song_ids.is_empty() {
+        crate::db::queries::get_songs_by_ids(&state.pool, &song_ids)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::with_details("Database error", e.to_string())),
+                )
+            })?
+    } else {
+        vec![]
+    };
+
+    // Create a lookup map from song_id -> Song
+    let song_map: std::collections::HashMap<String, crate::db::models::Song> = 
+        songs.into_iter().map(|s| (s.id.clone(), s)).collect();
+
+    // Determine sort mode
+    let sort_field = params.sort.as_deref().unwrap_or("custom");
+    let sort_dir = params.sort_dir.as_deref().unwrap_or("asc");
+    let filter_text = params.filter.as_deref();
+    let has_filter = filter_text.map(|f| !f.trim().is_empty()).unwrap_or(false);
+    let is_custom_sort = sort_field == "custom";
+
+    // Build unified entry list with position info
+    #[derive(Clone)]
+    enum EntryData {
+        Song { position: i64, song: crate::db::models::Song },
+        Missing { position: i64, data: MissingEntryData },
+    }
+
+    let mut unified_entries: Vec<EntryData> = entries_raw
+        .into_iter()
+        .filter_map(|(position, song_id, missing_json, _missing_search_text)| {
+            if let Some(sid) = song_id {
+                // Matched song
+                if let Some(song) = song_map.get(&sid) {
+                    Some(EntryData::Song { position, song: song.clone() })
+                } else {
+                    None // Song was deleted?
+                }
+            } else if let Some(json) = missing_json {
+                // Missing entry
+                if let Ok(data) = serde_json::from_str::<MissingEntryData>(&json) {
+                    Some(EntryData::Missing { position, data })
+                } else {
+                    None
+                }
+            } else {
+                None // Empty entry?
+            }
+        })
+        .collect();
+
+    // Apply filtering
+    if has_filter {
+        let query = filter_text.unwrap().to_lowercase();
+        unified_entries.retain(|entry| match entry {
+            EntryData::Song { song, .. } => {
+                song.title.to_lowercase().contains(&query)
+                    || song.artist_name.to_lowercase().contains(&query)
+                    || song.album_name.as_deref().unwrap_or("").to_lowercase().contains(&query)
+            }
+            EntryData::Missing { data, .. } => {
+                // Filter missing entries by their metadata
+                data.title.as_deref().unwrap_or("").to_lowercase().contains(&query)
+                    || data.artist.as_deref().unwrap_or("").to_lowercase().contains(&query)
+                    || data.album.as_deref().unwrap_or("").to_lowercase().contains(&query)
+                    || data.raw.to_lowercase().contains(&query)
+            }
+        });
+    }
+
+    // Apply sorting
+    if !is_custom_sort {
+        // When sorting by a specific field, we need to decide how to handle missing entries.
+        // Missing entries don't have sortable metadata, so we exclude them when sorting by
+        // specific fields. They are only shown in "custom" (playlist order) mode.
+        unified_entries.retain(|entry| matches!(entry, EntryData::Song { .. }));
+        
+        // Sort songs
+        unified_entries.sort_by(|a, b| {
+            let (song_a, song_b) = match (a, b) {
+                (EntryData::Song { song: sa, .. }, EntryData::Song { song: sb, .. }) => (sa, sb),
+                _ => unreachable!(), // We filtered out missing entries above
+            };
+
+            let cmp = match sort_field {
+                "name" | "title" => song_a.title.to_lowercase().cmp(&song_b.title.to_lowercase()),
+                "artist" => song_a.artist_name.to_lowercase().cmp(&song_b.artist_name.to_lowercase()),
+                "album" => {
+                    let a_album = song_a.album_name.as_deref().unwrap_or("");
+                    let b_album = song_b.album_name.as_deref().unwrap_or("");
+                    a_album.to_lowercase().cmp(&b_album.to_lowercase())
+                }
+                "year" => song_a.year.unwrap_or(0).cmp(&song_b.year.unwrap_or(0)),
+                "dateAdded" | "created" => song_a.created_at.cmp(&song_b.created_at),
+                "playCount" => song_a.play_count.unwrap_or(0).cmp(&song_b.play_count.unwrap_or(0)),
+                "lastPlayed" => song_a.last_played.cmp(&song_b.last_played),
+                "duration" => song_a.duration.cmp(&song_b.duration),
+                _ => std::cmp::Ordering::Equal,
+            };
+            cmp
+        });
+
+        if sort_dir == "desc" {
+            unified_entries.reverse();
+        }
+    } else if sort_dir == "desc" {
+        // Custom sort with desc = reverse playlist order
+        unified_entries.reverse();
+    }
+
+    let filtered_count = unified_entries.len() as i64;
+
+    // Apply pagination
+    let offset = params.offset.unwrap_or(0) as usize;
+    let count = params.count.unwrap_or(50) as usize;
+    let page_entries: Vec<_> = unified_entries
+        .into_iter()
+        .skip(offset)
+        .take(count)
+        .collect();
+
+    // Convert to response format
+    let entries: Vec<PlaylistSongEntry> = page_entries
+        .into_iter()
+        .map(|entry| match entry {
+            EntryData::Song { position, song } => PlaylistSongEntry {
+                position: position as i32,
+                entry_type: "song".to_string(),
+                song: Some(song_to_response(song, None, None, None)),
+                missing: None,
+            },
+            EntryData::Missing { position, data } => PlaylistSongEntry {
+                position: position as i32,
+                entry_type: "missing".to_string(),
+                song: None,
+                missing: Some(MissingEntryDataResponse {
+                    title: data.title,
+                    artist: data.artist,
+                    album: data.album,
+                    duration: data.duration,
+                    raw: data.raw,
+                }),
+            },
+        })
+        .collect();
+
+    // Build cover art reference
+    let cover_art = if playlist.song_count > 0 {
+        Some(playlist.id.clone())
+    } else {
+        None
+    };
+
+    Ok(Json(PlaylistSongsResponse {
+        id: playlist.id,
+        name: playlist.name,
+        comment: playlist.comment,
+        owner: user.username.clone(),
+        public: playlist.is_public,
+        total_entries,
+        matched_count,
+        missing_count,
+        duration: playlist.duration,
+        filtered_count,
+        created: playlist.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+        changed: playlist.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+        cover_art,
+        entries,
+    }))
+}
+
 /// Get playlist entries including missing ones
+/// 
+/// @deprecated Use `get_playlist_songs` instead which returns songs with entries interleaved
+#[allow(dead_code)]
 pub async fn get_playlist_entries(
     State(state): State<Arc<AppState>>,
     user: AuthenticatedUser,

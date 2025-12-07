@@ -59,6 +59,7 @@ import type { PeriodReviewResponse } from "./generated/PeriodReviewResponse";
 import type { ImportPlaylistRequest } from "./generated/ImportPlaylistRequest";
 import type { ImportPlaylistResponse } from "./generated/ImportPlaylistResponse";
 import type { PlaylistEntriesResponse } from "./generated/PlaylistEntriesResponse";
+import type { PlaylistSongsResponse } from "./generated/PlaylistSongsResponse";
 
 // Ping response is empty
 interface PingResponse {
@@ -580,6 +581,31 @@ export class SubsonicClient {
     });
   }
 
+  /**
+   * Get paginated playlist songs with interleaved missing entries.
+   * This endpoint returns both matched songs and missing entries in their original
+   * playlist positions, supporting filtering and sorting.
+   */
+  async getPlaylistSongs(playlistId: string, options?: {
+    offset?: number;
+    count?: number;
+    sort?: string;
+    sortDir?: string;
+    filter?: string;
+  }): Promise<PlaylistSongsResponse> {
+    const params = new URLSearchParams();
+    if (options?.offset !== undefined) params.set("offset", options.offset.toString());
+    if (options?.count !== undefined) params.set("count", options.count.toString());
+    if (options?.sort !== undefined) params.set("sort", options.sort);
+    if (options?.sortDir !== undefined) params.set("sortDir", options.sortDir);
+    if (options?.filter !== undefined) params.set("filter", options.filter);
+    const query = params.toString();
+    return this.adminRequest(`/ferrotune/playlists/${encodeURIComponent(playlistId)}/songs${query ? `?${query}` : ""}`);
+  }
+
+  /**
+   * @deprecated Use getPlaylistSongs instead which returns songs with entries interleaved
+   */
   async getPlaylistEntries(playlistId: string): Promise<PlaylistEntriesResponse> {
     return this.adminRequest(`/ferrotune/playlists/${encodeURIComponent(playlistId)}/entries`);
   }

@@ -221,7 +221,7 @@ export function useAudioEngineInit() {
     queryClient.invalidateQueries({ queryKey: ["play-history"] });
     queryClient.invalidateQueries({ queryKey: ["album"] });
     queryClient.invalidateQueries({ queryKey: ["artist"] });
-    queryClient.invalidateQueries({ queryKey: ["playlist"] });
+    queryClient.invalidateQueries({ queryKey: ["playlistSongs"] });
   }, [queryClient]);
 
   // Refs for setters to avoid stale closures

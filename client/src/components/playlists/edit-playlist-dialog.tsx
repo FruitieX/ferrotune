@@ -54,7 +54,7 @@ export function EditPlaylistDialog({ open, onOpenChange, playlist }: EditPlaylis
     onSuccess: () => {
       toast.success(`Playlist updated successfully`);
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      queryClient.invalidateQueries({ queryKey: ["playlist", playlist?.id] });
+      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlist?.id] });
       onOpenChange(false);
     },
     onError: (error) => {

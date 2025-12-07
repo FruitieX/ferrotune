@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, Suspense, useCallback, useRef } from "rea
 import { useRouter, useSearchParams } from "next/navigation";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MoreHorizontal,
   Pencil,
@@ -54,10 +54,17 @@ import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
 import { MissingEntryRow, MissingEntryCard } from "@/components/playlists/missing-entry-row";
 import { MassResolveDialog } from "@/components/playlists/mass-resolve-dialog";
-import { formatDuration, formatCount, formatDate, formatTotalDuration } from "@/lib/utils/format";
+import { formatCount, formatDate, formatTotalDuration } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
-import type { PlaylistEntryResponse } from "@/lib/api/generated/PlaylistEntryResponse";
+import type { PlaylistSongEntry } from "@/lib/api/generated/PlaylistSongEntry";
+
+const PAGE_SIZE = 50;
+
+// Display item types for rendering
+type DisplayItem = 
+  | { type: "song"; song: Song; position: number }
+  | { type: "missing"; entry: PlaylistSongEntry; position: number };
 
 function PlaylistDetailContent() {
   const router = useRouter();
@@ -92,39 +99,69 @@ function PlaylistDetailContent() {
     }
   }, [playlistId, isMounted, authLoading, router]);
 
-  // Fetch playlist details with server-side sort/filter
-  const { data: playlist, isLoading } = useQuery({
-    queryKey: ["playlist", playlistId, sortConfig.field, sortConfig.direction, debouncedFilter],
-    queryFn: async () => {
+  // Fetch playlist songs with infinite scroll
+  const {
+    data: playlistData,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["playlistSongs", playlistId, sortConfig.field, sortConfig.direction, debouncedFilter],
+    queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getPlaylist(playlistId!, {
-        sort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
-        sortDir: sortConfig.field !== "custom" ? sortConfig.direction : undefined,
+      return client.getPlaylistSongs(playlistId!, {
+        offset: pageParam,
+        count: PAGE_SIZE,
+        sort: sortConfig.field,
+        sortDir: sortConfig.direction,
         filter: debouncedFilter.trim() || undefined,
       });
-      return response.playlist;
     },
+    getNextPageParam: (lastPage, allPages) => {
+      const loadedCount = allPages.reduce((sum, page) => sum + page.entries.length, 0);
+      return loadedCount < lastPage.filteredCount ? loadedCount : undefined;
+    },
+    initialPageParam: 0,
     enabled: isReady && !!playlistId,
-    // Keep previous data while fetching new sort/filter results
     placeholderData: (prev) => prev,
   });
 
-  // Fetch playlist entries (to check for missing entries)
-  // This is separate from the main playlist query because it needs to include missing entries
-  const { data: playlistEntries } = useQuery({
-    queryKey: ["playlistEntries", playlistId],
-    queryFn: async () => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      return client.getPlaylistEntries(playlistId!);
-    },
-    enabled: isReady && !!playlistId,
+  // Extract playlist metadata from first page
+  const playlist = playlistData?.pages[0];
+  
+  // Flatten entries from all pages
+  const allEntries = playlistData?.pages.flatMap((page) => page.entries) ?? [];
+  
+  // Convert entries to display items
+  const displayItems: DisplayItem[] = allEntries.map((entry) => {
+    if (entry.entryType === "song" && entry.song) {
+      return {
+        type: "song" as const,
+        song: entry.song as Song,
+        position: entry.position,
+      };
+    } else {
+      return {
+        type: "missing" as const,
+        entry,
+        position: entry.position,
+      };
+    }
   });
 
+  // Extract just the songs for selection tracking
+  const displaySongs: Song[] = displayItems
+    .filter((item): item is Extract<DisplayItem, { type: "song" }> => item.type === "song")
+    .map((item) => item.song);
+
   // Check if there are missing entries
-  const hasMissingEntries = (playlistEntries?.missing ?? 0) > 0;
-  const missingEntryCount = playlistEntries?.missing ?? 0;
+  const hasMissingEntries = (playlist?.missingCount ?? 0) > 0;
+  const missingEntryCount = playlist?.missingCount ?? 0;
+  const totalEntries = playlist?.totalEntries ?? 0;
+  const filteredCount = playlist?.filteredCount ?? displayItems.length;
+  const totalDuration = playlist?.duration ?? 0;
 
   // Get the cover URL
   const coverUrl = usePlaylistCoverUrl(playlist?.id ?? null, 400, playlist?.coverArt);
@@ -155,11 +192,11 @@ function PlaylistDetailContent() {
     },
     onSuccess: () => {
       // Invalidate to ensure we have the correct order from server
-      queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
+      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
       toast.success("Playlist order updated");
     },
     onError: () => {
-      queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
+      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
       toast.error("Failed to update playlist order");
     },
   });
@@ -172,7 +209,7 @@ function PlaylistDetailContent() {
       await client.updatePlaylist({ playlistId: playlistId!, songIdToAdd: songIds });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
+      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       toast.success("Songs restored to playlist");
     },
@@ -190,7 +227,7 @@ function PlaylistDetailContent() {
       return songIds; // Return for undo
     },
     onSuccess: (songIds) => {
-      queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
+      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       const count = songIds.length;
       toast.success(count === 1 ? "Song removed from playlist" : `${count} songs removed from playlist`, {
@@ -208,19 +245,18 @@ function PlaylistDetailContent() {
     },
   });
 
-  const songs = playlist?.entry ?? [];
-  
-  // Use ref to access current songs without adding to callback dependencies
-  const songsRef = useRef(songs);
-  songsRef.current = songs;
+  // Use ref to access current display items without adding to callback dependencies
+  const displayItemsRef = useRef(displayItems);
+  displayItemsRef.current = displayItems;
 
-  // Helper to remove a single song by its ID (for context menu)
-  // Uses songsRef to avoid recreating callback when songs change
+  // Helper to remove a single song by its position (for context menu)
   const handleRemoveSingleSong = useCallback((songId: string) => {
-    // Find the index of the song in the original playlist order
-    const index = songsRef.current.findIndex((s) => s.id === songId);
-    if (index === -1) return;
-    removeSongsMutation.mutate({ indices: [index], songIds: [songId] });
+    // Find the position of the song in the display items
+    const item = displayItemsRef.current.find(
+      (item) => item.type === "song" && item.song.id === songId
+    );
+    if (!item) return;
+    removeSongsMutation.mutate({ indices: [item.position], songIds: [songId] });
   }, [removeSongsMutation]);
 
   // Helper to remove a missing entry by position (no undo since we can't add it back)
@@ -229,8 +265,7 @@ function PlaylistDetailContent() {
     if (!client) return;
     try {
       await client.updatePlaylist({ playlistId: playlistId!, songIndexToRemove: [position] });
-      queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
-      queryClient.invalidateQueries({ queryKey: ["playlistEntries", playlistId] });
+      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
       toast.success("Entry removed from playlist");
     } catch {
       toast.error("Failed to remove entry from playlist");
@@ -249,6 +284,13 @@ function PlaylistDetailContent() {
     const { index: oldIndex } = moveDialogSong;
     if (oldIndex === newIndex) return;
     
+    // Note: For move operations, we need all songs - this may not work correctly
+    // with pagination. For now, we only support move for small playlists.
+    // TODO: Implement server-side move operation
+    const songs = displayItems
+      .filter((item): item is Extract<DisplayItem, { type: "song" }> => item.type === "song")
+      .map((item) => item.song);
+    
     // Create new order by moving the song
     const newOrder = [...songs];
     const [movedSong] = newOrder.splice(oldIndex, 1);
@@ -256,85 +298,7 @@ function PlaylistDetailContent() {
     
     // Submit reorder with all song IDs in new order
     reorderMutation.mutate(newOrder.map(s => s.id));
-  }, [moveDialogSong, songs, reorderMutation]);
-  
-  // Songs come from server already sorted and filtered
-  const displaySongs = songs;
-
-  // Build display items that include both songs and missing entries
-  // Only show missing entries in custom sort mode with no filter
-  type DisplayItem = 
-    | { type: "song"; song: Song; position: number }
-    | { type: "missing"; entry: PlaylistEntryResponse; position: number };
-
-  const displayItems = useMemo((): DisplayItem[] => {
-    // If there are no missing entries, just show songs as usual
-    if (!hasMissingEntries || !playlistEntries) {
-      return displaySongs.map((song, index) => ({
-        type: "song" as const,
-        song,
-        position: index,
-      }));
-    }
-
-    // Only show missing entries in custom sort mode
-    // When not in custom sort, the order is determined by the sort and missing entries don't have sortable fields
-    const showMissing = sortConfig.field === "custom";
-    
-    if (!showMissing) {
-      // When sorting by a specific field, only show matched songs
-      return displaySongs.map((song, index) => ({
-        type: "song" as const,
-        song,
-        position: index,
-      }));
-    }
-
-    // Build unified list with both songs and missing entries in position order
-    // The playlist entries have position info, but songs from getPlaylist may be filtered/sorted
-    // We need to match them up by position
-
-    // Create a map of song_id to Song for quick lookup
-    const songMap = new Map(songs.map(s => [s.id, s]));
-
-    // Filter function for missing entries
-    const filterLower = debouncedFilter.trim().toLowerCase();
-    const matchesFilter = (entry: PlaylistEntryResponse): boolean => {
-      if (!filterLower || !entry.missing) return true;
-      
-      // Check title, artist, album, and raw fields
-      const { title, artist, album, raw } = entry.missing;
-      return (
-        (title?.toLowerCase().includes(filterLower) ?? false) ||
-        (artist?.toLowerCase().includes(filterLower) ?? false) ||
-        (album?.toLowerCase().includes(filterLower) ?? false) ||
-        (raw?.toLowerCase().includes(filterLower) ?? false)
-      );
-    };
-
-    // Build display items from entries
-    const items: DisplayItem[] = [];
-    for (const entry of playlistEntries.entries) {
-      if (entry.songId && songMap.has(entry.songId)) {
-        items.push({
-          type: "song",
-          song: songMap.get(entry.songId)!,
-          position: entry.position,
-        });
-      } else if (entry.missing && matchesFilter(entry)) {
-        // Apply filter to missing entries
-        items.push({
-          type: "missing",
-          entry,
-          position: entry.position,
-        });
-      }
-    }
-
-    return items;
-  }, [displaySongs, songs, hasMissingEntries, playlistEntries, sortConfig.field, debouncedFilter]);
-
-  const totalDuration = displaySongs.reduce((acc, song) => acc + (song.duration ?? 0), 0);
+  }, [moveDialogSong, displayItems, reorderMutation]);
 
   // Queue source for playlist - server materializes with same sort
   const playlistQueueSource = useMemo(() => ({
@@ -424,13 +388,13 @@ function PlaylistDetailContent() {
     const selected = getSelectedSongs();
     const selectedIds = new Set(selected.map(s => s.id));
     const indices: number[] = [];
-    songs.forEach((song, index) => {
-      if (selectedIds.has(song.id)) {
-        indices.push(index);
+    displayItems.forEach((item) => {
+      if (item.type === "song" && selectedIds.has(item.song.id)) {
+        indices.push(item.position);
       }
     });
     return indices;
-  }, [getSelectedSongs, songs]);
+  }, [getSelectedSongs, displayItems]);
 
   const handleRemoveSelected = useCallback(() => {
     const indices = getSelectedIndices();
@@ -550,7 +514,7 @@ function PlaylistDetailContent() {
         label="Playlist"
         title={displayName}
         isLoading={isLoading}
-        subtitle={playlist?.comment}
+        subtitle={playlist?.comment ?? undefined}
         metadata={
           playlist && (
             <span className="flex flex-wrap items-center gap-2">
@@ -560,7 +524,7 @@ function PlaylistDetailContent() {
                   <span>•</span>
                 </>
               )}
-              <span>{formatCount(displaySongs.length, "song")}</span>
+              <span>{formatCount(playlist.matchedCount, "song")}</span>
               {hasMissingEntries && (
                 <>
                   <span>•</span>
@@ -653,7 +617,7 @@ function PlaylistDetailContent() {
 
       {/* Track list */}
       <div className={cn("px-4 lg:px-6 py-4", hasSelection && "select-none")}>
-        {isLoading ? (
+        {isLoading && displayItems.length === 0 ? (
           viewMode === "grid" ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
               {Array.from({ length: 12 }).map((_, i) => (
@@ -671,6 +635,7 @@ function PlaylistDetailContent() {
           viewMode === "grid" ? (
             <VirtualizedGrid
               items={displayItems}
+              totalCount={filteredCount}
               renderItem={(item, index) => {
                 if (item.type === "missing" && item.entry.missing) {
                   return (
@@ -706,10 +671,14 @@ function PlaylistDetailContent() {
                   ? `${item.position}-${item.song.id}`
                   : `missing-${item.position}`
               }
+              hasNextPage={hasNextPage ?? false}
+              isFetchingNextPage={isFetchingNextPage}
+              fetchNextPage={fetchNextPage}
             />
           ) : (
             <VirtualizedList
               items={displayItems}
+              totalCount={filteredCount}
               renderItem={(item, index) => {
                 if (item.type === "missing" && item.entry.missing) {
                   return (
@@ -756,9 +725,12 @@ function PlaylistDetailContent() {
                   : `missing-${item.position}`
               }
               estimateItemHeight={56}
+              hasNextPage={hasNextPage ?? false}
+              isFetchingNextPage={isFetchingNextPage}
+              fetchNextPage={fetchNextPage}
             />
           )
-        ) : songs.length > 0 ? (
+        ) : totalEntries > 0 ? (
           <EmptyFilterState message="No songs match your filter" />
         ) : (
           <EmptyState
@@ -837,17 +809,25 @@ function PlaylistDetailContent() {
         <EditPlaylistDialog
           open={editDialogOpen}
           onOpenChange={setEditDialogOpen}
-          playlist={{...playlist, comment: playlist.comment ?? undefined}}
+          playlist={{
+            id: playlist.id,
+            name: playlist.name,
+            comment: playlist.comment ?? undefined,
+          }}
         />
       )}
 
       {/* Mass resolve missing entries dialog */}
-      {playlistEntries && hasMissingEntries && (
+      {playlist && hasMissingEntries && (
         <MassResolveDialog
           open={massResolveDialogOpen}
           onOpenChange={setMassResolveDialogOpen}
           playlistId={playlistId!}
-          entries={playlistEntries.entries}
+          entries={allEntries.map((e) => ({
+            position: e.position,
+            songId: e.song?.id ?? null,
+            missing: e.missing ?? null,
+          }))}
         />
       )}
       

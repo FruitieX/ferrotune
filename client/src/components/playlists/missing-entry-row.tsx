@@ -81,8 +81,7 @@ export function MissingEntryRow({
     onSuccess: () => {
       toast.success("Entry matched successfully");
       // Invalidate queries to refresh the playlist
-      queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
-      queryClient.invalidateQueries({ queryKey: ["playlistEntries", playlistId] });
+      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
       setRefineDialogOpen(false);
       setSearchQuery("");
       setSearchResults([]);
@@ -458,8 +457,7 @@ export function MissingEntryCard({
     },
     onSuccess: () => {
       toast.success("Entry matched successfully");
-      queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
-      queryClient.invalidateQueries({ queryKey: ["playlistEntries", playlistId] });
+      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
       setRefineDialogOpen(false);
       setSearchQuery("");
       setSearchResults([]);

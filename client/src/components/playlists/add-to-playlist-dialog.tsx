@@ -115,7 +115,7 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs = [], songIds }:
         : `${songIdsToAdd.length} songs`;
       toast.success(`Added ${songText} to playlist`);
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      queryClient.invalidateQueries({ queryKey: ["playlist"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistSongs"] });
       onOpenChange(false);
       setSelectedPlaylistId(null);
       setDuplicateInfo(null);

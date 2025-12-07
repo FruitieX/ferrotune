@@ -137,8 +137,7 @@ export function MassResolveDialog({
       return { successCount, failCount };
     },
     onSuccess: async ({ successCount, failCount }) => {
-      await queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
-      await queryClient.invalidateQueries({ queryKey: ["playlistEntries", playlistId] });
+      await queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
 
       if (failCount === 0) {
         toast.success(`Matched ${successCount} ${successCount === 1 ? "entry" : "entries"}`);
