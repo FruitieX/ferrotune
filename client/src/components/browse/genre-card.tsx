@@ -39,16 +39,16 @@ function getGenreColor(genreName: string): { hue: number; gradient: string } {
 }
 
 // Helper to fetch songs by genre
-async function fetchGenreSongs(genreName: string): Promise<Song[]> {
+async function fetchGenreSongs(genreName: string): Promise<{ songs: Song[]; error: boolean }> {
   const client = getClient();
-  if (!client) return [];
+  if (!client) return { songs: [], error: true };
   
   try {
     const response = await client.getSongsByGenre(genreName, { count: 500 });
-    return response.songsByGenre.song ?? [];
+    return { songs: response.songsByGenre.song ?? [], error: false };
   } catch (error) {
     console.error("Failed to fetch genre songs:", error);
-    return [];
+    return { songs: [], error: true };
   }
 }
 
@@ -245,8 +245,10 @@ function GenreContextMenu({ genre, children }: GenreContextMenuProps) {
   };
 
   const handlePlayNext = async () => {
-    const songs = await fetchGenreSongs(genre.value);
-    if (songs.length > 0) {
+    const { songs, error } = await fetchGenreSongs(genre.value);
+    if (error) {
+      toast.error("Failed to load genre songs");
+    } else if (songs.length > 0) {
       addToQueue({ songIds: songs.map(s => s.id), position: "next" });
       toast.success(`Added "${genre.value}" songs to play next`);
     } else {
@@ -255,8 +257,10 @@ function GenreContextMenu({ genre, children }: GenreContextMenuProps) {
   };
 
   const handleAddToQueue = async () => {
-    const songs = await fetchGenreSongs(genre.value);
-    if (songs.length > 0) {
+    const { songs, error } = await fetchGenreSongs(genre.value);
+    if (error) {
+      toast.error("Failed to load genre songs");
+    } else if (songs.length > 0) {
       addToQueue({ songIds: songs.map(s => s.id), position: "end" });
       toast.success(`Added "${genre.value}" songs to queue`);
     } else {
@@ -323,8 +327,10 @@ function GenreDropdownMenu({ genre, trigger }: GenreDropdownMenuProps) {
   };
 
   const handlePlayNext = async () => {
-    const songs = await fetchGenreSongs(genre.value);
-    if (songs.length > 0) {
+    const { songs, error } = await fetchGenreSongs(genre.value);
+    if (error) {
+      toast.error("Failed to load genre songs");
+    } else if (songs.length > 0) {
       addToQueue({ songIds: songs.map(s => s.id), position: "next" });
       toast.success(`Added "${genre.value}" songs to play next`);
     } else {
@@ -333,8 +339,10 @@ function GenreDropdownMenu({ genre, trigger }: GenreDropdownMenuProps) {
   };
 
   const handleAddToQueue = async () => {
-    const songs = await fetchGenreSongs(genre.value);
-    if (songs.length > 0) {
+    const { songs, error } = await fetchGenreSongs(genre.value);
+    if (error) {
+      toast.error("Failed to load genre songs");
+    } else if (songs.length > 0) {
       addToQueue({ songIds: songs.map(s => s.id), position: "end" });
       toast.success(`Added "${genre.value}" songs to queue`);
     } else {

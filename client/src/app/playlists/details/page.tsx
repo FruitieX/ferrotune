@@ -81,6 +81,8 @@ function PlaylistDetailContent() {
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [removeTracksDialogOpen, setRemoveTracksDialogOpen] = useState(false);
+  const [removeSingleSongDialogOpen, setRemoveSingleSongDialogOpen] = useState(false);
+  const [pendingSingleRemove, setPendingSingleRemove] = useState<{ songId: string; songTitle: string; position: number } | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [massResolveDialogOpen, setMassResolveDialogOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
@@ -263,14 +265,32 @@ function PlaylistDetailContent() {
   displayItemsRef.current = displayItems;
 
   // Helper to remove a single song by its position (for context menu)
+  // Shows confirmation dialog instead of direct removal
   const handleRemoveSingleSong = useCallback((songId: string) => {
     // Find the position of the song in the display items
     const item = displayItemsRef.current.find(
       (item) => item.type === "song" && item.song.id === songId
     );
-    if (!item) return;
-    removeSongsMutation.mutate({ indices: [item.position], songIds: [songId] });
-  }, [removeSongsMutation]);
+    if (!item || item.type !== "song") return;
+    setPendingSingleRemove({
+      songId,
+      songTitle: item.song.title,
+      position: item.position,
+    });
+    setRemoveSingleSongDialogOpen(true);
+  }, []);
+
+  // Confirm single song removal
+  const confirmRemoveSingleSong = useCallback(() => {
+    if (pendingSingleRemove) {
+      removeSongsMutation.mutate({
+        indices: [pendingSingleRemove.position],
+        songIds: [pendingSingleRemove.songId],
+      });
+    }
+    setRemoveSingleSongDialogOpen(false);
+    setPendingSingleRemove(null);
+  }, [pendingSingleRemove, removeSongsMutation]);
 
   // Helper to remove a missing entry by position (no undo since we can't add it back)
   const handleRemoveMissingEntry = useCallback(async (position: number) => {
@@ -963,7 +983,7 @@ function PlaylistDetailContent() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Remove tracks confirmation dialog */}
+      {/* Remove tracks confirmation dialog (bulk selection) */}
       <AlertDialog open={removeTracksDialogOpen} onOpenChange={setRemoveTracksDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -978,6 +998,30 @@ function PlaylistDetailContent() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmRemoveSelected}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Remove single song confirmation dialog (context menu) */}
+      <AlertDialog open={removeSingleSongDialogOpen} onOpenChange={(open) => {
+        setRemoveSingleSongDialogOpen(open);
+        if (!open) setPendingSingleRemove(null);
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove song from playlist?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove &quot;{pendingSingleRemove?.songTitle}&quot; from the playlist.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmRemoveSingleSong}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
             >
               Remove
