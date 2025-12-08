@@ -24,12 +24,13 @@
             pkgs.pkg-config
             pkgs.postgresql
             pkgs.openssl
-            pkgs.nodejs
+            pkgs.nodejs_24
             pkgs.docker-compose
             # Testing tools
             pkgs.hurl
             pkgs.ffmpeg
             pkgs.moon  # moon task runner
+            pkgs.proto
             pkgs.sqlite  # for database inspection
           ];
           shellHook = ''

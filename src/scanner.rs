@@ -92,29 +92,12 @@ pub async fn scan_library_with_progress(
     dry_run: bool,
     scan_state: Option<Arc<ScanState>>,
 ) -> Result<()> {
-    // First, clean up any music folders in the database that are no longer in the config
-    // This must happen before scanning to avoid scanning folders that should be removed
-    clean_orphaned_music_folders(pool, config, dry_run).await?;
-
-    // Build set of config paths to filter folders (important for dry-run where DB isn't modified)
-    let config_paths: std::collections::HashSet<String> = config
-        .music
-        .folders
-        .iter()
-        .map(|f| f.path.to_string_lossy().to_string())
-        .collect();
-
+    // Get music folders from database (database is the source of truth)
     let folders = if let Some(id) = folder_id {
         vec![get_music_folder(pool, id).await?]
     } else {
         crate::db::queries::get_music_folders(pool).await?
     };
-
-    // Filter to only scan folders that are still in the config
-    let folders: Vec<_> = folders
-        .into_iter()
-        .filter(|f| config_paths.contains(&f.path))
-        .collect();
 
     for folder in folders {
         // Check for cancellation
@@ -187,108 +170,6 @@ pub async fn scan_library_with_progress(
         // In dry-run mode, just report potential duplicates
         detect_duplicates_dry_run(pool, folder_id).await?;
     }
-
-    Ok(())
-}
-
-/// Remove music folders from the database that are no longer in the config.
-/// Songs in removed folders will be cascade-deleted, then we clean up orphaned albums/artists.
-async fn clean_orphaned_music_folders(
-    pool: &SqlitePool,
-    config: &Config,
-    dry_run: bool,
-) -> Result<()> {
-    // Get all music folders from the database
-    let db_folders = crate::db::queries::get_music_folders(pool).await?;
-
-    // Build a set of paths from the config for quick lookup
-    let config_paths: std::collections::HashSet<String> = config
-        .music
-        .folders
-        .iter()
-        .map(|f| f.path.to_string_lossy().to_string())
-        .collect();
-
-    // Find folders in DB that are not in config
-    let orphaned_folders: Vec<_> = db_folders
-        .iter()
-        .filter(|f| !config_paths.contains(&f.path))
-        .collect();
-
-    if orphaned_folders.is_empty() {
-        return Ok(());
-    }
-
-    for folder in &orphaned_folders {
-        tracing::warn!(
-            "Music folder '{}' ({}) is in database but not in config",
-            folder.name,
-            folder.path
-        );
-    }
-
-    if dry_run {
-        tracing::warn!(
-            "Dry-run: would remove {} music folder(s) and their songs from database",
-            orphaned_folders.len()
-        );
-        return Ok(());
-    }
-
-    // Delete the orphaned folders (songs will cascade delete)
-    let mut tx = pool.begin().await?;
-
-    for folder in &orphaned_folders {
-        tracing::warn!(
-            "Removing music folder '{}' and all its songs from database",
-            folder.name
-        );
-        sqlx::query("DELETE FROM music_folders WHERE id = ?")
-            .bind(folder.id)
-            .execute(&mut *tx)
-            .await?;
-    }
-
-    // Clean up orphaned albums (no songs reference them)
-    let orphaned_albums = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)"
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-
-    if orphaned_albums > 0 {
-        sqlx::query(
-            "DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)"
-        )
-        .execute(&mut *tx)
-        .await?;
-        tracing::info!("Removed {} orphaned albums", orphaned_albums);
-    }
-
-    // Clean up orphaned artists (no songs or albums reference them)
-    let orphaned_artists = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM songs) 
-         AND id NOT IN (SELECT DISTINCT artist_id FROM albums)",
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-
-    if orphaned_artists > 0 {
-        sqlx::query(
-            "DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM songs) 
-             AND id NOT IN (SELECT DISTINCT artist_id FROM albums)",
-        )
-        .execute(&mut *tx)
-        .await?;
-        tracing::info!("Removed {} orphaned artists", orphaned_artists);
-    }
-
-    tx.commit().await?;
-
-    tracing::info!(
-        "Removed {} music folder(s) from database",
-        orphaned_folders.len()
-    );
 
     Ok(())
 }

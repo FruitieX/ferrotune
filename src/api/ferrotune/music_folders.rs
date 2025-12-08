@@ -115,7 +115,7 @@ pub async fn get_music_folder(
 
 /// POST /ferrotune/music-folders - Create a new music folder
 pub async fn create_music_folder(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreateMusicFolderRequest>,
 ) -> Result<impl IntoResponse> {
@@ -155,6 +155,15 @@ pub async fn create_music_folder(
         .await?;
 
     let id = result.last_insert_rowid();
+
+    // Grant access to the current user for the new music folder
+    sqlx::query(
+        "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)",
+    )
+    .bind(user.user_id)
+    .bind(id)
+    .execute(&state.pool)
+    .await?;
 
     Ok((
         StatusCode::CREATED,

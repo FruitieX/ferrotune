@@ -68,7 +68,7 @@ pub struct WaveformChunk {
 /// Returns an array of normalized amplitude values that can be used
 /// to render a waveform visualization.
 pub async fn get_waveform(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(song_id): Path<String>,
     Query(params): Query<WaveformQuery>,
@@ -80,11 +80,19 @@ pub async fn get_waveform(
         .await?
         .ok_or_else(|| Error::NotFound(format!("Song {} not found", song_id)))?;
 
+    // Check if user has access to this song's library
+    if !crate::api::ferrotune::users::user_has_song_access(&state.pool, user.user_id, &song_id).await? {
+        return Err(Error::Forbidden(format!(
+            "You do not have access to song {}",
+            song_id
+        )));
+    }
+
     // Find the music folder for this song
     let music_folders = crate::db::queries::get_music_folders(&state.pool).await?;
 
     let mut full_path: Option<PathBuf> = None;
-    for folder in music_folders {
+    for folder in &music_folders {
         let candidate = PathBuf::from(&folder.path).join(&song.file_path);
         if candidate.exists() {
             full_path = Some(candidate);
@@ -94,6 +102,30 @@ pub async fn get_waveform(
 
     let full_path =
         full_path.ok_or_else(|| Error::NotFound(format!("File not found: {}", song.file_path)))?;
+
+    // Security: Ensure the resolved path is still within a music folder (from database)
+    let canonical_path = full_path
+        .canonicalize()
+        .map_err(|_| Error::NotFound("File not found".to_string()))?;
+
+    let mut is_within_folder = false;
+    for folder in &music_folders {
+        if let Ok(canonical_folder) = PathBuf::from(&folder.path).canonicalize() {
+            if canonical_path.starts_with(&canonical_folder) {
+                is_within_folder = true;
+                break;
+            }
+        }
+    }
+
+    if !is_within_folder {
+        tracing::warn!(
+            "Attempted path traversal: requested {}, resolved to {}",
+            song.file_path,
+            canonical_path.display()
+        );
+        return Err(Error::NotFound("File not found".to_string()));
+    }
 
     // Generate waveform in blocking task (audio decoding is CPU-intensive)
     let waveform = tokio::task::spawn_blocking(move || generate_waveform(&full_path, resolution))
@@ -108,7 +140,7 @@ pub async fn get_waveform(
 /// Returns chunks of waveform data as audio is decoded, allowing the client
 /// to progressively render the waveform.
 pub async fn get_waveform_stream(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(song_id): Path<String>,
     Query(params): Query<WaveformQuery>,
@@ -120,11 +152,19 @@ pub async fn get_waveform_stream(
         .await?
         .ok_or_else(|| Error::NotFound(format!("Song {} not found", song_id)))?;
 
+    // Check if user has access to this song's library
+    if !crate::api::ferrotune::users::user_has_song_access(&state.pool, user.user_id, &song_id).await? {
+        return Err(Error::Forbidden(format!(
+            "You do not have access to song {}",
+            song_id
+        )));
+    }
+
     // Find the music folder for this song
     let music_folders = crate::db::queries::get_music_folders(&state.pool).await?;
 
     let mut full_path: Option<PathBuf> = None;
-    for folder in music_folders {
+    for folder in &music_folders {
         let candidate = PathBuf::from(&folder.path).join(&song.file_path);
         if candidate.exists() {
             full_path = Some(candidate);
@@ -134,6 +174,30 @@ pub async fn get_waveform_stream(
 
     let full_path =
         full_path.ok_or_else(|| Error::NotFound(format!("File not found: {}", song.file_path)))?;
+
+    // Security: Ensure the resolved path is still within a music folder (from database)
+    let canonical_path = full_path
+        .canonicalize()
+        .map_err(|_| Error::NotFound("File not found".to_string()))?;
+
+    let mut is_within_folder = false;
+    for folder in &music_folders {
+        if let Ok(canonical_folder) = PathBuf::from(&folder.path).canonicalize() {
+            if canonical_path.starts_with(&canonical_folder) {
+                is_within_folder = true;
+                break;
+            }
+        }
+    }
+
+    if !is_within_folder {
+        tracing::warn!(
+            "Attempted path traversal: requested {}, resolved to {}",
+            song.file_path,
+            canonical_path.display()
+        );
+        return Err(Error::NotFound("File not found".to_string()));
+    }
 
     // Create channel for streaming chunks
     let (tx, rx) = mpsc::channel::<WaveformChunk>(16);

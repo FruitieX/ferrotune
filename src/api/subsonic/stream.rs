@@ -48,7 +48,7 @@ pub async fn stream(
     let music_folders = crate::db::queries::get_music_folders(&state.pool).await?;
 
     let mut full_path: Option<PathBuf> = None;
-    for folder in music_folders {
+    for folder in &music_folders {
         let candidate = PathBuf::from(&folder.path).join(&song.file_path);
         if candidate.exists() {
             full_path = Some(candidate);
@@ -59,14 +59,14 @@ pub async fn stream(
     let full_path =
         full_path.ok_or_else(|| Error::NotFound(format!("File not found: {}", song.file_path)))?;
 
-    // Security: Ensure the resolved path is still within a music folder
+    // Security: Ensure the resolved path is still within a music folder (from database)
     let canonical_path = full_path
         .canonicalize()
         .map_err(|_| Error::NotFound("File not found".to_string()))?;
 
     let mut is_within_folder = false;
-    for folder in &state.config.music.folders {
-        if let Ok(canonical_folder) = folder.path.canonicalize() {
+    for folder in &music_folders {
+        if let Ok(canonical_folder) = PathBuf::from(&folder.path).canonicalize() {
             if canonical_path.starts_with(&canonical_folder) {
                 is_within_folder = true;
                 break;
