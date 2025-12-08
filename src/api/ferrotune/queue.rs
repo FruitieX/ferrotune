@@ -273,7 +273,9 @@ pub async fn start_queue(
             queries::get_playlist_songs_with_positions(&state.pool, playlist_id).await?;
 
         // Check if custom sorting is requested
-        let has_custom_sort = request.sort.as_ref()
+        let has_custom_sort = request
+            .sort
+            .as_ref()
             .and_then(|s| s.get("field"))
             .and_then(|v| v.as_str())
             .is_some();
@@ -289,11 +291,22 @@ pub async fn start_queue(
         }
 
         // Extract just the songs, apply sorting if needed
-        let songs: Vec<_> = songs_with_positions.into_iter().map(|(_, song)| song).collect();
+        let songs: Vec<_> = songs_with_positions
+            .into_iter()
+            .map(|(_, song)| song)
+            .collect();
         sorting::sort_songs(
             songs,
-            request.sort.as_ref().and_then(|s| s.get("field")).and_then(|v| v.as_str()),
-            request.sort.as_ref().and_then(|s| s.get("direction")).and_then(|v| v.as_str()),
+            request
+                .sort
+                .as_ref()
+                .and_then(|s| s.get("field"))
+                .and_then(|v| v.as_str()),
+            request
+                .sort
+                .as_ref()
+                .and_then(|s| s.get("direction"))
+                .and_then(|v| v.as_str()),
         )
     } else {
         // Materialize songs from the source
@@ -922,7 +935,7 @@ async fn materialize_queue_songs(
 ) -> Result<Vec<crate::db::models::Song>> {
     // Parse sort params from JSON for use with non-search sources
     let (sort_field, sort_dir) = sorting::parse_sort_from_json(sort);
-    
+
     // Extract text filter from filters JSON (used by artist/album/genre/playlist pages)
     let text_filter = filters
         .and_then(|f| f.get("filter"))
@@ -994,9 +1007,7 @@ async fn materialize_queue_songs(
             let query_from_filters = filters
                 .and_then(|f| f.get("query"))
                 .and_then(|v| v.as_str());
-            let query = query_from_filters
-                .or(source_id)
-                .unwrap_or("*");
+            let query = query_from_filters.or(source_id).unwrap_or("*");
 
             // Parse filters and sort from JSON into SearchParams
             let search_params = build_search_params_from_json(filters, sort);

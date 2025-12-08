@@ -51,32 +51,32 @@ pub fn has_embedded_ui() -> bool {
 #[cfg(feature = "embedded-ui")]
 pub async fn serve_embedded_ui(request: Request<Body>) -> impl IntoResponse {
     let path = request.uri().path();
-    
+
     // Strip leading slash
     let path = path.trim_start_matches('/');
-    
+
     // Try to serve the exact file first
     if let Some(file) = EmbeddedAssets::get(path) {
         return serve_file(path, file.data.as_ref());
     }
-    
+
     // For directory paths, try index.html
     let index_path = if path.is_empty() {
         "index.html".to_string()
     } else {
         format!("{}/index.html", path)
     };
-    
+
     if let Some(file) = EmbeddedAssets::get(&index_path) {
         return serve_file(&index_path, file.data.as_ref());
     }
-    
+
     // Try with .html extension for Next.js static routes
     let html_path = format!("{}.html", path);
     if let Some(file) = EmbeddedAssets::get(&html_path) {
         return serve_file(&html_path, file.data.as_ref());
     }
-    
+
     // For SPA routing, fall back to root index.html
     // This allows client-side routing to work
     if !path.starts_with("_next/") && !path.contains('.') {
@@ -84,7 +84,7 @@ pub async fn serve_embedded_ui(request: Request<Body>) -> impl IntoResponse {
             return serve_file("index.html", file.data.as_ref());
         }
     }
-    
+
     // File not found
     Response::builder()
         .status(StatusCode::NOT_FOUND)
@@ -98,7 +98,7 @@ fn serve_file(path: &str, data: &[u8]) -> Response<Body> {
     let content_type = mime_guess::from_path(path)
         .first_or_octet_stream()
         .to_string();
-    
+
     // Determine cache headers
     // _next/ assets are hashed and can be cached indefinitely
     // Other files should be revalidated
@@ -107,7 +107,7 @@ fn serve_file(path: &str, data: &[u8]) -> Response<Body> {
     } else {
         "public, max-age=0, must-revalidate"
     };
-    
+
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)

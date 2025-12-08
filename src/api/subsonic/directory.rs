@@ -116,7 +116,10 @@ pub async fn get_indexes(
         .into_iter()
         .map(|(name, mut artists)| {
             artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-            DirectoryIndex { name, artist: artists }
+            DirectoryIndex {
+                name,
+                artist: artists,
+            }
         })
         .collect();
 
@@ -272,7 +275,12 @@ pub async fn get_music_directory(
                 path: None,
                 starred: starred_map.get(&album.id).cloned(),
                 user_rating: ratings_map.get(&album.id).copied(),
-                created: Some(album.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+                created: Some(
+                    album
+                        .created_at
+                        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                        .to_string(),
+                ),
             })
             .collect();
 
@@ -558,7 +566,10 @@ async fn get_directory_contents(
 
     for song in songs {
         // Get the relative path after the prefix
-        let relative_path = song.file_path.strip_prefix(&path_prefix).unwrap_or(&song.file_path);
+        let relative_path = song
+            .file_path
+            .strip_prefix(&path_prefix)
+            .unwrap_or(&song.file_path);
 
         if relative_path.contains('/') {
             // This song is in a subdirectory

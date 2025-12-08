@@ -467,13 +467,7 @@ async fn get_directory_contents_paged(
     let file_count = all_children.iter().filter(|c| !c.is_dir).count() as i64;
     let total_size: i64 = all_children
         .iter()
-        .filter_map(|c| {
-            if c.is_dir {
-                c.folder_size
-            } else {
-                c.size
-            }
-        })
+        .filter_map(|c| if c.is_dir { c.folder_size } else { c.size })
         .sum();
     let total_count = all_children.len() as i64;
 

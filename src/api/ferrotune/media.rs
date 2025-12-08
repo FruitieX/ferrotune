@@ -149,9 +149,8 @@ pub async fn get_song_ids(
             String::new()
         };
 
-        let query_str = format!(
-            "SELECT s.id FROM songs s {joins} {where_clause} ORDER BY {song_order}"
-        );
+        let query_str =
+            format!("SELECT s.id FROM songs s {joins} {where_clause} ORDER BY {song_order}");
 
         sqlx::query_as(&query_str).fetch_all(&state.pool).await
     } else if let Some(ref fts_q) = fts_query {

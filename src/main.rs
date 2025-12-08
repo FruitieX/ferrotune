@@ -133,7 +133,10 @@ async fn main() -> Result<()> {
             None => {
                 tracing::info!("No config file found, running in configless mode");
                 tracing::info!("  Data directory: {}", config::get_data_dir().display());
-                tracing::info!("  Database: {}", config::get_data_dir().join("ferrotune.db").display());
+                tracing::info!(
+                    "  Database: {}",
+                    config::get_data_dir().join("ferrotune.db").display()
+                );
                 tracing::info!("  Cache: {}", config::get_cache_dir().display());
                 tracing::info!("Use the web UI at /setup to configure your server");
                 config::Config::default_configless()
@@ -179,8 +182,16 @@ async fn main() -> Result<()> {
                 .map_err(|e| error::Error::Internal(format!("Failed to hash password: {}", e)))?;
             // Create subsonic token for legacy token+salt authentication
             let subsonic_token = password::create_subsonic_token(&password);
-            
-            db::queries::create_user(&pool, &username, &password_hash, &subsonic_token, email.as_deref(), admin).await?;
+
+            db::queries::create_user(
+                &pool,
+                &username,
+                &password_hash,
+                &subsonic_token,
+                email.as_deref(),
+                admin,
+            )
+            .await?;
             tracing::info!("User '{}' created successfully", username);
             return Ok(());
         }
@@ -190,13 +201,21 @@ async fn main() -> Result<()> {
                 .map_err(|e| error::Error::Internal(format!("Failed to hash password: {}", e)))?;
             // Create subsonic token for token+salt authentication
             let subsonic_token = password::create_subsonic_token(&password);
-            
-            let updated = db::queries::update_user_password(&pool, &username, &password_hash, &subsonic_token).await?;
+
+            let updated = db::queries::update_user_password(
+                &pool,
+                &username,
+                &password_hash,
+                &subsonic_token,
+            )
+            .await?;
             if updated {
                 tracing::info!("Password updated for user '{}'", username);
             } else {
                 tracing::error!("User '{}' not found", username);
-                return Err(error::Error::NotFound(format!("User '{}' not found", username)).into());
+                return Err(
+                    error::Error::NotFound(format!("User '{}' not found", username)).into(),
+                );
             }
             return Ok(());
         }
@@ -354,8 +373,10 @@ async fn create_admin_user(pool: &sqlx::SqlitePool, username: &str, password: &s
         .map_err(|e| error::Error::Internal(format!("Failed to hash password: {}", e)))?;
     // Create subsonic token for legacy token+salt authentication
     let subsonic_token = password::create_subsonic_token(password);
-    
-    let user_id = db::queries::create_user(pool, username, &password_hash, &subsonic_token, None, true).await?;
+
+    let user_id =
+        db::queries::create_user(pool, username, &password_hash, &subsonic_token, None, true)
+            .await?;
     tracing::info!("Admin user '{}' created successfully", username);
 
     // Grant access to all existing music folders
@@ -365,7 +386,7 @@ async fn create_admin_user(pool: &sqlx::SqlitePool, username: &str, password: &s
 
     for (folder_id,) in folders {
         sqlx::query(
-            "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)"
+            "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)",
         )
         .bind(user_id)
         .bind(folder_id)

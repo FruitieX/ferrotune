@@ -27,14 +27,12 @@ pub struct SetupStatusResponse {
 
 /// Check if the server needs initial setup.
 /// This endpoint is unauthenticated so the frontend can redirect appropriately.
-pub async fn get_setup_status(
-    State(state): State<Arc<AppState>>,
-) -> Json<SetupStatusResponse> {
+pub async fn get_setup_status(State(state): State<Arc<AppState>>) -> Json<SetupStatusResponse> {
     let pool = &state.pool;
 
     // Check if initial_setup_complete is true in server_config
     let setup_complete: bool = sqlx::query_scalar::<_, String>(
-        "SELECT value FROM server_config WHERE key = 'initial_setup_complete'"
+        "SELECT value FROM server_config WHERE key = 'initial_setup_complete'",
     )
     .fetch_optional(pool)
     .await

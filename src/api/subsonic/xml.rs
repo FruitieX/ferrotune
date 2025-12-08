@@ -1775,9 +1775,7 @@ pub struct XmlDirectoryChild {
 
 // --- directory.rs ToXml implementations ---
 
-use crate::api::subsonic::directory::{
-    DirectoryChild, DirectoryResponse, IndexesResponse,
-};
+use crate::api::subsonic::directory::{DirectoryChild, DirectoryResponse, IndexesResponse};
 
 /// Convert a JSON DirectoryChild to XmlDirectoryChild
 fn directory_child_to_xml(child: &DirectoryChild) -> XmlDirectoryChild {
@@ -1811,7 +1809,12 @@ impl ToXml for IndexesResponse {
         XmlIndexesResponse::ok(XmlIndexesInner {
             last_modified: self.indexes.last_modified,
             ignored_articles: self.indexes.ignored_articles.clone(),
-            shortcut: self.indexes.shortcut.iter().map(directory_child_to_xml).collect(),
+            shortcut: self
+                .indexes
+                .shortcut
+                .iter()
+                .map(directory_child_to_xml)
+                .collect(),
             index: self
                 .indexes
                 .index
@@ -1830,7 +1833,12 @@ impl ToXml for IndexesResponse {
                         .collect(),
                 })
                 .collect(),
-            child: self.indexes.child.iter().map(directory_child_to_xml).collect(),
+            child: self
+                .indexes
+                .child
+                .iter()
+                .map(directory_child_to_xml)
+                .collect(),
         })
     }
 }
@@ -1845,7 +1853,12 @@ impl ToXml for DirectoryResponse {
             name: self.directory.name.clone(),
             starred: self.directory.starred.clone(),
             user_rating: self.directory.user_rating,
-            child: self.directory.child.iter().map(directory_child_to_xml).collect(),
+            child: self
+                .directory
+                .child
+                .iter()
+                .map(directory_child_to_xml)
+                .collect(),
         })
     }
 }

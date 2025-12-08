@@ -1,6 +1,6 @@
+use crate::api::ferrotune::users::user_has_song_access;
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::AppState;
-use crate::api::ferrotune::users::user_has_song_access;
 use crate::error::{Error, Result};
 use axum::{
     body::Body,
@@ -46,7 +46,7 @@ pub async fn stream(
 
     // Find the music folder for this song
     let music_folders = crate::db::queries::get_music_folders(&state.pool).await?;
-    
+
     let mut full_path: Option<PathBuf> = None;
     for folder in music_folders {
         let candidate = PathBuf::from(&folder.path).join(&song.file_path);
@@ -56,8 +56,8 @@ pub async fn stream(
         }
     }
 
-    let full_path = full_path
-        .ok_or_else(|| Error::NotFound(format!("File not found: {}", song.file_path)))?;
+    let full_path =
+        full_path.ok_or_else(|| Error::NotFound(format!("File not found: {}", song.file_path)))?;
 
     // Security: Ensure the resolved path is still within a music folder
     let canonical_path = full_path
@@ -85,9 +85,7 @@ pub async fn stream(
 
     // Check if transcoding is requested (not implemented yet)
     if params.max_bit_rate.is_some() || params.format.is_some() {
-        tracing::debug!(
-            "Transcoding requested but not implemented, serving original file"
-        );
+        tracing::debug!("Transcoding requested but not implemented, serving original file");
     }
 
     // Open file
@@ -135,7 +133,7 @@ struct Range {
 fn parse_range(range_header: &str, file_size: u64) -> Option<Range> {
     // Parse "bytes=start-end" format
     let range_str = range_header.strip_prefix("bytes=")?;
-    
+
     let parts: Vec<&str> = range_str.split('-').collect();
     if parts.len() != 2 {
         return None;
@@ -197,12 +195,11 @@ pub async fn download(
     params: Query<StreamParams>,
 ) -> Result<Response> {
     let mut response = stream(user, state, headers, params).await?;
-    
+
     // Add Content-Disposition header for download
-    response.headers_mut().insert(
-        header::CONTENT_DISPOSITION,
-        "attachment".parse().unwrap(),
-    );
+    response
+        .headers_mut()
+        .insert(header::CONTENT_DISPOSITION, "attachment".parse().unwrap());
 
     Ok(response)
 }

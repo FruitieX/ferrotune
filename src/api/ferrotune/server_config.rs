@@ -111,11 +111,21 @@ pub async fn get_server_config(
 
     let pool = &state.pool;
 
-    let server_name = parse_json(get_config_value(pool, "server.name").await, "Ferrotune".to_string());
-    let server_host = parse_json(get_config_value(pool, "server.host").await, "127.0.0.1".to_string());
+    let server_name = parse_json(
+        get_config_value(pool, "server.name").await,
+        "Ferrotune".to_string(),
+    );
+    let server_host = parse_json(
+        get_config_value(pool, "server.host").await,
+        "127.0.0.1".to_string(),
+    );
     let server_port: u16 = parse_json(get_config_value(pool, "server.port").await, 4040);
-    let admin_user = parse_json(get_config_value(pool, "server.admin_user").await, "admin".to_string());
-    let max_cover_size: u32 = parse_json(get_config_value(pool, "cache.max_cover_size").await, 1024);
+    let admin_user = parse_json(
+        get_config_value(pool, "server.admin_user").await,
+        "admin".to_string(),
+    );
+    let max_cover_size: u32 =
+        parse_json(get_config_value(pool, "cache.max_cover_size").await, 1024);
     let readonly_tags: bool = parse_json(get_config_value(pool, "music.readonly_tags").await, true);
     let configured: bool = parse_json(get_config_value(pool, "configured").await, false);
 
@@ -156,10 +166,20 @@ pub async fn update_server_config(
         set_config_value(pool, "server.port", &port.to_string()).await?;
     }
     if let Some(admin_user) = &request.admin_user {
-        set_config_value(pool, "server.admin_user", &serde_json::to_string(admin_user).unwrap()).await?;
+        set_config_value(
+            pool,
+            "server.admin_user",
+            &serde_json::to_string(admin_user).unwrap(),
+        )
+        .await?;
     }
     if let Some(admin_password) = &request.admin_password {
-        set_config_value(pool, "server.admin_password", &serde_json::to_string(admin_password).unwrap()).await?;
+        set_config_value(
+            pool,
+            "server.admin_password",
+            &serde_json::to_string(admin_password).unwrap(),
+        )
+        .await?;
     }
     if let Some(max_cover_size) = request.max_cover_size {
         set_config_value(pool, "cache.max_cover_size", &max_cover_size.to_string()).await?;
@@ -192,11 +212,7 @@ pub async fn get_all_config(
 
     let config: HashMap<String, serde_json::Value> = rows
         .into_iter()
-        .filter_map(|(key, value)| {
-            serde_json::from_str(&value)
-                .ok()
-                .map(|v| (key, v))
-        })
+        .filter_map(|(key, value)| serde_json::from_str(&value).ok().map(|v| (key, v)))
         .collect();
 
     Ok(Json(config))

@@ -53,14 +53,13 @@ pub async fn update_user_password(
     password_hash: &str,
     subsonic_token: &str,
 ) -> sqlx::Result<bool> {
-    let result = sqlx::query(
-        "UPDATE users SET password_hash = ?, subsonic_token = ? WHERE username = ?",
-    )
-    .bind(password_hash)
-    .bind(subsonic_token)
-    .bind(username)
-    .execute(pool)
-    .await?;
+    let result =
+        sqlx::query("UPDATE users SET password_hash = ?, subsonic_token = ? WHERE username = ?")
+            .bind(password_hash)
+            .bind(subsonic_token)
+            .bind(username)
+            .execute(pool)
+            .await?;
 
     Ok(result.rows_affected() > 0)
 }
@@ -325,9 +324,12 @@ pub async fn get_playlist_songs(pool: &SqlitePool, playlist_id: &str) -> sqlx::R
 /// Get songs in a playlist with their original positions (for queue materialization)
 /// Returns tuples of (position, song) where position is the original playlist position
 /// This is needed to correctly map start_index when playlists have missing entries
-pub async fn get_playlist_songs_with_positions(pool: &SqlitePool, playlist_id: &str) -> sqlx::Result<Vec<(i64, Song)>> {
+pub async fn get_playlist_songs_with_positions(
+    pool: &SqlitePool,
+    playlist_id: &str,
+) -> sqlx::Result<Vec<(i64, Song)>> {
     use sqlx::Row;
-    
+
     let rows = sqlx::query(
         "SELECT ps.position, s.*, ar.name as artist_name, al.name as album_name,
                 pc.play_count, pc.last_played, NULL as starred_at
@@ -344,32 +346,35 @@ pub async fn get_playlist_songs_with_positions(pool: &SqlitePool, playlist_id: &
     .fetch_all(pool)
     .await?;
 
-    Ok(rows.into_iter().map(|row| {
-        let position: i64 = row.get("position");
-        let song = Song {
-            id: row.get("id"),
-            title: row.get("title"),
-            album_id: row.get("album_id"),
-            album_name: row.get("album_name"),
-            artist_id: row.get("artist_id"),
-            artist_name: row.get("artist_name"),
-            track_number: row.get("track_number"),
-            disc_number: row.get("disc_number"),
-            year: row.get("year"),
-            genre: row.get("genre"),
-            duration: row.get("duration"),
-            bitrate: row.get("bitrate"),
-            file_path: row.get("file_path"),
-            file_size: row.get("file_size"),
-            file_format: row.get("file_format"),
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
-            play_count: row.get("play_count"),
-            last_played: row.get("last_played"),
-            starred_at: None,
-        };
-        (position, song)
-    }).collect())
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let position: i64 = row.get("position");
+            let song = Song {
+                id: row.get("id"),
+                title: row.get("title"),
+                album_id: row.get("album_id"),
+                album_name: row.get("album_name"),
+                artist_id: row.get("artist_id"),
+                artist_name: row.get("artist_name"),
+                track_number: row.get("track_number"),
+                disc_number: row.get("disc_number"),
+                year: row.get("year"),
+                genre: row.get("genre"),
+                duration: row.get("duration"),
+                bitrate: row.get("bitrate"),
+                file_path: row.get("file_path"),
+                file_size: row.get("file_size"),
+                file_format: row.get("file_format"),
+                created_at: row.get("created_at"),
+                updated_at: row.get("updated_at"),
+                play_count: row.get("play_count"),
+                last_played: row.get("last_played"),
+                starred_at: None,
+            };
+            (position, song)
+        })
+        .collect())
 }
 
 /// Get unique album IDs from the first N songs in a playlist (for cover art)
@@ -523,10 +528,11 @@ pub async fn add_entries_to_playlist(
     let mut position = max_pos.0 + 1;
 
     for entry in entries {
-        let missing_json = entry.missing_entry_data.as_ref().map(|data| {
-            serde_json::to_string(data).unwrap_or_default()
-        });
-        
+        let missing_json = entry
+            .missing_entry_data
+            .as_ref()
+            .map(|data| serde_json::to_string(data).unwrap_or_default());
+
         sqlx::query(
             "INSERT INTO playlist_songs (playlist_id, song_id, position, missing_entry_data, missing_search_text) VALUES (?, ?, ?, ?, ?)"
         )
@@ -547,7 +553,10 @@ pub async fn add_entries_to_playlist(
 }
 
 /// Get all playlist entries including missing entries
-pub async fn get_playlist_entries(pool: &SqlitePool, playlist_id: &str) -> sqlx::Result<Vec<PlaylistSong>> {
+pub async fn get_playlist_entries(
+    pool: &SqlitePool,
+    playlist_id: &str,
+) -> sqlx::Result<Vec<PlaylistSong>> {
     sqlx::query_as::<_, PlaylistSong>(
         "SELECT playlist_id, song_id, position, missing_entry_data 
          FROM playlist_songs 
@@ -576,10 +585,10 @@ pub async fn match_missing_entry(
     .bind(position)
     .execute(pool)
     .await?;
-    
+
     // Update playlist totals (duration may change)
     update_playlist_totals(pool, playlist_id).await?;
-    
+
     Ok(())
 }
 
@@ -624,12 +633,14 @@ async fn reindex_playlist_positions(pool: &SqlitePool, playlist_id: &str) -> sql
     // Update each with new sequential position using old position as key
     for (new_pos, (old_pos,)) in entries.iter().enumerate() {
         if new_pos as i64 != *old_pos {
-            sqlx::query("UPDATE playlist_songs SET position = ? WHERE playlist_id = ? AND position = ?")
-                .bind(new_pos as i64)
-                .bind(playlist_id)
-                .bind(old_pos)
-                .execute(pool)
-                .await?;
+            sqlx::query(
+                "UPDATE playlist_songs SET position = ? WHERE playlist_id = ? AND position = ?",
+            )
+            .bind(new_pos as i64)
+            .bind(playlist_id)
+            .bind(old_pos)
+            .execute(pool)
+            .await?;
         }
     }
 

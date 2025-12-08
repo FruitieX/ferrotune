@@ -118,7 +118,11 @@ mod tests {
         assert!(verify_subsonic_token(&client_token, salt, &stored_token));
 
         // Wrong salt should fail
-        assert!(!verify_subsonic_token(&client_token, "different_salt", &stored_token));
+        assert!(!verify_subsonic_token(
+            &client_token,
+            "different_salt",
+            &stored_token
+        ));
 
         // Wrong token should fail
         assert!(!verify_subsonic_token("wrong_token", salt, &stored_token));

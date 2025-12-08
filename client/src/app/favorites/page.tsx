@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { Heart, Play, Shuffle } from "lucide-react";
+import type { SongResponse, AlbumResponse, ArtistResponse } from "@/lib/api/types";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
@@ -142,9 +143,9 @@ export default function FavoritesPage() {
   });
 
   // Display data comes directly from server - already sorted and filtered
-  const displaySongs = songsData ?? [];
-  const displayAlbums = albumsData ?? [];
-  const displayArtists = artistsData ?? [];
+  const displaySongs: SongResponse[] = songsData ?? [];
+  const displayAlbums: AlbumResponse[] = albumsData ?? [];
+  const displayArtists: ArtistResponse[] = artistsData ?? [];
   
   // Combined loading state
   const isLoading = isSongsLoading || isAlbumsLoading || isArtistsLoading;

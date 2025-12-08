@@ -498,14 +498,13 @@ pub async fn get_period_review(
     }
 
     // Sort: years first (no month), then by year desc, month desc
-    available_periods.sort_by(|a, b| {
-        match (a.month, b.month) {
-            (None, Some(_)) => std::cmp::Ordering::Less,
-            (Some(_), None) => std::cmp::Ordering::Greater,
-            _ => b.year.cmp(&a.year).then_with(|| {
-                b.month.unwrap_or(0).cmp(&a.month.unwrap_or(0))
-            }),
-        }
+    available_periods.sort_by(|a, b| match (a.month, b.month) {
+        (None, Some(_)) => std::cmp::Ordering::Less,
+        (Some(_), None) => std::cmp::Ordering::Greater,
+        _ => b
+            .year
+            .cmp(&a.year)
+            .then_with(|| b.month.unwrap_or(0).cmp(&a.month.unwrap_or(0))),
     });
 
     let review = PeriodReview {

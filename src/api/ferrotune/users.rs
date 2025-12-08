@@ -158,9 +158,7 @@ pub struct ApiKeysResponse {
 
 fn require_admin(user: &AuthenticatedUser) -> Result<()> {
     if !user.is_admin {
-        return Err(Error::Auth(
-            "Admin privileges required".to_string(),
-        ));
+        return Err(Error::Auth("Admin privileges required".to_string()));
     }
     Ok(())
 }
@@ -255,7 +253,9 @@ pub async fn create_user(
 
     // Validate username
     if request.username.is_empty() {
-        return Err(Error::InvalidRequest("Username cannot be empty".to_string()));
+        return Err(Error::InvalidRequest(
+            "Username cannot be empty".to_string(),
+        ));
     }
     if request.username.len() < 3 {
         return Err(Error::InvalidRequest(
@@ -387,7 +387,7 @@ pub async fn update_user(
             .map_err(|e| Error::Internal(format!("Failed to hash password: {}", e)))?;
         // Create subsonic token for legacy token+salt authentication
         let subsonic_token = password::create_subsonic_token(password);
-        
+
         // Update both password_hash and subsonic_token
         sqlx::query("UPDATE users SET password_hash = ?, subsonic_token = ? WHERE id = ?")
             .bind(&password_hash)
@@ -408,10 +408,7 @@ pub async fn update_user(
                 "Cannot remove your own admin privileges".to_string(),
             ));
         }
-        updates.push((
-            "is_admin",
-            if is_admin { "1" } else { "0" }.to_string(),
-        ));
+        updates.push(("is_admin", if is_admin { "1" } else { "0" }.to_string()));
     }
 
     // Apply non-password updates
@@ -436,13 +433,11 @@ pub async fn update_user(
 
         // Add new access
         for folder_id in &folder_ids {
-            sqlx::query(
-                "INSERT INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)",
-            )
-            .bind(id)
-            .bind(folder_id)
-            .execute(&state.pool)
-            .await?;
+            sqlx::query("INSERT INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)")
+                .bind(id)
+                .bind(folder_id)
+                .execute(&state.pool)
+                .await?;
         }
     }
 
@@ -605,7 +600,9 @@ pub async fn list_api_keys(
         })
         .collect();
 
-    Ok(Json(ApiKeysResponse { api_keys: key_infos }))
+    Ok(Json(ApiKeysResponse {
+        api_keys: key_infos,
+    }))
 }
 
 /// POST /ferrotune/users/{id}/api-keys - Create a new API key (admin or self)

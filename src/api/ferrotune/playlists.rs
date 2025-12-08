@@ -665,7 +665,9 @@ pub async fn match_missing_entry(
     if missing_data.is_none() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(super::ErrorResponse::new("Entry has no missing data to match")),
+            Json(super::ErrorResponse::new(
+                "Entry has no missing data to match",
+            )),
         ));
     }
 
@@ -692,17 +694,22 @@ pub async fn match_missing_entry(
     }
 
     // Update the entry to link to the song
-    crate::db::queries::match_missing_entry(&state.pool, &playlist_id, request.position, &request.song_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details(
-                    "Database error",
-                    e.to_string(),
-                )),
-            )
-        })?;
+    crate::db::queries::match_missing_entry(
+        &state.pool,
+        &playlist_id,
+        request.position,
+        &request.song_id,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -726,7 +733,7 @@ pub async fn move_playlist_entry(
 ) -> Result<StatusCode, ApiError> {
     let from_pos = request.from_position as i64;
     let to_pos = request.to_position as i64;
-    
+
     if from_pos == to_pos {
         return Ok(StatusCode::NO_CONTENT);
     }
@@ -756,21 +763,20 @@ pub async fn move_playlist_entry(
     }
 
     // Get count of entries to validate positions
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = ?"
-    )
-    .bind(&playlist_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = ?")
+            .bind(&playlist_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::with_details(
+                        "Database error",
+                        e.to_string(),
+                    )),
+                )
+            })?;
 
     if from_pos < 0 || from_pos >= count || to_pos < 0 || to_pos >= count {
         return Err((
@@ -791,22 +797,20 @@ pub async fn move_playlist_entry(
     })?;
 
     // Temporarily move the item to a negative position to avoid conflicts
-    sqlx::query(
-        "UPDATE playlist_songs SET position = -1 WHERE playlist_id = ? AND position = ?"
-    )
-    .bind(&playlist_id)
-    .bind(from_pos)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    sqlx::query("UPDATE playlist_songs SET position = -1 WHERE playlist_id = ? AND position = ?")
+        .bind(&playlist_id)
+        .bind(from_pos)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse::with_details(
+                    "Database error",
+                    e.to_string(),
+                )),
+            )
+        })?;
 
     // Shift positions of entries between from and to
     // We shift one row at a time to avoid UNIQUE constraint violations
@@ -815,7 +819,7 @@ pub async fn move_playlist_entry(
         for pos in (from_pos + 1)..=to_pos {
             sqlx::query(
                 "UPDATE playlist_songs SET position = position - 1 
-                 WHERE playlist_id = ? AND position = ?"
+                 WHERE playlist_id = ? AND position = ?",
             )
             .bind(&playlist_id)
             .bind(pos)
@@ -836,7 +840,7 @@ pub async fn move_playlist_entry(
         for pos in (to_pos..from_pos).rev() {
             sqlx::query(
                 "UPDATE playlist_songs SET position = position + 1 
-                 WHERE playlist_id = ? AND position = ?"
+                 WHERE playlist_id = ? AND position = ?",
             )
             .bind(&playlist_id)
             .bind(pos)
@@ -855,22 +859,20 @@ pub async fn move_playlist_entry(
     }
 
     // Move the item to its final position
-    sqlx::query(
-        "UPDATE playlist_songs SET position = ? WHERE playlist_id = ? AND position = -1"
-    )
-    .bind(to_pos)
-    .bind(&playlist_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    sqlx::query("UPDATE playlist_songs SET position = ? WHERE playlist_id = ? AND position = -1")
+        .bind(to_pos)
+        .bind(&playlist_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse::with_details(
+                    "Database error",
+                    e.to_string(),
+                )),
+            )
+        })?;
 
     tx.commit().await.map_err(|e| {
         (
@@ -945,11 +947,16 @@ pub async fn import_playlist(
     user: AuthenticatedUser,
     Json(request): Json<ImportPlaylistRequest>,
 ) -> Result<Json<ImportPlaylistResponse>, ApiError> {
-    use crate::db::queries::{add_entries_to_playlist, create_playlist, PlaylistEntry};
     use crate::db::models::MissingEntryData;
-    
+    use crate::db::queries::{add_entries_to_playlist, create_playlist, PlaylistEntry};
+
     /// Build search text from missing entry fields in "artist - album - title" format
-    fn build_missing_search_text(artist: Option<&str>, album: Option<&str>, title: Option<&str>, raw: &str) -> String {
+    fn build_missing_search_text(
+        artist: Option<&str>,
+        album: Option<&str>,
+        title: Option<&str>,
+        raw: &str,
+    ) -> String {
         let mut parts = Vec::new();
         if let Some(a) = artist {
             if !a.is_empty() {
@@ -972,27 +979,34 @@ pub async fn import_playlist(
             parts.join(" - ")
         }
     }
-    
+
     // Generate playlist ID
     let playlist_id = format!("pl-{}", Uuid::new_v4());
 
     // Create the playlist
-    create_playlist(&state.pool, &playlist_id, &request.name, user.user_id, request.comment.as_deref(), false)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details(
-                    "Failed to create playlist",
-                    e.to_string(),
-                )),
-            )
-        })?;
+    create_playlist(
+        &state.pool,
+        &playlist_id,
+        &request.name,
+        user.user_id,
+        request.comment.as_deref(),
+        false,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Failed to create playlist",
+                e.to_string(),
+            )),
+        )
+    })?;
 
     // Convert import entries to playlist entries
     let mut matched_count = 0i32;
     let mut missing_count = 0i32;
-    
+
     let entries: Vec<PlaylistEntry> = request
         .entries
         .into_iter()
@@ -1005,15 +1019,18 @@ pub async fn import_playlist(
                     m.title.as_deref(),
                     &m.raw,
                 );
-                (MissingEntryData {
-                    title: m.title,
-                    artist: m.artist,
-                    album: m.album,
-                    duration: m.duration,
-                    raw: m.raw,
-                }, search_text)
+                (
+                    MissingEntryData {
+                        title: m.title,
+                        artist: m.artist,
+                        album: m.album,
+                        duration: m.duration,
+                        raw: m.raw,
+                    },
+                    search_text,
+                )
             });
-            
+
             if let Some(song_id) = entry.song_id {
                 matched_count += 1;
                 // Store missing data even for matched tracks so they can be refined later
@@ -1183,10 +1200,10 @@ pub struct PlaylistSongsResponse {
 }
 
 /// Get paginated playlist songs with interleaved missing entries.
-/// 
-/// This endpoint replaces both `getPlaylist` (for songs) and `get_playlist_entries` 
+///
+/// This endpoint replaces both `getPlaylist` (for songs) and `get_playlist_entries`
 /// (for missing entries) with a single endpoint that returns both interleaved.
-/// 
+///
 /// The entries are returned in their original playlist positions, which is important
 /// for queue materialization to correctly map display indices to playback indices.
 pub async fn get_playlist_songs(
@@ -1204,7 +1221,10 @@ pub async fn get_playlist_songs(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details("Database error", e.to_string())),
+                Json(super::ErrorResponse::with_details(
+                    "Database error",
+                    e.to_string(),
+                )),
             )
         })?
         .ok_or_else(|| {
@@ -1218,7 +1238,9 @@ pub async fn get_playlist_songs(
     if playlist.owner_id != user.user_id && !playlist.is_public {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(super::ErrorResponse::new("Not authorized to access this playlist")),
+            Json(super::ErrorResponse::new(
+                "Not authorized to access this playlist",
+            )),
         ));
     }
 
@@ -1227,7 +1249,7 @@ pub async fn get_playlist_songs(
         "SELECT position, song_id, missing_entry_data, missing_search_text 
          FROM playlist_songs 
          WHERE playlist_id = ? 
-         ORDER BY position"
+         ORDER BY position",
     )
     .bind(&playlist_id)
     .fetch_all(&state.pool)
@@ -1235,15 +1257,24 @@ pub async fn get_playlist_songs(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details("Database error", e.to_string())),
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
         )
     })?;
 
     // Count totals
     let total_entries = entries_raw.len() as i64;
-    let matched_count = entries_raw.iter().filter(|(_, sid, _, _)| sid.is_some()).count() as i64;
+    let matched_count = entries_raw
+        .iter()
+        .filter(|(_, sid, _, _)| sid.is_some())
+        .count() as i64;
     // Only count as "missing" if there's no song_id (truly unmatched entries)
-    let missing_count = entries_raw.iter().filter(|(_, sid, md, _)| sid.is_none() && md.is_some()).count() as i64;
+    let missing_count = entries_raw
+        .iter()
+        .filter(|(_, sid, md, _)| sid.is_none() && md.is_some())
+        .count() as i64;
 
     // Get all song IDs that are not null
     let song_ids: Vec<String> = entries_raw
@@ -1258,7 +1289,10 @@ pub async fn get_playlist_songs(
             .map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details("Database error", e.to_string())),
+                    Json(super::ErrorResponse::with_details(
+                        "Database error",
+                        e.to_string(),
+                    )),
                 )
             })?
     } else {
@@ -1266,7 +1300,7 @@ pub async fn get_playlist_songs(
     };
 
     // Create a lookup map from song_id -> Song
-    let song_map: std::collections::HashMap<String, crate::db::models::Song> = 
+    let song_map: std::collections::HashMap<String, crate::db::models::Song> =
         songs.into_iter().map(|s| (s.id.clone(), s)).collect();
 
     // Determine sort mode
@@ -1279,21 +1313,33 @@ pub async fn get_playlist_songs(
     // Build unified entry list with position info
     #[derive(Clone)]
     enum EntryData {
-        Song { position: i64, song: crate::db::models::Song, missing_data: Option<MissingEntryData> },
-        Missing { position: i64, data: MissingEntryData },
+        Song {
+            position: i64,
+            song: crate::db::models::Song,
+            missing_data: Option<MissingEntryData>,
+        },
+        Missing {
+            position: i64,
+            data: MissingEntryData,
+        },
     }
 
     let mut unified_entries: Vec<EntryData> = entries_raw
         .into_iter()
         .filter_map(|(position, song_id, missing_json, _missing_search_text)| {
             // Parse missing data if present
-            let missing_data = missing_json.as_ref()
+            let missing_data = missing_json
+                .as_ref()
                 .and_then(|json| serde_json::from_str::<MissingEntryData>(json).ok());
-            
+
             if let Some(sid) = song_id {
                 // Matched song - include the missing_data so UI can show "Refine Match" option
                 if let Some(song) = song_map.get(&sid) {
-                    Some(EntryData::Song { position, song: song.clone(), missing_data })
+                    Some(EntryData::Song {
+                        position,
+                        song: song.clone(),
+                        missing_data,
+                    })
                 } else {
                     None // Song was deleted?
                 }
@@ -1313,13 +1359,32 @@ pub async fn get_playlist_songs(
             EntryData::Song { song, .. } => {
                 song.title.to_lowercase().contains(&query)
                     || song.artist_name.to_lowercase().contains(&query)
-                    || song.album_name.as_deref().unwrap_or("").to_lowercase().contains(&query)
+                    || song
+                        .album_name
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(&query)
             }
             EntryData::Missing { data, .. } => {
                 // Filter missing entries by their metadata
-                data.title.as_deref().unwrap_or("").to_lowercase().contains(&query)
-                    || data.artist.as_deref().unwrap_or("").to_lowercase().contains(&query)
-                    || data.album.as_deref().unwrap_or("").to_lowercase().contains(&query)
+                data.title
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_lowercase()
+                    .contains(&query)
+                    || data
+                        .artist
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(&query)
+                    || data
+                        .album
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(&query)
                     || data.raw.to_lowercase().contains(&query)
             }
         });
@@ -1331,7 +1396,7 @@ pub async fn get_playlist_songs(
         // Missing entries don't have sortable metadata, so we exclude them when sorting by
         // specific fields. They are only shown in "custom" (playlist order) mode.
         unified_entries.retain(|entry| matches!(entry, EntryData::Song { .. }));
-        
+
         // Sort songs
         unified_entries.sort_by(|a, b| {
             let (song_a, song_b) = match (a, b) {
@@ -1340,8 +1405,14 @@ pub async fn get_playlist_songs(
             };
 
             let cmp = match sort_field {
-                "name" | "title" => song_a.title.to_lowercase().cmp(&song_b.title.to_lowercase()),
-                "artist" => song_a.artist_name.to_lowercase().cmp(&song_b.artist_name.to_lowercase()),
+                "name" | "title" => song_a
+                    .title
+                    .to_lowercase()
+                    .cmp(&song_b.title.to_lowercase()),
+                "artist" => song_a
+                    .artist_name
+                    .to_lowercase()
+                    .cmp(&song_b.artist_name.to_lowercase()),
                 "album" => {
                     let a_album = song_a.album_name.as_deref().unwrap_or("");
                     let b_album = song_b.album_name.as_deref().unwrap_or("");
@@ -1349,7 +1420,10 @@ pub async fn get_playlist_songs(
                 }
                 "year" => song_a.year.unwrap_or(0).cmp(&song_b.year.unwrap_or(0)),
                 "dateAdded" | "created" => song_a.created_at.cmp(&song_b.created_at),
-                "playCount" => song_a.play_count.unwrap_or(0).cmp(&song_b.play_count.unwrap_or(0)),
+                "playCount" => song_a
+                    .play_count
+                    .unwrap_or(0)
+                    .cmp(&song_b.play_count.unwrap_or(0)),
                 "lastPlayed" => song_a.last_played.cmp(&song_b.last_played),
                 "duration" => song_a.duration.cmp(&song_b.duration),
                 _ => std::cmp::Ordering::Equal,
@@ -1398,7 +1472,11 @@ pub async fn get_playlist_songs(
     let entries: Vec<PlaylistSongEntry> = page_entries
         .into_iter()
         .map(|(entry, song_index)| match entry {
-            EntryData::Song { position, song, missing_data } => PlaylistSongEntry {
+            EntryData::Song {
+                position,
+                song,
+                missing_data,
+            } => PlaylistSongEntry {
                 position: position as i32,
                 entry_type: "song".to_string(),
                 song_index,
@@ -1445,15 +1523,21 @@ pub async fn get_playlist_songs(
         missing_count,
         duration: playlist.duration,
         filtered_count,
-        created: playlist.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-        changed: playlist.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+        created: playlist
+            .created_at
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string(),
+        changed: playlist
+            .updated_at
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string(),
         cover_art,
         entries,
     }))
 }
 
 /// Get playlist entries including missing ones
-/// 
+///
 /// @deprecated Use `get_playlist_songs` instead which returns songs with entries interleaved
 #[allow(dead_code)]
 pub async fn get_playlist_entries(
@@ -1462,23 +1546,22 @@ pub async fn get_playlist_entries(
     Path(playlist_id): Path<String>,
 ) -> Result<Json<PlaylistEntriesResponse>, ApiError> {
     use crate::db::models::MissingEntryData;
-    
+
     // Check playlist exists and belongs to user
-    let playlist: Option<(String, i64, bool)> = sqlx::query_as(
-        "SELECT id, owner_id, is_public FROM playlists WHERE id = ?"
-    )
-    .bind(&playlist_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    let playlist: Option<(String, i64, bool)> =
+        sqlx::query_as("SELECT id, owner_id, is_public FROM playlists WHERE id = ?")
+            .bind(&playlist_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::with_details(
+                        "Database error",
+                        e.to_string(),
+                    )),
+                )
+            })?;
 
     let Some((_, owner_id, is_public)) = playlist else {
         return Err((
@@ -1491,7 +1574,9 @@ pub async fn get_playlist_entries(
     if owner_id != user.user_id as i64 && !is_public {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(super::ErrorResponse::new("Not authorized to access this playlist")),
+            Json(super::ErrorResponse::new(
+                "Not authorized to access this playlist",
+            )),
         ));
     }
 
@@ -1521,7 +1606,7 @@ pub async fn get_playlist_entries(
             if song_id.is_some() {
                 matched_count += 1;
             }
-            
+
             let missing = if let Some(data_str) = missing_data {
                 if let Ok(data) = serde_json::from_str::<MissingEntryData>(&data_str) {
                     // Only count as missing if there's no song_id (truly unmatched)

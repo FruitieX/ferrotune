@@ -21,7 +21,9 @@ pub async fn create_pool(database_path: &Path) -> crate::error::Result<SqlitePoo
         .await?;
 
     // Run migrations
-    sqlx::migrate!("./migrations").run(&pool).await
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
         .map_err(|e| crate::error::Error::Migration(e.to_string()))?;
 
     Ok(pool)

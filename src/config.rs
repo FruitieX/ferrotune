@@ -156,10 +156,7 @@ impl Config {
     pub fn load_from(path: &PathBuf) -> crate::error::Result<Self> {
         if !path.exists() {
             return Err(crate::error::Error::Config(config::ConfigError::Message(
-                format!(
-                    "Config file not found at {}.",
-                    path.display()
-                ),
+                format!("Config file not found at {}.", path.display()),
             )));
         }
 
@@ -210,7 +207,7 @@ impl Config {
             self.database.path = expand_tilde(&self.database.path);
             self.cache.path = expand_tilde(&self.cache.path);
         }
-        
+
         for folder in &mut self.music.folders {
             folder.path = expand_tilde(&folder.path);
         }

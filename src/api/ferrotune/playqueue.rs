@@ -65,9 +65,17 @@ pub async fn save_play_queue(
     }
 
     // Find current index from current song ID
-    let current_index = request.current.as_ref().and_then(|current_id| {
-        request.song_ids.iter().position(|id| id == current_id).map(|i| i as i64)
-    }).unwrap_or(0);
+    let current_index = request
+        .current
+        .as_ref()
+        .and_then(|current_id| {
+            request
+                .song_ids
+                .iter()
+                .position(|id| id == current_id)
+                .map(|i| i as i64)
+        })
+        .unwrap_or(0);
 
     // Upsert the queue metadata using new schema
     sqlx::query(
