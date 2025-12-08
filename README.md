@@ -1,86 +1,124 @@
 # Ferrotune Music Server
 
-An OpenSubsonic-compatible music server written in Rust.
+An OpenSubsonic-compatible music server written in Rust with a Next.js web client.
+
+> ⚠️ **Experimental Software**: Ferrotune is under active development and not yet ready for production use. **Please backup your music library before installing.** The database schema may change between versions without migration support.
 
 ## Features
 
-- **OpenSubsonic API** - Full JSON API support for music clients
-- **Tokio-based async I/O** - High performance asynchronous operations
-- **Metadata extraction** - Reads ID3 tags from MP3, FLAC, OGG, M4A files using lofty
-- **SQLite database** - Embedded database with full-text search (FTS5)
-- **Multiple authentication methods** - API keys, token+salt, password (with Argon2 hashing)
-- **User management** - Multi-user support with admin capabilities
-- **Cover art** - Extraction and serving of album artwork
-- **Playlists** - Support for M3U/XSPF playlist formats
-- **Favorites** - Star/unstar songs, albums, and artists
-- **Search** - Full-text search across songs, albums, and artists
+- **OpenSubsonic API** - Full JSON and XML API support for Subsonic-compatible clients
+- **Modern Web Client** - Built-in responsive web UI with Next.js
+- **Configless Operation** - Can run without a config file; configure via web UI
+- **Multi-user Support** - User management with per-user library access control
+- **High Performance** - Async Rust backend with Tokio
+- **SQLite Database** - Embedded database with full-text search (FTS5)
+- **Cover Art** - Extraction and serving of embedded album artwork
+- **Playlists** - M3U/XSPF import with smart matching for missing tracks
+- **Listening Statistics** - Track your listening history and habits
 
 ## Quick Start
 
-### 1. Configuration
+### Option 1: Run Without Config (Recommended for Getting Started)
+
+```bash
+# Build and run
+cargo build --release
+./target/release/ferrotune serve
+
+# Or with Docker
+docker run -v /path/to/music:/music -v ferrotune-data:/data -p 4040:4040 ferrotune
+```
+
+On first run, open `http://localhost:4040/setup` in your browser to:
+1. Sign in with default credentials (admin/admin)
+2. Optionally change your password
+3. Add your music folders
+4. Scan your library
+
+### Option 2: Run With Config File
 
 Create a config file at `~/.config/ferrotune/config.toml`:
 
-```bash
-mkdir -p ~/.config/ferrotune
-cp config.example.toml ~/.config/ferrotune/config.toml
-```
-
-Edit the configuration and set your music folder paths:
-
 ```toml
+[server]
+host = "127.0.0.1"
+port = 4040
+name = "Ferrotune"
+
+[database]
+path = "~/.local/share/ferrotune/ferrotune.db"
+
+[cache]
+path = "~/.cache/ferrotune"
+
 [[music.folders]]
 name = "Music"
 path = "/path/to/your/music"
 ```
 
-### 2. Build and Run
-
-With Nix:
+Then run:
 ```bash
-nix develop -c cargo build --release
+./target/release/ferrotune serve
 ```
 
-Or with Cargo directly:
-```bash
-cargo build --release
-```
-
-Then run the server:
-```bash
-ferrotune serve
-# Or specify the full path: ./target/release/ferrotune serve
-```
-
-### 3. Scan Your Music Library
-
-```bash
-# Preview what would change (recommended first time)
-ferrotune scan --dry-run
-
-# Incremental scan (add new files, remove deleted)
-ferrotune scan
-
-# Full rescan (also refresh metadata for existing files)
-ferrotune scan --full
-```
-
-### 4. Create Additional Users
-
-```bash
-ferrotune create-user \
-  --username newuser \
-  --password secret \
-  --email user@example.com
-```
-
-### 5. Connect a Client
+### Connect a Client
 
 Configure your Subsonic-compatible music client with:
-- **Server URL**: `http://localhost:4040/rest`
-- **Username**: Your admin username
-- **Password**: Your admin password
+- **Server URL**: `http://localhost:4040`
+- **Username**: `admin` (or your configured user)
+- **Password**: Your password
 - **API Version**: 1.16.1 or higher
+
+## Docker Deployment
+
+```bash
+# Build the image
+docker build -t ferrotune .
+
+# Run with a data volume for persistence
+docker run -d \
+  --name ferrotune \
+  -p 4040:4040 \
+  -v /path/to/music:/music:ro \
+  -v ferrotune-data:/data \
+  -e FERROTUNE_DATA_DIR=/data \
+  -e FERROTUNE_HOST=0.0.0.0 \
+  ferrotune
+```
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `FERROTUNE_DATA_DIR` | Directory for database and cache | Platform-specific |
+| `FERROTUNE_CONFIG` | Path to config file | `~/.config/ferrotune/config.toml` |
+| `FERROTUNE_HOST` | Server bind address | `127.0.0.1` |
+| `FERROTUNE_PORT` | Server port | `4040` |
+
+When `FERROTUNE_DATA_DIR` is set:
+- Database: `$FERROTUNE_DATA_DIR/ferrotune.db`
+- Cache: `$FERROTUNE_DATA_DIR/cache/`
+
+### Docker Compose Example
+
+```yaml
+version: '3.8'
+services:
+  ferrotune:
+    image: ferrotune
+    ports:
+      - "4040:4040"
+    volumes:
+      - /path/to/music:/music:ro
+      - ferrotune-data:/data
+    environment:
+      - FERROTUNE_DATA_DIR=/data
+      - FERROTUNE_HOST=0.0.0.0
+    restart: unless-stopped
+
+volumes:
+  ferrotune-data:
+```
 
 ## CLI Commands
 
@@ -89,101 +127,84 @@ Configure your Subsonic-compatible music client with:
 ferrotune serve --host 0.0.0.0 --port 4040
 
 # Scan music library
-ferrotune scan              # Incremental scan (new/modified/deleted files)
+ferrotune scan              # Incremental scan
 ferrotune scan --full       # Full rescan (refresh all metadata)
 ferrotune scan --folder 1   # Scan specific folder
-ferrotune scan --dry-run    # Preview changes without modifying database
+ferrotune scan --dry-run    # Preview changes
 
 # User management
 ferrotune create-user --username alice --password secret --admin
+ferrotune set-password --username alice --password newsecret
 
 # Generate example config
 ferrotune generate-config > ~/.config/ferrotune/config.toml
-
-# Enable verbose logging
-ferrotune --verbose serve
 ```
-
-### Library Scanning
-
-The scanner supports two modes:
-
-| Behavior | Incremental (default) | Full (`--full`) |
-|----------|----------------------|------------------|
-| Add new files | ✅ | ✅ |
-| Remove deleted files | ✅ | ✅ |
-| Update modified files | ✅ | ✅ |
-| Refresh unchanged files | ❌ | ✅ |
-
-**Incremental scan** checks file modification times and only re-reads metadata for files that have changed since the last scan. This is fast and suitable for routine use.
-
-**Full scan** re-reads metadata for every file regardless of modification time. Use this after bulk re-tagging your library or if you suspect the database is out of sync.
-
-Add `--dry-run` to either mode to preview what would change without modifying the database.
-
-All commands support environment variables:
-- `FERROTUNE_CONFIG` - Config file path
-- `FERROTUNE_HOST` - Server host
-- `FERROTUNE_PORT` - Server port
 
 ## API Endpoints
 
-### System
-- `ping` - Test server connectivity
-- `getLicense` - Get server license info
-- `getOpenSubsonicExtensions` - List supported extensions
-- `getMusicFolders` - List configured music folders
+### OpenSubsonic API (`/rest/*`)
 
-### Browse
-- `getArtists` - Get all artists (✅ implemented)
-- `getArtist` - Get artist details and albums (✅ implemented)
-- `getAlbum` - Get album details and songs (✅ implemented)
-- `getSong` - Get song details (✅ implemented)
-- `getGenres` - List all genres (✅ implemented)
+Full implementation of the Subsonic/OpenSubsonic API for client compatibility:
+- System: `ping`, `getLicense`, `getOpenSubsonicExtensions`
+- Browsing: `getArtists`, `getArtist`, `getAlbum`, `getSong`, `getGenres`
+- Lists: `getAlbumList2`, `getRandomSongs`, `getSongsByGenre`
+- Streaming: `stream`, `download`, `getCoverArt`
+- Search: `search3`
+- Playlists: `getPlaylists`, `getPlaylist`, `createPlaylist`, `updatePlaylist`, `deletePlaylist`
+- User: `star`, `unstar`, `setRating`, `getStarred2`, `scrobble`
+- Queue: `savePlayQueue`, `getPlayQueue`
 
-### Media
-- `stream` - Stream audio files (✅ implemented with range requests)
-- `download` - Download original files (✅ implemented)
-- `getCoverArt` - Get album artwork (🚧 coming soon)
+### Ferrotune Admin API (`/ferrotune/*`)
 
-### Library Management (Coming Soon)
-- `startScan` - Trigger library scan
-- `getScanStatus` - Check scan progress
+Extended REST API for administration:
+- Health: `GET /ferrotune/health`
+- Statistics: `GET /ferrotune/stats`
+- Library: `POST /ferrotune/scan`, `GET /ferrotune/scan/status`
+- Music Folders: CRUD at `/ferrotune/music-folders`
+- Users: CRUD at `/ferrotune/users`
+- Configuration: `/ferrotune/config`
+- Playlists: Enhanced endpoints including import and reordering
+- Listening: `/ferrotune/listening/stats`, `/ferrotune/listening/review`
 
-### Favorites (Coming Soon)
-- `star` - Star items
-- `unstar` - Unstar items
-- `getStarred2` - Get starred items
+## Building
 
-### Playlists (Coming Soon)
-- `getPlaylists` - List playlists
-- `getPlaylist` - Get playlist contents
-- `createPlaylist` - Create new playlist
-- `updatePlaylist` - Modify playlist
-- `deletePlaylist` - Remove playlist
+### With Nix
 
-### Search (Coming Soon)
-- `search3` - Unified search endpoint
+```bash
+nix develop
+cargo build --release
+```
 
-### Discovery (Coming Soon)
-- `getAlbumList2` - Get album lists (newest, random, etc.)
-- `getRandomSongs` - Get random songs
-- `scrobble` - Register playback
+### With Cargo
 
-## Configuration Options
+```bash
+cargo build --release
+```
 
-### Server Settings
-- `host` - Bind address (default: `127.0.0.1`)
-- `port` - Server port (default: `4040`)
-- `name` - Server name (default: `Ferrotune`)
+### With Embedded Web UI
 
-### Database
-- `path` - SQLite database location
+```bash
+# Build frontend first
+cd client && npm install && npm run build && cd ..
 
-### Music
-- `readonly_tags` - Whether to allow tag editing (default: `true`)
-- `folders` - List of music folder configurations
+# Build backend with embedded UI
+cargo build --release --features embedded-ui
+```
 
-### Cache
-- `path` - Cache directory for cover art
-- `max_cover_size` - Maximum cover art dimensions in pixels
+## Development
+
+```bash
+# Start backend dev server
+cargo run -- serve
+
+# Start frontend dev server (in another terminal)
+cd client && npm run dev
+
+# Run tests
+cargo test
+cd client && npm run test
+```
+
+## License
+
+MIT

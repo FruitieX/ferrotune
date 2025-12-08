@@ -119,21 +119,26 @@ async fn main() -> Result<()> {
     }
 
     // Load configuration
+    // Priority: CLI arg > env var > default path > configless mode
     let config = if let Some(config_path) = cli.config {
+        // Explicit config file path provided
         config::Config::load_from(&config_path)?
+    } else if let Ok(config_path) = std::env::var("FERROTUNE_CONFIG") {
+        // Config path from environment variable
+        config::Config::load_from(&PathBuf::from(config_path))?
     } else {
-        config::Config::load().map_err(|e| {
-            if matches!(e, error::Error::Config(_)) {
-                eprintln!("Configuration error: {}", e);
-                eprintln!("\nExample configuration file:");
-                eprintln!("---------------------------");
-                eprintln!("{}", config::Config::example());
-                eprintln!("---------------------------");
-                eprintln!("\nPlease create a config file at: ~/.config/ferrotune/config.toml");
-                eprintln!("Or generate one with: ferrotune generate-config > ~/.config/ferrotune/config.toml");
+        // Try default location, fall back to configless mode
+        match config::Config::load()? {
+            Some(config) => config,
+            None => {
+                tracing::info!("No config file found, running in configless mode");
+                tracing::info!("  Data directory: {}", config::get_data_dir().display());
+                tracing::info!("  Database: {}", config::get_data_dir().join("ferrotune.db").display());
+                tracing::info!("  Cache: {}", config::get_cache_dir().display());
+                tracing::info!("Use the web UI at /setup to configure your server");
+                config::Config::default_configless()
             }
-            e
-        })?
+        }
     };
 
     tracing::info!(

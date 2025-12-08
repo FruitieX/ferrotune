@@ -94,6 +94,7 @@ mod queue;
 mod scan;
 pub mod scan_state;
 mod server_config;
+mod setup;
 mod shuffle_exclude;
 mod stats;
 mod tags;
@@ -115,6 +116,9 @@ use ts_rs::TS;
 pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/ferrotune/health", get(health))
+        // Setup endpoint (unauthenticated - for first-run detection)
+        .route("/ferrotune/setup/status", get(setup::get_setup_status))
+        .route("/ferrotune/setup/complete", post(setup::complete_setup))
         .route("/ferrotune/stats", get(stats::get_stats))
         .route("/ferrotune/scan", post(scan::start_scan))
         .route("/ferrotune/scan/status", get(scan::scan_status))

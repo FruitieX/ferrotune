@@ -1,6 +1,38 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+/// Environment variable for data directory (database, cache, etc.)
+/// When set, this is used as the base directory for all data storage.
+/// This is particularly useful for container deployments.
+pub const DATA_DIR_ENV: &str = "FERROTUNE_DATA_DIR";
+
+/// Get the data directory from environment or use platform-specific defaults.
+/// Priority: FERROTUNE_DATA_DIR env var > platform-specific defaults
+pub fn get_data_dir() -> PathBuf {
+    if let Ok(data_dir) = std::env::var(DATA_DIR_ENV) {
+        PathBuf::from(data_dir)
+    } else {
+        // Fall back to platform-specific directory
+        dirs::data_local_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("ferrotune")
+    }
+}
+
+/// Get the cache directory. Uses data dir subdirectory if FERROTUNE_DATA_DIR is set,
+/// otherwise uses platform-specific cache directory.
+pub fn get_cache_dir() -> PathBuf {
+    if std::env::var(DATA_DIR_ENV).is_ok() {
+        // When data dir is set, put cache inside it
+        get_data_dir().join("cache")
+    } else {
+        // Fall back to platform-specific cache directory
+        dirs::cache_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("ferrotune")
+    }
+}
+
 /// Expand tilde (~) in paths to the user's home directory
 fn expand_tilde(path: &Path) -> PathBuf {
     if let Some(path_str) = path.to_str() {
@@ -89,16 +121,11 @@ fn default_admin_password() -> String {
 }
 
 fn default_db_path() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("ferrotune")
-        .join("ferrotune.db")
+    get_data_dir().join("ferrotune.db")
 }
 
 fn default_cache_path() -> PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("ferrotune")
+    get_cache_dir()
 }
 
 fn default_max_cover_size() -> u32 {
@@ -110,20 +137,27 @@ fn default_true() -> bool {
 }
 
 impl Config {
-    pub fn load() -> crate::error::Result<Self> {
+    /// Load configuration from the default location.
+    /// Returns Ok(None) if no config file exists (configless mode).
+    pub fn load() -> crate::error::Result<Option<Self>> {
         let config_path = dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("ferrotune")
             .join("config.toml");
 
-        Self::load_from(&config_path)
+        if !config_path.exists() {
+            return Ok(None);
+        }
+
+        Self::load_from(&config_path).map(Some)
     }
 
+    /// Load configuration from a specific path.
     pub fn load_from(path: &PathBuf) -> crate::error::Result<Self> {
         if !path.exists() {
             return Err(crate::error::Error::Config(config::ConfigError::Message(
                 format!(
-                    "Config file not found at {}. Please create it first.",
+                    "Config file not found at {}.",
                     path.display()
                 ),
             )));
@@ -138,10 +172,45 @@ impl Config {
         Ok(config)
     }
 
+    /// Create a default configuration for configless operation.
+    /// Uses environment variables and platform defaults.
+    pub fn default_configless() -> Self {
+        let mut config = Self {
+            server: ServerConfig {
+                host: default_host(),
+                port: default_port(),
+                name: default_name(),
+                admin_user: default_admin_user(),
+                admin_password: default_admin_password(),
+            },
+            database: DatabaseConfig {
+                path: default_db_path(),
+            },
+            music: MusicConfig {
+                folders: Vec::new(), // No folders - will be added via admin UI
+                readonly_tags: true,
+            },
+            cache: CacheConfig {
+                path: default_cache_path(),
+                max_cover_size: default_max_cover_size(),
+            },
+        };
+        config.expand_paths();
+        config
+    }
+
     /// Expand tilde (~) in all path fields
+    /// Also apply FERROTUNE_DATA_DIR override if set
     fn expand_paths(&mut self) {
-        self.database.path = expand_tilde(&self.database.path);
-        self.cache.path = expand_tilde(&self.cache.path);
+        // If FERROTUNE_DATA_DIR is set, it overrides database and cache paths
+        if std::env::var(DATA_DIR_ENV).is_ok() {
+            self.database.path = get_data_dir().join("ferrotune.db");
+            self.cache.path = get_cache_dir();
+        } else {
+            self.database.path = expand_tilde(&self.database.path);
+            self.cache.path = expand_tilde(&self.cache.path);
+        }
+        
         for folder in &mut self.music.folders {
             folder.path = expand_tilde(&folder.path);
         }

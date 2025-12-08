@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSetAtom } from "jotai";
+import { useQuery } from "@tanstack/react-query";
 import { Music2, Loader2, Server, Key, User, Lock, AlertCircle, ChevronDown, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +14,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { serverConnectionAtom, connectionStatusAtom, connectionErrorAtom } from "@/lib/store/auth";
 import { initializeClient, SubsonicApiError } from "@/lib/api/client";
 import type { ServerConnection } from "@/lib/api/types";
+import type { SetupStatusResponse } from "@/lib/api/generated/SetupStatusResponse";
 
 // Default server URL based on environment
 const DEFAULT_SERVER_URL = process.env.NODE_ENV === "development" ? "http://localhost:4040" : "";
@@ -30,6 +32,28 @@ export default function LoginPage() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Check setup status - redirect to /setup if not configured
+  const { data: setupStatus } = useQuery({
+    queryKey: ["setupStatus", serverUrl],
+    queryFn: async () => {
+      const baseUrl = serverUrl.trim() || (typeof window !== "undefined" ? window.location.origin : "");
+      const response = await fetch(`${baseUrl}/ferrotune/setup/status`);
+      if (!response.ok) {
+        // If endpoint doesn't exist (old server), assume setup is complete
+        return { setupComplete: true, hasUsers: true, hasMusicFolders: true, version: "unknown" } as SetupStatusResponse;
+      }
+      return response.json() as Promise<SetupStatusResponse>;
+    },
+    retry: false,
+  });
+
+  // Redirect to setup if needed
+  useEffect(() => {
+    if (setupStatus && !setupStatus.setupComplete) {
+      router.push("/setup");
+    }
+  }, [setupStatus, router]);
 
   const handleConnect = async (authMethod: "apikey" | "password") => {
     setIsConnecting(true);
