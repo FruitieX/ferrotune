@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { SetupGuard } from "@/components/setup-guard";
 import { Sidebar, SidebarSkeleton } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { PlayerBar } from "@/components/layout/player-bar";
@@ -165,7 +166,8 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased overflow-hidden`}
       >
         <Providers>
-          <div className="h-screen flex flex-col">
+          <SetupGuard>
+            <div className="h-screen flex flex-col">
             {/* Main container - takes up all space except footer */}
             <div className="flex flex-1 min-h-0">
               {/* Sidebar - hidden on mobile, spans full height of main container */}
@@ -200,7 +202,8 @@ export default function RootLayout({
             
             {/* Fullscreen player - modal overlay */}
             <FullscreenPlayer />
-          </div>
+            </div>
+          </SetupGuard>
         </Providers>
       </body>
     </html>

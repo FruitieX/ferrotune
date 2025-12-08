@@ -70,27 +70,39 @@ export default function SetupPage() {
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderPath, setNewFolderPath] = useState("");
 
+  // Compute backend URL for API calls
+  const backendUrl = serverUrl.trim() || (process.env.NODE_ENV === "development" ? "http://localhost:4040" : (typeof window !== "undefined" ? window.location.origin : ""));
+
+  // Track if we've intentionally completed setup (to prevent redirect during completion screen)
+  const [setupCompleted, setSetupCompleted] = useState(false);
+
   // Check setup status
   const { data: setupStatus, isLoading: statusLoading, refetch: refetchStatus } = useQuery({
-    queryKey: ["setupStatus"],
+    queryKey: ["setupStatus", backendUrl],
     queryFn: async () => {
-      // Use current origin or explicit server URL
-      const baseUrl = serverUrl.trim() || (typeof window !== "undefined" ? window.location.origin : "");
-      const response = await fetch(`${baseUrl}/ferrotune/setup/status`);
+      const response = await fetch(`${backendUrl}/ferrotune/setup/status`);
       if (!response.ok) {
         throw new Error("Failed to check setup status");
       }
       return response.json() as Promise<SetupStatusResponse>;
     },
     retry: false,
+    // Don't refetch if we just completed setup
+    enabled: !setupCompleted,
   });
 
-  // Redirect if setup is already complete
+  // Redirect if setup was already complete when we loaded the page
+  // (not if we just completed it ourselves)
   useEffect(() => {
-    if (setupStatus?.setupComplete) {
-      router.push("/login");
+    if (setupStatus?.setupComplete && !setupCompleted && step === "welcome") {
+      // Setup was already done, redirect to appropriate page
+      if (isConnected) {
+        router.push("/");
+      } else {
+        router.push("/login");
+      }
     }
-  }, [setupStatus, router]);
+  }, [setupStatus, setupCompleted, isConnected, step, router]);
 
   // Connect with credentials
   const handleConnect = async () => {
@@ -255,6 +267,10 @@ export default function SetupPage() {
       return response.json();
     },
     onSuccess: () => {
+      // Mark setup as intentionally completed to prevent redirect loops
+      setSetupCompleted(true);
+      // Invalidate setup status query so other components see the update
+      queryClient.invalidateQueries({ queryKey: ["setupStatus"] });
       setStep("complete");
     },
     onError: (err: Error) => {
@@ -262,9 +278,13 @@ export default function SetupPage() {
     },
   });
 
-  // Finish setup
+  // Finish setup - redirect to home if connected, otherwise to login
   const handleFinish = () => {
-    router.push("/");
+    if (isConnected) {
+      router.push("/");
+    } else {
+      router.push("/login");
+    }
   };
 
   // Loading state
@@ -384,13 +404,30 @@ export default function SetupPage() {
                     </ul>
                   </div>
 
-                  <Button
-                    className="w-full"
-                    onClick={() => setStep("credentials")}
-                  >
-                    Get Started
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
+                  <div className="space-y-2">
+                    <Button
+                      className="w-full"
+                      onClick={() => setStep("credentials")}
+                    >
+                      Get Started
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => completeSetupMutation.mutate()}
+                      disabled={completeSetupMutation.isPending}
+                    >
+                      {completeSetupMutation.isPending ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Skipping...
+                        </>
+                      ) : (
+                        "Skip Setup"
+                      )}
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             </motion.div>
