@@ -1,0 +1,38 @@
+# Build artifacts (except what we need for the image)
+target/
+!target/x86_64-unknown-linux-musl/release/ferrotune
+
+# Client build artifacts
+client/node_modules/
+client/.next/
+client/out/
+
+# Test artifacts
+client/test-results/
+client/playwright-report/
+tests/fixtures/
+
+# Development files
+*.log
+*.db
+*.db-*
+.env
+.env.*
+config.toml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+docs/
+
+# CI/CD
+.github/
