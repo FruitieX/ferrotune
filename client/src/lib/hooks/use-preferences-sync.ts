@@ -13,15 +13,22 @@ import {
   preferencesLoadedAtom,
   type AccentColor,
 } from "@/lib/store/ui";
-import { loadServerPreferences, resetServerPreferences, serverPreferencesLoadedAtom } from "@/lib/store/server-storage";
-import type { UpdatePreferencesRequest, PreferencesResponse } from "@/lib/api/types";
+import {
+  loadServerPreferences,
+  resetServerPreferences,
+  serverPreferencesLoadedAtom,
+} from "@/lib/store/server-storage";
+import type {
+  UpdatePreferencesRequest,
+  PreferencesResponse,
+} from "@/lib/api/types";
 
 // Debounce timeout for custom color changes (ms)
 const CUSTOM_COLOR_DEBOUNCE_MS = 500;
 
 /**
  * Hook that syncs user preferences between the server and local state.
- * 
+ *
  * - Loads preferences from server when the user is authenticated
  * - Updates server when preferences change locally
  * - Falls back to localStorage when offline
@@ -32,11 +39,13 @@ export function usePreferencesSync() {
   const connection = useAtomValue(serverConnectionAtom);
   const [accentColor, setAccentColor] = useAtom(accentColorAtom);
   const [customHue, setCustomHue] = useAtom(customAccentHueAtom);
-  const [customLightness, setCustomLightness] = useAtom(customAccentLightnessAtom);
+  const [customLightness, setCustomLightness] = useAtom(
+    customAccentLightnessAtom,
+  );
   const [customChroma, setCustomChroma] = useAtom(customAccentChromaAtom);
   const setPreferencesLoaded = useSetAtom(preferencesLoadedAtom);
   const setServerPreferencesLoaded = useSetAtom(serverPreferencesLoadedAtom);
-  
+
   // Track if we're currently applying server values to prevent feedback loops
   const isApplyingServerValues = useRef(false);
   // Track if we've already loaded preferences for this session
@@ -87,40 +96,64 @@ export function usePreferencesSync() {
     if (isSuccess && serverPreferences && !hasLoadedFromServer.current) {
       isApplyingServerValues.current = true;
       hasLoadedFromServer.current = true;
-      
+
       if (serverPreferences.accentColor) {
         setAccentColor(serverPreferences.accentColor as AccentColor);
       }
-      if (serverPreferences.customAccentHue !== undefined && serverPreferences.customAccentHue !== null) {
+      if (
+        serverPreferences.customAccentHue !== undefined &&
+        serverPreferences.customAccentHue !== null
+      ) {
         setCustomHue(serverPreferences.customAccentHue);
       }
-      if (serverPreferences.customAccentLightness !== undefined && serverPreferences.customAccentLightness !== null) {
+      if (
+        serverPreferences.customAccentLightness !== undefined &&
+        serverPreferences.customAccentLightness !== null
+      ) {
         setCustomLightness(serverPreferences.customAccentLightness);
       }
-      if (serverPreferences.customAccentChroma !== undefined && serverPreferences.customAccentChroma !== null) {
+      if (
+        serverPreferences.customAccentChroma !== undefined &&
+        serverPreferences.customAccentChroma !== null
+      ) {
         setCustomChroma(serverPreferences.customAccentChroma);
       }
-      
+
       setPreferencesLoaded(true);
-      
+
       // Reset flag after a short delay to allow React to batch updates
       setTimeout(() => {
         isApplyingServerValues.current = false;
       }, 100);
     }
-  }, [isSuccess, serverPreferences, setAccentColor, setCustomHue, setCustomLightness, setCustomChroma, setPreferencesLoaded]);
+  }, [
+    isSuccess,
+    serverPreferences,
+    setAccentColor,
+    setCustomHue,
+    setCustomLightness,
+    setCustomChroma,
+    setPreferencesLoaded,
+  ]);
 
   // Function to sync current preferences to server
   const syncToServer = useCallback(() => {
     if (!connection || isApplyingServerValues.current) return;
-    
+
     updateServerPreferences({
       accentColor,
       customAccentHue: accentColor === "custom" ? customHue : null,
       customAccentLightness: accentColor === "custom" ? customLightness : null,
       customAccentChroma: accentColor === "custom" ? customChroma : null,
     });
-  }, [connection, accentColor, customHue, customLightness, customChroma, updateServerPreferences]);
+  }, [
+    connection,
+    accentColor,
+    customHue,
+    customLightness,
+    customChroma,
+    updateServerPreferences,
+  ]);
 
   // Reset loaded state when connection changes (user logs out/in)
   useEffect(() => {
@@ -143,10 +176,12 @@ export function usePreferencesSync() {
 export function useAccentColor() {
   const [accentColor, setAccentColorAtom] = useAtom(accentColorAtom);
   const [customHue, setCustomHueAtom] = useAtom(customAccentHueAtom);
-  const [customLightness, setCustomLightnessAtom] = useAtom(customAccentLightnessAtom);
+  const [customLightness, setCustomLightnessAtom] = useAtom(
+    customAccentLightnessAtom,
+  );
   const [customChroma, setCustomChromaAtom] = useAtom(customAccentChromaAtom);
   const connection = useAtomValue(serverConnectionAtom);
-  
+
   // Ref to track debounce timer for custom color changes
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -155,7 +190,7 @@ export function useAccentColor() {
       color: AccentColor,
       hue?: number,
       lightness?: number,
-      chroma?: number
+      chroma?: number,
     ) => {
       const client = getClient();
       if (!client || !connection) return;
@@ -163,17 +198,18 @@ export function useAccentColor() {
       try {
         await client.updatePreferences({
           accentColor: color,
-          customAccentHue: color === "custom" ? hue ?? null : null,
-          customAccentLightness: color === "custom" ? lightness ?? null : null,
-          customAccentChroma: color === "custom" ? chroma ?? null : null,
+          customAccentHue: color === "custom" ? (hue ?? null) : null,
+          customAccentLightness:
+            color === "custom" ? (lightness ?? null) : null,
+          customAccentChroma: color === "custom" ? (chroma ?? null) : null,
         });
       } catch (error) {
         console.warn("Failed to sync preferences to server:", error);
       }
     },
-    [connection]
+    [connection],
   );
-  
+
   // Debounced sync for custom color changes
   const debouncedSyncCustomColor = useCallback(
     (hue: number, lightness: number, chroma: number) => {
@@ -185,7 +221,7 @@ export function useAccentColor() {
         debounceTimerRef.current = null;
       }, CUSTOM_COLOR_DEBOUNCE_MS);
     },
-    [syncToServer]
+    [syncToServer],
   );
 
   const setAccentColor = useCallback(
@@ -194,7 +230,13 @@ export function useAccentColor() {
       // Immediate sync for preset changes
       syncToServer(color, customHue, customLightness, customChroma);
     },
-    [setAccentColorAtom, syncToServer, customHue, customLightness, customChroma]
+    [
+      setAccentColorAtom,
+      syncToServer,
+      customHue,
+      customLightness,
+      customChroma,
+    ],
   );
 
   const setCustomHue = useCallback(
@@ -204,7 +246,13 @@ export function useAccentColor() {
         debouncedSyncCustomColor(hue, customLightness, customChroma);
       }
     },
-    [setCustomHueAtom, accentColor, debouncedSyncCustomColor, customLightness, customChroma]
+    [
+      setCustomHueAtom,
+      accentColor,
+      debouncedSyncCustomColor,
+      customLightness,
+      customChroma,
+    ],
   );
 
   const setCustomLightness = useCallback(
@@ -214,7 +262,13 @@ export function useAccentColor() {
         debouncedSyncCustomColor(customHue, lightness, customChroma);
       }
     },
-    [setCustomLightnessAtom, accentColor, debouncedSyncCustomColor, customHue, customChroma]
+    [
+      setCustomLightnessAtom,
+      accentColor,
+      debouncedSyncCustomColor,
+      customHue,
+      customChroma,
+    ],
   );
 
   const setCustomChroma = useCallback(
@@ -224,7 +278,13 @@ export function useAccentColor() {
         debouncedSyncCustomColor(customHue, customLightness, chroma);
       }
     },
-    [setCustomChromaAtom, accentColor, debouncedSyncCustomColor, customHue, customLightness]
+    [
+      setCustomChromaAtom,
+      accentColor,
+      debouncedSyncCustomColor,
+      customHue,
+      customLightness,
+    ],
   );
 
   return {

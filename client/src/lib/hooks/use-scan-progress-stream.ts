@@ -30,29 +30,32 @@ export function useScanProgressStream() {
     if (!client) return;
 
     // Fetch initial status
-    client.getFullScanStatus().then((status) => {
-      setProgress({
-        scanning: status.scanning,
-        scanned: status.scanned,
-        total: status.total,
-        added: status.added,
-        updated: status.updated,
-        removed: status.removed,
-        errors: status.errors,
-        currentFolder: status.currentFolder,
-        currentFile: status.currentFile,
-        mode: status.mode,
-        finished: status.finished,
-        error: status.error,
+    client
+      .getFullScanStatus()
+      .then((status) => {
+        setProgress({
+          scanning: status.scanning,
+          scanned: status.scanned,
+          total: status.total,
+          added: status.added,
+          updated: status.updated,
+          removed: status.removed,
+          errors: status.errors,
+          currentFolder: status.currentFolder,
+          currentFile: status.currentFile,
+          mode: status.mode,
+          finished: status.finished,
+          error: status.error,
+        });
+        setLogs(status.logs);
+
+        if (status.scanning) {
+          wasScanning.current = true;
+        }
+      })
+      .catch(() => {
+        // Silently ignore errors fetching initial status
       });
-      setLogs(status.logs);
-      
-      if (status.scanning) {
-        wasScanning.current = true;
-      }
-    }).catch(() => {
-      // Silently ignore errors fetching initial status
-    });
 
     const connectToStream = () => {
       const streamUrl = client.getScanProgressStreamUrl();
@@ -71,9 +74,13 @@ export function useScanProgressStream() {
           }
 
           // Show notification when scan completes
-          if (update.finished && wasScanning.current && !hasShownCompletionToast.current) {
+          if (
+            update.finished &&
+            wasScanning.current &&
+            !hasShownCompletionToast.current
+          ) {
             hasShownCompletionToast.current = true;
-            
+
             if (update.error) {
               toast.error("Library scan failed", {
                 description: update.error,
@@ -95,13 +102,16 @@ export function useScanProgressStream() {
             queryClient.invalidateQueries({ queryKey: ["songs"] });
             queryClient.invalidateQueries({ queryKey: ["genres"] });
             queryClient.invalidateQueries({ queryKey: ["playlists"] });
-            
+
             wasScanning.current = false;
           }
 
           // Fetch logs periodically when scanning
           if (update.scanning || update.finished) {
-            client.getScanLogs().then((res) => setLogs(res.logs)).catch(() => {});
+            client
+              .getScanLogs()
+              .then((res) => setLogs(res.logs))
+              .catch(() => {});
           }
         } catch {
           // Ignore parse errors (keep-alive messages)
@@ -112,7 +122,7 @@ export function useScanProgressStream() {
         // Connection error - close and reconnect after delay
         eventSource.close();
         eventSourceRef.current = null;
-        
+
         // Reconnect after 5 seconds
         setTimeout(() => {
           if (isConnected) {

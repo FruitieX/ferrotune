@@ -92,7 +92,10 @@ export class SubsonicClient {
     this.password = connection.password;
   }
 
-  private buildUrl(endpoint: string, params: Record<string, string | number | boolean | null | undefined> = {}): string {
+  private buildUrl(
+    endpoint: string,
+    params: Record<string, string | number | boolean | null | undefined> = {},
+  ): string {
     const url = new URL(`${this.serverUrl}/rest/${endpoint}`);
 
     // Add required params
@@ -118,7 +121,10 @@ export class SubsonicClient {
     return url.toString();
   }
 
-  private async request<T>(endpoint: string, params: Record<string, string | number | boolean | null | undefined> = {}): Promise<T> {
+  private async request<T>(
+    endpoint: string,
+    params: Record<string, string | number | boolean | null | undefined> = {},
+  ): Promise<T> {
     const url = this.buildUrl(endpoint, params);
     const response = await fetch(url);
 
@@ -152,7 +158,7 @@ export class SubsonicClient {
 
   async getArtist(
     id: string,
-    options?: { sort?: string; sortDir?: string; filter?: string }
+    options?: { sort?: string; sortDir?: string; filter?: string },
   ): Promise<ArtistDetailResponse> {
     return this.request<ArtistDetailResponse>("getArtist", {
       id,
@@ -164,7 +170,7 @@ export class SubsonicClient {
 
   async getAlbum(
     id: string,
-    options?: { sort?: string; sortDir?: string; filter?: string }
+    options?: { sort?: string; sortDir?: string; filter?: string },
   ): Promise<AlbumDetailResponse> {
     return this.request<AlbumDetailResponse>("getAlbum", {
       id,
@@ -192,7 +198,9 @@ export class SubsonicClient {
   }
 
   // Paginated directory browsing (Ferrotune extension)
-  async getDirectoryPaged(params: Partial<GetDirectoryPagedParams> = {}): Promise<DirectoryPagedResponse> {
+  async getDirectoryPaged(
+    params: Partial<GetDirectoryPagedParams> = {},
+  ): Promise<DirectoryPagedResponse> {
     const queryParams = new URLSearchParams();
     if (params.id != null) queryParams.set("id", params.id);
     if (params.count != null) queryParams.set("count", String(params.count));
@@ -200,66 +208,101 @@ export class SubsonicClient {
     if (params.sort != null) queryParams.set("sort", params.sort);
     if (params.sortDir != null) queryParams.set("sortDir", params.sortDir);
     if (params.filter != null) queryParams.set("filter", params.filter);
-    if (params.foldersOnly != null) queryParams.set("foldersOnly", String(params.foldersOnly));
-    if (params.filesOnly != null) queryParams.set("filesOnly", String(params.filesOnly));
-    
+    if (params.foldersOnly != null)
+      queryParams.set("foldersOnly", String(params.foldersOnly));
+    if (params.filesOnly != null)
+      queryParams.set("filesOnly", String(params.filesOnly));
+
     const queryString = queryParams.toString();
-    const endpoint = queryString ? `/ferrotune/directory?${queryString}` : "/ferrotune/directory";
+    const endpoint = queryString
+      ? `/ferrotune/directory?${queryString}`
+      : "/ferrotune/directory";
     return this.adminRequest<DirectoryPagedResponse>(endpoint);
   }
 
   // List endpoints
   // AlbumListParams requires 'type', other fields are optional
-  async getAlbumList2(params: Pick<AlbumListParams, 'type'> & Partial<Omit<AlbumListParams, 'type'>>): Promise<AlbumListResponse> {
+  async getAlbumList2(
+    params: Pick<AlbumListParams, "type"> &
+      Partial<Omit<AlbumListParams, "type">>,
+  ): Promise<AlbumListResponse> {
     return this.request<AlbumListResponse>("getAlbumList2", { ...params });
   }
 
-  async getRandomSongs(params: Partial<RandomSongsParams> = {}): Promise<RandomSongsResponse> {
+  async getRandomSongs(
+    params: Partial<RandomSongsParams> = {},
+  ): Promise<RandomSongsResponse> {
     return this.request<RandomSongsResponse>("getRandomSongs", { ...params });
   }
 
-  async getSongsByGenre(genre: string, params: Partial<Omit<SongsByGenreParams, 'genre'>> = {}): Promise<SongsByGenreResponse> {
-    return this.request<SongsByGenreResponse>("getSongsByGenre", { genre, ...params });
+  async getSongsByGenre(
+    genre: string,
+    params: Partial<Omit<SongsByGenreParams, "genre">> = {},
+  ): Promise<SongsByGenreResponse> {
+    return this.request<SongsByGenreResponse>("getSongsByGenre", {
+      genre,
+      ...params,
+    });
   }
 
   // Search endpoint
   // SearchParams requires 'query', other fields are optional
-  async search3(params: Pick<SearchParams, 'query'> & Partial<Omit<SearchParams, 'query'>>): Promise<SearchResponse> {
+  async search3(
+    params: Pick<SearchParams, "query"> & Partial<Omit<SearchParams, "query">>,
+  ): Promise<SearchResponse> {
     return this.request<SearchResponse>("search3", { ...params });
   }
 
   // Starring endpoints
-  async star(params: { id?: string | string[]; albumId?: string | string[]; artistId?: string | string[] }): Promise<void> {
+  async star(params: {
+    id?: string | string[];
+    albumId?: string | string[];
+    artistId?: string | string[];
+  }): Promise<void> {
     const urlParams: Record<string, string> = {};
-    
+
     // Handle array parameters - OpenSubsonic uses repeated params
     if (params.id) {
       const ids = Array.isArray(params.id) ? params.id : [params.id];
-      ids.forEach((id, i) => urlParams[i === 0 ? "id" : `id`] = id);
+      ids.forEach((id, i) => (urlParams[i === 0 ? "id" : `id`] = id));
     }
     if (params.albumId) {
-      const ids = Array.isArray(params.albumId) ? params.albumId : [params.albumId];
-      ids.forEach((id, i) => urlParams[i === 0 ? "albumId" : `albumId`] = id);
+      const ids = Array.isArray(params.albumId)
+        ? params.albumId
+        : [params.albumId];
+      ids.forEach((id, i) => (urlParams[i === 0 ? "albumId" : `albumId`] = id));
     }
     if (params.artistId) {
-      const ids = Array.isArray(params.artistId) ? params.artistId : [params.artistId];
-      ids.forEach((id, i) => urlParams[i === 0 ? "artistId" : `artistId`] = id);
+      const ids = Array.isArray(params.artistId)
+        ? params.artistId
+        : [params.artistId];
+      ids.forEach(
+        (id, i) => (urlParams[i === 0 ? "artistId" : `artistId`] = id),
+      );
     }
 
     await this.request("star", urlParams);
   }
 
-  async unstar(params: { id?: string | string[]; albumId?: string | string[]; artistId?: string | string[] }): Promise<void> {
+  async unstar(params: {
+    id?: string | string[];
+    albumId?: string | string[];
+    artistId?: string | string[];
+  }): Promise<void> {
     const urlParams: Record<string, string> = {};
-    
+
     if (params.id) {
       urlParams.id = Array.isArray(params.id) ? params.id[0] : params.id;
     }
     if (params.albumId) {
-      urlParams.albumId = Array.isArray(params.albumId) ? params.albumId[0] : params.albumId;
+      urlParams.albumId = Array.isArray(params.albumId)
+        ? params.albumId[0]
+        : params.albumId;
     }
     if (params.artistId) {
-      urlParams.artistId = Array.isArray(params.artistId) ? params.artistId[0] : params.artistId;
+      urlParams.artistId = Array.isArray(params.artistId)
+        ? params.artistId[0]
+        : params.artistId;
     }
 
     await this.request("unstar", urlParams);
@@ -282,14 +325,17 @@ export class SubsonicClient {
     return this.request<PlaylistsResponse>("getPlaylists");
   }
 
-  async getPlaylist(id: string, options?: {
-    sort?: string;
-    sortDir?: string;
-    filter?: string;
-    offset?: number;
-    count?: number;
-  }): Promise<PlaylistWithSongsResponse> {
-    return this.request<PlaylistWithSongsResponse>("getPlaylist", { 
+  async getPlaylist(
+    id: string,
+    options?: {
+      sort?: string;
+      sortDir?: string;
+      filter?: string;
+      offset?: number;
+      count?: number;
+    },
+  ): Promise<PlaylistWithSongsResponse> {
+    return this.request<PlaylistWithSongsResponse>("getPlaylist", {
       id,
       sort: options?.sort,
       sortDir: options?.sortDir,
@@ -299,40 +345,43 @@ export class SubsonicClient {
     });
   }
 
-  async createPlaylist(params: { name: string; songId?: string[] }): Promise<PlaylistWithSongsResponse> {
+  async createPlaylist(params: {
+    name: string;
+    songId?: string[];
+  }): Promise<PlaylistWithSongsResponse> {
     // Build URL manually to handle array parameters (same as updatePlaylist)
     const url = new URL(`${this.serverUrl}/rest/createPlaylist`);
     url.searchParams.set("v", API_VERSION);
     url.searchParams.set("c", CLIENT_NAME);
     url.searchParams.set("f", "json");
-    
+
     if (this.apiKey) {
       url.searchParams.set("apiKey", this.apiKey);
     } else if (this.username && this.password) {
       url.searchParams.set("u", this.username);
       url.searchParams.set("p", this.password);
     }
-    
+
     url.searchParams.set("name", params.name);
-    
+
     // Handle array parameters - OpenSubsonic uses repeated params
     if (params.songId) {
       for (const songId of params.songId) {
         url.searchParams.append("songId", songId);
       }
     }
-    
+
     const response = await fetch(url.toString());
     if (!response.ok) {
       throw new Error(`HTTP error: ${response.status}`);
     }
-    
+
     const data = await response.json();
     if (data["subsonic-response"].status === "failed") {
       const error = data["subsonic-response"].error;
       throw new SubsonicApiError(error.code, error.message);
     }
-    
+
     return data["subsonic-response"] as PlaylistWithSongsResponse;
   }
 
@@ -349,19 +398,21 @@ export class SubsonicClient {
     url.searchParams.set("v", API_VERSION);
     url.searchParams.set("c", CLIENT_NAME);
     url.searchParams.set("f", "json");
-    
+
     if (this.apiKey) {
       url.searchParams.set("apiKey", this.apiKey);
     } else if (this.username && this.password) {
       url.searchParams.set("u", this.username);
       url.searchParams.set("p", this.password);
     }
-    
+
     url.searchParams.set("playlistId", params.playlistId);
     if (params.name !== undefined) url.searchParams.set("name", params.name);
-    if (params.comment !== undefined) url.searchParams.set("comment", params.comment);
-    if (params.public !== undefined) url.searchParams.set("public", String(params.public));
-    
+    if (params.comment !== undefined)
+      url.searchParams.set("comment", params.comment);
+    if (params.public !== undefined)
+      url.searchParams.set("public", String(params.public));
+
     // Handle array parameters - OpenSubsonic uses repeated params
     if (params.songIdToAdd) {
       for (const songId of params.songIdToAdd) {
@@ -373,12 +424,12 @@ export class SubsonicClient {
         url.searchParams.append("songIndexToRemove", String(index));
       }
     }
-    
+
     const response = await fetch(url.toString());
     if (!response.ok) {
       throw new Error(`HTTP error: ${response.status}`);
     }
-    
+
     const data = await response.json();
     if (data["subsonic-response"].status === "failed") {
       const error = data["subsonic-response"].error;
@@ -413,13 +464,15 @@ export class SubsonicClient {
   }
 
   // Play History endpoints (Ferrotune extensions)
-  async getPlayHistory(params: { 
-    size?: number; 
-    offset?: number;
-    sort?: string;
-    sortDir?: string;
-    filter?: string;
-  } = {}): Promise<PlayHistoryResponse> {
+  async getPlayHistory(
+    params: {
+      size?: number;
+      offset?: number;
+      sort?: string;
+      sortDir?: string;
+      filter?: string;
+    } = {},
+  ): Promise<PlayHistoryResponse> {
     return this.request<PlayHistoryResponse>("getPlayHistory", params);
   }
 
@@ -443,7 +496,7 @@ export class SubsonicClient {
 
   private async adminRequest<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
   ): Promise<T> {
     const url = this.buildAdminUrl(endpoint);
 
@@ -454,7 +507,8 @@ export class SubsonicClient {
     };
 
     if (this.username && this.password) {
-      headers["Authorization"] = `Basic ${btoa(`${this.username}:${this.password}`)}`;
+      headers["Authorization"] =
+        `Basic ${btoa(`${this.username}:${this.password}`)}`;
     }
 
     const response = await fetch(url, {
@@ -475,7 +529,9 @@ export class SubsonicClient {
     return response.json() as Promise<T>;
   }
 
-  async deleteSongFromDatabase(id: string): Promise<{ success: boolean; message: string }> {
+  async deleteSongFromDatabase(
+    id: string,
+  ): Promise<{ success: boolean; message: string }> {
     return this.adminRequest(`/ferrotune/songs/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
@@ -485,31 +541,53 @@ export class SubsonicClient {
    * Get all song IDs matching the given search/filter criteria.
    * Useful for bulk operations like "select all matching songs".
    */
-  async getSongIds(params: Partial<SearchParams> = {}): Promise<SongIdsResponse> {
+  async getSongIds(
+    params: Partial<SearchParams> = {},
+  ): Promise<SongIdsResponse> {
     const searchParams = new URLSearchParams();
-    
+
     // Add search parameters (filter out null and undefined)
     if (params.query != null) searchParams.set("query", params.query);
     if (params.songSort != null) searchParams.set("songSort", params.songSort);
-    if (params.songSortDir != null) searchParams.set("songSortDir", params.songSortDir);
-    if (params.minYear != null) searchParams.set("minYear", String(params.minYear));
-    if (params.maxYear != null) searchParams.set("maxYear", String(params.maxYear));
+    if (params.songSortDir != null)
+      searchParams.set("songSortDir", params.songSortDir);
+    if (params.minYear != null)
+      searchParams.set("minYear", String(params.minYear));
+    if (params.maxYear != null)
+      searchParams.set("maxYear", String(params.maxYear));
     if (params.genre != null) searchParams.set("genre", params.genre);
-    if (params.minDuration != null) searchParams.set("minDuration", String(params.minDuration));
-    if (params.maxDuration != null) searchParams.set("maxDuration", String(params.maxDuration));
-    if (params.minRating != null) searchParams.set("minRating", String(params.minRating));
-    if (params.maxRating != null) searchParams.set("maxRating", String(params.maxRating));
-    if (params.starredOnly != null) searchParams.set("starredOnly", String(params.starredOnly));
-    if (params.minPlayCount != null) searchParams.set("minPlayCount", String(params.minPlayCount));
-    if (params.maxPlayCount != null) searchParams.set("maxPlayCount", String(params.maxPlayCount));
-    if (params.shuffleExcludedOnly != null) searchParams.set("shuffleExcludedOnly", String(params.shuffleExcludedOnly));
-    if (params.minBitrate != null) searchParams.set("minBitrate", String(params.minBitrate));
-    if (params.maxBitrate != null) searchParams.set("maxBitrate", String(params.maxBitrate));
-    if (params.addedAfter != null) searchParams.set("addedAfter", params.addedAfter);
-    if (params.addedBefore != null) searchParams.set("addedBefore", params.addedBefore);
+    if (params.minDuration != null)
+      searchParams.set("minDuration", String(params.minDuration));
+    if (params.maxDuration != null)
+      searchParams.set("maxDuration", String(params.maxDuration));
+    if (params.minRating != null)
+      searchParams.set("minRating", String(params.minRating));
+    if (params.maxRating != null)
+      searchParams.set("maxRating", String(params.maxRating));
+    if (params.starredOnly != null)
+      searchParams.set("starredOnly", String(params.starredOnly));
+    if (params.minPlayCount != null)
+      searchParams.set("minPlayCount", String(params.minPlayCount));
+    if (params.maxPlayCount != null)
+      searchParams.set("maxPlayCount", String(params.maxPlayCount));
+    if (params.shuffleExcludedOnly != null)
+      searchParams.set(
+        "shuffleExcludedOnly",
+        String(params.shuffleExcludedOnly),
+      );
+    if (params.minBitrate != null)
+      searchParams.set("minBitrate", String(params.minBitrate));
+    if (params.maxBitrate != null)
+      searchParams.set("maxBitrate", String(params.maxBitrate));
+    if (params.addedAfter != null)
+      searchParams.set("addedAfter", params.addedAfter);
+    if (params.addedBefore != null)
+      searchParams.set("addedBefore", params.addedBefore);
 
     const queryString = searchParams.toString();
-    const endpoint = queryString ? `/ferrotune/songs/ids?${queryString}` : "/ferrotune/songs/ids";
+    const endpoint = queryString
+      ? `/ferrotune/songs/ids?${queryString}`
+      : "/ferrotune/songs/ids";
     return this.adminRequest<SongIdsResponse>(endpoint);
   }
 
@@ -518,11 +596,17 @@ export class SubsonicClient {
     return this.adminRequest(`/ferrotune/songs/${encodeURIComponent(id)}/tags`);
   }
 
-  async updateSongTags(id: string, request: UpdateTagsRequest): Promise<UpdateTagsResponse> {
-    return this.adminRequest(`/ferrotune/songs/${encodeURIComponent(id)}/tags`, {
-      method: "PATCH",
-      body: JSON.stringify(request),
-    });
+  async updateSongTags(
+    id: string,
+    request: UpdateTagsRequest,
+  ): Promise<UpdateTagsResponse> {
+    return this.adminRequest(
+      `/ferrotune/songs/${encodeURIComponent(id)}/tags`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(request),
+      },
+    );
   }
 
   // User preferences endpoints (Admin API)
@@ -530,28 +614,43 @@ export class SubsonicClient {
     return this.adminRequest("/ferrotune/preferences");
   }
 
-  async updatePreferences(request: UpdatePreferencesRequest): Promise<UserPreferences> {
+  async updatePreferences(
+    request: UpdatePreferencesRequest,
+  ): Promise<UserPreferences> {
     return this.adminRequest("/ferrotune/preferences", {
       method: "PUT",
       body: JSON.stringify(request),
     });
   }
 
-  async getPreference<T = unknown>(key: string): Promise<{ key: string; value: T | null }> {
-    return this.adminRequest(`/ferrotune/preferences/${encodeURIComponent(key)}`);
+  async getPreference<T = unknown>(
+    key: string,
+  ): Promise<{ key: string; value: T | null }> {
+    return this.adminRequest(
+      `/ferrotune/preferences/${encodeURIComponent(key)}`,
+    );
   }
 
-  async setPreference<T = unknown>(key: string, value: T): Promise<{ key: string; value: T }> {
-    return this.adminRequest(`/ferrotune/preferences/${encodeURIComponent(key)}`, {
-      method: "PUT",
-      body: JSON.stringify({ value }),
-    });
+  async setPreference<T = unknown>(
+    key: string,
+    value: T,
+  ): Promise<{ key: string; value: T }> {
+    return this.adminRequest(
+      `/ferrotune/preferences/${encodeURIComponent(key)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ value }),
+      },
+    );
   }
 
   async deletePreference(key: string): Promise<void> {
-    await this.adminRequest(`/ferrotune/preferences/${encodeURIComponent(key)}`, {
-      method: "DELETE",
-    });
+    await this.adminRequest(
+      `/ferrotune/preferences/${encodeURIComponent(key)}`,
+      {
+        method: "DELETE",
+      },
+    );
   }
 
   // Server statistics endpoint (Admin API)
@@ -560,36 +659,58 @@ export class SubsonicClient {
   }
 
   // Playlist management (Admin API)
-  async reorderPlaylistSongs(playlistId: string, songIds: string[]): Promise<void> {
-    await this.adminRequest(`/ferrotune/playlists/${encodeURIComponent(playlistId)}/reorder`, {
-      method: "PUT",
-      body: JSON.stringify({ songIds }),
-    });
+  async reorderPlaylistSongs(
+    playlistId: string,
+    songIds: string[],
+  ): Promise<void> {
+    await this.adminRequest(
+      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/reorder`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ songIds }),
+      },
+    );
   }
 
-  async importPlaylist(request: ImportPlaylistRequest): Promise<ImportPlaylistResponse> {
+  async importPlaylist(
+    request: ImportPlaylistRequest,
+  ): Promise<ImportPlaylistResponse> {
     return this.adminRequest("/ferrotune/playlists/import", {
       method: "POST",
       body: JSON.stringify(request),
     });
   }
 
-  async matchMissingEntry(playlistId: string, position: number, songId: string): Promise<void> {
-    await this.adminRequest(`/ferrotune/playlists/${encodeURIComponent(playlistId)}/match-missing`, {
-      method: "POST",
-      body: JSON.stringify({ position, songId }),
-    });
+  async matchMissingEntry(
+    playlistId: string,
+    position: number,
+    songId: string,
+  ): Promise<void> {
+    await this.adminRequest(
+      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/match-missing`,
+      {
+        method: "POST",
+        body: JSON.stringify({ position, songId }),
+      },
+    );
   }
 
   /**
    * Move a playlist entry to a new position.
    * Works for both songs and missing entries.
    */
-  async movePlaylistEntry(playlistId: string, fromPosition: number, toPosition: number): Promise<void> {
-    await this.adminRequest(`/ferrotune/playlists/${encodeURIComponent(playlistId)}/move-entry`, {
-      method: "POST",
-      body: JSON.stringify({ fromPosition, toPosition }),
-    });
+  async movePlaylistEntry(
+    playlistId: string,
+    fromPosition: number,
+    toPosition: number,
+  ): Promise<void> {
+    await this.adminRequest(
+      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/move-entry`,
+      {
+        method: "POST",
+        body: JSON.stringify({ fromPosition, toPosition }),
+      },
+    );
   }
 
   /**
@@ -597,32 +718,47 @@ export class SubsonicClient {
    * This endpoint returns both matched songs and missing entries in their original
    * playlist positions, supporting filtering and sorting.
    */
-  async getPlaylistSongs(playlistId: string, options?: {
-    offset?: number;
-    count?: number;
-    sort?: string;
-    sortDir?: string;
-    filter?: string;
-  }): Promise<PlaylistSongsResponse> {
+  async getPlaylistSongs(
+    playlistId: string,
+    options?: {
+      offset?: number;
+      count?: number;
+      sort?: string;
+      sortDir?: string;
+      filter?: string;
+    },
+  ): Promise<PlaylistSongsResponse> {
     const params = new URLSearchParams();
-    if (options?.offset !== undefined) params.set("offset", options.offset.toString());
-    if (options?.count !== undefined) params.set("count", options.count.toString());
+    if (options?.offset !== undefined)
+      params.set("offset", options.offset.toString());
+    if (options?.count !== undefined)
+      params.set("count", options.count.toString());
     if (options?.sort !== undefined) params.set("sort", options.sort);
     if (options?.sortDir !== undefined) params.set("sortDir", options.sortDir);
     if (options?.filter !== undefined) params.set("filter", options.filter);
     const query = params.toString();
-    return this.adminRequest(`/ferrotune/playlists/${encodeURIComponent(playlistId)}/songs${query ? `?${query}` : ""}`);
+    return this.adminRequest(
+      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/songs${query ? `?${query}` : ""}`,
+    );
   }
 
   /**
    * @deprecated Use getPlaylistSongs instead which returns songs with entries interleaved
    */
-  async getPlaylistEntries(playlistId: string): Promise<PlaylistEntriesResponse> {
-    return this.adminRequest(`/ferrotune/playlists/${encodeURIComponent(playlistId)}/entries`);
+  async getPlaylistEntries(
+    playlistId: string,
+  ): Promise<PlaylistEntriesResponse> {
+    return this.adminRequest(
+      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/entries`,
+    );
   }
 
   // Listening statistics (Admin API)
-  async logListening(songId: string, durationSeconds: number, sessionId?: number): Promise<{ success: boolean; sessionId: number }> {
+  async logListening(
+    songId: string,
+    durationSeconds: number,
+    sessionId?: number,
+  ): Promise<{ success: boolean; sessionId: number }> {
     return this.adminRequest("/ferrotune/listening", {
       method: "POST",
       body: JSON.stringify({ songId, durationSeconds, sessionId }),
@@ -633,21 +769,30 @@ export class SubsonicClient {
     return this.adminRequest("/ferrotune/listening/stats");
   }
 
-  async getPeriodReview(year?: number, month?: number): Promise<PeriodReviewResponse> {
+  async getPeriodReview(
+    year?: number,
+    month?: number,
+  ): Promise<PeriodReviewResponse> {
     const params = new URLSearchParams();
     if (year !== undefined) params.set("year", year.toString());
     if (month !== undefined) params.set("month", month.toString());
     const query = params.toString();
-    return this.adminRequest(`/ferrotune/listening/review${query ? `?${query}` : ""}`);
+    return this.adminRequest(
+      `/ferrotune/listening/review${query ? `?${query}` : ""}`,
+    );
   }
 
   // Waveform data (Admin API)
-  async getWaveform(songId: string, resolution: number = 200): Promise<{ heights: number[]; peak_rms: number }> {
+  async getWaveform(
+    songId: string,
+    resolution: number = 200,
+  ): Promise<{ heights: number[]; peak_rms: number }> {
     const url = `${this.buildAdminUrl(`/ferrotune/songs/${encodeURIComponent(songId)}/waveform`)}?resolution=${resolution}`;
-    
+
     const headers: Record<string, string> = {};
     if (this.username && this.password) {
-      headers["Authorization"] = `Basic ${btoa(`${this.username}:${this.password}`)}`;
+      headers["Authorization"] =
+        `Basic ${btoa(`${this.username}:${this.password}`)}`;
     }
 
     const response = await fetch(url, { headers });
@@ -663,7 +808,9 @@ export class SubsonicClient {
   // Streaming waveform URL (Admin API - returns URL for SSE endpoint)
   getWaveformStreamUrl(songId: string, resolution: number = 200): string {
     // Build URL with resolution param
-    const baseUrl = this.buildAdminUrl(`/ferrotune/songs/${encodeURIComponent(songId)}/waveform/stream`);
+    const baseUrl = this.buildAdminUrl(
+      `/ferrotune/songs/${encodeURIComponent(songId)}/waveform/stream`,
+    );
     const params = new URLSearchParams({
       resolution: resolution.toString(),
     });
@@ -674,24 +821,35 @@ export class SubsonicClient {
   getAuthHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
     if (this.username && this.password) {
-      headers["Authorization"] = `Basic ${btoa(`${this.username}:${this.password}`)}`;
+      headers["Authorization"] =
+        `Basic ${btoa(`${this.username}:${this.password}`)}`;
     }
     return headers;
   }
 
   // Shuffle exclude endpoints (Admin API)
-  async getShuffleExcludeStatus(songId: string): Promise<{ songId: string; excluded: boolean }> {
-    return this.adminRequest(`/ferrotune/songs/${encodeURIComponent(songId)}/shuffle-exclude`);
+  async getShuffleExcludeStatus(
+    songId: string,
+  ): Promise<{ songId: string; excluded: boolean }> {
+    return this.adminRequest(
+      `/ferrotune/songs/${encodeURIComponent(songId)}/shuffle-exclude`,
+    );
   }
 
-  async setShuffleExclude(songId: string, excluded: boolean): Promise<{ songId: string; excluded: boolean }> {
-    const url = this.buildAdminUrl(`/ferrotune/songs/${encodeURIComponent(songId)}/shuffle-exclude`);
-    
+  async setShuffleExclude(
+    songId: string,
+    excluded: boolean,
+  ): Promise<{ songId: string; excluded: boolean }> {
+    const url = this.buildAdminUrl(
+      `/ferrotune/songs/${encodeURIComponent(songId)}/shuffle-exclude`,
+    );
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
     if (this.username && this.password) {
-      headers["Authorization"] = `Basic ${btoa(`${this.username}:${this.password}`)}`;
+      headers["Authorization"] =
+        `Basic ${btoa(`${this.username}:${this.password}`)}`;
     }
 
     const response = await fetch(url, {
@@ -712,7 +870,10 @@ export class SubsonicClient {
     return this.adminRequest("/ferrotune/shuffle-excludes");
   }
 
-  async bulkSetShuffleExcludes(songIds: string[], excluded: boolean): Promise<{ count: number; excluded: boolean }> {
+  async bulkSetShuffleExcludes(
+    songIds: string[],
+    excluded: boolean,
+  ): Promise<{ count: number; excluded: boolean }> {
     return this.adminRequest("/ferrotune/shuffle-excludes/bulk", {
       method: "POST",
       body: JSON.stringify({ songIds, excluded }),
@@ -725,10 +886,10 @@ export class SubsonicClient {
 
   /**
    * Start a new queue from a source (album, artist, playlist, etc.)
-   * 
+   *
    * For sources like album, artist, playlist, genre, the server will
    * materialize the songs automatically.
-   * 
+   *
    * For search results or custom queues, provide songIds explicitly.
    */
   async startQueue(params: {
@@ -752,19 +913,25 @@ export class SubsonicClient {
   /**
    * Get the current queue state with optional pagination
    */
-  async getServerQueue(params: { offset?: number; limit?: number } = {}): Promise<GetQueueResponse> {
+  async getServerQueue(
+    params: { offset?: number; limit?: number } = {},
+  ): Promise<GetQueueResponse> {
     const query = new URLSearchParams();
     if (params.offset !== undefined) query.set("offset", String(params.offset));
     if (params.limit !== undefined) query.set("limit", String(params.limit));
     const queryStr = query.toString();
-    return this.adminRequest(`/ferrotune/queue${queryStr ? `?${queryStr}` : ""}`);
+    return this.adminRequest(
+      `/ferrotune/queue${queryStr ? `?${queryStr}` : ""}`,
+    );
   }
 
   /**
    * Get songs around the current position
    */
   async getQueueCurrentWindow(radius: number = 20): Promise<GetQueueResponse> {
-    return this.adminRequest(`/ferrotune/queue/current-window?radius=${radius}`);
+    return this.adminRequest(
+      `/ferrotune/queue/current-window?radius=${radius}`,
+    );
   }
 
   /**
@@ -795,7 +962,10 @@ export class SubsonicClient {
   /**
    * Move a song from one position to another
    */
-  async moveInServerQueue(fromPosition: number, toPosition: number): Promise<QueueSuccessResponse> {
+  async moveInServerQueue(
+    fromPosition: number,
+    toPosition: number,
+  ): Promise<QueueSuccessResponse> {
     return this.adminRequest("/ferrotune/queue/move", {
       method: "POST",
       body: JSON.stringify({
@@ -818,7 +988,10 @@ export class SubsonicClient {
   /**
    * Update the current playback position
    */
-  async updateServerQueuePosition(currentIndex: number, positionMs: number = 0): Promise<QueueSuccessResponse> {
+  async updateServerQueuePosition(
+    currentIndex: number,
+    positionMs: number = 0,
+  ): Promise<QueueSuccessResponse> {
     return this.adminRequest("/ferrotune/queue/position", {
       method: "POST",
       body: JSON.stringify({
@@ -831,7 +1004,9 @@ export class SubsonicClient {
   /**
    * Update repeat mode
    */
-  async updateServerRepeatMode(mode: "off" | "all" | "one"): Promise<QueueSuccessResponse> {
+  async updateServerRepeatMode(
+    mode: "off" | "all" | "one",
+  ): Promise<QueueSuccessResponse> {
     return this.adminRequest("/ferrotune/queue/repeat", {
       method: "POST",
       body: JSON.stringify({ mode }),
@@ -853,7 +1028,7 @@ export class SubsonicClient {
 
   /**
    * Start a library scan
-   * 
+   *
    * @param request Scan options (full, folderId, dryRun)
    * @returns Immediate response indicating scan has started
    */
@@ -894,7 +1069,10 @@ export class SubsonicClient {
   /**
    * Create a new music folder
    */
-  async createMusicFolder(name: string, path: string): Promise<CreateMusicFolderResponse> {
+  async createMusicFolder(
+    name: string,
+    path: string,
+  ): Promise<CreateMusicFolderResponse> {
     return this.adminRequest("/ferrotune/music-folders", {
       method: "POST",
       body: JSON.stringify({ name, path }),
@@ -904,7 +1082,10 @@ export class SubsonicClient {
   /**
    * Update a music folder (name and/or enabled status)
    */
-  async updateMusicFolder(id: number, updates: { name?: string; enabled?: boolean }): Promise<void> {
+  async updateMusicFolder(
+    id: number,
+    updates: { name?: string; enabled?: boolean },
+  ): Promise<void> {
     await this.adminRequest(`/ferrotune/music-folders/${id}`, {
       method: "PATCH",
       body: JSON.stringify(updates),
@@ -1012,7 +1193,10 @@ export class SubsonicClient {
   /**
    * Set a user's library access (admin only)
    */
-  async setUserLibraryAccess(userId: number, folderIds: number[]): Promise<LibraryAccessResponse> {
+  async setUserLibraryAccess(
+    userId: number,
+    folderIds: number[],
+  ): Promise<LibraryAccessResponse> {
     return this.adminRequest(`/ferrotune/users/${userId}/library-access`, {
       method: "PUT",
       body: JSON.stringify({ folderIds } as SetLibraryAccessRequest),
@@ -1029,7 +1213,10 @@ export class SubsonicClient {
   /**
    * Create an API key for a user (admin or self)
    */
-  async createUserApiKey(userId: number, name: string): Promise<CreateApiKeyResponse> {
+  async createUserApiKey(
+    userId: number,
+    name: string,
+  ): Promise<CreateApiKeyResponse> {
     return this.adminRequest(`/ferrotune/users/${userId}/api-keys`, {
       method: "POST",
       body: JSON.stringify({ name }),
@@ -1040,9 +1227,12 @@ export class SubsonicClient {
    * Delete an API key for a user (admin or self)
    */
   async deleteUserApiKey(userId: number, keyName: string): Promise<void> {
-    await this.adminRequest(`/ferrotune/users/${userId}/api-keys/${encodeURIComponent(keyName)}`, {
-      method: "DELETE",
-    });
+    await this.adminRequest(
+      `/ferrotune/users/${userId}/api-keys/${encodeURIComponent(keyName)}`,
+      {
+        method: "DELETE",
+      },
+    );
   }
 
   // ==========================================
@@ -1059,7 +1249,9 @@ export class SubsonicClient {
   /**
    * Update server configuration (admin only)
    */
-  async updateServerConfig(request: UpdateServerConfigRequest): Promise<ServerConfigResponse> {
+  async updateServerConfig(
+    request: UpdateServerConfigRequest,
+  ): Promise<ServerConfigResponse> {
     return this.adminRequest("/ferrotune/config", {
       method: "PUT",
       body: JSON.stringify(request),

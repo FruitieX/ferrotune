@@ -9,7 +9,7 @@ import { getClient } from "@/lib/api/client";
 
 /**
  * Global store for tracking starred (favorited) items.
- * This ensures starring an item in one place (e.g., player bar) 
+ * This ensures starring an item in one place (e.g., player bar)
  * updates the UI everywhere (e.g., library view).
  */
 
@@ -28,8 +28,8 @@ const starredItemAtomFamily = atomFamily((key: string) =>
         updated.set(key, newValue);
         return updated;
       });
-    }
-  )
+    },
+  ),
 );
 
 type StarType = "song" | "album" | "artist";
@@ -41,7 +41,7 @@ export type { StarType };
  */
 function invalidateFavoritesQueries(
   queryClient: ReturnType<typeof useQueryClient>,
-  type: StarType
+  type: StarType,
 ) {
   // Invalidate the specific type's starred query
   if (type === "song") {
@@ -59,9 +59,12 @@ function invalidateFavoritesQueries(
  */
 export function useInvalidateFavorites() {
   const queryClient = useQueryClient();
-  return useCallback((type: StarType) => {
-    invalidateFavoritesQueries(queryClient, type);
-  }, [queryClient]);
+  return useCallback(
+    (type: StarType) => {
+      invalidateFavoritesQueries(queryClient, type);
+    },
+    [queryClient],
+  );
 }
 
 /**
@@ -91,24 +94,24 @@ export function useStarredArtist(id: string, initialStarred: boolean) {
 /**
  * Generic hook to manage starred state for any item type.
  * Returns the current starred status and a toggle function.
- * 
+ *
  * Uses atomFamily to ensure each item only re-renders when its own
  * starred state changes, not when other items change.
  */
 function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
   const queryClient = useQueryClient();
-  
+
   // Create a unique key that includes the type to avoid collisions
   const key = `${type}:${id}`;
-  
+
   // Get the atom for this specific item
   const itemAtom = useMemo(() => starredItemAtomFamily(key), [key]);
   const [starredValue, setStarredValue] = useAtom(itemAtom);
-  
+
   // Initialize lazily - only set if undefined (not yet in the map)
   // This avoids the useEffect that was causing cascading re-renders
   const isStarred = starredValue ?? initialStarred;
-  
+
   // If we haven't stored this value yet and it differs from undefined,
   // store it on first access (during render is fine for initialization)
   if (starredValue === undefined) {

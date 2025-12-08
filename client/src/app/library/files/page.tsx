@@ -5,14 +5,14 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { useAtomValue, useSetAtom } from "jotai";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { 
-  Folder, 
-  ChevronRight, 
-  Home, 
-  Music, 
-  Play, 
-  ListPlus, 
-  ListEnd, 
+import {
+  Folder,
+  ChevronRight,
+  Home,
+  Music,
+  Play,
+  ListPlus,
+  ListEnd,
   FolderPlus,
   Check,
   MoreHorizontal,
@@ -59,7 +59,14 @@ import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 100;
 
-type SortField = "name" | "artist" | "album" | "year" | "duration" | "size" | "dateAdded";
+type SortField =
+  | "name"
+  | "artist"
+  | "album"
+  | "year"
+  | "duration"
+  | "size"
+  | "dateAdded";
 type SortDir = "asc" | "desc";
 
 // Convert DirectoryChildPaged to Song for playlist/queue operations
@@ -96,7 +103,7 @@ function directoryChildToSong(child: DirectoryChildPaged): Song | null {
 function FilesPageContent() {
   const searchParams = useSearchParams();
   const directoryId = searchParams.get("id") ?? undefined;
-  
+
   const { isReady } = useAuth({ redirectToLogin: true });
   const isConnected = useAtomValue(isConnectedAtom);
   const startQueue = useSetAtom(startQueueAtom);
@@ -114,40 +121,44 @@ function FilesPageContent() {
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
 
   // Fetch directory contents with pagination
-  const {
-    data,
-    isLoading,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useInfiniteQuery({
-    queryKey: ["directory-paged", directoryId, sortField, sortDir, debouncedFilter],
-    queryFn: async ({ pageParam = 0 }) => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      return client.getDirectoryPaged({
-        id: directoryId ?? null,
-        count: PAGE_SIZE,
-        offset: pageParam,
-        sort: sortField,
-        sortDir: sortDir,
-        filter: debouncedFilter || null,
-        foldersOnly: null,
-        filesOnly: null,
-      });
-    },
-    getNextPageParam: (lastPage, allPages) => {
-      const loadedCount = allPages.reduce((sum, page) => sum + page.children.length, 0);
-      return loadedCount < lastPage.total ? loadedCount : undefined;
-    },
-    initialPageParam: 0,
-    enabled: isReady && isConnected,
-    staleTime: 60 * 1000,
-  });
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useInfiniteQuery({
+      queryKey: [
+        "directory-paged",
+        directoryId,
+        sortField,
+        sortDir,
+        debouncedFilter,
+      ],
+      queryFn: async ({ pageParam = 0 }) => {
+        const client = getClient();
+        if (!client) throw new Error("Not connected");
+        return client.getDirectoryPaged({
+          id: directoryId ?? null,
+          count: PAGE_SIZE,
+          offset: pageParam,
+          sort: sortField,
+          sortDir: sortDir,
+          filter: debouncedFilter || null,
+          foldersOnly: null,
+          filesOnly: null,
+        });
+      },
+      getNextPageParam: (lastPage, allPages) => {
+        const loadedCount = allPages.reduce(
+          (sum, page) => sum + page.children.length,
+          0,
+        );
+        return loadedCount < lastPage.total ? loadedCount : undefined;
+      },
+      initialPageParam: 0,
+      enabled: isReady && isConnected,
+      staleTime: 60 * 1000,
+    });
 
   // Flatten all pages
   const allItems = useMemo(() => {
-    return data?.pages.flatMap(page => page.children) ?? [];
+    return data?.pages.flatMap((page) => page.children) ?? [];
   }, [data]);
 
   const directoryInfo = data?.pages[0];
@@ -163,7 +174,7 @@ function FilesPageContent() {
 
   // Get selected songs
   const selectedSongs = useMemo(() => {
-    return songs.filter(s => selectedIds.has(s.id));
+    return songs.filter((s) => selectedIds.has(s.id));
   }, [songs, selectedIds]);
 
   // Clear selection when directory changes
@@ -177,45 +188,51 @@ function FilesPageContent() {
   }
 
   // Selection handlers
-  const handleSelect = useCallback((id: string, e: React.MouseEvent) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      
-      if (e.shiftKey && lastSelectedId) {
-        // Range selection
-        const items = allItems;
-        const startIndex = items.findIndex(item => item.id === lastSelectedId);
-        const endIndex = items.findIndex(item => item.id === id);
-        
-        if (startIndex !== -1 && endIndex !== -1) {
-          const [from, to] = startIndex < endIndex 
-            ? [startIndex, endIndex] 
-            : [endIndex, startIndex];
-          
-          for (let i = from; i <= to; i++) {
-            // Only add songs, not directories
-            if (!items[i].isDir) {
-              next.add(items[i].id);
+  const handleSelect = useCallback(
+    (id: string, e: React.MouseEvent) => {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+
+        if (e.shiftKey && lastSelectedId) {
+          // Range selection
+          const items = allItems;
+          const startIndex = items.findIndex(
+            (item) => item.id === lastSelectedId,
+          );
+          const endIndex = items.findIndex((item) => item.id === id);
+
+          if (startIndex !== -1 && endIndex !== -1) {
+            const [from, to] =
+              startIndex < endIndex
+                ? [startIndex, endIndex]
+                : [endIndex, startIndex];
+
+            for (let i = from; i <= to; i++) {
+              // Only add songs, not directories
+              if (!items[i].isDir) {
+                next.add(items[i].id);
+              }
             }
           }
-        }
-      } else if (e.ctrlKey || e.metaKey) {
-        // Toggle selection
-        if (next.has(id)) {
-          next.delete(id);
+        } else if (e.ctrlKey || e.metaKey) {
+          // Toggle selection
+          if (next.has(id)) {
+            next.delete(id);
+          } else {
+            next.add(id);
+          }
         } else {
+          // Single selection
+          next.clear();
           next.add(id);
         }
-      } else {
-        // Single selection
-        next.clear();
-        next.add(id);
-      }
-      
-      return next;
-    });
-    setLastSelectedId(id);
-  }, [allItems, lastSelectedId]);
+
+        return next;
+      });
+      setLastSelectedId(id);
+    },
+    [allItems, lastSelectedId],
+  );
 
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
@@ -224,7 +241,7 @@ function FilesPageContent() {
 
   const selectAll = useCallback(() => {
     // Only select songs, not directories
-    const songIds = songs.map(s => s.id);
+    const songIds = songs.map((s) => s.id);
     setSelectedIds(new Set(songIds));
   }, [songs]);
 
@@ -234,7 +251,7 @@ function FilesPageContent() {
     startQueue({
       sourceType: "other",
       sourceName: directoryInfo?.name ?? "Folder",
-      songIds: songs.map(s => s.id),
+      songIds: songs.map((s) => s.id),
       startIndex: 0,
       shuffle: false,
     });
@@ -245,7 +262,7 @@ function FilesPageContent() {
     startQueue({
       sourceType: "other",
       sourceName: directoryInfo?.name ?? "Folder",
-      songIds: songs.map(s => s.id),
+      songIds: songs.map((s) => s.id),
       startIndex: 0,
       shuffle: true,
     });
@@ -256,40 +273,56 @@ function FilesPageContent() {
     startQueue({
       sourceType: "other",
       sourceName: "Selection",
-      songIds: selectedSongs.map(s => s.id),
+      songIds: selectedSongs.map((s) => s.id),
       startIndex: 0,
     });
     clearSelection();
   }, [selectedSongs, startQueue, clearSelection]);
 
-  const handlePlaySong = useCallback((song: Song, index: number) => {
-    startQueue({
-      sourceType: "other",
-      sourceName: directoryInfo?.name ?? "Folder",
-      songIds: songs.map(s => s.id),
-      startIndex: index,
-    });
-  }, [songs, directoryInfo, startQueue]);
+  const handlePlaySong = useCallback(
+    (song: Song, index: number) => {
+      startQueue({
+        sourceType: "other",
+        sourceName: directoryInfo?.name ?? "Folder",
+        songIds: songs.map((s) => s.id),
+        startIndex: index,
+      });
+    },
+    [songs, directoryInfo, startQueue],
+  );
 
-  const handleAddSongToQueue = useCallback((songId: string, position: "next" | "end") => {
-    addToQueue({ songIds: [songId], position });
-    toast.success(position === "next" ? "Added to play next" : "Added to queue");
-  }, [addToQueue]);
+  const handleAddSongToQueue = useCallback(
+    (songId: string, position: "next" | "end") => {
+      addToQueue({ songIds: [songId], position });
+      toast.success(
+        position === "next" ? "Added to play next" : "Added to queue",
+      );
+    },
+    [addToQueue],
+  );
 
-  const handleAddSelectedToQueue = useCallback((position: "next" | "end") => {
-    if (selectedSongs.length === 0) return;
-    addToQueue({ songIds: selectedSongs.map(s => s.id), position });
-    toast.success(`Added ${selectedSongs.length} songs to ${position === "next" ? "play next" : "queue"}`);
-  }, [selectedSongs, addToQueue]);
+  const handleAddSelectedToQueue = useCallback(
+    (position: "next" | "end") => {
+      if (selectedSongs.length === 0) return;
+      addToQueue({ songIds: selectedSongs.map((s) => s.id), position });
+      toast.success(
+        `Added ${selectedSongs.length} songs to ${position === "next" ? "play next" : "queue"}`,
+      );
+    },
+    [selectedSongs, addToQueue],
+  );
 
-  const toggleSort = useCallback((field: SortField) => {
-    if (sortField === field) {
-      setSortDir(prev => prev === "asc" ? "desc" : "asc");
-    } else {
-      setSortField(field);
-      setSortDir("asc");
-    }
-  }, [sortField]);
+  const toggleSort = useCallback(
+    (field: SortField) => {
+      if (sortField === field) {
+        setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+      } else {
+        setSortField(field);
+        setSortDir("asc");
+      }
+    },
+    [sortField],
+  );
 
   return (
     <div className="min-h-screen">
@@ -310,17 +343,12 @@ function FilesPageContent() {
             <p className="text-sm text-muted-foreground">
               {directoryInfo
                 ? `${directoryInfo.folderCount} folders, ${directoryInfo.fileCount} files • ${formatBytes(directoryInfo.totalSize)}`
-                : "Browse your music library by folder structure"
-              }
+                : "Browse your music library by folder structure"}
             </p>
           </div>
           {directoryInfo && songs.length > 0 && (
             <div className="flex items-center gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handlePlayFolder}
-              >
+              <Button variant="secondary" size="sm" onClick={handlePlayFolder}>
                 <Play className="w-4 h-4 mr-2" />
                 Play All
               </Button>
@@ -334,10 +362,15 @@ function FilesPageContent() {
                   <DropdownMenuItem onClick={handleShuffleFolder}>
                     Shuffle All
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => {
-                    addToQueue({ songIds: songs.map(s => s.id), position: "end" });
-                    toast.success(`Added ${songs.length} songs to queue`);
-                  }}>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      addToQueue({
+                        songIds: songs.map((s) => s.id),
+                        position: "end",
+                      });
+                      toast.success(`Added ${songs.length} songs to queue`);
+                    }}
+                  >
                     <ListEnd className="w-4 h-4 mr-2" />
                     Add All to Queue
                   </DropdownMenuItem>
@@ -352,7 +385,10 @@ function FilesPageContent() {
         </motion.div>
 
         {/* Breadcrumbs */}
-        <Breadcrumbs breadcrumbs={breadcrumbs} currentName={directoryInfo?.name ?? "Files"} />
+        <Breadcrumbs
+          breadcrumbs={breadcrumbs}
+          currentName={directoryInfo?.name ?? "Files"}
+        />
 
         {/* Filter and Sort Controls */}
         <div className="flex items-center gap-2 mt-4">
@@ -384,7 +420,8 @@ function FilesPageContent() {
                 checked={sortField === "artist"}
                 onCheckedChange={() => toggleSort("artist")}
               >
-                Artist {sortField === "artist" && (sortDir === "asc" ? "↑" : "↓")}
+                Artist{" "}
+                {sortField === "artist" && (sortDir === "asc" ? "↑" : "↓")}
               </DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem
                 checked={sortField === "album"}
@@ -402,7 +439,8 @@ function FilesPageContent() {
                 checked={sortField === "duration"}
                 onCheckedChange={() => toggleSort("duration")}
               >
-                Duration {sortField === "duration" && (sortDir === "asc" ? "↑" : "↓")}
+                Duration{" "}
+                {sortField === "duration" && (sortDir === "asc" ? "↑" : "↓")}
               </DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem
                 checked={sortField === "size"}
@@ -414,7 +452,8 @@ function FilesPageContent() {
                 checked={sortField === "dateAdded"}
                 onCheckedChange={() => toggleSort("dateAdded")}
               >
-                Date Added {sortField === "dateAdded" && (sortDir === "asc" ? "↑" : "↓")}
+                Date Added{" "}
+                {sortField === "dateAdded" && (sortDir === "asc" ? "↑" : "↓")}
               </DropdownMenuCheckboxItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -422,7 +461,12 @@ function FilesPageContent() {
       </div>
 
       {/* Content */}
-      <div className={cn("px-4 lg:px-6 pb-24", selectedIds.size > 0 && "select-none")}>
+      <div
+        className={cn(
+          "px-4 lg:px-6 pb-24",
+          selectedIds.size > 0 && "select-none",
+        )}
+      >
         {isLoading && allItems.length === 0 ? (
           <div className="space-y-2">
             {Array.from({ length: 10 }).map((_, i) => (
@@ -432,7 +476,11 @@ function FilesPageContent() {
         ) : allItems.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <Folder className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p>{debouncedFilter ? "No matching items" : "This directory is empty"}</p>
+            <p>
+              {debouncedFilter
+                ? "No matching items"
+                : "This directory is empty"}
+            </p>
           </div>
         ) : (
           <DirectoryContents
@@ -490,7 +538,7 @@ function Breadcrumbs({ breadcrumbs, currentName }: BreadcrumbsProps) {
         <span key={crumb.id} className="flex items-center gap-1">
           {index > 0 && <ChevronRight className="w-4 h-4 shrink-0" />}
           {index === 0 ? (
-            <Link 
+            <Link
               href="/library/files"
               className="flex items-center gap-1 hover:text-foreground transition-colors"
             >
@@ -498,7 +546,7 @@ function Breadcrumbs({ breadcrumbs, currentName }: BreadcrumbsProps) {
               <span>Files</span>
             </Link>
           ) : (
-            <Link 
+            <Link
               href={`/library/files?id=${encodeURIComponent(crumb.id)}`}
               className="hover:text-foreground transition-colors truncate max-w-32"
             >
@@ -527,13 +575,13 @@ interface DirectoryContentsProps {
   fetchNextPage: () => void;
 }
 
-function DirectoryContents({ 
-  items, 
+function DirectoryContents({
+  items,
   totalCount,
-  selectedIds, 
-  onSelect, 
-  onPlaySong, 
-  onAddToQueue, 
+  selectedIds,
+  onSelect,
+  onPlaySong,
+  onAddToQueue,
   songs,
   hasNextPage,
   isFetchingNextPage,
@@ -558,13 +606,10 @@ function DirectoryContents({
       renderItem={(item) => {
         const isSelected = selectedIds.has(item.id);
         const song = item.isDir ? null : directoryChildToSong(item);
-        const songIndex = song ? songs.findIndex(s => s.id === song.id) : -1;
+        const songIndex = song ? songs.findIndex((s) => s.id === song.id) : -1;
 
         return item.isDir ? (
-          <DirectoryRow
-            item={item}
-            coverUrl={getCoverUrl(item.coverArt)}
-          />
+          <DirectoryRow item={item} coverUrl={getCoverUrl(item.coverArt)} />
         ) : (
           <FileRow
             item={item}
@@ -595,7 +640,7 @@ function DirectoryRow({ item, coverUrl }: DirectoryRowProps) {
       <div
         className={cn(
           "flex items-center gap-3 p-3 rounded-lg h-[72px]",
-          "hover:bg-muted/50 transition-colors cursor-pointer group"
+          "hover:bg-muted/50 transition-colors cursor-pointer group",
         )}
       >
         <CoverImage
@@ -634,7 +679,16 @@ interface FileRowProps {
   onAddToQueue: (songId: string, position: "next" | "end") => void;
 }
 
-function FileRow({ item, song, songIndex, coverUrl, isSelected, onSelect, onPlay, onAddToQueue }: FileRowProps) {
+function FileRow({
+  item,
+  song,
+  songIndex,
+  coverUrl,
+  isSelected,
+  onSelect,
+  onPlay,
+  onAddToQueue,
+}: FileRowProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (e.shiftKey || e.ctrlKey || e.metaKey) {
       e.preventDefault();
@@ -699,7 +753,7 @@ function FileRow({ item, song, songIndex, coverUrl, isSelected, onSelect, onPlay
           className={cn(
             "flex items-center gap-3 p-3 rounded-lg h-[72px]",
             "hover:bg-muted/50 transition-colors cursor-pointer group",
-            isSelected && "bg-primary/10 hover:bg-primary/15"
+            isSelected && "bg-primary/10 hover:bg-primary/15",
           )}
         >
           {/* Selection checkbox */}
@@ -708,7 +762,7 @@ function FileRow({ item, song, songIndex, coverUrl, isSelected, onSelect, onPlay
               "w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all cursor-pointer",
               isSelected
                 ? "bg-primary border-primary text-primary-foreground"
-                : "border-muted-foreground/30 opacity-0 group-hover:opacity-100 hover:border-primary/50"
+                : "border-muted-foreground/30 opacity-0 group-hover:opacity-100 hover:border-primary/50",
             )}
             onClick={(e) => {
               e.stopPropagation();
@@ -737,10 +791,14 @@ function FileRow({ item, song, songIndex, coverUrl, isSelected, onSelect, onPlay
           </div>
           <div className="flex items-center gap-4 text-sm text-muted-foreground shrink-0">
             {item.size != null && (
-              <span className="hidden md:inline w-16 text-right">{formatBytes(item.size)}</span>
+              <span className="hidden md:inline w-16 text-right">
+                {formatBytes(item.size)}
+              </span>
             )}
             {item.duration != null && (
-              <span className="w-12 text-right">{formatDuration(item.duration)}</span>
+              <span className="w-12 text-right">
+                {formatDuration(item.duration)}
+              </span>
             )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -800,16 +858,18 @@ function FileRow({ item, song, songIndex, coverUrl, isSelected, onSelect, onPlay
 
 export default function FilesPage() {
   return (
-    <Suspense fallback={
-      <div className="p-4 lg:p-6 space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <div className="space-y-2">
-          {Array.from({ length: 10 }).map((_, i) => (
-            <Skeleton key={i} className="h-14 w-full rounded-lg" />
-          ))}
+    <Suspense
+      fallback={
+        <div className="p-4 lg:p-6 space-y-4">
+          <Skeleton className="h-8 w-48" />
+          <div className="space-y-2">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full rounded-lg" />
+            ))}
+          </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <FilesPageContent />
     </Suspense>
   );

@@ -72,39 +72,43 @@ export function VirtualizedGrid<T>({
   }, []);
 
   // Calculate current column count based on container width
-  const getColumnCount = useCallback((width: number) => {
-    if (width >= 1280 && columns.xl) return columns.xl;
-    if (width >= 1024 && columns.lg) return columns.lg;
-    if (width >= 768 && columns.md) return columns.md;
-    if (width >= 640 && columns.sm) return columns.sm;
-    return columns.default;
-  }, [columns]);
+  const getColumnCount = useCallback(
+    (width: number) => {
+      if (width >= 1280 && columns.xl) return columns.xl;
+      if (width >= 1024 && columns.lg) return columns.lg;
+      if (width >= 768 && columns.md) return columns.md;
+      if (width >= 640 && columns.sm) return columns.sm;
+      return columns.default;
+    },
+    [columns],
+  );
 
   // Update column count and scroll margin on resize
   useEffect(() => {
     const updateLayout = () => {
       if (containerRef.current) {
         setColumnCount(getColumnCount(containerRef.current.offsetWidth));
-        
+
         // Update scroll margin if autoScrollMargin is enabled
         if (autoScrollMargin) {
           const scrollElement = getScrollElement();
           if (scrollElement) {
             const scrollRect = scrollElement.getBoundingClientRect();
             const containerRect = containerRef.current.getBoundingClientRect();
-            const margin = containerRect.top - scrollRect.top + scrollElement.scrollTop;
+            const margin =
+              containerRect.top - scrollRect.top + scrollElement.scrollTop;
             setScrollMargin(margin);
           }
         }
       }
     };
-    
+
     updateLayout();
-    
+
     const resizeObserver = new ResizeObserver(updateLayout);
     if (containerRef.current) {
       resizeObserver.observe(containerRef.current);
-      
+
       // Also observe parent elements that might change size
       if (autoScrollMargin) {
         let parent = containerRef.current.parentElement;
@@ -114,7 +118,7 @@ export function VirtualizedGrid<T>({
         }
       }
     }
-    
+
     return () => resizeObserver.disconnect();
   }, [getColumnCount, autoScrollMargin, getScrollElement]);
 
@@ -130,7 +134,7 @@ export function VirtualizedGrid<T>({
     const containerWidth = containerRef.current.offsetWidth;
     const totalGap = (columnCount - 1) * gap;
     const columnWidth = (containerWidth - totalGap) / columnCount;
-    // Column width + top padding (16) + margin below image (16) + text area (~56) + bottom padding (16) 
+    // Column width + top padding (16) + margin below image (16) + text area (~56) + bottom padding (16)
     return columnWidth + 16 + 16 + 56 + 16;
   }, [columnCount, gap, estimateItemHeight]);
 
@@ -154,7 +158,7 @@ export function VirtualizedGrid<T>({
   // Fetch more when approaching the end of loaded data
   useEffect(() => {
     if (!fetchNextPage || !hasNextPage || isFetchingNextPage) return;
-    
+
     const lastVirtualRow = virtualRows[virtualRows.length - 1];
     if (!lastVirtualRow) return;
 
@@ -212,9 +216,9 @@ export function VirtualizedGrid<T>({
                     })}
                     {/* Fill empty cells in partially filled rows */}
                     {rowItems.length < columnCount &&
-                      Array.from({ length: columnCount - rowItems.length }).map((_, i) => (
-                        <div key={`empty-${rowIndex}-${i}`} />
-                      ))}
+                      Array.from({ length: columnCount - rowItems.length }).map(
+                        (_, i) => <div key={`empty-${rowIndex}-${i}`} />,
+                      )}
                   </>
                 ) : renderSkeleton ? (
                   // Render skeleton placeholders for unloaded rows
@@ -299,7 +303,8 @@ export function VirtualizedList<T>({
       const scrollRect = scrollElement.getBoundingClientRect();
       const containerRect = containerRef.current.getBoundingClientRect();
       // Calculate how far the container is from the top of the scroll element
-      const margin = containerRect.top - scrollRect.top + scrollElement.scrollTop;
+      const margin =
+        containerRect.top - scrollRect.top + scrollElement.scrollTop;
       setScrollMargin(margin);
     };
 
@@ -340,14 +345,20 @@ export function VirtualizedList<T>({
   // Fetch more when approaching the end of loaded data
   useEffect(() => {
     if (!fetchNextPage || !hasNextPage || isFetchingNextPage) return;
-    
+
     const lastVirtualItem = virtualItems[virtualItems.length - 1];
     if (!lastVirtualItem) return;
 
     if (lastVirtualItem.index >= items.length - 10) {
       fetchNextPage();
     }
-  }, [virtualItems, items.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [
+    virtualItems,
+    items.length,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  ]);
 
   return (
     <div ref={containerRef} className={cn("w-full", className)}>
@@ -376,10 +387,9 @@ export function VirtualizedList<T>({
                 transform: `translateY(${virtualItem.start - (autoScrollMargin ? scrollMargin : 0)}px)`,
               }}
             >
-              {isLoaded 
-                ? renderItem(item, virtualItem.index) 
-                : renderSkeleton?.(virtualItem.index)
-              }
+              {isLoaded
+                ? renderItem(item, virtualItem.index)
+                : renderSkeleton?.(virtualItem.index)}
             </div>
           );
         })}

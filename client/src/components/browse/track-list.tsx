@@ -64,7 +64,13 @@ export function TrackList({
   }
 
   return (
-    <div className={cn("px-4 lg:px-6 py-4", isSelectionMode && "select-none", className)}>
+    <div
+      className={cn(
+        "px-4 lg:px-6 py-4",
+        isSelectionMode && "select-none",
+        className,
+      )}
+    >
       <div className="space-y-1">
         {songs.map((song, index) => (
           <SongRow

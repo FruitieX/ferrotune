@@ -31,10 +31,12 @@ export function ActionBar({
   children,
 }: ActionBarProps) {
   return (
-    <div className={cn(
-      "sticky top-0 z-20 bg-background/80 backdrop-blur-lg border-b border-border",
-      className
-    )}>
+    <div
+      className={cn(
+        "sticky top-0 z-20 bg-background/80 backdrop-blur-lg border-b border-border",
+        className,
+      )}
+    >
       <div className="flex items-center gap-4 px-4 lg:px-6 py-4">
         {onPlayAll && (
           <Button
@@ -59,16 +61,16 @@ export function ActionBar({
             Shuffle
           </Button>
         )}
-        
+
         {/* Additional actions */}
         {actions}
-        
+
         {/* Spacer */}
         <div className="flex-1" />
-        
+
         {/* Toolbar (filter, sort, columns, view mode) */}
         {toolbar}
-        
+
         {children}
       </div>
     </div>

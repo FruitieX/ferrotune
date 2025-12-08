@@ -25,7 +25,7 @@ export type { SongResponse as Song } from "./generated";
 export type { AlbumResponse } from "./generated";
 export type { AlbumResponse as Album } from "./generated";
 
-// Artist entity (generated ArtistResponse = entity, not a wrapper)  
+// Artist entity (generated ArtistResponse = entity, not a wrapper)
 export type { ArtistResponse } from "./generated";
 export type { ArtistResponse as Artist } from "./generated";
 

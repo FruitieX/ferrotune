@@ -6,7 +6,7 @@ import type { Album, Artist } from "@/lib/api/types";
 export function sortAlbums(
   albums: Album[],
   field: string,
-  direction: "asc" | "desc"
+  direction: "asc" | "desc",
 ): Album[] {
   // "custom" means preserve original order (no sorting)
   if (field === "custom") {
@@ -53,7 +53,7 @@ export function sortAlbums(
 export function sortArtists(
   artists: Artist[],
   field: string,
-  direction: "asc" | "desc"
+  direction: "asc" | "desc",
 ): Artist[] {
   // "custom" means preserve original order (no sorting)
   if (field === "custom") {
@@ -92,7 +92,7 @@ export function sortArtists(
 export function sortMedia<T extends Album | Artist>(
   items: T[],
   field: string,
-  direction: "asc" | "desc"
+  direction: "asc" | "desc",
 ): T[] {
   // Determine if it's an Album or Artist array by checking for Album-specific property
   if (items.length > 0 && "songCount" in items[0]) {

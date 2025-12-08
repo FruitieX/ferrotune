@@ -73,7 +73,8 @@ moon run client:start       # Run frontend production build
 moon run test               # Backend unit + integration tests
 moon run client:test        # Frontend E2E tests (Playwright)
 moon run ci                 # Full backend CI pipeline
-moon run ci-all             # Full stack CI (backend + client)
+moon run ci-all-lite        # Full stack CI (backend + client, without E2E)
+moon run ci-all             # Full stack CI (backend + client, with E2E)
 
 # Backend tests
 moon run test-unit          # Unit tests only
@@ -115,6 +116,8 @@ moon run fmt                # Format Rust code
 moon run fmt-check          # Check Rust formatting
 moon run client:lint        # ESLint for frontend
 moon run client:typecheck   # TypeScript type checking
+moon run client:fmt         # Format frontend code (Prettier)
+moon run client:fmt-check   # Check frontend formatting (Prettier)
 ```
 
 ### Code Generation

@@ -49,10 +49,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
+import {
+  startQueueAtom,
+  addToQueueAtom,
+  type QueueSourceType,
+} from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { EditPlaylistDialog } from "./edit-playlist-dialog";
-import { getPlaylistDisplayName, getUniqueFolderPaths, parsePlaylistPath } from "@/lib/utils/playlist-folders";
+import {
+  getPlaylistDisplayName,
+  getUniqueFolderPaths,
+  parsePlaylistPath,
+} from "@/lib/utils/playlist-folders";
 import type { Playlist } from "@/lib/api/types";
 
 interface PlaylistContextMenuProps {
@@ -60,7 +68,10 @@ interface PlaylistContextMenuProps {
   children: React.ReactNode;
 }
 
-export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuProps) {
+export function PlaylistContextMenu({
+  playlist,
+  children,
+}: PlaylistContextMenuProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const startQueue = useSetAtom(startQueueAtom);
@@ -91,10 +102,12 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
     mutationFn: async (targetFolder: string) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      
+
       const displayName = getPlaylistDisplayName(playlist);
-      const newName = targetFolder ? `${targetFolder}/${displayName}` : displayName;
-      
+      const newName = targetFolder
+        ? `${targetFolder}/${displayName}`
+        : displayName;
+
       await client.updatePlaylist({ playlistId: playlist.id, name: newName });
       return { displayName, targetFolder };
     },
@@ -140,7 +153,10 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
     try {
       const response = await client.getPlaylist(playlist.id);
       if (response.playlist.entry?.length > 0) {
-        addToQueue({ songIds: response.playlist.entry.map(s => s.id), position: "next" });
+        addToQueue({
+          songIds: response.playlist.entry.map((s) => s.id),
+          position: "next",
+        });
         toast.success(`Added "${playlist.name}" to play next`);
       } else {
         toast.error("Playlist is empty");
@@ -158,7 +174,10 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
     try {
       const response = await client.getPlaylist(playlist.id);
       if (response.playlist.entry?.length > 0) {
-        addToQueue({ songIds: response.playlist.entry.map(s => s.id), position: "end" });
+        addToQueue({
+          songIds: response.playlist.entry.map((s) => s.id),
+          position: "end",
+        });
         toast.success(`Added "${playlist.name}" to queue`);
       } else {
         toast.error("Playlist is empty");
@@ -217,7 +236,11 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
           >
             <Home className="w-4 h-4 mr-2" />
             Root
-            {currentFolder === "" && <span className="ml-auto text-xs text-muted-foreground">Current</span>}
+            {currentFolder === "" && (
+              <span className="ml-auto text-xs text-muted-foreground">
+                Current
+              </span>
+            )}
           </ContextMenuItem>
           {folderPaths.length > 0 && <ContextMenuSeparator />}
           {/* Folder options */}
@@ -229,7 +252,11 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
             >
               <Folder className="w-4 h-4 mr-2" />
               <span className="truncate">{folderPath}</span>
-              {currentFolder === folderPath && <span className="ml-auto text-xs text-muted-foreground">Current</span>}
+              {currentFolder === folderPath && (
+                <span className="ml-auto text-xs text-muted-foreground">
+                  Current
+                </span>
+              )}
             </ContextMenuItem>
           ))}
           {folderPaths.length === 0 && currentFolder !== "" && (
@@ -257,11 +284,16 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
     <>
       <ContextMenu>
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent className="w-56" onDoubleClick={(e) => e.stopPropagation()}>{menuItems}</ContextMenuContent>
+        <ContextMenuContent
+          className="w-56"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          {menuItems}
+        </ContextMenuContent>
       </ContextMenu>
 
       <EditPlaylistDialog
-        playlist={{...playlist, comment: playlist.comment ?? undefined}}
+        playlist={{ ...playlist, comment: playlist.comment ?? undefined }}
         open={editDialogOpen}
         onOpenChange={setEditDialogOpen}
       />
@@ -271,7 +303,8 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Playlist</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete &quot;{playlist.name}&quot;? This action cannot be undone.
+              Are you sure you want to delete &quot;{playlist.name}&quot;? This
+              action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -290,7 +323,13 @@ export function PlaylistContextMenu({ playlist, children }: PlaylistContextMenuP
 }
 
 // Dropdown variant for mobile and click-triggered menu
-export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: Playlist; inline?: boolean }) {
+export function PlaylistDropdownMenu({
+  playlist,
+  inline = false,
+}: {
+  playlist: Playlist;
+  inline?: boolean;
+}) {
   const queryClient = useQueryClient();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -320,10 +359,12 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
     mutationFn: async (targetFolder: string) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      
+
       const displayName = getPlaylistDisplayName(playlist);
-      const newName = targetFolder ? `${targetFolder}/${displayName}` : displayName;
-      
+      const newName = targetFolder
+        ? `${targetFolder}/${displayName}`
+        : displayName;
+
       await client.updatePlaylist({ playlistId: playlist.id, name: newName });
       return { displayName, targetFolder };
     },
@@ -369,7 +410,10 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
     try {
       const response = await client.getPlaylist(playlist.id);
       if (response.playlist.entry?.length > 0) {
-        addToQueue({ songIds: response.playlist.entry.map(s => s.id), position: "next" });
+        addToQueue({
+          songIds: response.playlist.entry.map((s) => s.id),
+          position: "next",
+        });
         toast.success(`Added "${playlist.name}" to play next`);
       } else {
         toast.error("Playlist is empty");
@@ -387,7 +431,10 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
     try {
       const response = await client.getPlaylist(playlist.id);
       if (response.playlist.entry?.length > 0) {
-        addToQueue({ songIds: response.playlist.entry.map(s => s.id), position: "end" });
+        addToQueue({
+          songIds: response.playlist.entry.map((s) => s.id),
+          position: "end",
+        });
         toast.success(`Added "${playlist.name}" to queue`);
       } else {
         toast.error("Playlist is empty");
@@ -420,9 +467,10 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
           <Button
             variant="ghost"
             size="icon"
-            className={inline 
-              ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-              : "h-8 w-8 absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+            className={
+              inline
+                ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                : "h-8 w-8 absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
             }
             onClick={(e) => {
               e.preventDefault();
@@ -433,7 +481,11 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
             <span className="sr-only">More options</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56" onDoubleClick={(e) => e.stopPropagation()}>
+        <DropdownMenuContent
+          align="end"
+          className="w-56"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
           <DropdownMenuItem onClick={handlePlay}>
             <Play className="w-4 h-4 mr-2" />
             Play
@@ -465,7 +517,11 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
               >
                 <Home className="w-4 h-4 mr-2" />
                 Root
-                {currentFolder === "" && <span className="ml-auto text-xs text-muted-foreground">Current</span>}
+                {currentFolder === "" && (
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    Current
+                  </span>
+                )}
               </DropdownMenuItem>
               {folderPaths.length > 0 && <DropdownMenuSeparator />}
               {/* Folder options */}
@@ -473,15 +529,24 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
                 <DropdownMenuItem
                   key={folderPath}
                   onClick={() => movePlaylist.mutate(folderPath)}
-                  disabled={currentFolder === folderPath || movePlaylist.isPending}
+                  disabled={
+                    currentFolder === folderPath || movePlaylist.isPending
+                  }
                 >
                   <Folder className="w-4 h-4 mr-2" />
                   <span className="truncate">{folderPath}</span>
-                  {currentFolder === folderPath && <span className="ml-auto text-xs text-muted-foreground">Current</span>}
+                  {currentFolder === folderPath && (
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      Current
+                    </span>
+                  )}
                 </DropdownMenuItem>
               ))}
               {folderPaths.length === 0 && currentFolder !== "" && (
-                <DropdownMenuItem disabled className="text-muted-foreground text-xs">
+                <DropdownMenuItem
+                  disabled
+                  className="text-muted-foreground text-xs"
+                >
                   No other folders
                 </DropdownMenuItem>
               )}
@@ -502,7 +567,7 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
       </DropdownMenu>
 
       <EditPlaylistDialog
-        playlist={{...playlist, comment: playlist.comment ?? undefined}}
+        playlist={{ ...playlist, comment: playlist.comment ?? undefined }}
         open={editDialogOpen}
         onOpenChange={setEditDialogOpen}
       />
@@ -512,7 +577,8 @@ export function PlaylistDropdownMenu({ playlist, inline = false }: { playlist: P
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Playlist</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete &quot;{playlist.name}&quot;? This action cannot be undone.
+              Are you sure you want to delete &quot;{playlist.name}&quot;? This
+              action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

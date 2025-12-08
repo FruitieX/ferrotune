@@ -47,19 +47,29 @@ interface DuplicateInfo {
   nonDuplicateIds: string[];
 }
 
-export function AddToPlaylistDialog({ open, onOpenChange, songs = [], songIds }: AddToPlaylistDialogProps) {
+export function AddToPlaylistDialog({
+  open,
+  onOpenChange,
+  songs = [],
+  songIds,
+}: AddToPlaylistDialogProps) {
   // Determine the IDs and count to use
-  const idsToAdd = songIds ?? songs.map(s => s.id);
+  const idsToAdd = songIds ?? songs.map((s) => s.id);
   const songCount = idsToAdd.length;
-  
+
   // For display, use song title if we have exactly one loaded song
-  const displayText = songs.length === 1 ? `"${songs[0].title}"` : `${songCount} songs`;
-  
+  const displayText =
+    songs.length === 1 ? `"${songs[0].title}"` : `${songCount} songs`;
+
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(
+    null,
+  );
   const [showCreateNew, setShowCreateNew] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
-  const [duplicateInfo, setDuplicateInfo] = useState<DuplicateInfo | null>(null);
+  const [duplicateInfo, setDuplicateInfo] = useState<DuplicateInfo | null>(
+    null,
+  );
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
   const queryClient = useQueryClient();
 
@@ -76,32 +86,48 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs = [], songIds }:
   });
 
   // Check for duplicates before adding
-  const checkDuplicates = useCallback(async (playlistId: string, playlistName: string) => {
-    const client = getClient();
-    if (!client) return null;
+  const checkDuplicates = useCallback(
+    async (playlistId: string, playlistName: string) => {
+      const client = getClient();
+      if (!client) return null;
 
-    try {
-      const playlistResponse = await client.getPlaylist(playlistId);
-      const existingSongIds = new Set(
-        playlistResponse.playlist.entry?.map(s => s.id) ?? []
-      );
+      try {
+        const playlistResponse = await client.getPlaylist(playlistId);
+        const existingSongIds = new Set(
+          playlistResponse.playlist.entry?.map((s) => s.id) ?? [],
+        );
 
-      const duplicateIds = idsToAdd.filter(id => existingSongIds.has(id));
-      const nonDuplicateIds = idsToAdd.filter(id => !existingSongIds.has(id));
+        const duplicateIds = idsToAdd.filter((id) => existingSongIds.has(id));
+        const nonDuplicateIds = idsToAdd.filter(
+          (id) => !existingSongIds.has(id),
+        );
 
-      if (duplicateIds.length > 0) {
-        return { playlistId, playlistName, duplicateCount: duplicateIds.length, nonDuplicateIds };
+        if (duplicateIds.length > 0) {
+          return {
+            playlistId,
+            playlistName,
+            duplicateCount: duplicateIds.length,
+            nonDuplicateIds,
+          };
+        }
+        return null;
+      } catch (error) {
+        console.error("Failed to check for duplicates:", error);
+        return null;
       }
-      return null;
-    } catch (error) {
-      console.error("Failed to check for duplicates:", error);
-      return null;
-    }
-  }, [idsToAdd]);
+    },
+    [idsToAdd],
+  );
 
   // Add to existing playlist mutation
   const addToPlaylistMutation = useMutation({
-    mutationFn: async ({ playlistId, songIdsToAdd }: { playlistId: string; songIdsToAdd: string[] }) => {
+    mutationFn: async ({
+      playlistId,
+      songIdsToAdd,
+    }: {
+      playlistId: string;
+      songIdsToAdd: string[];
+    }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       await client.updatePlaylist({
@@ -110,9 +136,10 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs = [], songIds }:
       });
     },
     onSuccess: (_, { songIdsToAdd }) => {
-      const songText = songIdsToAdd.length === 1 && songs.length === 1
-        ? `"${songs[0].title}"` 
-        : `${songIdsToAdd.length} songs`;
+      const songText =
+        songIdsToAdd.length === 1 && songs.length === 1
+          ? `"${songs[0].title}"`
+          : `${songIdsToAdd.length} songs`;
       toast.success(`Added ${songText} to playlist`);
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       queryClient.invalidateQueries({ queryKey: ["playlistSongs"] });
@@ -153,11 +180,16 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs = [], songIds }:
     },
   });
 
-  const filteredPlaylists = (Array.isArray(playlists) ? playlists : []).filter((p) =>
-    !isFolderPlaceholder(p.name) && p.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredPlaylists = (Array.isArray(playlists) ? playlists : []).filter(
+    (p) =>
+      !isFolderPlaceholder(p.name) &&
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
-  const handleAddToPlaylist = async (playlistId: string, playlistName: string) => {
+  const handleAddToPlaylist = async (
+    playlistId: string,
+    playlistName: string,
+  ) => {
     setSelectedPlaylistId(playlistId);
     setIsCheckingDuplicates(true);
 
@@ -168,9 +200,9 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs = [], songIds }:
       setDuplicateInfo(duplicateResult);
     } else {
       // No duplicates, add all songs directly
-      addToPlaylistMutation.mutate({ 
-        playlistId, 
-        songIdsToAdd: idsToAdd 
+      addToPlaylistMutation.mutate({
+        playlistId,
+        songIdsToAdd: idsToAdd,
       });
     }
   };
@@ -204,7 +236,10 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs = [], songIds }:
     }
   };
 
-  const isPending = addToPlaylistMutation.isPending || createAndAddMutation.isPending || isCheckingDuplicates;
+  const isPending =
+    addToPlaylistMutation.isPending ||
+    createAndAddMutation.isPending ||
+    isCheckingDuplicates;
 
   return (
     <>
@@ -263,7 +298,9 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs = [], songIds }:
                   <Button
                     size="sm"
                     onClick={handleCreateAndAdd}
-                    disabled={!newPlaylistName.trim() || createAndAddMutation.isPending}
+                    disabled={
+                      !newPlaylistName.trim() || createAndAddMutation.isPending
+                    }
                   >
                     {createAndAddMutation.isPending ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -296,7 +333,9 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs = [], songIds }:
                     playlist={playlist}
                     isSelected={selectedPlaylistId === playlist.id}
                     isPending={isPending && selectedPlaylistId === playlist.id}
-                    onSelect={() => handleAddToPlaylist(playlist.id, playlist.name)}
+                    onSelect={() =>
+                      handleAddToPlaylist(playlist.id, playlist.name)
+                    }
                     disabled={isPending}
                   />
                 ))
@@ -315,7 +354,10 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs = [], songIds }:
       </Dialog>
 
       {/* Duplicate confirmation dialog */}
-      <AlertDialog open={duplicateInfo !== null} onOpenChange={(open) => !open && setDuplicateInfo(null)}>
+      <AlertDialog
+        open={duplicateInfo !== null}
+        onOpenChange={(open) => !open && setDuplicateInfo(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
@@ -325,13 +367,13 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs = [], songIds }:
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 <p>
-                  {duplicateInfo?.duplicateCount === 1 
+                  {duplicateInfo?.duplicateCount === 1
                     ? `1 song is already in "${duplicateInfo?.playlistName}".`
                     : `${duplicateInfo?.duplicateCount} songs are already in "${duplicateInfo?.playlistName}".`}
                 </p>
                 {(duplicateInfo?.nonDuplicateIds.length ?? 0) > 0 && (
                   <p className="text-foreground">
-                    {duplicateInfo?.nonDuplicateIds.length === 1 
+                    {duplicateInfo?.nonDuplicateIds.length === 1
                       ? "1 new song can be added."
                       : `${duplicateInfo?.nonDuplicateIds.length} new songs can be added.`}
                   </p>
@@ -340,18 +382,22 @@ export function AddToPlaylistDialog({ open, onOpenChange, songs = [], songIds }:
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => {
-              setDuplicateInfo(null);
-              setSelectedPlaylistId(null);
-            }}>
+            <AlertDialogCancel
+              onClick={() => {
+                setDuplicateInfo(null);
+                setSelectedPlaylistId(null);
+              }}
+            >
               Cancel
             </AlertDialogCancel>
             {(duplicateInfo?.nonDuplicateIds.length ?? 0) > 0 && (
-              <AlertDialogAction onClick={() => handleDuplicateResponse("skip")}>
+              <AlertDialogAction
+                onClick={() => handleDuplicateResponse("skip")}
+              >
                 Skip Duplicates
               </AlertDialogAction>
             )}
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={() => handleDuplicateResponse("add-all")}
               className="bg-yellow-600 hover:bg-yellow-700"
             >
@@ -372,7 +418,13 @@ interface PlaylistOptionProps {
   disabled: boolean;
 }
 
-function PlaylistOption({ playlist, isSelected, isPending, onSelect, disabled }: PlaylistOptionProps) {
+function PlaylistOption({
+  playlist,
+  isSelected,
+  isPending,
+  onSelect,
+  disabled,
+}: PlaylistOptionProps) {
   const coverArtUrl = playlist.coverArt
     ? getClient()?.getCoverArtUrl(playlist.coverArt, 80)
     : undefined;
@@ -385,7 +437,7 @@ function PlaylistOption({ playlist, isSelected, isPending, onSelect, disabled }:
         "flex items-center gap-3 w-full p-2 rounded-md transition-colors text-left",
         "hover:bg-accent/70",
         isSelected && "bg-accent/50",
-        disabled && "opacity-50 cursor-not-allowed"
+        disabled && "opacity-50 cursor-not-allowed",
       )}
     >
       <CoverImage

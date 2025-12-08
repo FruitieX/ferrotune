@@ -20,7 +20,11 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -106,9 +110,9 @@ interface PlaylistSongsBulkActionsBarProps extends BaseBulkActionsBarProps {
   missingCount?: number;
 }
 
-type BulkActionsBarProps = 
-  | SongBulkActionsBarProps 
-  | AlbumBulkActionsBarProps 
+type BulkActionsBarProps =
+  | SongBulkActionsBarProps
+  | AlbumBulkActionsBarProps
   | ArtistBulkActionsBarProps
   | GenreBulkActionsBarProps
   | PlaylistBulkActionsBarProps
@@ -130,56 +134,92 @@ interface LegacyBulkActionsBarProps {
   className?: string;
 }
 
-export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBarProps) {
+export function BulkActionsBar(
+  props: BulkActionsBarProps | LegacyBulkActionsBarProps,
+) {
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
   const [shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
 
   // Determine media type and get label
-  const mediaType = 'mediaType' in props ? props.mediaType ?? 'song' : 'song';
-  const itemLabel = mediaType === 'song' || mediaType === 'playlist-songs' ? 'song' : mediaType === 'album' ? 'album' : mediaType === 'artist' ? 'artist' : mediaType === 'playlist' ? 'playlist' : 'genre';
+  const mediaType = "mediaType" in props ? (props.mediaType ?? "song") : "song";
+  const itemLabel =
+    mediaType === "song" || mediaType === "playlist-songs"
+      ? "song"
+      : mediaType === "album"
+        ? "album"
+        : mediaType === "artist"
+          ? "artist"
+          : mediaType === "playlist"
+            ? "playlist"
+            : "genre";
   const pluralLabel = props.selectedCount === 1 ? itemLabel : `${itemLabel}s`;
 
   // Check if starring is supported (not for genres, playlists, or playlist-songs)
-  const supportsStarring = mediaType !== 'genre' && mediaType !== 'playlist' && mediaType !== 'playlist-songs' && props.onStar && props.onUnstar;
+  const supportsStarring =
+    mediaType !== "genre" &&
+    mediaType !== "playlist" &&
+    mediaType !== "playlist-songs" &&
+    props.onStar &&
+    props.onUnstar;
 
   // Get songs for add to playlist (only for songs and playlist-songs)
-  const canAddToPlaylist = (mediaType === 'song' || mediaType === 'playlist-songs') && 'getSelectedSongs' in props;
-  const getSelectedSongs = canAddToPlaylist ? (props as SongBulkActionsBarProps | PlaylistSongsBulkActionsBarProps).getSelectedSongs : () => [];
+  const canAddToPlaylist =
+    (mediaType === "song" || mediaType === "playlist-songs") &&
+    "getSelectedSongs" in props;
+  const getSelectedSongs = canAddToPlaylist
+    ? (props as SongBulkActionsBarProps | PlaylistSongsBulkActionsBarProps)
+        .getSelectedSongs
+    : () => [];
 
   // Get selected IDs (prefer selectedIds prop, fallback to getSelectedSongs)
   const getSelectedIds = (): string[] => {
-    if ('selectedIds' in props && props.selectedIds) {
+    if ("selectedIds" in props && props.selectedIds) {
       return Array.from(props.selectedIds);
     }
     if (canAddToPlaylist) {
-      return getSelectedSongs().map(s => s.id);
+      return getSelectedSongs().map((s) => s.id);
     }
     return [];
   };
 
   // Check if shuffle exclude is supported (only for songs)
-  const canShuffleExclude = (mediaType === 'song' || mediaType === 'playlist-songs') && ('getSelectedSongs' in props || 'selectedIds' in props);
+  const canShuffleExclude =
+    (mediaType === "song" || mediaType === "playlist-songs") &&
+    ("getSelectedSongs" in props || "selectedIds" in props);
 
   // Check for playlist-specific actions
-  const isPlaylistType = mediaType === 'playlist' && 'onDelete' in props;
-  const onDelete = isPlaylistType ? (props as PlaylistBulkActionsBarProps).onDelete : undefined;
-  const onMerge = isPlaylistType ? (props as PlaylistBulkActionsBarProps).onMerge : undefined;
+  const isPlaylistType = mediaType === "playlist" && "onDelete" in props;
+  const onDelete = isPlaylistType
+    ? (props as PlaylistBulkActionsBarProps).onDelete
+    : undefined;
+  const onMerge = isPlaylistType
+    ? (props as PlaylistBulkActionsBarProps).onMerge
+    : undefined;
   const canMerge = isPlaylistType && props.selectedCount >= 2;
 
   // Check for playlist-songs-specific actions
-  const isPlaylistSongsType = mediaType === 'playlist-songs' && 'onRemoveFromPlaylist' in props;
-  const onRemoveFromPlaylist = isPlaylistSongsType ? (props as PlaylistSongsBulkActionsBarProps).onRemoveFromPlaylist : undefined;
-  const disablePlaybackActions = isPlaylistSongsType && 'disablePlaybackActions' in props ? (props as PlaylistSongsBulkActionsBarProps).disablePlaybackActions : false;
-  const missingCount = isPlaylistSongsType && 'missingCount' in props ? (props as PlaylistSongsBulkActionsBarProps).missingCount ?? 0 : 0;
+  const isPlaylistSongsType =
+    mediaType === "playlist-songs" && "onRemoveFromPlaylist" in props;
+  const onRemoveFromPlaylist = isPlaylistSongsType
+    ? (props as PlaylistSongsBulkActionsBarProps).onRemoveFromPlaylist
+    : undefined;
+  const disablePlaybackActions =
+    isPlaylistSongsType && "disablePlaybackActions" in props
+      ? (props as PlaylistSongsBulkActionsBarProps).disablePlaybackActions
+      : false;
+  const missingCount =
+    isPlaylistSongsType && "missingCount" in props
+      ? ((props as PlaylistSongsBulkActionsBarProps).missingCount ?? 0)
+      : 0;
 
   // Build selection label - show breakdown for playlist-songs with missing entries
   const getSelectionLabel = () => {
     if (missingCount > 0 && isPlaylistSongsType) {
       const songCount = props.selectedCount - missingCount;
-      const songLabel = songCount === 1 ? 'song' : 'songs';
-      const missingLabel = missingCount === 1 ? 'not found' : 'not found';
+      const songLabel = songCount === 1 ? "song" : "songs";
+      const missingLabel = missingCount === 1 ? "not found" : "not found";
       return `${songCount} ${songLabel} (${missingCount} ${missingLabel})`;
     }
     return `${props.selectedCount} ${pluralLabel}`;
@@ -195,14 +235,14 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
 
     try {
       await client.bulkSetShuffleExcludes(songIds, excluded);
-      
+
       // Update local state
       setShuffleExcludes((prev: Set<string>) => {
         const next = new Set(prev);
         if (excluded) {
-          songIds.forEach(id => next.add(id));
+          songIds.forEach((id) => next.add(id));
         } else {
-          songIds.forEach(id => next.delete(id));
+          songIds.forEach((id) => next.delete(id));
         }
         return next;
       });
@@ -210,7 +250,7 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
       toast.success(
         excluded
           ? `Excluded ${songIds.length} songs from shuffle`
-          : `Included ${songIds.length} songs in shuffle`
+          : `Included ${songIds.length} songs in shuffle`,
       );
       props.onClear();
     } catch (error) {
@@ -235,13 +275,16 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
               "bg-card/95 backdrop-blur-lg border border-border rounded-full",
               "shadow-2xl shadow-black/20",
               "px-2 py-2",
-              props.className
+              props.className,
             )}
           >
             <div className="flex items-center gap-1">
               {/* Selection count and clear */}
               <div className="flex items-center gap-2 px-3 border-r border-border">
-                <span className="text-sm font-medium text-primary tabular-nums" aria-live="polite">
+                <span
+                  className="text-sm font-medium text-primary tabular-nums"
+                  aria-live="polite"
+                >
                   {getSelectionLabel()}
                 </span>
                 <Tooltip>
@@ -256,12 +299,18 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                       <X className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="top">Clear selection (Esc)</TooltipContent>
+                  <TooltipContent side="top">
+                    Clear selection (Esc)
+                  </TooltipContent>
                 </Tooltip>
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-1 px-1" role="group" aria-label="Bulk actions">
+              <div
+                className="flex items-center gap-1 px-1"
+                role="group"
+                aria-label="Bulk actions"
+              >
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -290,7 +339,11 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                       <Play className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="top">{disablePlaybackActions ? "Deselect missing entries to play" : "Play now"}</TooltipContent>
+                  <TooltipContent side="top">
+                    {disablePlaybackActions
+                      ? "Deselect missing entries to play"
+                      : "Play now"}
+                  </TooltipContent>
                 </Tooltip>
 
                 {props.onShuffle && (
@@ -307,7 +360,11 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                         <Shuffle className="w-4 h-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="top">{disablePlaybackActions ? "Deselect missing entries to shuffle" : "Shuffle"}</TooltipContent>
+                    <TooltipContent side="top">
+                      {disablePlaybackActions
+                        ? "Deselect missing entries to shuffle"
+                        : "Shuffle"}
+                    </TooltipContent>
                   </Tooltip>
                 )}
 
@@ -325,7 +382,11 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                         <ListPlus className="w-4 h-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="top">{disablePlaybackActions ? "Deselect missing entries to play next" : "Play next"}</TooltipContent>
+                    <TooltipContent side="top">
+                      {disablePlaybackActions
+                        ? "Deselect missing entries to play next"
+                        : "Play next"}
+                    </TooltipContent>
                   </Tooltip>
                 )}
 
@@ -343,7 +404,11 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                         <ListEnd className="w-4 h-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="top">{disablePlaybackActions ? "Deselect missing entries to add to queue" : "Add to queue"}</TooltipContent>
+                    <TooltipContent side="top">
+                      {disablePlaybackActions
+                        ? "Deselect missing entries to add to queue"
+                        : "Add to queue"}
+                    </TooltipContent>
                   </Tooltip>
                 )}
 
@@ -361,13 +426,21 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                         <FolderPlus className="w-4 h-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="top">{disablePlaybackActions ? "Deselect missing entries to add to playlist" : "Add to playlist"}</TooltipContent>
+                    <TooltipContent side="top">
+                      {disablePlaybackActions
+                        ? "Deselect missing entries to add to playlist"
+                        : "Add to playlist"}
+                    </TooltipContent>
                   </Tooltip>
                 )}
 
                 {supportsStarring && (
                   <>
-                    <div className="w-px h-6 bg-border mx-1" role="separator" aria-orientation="vertical" />
+                    <div
+                      className="w-px h-6 bg-border mx-1"
+                      role="separator"
+                      aria-orientation="vertical"
+                    />
 
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -381,7 +454,9 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                           <Heart className="w-4 h-4" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent side="top">Add to favorites</TooltipContent>
+                      <TooltipContent side="top">
+                        Add to favorites
+                      </TooltipContent>
                     </Tooltip>
 
                     <Tooltip>
@@ -396,7 +471,9 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                           <HeartOff className="w-4 h-4" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent side="top">Remove from favorites</TooltipContent>
+                      <TooltipContent side="top">
+                        Remove from favorites
+                      </TooltipContent>
                     </Tooltip>
                   </>
                 )}
@@ -404,7 +481,11 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                 {/* Playlist-specific actions */}
                 {isPlaylistType && (
                   <>
-                    <div className="w-px h-6 bg-border mx-1" role="separator" aria-orientation="vertical" />
+                    <div
+                      className="w-px h-6 bg-border mx-1"
+                      role="separator"
+                      aria-orientation="vertical"
+                    />
 
                     {onMerge && canMerge && (
                       <Tooltip>
@@ -419,7 +500,9 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                             <Merge className="w-4 h-4" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="top">Merge playlists</TooltipContent>
+                        <TooltipContent side="top">
+                          Merge playlists
+                        </TooltipContent>
                       </Tooltip>
                     )}
 
@@ -436,7 +519,9 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="top">Delete playlists</TooltipContent>
+                        <TooltipContent side="top">
+                          Delete playlists
+                        </TooltipContent>
                       </Tooltip>
                     )}
                   </>
@@ -445,7 +530,11 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                 {/* Playlist songs - remove from playlist */}
                 {isPlaylistSongsType && onRemoveFromPlaylist && (
                   <>
-                    <div className="w-px h-6 bg-border mx-1" role="separator" aria-orientation="vertical" />
+                    <div
+                      className="w-px h-6 bg-border mx-1"
+                      role="separator"
+                      aria-orientation="vertical"
+                    />
 
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -459,7 +548,9 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                           <ListMinus className="w-4 h-4" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent side="top">Remove from playlist</TooltipContent>
+                      <TooltipContent side="top">
+                        Remove from playlist
+                      </TooltipContent>
                     </Tooltip>
                   </>
                 )}
@@ -467,8 +558,12 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                 {/* More actions dropdown for songs */}
                 {canShuffleExclude && !disablePlaybackActions && (
                   <>
-                    <div className="w-px h-6 bg-border mx-1" role="separator" aria-orientation="vertical" />
-                    
+                    <div
+                      className="w-px h-6 bg-border mx-1"
+                      role="separator"
+                      aria-orientation="vertical"
+                    />
+
                     <DropdownMenu>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -485,12 +580,20 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
                         </TooltipTrigger>
                         <TooltipContent side="top">More actions</TooltipContent>
                       </Tooltip>
-                      <DropdownMenuContent align="center" side="top" className="mb-2">
-                        <DropdownMenuItem onClick={() => handleBulkShuffleExclude(true)}>
+                      <DropdownMenuContent
+                        align="center"
+                        side="top"
+                        className="mb-2"
+                      >
+                        <DropdownMenuItem
+                          onClick={() => handleBulkShuffleExclude(true)}
+                        >
                           <Shuffle className="w-4 h-4 mr-2 text-muted-foreground line-through" />
                           Exclude from shuffle
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleBulkShuffleExclude(false)}>
+                        <DropdownMenuItem
+                          onClick={() => handleBulkShuffleExclude(false)}
+                        >
                           <Shuffle className="w-4 h-4 mr-2" />
                           Include in shuffle
                         </DropdownMenuItem>
@@ -509,7 +612,11 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
           open={addToPlaylistOpen}
           onOpenChange={setAddToPlaylistOpen}
           songs={addToPlaylistOpen ? getSelectedSongs() : []}
-          songIds={addToPlaylistOpen && 'selectedIds' in props && props.selectedIds ? Array.from(props.selectedIds) : undefined}
+          songIds={
+            addToPlaylistOpen && "selectedIds" in props && props.selectedIds
+              ? Array.from(props.selectedIds)
+              : undefined
+          }
         />
       )}
 
@@ -517,9 +624,12 @@ export function BulkActionsBar(props: BulkActionsBarProps | LegacyBulkActionsBar
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {props.selectedCount} {pluralLabel}?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Delete {props.selectedCount} {pluralLabel}?
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. The selected playlists will be permanently deleted.
+              This action cannot be undone. The selected playlists will be
+              permanently deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

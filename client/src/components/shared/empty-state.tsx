@@ -25,10 +25,12 @@ export function EmptyState({
   className,
 }: EmptyStateProps) {
   return (
-    <div className={cn(
-      "flex flex-col items-center justify-center py-20 text-center px-4",
-      className
-    )}>
+    <div
+      className={cn(
+        "flex flex-col items-center justify-center py-20 text-center px-4",
+        className,
+      )}
+    >
       <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center mb-4">
         <Icon className="w-10 h-10 text-muted-foreground" />
       </div>
@@ -38,11 +40,7 @@ export function EmptyState({
           {description}
         </p>
       )}
-      {action && (
-        <div className="mt-2">
-          {action}
-        </div>
-      )}
+      {action && <div className="mt-2">{action}</div>}
     </div>
   );
 }
@@ -56,10 +54,12 @@ export function EmptyFilterState({
   className?: string;
 }) {
   return (
-    <div className={cn(
-      "flex flex-col items-center justify-center py-20 text-center",
-      className
-    )}>
+    <div
+      className={cn(
+        "flex flex-col items-center justify-center py-20 text-center",
+        className,
+      )}
+    >
       <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
         <Music className="w-8 h-8 text-muted-foreground" />
       </div>

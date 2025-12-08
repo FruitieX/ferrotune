@@ -18,20 +18,20 @@ const PREFETCH_THRESHOLD = 5;
 
 /**
  * Hook to manage the playback buffer for server-side queue.
- * 
+ *
  * Maintains a window of ±BUFFER_RADIUS songs around the current position,
  * pre-fetching the next window when approaching the buffer edge.
  */
 export function useQueueBuffer() {
   const { isConnected, isLoading: authLoading } = useAuth();
-  
+
   const queueState = useAtomValue(serverQueueStateAtom);
   const queueWindow = useAtomValue(queueWindowAtom);
-  
+
   const fetchQueue = useSetAtom(fetchQueueAtom);
   const fetchQueueRange = useSetAtom(fetchQueueRangeAtom);
   const setIsRestoring = useSetAtom(isRestoringQueueAtom);
-  
+
   // Track if we've done initial fetch
   const hasInitializedRef = useRef(false);
   const lastFetchedIndexRef = useRef<number>(-1);
@@ -40,10 +40,10 @@ export function useQueueBuffer() {
   // Initial queue fetch on mount
   useEffect(() => {
     if (!isConnected || authLoading || hasInitializedRef.current) return;
-    
+
     hasInitializedRef.current = true;
     setIsRestoring(true);
-    
+
     fetchQueue().then(() => {
       // Keep restoring flag true until user explicitly plays
     });
@@ -52,25 +52,25 @@ export function useQueueBuffer() {
   // Pre-fetch buffer when approaching edges
   const checkAndPrefetch = useCallback(async () => {
     if (!queueState || !queueWindow || isFetchingRef.current) return;
-    
+
     const currentIndex = queueState.currentIndex;
     const totalCount = queueState.totalCount;
-    
+
     // Don't refetch if we're at the same position
     if (lastFetchedIndexRef.current === currentIndex) return;
-    
+
     // Calculate current window bounds
     const windowStart = queueWindow.offset;
     const windowEnd = windowStart + queueWindow.songs.length - 1;
-    
+
     // Check if current position is near the edge of the buffer
     const distanceToStart = currentIndex - windowStart;
     const distanceToEnd = windowEnd - currentIndex;
-    
+
     let needsFetch = false;
     let fetchOffset = 0;
     let fetchLimit = 0;
-    
+
     // Near start of buffer - need to fetch backwards
     if (distanceToStart < PREFETCH_THRESHOLD && windowStart > 0) {
       fetchOffset = Math.max(0, windowStart - BUFFER_RADIUS);
@@ -89,11 +89,11 @@ export function useQueueBuffer() {
       fetchLimit = Math.min(BUFFER_RADIUS * 2 + 1, totalCount - fetchOffset);
       needsFetch = true;
     }
-    
+
     if (needsFetch && fetchLimit > 0) {
       isFetchingRef.current = true;
       lastFetchedIndexRef.current = currentIndex;
-      
+
       try {
         await fetchQueueRange({ offset: fetchOffset, limit: fetchLimit });
       } finally {
@@ -111,7 +111,9 @@ export function useQueueBuffer() {
   return {
     isBufferReady: queueWindow !== null && queueWindow.songs.length > 0,
     bufferStart: queueWindow?.offset ?? 0,
-    bufferEnd: queueWindow ? queueWindow.offset + queueWindow.songs.length - 1 : 0,
+    bufferEnd: queueWindow
+      ? queueWindow.offset + queueWindow.songs.length - 1
+      : 0,
     totalCount: queueState?.totalCount ?? 0,
     currentIndex: queueState?.currentIndex ?? 0,
   };
@@ -125,15 +127,15 @@ export function useServerQueueInit() {
   const { isConnected, isLoading } = useAuth();
   const fetchQueue = useSetAtom(fetchQueueAtom);
   const setIsRestoring = useSetAtom(isRestoringQueueAtom);
-  
+
   const hasInitializedRef = useRef(false);
 
   useEffect(() => {
     if (!isConnected || isLoading || hasInitializedRef.current) return;
-    
+
     hasInitializedRef.current = true;
     setIsRestoring(true);
-    
+
     fetchQueue().catch((error) => {
       console.debug("No queue to restore:", error);
     });

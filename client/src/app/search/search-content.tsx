@@ -6,7 +6,13 @@ import { useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { Search as SearchIcon, X, Loader2, ListMusic, Clock } from "lucide-react";
+import {
+  Search as SearchIcon,
+  X,
+  Loader2,
+  ListMusic,
+  Clock,
+} from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
@@ -17,9 +23,15 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
-import { ArtistCard, ArtistCardSkeleton } from "@/components/browse/artist-card";
+import {
+  ArtistCard,
+  ArtistCardSkeleton,
+} from "@/components/browse/artist-card";
 import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
-import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
+import {
+  VirtualizedGrid,
+  VirtualizedList,
+} from "@/components/shared/virtualized-grid";
 import { GenreCard, GenreCardSkeleton } from "@/components/browse/genre-card";
 import { CoverImage } from "@/components/shared/cover-image";
 import { formatDuration, formatCount } from "@/lib/utils/format";
@@ -30,25 +42,33 @@ export function SearchPageContent() {
   const searchParams = useSearchParams();
   const { isReady } = useAuth({ redirectToLogin: true });
   const startQueue = useSetAtom(startQueueAtom);
-  
+
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
 
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
-  const [activeTab, setActiveTab] = useState<"all" | "artists" | "albums" | "songs" | "genres" | "playlists">("all");
+  const [activeTab, setActiveTab] = useState<
+    "all" | "artists" | "albums" | "songs" | "genres" | "playlists"
+  >("all");
   const debouncedQuery = useDebounce(query, 300);
 
   // Update URL when query changes
   useEffect(() => {
     if (debouncedQuery) {
-      router.replace(`/search?q=${encodeURIComponent(debouncedQuery)}`, { scroll: false });
+      router.replace(`/search?q=${encodeURIComponent(debouncedQuery)}`, {
+        scroll: false,
+      });
     } else {
       router.replace("/search", { scroll: false });
     }
   }, [debouncedQuery, router]);
 
   // Search query for songs, albums, artists
-  const { data: searchResults, isLoading, isFetching } = useQuery({
+  const {
+    data: searchResults,
+    isLoading,
+    isFetching,
+  } = useQuery({
     queryKey: ["search", debouncedQuery],
     queryFn: async () => {
       const client = getClient();
@@ -93,16 +113,20 @@ export function SearchPageContent() {
   });
 
   // Filter playlists based on search query
-  const filteredPlaylists = playlists?.filter((playlist) =>
-    debouncedQuery.length >= 2 &&
-    playlist.name.toLowerCase().includes(debouncedQuery.toLowerCase())
-  ) ?? [];
+  const filteredPlaylists =
+    playlists?.filter(
+      (playlist) =>
+        debouncedQuery.length >= 2 &&
+        playlist.name.toLowerCase().includes(debouncedQuery.toLowerCase()),
+    ) ?? [];
 
   // Filter genres based on search query
-  const filteredGenres = genres?.filter((genre) =>
-    debouncedQuery.length >= 2 &&
-    genre.value.toLowerCase().includes(debouncedQuery.toLowerCase())
-  ) ?? [];
+  const filteredGenres =
+    genres?.filter(
+      (genre) =>
+        debouncedQuery.length >= 2 &&
+        genre.value.toLowerCase().includes(debouncedQuery.toLowerCase()),
+    ) ?? [];
 
   const handlePlayAlbum = (album: Album) => {
     startQueue({
@@ -125,19 +149,22 @@ export function SearchPageContent() {
   };
 
   // Queue source for search results - uses server-side search materialization
-  const searchQueueSource = useMemo(() => ({
-    type: "search" as QueueSourceType,
-    name: `Search: ${debouncedQuery}`,
-    filters: {
-      query: debouncedQuery,
-    },
-    sort: {
-      field: "title",
-      direction: "asc",
-    },
-  }), [debouncedQuery]);
+  const searchQueueSource = useMemo(
+    () => ({
+      type: "search" as QueueSourceType,
+      name: `Search: ${debouncedQuery}`,
+      filters: {
+        query: debouncedQuery,
+      },
+      sort: {
+        field: "title",
+        direction: "asc",
+      },
+    }),
+    [debouncedQuery],
+  );
 
-  const hasResults = 
+  const hasResults =
     (searchResults?.artist?.length ?? 0) > 0 ||
     (searchResults?.album?.length ?? 0) > 0 ||
     (searchResults?.song?.length ?? 0) > 0 ||
@@ -189,22 +216,37 @@ export function SearchPageContent() {
         ) : !hasResults ? (
           <NoResults query={debouncedQuery} />
         ) : (
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
+          <Tabs
+            value={activeTab}
+            onValueChange={(v) => setActiveTab(v as typeof activeTab)}
+          >
             <TabsList className="mb-6">
               <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="artists" disabled={!searchResults?.artist?.length}>
+              <TabsTrigger
+                value="artists"
+                disabled={!searchResults?.artist?.length}
+              >
                 Artists ({searchResults?.artist?.length ?? 0})
               </TabsTrigger>
-              <TabsTrigger value="albums" disabled={!searchResults?.album?.length}>
+              <TabsTrigger
+                value="albums"
+                disabled={!searchResults?.album?.length}
+              >
                 Albums ({searchResults?.album?.length ?? 0})
               </TabsTrigger>
-              <TabsTrigger value="songs" disabled={!searchResults?.song?.length}>
+              <TabsTrigger
+                value="songs"
+                disabled={!searchResults?.song?.length}
+              >
                 Songs ({searchResults?.song?.length ?? 0})
               </TabsTrigger>
               <TabsTrigger value="genres" disabled={!filteredGenres.length}>
                 Genres ({filteredGenres.length})
               </TabsTrigger>
-              <TabsTrigger value="playlists" disabled={!filteredPlaylists.length}>
+              <TabsTrigger
+                value="playlists"
+                disabled={!filteredPlaylists.length}
+              >
                 Playlists ({filteredPlaylists.length})
               </TabsTrigger>
             </TabsList>
@@ -279,7 +321,10 @@ export function SearchPageContent() {
                   <h2 className="text-xl font-bold mb-4">Playlists</h2>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
                     {filteredPlaylists.slice(0, 6).map((playlist) => (
-                      <PlaylistSearchCard key={playlist.id} playlist={playlist} />
+                      <PlaylistSearchCard
+                        key={playlist.id}
+                        playlist={playlist}
+                      />
                     ))}
                   </div>
                 </section>
@@ -372,9 +417,7 @@ function EmptySearch() {
         <SearchIcon className="w-10 h-10 text-muted-foreground" />
       </motion.div>
       <h2 className="text-xl font-semibold mb-2">Search your library</h2>
-      <p className="text-muted-foreground">
-        Find artists, albums, and songs
-      </p>
+      <p className="text-muted-foreground">Find artists, albums, and songs</p>
     </div>
   );
 }

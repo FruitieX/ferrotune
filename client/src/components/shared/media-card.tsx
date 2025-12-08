@@ -78,19 +78,19 @@ export function MediaCard({
         "hover:bg-accent/70 transition-all cursor-pointer",
         "hover:shadow-lg hover:shadow-black/20",
         isSelected && "ring-2 ring-primary bg-primary/10",
-        className
+        className,
       )}
     >
       {/* Cover art container - relative positioning for buttons outside overflow-hidden */}
       <div className="relative mb-4">
         {/* Selection checkbox (top-left corner of cover art) - outside overflow-hidden */}
         {onSelect && (
-          <div 
+          <div
             className={cn(
               "absolute top-1 left-1 z-20 transition-opacity",
               isSelected || isSelectionMode
                 ? "opacity-100"
-                : "opacity-0 group-hover:opacity-100"
+                : "opacity-0 group-hover:opacity-100",
             )}
           >
             <button
@@ -100,7 +100,7 @@ export function MediaCard({
                 "bg-black/50 hover:bg-black/70",
                 isSelected
                   ? "bg-primary border-primary text-primary-foreground"
-                  : "border-white/80 hover:border-primary/80"
+                  : "border-white/80 hover:border-primary/80",
               )}
               onClick={(e) => {
                 e.preventDefault();
@@ -122,10 +122,10 @@ export function MediaCard({
 
         {/* Star button (bottom-right corner of cover art) - outside overflow-hidden */}
         {onStar && (
-          <div 
+          <div
             className={cn(
               "absolute bottom-1 right-1 z-20 transition-opacity",
-              !isStarred && "opacity-0 group-hover:opacity-100"
+              !isStarred && "opacity-0 group-hover:opacity-100",
             )}
           >
             <Button
@@ -141,7 +141,7 @@ export function MediaCard({
               <Heart
                 className={cn(
                   "w-4 h-4",
-                  isStarred && "fill-red-500 text-red-500"
+                  isStarred && "fill-red-500 text-red-500",
                 )}
               />
             </Button>
@@ -155,7 +155,7 @@ export function MediaCard({
               "relative aspect-square overflow-hidden",
               "transform-gpu transition-transform duration-200 group-hover:scale-[1.05]",
               coverShape === "circle" ? "rounded-full" : "rounded-md",
-              withGlow && "album-glow"
+              withGlow && "album-glow",
             )}
           >
             <CoverImage
@@ -173,7 +173,7 @@ export function MediaCard({
                 className={cn(
                   "absolute inset-0 flex items-center justify-center",
                   "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
-                  coverShape === "circle" && "rounded-full"
+                  coverShape === "circle" && "rounded-full",
                 )}
               >
                 <Button
@@ -195,10 +195,7 @@ export function MediaCard({
 
       {/* Title and subtitle - separate from cover link to avoid nested anchors */}
       <div
-        className={cn(
-          "space-y-1",
-          coverShape === "circle" && "text-center"
-        )}
+        className={cn("space-y-1", coverShape === "circle" && "text-center")}
       >
         <Link href={href}>
           <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
@@ -234,7 +231,7 @@ export function MediaCardSkeleton({
       <Skeleton
         className={cn(
           "aspect-square mb-4",
-          coverShape === "circle" ? "rounded-full" : "rounded-md"
+          coverShape === "circle" ? "rounded-full" : "rounded-md",
         )}
       />
       <div

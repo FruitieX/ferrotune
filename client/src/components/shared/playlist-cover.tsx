@@ -46,7 +46,11 @@ const imageSizes = {
 /**
  * Hook to get the playlist cover URL for use in backgrounds
  */
-export function usePlaylistCoverUrl(playlistId: string | null, size: number = 400, coverArt?: string | null): string | null {
+export function usePlaylistCoverUrl(
+  playlistId: string | null,
+  size: number = 400,
+  coverArt?: string | null,
+): string | null {
   const client = getClient();
   if (!client || !playlistId) return null;
   // Use coverArt if provided, otherwise try playlistId
@@ -71,9 +75,8 @@ export function PlaylistCover({
   // Use coverArt if explicitly provided, otherwise try the playlist ID
   // The backend may not return cover art for empty playlists
   const artId = coverArt !== undefined ? coverArt : playlistId;
-  const coverUrl = client && artId
-    ? client.getCoverArtUrl(artId, imageSizes[size])
-    : null;
+  const coverUrl =
+    client && artId ? client.getCoverArtUrl(artId, imageSizes[size]) : null;
 
   const showPlaceholder = !coverUrl || imageError;
 
@@ -82,7 +85,7 @@ export function PlaylistCover({
       className={cn(
         "relative bg-muted overflow-hidden shrink-0 rounded-md",
         sizeClasses[size],
-        className
+        className,
       )}
     >
       {!showPlaceholder ? (

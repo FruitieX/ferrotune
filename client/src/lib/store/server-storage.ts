@@ -1,9 +1,9 @@
 /**
  * atomWithServerStorage - A Jotai atom that syncs state with the server database.
- * 
+ *
  * This is a drop-in replacement for atomWithStorage that stores preferences
  * on the server per-user instead of in localStorage.
- * 
+ *
  * Features:
  * - Stores value in memory with immediate updates (no localStorage)
  * - Debounces writes to server to avoid excessive API calls
@@ -50,13 +50,13 @@ async function loadAllPreferencesFromServer(): Promise<Map<string, unknown>> {
   try {
     const response = await client.getPreferences();
     const prefs = new Map<string, unknown>();
-    
+
     if (response.preferences) {
       for (const [key, value] of Object.entries(response.preferences)) {
         prefs.set(key, value);
       }
     }
-    
+
     return prefs;
   } catch (error) {
     console.warn("Failed to load preferences from server:", error);
@@ -92,18 +92,18 @@ function writeToServer<T>(key: string, value: T): void {
 
 /**
  * Creates an atom that syncs with server storage.
- * 
+ *
  * @param key - Unique key for this preference
  * @param initialValue - Default value before server load
  * @returns A writable atom that syncs with the server
  */
 export function atomWithServerStorage<T>(
   key: string,
-  initialValue: T
+  initialValue: T,
 ): WritableAtom<T, [T | ((prev: T) => T)], void> {
   // Store default value
   defaultValues.set(key, initialValue);
-  
+
   // Initialize cache with default if not set
   if (!valueCache.has(key)) {
     valueCache.set(key, initialValue);
@@ -116,29 +116,30 @@ export function atomWithServerStorage<T>(
       get(serverConnectionAtom);
       // Subscribe to cache version to trigger re-render when any value changes
       get(cacheVersionAtom);
-      
+
       // Return cached value (or default)
       return (valueCache.get(key) ?? initialValue) as T;
     },
     (get, set, update: T | ((prev: T) => T)) => {
       const currentValue = (valueCache.get(key) ?? initialValue) as T;
-      const newValue = typeof update === "function" 
-        ? (update as (prev: T) => T)(currentValue) 
-        : update;
-      
+      const newValue =
+        typeof update === "function"
+          ? (update as (prev: T) => T)(currentValue)
+          : update;
+
       // Update cache immediately (this is the single source of truth)
       valueCache.set(key, newValue);
-      
+
       // Trigger re-render by incrementing cache version
       cacheVersion++;
       set(cacheVersionAtom, cacheVersion);
-      
+
       // Queue server write (debounced)
       const connection = get(serverConnectionAtom);
       if (connection) {
         writeToServer(key, newValue);
       }
-    }
+    },
   );
 
   return serverAtom as WritableAtom<T, [T | ((prev: T) => T)], void>;
@@ -149,25 +150,25 @@ export function atomWithServerStorage<T>(
  * Call this once when the app initializes and has a valid connection.
  */
 export async function loadServerPreferences(
-  triggerRerender?: () => void
+  triggerRerender?: () => void,
 ): Promise<void> {
   if (isLoadingFromServer || hasLoadedOnce) return;
-  
+
   const client = getClient();
   if (!client) return;
-  
+
   isLoadingFromServer = true;
-  
+
   try {
     const serverPrefs = await loadAllPreferencesFromServer();
-    
+
     // Update cache with server values
     for (const [key, value] of serverPrefs) {
       valueCache.set(key, value);
     }
-    
+
     hasLoadedOnce = true;
-    
+
     // Trigger re-render if callback provided
     if (triggerRerender) {
       triggerRerender();
@@ -183,7 +184,7 @@ export async function loadServerPreferences(
  * Force a refresh of all preferences from the server.
  */
 export async function refreshServerPreferences(
-  triggerRerender?: () => void
+  triggerRerender?: () => void,
 ): Promise<void> {
   hasLoadedOnce = false;
   await loadServerPreferences(triggerRerender);
@@ -195,12 +196,12 @@ export async function refreshServerPreferences(
 export function resetServerPreferences(): void {
   hasLoadedOnce = false;
   valueCache.clear();
-  
+
   // Restore defaults
   for (const [key, defaultValue] of defaultValues) {
     valueCache.set(key, defaultValue);
   }
-  
+
   // Clear pending writes
   for (const timer of pendingWrites.values()) {
     clearTimeout(timer);
@@ -217,7 +218,7 @@ export async function flushPendingWrites(): Promise<void> {
   if (!client) return;
 
   const writes: Promise<unknown>[] = [];
-  
+
   for (const [key, timer] of pendingWrites) {
     clearTimeout(timer);
     const value = valueCache.get(key);
@@ -225,7 +226,7 @@ export async function flushPendingWrites(): Promise<void> {
       writes.push(client.setPreference(key, value));
     }
   }
-  
+
   pendingWrites.clear();
   await Promise.allSettled(writes);
 }

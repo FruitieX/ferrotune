@@ -46,7 +46,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getClient } from "@/lib/api/client";
-import { organizePlaylistsIntoFolders, type PlaylistFolder } from "@/lib/utils/playlist-folders";
+import {
+  organizePlaylistsIntoFolders,
+  type PlaylistFolder,
+} from "@/lib/utils/playlist-folders";
 import type { Playlist } from "@/lib/api/types";
 
 interface FolderContextMenuProps {
@@ -65,8 +68,8 @@ function getPlaylistsInFolder(folder: PlaylistFolder): Playlist[] {
   return playlists;
 }
 
-export function FolderContextMenu({ 
-  folder, 
+export function FolderContextMenu({
+  folder,
   children,
   onCreateSubfolder,
   onCreatePlaylist,
@@ -84,19 +87,22 @@ export function FolderContextMenu({
     mutationFn: async (newName: string) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      
+
       // Calculate old and new prefixes
       const oldPrefix = folder.path;
       const pathParts = folder.path.split("/");
       pathParts[pathParts.length - 1] = newName;
       const newPrefix = pathParts.join("/");
-      
+
       // Rename all playlists in the folder
       const renamePromises = playlistsInFolder.map(async (playlist) => {
         const newPlaylistName = playlist.name.replace(oldPrefix, newPrefix);
-        await client.updatePlaylist({ playlistId: playlist.id, name: newPlaylistName });
+        await client.updatePlaylist({
+          playlistId: playlist.id,
+          name: newPlaylistName,
+        });
       });
-      
+
       await Promise.all(renamePromises);
       return newName;
     },
@@ -115,17 +121,19 @@ export function FolderContextMenu({
     mutationFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      
+
       // Delete all playlists in the folder
       const deletePromises = playlistsInFolder.map(async (playlist) => {
         await client.deletePlaylist(playlist.id);
       });
-      
+
       await Promise.all(deletePromises);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      toast.success(`Deleted folder "${folder.name}" and ${playlistsInFolder.length} playlist(s)`);
+      toast.success(
+        `Deleted folder "${folder.name}" and ${playlistsInFolder.length} playlist(s)`,
+      );
       setDeleteDialogOpen(false);
     },
     onError: (error) => {
@@ -160,10 +168,12 @@ export function FolderContextMenu({
         New Subfolder
       </ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem onClick={() => {
-        setNewFolderName(folder.name);
-        setRenameDialogOpen(true);
-      }}>
+      <ContextMenuItem
+        onClick={() => {
+          setNewFolderName(folder.name);
+          setRenameDialogOpen(true);
+        }}
+      >
         <Pencil className="w-4 h-4 mr-2" />
         Rename Folder
       </ContextMenuItem>
@@ -181,7 +191,10 @@ export function FolderContextMenu({
     <>
       <ContextMenu>
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent className="w-56" onDoubleClick={(e) => e.stopPropagation()}>
+        <ContextMenuContent
+          className="w-56"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
           {menuItems}
         </ContextMenuContent>
       </ContextMenu>
@@ -192,7 +205,8 @@ export function FolderContextMenu({
           <DialogHeader>
             <DialogTitle>Rename Folder</DialogTitle>
             <DialogDescription>
-              This will rename the folder and update all {playlistsInFolder.length} playlist(s) inside.
+              This will rename the folder and update all{" "}
+              {playlistsInFolder.length} playlist(s) inside.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -214,10 +228,13 @@ export function FolderContextMenu({
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setRenameDialogOpen(false)}
+            >
               Cancel
             </Button>
-            <Button 
+            <Button
               onClick={handleRename}
               disabled={renameFolderMutation.isPending}
             >
@@ -236,10 +253,12 @@ export function FolderContextMenu({
               Are you sure you want to delete &quot;{folder.name}&quot;?
               {playlistsInFolder.length > 0 && (
                 <>
-                  {" "}This will permanently delete {playlistsInFolder.length} playlist(s) and all their songs.
+                  {" "}
+                  This will permanently delete {playlistsInFolder.length}{" "}
+                  playlist(s) and all their songs.
                 </>
-              )}
-              {" "}This action cannot be undone.
+              )}{" "}
+              This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -266,8 +285,8 @@ interface FolderDropdownMenuProps {
   onCreatePlaylist?: (folderPath: string) => void;
 }
 
-export function FolderDropdownMenu({ 
-  folder, 
+export function FolderDropdownMenu({
+  folder,
   inline = false,
   onCreateSubfolder,
   onCreatePlaylist,
@@ -285,19 +304,22 @@ export function FolderDropdownMenu({
     mutationFn: async (newName: string) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      
+
       // Calculate old and new prefixes
       const oldPrefix = folder.path;
       const pathParts = folder.path.split("/");
       pathParts[pathParts.length - 1] = newName;
       const newPrefix = pathParts.join("/");
-      
+
       // Rename all playlists in the folder
       const renamePromises = playlistsInFolder.map(async (playlist) => {
         const newPlaylistName = playlist.name.replace(oldPrefix, newPrefix);
-        await client.updatePlaylist({ playlistId: playlist.id, name: newPlaylistName });
+        await client.updatePlaylist({
+          playlistId: playlist.id,
+          name: newPlaylistName,
+        });
       });
-      
+
       await Promise.all(renamePromises);
       return newName;
     },
@@ -316,17 +338,19 @@ export function FolderDropdownMenu({
     mutationFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      
+
       // Delete all playlists in the folder
       const deletePromises = playlistsInFolder.map(async (playlist) => {
         await client.deletePlaylist(playlist.id);
       });
-      
+
       await Promise.all(deletePromises);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      toast.success(`Deleted folder "${folder.name}" and ${playlistsInFolder.length} playlist(s)`);
+      toast.success(
+        `Deleted folder "${folder.name}" and ${playlistsInFolder.length} playlist(s)`,
+      );
       setDeleteDialogOpen(false);
     },
     onError: (error) => {
@@ -357,9 +381,10 @@ export function FolderDropdownMenu({
           <Button
             variant="ghost"
             size="icon"
-            className={inline 
-              ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-              : "h-8 w-8 absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+            className={
+              inline
+                ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                : "h-8 w-8 absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
             }
             onClick={(e) => {
               e.preventDefault();
@@ -370,7 +395,11 @@ export function FolderDropdownMenu({
             <span className="sr-only">More options</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56" onDoubleClick={(e) => e.stopPropagation()}>
+        <DropdownMenuContent
+          align="end"
+          className="w-56"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
           <DropdownMenuItem onClick={() => onCreatePlaylist?.(folder.path)}>
             <ListPlus className="w-4 h-4 mr-2" />
             New Playlist
@@ -380,10 +409,12 @@ export function FolderDropdownMenu({
             New Subfolder
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => {
-            setNewFolderName(folder.name);
-            setRenameDialogOpen(true);
-          }}>
+          <DropdownMenuItem
+            onClick={() => {
+              setNewFolderName(folder.name);
+              setRenameDialogOpen(true);
+            }}
+          >
             <Pencil className="w-4 h-4 mr-2" />
             Rename Folder
           </DropdownMenuItem>
@@ -403,7 +434,8 @@ export function FolderDropdownMenu({
           <DialogHeader>
             <DialogTitle>Rename Folder</DialogTitle>
             <DialogDescription>
-              This will rename the folder and update all {playlistsInFolder.length} playlist(s) inside.
+              This will rename the folder and update all{" "}
+              {playlistsInFolder.length} playlist(s) inside.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -425,10 +457,13 @@ export function FolderDropdownMenu({
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setRenameDialogOpen(false)}
+            >
               Cancel
             </Button>
-            <Button 
+            <Button
               onClick={handleRename}
               disabled={renameFolderMutation.isPending}
             >
@@ -447,10 +482,12 @@ export function FolderDropdownMenu({
               Are you sure you want to delete &quot;{folder.name}&quot;?
               {playlistsInFolder.length > 0 && (
                 <>
-                  {" "}This will permanently delete {playlistsInFolder.length} playlist(s) and all their songs.
+                  {" "}
+                  This will permanently delete {playlistsInFolder.length}{" "}
+                  playlist(s) and all their songs.
                 </>
-              )}
-              {" "}This action cannot be undone.
+              )}{" "}
+              This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

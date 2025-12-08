@@ -4,17 +4,28 @@ import { useState, useMemo } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { Heart, Play, Shuffle } from "lucide-react";
-import type { SongResponse, AlbumResponse, ArtistResponse } from "@/lib/api/types";
+import type {
+  SongResponse,
+  AlbumResponse,
+  ArtistResponse,
+} from "@/lib/api/types";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { useDebounce } from "@/lib/hooks/use-debounce";
-import { useTrackSelection, useItemSelection } from "@/lib/hooks/use-track-selection";
-import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
-import { 
-  playlistViewModeAtom, 
-  playlistSortAtom, 
+import {
+  useTrackSelection,
+  useItemSelection,
+} from "@/lib/hooks/use-track-selection";
+import {
+  startQueueAtom,
+  addToQueueAtom,
+  type QueueSourceType,
+} from "@/lib/store/server-queue";
+import {
+  playlistViewModeAtom,
+  playlistSortAtom,
   playlistColumnVisibilityAtom,
   favoritesAlbumViewModeAtom,
   favoritesAlbumSortAtom,
@@ -28,11 +39,27 @@ import { useInvalidateFavorites } from "@/lib/store/starred";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlbumCard, AlbumCardSkeleton, AlbumCardCompact } from "@/components/browse/album-card";
-import { ArtistCard, ArtistCardSkeleton, ArtistCardCompact } from "@/components/browse/artist-card";
-import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
+import {
+  AlbumCard,
+  AlbumCardSkeleton,
+  AlbumCardCompact,
+} from "@/components/browse/album-card";
+import {
+  ArtistCard,
+  ArtistCardSkeleton,
+  ArtistCardCompact,
+} from "@/components/browse/artist-card";
+import {
+  SongRow,
+  SongRowSkeleton,
+  SongCard,
+  SongCardSkeleton,
+} from "@/components/browse/song-row";
 import { MediaRowSkeleton } from "@/components/shared/media-row";
-import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
+import {
+  VirtualizedGrid,
+  VirtualizedList,
+} from "@/components/shared/virtualized-grid";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
 import { MediaListToolbar } from "@/components/shared/media-list-toolbar";
@@ -44,13 +71,15 @@ import type { Album, Artist, Song } from "@/lib/api/types";
 type TabValue = "songs" | "albums" | "artists";
 
 export default function FavoritesPage() {
-  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({
+    redirectToLogin: true,
+  });
   const isMounted = useIsMounted();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const invalidateFavorites = useInvalidateFavorites();
   const [activeTab, setActiveTab] = useState<TabValue>("songs");
-  
+
   // Separate search queries for each tab
   const [songSearchQuery, setSongSearchQuery] = useState("");
   const [albumSearchQuery, setAlbumSearchQuery] = useState("");
@@ -58,22 +87,32 @@ export default function FavoritesPage() {
   const debouncedSongSearch = useDebounce(songSearchQuery, 300);
   const debouncedAlbumSearch = useDebounce(albumSearchQuery, 300);
   const debouncedArtistSearch = useDebounce(artistSearchQuery, 300);
-  
+
   // View settings for songs tab
   const [songViewMode, setSongViewMode] = useAtom(playlistViewModeAtom);
   const [songSortConfig, setSongSortConfig] = useAtom(playlistSortAtom);
-  const [columnVisibility, setColumnVisibility] = useAtom(playlistColumnVisibilityAtom);
-  
+  const [columnVisibility, setColumnVisibility] = useAtom(
+    playlistColumnVisibilityAtom,
+  );
+
   // View settings for albums tab
   const [albumViewMode, setAlbumViewMode] = useAtom(favoritesAlbumViewModeAtom);
   const [albumSortConfig, setAlbumSortConfig] = useAtom(favoritesAlbumSortAtom);
-  const [albumColumnVisibility, setAlbumColumnVisibility] = useAtom(favoritesAlbumColumnVisibilityAtom);
-  
+  const [albumColumnVisibility, setAlbumColumnVisibility] = useAtom(
+    favoritesAlbumColumnVisibilityAtom,
+  );
+
   // View settings for artists tab
-  const [artistViewMode, setArtistViewMode] = useAtom(favoritesArtistViewModeAtom);
-  const [artistSortConfig, setArtistSortConfig] = useAtom(favoritesArtistSortAtom);
-  const [artistColumnVisibility, setArtistColumnVisibility] = useAtom(favoritesArtistColumnVisibilityAtom);
-  
+  const [artistViewMode, setArtistViewMode] = useAtom(
+    favoritesArtistViewModeAtom,
+  );
+  const [artistSortConfig, setArtistSortConfig] = useAtom(
+    favoritesArtistSortAtom,
+  );
+  const [artistColumnVisibility, setArtistColumnVisibility] = useAtom(
+    favoritesArtistColumnVisibilityAtom,
+  );
+
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
 
@@ -83,15 +122,17 @@ export default function FavoritesPage() {
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      
+
       const response = await client.search3({
         query: debouncedSongSearch.trim() || "*",
         songCount: 500,
         albumCount: 0,
         artistCount: 0,
         starredOnly: true,
-        songSort: songSortConfig.field !== "custom" ? songSortConfig.field : null,
-        songSortDir: songSortConfig.field !== "custom" ? songSortConfig.direction : null,
+        songSort:
+          songSortConfig.field !== "custom" ? songSortConfig.field : null,
+        songSortDir:
+          songSortConfig.field !== "custom" ? songSortConfig.direction : null,
       });
       return response.searchResult3.song ?? [];
     },
@@ -105,15 +146,17 @@ export default function FavoritesPage() {
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      
+
       const response = await client.search3({
         query: debouncedAlbumSearch.trim() || "*",
         songCount: 0,
         albumCount: 500,
         artistCount: 0,
         starredOnly: true,
-        albumSort: albumSortConfig.field !== "custom" ? albumSortConfig.field : null,
-        albumSortDir: albumSortConfig.field !== "custom" ? albumSortConfig.direction : null,
+        albumSort:
+          albumSortConfig.field !== "custom" ? albumSortConfig.field : null,
+        albumSortDir:
+          albumSortConfig.field !== "custom" ? albumSortConfig.direction : null,
       });
       return response.searchResult3.album ?? [];
     },
@@ -128,7 +171,7 @@ export default function FavoritesPage() {
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      
+
       const response = await client.search3({
         query: debouncedArtistSearch.trim() || "*",
         songCount: 0,
@@ -146,21 +189,30 @@ export default function FavoritesPage() {
   const displaySongs: SongResponse[] = songsData ?? [];
   const displayAlbums: AlbumResponse[] = albumsData ?? [];
   const displayArtists: ArtistResponse[] = artistsData ?? [];
-  
+
   // Combined loading state
   const isLoading = isSongsLoading || isAlbumsLoading || isArtistsLoading;
 
-  const totalDuration = displaySongs.reduce((acc, song) => acc + song.duration, 0);
+  const totalDuration = displaySongs.reduce(
+    (acc, song) => acc + song.duration,
+    0,
+  );
 
   // Queue source for favorites songs - server materializes with same sort
-  const favoritesQueueSource = useMemo(() => ({
-    type: "favorites" as QueueSourceType,
-    name: "Favorites",
-    sort: songSortConfig.field !== "custom" ? {
-      field: songSortConfig.field,
-      direction: songSortConfig.direction,
-    } : undefined,
-  }), [songSortConfig.field, songSortConfig.direction]);
+  const favoritesQueueSource = useMemo(
+    () => ({
+      type: "favorites" as QueueSourceType,
+      name: "Favorites",
+      sort:
+        songSortConfig.field !== "custom"
+          ? {
+              field: songSortConfig.field,
+              direction: songSortConfig.direction,
+            }
+          : undefined,
+    }),
+    [songSortConfig.field, songSortConfig.direction],
+  );
 
   // Track selection for songs tab
   const songSelection = useTrackSelection(displaySongs);
@@ -177,7 +229,7 @@ export default function FavoritesPage() {
       startQueue({
         sourceType: "favorites",
         sourceName: "Favorites (selection)",
-        songIds: selected.map(s => s.id),
+        songIds: selected.map((s) => s.id),
       });
       songSelection.clearSelection();
     }
@@ -187,10 +239,10 @@ export default function FavoritesPage() {
   const getSelectedAlbumsSongs = async (): Promise<Song[]> => {
     const client = getClient();
     if (!client) return [];
-    
+
     const selectedAlbums = albumSelection.getSelectedItems();
-    const songsPromises = selectedAlbums.map(album => 
-      client.getAlbum(album.id).then(res => res.album.song ?? [])
+    const songsPromises = selectedAlbums.map((album) =>
+      client.getAlbum(album.id).then((res) => res.album.song ?? []),
     );
     const songsArrays = await Promise.all(songsPromises);
     return songsArrays.flat();
@@ -203,10 +255,12 @@ export default function FavoritesPage() {
       startQueue({
         sourceType: "favorites",
         sourceName: "Favorites (albums selection)",
-        songIds: songs.map(s => s.id),
+        songIds: songs.map((s) => s.id),
       });
       albumSelection.clearSelection();
-      toast.success(`Playing ${songs.length} songs from ${albumSelection.selectedCount} albums`);
+      toast.success(
+        `Playing ${songs.length} songs from ${albumSelection.selectedCount} albums`,
+      );
     }
   };
 
@@ -216,34 +270,40 @@ export default function FavoritesPage() {
       startQueue({
         sourceType: "favorites",
         sourceName: "Favorites (albums selection)",
-        songIds: songs.map(s => s.id),
+        songIds: songs.map((s) => s.id),
         shuffle: true,
       });
       albumSelection.clearSelection();
-      toast.success(`Shuffling ${songs.length} songs from ${albumSelection.selectedCount} albums`);
+      toast.success(
+        `Shuffling ${songs.length} songs from ${albumSelection.selectedCount} albums`,
+      );
     }
   };
 
   const handleAddSelectedAlbumsToQueue = async (position: "next" | "end") => {
     const songs = await getSelectedAlbumsSongs();
     if (songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position });
+      addToQueue({ songIds: songs.map((s) => s.id), position });
       albumSelection.clearSelection();
-      toast.success(`Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`);
+      toast.success(
+        `Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`,
+      );
     }
   };
 
   const handleStarSelectedAlbums = async (star: boolean) => {
     const client = getClient();
     if (!client) return;
-    
+
     const selected = albumSelection.getSelectedItems();
     try {
       if (star) {
-        await Promise.all(selected.map(a => client.star({ albumId: a.id })));
+        await Promise.all(selected.map((a) => client.star({ albumId: a.id })));
         toast.success(`Added ${selected.length} albums to favorites`);
       } else {
-        await Promise.all(selected.map(a => client.unstar({ albumId: a.id })));
+        await Promise.all(
+          selected.map((a) => client.unstar({ albumId: a.id })),
+        );
         toast.success(`Removed ${selected.length} albums from favorites`);
       }
       invalidateFavorites("album");
@@ -258,10 +318,10 @@ export default function FavoritesPage() {
   const getSelectedArtistsSongs = async (): Promise<Song[]> => {
     const client = getClient();
     if (!client) return [];
-    
+
     const selectedArtists = artistSelection.getSelectedItems();
-    const songsPromises = selectedArtists.map(artist => 
-      client.getArtist(artist.id).then(res => res.artist.song ?? [])
+    const songsPromises = selectedArtists.map((artist) =>
+      client.getArtist(artist.id).then((res) => res.artist.song ?? []),
     );
     const songsArrays = await Promise.all(songsPromises);
     return songsArrays.flat();
@@ -273,10 +333,12 @@ export default function FavoritesPage() {
       startQueue({
         sourceType: "favorites",
         sourceName: "Favorites (artists selection)",
-        songIds: songs.map(s => s.id),
+        songIds: songs.map((s) => s.id),
       });
       artistSelection.clearSelection();
-      toast.success(`Playing ${songs.length} songs from ${artistSelection.selectedCount} artists`);
+      toast.success(
+        `Playing ${songs.length} songs from ${artistSelection.selectedCount} artists`,
+      );
     }
   };
 
@@ -286,34 +348,40 @@ export default function FavoritesPage() {
       startQueue({
         sourceType: "favorites",
         sourceName: "Favorites (artists selection)",
-        songIds: songs.map(s => s.id),
+        songIds: songs.map((s) => s.id),
         shuffle: true,
       });
       artistSelection.clearSelection();
-      toast.success(`Shuffling ${songs.length} songs from ${artistSelection.selectedCount} artists`);
+      toast.success(
+        `Shuffling ${songs.length} songs from ${artistSelection.selectedCount} artists`,
+      );
     }
   };
 
   const handleAddSelectedArtistsToQueue = async (position: "next" | "end") => {
     const songs = await getSelectedArtistsSongs();
     if (songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position });
+      addToQueue({ songIds: songs.map((s) => s.id), position });
       artistSelection.clearSelection();
-      toast.success(`Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`);
+      toast.success(
+        `Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`,
+      );
     }
   };
 
   const handleStarSelectedArtists = async (star: boolean) => {
     const client = getClient();
     if (!client) return;
-    
+
     const selected = artistSelection.getSelectedItems();
     try {
       if (star) {
-        await Promise.all(selected.map(a => client.star({ artistId: a.id })));
+        await Promise.all(selected.map((a) => client.star({ artistId: a.id })));
         toast.success(`Added ${selected.length} artists to favorites`);
       } else {
-        await Promise.all(selected.map(a => client.unstar({ artistId: a.id })));
+        await Promise.all(
+          selected.map((a) => client.unstar({ artistId: a.id })),
+        );
         toast.success(`Removed ${selected.length} artists from favorites`);
       }
       invalidateFavorites("artist");
@@ -344,10 +412,13 @@ export default function FavoritesPage() {
         startIndex: 0,
         shuffle: false,
         // Pass sort config so server materializes queue in same order as displayed
-        sort: songSortConfig.field !== "custom" ? {
-          field: songSortConfig.field,
-          direction: songSortConfig.direction,
-        } : undefined,
+        sort:
+          songSortConfig.field !== "custom"
+            ? {
+                field: songSortConfig.field,
+                direction: songSortConfig.direction,
+              }
+            : undefined,
       });
     }
   };
@@ -360,10 +431,13 @@ export default function FavoritesPage() {
         startIndex: 0,
         shuffle: true,
         // Pass sort config for consistent ordering before shuffle
-        sort: songSortConfig.field !== "custom" ? {
-          field: songSortConfig.field,
-          direction: songSortConfig.direction,
-        } : undefined,
+        sort:
+          songSortConfig.field !== "custom"
+            ? {
+                field: songSortConfig.field,
+                direction: songSortConfig.direction,
+              }
+            : undefined,
       });
     }
   };
@@ -466,10 +540,10 @@ export default function FavoritesPage() {
             <Shuffle className="w-5 h-5" />
             Shuffle
           </Button>
-          
+
           {/* Spacer */}
           <div className="flex-1" />
-          
+
           {/* Song list toolbar - only show on songs tab */}
           {activeTab === "songs" && (
             <SongListToolbar
@@ -484,7 +558,7 @@ export default function FavoritesPage() {
               filterPlaceholder="Search songs..."
             />
           )}
-          
+
           {/* Albums toolbar */}
           {activeTab === "albums" && (
             <MediaListToolbar
@@ -497,10 +571,12 @@ export default function FavoritesPage() {
               mediaType="album"
               filterPlaceholder="Search albums..."
               columnVisibility={albumColumnVisibility}
-              onColumnVisibilityChange={(v) => setAlbumColumnVisibility(v as typeof albumColumnVisibility)}
+              onColumnVisibilityChange={(v) =>
+                setAlbumColumnVisibility(v as typeof albumColumnVisibility)
+              }
             />
           )}
-          
+
           {/* Artists toolbar */}
           {activeTab === "artists" && (
             <MediaListToolbar
@@ -513,14 +589,20 @@ export default function FavoritesPage() {
               mediaType="artist"
               filterPlaceholder="Search artists..."
               columnVisibility={artistColumnVisibility}
-              onColumnVisibilityChange={(v) => setArtistColumnVisibility(v as typeof artistColumnVisibility)}
+              onColumnVisibilityChange={(v) =>
+                setArtistColumnVisibility(v as typeof artistColumnVisibility)
+              }
             />
           )}
         </div>
       </div>
 
       {/* Content tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)} className="w-full">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as TabValue)}
+        className="w-full"
+      >
         <div className="px-4 lg:px-6 pt-4">
           <TabsList>
             <TabsTrigger value="songs">
@@ -536,7 +618,12 @@ export default function FavoritesPage() {
         </div>
 
         <TabsContent value="songs" className="mt-0">
-          <div className={cn("p-4 lg:p-6", songSelection.hasSelection && "select-none-during-selection")}>
+          <div
+            className={cn(
+              "p-4 lg:p-6",
+              songSelection.hasSelection && "select-none-during-selection",
+            )}
+          >
             {isLoading ? (
               songViewMode === "grid" ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -556,7 +643,7 @@ export default function FavoritesPage() {
                 <VirtualizedGrid
                   items={displaySongs}
                   renderItem={(song, index) => (
-                    <SongCard 
+                    <SongCard
                       song={song}
                       index={index}
                       queueSource={favoritesQueueSource}
@@ -595,13 +682,24 @@ export default function FavoritesPage() {
                 />
               )
             ) : (
-              <EmptyState message={debouncedSongSearch ? "No songs match your search" : "No liked songs yet"} />
+              <EmptyState
+                message={
+                  debouncedSongSearch
+                    ? "No songs match your search"
+                    : "No liked songs yet"
+                }
+              />
             )}
           </div>
         </TabsContent>
 
         <TabsContent value="albums" className="mt-0">
-          <div className={cn("p-4 lg:p-6", albumSelection.hasSelection && "select-none-during-selection")}>
+          <div
+            className={cn(
+              "p-4 lg:p-6",
+              albumSelection.hasSelection && "select-none-during-selection",
+            )}
+          >
             {isLoading ? (
               albumViewMode === "grid" ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -621,8 +719,8 @@ export default function FavoritesPage() {
                 <VirtualizedGrid
                   items={displayAlbums}
                   renderItem={(album) => (
-                    <AlbumCard 
-                      album={album} 
+                    <AlbumCard
+                      album={album}
                       onPlay={() => handlePlayAlbum(album)}
                       isSelected={albumSelection.isSelected(album.id)}
                       isSelectionMode={albumSelection.hasSelection}
@@ -655,13 +753,24 @@ export default function FavoritesPage() {
                 />
               )
             ) : (
-              <EmptyState message={debouncedAlbumSearch ? "No albums match your search" : "No liked albums yet"} />
+              <EmptyState
+                message={
+                  debouncedAlbumSearch
+                    ? "No albums match your search"
+                    : "No liked albums yet"
+                }
+              />
             )}
           </div>
         </TabsContent>
 
         <TabsContent value="artists" className="mt-0">
-          <div className={cn("p-4 lg:p-6", artistSelection.hasSelection && "select-none-during-selection")}>
+          <div
+            className={cn(
+              "p-4 lg:p-6",
+              artistSelection.hasSelection && "select-none-during-selection",
+            )}
+          >
             {isLoading ? (
               artistViewMode === "grid" ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -681,7 +790,7 @@ export default function FavoritesPage() {
                 <VirtualizedGrid
                   items={displayArtists}
                   renderItem={(artist) => (
-                    <ArtistCard 
+                    <ArtistCard
                       artist={artist}
                       onPlay={() => handlePlayArtist(artist)}
                       isSelected={artistSelection.isSelected(artist.id)}
@@ -712,7 +821,13 @@ export default function FavoritesPage() {
                 />
               )
             ) : (
-              <EmptyState message={debouncedArtistSearch ? "No artists match your search" : "No liked artists yet"} />
+              <EmptyState
+                message={
+                  debouncedArtistSearch
+                    ? "No artists match your search"
+                    : "No liked artists yet"
+                }
+              />
             )}
           </div>
         </TabsContent>

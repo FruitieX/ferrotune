@@ -35,20 +35,30 @@ export function getFolderPathFromPlaceholder(name: string): string {
  * e.g., "Rock/80s/Best Hits" -> { displayName: "Best Hits", folderPath: ["Rock", "80s"] }
  * For folder placeholders like "Rock/", returns { displayName: "", folderPath: ["Rock"], isPlaceholder: true }
  */
-export function parsePlaylistPath(name: string): { displayName: string; folderPath: string[]; isPlaceholder?: boolean } {
+export function parsePlaylistPath(name: string): {
+  displayName: string;
+  folderPath: string[];
+  isPlaceholder?: boolean;
+} {
   // Handle folder placeholders (trailing /)
   if (isFolderPlaceholder(name)) {
     const folderPath = getFolderPathFromPlaceholder(name);
-    const parts = folderPath.split(FOLDER_SEPARATOR).map((p) => p.trim()).filter(Boolean);
+    const parts = folderPath
+      .split(FOLDER_SEPARATOR)
+      .map((p) => p.trim())
+      .filter(Boolean);
     return { displayName: "", folderPath: parts, isPlaceholder: true };
   }
 
-  const parts = name.split(FOLDER_SEPARATOR).map((p) => p.trim()).filter(Boolean);
-  
+  const parts = name
+    .split(FOLDER_SEPARATOR)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
   if (parts.length <= 1) {
     return { displayName: name, folderPath: [] };
   }
-  
+
   return {
     displayName: parts[parts.length - 1],
     folderPath: parts.slice(0, -1),
@@ -58,7 +68,10 @@ export function parsePlaylistPath(name: string): { displayName: string; folderPa
 /**
  * Build a full playlist name from display name and folder path
  */
-export function buildPlaylistPath(displayName: string, folderPath: string[]): string {
+export function buildPlaylistPath(
+  displayName: string,
+  folderPath: string[],
+): string {
   if (folderPath.length === 0) {
     return displayName;
   }
@@ -68,7 +81,9 @@ export function buildPlaylistPath(displayName: string, folderPath: string[]): st
 /**
  * Organize playlists into a folder tree structure
  */
-export function organizePlaylistsIntoFolders(playlists: Playlist[]): PlaylistFolder {
+export function organizePlaylistsIntoFolders(
+  playlists: Playlist[],
+): PlaylistFolder {
   const root: PlaylistFolder = {
     name: "root",
     path: "",
@@ -82,17 +97,23 @@ export function organizePlaylistsIntoFolders(playlists: Playlist[]): PlaylistFol
   }
 
   for (const playlist of playlists) {
-    const { displayName, folderPath, isPlaceholder } = parsePlaylistPath(playlist.name);
-    
+    const { displayName, folderPath, isPlaceholder } = parsePlaylistPath(
+      playlist.name,
+    );
+
     let currentFolder = root;
     let currentPath = "";
-    
+
     // Navigate/create folder path
     for (const folderName of folderPath) {
-      currentPath = currentPath ? `${currentPath}${FOLDER_SEPARATOR}${folderName}` : folderName;
-      
-      let subfolder = currentFolder.subfolders.find((f) => f.name === folderName);
-      
+      currentPath = currentPath
+        ? `${currentPath}${FOLDER_SEPARATOR}${folderName}`
+        : folderName;
+
+      let subfolder = currentFolder.subfolders.find(
+        (f) => f.name === folderName,
+      );
+
       if (!subfolder) {
         subfolder = {
           name: folderName,
@@ -102,16 +123,16 @@ export function organizePlaylistsIntoFolders(playlists: Playlist[]): PlaylistFol
         };
         currentFolder.subfolders.push(subfolder);
       }
-      
+
       currentFolder = subfolder;
     }
-    
+
     // Skip folder placeholders - they're just used to establish folder structure
     // but shouldn't appear as actual playlists
     if (isPlaceholder) {
       continue;
     }
-    
+
     // Add playlist with display name to the final folder
     currentFolder.playlists.push({
       ...playlist,
@@ -121,7 +142,7 @@ export function organizePlaylistsIntoFolders(playlists: Playlist[]): PlaylistFol
 
   // Sort folders and playlists alphabetically
   sortFolderContents(root);
-  
+
   return root;
 }
 
@@ -132,7 +153,7 @@ function sortFolderContents(folder: PlaylistFolder): void {
     const bName = parsePlaylistPath(b.name).displayName;
     return aName.localeCompare(bName);
   });
-  
+
   for (const subfolder of folder.subfolders) {
     sortFolderContents(subfolder);
   }
@@ -150,17 +171,19 @@ export function getPlaylistDisplayName(playlist: Playlist): string {
  */
 export function getUniqueFolderPaths(playlists: Playlist[]): string[] {
   const paths = new Set<string>();
-  
+
   for (const playlist of playlists) {
     const { folderPath } = parsePlaylistPath(playlist.name);
-    
+
     let currentPath = "";
     for (const folder of folderPath) {
-      currentPath = currentPath ? `${currentPath}${FOLDER_SEPARATOR}${folder}` : folder;
+      currentPath = currentPath
+        ? `${currentPath}${FOLDER_SEPARATOR}${folder}`
+        : folder;
       paths.add(currentPath);
     }
   }
-  
+
   return Array.from(paths).sort();
 }
 
@@ -168,7 +191,10 @@ export function getUniqueFolderPaths(playlists: Playlist[]): string[] {
  * Find the folder placeholder playlist for a given folder path
  * Returns the playlist if it exists and is an empty folder placeholder
  */
-export function findFolderPlaceholder(playlists: Playlist[], folderPath: string): Playlist | undefined {
+export function findFolderPlaceholder(
+  playlists: Playlist[],
+  folderPath: string,
+): Playlist | undefined {
   const placeholderName = `${folderPath}/`;
   return playlists.find((p) => p.name === placeholderName);
 }
@@ -177,11 +203,16 @@ export function findFolderPlaceholder(playlists: Playlist[], folderPath: string)
  * Check if a folder has only a placeholder (is empty)
  * Returns true if the only playlist in this folder path is the placeholder itself
  */
-export function isFolderEmpty(playlists: Playlist[], folderPath: string): boolean {
+export function isFolderEmpty(
+  playlists: Playlist[],
+  folderPath: string,
+): boolean {
   const prefix = `${folderPath}/`;
   const playlistsInFolder = playlists.filter((p) => p.name.startsWith(prefix));
-  
+
   // Empty if no playlists or only the placeholder exists
-  return playlistsInFolder.length === 0 || 
-    (playlistsInFolder.length === 1 && playlistsInFolder[0].name === prefix);
+  return (
+    playlistsInFolder.length === 0 ||
+    (playlistsInFolder.length === 1 && playlistsInFolder[0].name === prefix)
+  );
 }

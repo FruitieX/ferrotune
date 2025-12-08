@@ -33,12 +33,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CoverImage } from "@/components/shared/cover-image";
 import { formatListeningTime } from "@/lib/utils/format";
@@ -48,8 +43,18 @@ import type { TopTrack } from "@/lib/api/generated/TopTrack";
 import type { AvailablePeriod } from "@/lib/api/generated/AvailablePeriod";
 
 const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
 function formatPeriodLabel(period: AvailablePeriod): string {
@@ -60,10 +65,10 @@ function formatPeriodLabel(period: AvailablePeriod): string {
 }
 
 function TopArtistCard({ artist, rank }: { artist: TopArtist; rank: number }) {
-  const coverArtUrl = artist.coverArt 
-    ? getClient()?.getCoverArtUrl(artist.coverArt, 80) 
+  const coverArtUrl = artist.coverArt
+    ? getClient()?.getCoverArtUrl(artist.coverArt, 80)
     : undefined;
-  
+
   return (
     <motion.div
       initial={{ opacity: 0, x: -20 }}
@@ -84,23 +89,28 @@ function TopArtistCard({ artist, rank }: { artist: TopArtist; rank: number }) {
       <div className="flex-1 min-w-0">
         <p className="font-medium truncate">{artist.artistName}</p>
         <p className="text-sm text-muted-foreground">
-          {artist.playCount} plays • {formatListeningTime(Number(artist.totalDurationSecs))}
+          {artist.playCount} plays •{" "}
+          {formatListeningTime(Number(artist.totalDurationSecs))}
         </p>
       </div>
       {rank <= 3 && (
-        <Award className={`w-5 h-5 ${
-          rank === 1 ? "text-yellow-500" :
-          rank === 2 ? "text-gray-400" :
-          "text-amber-600"
-        }`} />
+        <Award
+          className={`w-5 h-5 ${
+            rank === 1
+              ? "text-yellow-500"
+              : rank === 2
+                ? "text-gray-400"
+                : "text-amber-600"
+          }`}
+        />
       )}
     </motion.div>
   );
 }
 
 function TopAlbumCard({ album, rank }: { album: TopAlbum; rank: number }) {
-  const coverArtUrl = album.coverArt 
-    ? getClient()?.getCoverArtUrl(album.coverArt, 80) 
+  const coverArtUrl = album.coverArt
+    ? getClient()?.getCoverArtUrl(album.coverArt, 80)
     : undefined;
 
   return (
@@ -126,23 +136,28 @@ function TopAlbumCard({ album, rank }: { album: TopAlbum; rank: number }) {
           {album.artistName}
         </p>
         <p className="text-xs text-muted-foreground">
-          {album.playCount} plays • {formatListeningTime(Number(album.totalDurationSecs))}
+          {album.playCount} plays •{" "}
+          {formatListeningTime(Number(album.totalDurationSecs))}
         </p>
       </div>
       {rank <= 3 && (
-        <Award className={`w-5 h-5 ${
-          rank === 1 ? "text-yellow-500" :
-          rank === 2 ? "text-gray-400" :
-          "text-amber-600"
-        }`} />
+        <Award
+          className={`w-5 h-5 ${
+            rank === 1
+              ? "text-yellow-500"
+              : rank === 2
+                ? "text-gray-400"
+                : "text-amber-600"
+          }`}
+        />
       )}
     </motion.div>
   );
 }
 
 function TopTrackCard({ track, rank }: { track: TopTrack; rank: number }) {
-  const coverArtUrl = track.coverArt 
-    ? getClient()?.getCoverArtUrl(track.coverArt, 80) 
+  const coverArtUrl = track.coverArt
+    ? getClient()?.getCoverArtUrl(track.coverArt, 80)
     : undefined;
 
   return (
@@ -168,34 +183,47 @@ function TopTrackCard({ track, rank }: { track: TopTrack; rank: number }) {
           {track.artistName} • {track.albumName}
         </p>
         <p className="text-xs text-muted-foreground">
-          {track.playCount} plays • {formatListeningTime(Number(track.totalDurationSecs))}
+          {track.playCount} plays •{" "}
+          {formatListeningTime(Number(track.totalDurationSecs))}
         </p>
       </div>
       {rank <= 3 && (
-        <Award className={`w-5 h-5 ${
-          rank === 1 ? "text-yellow-500" :
-          rank === 2 ? "text-gray-400" :
-          "text-amber-600"
-        }`} />
+        <Award
+          className={`w-5 h-5 ${
+            rank === 1
+              ? "text-yellow-500"
+              : rank === 2
+                ? "text-gray-400"
+                : "text-amber-600"
+          }`}
+        />
       )}
     </motion.div>
   );
 }
 
 export default function ReviewPage() {
-  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({
+    redirectToLogin: true,
+  });
   const isMounted = useIsMounted();
-  
+
   // Selected period - null means "current year"
-  const [selectedPeriod, setSelectedPeriod] = useState<{ year: number; month?: number } | null>(null);
-  
+  const [selectedPeriod, setSelectedPeriod] = useState<{
+    year: number;
+    month?: number;
+  } | null>(null);
+
   // Fetch period review data
   const { data: reviewData, isLoading: reviewLoading } = useQuery({
     queryKey: ["periodReview", selectedPeriod?.year, selectedPeriod?.month],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      return client.getPeriodReview(selectedPeriod?.year, selectedPeriod?.month);
+      return client.getPeriodReview(
+        selectedPeriod?.year,
+        selectedPeriod?.month,
+      );
     },
     enabled: isReady,
     staleTime: 60000, // Cache for 1 minute
@@ -206,23 +234,23 @@ export default function ReviewPage() {
   // Helper to handle creating a playlist from top tracks
   const handleCreatePlaylist = async () => {
     if (!reviewData?.review.topTracks.length) return;
-    
+
     try {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      
-      const period = selectedPeriod?.month 
-        ? `${MONTH_NAMES[(selectedPeriod.month) - 1]} ${selectedPeriod.year}`
+
+      const period = selectedPeriod?.month
+        ? `${MONTH_NAMES[selectedPeriod.month - 1]} ${selectedPeriod.year}`
         : `${reviewData.review.year}`;
       const name = `Top Tracks - ${period}`;
-      
+
       // Create playlist with top track IDs
-      const trackIds = reviewData.review.topTracks.map(t => t.trackId);
+      const trackIds = reviewData.review.topTracks.map((t) => t.trackId);
       await client.createPlaylist({ name, songId: trackIds });
-      
+
       // Invalidate playlists query so the new playlist shows up
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      
+
       toast.success(`Created playlist "${name}"`);
     } catch (error) {
       toast.error("Failed to create playlist");
@@ -243,13 +271,13 @@ export default function ReviewPage() {
 
   const review = reviewData?.review;
   const availablePeriods = reviewData?.availablePeriods ?? [];
-  const yearPeriods = availablePeriods.filter(p => !p.month);
-  const monthPeriods = availablePeriods.filter(p => p.month);
+  const yearPeriods = availablePeriods.filter((p) => !p.month);
+  const monthPeriods = availablePeriods.filter((p) => p.month);
 
   const currentPeriodLabel = review
-    ? (review.month 
-        ? `${MONTH_NAMES[review.month - 1]} ${review.year}`
-        : `${review.year} Year in Review`)
+    ? review.month
+      ? `${MONTH_NAMES[review.month - 1]} ${review.year}`
+      : `${review.year} Year in Review`
     : "Loading...";
 
   return (
@@ -272,17 +300,23 @@ export default function ReviewPage() {
               </p>
             </div>
           </div>
-          
+
           {/* Period selector */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="min-w-[200px] justify-between">
+              <Button
+                variant="outline"
+                className="min-w-[200px] justify-between"
+              >
                 <Calendar className="w-4 h-4 mr-2" />
                 {currentPeriodLabel}
                 <ChevronDown className="w-4 h-4 ml-2" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[220px] max-h-[400px] overflow-y-auto">
+            <DropdownMenuContent
+              align="end"
+              className="w-[220px] max-h-[400px] overflow-y-auto"
+            >
               {yearPeriods.length > 0 && (
                 <>
                   <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
@@ -292,7 +326,12 @@ export default function ReviewPage() {
                     <DropdownMenuItem
                       key={`year-${period.year}`}
                       onClick={() => setSelectedPeriod({ year: period.year })}
-                      className={selectedPeriod?.year === period.year && !selectedPeriod?.month ? "bg-muted" : ""}
+                      className={
+                        selectedPeriod?.year === period.year &&
+                        !selectedPeriod?.month
+                          ? "bg-muted"
+                          : ""
+                      }
                     >
                       {period.year}
                     </DropdownMenuItem>
@@ -308,8 +347,18 @@ export default function ReviewPage() {
                   {monthPeriods.map((period) => (
                     <DropdownMenuItem
                       key={`month-${period.year}-${period.month}`}
-                      onClick={() => setSelectedPeriod({ year: period.year, month: period.month! })}
-                      className={selectedPeriod?.year === period.year && selectedPeriod?.month === period.month ? "bg-muted" : ""}
+                      onClick={() =>
+                        setSelectedPeriod({
+                          year: period.year,
+                          month: period.month!,
+                        })
+                      }
+                      className={
+                        selectedPeriod?.year === period.year &&
+                        selectedPeriod?.month === period.month
+                          ? "bg-muted"
+                          : ""
+                      }
                     >
                       {formatPeriodLabel(period)}
                     </DropdownMenuItem>
@@ -334,185 +383,227 @@ export default function ReviewPage() {
           transition={{ delay: 0.1 }}
         >
           <Card className="overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Award className="w-5 h-5 text-primary" />
-                  Overview
-                </CardTitle>
-                <CardDescription>
-                  {review?.month
-                    ? `Your highlights for ${MONTH_NAMES[review.month - 1]} ${review.year}`
-                    : review
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Award className="w-5 h-5 text-primary" />
+                Overview
+              </CardTitle>
+              <CardDescription>
+                {review?.month
+                  ? `Your highlights for ${MONTH_NAMES[review.month - 1]} ${review.year}`
+                  : review
                     ? `Your highlights for ${review.year}`
                     : "Loading your listening stats..."}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {reviewLoading ? (
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                    {Array.from({ length: 5 }).map((_, i) => (
-                      <div key={i} className="p-3 rounded-lg bg-background/50">
-                        <Skeleton className="h-4 w-16 mb-2" />
-                        <Skeleton className="h-7 w-20" />
-                      </div>
-                    ))}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {reviewLoading ? (
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="p-3 rounded-lg bg-background/50">
+                      <Skeleton className="h-4 w-16 mb-2" />
+                      <Skeleton className="h-7 w-20" />
+                    </div>
+                  ))}
+                </div>
+              ) : review ? (
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                  <div className="p-3 rounded-lg bg-background/50">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <Clock className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">
+                        Time Listened
+                      </span>
+                    </div>
+                    <p className="text-xl font-bold">
+                      {formatListeningTime(Number(review.totalListeningSecs))}
+                    </p>
                   </div>
-                ) : review ? (
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                    <div className="p-3 rounded-lg bg-background/50">
-                      <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                        <Clock className="w-4 h-4" />
-                        <span className="text-xs uppercase tracking-wider">Time Listened</span>
-                      </div>
-                      <p className="text-xl font-bold">{formatListeningTime(Number(review.totalListeningSecs))}</p>
+                  <div className="p-3 rounded-lg bg-background/50">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <TrendingUp className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">
+                        Total Plays
+                      </span>
                     </div>
-                    <div className="p-3 rounded-lg bg-background/50">
-                      <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                        <TrendingUp className="w-4 h-4" />
-                        <span className="text-xs uppercase tracking-wider">Total Plays</span>
-                      </div>
-                      <p className="text-xl font-bold">{Number(review.totalPlayCount).toLocaleString()}</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-background/50">
-                      <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                        <Music2 className="w-4 h-4" />
-                        <span className="text-xs uppercase tracking-wider">Unique Tracks</span>
-                      </div>
-                      <p className="text-xl font-bold">{Number(review.uniqueTracks).toLocaleString()}</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-background/50">
-                      <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                        <Disc3 className="w-4 h-4" />
-                        <span className="text-xs uppercase tracking-wider">Unique Albums</span>
-                      </div>
-                      <p className="text-xl font-bold">{Number(review.uniqueAlbums).toLocaleString()}</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-background/50">
-                      <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                        <User2 className="w-4 h-4" />
-                        <span className="text-xs uppercase tracking-wider">Unique Artists</span>
-                      </div>
-                      <p className="text-xl font-bold">{Number(review.uniqueArtists).toLocaleString()}</p>
-                    </div>
+                    <p className="text-xl font-bold">
+                      {Number(review.totalPlayCount).toLocaleString()}
+                    </p>
                   </div>
-                ) : (
-                  <p className="text-muted-foreground text-sm">
-                    No listening data yet. Start playing some music!
-                  </p>
-                )}
-              </CardContent>
+                  <div className="p-3 rounded-lg bg-background/50">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <Music2 className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">
+                        Unique Tracks
+                      </span>
+                    </div>
+                    <p className="text-xl font-bold">
+                      {Number(review.uniqueTracks).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-background/50">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <Disc3 className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">
+                        Unique Albums
+                      </span>
+                    </div>
+                    <p className="text-xl font-bold">
+                      {Number(review.uniqueAlbums).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-background/50">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                      <User2 className="w-4 h-4" />
+                      <span className="text-xs uppercase tracking-wider">
+                        Unique Artists
+                      </span>
+                    </div>
+                    <p className="text-xl font-bold">
+                      {Number(review.uniqueArtists).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No listening data yet. Start playing some music!
+                </p>
+              )}
+            </CardContent>
           </Card>
         </motion.div>
 
         {/* Top Lists */}
-        {review && (review.topArtists.length > 0 || review.topAlbums.length > 0 || review.topTracks.length > 0) && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-          >
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>Your Top Picks</CardTitle>
-                  <CardDescription>Most played artists, albums, and tracks</CardDescription>
-                </div>
-                {review.topTracks.length > 0 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleCreatePlaylist}
-                    className="gap-2"
-                  >
-                    <ListPlus className="w-4 h-4" />
-                    Create Playlist
-                  </Button>
-                )}
-              </CardHeader>
-              <CardContent>
-                <Tabs defaultValue="tracks" className="w-full">
-                  <TabsList className="w-full grid grid-cols-3 mb-4">
-                    <TabsTrigger value="tracks" className="gap-2">
-                      <Music2 className="w-4 h-4 hidden sm:block" />
-                      Tracks
-                    </TabsTrigger>
-                    <TabsTrigger value="artists" className="gap-2">
-                      <User2 className="w-4 h-4 hidden sm:block" />
-                      Artists
-                    </TabsTrigger>
-                    <TabsTrigger value="albums" className="gap-2">
-                      <Disc3 className="w-4 h-4 hidden sm:block" />
-                      Albums
-                    </TabsTrigger>
-                  </TabsList>
-                  
-                  <AnimatePresence mode="wait">
-                    <TabsContent value="tracks" className="mt-0">
-                      <div className="space-y-2">
-                        {review.topTracks.length > 0 ? (
-                          review.topTracks.map((track, i) => (
-                            <TopTrackCard key={track.trackId} track={track} rank={i + 1} />
-                          ))
-                        ) : (
-                          <p className="text-muted-foreground text-sm py-4 text-center">
-                            No track data for this period
-                          </p>
-                        )}
-                      </div>
-                    </TabsContent>
-                    
-                    <TabsContent value="artists" className="mt-0">
-                      <div className="space-y-2">
-                        {review.topArtists.length > 0 ? (
-                          review.topArtists.map((artist, i) => (
-                            <TopArtistCard key={artist.artistId} artist={artist} rank={i + 1} />
-                          ))
-                        ) : (
-                          <p className="text-muted-foreground text-sm py-4 text-center">
-                            No artist data for this period
-                          </p>
-                        )}
-                      </div>
-                    </TabsContent>
-                    
-                    <TabsContent value="albums" className="mt-0">
-                      <div className="space-y-2">
-                        {review.topAlbums.length > 0 ? (
-                          review.topAlbums.map((album, i) => (
-                            <TopAlbumCard key={album.albumId} album={album} rank={i + 1} />
-                          ))
-                        ) : (
-                          <p className="text-muted-foreground text-sm py-4 text-center">
-                            No album data for this period
-                          </p>
-                        )}
-                      </div>
-                    </TabsContent>
-                  </AnimatePresence>
-                </Tabs>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
+        {review &&
+          (review.topArtists.length > 0 ||
+            review.topAlbums.length > 0 ||
+            review.topTracks.length > 0) && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+            >
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle>Your Top Picks</CardTitle>
+                    <CardDescription>
+                      Most played artists, albums, and tracks
+                    </CardDescription>
+                  </div>
+                  {review.topTracks.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCreatePlaylist}
+                      className="gap-2"
+                    >
+                      <ListPlus className="w-4 h-4" />
+                      Create Playlist
+                    </Button>
+                  )}
+                </CardHeader>
+                <CardContent>
+                  <Tabs defaultValue="tracks" className="w-full">
+                    <TabsList className="w-full grid grid-cols-3 mb-4">
+                      <TabsTrigger value="tracks" className="gap-2">
+                        <Music2 className="w-4 h-4 hidden sm:block" />
+                        Tracks
+                      </TabsTrigger>
+                      <TabsTrigger value="artists" className="gap-2">
+                        <User2 className="w-4 h-4 hidden sm:block" />
+                        Artists
+                      </TabsTrigger>
+                      <TabsTrigger value="albums" className="gap-2">
+                        <Disc3 className="w-4 h-4 hidden sm:block" />
+                        Albums
+                      </TabsTrigger>
+                    </TabsList>
+
+                    <AnimatePresence mode="wait">
+                      <TabsContent value="tracks" className="mt-0">
+                        <div className="space-y-2">
+                          {review.topTracks.length > 0 ? (
+                            review.topTracks.map((track, i) => (
+                              <TopTrackCard
+                                key={track.trackId}
+                                track={track}
+                                rank={i + 1}
+                              />
+                            ))
+                          ) : (
+                            <p className="text-muted-foreground text-sm py-4 text-center">
+                              No track data for this period
+                            </p>
+                          )}
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="artists" className="mt-0">
+                        <div className="space-y-2">
+                          {review.topArtists.length > 0 ? (
+                            review.topArtists.map((artist, i) => (
+                              <TopArtistCard
+                                key={artist.artistId}
+                                artist={artist}
+                                rank={i + 1}
+                              />
+                            ))
+                          ) : (
+                            <p className="text-muted-foreground text-sm py-4 text-center">
+                              No artist data for this period
+                            </p>
+                          )}
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="albums" className="mt-0">
+                        <div className="space-y-2">
+                          {review.topAlbums.length > 0 ? (
+                            review.topAlbums.map((album, i) => (
+                              <TopAlbumCard
+                                key={album.albumId}
+                                album={album}
+                                rank={i + 1}
+                              />
+                            ))
+                          ) : (
+                            <p className="text-muted-foreground text-sm py-4 text-center">
+                              No album data for this period
+                            </p>
+                          )}
+                        </div>
+                      </TabsContent>
+                    </AnimatePresence>
+                  </Tabs>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
 
         {/* Empty state */}
-        {review && review.topArtists.length === 0 && review.topAlbums.length === 0 && review.topTracks.length === 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-          >
-            <Card>
-              <CardContent className="py-12 text-center">
-                <Music2 className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
-                <h3 className="text-lg font-medium mb-2">No listening data yet</h3>
-                <p className="text-muted-foreground text-sm">
-                  Start playing music to see your listening highlights here!
-                </p>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
+        {review &&
+          review.topArtists.length === 0 &&
+          review.topAlbums.length === 0 &&
+          review.topTracks.length === 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+            >
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <Music2 className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
+                  <h3 className="text-lg font-medium mb-2">
+                    No listening data yet
+                  </h3>
+                  <p className="text-muted-foreground text-sm">
+                    Start playing music to see your listening highlights here!
+                  </p>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
       </div>
     </div>
   );

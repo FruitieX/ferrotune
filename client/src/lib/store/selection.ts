@@ -20,10 +20,14 @@ export const selectionStateAtom = atom<SelectionState>({
 });
 
 // Derived atom to get selected count
-export const selectedCountAtom = atom((get) => get(selectionStateAtom).selectedIds.size);
+export const selectedCountAtom = atom(
+  (get) => get(selectionStateAtom).selectedIds.size,
+);
 
 // Derived atom to check if any items are selected
-export const hasSelectionAtom = atom((get) => get(selectionStateAtom).selectedIds.size > 0);
+export const hasSelectionAtom = atom(
+  (get) => get(selectionStateAtom).selectedIds.size > 0,
+);
 
 // Action atoms for selection management - now generic
 export const selectItemAtom = atom(
@@ -36,7 +40,12 @@ export const selectItemAtom = atom(
       items,
       shiftKey = false,
       ctrlKey = false,
-    }: { id: string; items: SelectableItem[]; shiftKey?: boolean; ctrlKey?: boolean }
+    }: {
+      id: string;
+      items: SelectableItem[];
+      shiftKey?: boolean;
+      ctrlKey?: boolean;
+    },
   ) => {
     const state = get(selectionStateAtom);
     const newSelectedIds = new Set(state.selectedIds);
@@ -88,7 +97,7 @@ export const selectItemAtom = atom(
       lastSelectedId: id,
       anchorId: newAnchorId,
     });
-  }
+  },
 );
 
 // Backwards compatible alias for song selection
@@ -112,4 +121,6 @@ export const selectAllAtom = atom(null, (get, set, items: SelectableItem[]) => {
 });
 
 // Check if a specific item is selected
-export const isSelectedAtom = atom((get) => (id: string) => get(selectionStateAtom).selectedIds.has(id));
+export const isSelectedAtom = atom(
+  (get) => (id: string) => get(selectionStateAtom).selectedIds.has(id),
+);

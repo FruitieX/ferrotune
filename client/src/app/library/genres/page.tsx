@@ -14,19 +14,29 @@ import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { Skeleton } from "@/components/ui/skeleton";
-import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
-import { GenreCard, GenreCardSkeleton, GenreRow, GenreRowSkeleton } from "@/components/browse/genre-card";
+import {
+  VirtualizedGrid,
+  VirtualizedList,
+} from "@/components/shared/virtualized-grid";
+import {
+  GenreCard,
+  GenreCardSkeleton,
+  GenreRow,
+  GenreRowSkeleton,
+} from "@/components/browse/genre-card";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import type { Song, Genre } from "@/lib/api/types";
 
 export default function GenresPage() {
-  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({
+    redirectToLogin: true,
+  });
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
   const debouncedFilter = useDebounce(filter, 300);
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
-  
+
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
 
@@ -41,21 +51,21 @@ export default function GenresPage() {
     },
     enabled: isReady,
   });
-  
+
   // Filter genres based on search filter (client-side - API doesn't support genre search)
   const filteredGenres = useMemo(() => {
     const genres = genresData ?? [];
     if (!debouncedFilter?.trim() || genres.length === 0) return genres;
     const lowerFilter = debouncedFilter.toLowerCase();
     return genres.filter((genre) =>
-      genre.value.toLowerCase().includes(lowerFilter)
+      genre.value.toLowerCase().includes(lowerFilter),
     );
   }, [genresData, debouncedFilter]);
 
   // Genre selection - use value as id since genres don't have an id field
-  const genresWithId = useMemo(() => 
-    (filteredGenres ?? []).map(g => ({ ...g, id: g.value })),
-    [filteredGenres]
+  const genresWithId = useMemo(
+    () => (filteredGenres ?? []).map((g) => ({ ...g, id: g.value })),
+    [filteredGenres],
   );
 
   const {
@@ -72,10 +82,12 @@ export default function GenresPage() {
   const getSelectedGenresSongs = async (): Promise<Song[]> => {
     const client = getClient();
     if (!client) return [];
-    
+
     const genres = getSelectedItems();
-    const songsPromises = genres.map(genre => 
-      client.getSongsByGenre(genre.value, { count: 500 }).then(res => res.songsByGenre.song ?? [])
+    const songsPromises = genres.map((genre) =>
+      client
+        .getSongsByGenre(genre.value, { count: 500 })
+        .then((res) => res.songsByGenre.song ?? []),
     );
     const songsArrays = await Promise.all(songsPromises);
     return songsArrays.flat();
@@ -88,10 +100,12 @@ export default function GenresPage() {
       startQueue({
         sourceType: "library",
         sourceName: "Library",
-        songIds: songs.map(s => s.id),
+        songIds: songs.map((s) => s.id),
       });
       clearSelection();
-      toast.success(`Playing ${songs.length} songs from ${selectedCount} genres`);
+      toast.success(
+        `Playing ${songs.length} songs from ${selectedCount} genres`,
+      );
     }
   };
 
@@ -101,20 +115,27 @@ export default function GenresPage() {
       startQueue({
         sourceType: "library",
         sourceName: "Library",
-        songIds: songs.map(s => s.id),
+        songIds: songs.map((s) => s.id),
         shuffle: true,
       });
       clearSelection();
-      toast.success(`Shuffling ${songs.length} songs from ${selectedCount} genres`);
+      toast.success(
+        `Shuffling ${songs.length} songs from ${selectedCount} genres`,
+      );
     }
   };
 
   const handleAddSelectedToQueue = async (position: "next" | "last") => {
     const songs = await getSelectedGenresSongs();
     if (songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position: position === "last" ? "end" : position });
+      addToQueue({
+        songIds: songs.map((s) => s.id),
+        position: position === "last" ? "end" : position,
+      });
       clearSelection();
-      toast.success(`Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`);
+      toast.success(
+        `Added ${songs.length} songs to ${position === "next" ? "play next" : "queue"}`,
+      );
     }
   };
 
@@ -131,26 +152,34 @@ export default function GenresPage() {
   }
 
   return (
-    <div className={cn("p-4 lg:p-6", hasSelection && "select-none-during-selection")}>
+    <div
+      className={cn(
+        "p-4 lg:p-6",
+        hasSelection && "select-none-during-selection",
+      )}
+    >
       {isLoading ? (
-        <div className={viewMode === "grid"
-          ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"
-          : "space-y-1"
-        }>
-          {Array.from({ length: 8 }).map((_, i) => (
+        <div
+          className={
+            viewMode === "grid"
+              ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"
+              : "space-y-1"
+          }
+        >
+          {Array.from({ length: 8 }).map((_, i) =>
             viewMode === "grid" ? (
               <GenreCardSkeleton key={i} />
             ) : (
               <GenreRowSkeleton key={i} />
-            )
-          ))}
+            ),
+          )}
         </div>
       ) : genresData && genresData.length > 0 ? (
         viewMode === "grid" ? (
           <VirtualizedGrid
             items={genresWithId}
             renderItem={(genre) => (
-              <GenreCard 
+              <GenreCard
                 genre={genre}
                 isSelected={isSelected(genre.id)}
                 isSelectionMode={hasSelection}
@@ -168,7 +197,7 @@ export default function GenresPage() {
           <VirtualizedList
             items={genresWithId}
             renderItem={(genre, index) => (
-              <GenreRow 
+              <GenreRow
                 genre={genre}
                 index={index}
                 isSelected={isSelected(genre.id)}
@@ -184,7 +213,11 @@ export default function GenresPage() {
           />
         )
       ) : (
-        <EmptyState message={debouncedFilter ? "No genres match your filter" : "No genres found"} />
+        <EmptyState
+          message={
+            debouncedFilter ? "No genres match your filter" : "No genres found"
+          }
+        />
       )}
 
       {/* Bulk actions bar */}

@@ -3,7 +3,7 @@ import type { ScanProgressUpdate, ScanLogEntry } from "@/lib/api/types";
 
 /**
  * Scan state for the admin library scanning UI.
- * 
+ *
  * The scan progress is maintained by the useScanProgressStream hook
  * which establishes a persistent SSE connection when the user is connected.
  */

@@ -30,9 +30,21 @@ import {
 import { useIsDesktop } from "@/lib/hooks/use-media-query";
 import { useHydrated } from "@/lib/hooks/use-hydrated";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { VirtualizedQueueDisplay, type VirtualizedQueueDisplayHandle } from "@/components/queue/virtualized-queue-display";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  VirtualizedQueueDisplay,
+  type VirtualizedQueueDisplayHandle,
+} from "@/components/queue/virtualized-queue-display";
 
 const QUEUE_SIDEBAR_WIDTH = 360;
 
@@ -97,7 +109,9 @@ function getQueueSourceLink(source: QueueSourceInfo): string | null {
     case "playlist":
       return source.id ? `/playlists/details?id=${source.id}` : null;
     case "genre":
-      return source.name ? `/library/genres/details?name=${encodeURIComponent(source.name)}` : null;
+      return source.name
+        ? `/library/genres/details?name=${encodeURIComponent(source.name)}`
+        : null;
     default:
       return null;
   }
@@ -108,7 +122,11 @@ function QueueSourceDisplay({ variant }: { variant: "mobile" | "desktop" }) {
   const queueState = useAtomValue(serverQueueStateAtom);
 
   // Don't show if queue is empty or no meaningful source
-  if (!queueState || queueState.totalCount === 0 || queueState.source.type === "other") {
+  if (
+    !queueState ||
+    queueState.totalCount === 0 ||
+    queueState.source.type === "other"
+  ) {
     return null;
   }
 
@@ -118,21 +136,25 @@ function QueueSourceDisplay({ variant }: { variant: "mobile" | "desktop" }) {
   const isMobile = variant === "mobile";
 
   const content = (
-    <div className={cn(
-      "flex items-center gap-2 text-muted-foreground",
-      isMobile ? "text-sm" : "text-xs"
-    )}>
+    <div
+      className={cn(
+        "flex items-center gap-2 text-muted-foreground",
+        isMobile ? "text-sm" : "text-xs",
+      )}
+    >
       <Icon className="w-3.5 h-3.5 shrink-0" />
       <span className="truncate">
-        Playing from {queueSource.name || (queueSource.type === "library" ? "Library" : "Queue")}
+        Playing from{" "}
+        {queueSource.name ||
+          (queueSource.type === "library" ? "Library" : "Queue")}
       </span>
     </div>
   );
 
   if (link) {
     return (
-      <Link 
-        href={link} 
+      <Link
+        href={link}
         className="block px-4 py-2 border-b border-border hover:bg-muted/50 transition-colors"
       >
         {content}
@@ -140,11 +162,7 @@ function QueueSourceDisplay({ variant }: { variant: "mobile" | "desktop" }) {
     );
   }
 
-  return (
-    <div className="px-4 py-2 border-b border-border">
-      {content}
-    </div>
-  );
+  return <div className="px-4 py-2 border-b border-border">{content}</div>;
 }
 
 /**
@@ -176,7 +194,10 @@ export function QueuePanel() {
 
   return (
     <Sheet open={isOpen} onOpenChange={setIsOpen}>
-      <SheetContent side="right" className="w-full sm:w-[400px] p-0 flex flex-col">
+      <SheetContent
+        side="right"
+        className="w-full sm:w-[400px] p-0 flex flex-col"
+      >
         <SheetHeader className="px-4 py-3 border-b border-border">
           <div className="flex items-center justify-between pr-8">
             <SheetTitle className="flex items-center gap-2">
@@ -300,11 +321,11 @@ export function QueueSidebar() {
                     </Button>
                   </>
                 )}
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={() => setIsOpen(false)} 
-                  className="h-8 w-8" 
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsOpen(false)}
+                  className="h-8 w-8"
                   aria-label="Close queue"
                 >
                   <PanelRightClose className="w-4 h-4" />

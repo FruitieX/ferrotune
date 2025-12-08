@@ -17,56 +17,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - uses: moonrepo/setup-toolchain@v0
-        with:
-          auto-install: true
-      - run: cargo check
-
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - uses: moonrepo/setup-toolchain@v0
-        with:
-          auto-install: true
-      - name: Install ffmpeg for test fixtures
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: moon run test
-
-  fmt:
-    name: Rustfmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - uses: moonrepo/setup-toolchain@v0
-        with:
-          auto-install: true
-      - run: moon run fmt-check
-
-  clippy:
-    if: false
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - uses: moonrepo/setup-toolchain@v0
-        with:
-          auto-install: true
-      - run: moon run lint
-
-  client-lint:
-    if: false
-    name: Client Lint & Typecheck
+  ci:
+    name: CI
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -79,25 +31,13 @@ jobs:
           node-version: 'lts/*'
           cache: 'npm'
           cache-dependency-path: client/package-lock.json
-      - run: moon run client:lint
-      - run: moon run client:typecheck
-
-  integration-tests:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - uses: moonrepo/setup-toolchain@v0
-        with:
-          auto-install: true
       - name: Install Hurl
         run: |
           curl -LO https://github.com/Orange-OpenSource/hurl/releases/download/6.0.0/hurl_6.0.0_amd64.deb
           sudo apt-get install -y ./hurl_6.0.0_amd64.deb
       - name: Install ffmpeg for test fixtures
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: moon run test-integration
+      - run: moon run ci-all-lite
 
   e2e-tests:
     if: false
@@ -115,10 +55,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: client/package-lock.json
       - name: Install Playwright browsers
-        run: |
-          cd client
-          npm ci
-          npx playwright install chromium --with-deps
+        run: moon run client:playwright-install -- --with-deps
       - name: Install ffmpeg for test fixtures
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: moon run client:test-e2e
@@ -155,14 +92,11 @@ jobs:
           cache: 'npm'
           cache-dependency-path: client/package-lock.json
 
-      - name: Install Node.js dependencies
-        run: cd client && npm ci
-
       - name: Build Next.js client (static export)
-        run: cd client && NEXT_OUTPUT_STATIC=1 npm run build
+        run: moon run client:build-export
 
       - name: Build binary (musl)
-        run: cargo build --release --features embedded-ui --target x86_64-unknown-linux-musl
+        run: moon run build-release-musl
 
       - name: Login to GHCR
         uses: docker/login-action@v3

@@ -71,13 +71,23 @@ export default function SetupPage() {
   const [newFolderPath, setNewFolderPath] = useState("");
 
   // Compute backend URL for API calls
-  const backendUrl = serverUrl.trim() || (process.env.NODE_ENV === "development" ? "http://localhost:4040" : (typeof window !== "undefined" ? window.location.origin : ""));
+  const backendUrl =
+    serverUrl.trim() ||
+    (process.env.NODE_ENV === "development"
+      ? "http://localhost:4040"
+      : typeof window !== "undefined"
+        ? window.location.origin
+        : "");
 
   // Track if we've intentionally completed setup (to prevent redirect during completion screen)
   const [setupCompleted, setSetupCompleted] = useState(false);
 
   // Check setup status
-  const { data: setupStatus, isLoading: statusLoading, refetch: refetchStatus } = useQuery({
+  const {
+    data: setupStatus,
+    isLoading: statusLoading,
+    refetch: refetchStatus,
+  } = useQuery({
     queryKey: ["setupStatus", backendUrl],
     queryFn: async () => {
       const response = await fetch(`${backendUrl}/ferrotune/setup/status`);
@@ -155,7 +165,7 @@ export default function SetupPage() {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const user = await client.getCurrentUser();
-      await client.updateUser(user.id, { 
+      await client.updateUser(user.id, {
         username: null,
         password: newPassword,
         email: null,
@@ -201,7 +211,9 @@ export default function SetupPage() {
       if (newPassword.trim() && newPassword !== password) {
         await updatePasswordMutation.mutateAsync(newPassword);
         // Update the connection with new password
-        const url = serverUrl.trim() || (typeof window !== "undefined" ? window.location.origin : "");
+        const url =
+          serverUrl.trim() ||
+          (typeof window !== "undefined" ? window.location.origin : "");
         const connection = {
           serverUrl: url,
           username: username.trim(),
@@ -257,7 +269,9 @@ export default function SetupPage() {
   // Complete setup mutation
   const completeSetupMutation = useMutation({
     mutationFn: async () => {
-      const baseUrl = serverUrl.trim() || (typeof window !== "undefined" ? window.location.origin : "");
+      const baseUrl =
+        serverUrl.trim() ||
+        (typeof window !== "undefined" ? window.location.origin : "");
       const response = await fetch(`${baseUrl}/ferrotune/setup/complete`, {
         method: "POST",
       });
@@ -318,9 +332,13 @@ export default function SetupPage() {
                   {i > 0 && (
                     <div
                       className={`h-0.5 flex-1 mx-2 ${
-                        ["welcome", "credentials", "folders", "scan", "complete"].indexOf(
-                          step
-                        ) >= i
+                        [
+                          "welcome",
+                          "credentials",
+                          "folders",
+                          "scan",
+                          "complete",
+                        ].indexOf(step) >= i
                           ? "bg-primary"
                           : "bg-border"
                       }`}
@@ -330,23 +348,31 @@ export default function SetupPage() {
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
                       step === s
                         ? "bg-primary text-primary-foreground"
-                        : ["welcome", "credentials", "folders", "scan", "complete"].indexOf(
-                            step
-                          ) > i
-                        ? "bg-primary/20 text-primary"
-                        : "bg-muted text-muted-foreground"
+                        : [
+                              "welcome",
+                              "credentials",
+                              "folders",
+                              "scan",
+                              "complete",
+                            ].indexOf(step) > i
+                          ? "bg-primary/20 text-primary"
+                          : "bg-muted text-muted-foreground"
                     }`}
                   >
-                    {["welcome", "credentials", "folders", "scan", "complete"].indexOf(
-                      step
-                    ) > i ? (
+                    {[
+                      "welcome",
+                      "credentials",
+                      "folders",
+                      "scan",
+                      "complete",
+                    ].indexOf(step) > i ? (
                       <Check className="w-4 h-4" />
                     ) : (
                       i + 1
                     )}
                   </div>
                 </div>
-              )
+              ),
             )}
           </div>
         </div>
@@ -497,9 +523,7 @@ export default function SetupPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="newPassword">
-                      New Password (optional)
-                    </Label>
+                    <Label htmlFor="newPassword">New Password (optional)</Label>
                     <Input
                       id="newPassword"
                       type="password"
@@ -578,7 +602,9 @@ export default function SetupPage() {
                         >
                           <FolderOpen className="w-4 h-4 text-primary" />
                           <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate">{folder.name}</p>
+                            <p className="font-medium truncate">
+                              {folder.name}
+                            </p>
                             <p className="text-xs text-muted-foreground truncate">
                               {folder.path}
                             </p>
@@ -642,7 +668,9 @@ export default function SetupPage() {
                     <Button
                       className="flex-1"
                       onClick={() => createFoldersMutation.mutate()}
-                      disabled={folders.length === 0 || createFoldersMutation.isPending}
+                      disabled={
+                        folders.length === 0 || createFoldersMutation.isPending
+                      }
                     >
                       {createFoldersMutation.isPending ? (
                         <>
@@ -700,7 +728,10 @@ export default function SetupPage() {
                           />
                           <p className="text-sm text-muted-foreground">
                             Processed {scanStatus.progress.scanned}
-                            {scanStatus.progress.total ? ` of ${scanStatus.progress.total}` : ""} files
+                            {scanStatus.progress.total
+                              ? ` of ${scanStatus.progress.total}`
+                              : ""}{" "}
+                            files
                             {scanStatus.progress.currentFolder && (
                               <span className="block truncate text-xs mt-1">
                                 {scanStatus.progress.currentFolder}

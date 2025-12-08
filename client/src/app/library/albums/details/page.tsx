@@ -6,18 +6,21 @@ import Link from "next/link";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import {
-  Heart,
-  MoreHorizontal,
-  FolderPlus,
-  ListEnd,
-} from "lucide-react";
+import { Heart, MoreHorizontal, FolderPlus, ListEnd } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
-import { albumDetailViewModeAtom, albumDetailSortAtom, albumDetailColumnVisibilityAtom } from "@/lib/store/ui";
+import {
+  startQueueAtom,
+  addToQueueAtom,
+  type QueueSourceType,
+} from "@/lib/store/server-queue";
+import {
+  albumDetailViewModeAtom,
+  albumDetailSortAtom,
+  albumDetailColumnVisibilityAtom,
+} from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -27,13 +30,21 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
+import {
+  SongRow,
+  SongRowSkeleton,
+  SongCard,
+  SongCardSkeleton,
+} from "@/components/browse/song-row";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
-import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
+import {
+  VirtualizedGrid,
+  VirtualizedList,
+} from "@/components/shared/virtualized-grid";
 import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
 import { formatTotalDuration, formatCount } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
@@ -42,20 +53,24 @@ function AlbumDetailContent() {
   const searchParams = useSearchParams();
   const id = searchParams.get("id");
   const router = useRouter();
-  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({
+    redirectToLogin: true,
+  });
   const isMounted = useIsMounted();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
-  
+
   // Filter state
   const [filter, setFilter] = useState("");
   const debouncedFilter = useDebounce(filter, 300);
-  
+
   // View settings
   const [viewMode, setViewMode] = useAtom(albumDetailViewModeAtom);
   const [sortConfig, setSortConfig] = useAtom(albumDetailSortAtom);
-  const [columnVisibility, setColumnVisibility] = useAtom(albumDetailColumnVisibilityAtom);
+  const [columnVisibility, setColumnVisibility] = useAtom(
+    albumDetailColumnVisibilityAtom,
+  );
 
   // Redirect to library if no ID
   useEffect(() => {
@@ -66,13 +81,20 @@ function AlbumDetailContent() {
 
   // Fetch album data with server-side sort/filter for songs
   const { data: albumData, isLoading } = useQuery({
-    queryKey: ["album", id, sortConfig.field, sortConfig.direction, debouncedFilter],
+    queryKey: [
+      "album",
+      id,
+      sortConfig.field,
+      sortConfig.direction,
+      debouncedFilter,
+    ],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getAlbum(id!, {
         sort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
-        sortDir: sortConfig.field !== "custom" ? sortConfig.direction : undefined,
+        sortDir:
+          sortConfig.field !== "custom" ? sortConfig.direction : undefined,
         filter: debouncedFilter.trim() || undefined,
       });
       return response.album;
@@ -84,27 +106,44 @@ function AlbumDetailContent() {
 
   // Songs come directly from server response - already sorted and filtered
   const displaySongs = albumData?.song ?? [];
-  
+
   // Multi-selection support
   const selection = useTrackSelection(displaySongs);
 
   // Queue source for album songs - server materializes with same sort/filter
-  const albumQueueSource = useMemo(() => ({
-    type: "album" as QueueSourceType,
-    id: id,
-    name: albumData?.name ?? "Album",
-    filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
-    sort: sortConfig.field !== "custom" ? {
-      field: sortConfig.field,
-      direction: sortConfig.direction,
-    } : undefined,
-  }), [id, albumData?.name, debouncedFilter, sortConfig.field, sortConfig.direction]);
+  const albumQueueSource = useMemo(
+    () => ({
+      type: "album" as QueueSourceType,
+      id: id,
+      name: albumData?.name ?? "Album",
+      filters: debouncedFilter.trim()
+        ? { filter: debouncedFilter.trim() }
+        : undefined,
+      sort:
+        sortConfig.field !== "custom"
+          ? {
+              field: sortConfig.field,
+              direction: sortConfig.direction,
+            }
+          : undefined,
+    }),
+    [
+      id,
+      albumData?.name,
+      debouncedFilter,
+      sortConfig.field,
+      sortConfig.direction,
+    ],
+  );
 
   const coverArtUrl = albumData?.coverArt
     ? getClient()?.getCoverArtUrl(albumData.coverArt, 400)
     : undefined;
 
-  const totalDuration = displaySongs.reduce((acc, song) => acc + song.duration, 0);
+  const totalDuration = displaySongs.reduce(
+    (acc, song) => acc + song.duration,
+    0,
+  );
 
   const handlePlayAll = () => {
     if (id && displaySongs.length > 0) {
@@ -114,11 +153,16 @@ function AlbumDetailContent() {
         sourceName: albumData?.name,
         startIndex: 0,
         shuffle: false,
-        filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
-        sort: sortConfig.field !== "custom" ? {
-          field: sortConfig.field,
-          direction: sortConfig.direction,
-        } : undefined,
+        filters: debouncedFilter.trim()
+          ? { filter: debouncedFilter.trim() }
+          : undefined,
+        sort:
+          sortConfig.field !== "custom"
+            ? {
+                field: sortConfig.field,
+                direction: sortConfig.direction,
+              }
+            : undefined,
       });
     }
   };
@@ -131,11 +175,16 @@ function AlbumDetailContent() {
         sourceName: albumData?.name,
         startIndex: 0,
         shuffle: true,
-        filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
-        sort: sortConfig.field !== "custom" ? {
-          field: sortConfig.field,
-          direction: sortConfig.direction,
-        } : undefined,
+        filters: debouncedFilter.trim()
+          ? { filter: debouncedFilter.trim() }
+          : undefined,
+        sort:
+          sortConfig.field !== "custom"
+            ? {
+                field: sortConfig.field,
+                direction: sortConfig.direction,
+              }
+            : undefined,
       });
     }
   };
@@ -146,7 +195,7 @@ function AlbumDetailContent() {
       startQueue({
         sourceType: "other",
         sourceName: `${albumData?.name} (selection)`,
-        songIds: selectedSongs.map(s => s.id),
+        songIds: selectedSongs.map((s) => s.id),
       });
       selection.clearSelection();
     }
@@ -239,10 +288,13 @@ function AlbumDetailContent() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem 
+            <DropdownMenuItem
               onClick={() => {
                 if (displaySongs.length > 0) {
-                  addToQueue({ songIds: displaySongs.map(s => s.id), position: "end" });
+                  addToQueue({
+                    songIds: displaySongs.map((s) => s.id),
+                    position: "end",
+                  });
                   toast.success(`Added ${displaySongs.length} songs to queue`);
                 }
               }}
@@ -251,7 +303,7 @@ function AlbumDetailContent() {
               <ListEnd className="w-4 h-4 mr-2" />
               Add all to Queue
             </DropdownMenuItem>
-            <DropdownMenuItem 
+            <DropdownMenuItem
               onClick={() => setAddToPlaylistOpen(true)}
               disabled={displaySongs.length === 0}
             >
@@ -263,7 +315,12 @@ function AlbumDetailContent() {
       </ActionBar>
 
       {/* Song list */}
-      <div className={cn("px-4 lg:px-6 py-4", selection.hasSelection && "select-none")}>
+      <div
+        className={cn(
+          "px-4 lg:px-6 py-4",
+          selection.hasSelection && "select-none",
+        )}
+      >
         {isLoading ? (
           viewMode === "grid" ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -361,11 +418,13 @@ function AlbumDetailContent() {
 
 export default function AlbumDetailPage() {
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen">
-        <Skeleton className="w-32 h-8" />
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-screen">
+          <Skeleton className="w-32 h-8" />
+        </div>
+      }
+    >
       <AlbumDetailContent />
     </Suspense>
   );

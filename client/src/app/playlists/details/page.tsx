@@ -1,10 +1,21 @@
 "use client";
 
-import { useState, useEffect, useMemo, Suspense, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  Suspense,
+  useCallback,
+  useRef,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   MoreHorizontal,
   Pencil,
@@ -19,8 +30,16 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { playlistViewModeAtom, playlistSortAtom, playlistColumnVisibilityAtom } from "@/lib/store/ui";
-import { startQueueAtom, serverQueueStateAtom, toggleShuffleAtom } from "@/lib/store/server-queue";
+import {
+  playlistViewModeAtom,
+  playlistSortAtom,
+  playlistColumnVisibilityAtom,
+} from "@/lib/store/ui";
+import {
+  startQueueAtom,
+  serverQueueStateAtom,
+  toggleShuffleAtom,
+} from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -47,15 +66,30 @@ import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
-import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
-import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
+import {
+  VirtualizedGrid,
+  VirtualizedList,
+} from "@/components/shared/virtualized-grid";
+import {
+  SongRow,
+  SongRowSkeleton,
+  SongCard,
+  SongCardSkeleton,
+} from "@/components/browse/song-row";
 import { MoveToPositionDialog } from "@/components/shared/move-to-position-dialog";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EditPlaylistDialog } from "@/components/playlists/edit-playlist-dialog";
-import { MissingEntryRow, MissingEntryCard } from "@/components/playlists/missing-entry-row";
+import {
+  MissingEntryRow,
+  MissingEntryCard,
+} from "@/components/playlists/missing-entry-row";
 import { RefineMatchDialog } from "@/components/playlists/refine-match-dialog";
 import { MassResolveDialog } from "@/components/playlists/mass-resolve-dialog";
-import { formatCount, formatDate, formatTotalDuration } from "@/lib/utils/format";
+import {
+  formatCount,
+  formatDate,
+  formatTotalDuration,
+} from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 import type { PlaylistSongEntry } from "@/lib/api/generated/PlaylistSongEntry";
@@ -64,8 +98,14 @@ import type { MissingEntryDataResponse } from "@/lib/api/generated/MissingEntryD
 const PAGE_SIZE = 50;
 
 // Display item types for rendering
-type DisplayItem = 
-  | { type: "song"; song: Song; position: number; songIndex?: number; missing?: MissingEntryDataResponse | null }
+type DisplayItem =
+  | {
+      type: "song";
+      song: Song;
+      position: number;
+      songIndex?: number;
+      missing?: MissingEntryDataResponse | null;
+    }
   | { type: "missing"; entry: PlaylistSongEntry; position: number };
 
 function PlaylistDetailContent() {
@@ -73,7 +113,9 @@ function PlaylistDetailContent() {
   const searchParams = useSearchParams();
   const playlistId = searchParams.get("id");
 
-  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({
+    redirectToLogin: true,
+  });
   const startQueue = useSetAtom(startQueueAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
@@ -81,29 +123,43 @@ function PlaylistDetailContent() {
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [removeTracksDialogOpen, setRemoveTracksDialogOpen] = useState(false);
-  const [removeSingleSongDialogOpen, setRemoveSingleSongDialogOpen] = useState(false);
-  const [pendingSingleRemove, setPendingSingleRemove] = useState<{ songId: string; songTitle: string; position: number } | null>(null);
+  const [removeSingleSongDialogOpen, setRemoveSingleSongDialogOpen] =
+    useState(false);
+  const [pendingSingleRemove, setPendingSingleRemove] = useState<{
+    songId: string;
+    songTitle: string;
+    position: number;
+  } | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [massResolveDialogOpen, setMassResolveDialogOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
-  const [moveDialogItem, setMoveDialogItem] = useState<{ name: string; position: number } | null>(null);
+  const [moveDialogItem, setMoveDialogItem] = useState<{
+    name: string;
+    position: number;
+  } | null>(null);
   const [refineMatchDialogOpen, setRefineMatchDialogOpen] = useState(false);
-  const [refineMatchItem, setRefineMatchItem] = useState<{ 
-    position: number; 
+  const [refineMatchItem, setRefineMatchItem] = useState<{
+    position: number;
     missing: MissingEntryDataResponse;
   } | null>(null);
   const [filter, setFilter] = useState("");
   // Track selected missing entry IDs separately (format: "missing-{position}")
-  const [selectedMissingIds, setSelectedMissingIds] = useState<Set<string>>(new Set());
+  const [selectedMissingIds, setSelectedMissingIds] = useState<Set<string>>(
+    new Set(),
+  );
   // Track anchor position for shift-selection across all items (songs + missing)
-  const [selectionAnchorPosition, setSelectionAnchorPosition] = useState<number | null>(null);
+  const [selectionAnchorPosition, setSelectionAnchorPosition] = useState<
+    number | null
+  >(null);
   const debouncedFilter = useDebounce(filter, 300);
   const isMounted = useIsMounted();
-  
+
   // View settings
   const [viewMode, setViewMode] = useAtom(playlistViewModeAtom);
   const [sortConfig, setSortConfig] = useAtom(playlistSortAtom);
-  const [columnVisibility, setColumnVisibility] = useAtom(playlistColumnVisibilityAtom);
+  const [columnVisibility, setColumnVisibility] = useAtom(
+    playlistColumnVisibilityAtom,
+  );
 
   // Redirect to playlists if no ID
   useEffect(() => {
@@ -120,7 +176,13 @@ function PlaylistDetailContent() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["playlistSongs", playlistId, sortConfig.field, sortConfig.direction, debouncedFilter],
+    queryKey: [
+      "playlistSongs",
+      playlistId,
+      sortConfig.field,
+      sortConfig.direction,
+      debouncedFilter,
+    ],
     queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
@@ -133,7 +195,10 @@ function PlaylistDetailContent() {
       });
     },
     getNextPageParam: (lastPage, allPages) => {
-      const loadedCount = allPages.reduce((sum, page) => sum + page.entries.length, 0);
+      const loadedCount = allPages.reduce(
+        (sum, page) => sum + page.entries.length,
+        0,
+      );
       return loadedCount < lastPage.filteredCount ? loadedCount : undefined;
     },
     initialPageParam: 0,
@@ -143,10 +208,10 @@ function PlaylistDetailContent() {
 
   // Extract playlist metadata from first page
   const playlist = playlistData?.pages[0];
-  
+
   // Flatten entries from all pages
   const allEntries = playlistData?.pages.flatMap((page) => page.entries) ?? [];
-  
+
   // Convert entries to display items, including the server-provided songIndex
   const displayItems: DisplayItem[] = allEntries.map((entry) => {
     if (entry.entryType === "song" && entry.song) {
@@ -168,7 +233,10 @@ function PlaylistDetailContent() {
 
   // Extract just the songs for selection tracking
   const displaySongs: Song[] = displayItems
-    .filter((item): item is Extract<DisplayItem, { type: "song" }> => item.type === "song")
+    .filter(
+      (item): item is Extract<DisplayItem, { type: "song" }> =>
+        item.type === "song",
+    )
     .map((item) => item.song);
 
   // Check if there are missing entries
@@ -179,7 +247,11 @@ function PlaylistDetailContent() {
   const totalDuration = playlist?.duration ?? 0;
 
   // Get the cover URL
-  const coverUrl = usePlaylistCoverUrl(playlist?.id ?? null, 400, playlist?.coverArt);
+  const coverUrl = usePlaylistCoverUrl(
+    playlist?.id ?? null,
+    400,
+    playlist?.coverArt,
+  );
 
   // Delete mutation
   const deleteMutation = useMutation({
@@ -207,11 +279,15 @@ function PlaylistDetailContent() {
     },
     onSuccess: () => {
       // Invalidate to ensure we have the correct order from server
-      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlistId],
+      });
       toast.success("Playlist order updated");
     },
     onError: () => {
-      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlistId],
+      });
       toast.error("Failed to update playlist order");
     },
   });
@@ -221,10 +297,15 @@ function PlaylistDetailContent() {
     mutationFn: async (songIds: string[]) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      await client.updatePlaylist({ playlistId: playlistId!, songIdToAdd: songIds });
+      await client.updatePlaylist({
+        playlistId: playlistId!,
+        songIdToAdd: songIds,
+      });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlistId],
+      });
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       toast.success("Songs restored to playlist");
     },
@@ -235,25 +316,41 @@ function PlaylistDetailContent() {
 
   // Remove songs mutation
   const removeSongsMutation = useMutation({
-    mutationFn: async ({ indices, songIds }: { indices: number[]; songIds: string[] }) => {
+    mutationFn: async ({
+      indices,
+      songIds,
+    }: {
+      indices: number[];
+      songIds: string[];
+    }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      await client.updatePlaylist({ playlistId: playlistId!, songIndexToRemove: indices });
+      await client.updatePlaylist({
+        playlistId: playlistId!,
+        songIndexToRemove: indices,
+      });
       return songIds; // Return for undo
     },
     onSuccess: (songIds) => {
-      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlistId],
+      });
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       const count = songIds.length;
-      toast.success(count === 1 ? "Song removed from playlist" : `${count} songs removed from playlist`, {
-        action: {
-          label: "Undo",
-          onClick: () => {
-            addSongsBackMutation.mutate(songIds);
+      toast.success(
+        count === 1
+          ? "Song removed from playlist"
+          : `${count} songs removed from playlist`,
+        {
+          action: {
+            label: "Undo",
+            onClick: () => {
+              addSongsBackMutation.mutate(songIds);
+            },
           },
+          duration: 8000, // Give user more time to undo
         },
-        duration: 8000, // Give user more time to undo
-      });
+      );
     },
     onError: () => {
       toast.error("Failed to remove songs from playlist");
@@ -269,7 +366,7 @@ function PlaylistDetailContent() {
   const handleRemoveSingleSong = useCallback((songId: string) => {
     // Find the position of the song in the display items
     const item = displayItemsRef.current.find(
-      (item) => item.type === "song" && item.song.id === songId
+      (item) => item.type === "song" && item.song.id === songId,
     );
     if (!item || item.type !== "song") return;
     setPendingSingleRemove({
@@ -293,42 +390,59 @@ function PlaylistDetailContent() {
   }, [pendingSingleRemove, removeSongsMutation]);
 
   // Helper to remove a missing entry by position (no undo since we can't add it back)
-  const handleRemoveMissingEntry = useCallback(async (position: number) => {
-    const client = getClient();
-    if (!client) return;
-    try {
-      await client.updatePlaylist({ playlistId: playlistId!, songIndexToRemove: [position] });
-      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
-      toast.success("Entry removed from playlist");
-    } catch {
-      toast.error("Failed to remove entry from playlist");
-    }
-  }, [playlistId, queryClient]);
-  
+  const handleRemoveMissingEntry = useCallback(
+    async (position: number) => {
+      const client = getClient();
+      if (!client) return;
+      try {
+        await client.updatePlaylist({
+          playlistId: playlistId!,
+          songIndexToRemove: [position],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["playlistSongs", playlistId],
+        });
+        toast.success("Entry removed from playlist");
+      } catch {
+        toast.error("Failed to remove entry from playlist");
+      }
+    },
+    [playlistId, queryClient],
+  );
+
   // Handle move to position for playlists (works for both songs and missing entries)
-  const handleMoveToPosition = useCallback((item: { name: string; position: number }) => {
-    setMoveDialogItem(item);
-    setMoveDialogOpen(true);
-  }, []);
+  const handleMoveToPosition = useCallback(
+    (item: { name: string; position: number }) => {
+      setMoveDialogItem(item);
+      setMoveDialogOpen(true);
+    },
+    [],
+  );
 
   // Wrapper for song move to position (adapts Song to the generic interface)
-  const handleSongMoveToPosition = useCallback((song: Song, currentIndex: number) => {
-    handleMoveToPosition({ name: song.title, position: currentIndex });
-  }, [handleMoveToPosition]);
+  const handleSongMoveToPosition = useCallback(
+    (song: Song, currentIndex: number) => {
+      handleMoveToPosition({ name: song.title, position: currentIndex });
+    },
+    [handleMoveToPosition],
+  );
 
   // Handler for missing entry move to position
-  const handleMissingMoveToPosition = useCallback((name: string, position: number) => {
-    handleMoveToPosition({ name, position });
-  }, [handleMoveToPosition]);
+  const handleMissingMoveToPosition = useCallback(
+    (name: string, position: number) => {
+      handleMoveToPosition({ name, position });
+    },
+    [handleMoveToPosition],
+  );
 
   // Handler for refine match (for songs that have associated missing data)
   const handleRefineMatch = useCallback((song: Song, index: number) => {
     // Find the display item to get the missing data
     const item = displayItemsRef.current.find(
-      (i) => i.type === "song" && i.song.id === song.id && i.position === index
+      (i) => i.type === "song" && i.song.id === song.id && i.position === index,
     );
     if (!item || item.type !== "song" || !item.missing) return;
-    
+
     setRefineMatchItem({
       position: index,
       missing: item.missing,
@@ -336,78 +450,106 @@ function PlaylistDetailContent() {
     setRefineMatchDialogOpen(true);
   }, []);
 
-  const handleMoveItem = useCallback(async (newPosition: number) => {
-    if (!moveDialogItem) return;
-    
-    const { position: oldPosition } = moveDialogItem;
-    if (oldPosition === newPosition) return;
-    
-    // Use the server-side move endpoint
-    const client = getClient();
-    if (!client) return;
-    
-    try {
-      await client.movePlaylistEntry(playlistId!, oldPosition, newPosition);
-      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
-      toast.success("Entry moved");
-    } catch (error) {
-      toast.error("Failed to move entry");
-      console.error(error);
-    }
-  }, [moveDialogItem, playlistId, queryClient]);
+  const handleMoveItem = useCallback(
+    async (newPosition: number) => {
+      if (!moveDialogItem) return;
+
+      const { position: oldPosition } = moveDialogItem;
+      if (oldPosition === newPosition) return;
+
+      // Use the server-side move endpoint
+      const client = getClient();
+      if (!client) return;
+
+      try {
+        await client.movePlaylistEntry(playlistId!, oldPosition, newPosition);
+        queryClient.invalidateQueries({
+          queryKey: ["playlistSongs", playlistId],
+        });
+        toast.success("Entry moved");
+      } catch (error) {
+        toast.error("Failed to move entry");
+        console.error(error);
+      }
+    },
+    [moveDialogItem, playlistId, queryClient],
+  );
 
   // Queue source for playlist - server materializes with same sort/filter
-  const playlistQueueSource = useMemo(() => ({
-    type: "playlist" as const,
-    id: playlistId,
-    name: playlist?.name ?? "Playlist",
-    filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
-    sort: sortConfig.field !== "custom" ? {
-      field: sortConfig.field,
-      direction: sortConfig.direction,
-    } : undefined,
-  }), [playlistId, playlist?.name, debouncedFilter, sortConfig.field, sortConfig.direction]);
+  const playlistQueueSource = useMemo(
+    () => ({
+      type: "playlist" as const,
+      id: playlistId,
+      name: playlist?.name ?? "Playlist",
+      filters: debouncedFilter.trim()
+        ? { filter: debouncedFilter.trim() }
+        : undefined,
+      sort:
+        sortConfig.field !== "custom"
+          ? {
+              field: sortConfig.field,
+              direction: sortConfig.direction,
+            }
+          : undefined,
+    }),
+    [
+      playlistId,
+      playlist?.name,
+      debouncedFilter,
+      sortConfig.field,
+      sortConfig.direction,
+    ],
+  );
 
   // Check if a song at a given playlist position is the currently playing track
   // Uses the server-provided songIndex which maps directly to queue indices
   // Returns undefined if we can't determine (falls back to song ID matching in SongRow)
-  const isCurrentQueuePosition = useCallback((songIndex: number | undefined, _songId: string): boolean | undefined => {
-    if (!queueState || songIndex === undefined) return undefined;
-    
-    // Check if the queue source is this playlist
-    const isPlaylistQueue = queueState.source?.type === "playlist" && queueState.source?.id === playlistId;
-    
-    if (isPlaylistQueue) {
-      // songIndex from server maps directly to queue index
-      return queueState.currentIndex === songIndex;
-    }
-    
-    // For other sources, we can't reliably determine position
-    // Return undefined to let SongRow fall back to song ID matching
-    return undefined;
-  }, [queueState, playlistId]);
+  const isCurrentQueuePosition = useCallback(
+    (songIndex: number | undefined, _songId: string): boolean | undefined => {
+      if (!queueState || songIndex === undefined) return undefined;
+
+      // Check if the queue source is this playlist
+      const isPlaylistQueue =
+        queueState.source?.type === "playlist" &&
+        queueState.source?.id === playlistId;
+
+      if (isPlaylistQueue) {
+        // songIndex from server maps directly to queue index
+        return queueState.currentIndex === songIndex;
+      }
+
+      // For other sources, we can't reliably determine position
+      // Return undefined to let SongRow fall back to song ID matching
+      return undefined;
+    },
+    [queueState, playlistId],
+  );
 
   // Determine if we should use position-based highlighting
-  const isPlaylistInQueue = queueState?.source?.type === "playlist" && queueState?.source?.id === playlistId;
+  const isPlaylistInQueue =
+    queueState?.source?.type === "playlist" &&
+    queueState?.source?.id === playlistId;
 
   // Build breadcrumb items from playlist name (which includes folder path)
   const breadcrumbItems = useMemo(() => {
-    const items: { label: string; path: string }[] = [{ label: "Playlists", path: "" }];
+    const items: { label: string; path: string }[] = [
+      { label: "Playlists", path: "" },
+    ];
     if (!playlist?.name) return items;
-    
+
     // Playlist names include the full path like "Folder/SubFolder/PlaylistName"
     const parts = playlist.name.split("/");
-    
+
     // If there's only one part, there's no folder, just the playlist name
     if (parts.length <= 1) return items;
-    
+
     // Build folder breadcrumbs (all parts except the last, which is the playlist name)
     let currentPath = "";
     for (let i = 0; i < parts.length - 1; i++) {
       currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
       items.push({ label: parts[i], path: currentPath });
     }
-    
+
     return items;
   }, [playlist?.name]);
 
@@ -419,13 +561,16 @@ function PlaylistDetailContent() {
   }, [playlist?.name]);
 
   // Navigate to a folder
-  const navigateToFolder = useCallback((path: string) => {
-    if (path === "") {
-      router.push("/playlists");
-    } else {
-      router.push(`/playlists?folder=${encodeURIComponent(path)}`);
-    }
-  }, [router]);
+  const navigateToFolder = useCallback(
+    (path: string) => {
+      if (path === "") {
+        router.push("/playlists");
+      } else {
+        router.push(`/playlists?folder=${encodeURIComponent(path)}`);
+      }
+    },
+    [router],
+  );
 
   // Clear missing entries selection
   const clearMissingSelection = useCallback(() => {
@@ -449,7 +594,7 @@ function PlaylistDetailContent() {
   // Get indices of selected songs in the original order (for removal)
   const getSelectedIndices = useCallback(() => {
     const selected = getSelectedSongs();
-    const selectedIds = new Set(selected.map(s => s.id));
+    const selectedIds = new Set(selected.map((s) => s.id));
     const indices: number[] = [];
     displayItems.forEach((item) => {
       if (item.type === "song" && selectedIds.has(item.song.id)) {
@@ -463,7 +608,7 @@ function PlaylistDetailContent() {
   const getAllSelectedIndices = useCallback(() => {
     const songIndices = getSelectedIndices();
     const missingIndices: number[] = [];
-    selectedMissingIds.forEach(id => {
+    selectedMissingIds.forEach((id) => {
       // Extract position from "missing-{position}" format
       const match = id.match(/^missing-(\d+)$/);
       if (match) {
@@ -482,79 +627,93 @@ function PlaylistDetailContent() {
   }, [getAllSelectedIndices]);
 
   // Unified selection handler for both songs and missing entries with shift-click support
-  const handleUnifiedSelect = useCallback((
-    itemId: string,
-    position: number,
-    isMissing: boolean,
-    event?: React.MouseEvent
-  ) => {
-    const shiftKey = event?.shiftKey ?? false;
-    
-    if (shiftKey && selectionAnchorPosition !== null) {
-      // Range selection: select all items between anchor and current position
-      const start = Math.min(selectionAnchorPosition, position);
-      const end = Math.max(selectionAnchorPosition, position);
-      
-      const newMissingIds = new Set(selectedMissingIds);
-      
-      displayItems.forEach(item => {
-        if (item.position >= start && item.position <= end) {
-          if (item.type === "missing") {
-            newMissingIds.add(`missing-${item.position}`);
-          } else {
-            // For songs, we use the handleSelect from useTrackSelection
-            // but we need to add them without shift since we're handling range ourselves
-            handleSelect(item.song.id);
+  const handleUnifiedSelect = useCallback(
+    (
+      itemId: string,
+      position: number,
+      isMissing: boolean,
+      event?: React.MouseEvent,
+    ) => {
+      const shiftKey = event?.shiftKey ?? false;
+
+      if (shiftKey && selectionAnchorPosition !== null) {
+        // Range selection: select all items between anchor and current position
+        const start = Math.min(selectionAnchorPosition, position);
+        const end = Math.max(selectionAnchorPosition, position);
+
+        const newMissingIds = new Set(selectedMissingIds);
+
+        displayItems.forEach((item) => {
+          if (item.position >= start && item.position <= end) {
+            if (item.type === "missing") {
+              newMissingIds.add(`missing-${item.position}`);
+            } else {
+              // For songs, we use the handleSelect from useTrackSelection
+              // but we need to add them without shift since we're handling range ourselves
+              handleSelect(item.song.id);
+            }
           }
-        }
-      });
-      
-      setSelectedMissingIds(newMissingIds);
-      // Don't update anchor on shift-click to allow extending selection
-    } else {
-      // Normal selection - toggle the item
-      if (isMissing) {
-        setSelectedMissingIds(prev => {
-          const next = new Set(prev);
-          if (next.has(itemId)) {
-            next.delete(itemId);
-          } else {
-            next.add(itemId);
-          }
-          return next;
         });
+
+        setSelectedMissingIds(newMissingIds);
+        // Don't update anchor on shift-click to allow extending selection
       } else {
-        handleSelect(itemId, event);
+        // Normal selection - toggle the item
+        if (isMissing) {
+          setSelectedMissingIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(itemId)) {
+              next.delete(itemId);
+            } else {
+              next.add(itemId);
+            }
+            return next;
+          });
+        } else {
+          handleSelect(itemId, event);
+        }
+        // Update anchor position
+        setSelectionAnchorPosition(position);
       }
-      // Update anchor position
-      setSelectionAnchorPosition(position);
-    }
-  }, [selectionAnchorPosition, selectedMissingIds, displayItems, handleSelect]);
+    },
+    [selectionAnchorPosition, selectedMissingIds, displayItems, handleSelect],
+  );
 
   // Missing entry selection handler (wrapper for unified handler)
-  const handleMissingSelect = useCallback((id: string, selected: boolean, event?: React.MouseEvent) => {
-    // Extract position from "missing-{position}" format
-    const match = id.match(/^missing-(\d+)$/);
-    if (match) {
-      const position = parseInt(match[1], 10);
-      handleUnifiedSelect(id, position, true, event);
-    }
-  }, [handleUnifiedSelect]);
+  const handleMissingSelect = useCallback(
+    (id: string, selected: boolean, event?: React.MouseEvent) => {
+      // Extract position from "missing-{position}" format
+      const match = id.match(/^missing-(\d+)$/);
+      if (match) {
+        const position = parseInt(match[1], 10);
+        handleUnifiedSelect(id, position, true, event);
+      }
+    },
+    [handleUnifiedSelect],
+  );
 
   // Song selection handler (wrapper for unified handler with position tracking)
-  const handleSongSelect = useCallback((id: string, event?: React.MouseEvent) => {
-    const item = displayItems.find(i => i.type === "song" && i.song.id === id);
-    if (item) {
-      handleUnifiedSelect(id, item.position, false, event);
-    } else {
-      // Fallback to original handler if item not found
-      handleSelect(id, event);
-    }
-  }, [displayItems, handleUnifiedSelect, handleSelect]);
+  const handleSongSelect = useCallback(
+    (id: string, event?: React.MouseEvent) => {
+      const item = displayItems.find(
+        (i) => i.type === "song" && i.song.id === id,
+      );
+      if (item) {
+        handleUnifiedSelect(id, item.position, false, event);
+      } else {
+        // Fallback to original handler if item not found
+        handleSelect(id, event);
+      }
+    },
+    [displayItems, handleUnifiedSelect, handleSelect],
+  );
 
-  const isMissingSelected = useCallback((id: string) => {
-    return selectedMissingIds.has(id);
-  }, [selectedMissingIds]);
+  const isMissingSelected = useCallback(
+    (id: string) => {
+      return selectedMissingIds.has(id);
+    },
+    [selectedMissingIds],
+  );
 
   // Clear all selection (songs + missing)
   const clearAllSelection = useCallback(() => {
@@ -569,7 +728,7 @@ function PlaylistDetailContent() {
     selectAll();
     // Select all missing entries
     const allMissingIds = new Set<string>();
-    displayItems.forEach(item => {
+    displayItems.forEach((item) => {
       if (item.type === "missing") {
         allMissingIds.add(`missing-${item.position}`);
       }
@@ -583,13 +742,18 @@ function PlaylistDetailContent() {
 
   const confirmRemoveSelected = useCallback(() => {
     const indices = getAllSelectedIndices();
-    const songIds = getSelectedSongs().map(s => s.id);
+    const songIds = getSelectedSongs().map((s) => s.id);
     if (indices.length > 0) {
       removeSongsMutation.mutate({ indices, songIds });
       clearAllSelection();
     }
     setRemoveTracksDialogOpen(false);
-  }, [getAllSelectedIndices, getSelectedSongs, removeSongsMutation, clearAllSelection]);
+  }, [
+    getAllSelectedIndices,
+    getSelectedSongs,
+    removeSongsMutation,
+    clearAllSelection,
+  ]);
 
   const handlePlaySelected = () => {
     const selected = getSelectedSongs();
@@ -598,7 +762,7 @@ function PlaylistDetailContent() {
         sourceType: "playlist",
         sourceId: playlistId ?? undefined,
         sourceName: displayName,
-        songIds: selected.map(s => s.id),
+        songIds: selected.map((s) => s.id),
       });
       clearAllSelection();
     }
@@ -614,11 +778,16 @@ function PlaylistDetailContent() {
         sourceType: "playlist",
         sourceId: playlistId ?? undefined,
         sourceName: displayName,
-        filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
-        sort: sortConfig.field !== "custom" ? {
-          field: sortConfig.field,
-          direction: sortConfig.direction,
-        } : undefined,
+        filters: debouncedFilter.trim()
+          ? { filter: debouncedFilter.trim() }
+          : undefined,
+        sort:
+          sortConfig.field !== "custom"
+            ? {
+                field: sortConfig.field,
+                direction: sortConfig.direction,
+              }
+            : undefined,
       });
     }
   };
@@ -630,11 +799,16 @@ function PlaylistDetailContent() {
         sourceId: playlistId ?? undefined,
         sourceName: displayName,
         shuffle: true,
-        filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
-        sort: sortConfig.field !== "custom" ? {
-          field: sortConfig.field,
-          direction: sortConfig.direction,
-        } : undefined,
+        filters: debouncedFilter.trim()
+          ? { filter: debouncedFilter.trim() }
+          : undefined,
+        sort:
+          sortConfig.field !== "custom"
+            ? {
+                field: sortConfig.field,
+                direction: sortConfig.direction,
+              }
+            : undefined,
       });
     }
   };
@@ -653,7 +827,7 @@ function PlaylistDetailContent() {
           title=""
           isLoading
         />
-        
+
         {/* Action bar skeleton */}
         <div className="px-4 lg:px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center gap-4 border-b border-border">
           {/* Play/Shuffle buttons */}
@@ -661,9 +835,9 @@ function PlaylistDetailContent() {
             <Skeleton className="h-12 w-12 rounded-full" />
             <Skeleton className="h-12 w-12 rounded-full" />
           </div>
-          
+
           <div className="flex-1" />
-          
+
           {/* Toolbar with dropdown */}
           <div className="flex items-center gap-2">
             <Skeleton className="h-10 w-10 rounded-md" />
@@ -708,7 +882,9 @@ function PlaylistDetailContent() {
             <span className="flex flex-wrap items-center gap-2">
               {playlist.owner && (
                 <>
-                  <span className="font-medium text-foreground">{playlist.owner}</span>
+                  <span className="font-medium text-foreground">
+                    {playlist.owner}
+                  </span>
                   <span>•</span>
                 </>
               )}
@@ -716,7 +892,10 @@ function PlaylistDetailContent() {
               {hasMissingEntries && (
                 <>
                   <span>•</span>
-                  <Badge variant="secondary" className="bg-orange-500/20 text-orange-500 h-5">
+                  <Badge
+                    variant="secondary"
+                    className="bg-orange-500/20 text-orange-500 h-5"
+                  >
                     <AlertCircle className="w-3 h-3 mr-1" />
                     {missingEntryCount} not found
                   </Badge>
@@ -851,7 +1030,14 @@ function PlaylistDetailContent() {
                     isSelected={isSelected(songItem.song.id)}
                     isSelectionMode={totalSelectedCount > 0}
                     onSelect={handleSongSelect}
-                    isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(songItem.songIndex, songItem.song.id) : undefined}
+                    isCurrentQueuePosition={
+                      isPlaylistInQueue
+                        ? isCurrentQueuePosition(
+                            songItem.songIndex,
+                            songItem.song.id,
+                          )
+                        : undefined
+                    }
                     showMoveToPosition={sortConfig.field === "custom"}
                     onMoveToPosition={handleSongMoveToPosition}
                     showRefineMatch={!!songItem.missing}
@@ -860,8 +1046,8 @@ function PlaylistDetailContent() {
                 );
               }}
               renderSkeleton={() => <SongCardSkeleton />}
-              getItemKey={(item, index) => 
-                item.type === "song" 
+              getItemKey={(item, index) =>
+                item.type === "song"
                   ? `${item.position}-${item.song.id}`
                   : `missing-${item.position}`
               }
@@ -910,7 +1096,14 @@ function PlaylistDetailContent() {
                     onSelect={handleSongSelect}
                     showRemoveFromPlaylist
                     onRemoveFromPlaylist={handleRemoveSingleSong}
-                    isCurrentQueuePosition={isPlaylistInQueue ? isCurrentQueuePosition(songItem.songIndex, songItem.song.id) : undefined}
+                    isCurrentQueuePosition={
+                      isPlaylistInQueue
+                        ? isCurrentQueuePosition(
+                            songItem.songIndex,
+                            songItem.song.id,
+                          )
+                        : undefined
+                    }
                     showMoveToPosition={sortConfig.field === "custom"}
                     onMoveToPosition={handleSongMoveToPosition}
                     showRefineMatch={!!songItem.missing}
@@ -919,8 +1112,8 @@ function PlaylistDetailContent() {
                 );
               }}
               renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
-              getItemKey={(item, index) => 
-                item.type === "song" 
+              getItemKey={(item, index) =>
+                item.type === "song"
                   ? `${item.position}-${item.song.id}`
                   : `missing-${item.position}`
               }
@@ -967,8 +1160,8 @@ function PlaylistDetailContent() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete playlist?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete &quot;{playlist?.name}&quot;. This action
-              cannot be undone.
+              This will permanently delete &quot;{playlist?.name}&quot;. This
+              action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -984,10 +1177,16 @@ function PlaylistDetailContent() {
       </AlertDialog>
 
       {/* Remove tracks confirmation dialog (bulk selection) */}
-      <AlertDialog open={removeTracksDialogOpen} onOpenChange={setRemoveTracksDialogOpen}>
+      <AlertDialog
+        open={removeTracksDialogOpen}
+        onOpenChange={setRemoveTracksDialogOpen}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove {totalSelectedCount === 1 ? "entry" : "entries"} from playlist?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Remove {totalSelectedCount === 1 ? "entry" : "entries"} from
+              playlist?
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {totalSelectedCount === 1
                 ? "This will remove 1 entry from the playlist."
@@ -1007,15 +1206,19 @@ function PlaylistDetailContent() {
       </AlertDialog>
 
       {/* Remove single song confirmation dialog (context menu) */}
-      <AlertDialog open={removeSingleSongDialogOpen} onOpenChange={(open) => {
-        setRemoveSingleSongDialogOpen(open);
-        if (!open) setPendingSingleRemove(null);
-      }}>
+      <AlertDialog
+        open={removeSingleSongDialogOpen}
+        onOpenChange={(open) => {
+          setRemoveSingleSongDialogOpen(open);
+          if (!open) setPendingSingleRemove(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove song from playlist?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove &quot;{pendingSingleRemove?.songTitle}&quot; from the playlist.
+              This will remove &quot;{pendingSingleRemove?.songTitle}&quot; from
+              the playlist.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1056,7 +1259,7 @@ function PlaylistDetailContent() {
           }))}
         />
       )}
-      
+
       {/* Move to position dialog */}
       {moveDialogItem && (
         <MoveToPositionDialog
@@ -1085,20 +1288,22 @@ function PlaylistDetailContent() {
 
 export default function PlaylistDetailPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen">
-        <DetailHeader
-          showBackButton
-          icon={ListMusic}
-          iconClassName="bg-linear-to-br from-emerald-500 to-emerald-800"
-          coverSize="lg"
-          gradientColor="rgba(16,185,129,0.2)"
-          label="Playlist"
-          title=""
-          isLoading
-        />
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="min-h-screen">
+          <DetailHeader
+            showBackButton
+            icon={ListMusic}
+            iconClassName="bg-linear-to-br from-emerald-500 to-emerald-800"
+            coverSize="lg"
+            gradientColor="rgba(16,185,129,0.2)"
+            label="Playlist"
+            title=""
+            isLoading
+          />
+        </div>
+      }
+    >
       <PlaylistDetailContent />
     </Suspense>
   );

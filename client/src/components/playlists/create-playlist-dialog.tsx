@@ -28,16 +28,16 @@ interface CreatePlaylistDialogProps {
   createFolder?: boolean;
 }
 
-export function CreatePlaylistDialog({ 
-  open, 
-  onOpenChange, 
+export function CreatePlaylistDialog({
+  open,
+  onOpenChange,
   folderPath = "",
   createFolder = false,
 }: CreatePlaylistDialogProps) {
   const [name, setName] = useState("");
   const queryClient = useQueryClient();
   const router = useRouter();
-  
+
   // Fetch playlists to check for folder placeholders
   const { data: playlists } = useQuery({
     queryKey: ["playlists"],
@@ -61,27 +61,25 @@ export function CreatePlaylistDialog({
     mutationFn: async (playlistName: string) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      
+
       // Build the full playlist name with folder path prefix
       let fullName: string;
       if (createFolder) {
         // Creating a folder: create a placeholder with trailing /
         // e.g., "Rock/" or "Music/Rock/" to indicate an empty folder
         // This placeholder will be deleted when the first real playlist is added
-        const folderFullPath = folderPath 
-          ? `${folderPath}/${playlistName}` 
+        const folderFullPath = folderPath
+          ? `${folderPath}/${playlistName}`
           : playlistName;
         fullName = `${folderFullPath}/`;
       } else {
         // Creating a regular playlist in a folder
-        fullName = folderPath 
-          ? `${folderPath}/${playlistName}` 
-          : playlistName;
+        fullName = folderPath ? `${folderPath}/${playlistName}` : playlistName;
       }
-      
+
       // Create the new playlist
       const result = await client.createPlaylist({ name: fullName });
-      
+
       // If creating a real playlist in a folder, delete the folder placeholder if it exists
       if (!createFolder && folderPath && playlists) {
         const placeholder = findFolderPlaceholder(playlists, folderPath);
@@ -94,7 +92,7 @@ export function CreatePlaylistDialog({
           }
         }
       }
-      
+
       return result;
     },
     onSuccess: async (result) => {
@@ -107,7 +105,7 @@ export function CreatePlaylistDialog({
       await queryClient.invalidateQueries({ queryKey: ["playlists"] });
       setName("");
       onOpenChange(false);
-      
+
       // Navigate to the new playlist (only for regular playlists, not folders)
       if (!createFolder && result.playlist?.id) {
         router.push(`/playlists/details?id=${result.playlist.id}`);
@@ -129,9 +127,9 @@ export function CreatePlaylistDialog({
 
   const Icon = createFolder ? Folder : ListMusic;
   const title = createFolder ? "Create Folder" : "Create Playlist";
-  const description = createFolder 
+  const description = createFolder
     ? "Create a new folder to organize your playlists. This will create a playlist in the folder to establish it."
-    : folderPath 
+    : folderPath
       ? `Create a new playlist in "${folderPath}".`
       : "Give your playlist a name to get started.";
   const placeholder = createFolder ? "New Folder" : "My Playlist";
@@ -147,9 +145,7 @@ export function CreatePlaylistDialog({
               <Icon className="w-5 h-5" />
               {title}
             </DialogTitle>
-            <DialogDescription>
-              {description}
-            </DialogDescription>
+            <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">

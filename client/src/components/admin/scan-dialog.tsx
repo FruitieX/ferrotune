@@ -110,7 +110,9 @@ export function ScanDialog() {
       <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <RefreshCw className={cn("w-5 h-5", isScanning && "animate-spin")} />
+            <RefreshCw
+              className={cn("w-5 h-5", isScanning && "animate-spin")}
+            />
             Library Scan
           </DialogTitle>
           <DialogDescription>
@@ -171,8 +173,8 @@ export function ScanDialog() {
                     {isScanning
                       ? `Scanning... (${progress.mode})`
                       : hasError
-                      ? "Scan Failed"
-                      : "Scan Complete"}
+                        ? "Scan Failed"
+                        : "Scan Complete"}
                   </p>
                   {hasError && (
                     <p className="text-sm text-destructive">{progress.error}</p>
@@ -222,22 +224,25 @@ export function ScanDialog() {
               </div>
 
               {/* Current File/Folder */}
-              {isScanning && (progress.currentFolder || progress.currentFile) && (
-                <div className="p-3 bg-muted/30 rounded-md space-y-1">
-                  {progress.currentFolder && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <FolderSearch className="w-4 h-4 text-muted-foreground shrink-0" />
-                      <span className="truncate">{progress.currentFolder}</span>
-                    </div>
-                  )}
-                  {progress.currentFile && (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <FileText className="w-3 h-3 shrink-0" />
-                      <span className="truncate">{progress.currentFile}</span>
-                    </div>
-                  )}
-                </div>
-              )}
+              {isScanning &&
+                (progress.currentFolder || progress.currentFile) && (
+                  <div className="p-3 bg-muted/30 rounded-md space-y-1">
+                    {progress.currentFolder && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <FolderSearch className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <span className="truncate">
+                          {progress.currentFolder}
+                        </span>
+                      </div>
+                    )}
+                    {progress.currentFile && (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <FileText className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{progress.currentFile}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
               {/* Logs */}
               {logs.length > 0 && (
@@ -251,7 +256,7 @@ export function ScanDialog() {
                           className={cn(
                             "flex gap-2",
                             log.level === "ERROR" && "text-red-500",
-                            log.level === "WARN" && "text-yellow-500"
+                            log.level === "WARN" && "text-yellow-500",
                           )}
                         >
                           <span className="text-muted-foreground shrink-0">

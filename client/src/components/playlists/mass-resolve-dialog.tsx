@@ -85,15 +85,17 @@ export function MassResolveDialog({
     const result = await matchTracks(
       tracksToMatch,
       searchOptions,
-      setMatchingProgress
+      setMatchingProgress,
     );
 
     if (result) {
       // Add matched/unmatched entries from missing entries with their original positions
-      const tracksWithPositions: MatchableTrack[] = result.map((track, index) => ({
-        ...track,
-        originalPosition: missingEntries[index].position,
-      }));
+      const tracksWithPositions: MatchableTrack[] = result.map(
+        (track, index) => ({
+          ...track,
+          originalPosition: missingEntries[index].position,
+        }),
+      );
 
       setMatchedTracks(tracksWithPositions);
       setStep("preview");
@@ -111,7 +113,7 @@ export function MassResolveDialog({
 
       // Get matched entries with their original positions
       const newMatches = matchedTracks.filter(
-        (t) => t.match && t.originalPosition !== undefined
+        (t) => t.match && t.originalPosition !== undefined,
       );
 
       let successCount = 0;
@@ -122,13 +124,13 @@ export function MassResolveDialog({
           await client.matchMissingEntry(
             playlistId,
             entry.originalPosition!,
-            entry.match!.id
+            entry.match!.id,
           );
           successCount++;
         } catch (error) {
           console.error(
             `Failed to match entry at position ${entry.originalPosition}:`,
-            error
+            error,
           );
           failCount++;
         }
@@ -137,13 +139,17 @@ export function MassResolveDialog({
       return { successCount, failCount };
     },
     onSuccess: async ({ successCount, failCount }) => {
-      await queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
+      await queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlistId],
+      });
 
       if (failCount === 0) {
-        toast.success(`Matched ${successCount} ${successCount === 1 ? "entry" : "entries"}`);
+        toast.success(
+          `Matched ${successCount} ${successCount === 1 ? "entry" : "entries"}`,
+        );
       } else {
         toast.warning(
-          `Matched ${successCount} ${successCount === 1 ? "entry" : "entries"}, ${failCount} failed`
+          `Matched ${successCount} ${successCount === 1 ? "entry" : "entries"}, ${failCount} failed`,
         );
       }
 
@@ -170,7 +176,8 @@ export function MassResolveDialog({
             Search and match missing playlist entries to songs in your library.
             {missingEntries.length > 0 && (
               <span className="block mt-1">
-                {missingEntries.length} missing {missingEntries.length === 1 ? "entry" : "entries"} to resolve
+                {missingEntries.length} missing{" "}
+                {missingEntries.length === 1 ? "entry" : "entries"} to resolve
               </span>
             )}
           </DialogDescription>
@@ -179,8 +186,8 @@ export function MassResolveDialog({
         {step === "options" && (
           <div className="py-4 space-y-4">
             <p className="text-sm text-muted-foreground">
-              Configure search options and click &quot;Start Matching&quot; to automatically
-              find matches for missing entries in your library.
+              Configure search options and click &quot;Start Matching&quot; to
+              automatically find matches for missing entries in your library.
             </p>
             <SearchOptionsControl
               options={searchOptions}
@@ -221,7 +228,11 @@ export function MassResolveDialog({
               onUpdateMatch={(index, match, score) => {
                 setMatchedTracks((prev) => {
                   const updated = [...prev];
-                  updated[index] = { ...updated[index], match, matchScore: score };
+                  updated[index] = {
+                    ...updated[index],
+                    match,
+                    matchScore: score,
+                  };
                   return updated;
                 });
               }}

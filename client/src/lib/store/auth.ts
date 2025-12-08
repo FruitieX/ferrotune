@@ -5,7 +5,7 @@ import type { ServerConnection } from "@/lib/api/types";
 // Connection state stored in localStorage
 export const serverConnectionAtom = atomWithStorage<ServerConnection | null>(
   "ferrotune-connection",
-  null
+  null,
 );
 
 // Hydration state - tracks whether localStorage has been read
@@ -20,10 +20,17 @@ export const isClientInitializedAtom = atom(false);
 // Derived atom for checking if connected (only valid after hydration)
 export const isConnectedAtom = atom((get) => {
   const connection = get(serverConnectionAtom);
-  return connection !== null && (!!connection.apiKey || (!!connection.username && !!connection.password));
+  return (
+    connection !== null &&
+    (!!connection.apiKey || (!!connection.username && !!connection.password))
+  );
 });
 
 // Connection status
-export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
+export type ConnectionStatus =
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "error";
 export const connectionStatusAtom = atom<ConnectionStatus>("disconnected");
 export const connectionErrorAtom = atom<string | null>(null);

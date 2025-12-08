@@ -43,7 +43,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
-import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
+import {
+  startQueueAtom,
+  addToQueueAtom,
+  type QueueSourceType,
+} from "@/lib/store/server-queue";
 import { useStarred } from "@/lib/store/starred";
 import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
 import { getClient } from "@/lib/api/client";
@@ -53,7 +57,9 @@ import Link from "next/link";
 // Global function to dismiss any open context menu by simulating an escape key press
 function dismissContextMenu() {
   // Dispatch Escape key to close any open context menu
-  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  document.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+  );
 }
 
 interface SongContextMenuProps {
@@ -63,9 +69,9 @@ interface SongContextMenuProps {
   /** The index of this song in the queue/list (for views with duplicate songs) */
   songIndex?: number;
   /** Source info for the queue when playing from a collection */
-  queueSource?: { 
-    type: string; 
-    id?: string | null; 
+  queueSource?: {
+    type: string;
+    id?: string | null;
     name?: string | null;
     filters?: Record<string, unknown>;
     sort?: { field: string; direction: string };
@@ -92,9 +98,9 @@ interface SongContextMenuProps {
   onRefineMatch?: (song: Song, index: number) => void;
 }
 
-export function SongContextMenu({ 
-  song, 
-  children, 
+export function SongContextMenu({
+  song,
+  children,
   queueSongs,
   songIndex,
   queueSource,
@@ -138,7 +144,7 @@ export function SongContextMenu({
       toast.success(
         newExcluded
           ? `"${song.title}" excluded from shuffle`
-          : `"${song.title}" included in shuffle`
+          : `"${song.title}" included in shuffle`,
       );
     } catch (error) {
       toast.error("Failed to update shuffle setting");
@@ -150,7 +156,8 @@ export function SongContextMenu({
     if (queueSource?.type && queueSource.type !== "other") {
       // Use server-side queue materialization for known sources
       // Prefer songIndex if provided (handles duplicate songs), otherwise find by ID
-      const index = songIndex ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
+      const index =
+        songIndex ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
       startQueue({
         sourceType: queueSource.type as QueueSourceType,
         sourceId: queueSource.id ?? undefined,
@@ -167,7 +174,7 @@ export function SongContextMenu({
         sourceType: (queueSource?.type as QueueSourceType) || "other",
         sourceName: queueSource?.name ?? undefined,
         startIndex: index >= 0 ? index : 0,
-        songIds: queueSongs.map(s => s.id),
+        songIds: queueSongs.map((s) => s.id),
       });
     } else {
       // Single song
@@ -196,7 +203,11 @@ export function SongContextMenu({
     try {
       await client.setRating(song.id, rating);
       setCurrentRating(rating);
-      toast.success(rating > 0 ? `Rated "${song.title}" ${rating} stars` : `Removed rating from "${song.title}"`);
+      toast.success(
+        rating > 0
+          ? `Rated "${song.title}" ${rating} stars`
+          : `Removed rating from "${song.title}"`,
+      );
     } catch (error) {
       toast.error("Failed to set rating");
       console.error(error);
@@ -246,7 +257,10 @@ export function SongContextMenu({
         </ContextMenuItem>
       )}
       {showRemoveFromPlaylist && onRemoveFromPlaylist && (
-        <ContextMenuItem onClick={() => onRemoveFromPlaylist(song.id)} className="text-destructive">
+        <ContextMenuItem
+          onClick={() => onRemoveFromPlaylist(song.id)}
+          className="text-destructive"
+        >
           <X className="w-4 h-4 mr-2" />
           Remove from Playlist
         </ContextMenuItem>
@@ -261,29 +275,38 @@ export function SongContextMenu({
       <ContextMenuSeparator />
 
       <ContextMenuItem onClick={toggleStar}>
-        <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
+        <Heart
+          className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`}
+        />
         {isStarred ? "Remove from Favorites" : "Add to Favorites"}
       </ContextMenuItem>
 
       <ContextMenuItem onClick={handleToggleShuffleExclude}>
-        <Shuffle className={`w-4 h-4 mr-2 ${isExcludedFromShuffle ? "text-muted-foreground line-through" : ""}`} />
+        <Shuffle
+          className={`w-4 h-4 mr-2 ${isExcludedFromShuffle ? "text-muted-foreground line-through" : ""}`}
+        />
         {isExcludedFromShuffle ? "Include in Shuffle" : "Exclude from Shuffle"}
       </ContextMenuItem>
 
       <ContextMenuSub>
         <ContextMenuSubTrigger>
-          <Star className={`w-4 h-4 mr-2 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`} />
+          <Star
+            className={`w-4 h-4 mr-2 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`}
+          />
           Rate {currentRating > 0 && `(${currentRating})`}
         </ContextMenuSubTrigger>
         <ContextMenuSubContent>
           {[5, 4, 3, 2, 1].map((rating) => (
-            <ContextMenuItem 
-              key={rating} 
+            <ContextMenuItem
+              key={rating}
               onClick={() => handleRate(rating)}
               className={currentRating === rating ? "bg-accent" : ""}
             >
               {Array.from({ length: rating }).map((_, i) => (
-                <Star key={i} className="w-3 h-3 fill-yellow-500 text-yellow-500" />
+                <Star
+                  key={i}
+                  className="w-3 h-3 fill-yellow-500 text-yellow-500"
+                />
               ))}
               {Array.from({ length: 5 - rating }).map((_, i) => (
                 <Star key={i} className="w-3 h-3 text-muted-foreground" />
@@ -328,10 +351,13 @@ export function SongContextMenu({
   return (
     <>
       <ContextMenu>
-        <ContextMenuTrigger asChild>
-          {children}
-        </ContextMenuTrigger>
-        <ContextMenuContent className="w-56" onDoubleClick={(e) => e.stopPropagation()}>{menuItems}</ContextMenuContent>
+        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+        <ContextMenuContent
+          className="w-56"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          {menuItems}
+        </ContextMenuContent>
       </ContextMenu>
       <AddToPlaylistDialog
         open={addToPlaylistOpen}
@@ -353,9 +379,9 @@ interface SongDropdownMenuProps {
   queueSongs?: Song[];
   /** The index of this song in the queue/list (for views with duplicate songs) */
   songIndex?: number;
-  queueSource?: { 
-    type: string; 
-    id?: string | null; 
+  queueSource?: {
+    type: string;
+    id?: string | null;
     name?: string | null;
     filters?: Record<string, unknown>;
     sort?: { field: string; direction: string };
@@ -383,8 +409,8 @@ interface SongDropdownMenuProps {
   onRefineMatch?: (song: Song, index: number) => void;
 }
 
-export function SongDropdownMenu({ 
-  song, 
+export function SongDropdownMenu({
+  song,
   queueSongs,
   songIndex,
   queueSource,
@@ -429,7 +455,7 @@ export function SongDropdownMenu({
       toast.success(
         newExcluded
           ? `"${song.title}" excluded from shuffle`
-          : `"${song.title}" included in shuffle`
+          : `"${song.title}" included in shuffle`,
       );
     } catch (error) {
       toast.error("Failed to update shuffle setting");
@@ -441,7 +467,8 @@ export function SongDropdownMenu({
     if (queueSource?.type && queueSource.type !== "other") {
       // Use server-side queue materialization for known sources
       // Prefer songIndex if provided (handles duplicate songs), otherwise find by ID
-      const index = songIndex ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
+      const index =
+        songIndex ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
       startQueue({
         sourceType: queueSource.type as QueueSourceType,
         sourceId: queueSource.id ?? undefined,
@@ -456,7 +483,7 @@ export function SongDropdownMenu({
       startQueue({
         sourceType: (queueSource?.type as QueueSourceType) || "other",
         sourceName: queueSource?.name ?? undefined,
-        songIds: queueSongs.map(s => s.id),
+        songIds: queueSongs.map((s) => s.id),
         startIndex: index >= 0 ? index : 0,
       });
     } else {
@@ -485,7 +512,11 @@ export function SongDropdownMenu({
     try {
       await client.setRating(song.id, rating);
       setCurrentRating(rating);
-      toast.success(rating > 0 ? `Rated "${song.title}" ${rating} stars` : `Removed rating from "${song.title}"`);
+      toast.success(
+        rating > 0
+          ? `Rated "${song.title}" ${rating} stars`
+          : `Removed rating from "${song.title}"`,
+      );
     } catch (error) {
       toast.error("Failed to set rating");
       console.error(error);
@@ -528,7 +559,11 @@ export function SongDropdownMenu({
         <DropdownMenuTrigger asChild>
           {trigger ?? defaultTrigger}
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56" onDoubleClick={(e) => e.stopPropagation()}>
+        <DropdownMenuContent
+          align="end"
+          className="w-56"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
           {!hideQueueActions && (
             <>
               <DropdownMenuItem onClick={handlePlay}>
@@ -555,14 +590,21 @@ export function SongDropdownMenu({
               Remove from Queue
             </DropdownMenuItem>
           )}
-          {showMoveToPosition && onMoveToPosition && songIndex !== undefined && (
-            <DropdownMenuItem onClick={() => onMoveToPosition(song, songIndex)}>
-              <Move className="w-4 h-4 mr-2" />
-              {moveToPositionLabel}
-            </DropdownMenuItem>
-          )}
+          {showMoveToPosition &&
+            onMoveToPosition &&
+            songIndex !== undefined && (
+              <DropdownMenuItem
+                onClick={() => onMoveToPosition(song, songIndex)}
+              >
+                <Move className="w-4 h-4 mr-2" />
+                {moveToPositionLabel}
+              </DropdownMenuItem>
+            )}
           {showRemoveFromPlaylist && onRemoveFromPlaylist && (
-            <DropdownMenuItem onClick={() => onRemoveFromPlaylist(song.id)} className="text-destructive">
+            <DropdownMenuItem
+              onClick={() => onRemoveFromPlaylist(song.id)}
+              className="text-destructive"
+            >
               <X className="w-4 h-4 mr-2" />
               Remove from Playlist
             </DropdownMenuItem>
@@ -577,29 +619,40 @@ export function SongDropdownMenu({
           <DropdownMenuSeparator />
 
           <DropdownMenuItem onClick={toggleStar}>
-            <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
+            <Heart
+              className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`}
+            />
             {isStarred ? "Remove from Favorites" : "Add to Favorites"}
           </DropdownMenuItem>
 
           <DropdownMenuItem onClick={handleToggleShuffleExclude}>
-            <Shuffle className={`w-4 h-4 mr-2 ${isExcludedFromShuffle ? "text-muted-foreground line-through" : ""}`} />
-            {isExcludedFromShuffle ? "Include in Shuffle" : "Exclude from Shuffle"}
+            <Shuffle
+              className={`w-4 h-4 mr-2 ${isExcludedFromShuffle ? "text-muted-foreground line-through" : ""}`}
+            />
+            {isExcludedFromShuffle
+              ? "Include in Shuffle"
+              : "Exclude from Shuffle"}
           </DropdownMenuItem>
 
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
-              <Star className={`w-4 h-4 mr-2 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`} />
+              <Star
+                className={`w-4 h-4 mr-2 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`}
+              />
               Rate {currentRating > 0 && `(${currentRating})`}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               {[5, 4, 3, 2, 1].map((rating) => (
-                <DropdownMenuItem 
-                  key={rating} 
+                <DropdownMenuItem
+                  key={rating}
                   onClick={() => handleRate(rating)}
                   className={currentRating === rating ? "bg-accent" : ""}
                 >
                   {Array.from({ length: rating }).map((_, i) => (
-                    <Star key={i} className="w-3 h-3 fill-yellow-500 text-yellow-500" />
+                    <Star
+                      key={i}
+                      className="w-3 h-3 fill-yellow-500 text-yellow-500"
+                    />
                   ))}
                   {Array.from({ length: 5 - rating }).map((_, i) => (
                     <Star key={i} className="w-3 h-3 text-muted-foreground" />

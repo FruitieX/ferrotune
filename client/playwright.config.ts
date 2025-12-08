@@ -2,9 +2,9 @@ import { defineConfig, devices } from "@playwright/test";
 
 /**
  * Playwright configuration for Ferrotune client E2E tests.
- * 
+ *
  * Tests automatically start a fresh Ferrotune server with test fixtures.
- * 
+ *
  * Environment variables:
  * - FERROTUNE_EXTERNAL_SERVER=true: Use an external server instead of starting one
  * - FERROTUNE_TEST_URL: Server URL when using external server (default: http://localhost:4040)
@@ -14,56 +14,53 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
-  
+
   /* Global setup and teardown */
   globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
-  
+
   /* Run tests sequentially - tests share a single server instance and can interfere
    * with each other when run in parallel (e.g., modifying playlists, queue state).
    * TODO: Add per-worker server isolation for parallel test support */
   fullyParallel: false,
-  
+
   /* Fail the build on CI if you accidentally left test.only in the source code */
   forbidOnly: !!process.env.CI,
-  
+
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  
+
   /* Single worker to prevent test interference from shared server state */
   workers: 1,
-  
+
   /* Global timeout per test */
   timeout: 30_000,
-  
+
   /* Expect timeout */
   expect: {
     timeout: 10_000,
   },
-  
+
   /* Reporter to use */
-  reporter: [
-    ["html", { open: "never" }],
-    ["list"],
-  ],
-  
+  reporter: [["html", { open: "never" }], ["list"]],
+
   /* Shared settings for all projects */
   use: {
     /* Base URL for the client app */
     baseURL: "http://localhost:13000",
-    
+
     /* Collect trace when retrying the failed test */
     trace: "on-first-retry",
-    
+
     /* Take screenshot on failure */
     screenshot: "only-on-failure",
-    
+
     /* Video recording */
     video: "on-first-retry",
-    
+
     /* Action timeout */
     actionTimeout: 10_000,
-    
+
     /* Navigation timeout */
     navigationTimeout: 15_000,
   },

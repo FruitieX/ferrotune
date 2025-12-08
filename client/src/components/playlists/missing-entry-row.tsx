@@ -3,7 +3,21 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Search, Music, AlertCircle, Loader2, RefreshCw, MoreHorizontal, Trash2, ArrowRightLeft, Check, Play, Pause, CheckCircle, Volume2 } from "lucide-react";
+import {
+  Search,
+  Music,
+  AlertCircle,
+  Loader2,
+  RefreshCw,
+  MoreHorizontal,
+  Trash2,
+  ArrowRightLeft,
+  Check,
+  Play,
+  Pause,
+  CheckCircle,
+  Volume2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -74,13 +88,13 @@ export function MissingEntryRow({
   const [includeTitle, setIncludeTitle] = useState(true);
   const [includeArtist, setIncludeArtist] = useState(true);
   const [includeAlbum, setIncludeAlbum] = useState(true);
-  
+
   // Selection and preview state
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const preview = usePreviewAudio();
-  
+
   const queryClient = useQueryClient();
-  
+
   // Mutation for matching the entry
   const matchMutation = useMutation({
     mutationFn: async (songId: string) => {
@@ -91,7 +105,9 @@ export function MissingEntryRow({
     onSuccess: () => {
       toast.success("Entry matched successfully");
       // Invalidate queries to refresh the playlist
-      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlistId],
+      });
       setRefineDialogOpen(false);
       setSearchQuery("");
       setSearchResults([]);
@@ -99,12 +115,18 @@ export function MissingEntryRow({
       preview.stop();
     },
     onError: (error) => {
-      toast.error(`Failed to match entry: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error(
+        `Failed to match entry: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     },
   });
 
   // Build search query from selected fields in "artist - album - title" format
-  const buildSearchQuery = (title: boolean, artist: boolean, album: boolean) => {
+  const buildSearchQuery = (
+    title: boolean,
+    artist: boolean,
+    album: boolean,
+  ) => {
     const parts: string[] = [];
     // Build in order: artist, album, title (common search format)
     if (artist && missing.artist) parts.push(missing.artist);
@@ -114,7 +136,11 @@ export function MissingEntryRow({
   };
 
   // Update search query when toggles change
-  const updateSearchFromToggles = (title: boolean, artist: boolean, album: boolean) => {
+  const updateSearchFromToggles = (
+    title: boolean,
+    artist: boolean,
+    album: boolean,
+  ) => {
     setIncludeTitle(title);
     setIncludeArtist(artist);
     setIncludeAlbum(album);
@@ -123,13 +149,16 @@ export function MissingEntryRow({
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
-    
+
     setIsSearching(true);
     try {
       const client = getClient();
       if (!client) return;
-      
-      const response = await client.search3({ query: searchQuery.trim(), songCount: 20 });
+
+      const response = await client.search3({
+        query: searchQuery.trim(),
+        songCount: 20,
+      });
       setSearchResults(response.searchResult3?.song ?? []);
     } catch (error) {
       console.error("Search error:", error);
@@ -154,13 +183,13 @@ export function MissingEntryRow({
       preview.play(song.id, 30);
     }
   };
-  
+
   const handleConfirmMatch = () => {
     if (!selectedSong) return;
     preview.stop();
     matchMutation.mutate(selectedSong.id);
   };
-  
+
   const handlePreviewToggle = () => {
     if (!selectedSong) return;
     if (preview.isPlaying) {
@@ -169,7 +198,7 @@ export function MissingEntryRow({
       preview.play(selectedSong.id, 30);
     }
   };
-  
+
   const handleSeek = (value: number[]) => {
     preview.seek(value[0]);
   };
@@ -177,7 +206,7 @@ export function MissingEntryRow({
   const handleVolumeChange = (value: number[]) => {
     preview.setVolume(value[0]);
   };
-  
+
   // Handle dialog close - stop preview
   const handleDialogOpenChange = (open: boolean) => {
     if (!open) {
@@ -192,7 +221,7 @@ export function MissingEntryRow({
     const hasTitle = !!missing.title;
     const hasArtist = !!missing.artist;
     const hasAlbum = !!missing.album;
-    
+
     setIncludeTitle(hasTitle);
     setIncludeArtist(hasArtist);
     setIncludeAlbum(hasAlbum);
@@ -222,11 +251,11 @@ export function MissingEntryRow({
         "group flex items-center gap-4 px-4 pr-6 py-2 rounded-md transition-colors cursor-pointer",
         "bg-orange-500/5 hover:bg-orange-500/10",
         "border-l-2 border-orange-500/50",
-        isSelected && "ring-2 ring-primary bg-primary/20"
+        isSelected && "ring-2 ring-primary bg-primary/20",
       )}
     >
       {/* Position/Index with selection checkbox overlay (matches SongRow) */}
-      <div 
+      <div
         className="w-8 text-center shrink-0 relative cursor-pointer"
         onClick={(e) => {
           if (onSelect) {
@@ -240,9 +269,7 @@ export function MissingEntryRow({
         <div
           className={cn(
             "absolute inset-0 flex items-center justify-center transition-opacity",
-            showCheckbox
-              ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100"
+            showCheckbox ? "opacity-100" : "opacity-0 group-hover:opacity-100",
           )}
         >
           <button
@@ -254,7 +281,7 @@ export function MissingEntryRow({
               "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
               isSelected
                 ? "bg-primary border-primary text-primary-foreground"
-                : "border-muted-foreground/50 hover:border-primary/50"
+                : "border-muted-foreground/50 hover:border-primary/50",
             )}
           >
             {isSelected && <Check className="w-3 h-3" />}
@@ -264,7 +291,9 @@ export function MissingEntryRow({
         <span
           className={cn(
             "text-sm tabular-nums text-muted-foreground transition-opacity",
-            showCheckbox ? "opacity-0 pointer-events-none" : "group-hover:opacity-0 group-hover:pointer-events-none"
+            showCheckbox
+              ? "opacity-0 pointer-events-none"
+              : "group-hover:opacity-0 group-hover:pointer-events-none",
           )}
         >
           {position + 1}
@@ -307,13 +336,23 @@ export function MissingEntryRow({
               Refine Match
             </DropdownMenuItem>
             {showMoveToPosition && onMoveToPosition && (
-              <DropdownMenuItem onClick={() => onMoveToPosition(missing.title || missing.raw || "Unknown Track", position)}>
+              <DropdownMenuItem
+                onClick={() =>
+                  onMoveToPosition(
+                    missing.title || missing.raw || "Unknown Track",
+                    position,
+                  )
+                }
+              >
                 <ArrowRightLeft className="w-4 h-4 mr-2" />
                 Move to Position
               </DropdownMenuItem>
             )}
             {onRemove && (
-              <DropdownMenuItem onClick={handleRemoveClick} className="text-destructive focus:text-destructive">
+              <DropdownMenuItem
+                onClick={handleRemoveClick}
+                className="text-destructive focus:text-destructive"
+              >
                 <Trash2 className="w-4 h-4 mr-2" />
                 Remove from Playlist
               </DropdownMenuItem>
@@ -334,19 +373,32 @@ export function MissingEntryRow({
     <>
       <ContextMenu>
         <ContextMenuTrigger asChild>{rowContent}</ContextMenuTrigger>
-        <ContextMenuContent className="w-48" onDoubleClick={(e) => e.stopPropagation()}>
+        <ContextMenuContent
+          className="w-48"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
           <ContextMenuItem onClick={openRefineDialog}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Refine Match
           </ContextMenuItem>
           {showMoveToPosition && onMoveToPosition && (
-            <ContextMenuItem onClick={() => onMoveToPosition(missing.title || missing.raw || "Unknown Track", position)}>
+            <ContextMenuItem
+              onClick={() =>
+                onMoveToPosition(
+                  missing.title || missing.raw || "Unknown Track",
+                  position,
+                )
+              }
+            >
               <ArrowRightLeft className="w-4 h-4 mr-2" />
               Move to Position
             </ContextMenuItem>
           )}
           {onRemove && (
-            <ContextMenuItem onClick={handleRemoveClick} className="text-destructive focus:text-destructive">
+            <ContextMenuItem
+              onClick={handleRemoveClick}
+              className="text-destructive focus:text-destructive"
+            >
               <Trash2 className="w-4 h-4 mr-2" />
               Remove from Playlist
             </ContextMenuItem>
@@ -368,12 +420,19 @@ export function MissingEntryRow({
                   <Checkbox
                     id={`title-${position}`}
                     checked={includeTitle}
-                    onCheckedChange={(checked) => 
-                      updateSearchFromToggles(checked === true, includeArtist, includeAlbum)
+                    onCheckedChange={(checked) =>
+                      updateSearchFromToggles(
+                        checked === true,
+                        includeArtist,
+                        includeAlbum,
+                      )
                     }
                     className="h-3.5 w-3.5"
                   />
-                  <label htmlFor={`title-${position}`} className="text-xs cursor-pointer">
+                  <label
+                    htmlFor={`title-${position}`}
+                    className="text-xs cursor-pointer"
+                  >
                     Title
                   </label>
                 </div>
@@ -383,12 +442,19 @@ export function MissingEntryRow({
                   <Checkbox
                     id={`artist-${position}`}
                     checked={includeArtist}
-                    onCheckedChange={(checked) => 
-                      updateSearchFromToggles(includeTitle, checked === true, includeAlbum)
+                    onCheckedChange={(checked) =>
+                      updateSearchFromToggles(
+                        includeTitle,
+                        checked === true,
+                        includeAlbum,
+                      )
                     }
                     className="h-3.5 w-3.5"
                   />
-                  <label htmlFor={`artist-${position}`} className="text-xs cursor-pointer">
+                  <label
+                    htmlFor={`artist-${position}`}
+                    className="text-xs cursor-pointer"
+                  >
                     Artist
                   </label>
                 </div>
@@ -398,18 +464,25 @@ export function MissingEntryRow({
                   <Checkbox
                     id={`album-${position}`}
                     checked={includeAlbum}
-                    onCheckedChange={(checked) => 
-                      updateSearchFromToggles(includeTitle, includeArtist, checked === true)
+                    onCheckedChange={(checked) =>
+                      updateSearchFromToggles(
+                        includeTitle,
+                        includeArtist,
+                        checked === true,
+                      )
                     }
                     className="h-3.5 w-3.5"
                   />
-                  <label htmlFor={`album-${position}`} className="text-xs cursor-pointer">
+                  <label
+                    htmlFor={`album-${position}`}
+                    className="text-xs cursor-pointer"
+                  >
                     Album
                   </label>
                 </div>
               )}
             </div>
-            
+
             <div className="flex gap-2">
               <Input
                 value={searchQuery}
@@ -423,8 +496,8 @@ export function MissingEntryRow({
                   }
                 }}
               />
-              <Button 
-                size="sm" 
+              <Button
+                size="sm"
                 onClick={handleSearch}
                 disabled={isSearching || !searchQuery.trim()}
                 className="h-8"
@@ -438,7 +511,7 @@ export function MissingEntryRow({
             </div>
 
             {searchResults.length > 0 && (
-              <div 
+              <div
                 className="h-[200px] max-w-full rounded border overflow-y-auto overflow-x-hidden"
                 onWheel={(e) => e.stopPropagation()}
               >
@@ -450,7 +523,9 @@ export function MissingEntryRow({
                         key={song.id}
                         className={cn(
                           "w-full text-left p-2 rounded text-sm flex items-center gap-2 overflow-hidden",
-                          isSelectedSong ? "bg-primary/10 ring-1 ring-primary" : "hover:bg-accent"
+                          isSelectedSong
+                            ? "bg-primary/10 ring-1 ring-primary"
+                            : "hover:bg-accent",
                         )}
                         onClick={() => handleSelectSong(song)}
                       >
@@ -460,9 +535,12 @@ export function MissingEntryRow({
                           <Music className="w-4 h-4 shrink-0 text-muted-foreground" />
                         )}
                         <div className="min-w-0 flex-1 overflow-hidden">
-                          <div className="font-medium truncate">{song.title}</div>
+                          <div className="font-medium truncate">
+                            {song.title}
+                          </div>
                           <div className="text-muted-foreground text-xs truncate">
-                            {song.artist}{song.album ? ` • ${song.album}` : ""}
+                            {song.artist}
+                            {song.album ? ` • ${song.album}` : ""}
                           </div>
                         </div>
                       </button>
@@ -471,7 +549,7 @@ export function MissingEntryRow({
                 </div>
               </div>
             )}
-            
+
             {/* Preview controls for selected song */}
             {selectedSong && (
               <div className="pt-2 border-t space-y-2">
@@ -492,7 +570,9 @@ export function MissingEntryRow({
                     )}
                   </Button>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{selectedSong.title}</div>
+                    <div className="text-sm font-medium truncate">
+                      {selectedSong.title}
+                    </div>
                     <Slider
                       value={[preview.progress]}
                       onValueChange={handleSeek}
@@ -551,8 +631,9 @@ export function MissingEntryRow({
           <AlertDialogHeader>
             <AlertDialogTitle>Remove missing entry?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove &quot;{missing.title || missing.raw || "Unknown Track"}&quot; from the playlist.
-              This action cannot be undone.
+              This will remove &quot;
+              {missing.title || missing.raw || "Unknown Track"}&quot; from the
+              playlist. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -617,10 +698,10 @@ export function MissingEntryCard({
   const [includeArtist, setIncludeArtist] = useState(true);
   const [includeAlbum, setIncludeAlbum] = useState(true);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
-  
+
   const queryClient = useQueryClient();
   const preview = usePreviewAudio();
-  
+
   // Mutation for matching the entry
   const matchMutation = useMutation({
     mutationFn: async (songId: string) => {
@@ -630,7 +711,9 @@ export function MissingEntryCard({
     },
     onSuccess: () => {
       toast.success("Entry matched successfully");
-      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlistId],
+      });
       setRefineDialogOpen(false);
       setSearchQuery("");
       setSearchResults([]);
@@ -638,11 +721,17 @@ export function MissingEntryCard({
       preview.stop();
     },
     onError: (error) => {
-      toast.error(`Failed to match entry: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error(
+        `Failed to match entry: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     },
   });
 
-  const buildSearchQuery = (title: boolean, artist: boolean, album: boolean) => {
+  const buildSearchQuery = (
+    title: boolean,
+    artist: boolean,
+    album: boolean,
+  ) => {
     const parts: string[] = [];
     if (artist && missing.artist) parts.push(missing.artist);
     if (album && missing.album) parts.push(missing.album);
@@ -650,7 +739,11 @@ export function MissingEntryCard({
     return parts.join(" - ").trim() || missing.raw;
   };
 
-  const updateSearchFromToggles = (title: boolean, artist: boolean, album: boolean) => {
+  const updateSearchFromToggles = (
+    title: boolean,
+    artist: boolean,
+    album: boolean,
+  ) => {
     setIncludeTitle(title);
     setIncludeArtist(artist);
     setIncludeAlbum(album);
@@ -659,13 +752,16 @@ export function MissingEntryCard({
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
-    
+
     setIsSearching(true);
     try {
       const client = getClient();
       if (!client) return;
-      
-      const response = await client.search3({ query: searchQuery.trim(), songCount: 20 });
+
+      const response = await client.search3({
+        query: searchQuery.trim(),
+        songCount: 20,
+      });
       setSearchResults(response.searchResult3?.song ?? []);
     } catch (error) {
       console.error("Search error:", error);
@@ -679,7 +775,7 @@ export function MissingEntryCard({
     const hasTitle = !!missing.title;
     const hasArtist = !!missing.artist;
     const hasAlbum = !!missing.album;
-    
+
     setIncludeTitle(hasTitle);
     setIncludeArtist(hasArtist);
     setIncludeAlbum(hasAlbum);
@@ -752,7 +848,7 @@ export function MissingEntryCard({
         "bg-orange-500/5 hover:bg-orange-500/10 transition-all",
         "border border-orange-500/30 hover:border-orange-500/50",
         "hover:shadow-lg hover:shadow-orange-500/10",
-        isSelected && "ring-2 ring-primary bg-primary/10"
+        isSelected && "ring-2 ring-primary bg-primary/10",
       )}
       onClick={openRefineDialog}
     >
@@ -760,12 +856,12 @@ export function MissingEntryCard({
       <div className="relative mb-4">
         {/* Selection checkbox */}
         {onSelect && (
-          <div 
+          <div
             className={cn(
               "absolute top-1 left-1 z-20 transition-opacity",
               isSelected || isSelectionMode
                 ? "opacity-100"
-                : "opacity-0 group-hover:opacity-100"
+                : "opacity-0 group-hover:opacity-100",
             )}
           >
             <button
@@ -775,7 +871,7 @@ export function MissingEntryCard({
                 "bg-black/50 hover:bg-black/70",
                 isSelected
                   ? "bg-primary border-primary text-primary-foreground"
-                  : "border-white/80 hover:border-primary/80"
+                  : "border-white/80 hover:border-primary/80",
               )}
               onClick={(e) => {
                 e.preventDefault();
@@ -802,18 +898,37 @@ export function MissingEntryCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openRefineDialog(); }}>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openRefineDialog();
+                }}
+              >
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Refine Match
               </DropdownMenuItem>
               {showMoveToPosition && onMoveToPosition && (
-                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onMoveToPosition(missing.title || missing.raw || "Unknown Track", position); }}>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMoveToPosition(
+                      missing.title || missing.raw || "Unknown Track",
+                      position,
+                    );
+                  }}
+                >
                   <ArrowRightLeft className="w-4 h-4 mr-2" />
                   Move to Position
                 </DropdownMenuItem>
               )}
               {onRemove && (
-                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleRemoveClick(); }} className="text-destructive focus:text-destructive">
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemoveClick();
+                  }}
+                  className="text-destructive focus:text-destructive"
+                >
                   <Trash2 className="w-4 h-4 mr-2" />
                   Remove from Playlist
                 </DropdownMenuItem>
@@ -823,10 +938,10 @@ export function MissingEntryCard({
         </div>
 
         {/* Placeholder cover */}
-        <div 
+        <div
           className={cn(
             "aspect-square rounded-md overflow-hidden",
-            "bg-orange-500/20 flex items-center justify-center"
+            "bg-orange-500/20 flex items-center justify-center",
           )}
         >
           <AlertCircle className="w-12 h-12 text-orange-500" />
@@ -853,19 +968,32 @@ export function MissingEntryCard({
     <>
       <ContextMenu>
         <ContextMenuTrigger asChild>{cardContent}</ContextMenuTrigger>
-        <ContextMenuContent className="w-48" onDoubleClick={(e) => e.stopPropagation()}>
+        <ContextMenuContent
+          className="w-48"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
           <ContextMenuItem onClick={openRefineDialog}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Refine Match
           </ContextMenuItem>
           {showMoveToPosition && onMoveToPosition && (
-            <ContextMenuItem onClick={() => onMoveToPosition(missing.title || missing.raw || "Unknown Track", position)}>
+            <ContextMenuItem
+              onClick={() =>
+                onMoveToPosition(
+                  missing.title || missing.raw || "Unknown Track",
+                  position,
+                )
+              }
+            >
               <ArrowRightLeft className="w-4 h-4 mr-2" />
               Move to Position
             </ContextMenuItem>
           )}
           {onRemove && (
-            <ContextMenuItem onClick={handleRemoveClick} className="text-destructive focus:text-destructive">
+            <ContextMenuItem
+              onClick={handleRemoveClick}
+              className="text-destructive focus:text-destructive"
+            >
               <Trash2 className="w-4 h-4 mr-2" />
               Remove from Playlist
             </ContextMenuItem>
@@ -886,12 +1014,19 @@ export function MissingEntryCard({
                   <Checkbox
                     id={`card-title-${position}`}
                     checked={includeTitle}
-                    onCheckedChange={(checked) => 
-                      updateSearchFromToggles(checked === true, includeArtist, includeAlbum)
+                    onCheckedChange={(checked) =>
+                      updateSearchFromToggles(
+                        checked === true,
+                        includeArtist,
+                        includeAlbum,
+                      )
                     }
                     className="h-3.5 w-3.5"
                   />
-                  <label htmlFor={`card-title-${position}`} className="text-xs cursor-pointer">
+                  <label
+                    htmlFor={`card-title-${position}`}
+                    className="text-xs cursor-pointer"
+                  >
                     Title
                   </label>
                 </div>
@@ -901,12 +1036,19 @@ export function MissingEntryCard({
                   <Checkbox
                     id={`card-artist-${position}`}
                     checked={includeArtist}
-                    onCheckedChange={(checked) => 
-                      updateSearchFromToggles(includeTitle, checked === true, includeAlbum)
+                    onCheckedChange={(checked) =>
+                      updateSearchFromToggles(
+                        includeTitle,
+                        checked === true,
+                        includeAlbum,
+                      )
                     }
                     className="h-3.5 w-3.5"
                   />
-                  <label htmlFor={`card-artist-${position}`} className="text-xs cursor-pointer">
+                  <label
+                    htmlFor={`card-artist-${position}`}
+                    className="text-xs cursor-pointer"
+                  >
                     Artist
                   </label>
                 </div>
@@ -916,18 +1058,25 @@ export function MissingEntryCard({
                   <Checkbox
                     id={`card-album-${position}`}
                     checked={includeAlbum}
-                    onCheckedChange={(checked) => 
-                      updateSearchFromToggles(includeTitle, includeArtist, checked === true)
+                    onCheckedChange={(checked) =>
+                      updateSearchFromToggles(
+                        includeTitle,
+                        includeArtist,
+                        checked === true,
+                      )
                     }
                     className="h-3.5 w-3.5"
                   />
-                  <label htmlFor={`card-album-${position}`} className="text-xs cursor-pointer">
+                  <label
+                    htmlFor={`card-album-${position}`}
+                    className="text-xs cursor-pointer"
+                  >
                     Album
                   </label>
                 </div>
               )}
             </div>
-            
+
             <div className="flex gap-2">
               <Input
                 value={searchQuery}
@@ -941,8 +1090,8 @@ export function MissingEntryCard({
                   }
                 }}
               />
-              <Button 
-                size="sm" 
+              <Button
+                size="sm"
                 onClick={handleSearch}
                 disabled={isSearching || !searchQuery.trim()}
                 className="h-8"
@@ -956,7 +1105,7 @@ export function MissingEntryCard({
             </div>
 
             {searchResults.length > 0 && (
-              <div 
+              <div
                 className="h-[200px] max-w-full rounded border overflow-y-auto overflow-x-hidden"
                 onWheel={(e) => e.stopPropagation()}
               >
@@ -968,7 +1117,9 @@ export function MissingEntryCard({
                         key={song.id}
                         className={cn(
                           "w-full text-left p-2 rounded text-sm flex items-center gap-2 overflow-hidden",
-                          isSelectedSong ? "bg-primary/10 ring-1 ring-primary" : "hover:bg-accent"
+                          isSelectedSong
+                            ? "bg-primary/10 ring-1 ring-primary"
+                            : "hover:bg-accent",
                         )}
                         onClick={() => handleSelectSong(song)}
                       >
@@ -978,9 +1129,12 @@ export function MissingEntryCard({
                           <Music className="w-4 h-4 shrink-0 text-muted-foreground" />
                         )}
                         <div className="min-w-0 flex-1 overflow-hidden">
-                          <div className="font-medium truncate">{song.title}</div>
+                          <div className="font-medium truncate">
+                            {song.title}
+                          </div>
                           <div className="text-muted-foreground text-xs truncate">
-                            {song.artist}{song.album ? ` • ${song.album}` : ""}
+                            {song.artist}
+                            {song.album ? ` • ${song.album}` : ""}
                           </div>
                         </div>
                       </button>
@@ -1010,7 +1164,9 @@ export function MissingEntryCard({
                     )}
                   </Button>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{selectedSong.title}</div>
+                    <div className="text-sm font-medium truncate">
+                      {selectedSong.title}
+                    </div>
                     <Slider
                       value={[preview.progress]}
                       onValueChange={handleSeek}
@@ -1068,8 +1224,9 @@ export function MissingEntryCard({
           <AlertDialogHeader>
             <AlertDialogTitle>Remove missing entry?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove &quot;{missing.title || missing.raw || "Unknown Track"}&quot; from the playlist.
-              This action cannot be undone.
+              This will remove &quot;
+              {missing.title || missing.raw || "Unknown Track"}&quot; from the
+              playlist. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

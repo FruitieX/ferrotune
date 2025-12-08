@@ -9,13 +9,19 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isScanningAtom, scanDialogOpenAtom, scanProgressAtom } from "@/lib/store/scan";
+import {
+  isScanningAtom,
+  scanDialogOpenAtom,
+  scanProgressAtom,
+} from "@/lib/store/scan";
 
 interface ScanStatusIndicatorProps {
   collapsed?: boolean;
 }
 
-export function ScanStatusIndicator({ collapsed = false }: ScanStatusIndicatorProps) {
+export function ScanStatusIndicator({
+  collapsed = false,
+}: ScanStatusIndicatorProps) {
   const isScanning = useAtomValue(isScanningAtom);
   const progress = useAtomValue(scanProgressAtom);
   const setDialogOpen = useSetAtom(scanDialogOpenAtom);
@@ -30,9 +36,10 @@ export function ScanStatusIndicator({ collapsed = false }: ScanStatusIndicatorPr
       ? Math.round((progress.scanned / progress.total) * 100)
       : undefined;
 
-  const statusText = progressPercent !== undefined 
-    ? `Scanning... ${progressPercent}%` 
-    : "Scanning...";
+  const statusText =
+    progressPercent !== undefined
+      ? `Scanning... ${progressPercent}%`
+      : "Scanning...";
 
   if (collapsed) {
     return (
@@ -59,7 +66,7 @@ export function ScanStatusIndicator({ collapsed = false }: ScanStatusIndicatorPr
       variant="ghost"
       className={cn(
         "w-full justify-start gap-4 h-10 px-3",
-        "hover:bg-sidebar-accent overflow-hidden"
+        "hover:bg-sidebar-accent overflow-hidden",
       )}
       onClick={() => setDialogOpen(true)}
     >

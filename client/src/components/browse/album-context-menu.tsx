@@ -32,7 +32,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
-import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
+import {
+  startQueueAtom,
+  addToQueueAtom,
+  type QueueSourceType,
+} from "@/lib/store/server-queue";
 import { useInvalidateFavorites } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
 import type { Album, Song } from "@/lib/api/types";
@@ -88,7 +92,7 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
   const handlePlayNext = async () => {
     const songs = await fetchSongs();
     if (songs && songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position: "next" });
+      addToQueue({ songIds: songs.map((s) => s.id), position: "next" });
       toast.success(`Added "${album.name}" to play next`);
     } else {
       toast.error("No songs in this album");
@@ -98,7 +102,7 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
   const handleAddToQueue = async () => {
     const songs = await fetchSongs();
     if (songs && songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position: "end" });
+      addToQueue({ songIds: songs.map((s) => s.id), position: "end" });
       toast.success(`Added "${album.name}" to queue`);
     } else {
       toast.error("No songs in this album");
@@ -162,7 +166,9 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onClick={handleStar}>
-        <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
+        <Heart
+          className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`}
+        />
         {isStarred ? "Remove from Favorites" : "Add to Favorites"}
       </ContextMenuItem>
       <ContextMenuSeparator />
@@ -183,7 +189,12 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
     <>
       <ContextMenu>
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent className="w-56" onDoubleClick={(e) => e.stopPropagation()}>{menuItems}</ContextMenuContent>
+        <ContextMenuContent
+          className="w-56"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          {menuItems}
+        </ContextMenuContent>
       </ContextMenu>
       {albumSongs && (
         <AddToPlaylistDialog
@@ -208,7 +219,11 @@ interface AlbumDropdownMenuProps {
   trigger?: React.ReactNode;
 }
 
-export function AlbumDropdownMenu({ album, onPlay, trigger }: AlbumDropdownMenuProps) {
+export function AlbumDropdownMenu({
+  album,
+  onPlay,
+  trigger,
+}: AlbumDropdownMenuProps) {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const invalidateFavorites = useInvalidateFavorites();
@@ -258,7 +273,7 @@ export function AlbumDropdownMenu({ album, onPlay, trigger }: AlbumDropdownMenuP
   const handlePlayNext = async () => {
     const songs = await fetchSongs();
     if (songs && songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position: "next" });
+      addToQueue({ songIds: songs.map((s) => s.id), position: "next" });
       toast.success(`Added "${album.name}" to play next`);
     } else {
       toast.error("No songs in this album");
@@ -268,7 +283,7 @@ export function AlbumDropdownMenu({ album, onPlay, trigger }: AlbumDropdownMenuP
   const handleAddToQueue = async () => {
     const songs = await fetchSongs();
     if (songs && songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position: "end" });
+      addToQueue({ songIds: songs.map((s) => s.id), position: "end" });
       toast.success(`Added "${album.name}" to queue`);
     } else {
       toast.error("No songs in this album");
@@ -327,7 +342,11 @@ export function AlbumDropdownMenu({ album, onPlay, trigger }: AlbumDropdownMenuP
         <DropdownMenuTrigger asChild>
           {trigger ?? defaultTrigger}
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56" onDoubleClick={(e) => e.stopPropagation()}>
+        <DropdownMenuContent
+          align="end"
+          className="w-56"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
           <DropdownMenuItem onClick={handlePlay}>
             <Play className="w-4 h-4 mr-2" />
             Play
@@ -351,7 +370,9 @@ export function AlbumDropdownMenu({ album, onPlay, trigger }: AlbumDropdownMenuP
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleStar}>
-            <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
+            <Heart
+              className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`}
+            />
             {isStarred ? "Remove from Favorites" : "Add to Favorites"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />

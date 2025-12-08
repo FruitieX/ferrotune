@@ -27,7 +27,10 @@ import {
   advancedFiltersAtom,
   type SortField,
 } from "@/lib/store/ui";
-import { shuffleExcludesAtom, shuffleExcludesLoadingAtom } from "@/lib/store/shuffle-excludes";
+import {
+  shuffleExcludesAtom,
+  shuffleExcludesLoadingAtom,
+} from "@/lib/store/shuffle-excludes";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +43,10 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
-import { FilterPopover, ActiveFilterBadges } from "@/components/shared/filter-popover";
+import {
+  FilterPopover,
+  ActiveFilterBadges,
+} from "@/components/shared/filter-popover";
 import { cn } from "@/lib/utils";
 
 const tabs = [
@@ -60,7 +66,10 @@ const sortOptions: { value: SortField; label: string }[] = [
   { value: "duration", label: "Duration" },
 ];
 
-const columnOptions: { key: keyof import("@/lib/store/ui").ColumnVisibility; label: string }[] = [
+const columnOptions: {
+  key: keyof import("@/lib/store/ui").ColumnVisibility;
+  label: string;
+}[] = [
   { key: "artist", label: "Artist" },
   { key: "album", label: "Album" },
   { key: "duration", label: "Duration" },
@@ -82,13 +91,13 @@ export default function LibraryLayout({
   const setAdvancedFilters = useSetAtom(advancedFiltersAtom);
   const setShuffleExcludes = useSetAtom(shuffleExcludesAtom);
   const setShuffleExcludesLoading = useSetAtom(shuffleExcludesLoadingAtom);
-  
+
   // Load shuffle excludes on mount
   useEffect(() => {
     const loadShuffleExcludes = async () => {
       const client = getClient();
       if (!client) return;
-      
+
       setShuffleExcludesLoading(true);
       try {
         const response = await client.getAllShuffleExcludes();
@@ -99,10 +108,10 @@ export default function LibraryLayout({
         setShuffleExcludesLoading(false);
       }
     };
-    
+
     loadShuffleExcludes();
   }, [setShuffleExcludes, setShuffleExcludesLoading]);
-  
+
   // Clear filter when navigating away from library
   useEffect(() => {
     return () => {
@@ -110,15 +119,15 @@ export default function LibraryLayout({
       setAdvancedFilters({});
     };
   }, [setFilter, setAdvancedFilters]);
-  
+
   // Check which library tab we're on for conditional filter options
   const isSongsTab = pathname === "/library/songs";
   const isAlbumsTab = pathname === "/library/albums";
   const isArtistsTab = pathname === "/library/artists";
-  
+
   // Don't show tabs on detail pages
   const isDetailPage = pathname.includes("/details");
-  
+
   if (isDetailPage) {
     return <>{children}</>;
   }
@@ -227,8 +236,16 @@ export default function LibraryLayout({
                   {columnOptions.map((option) => (
                     <DropdownMenuCheckboxItem
                       key={option.key}
-                      checked={columnVisibility[option.key as keyof typeof columnVisibility]}
-                      onCheckedChange={() => toggleColumn(option.key as keyof typeof columnVisibility)}
+                      checked={
+                        columnVisibility[
+                          option.key as keyof typeof columnVisibility
+                        ]
+                      }
+                      onCheckedChange={() =>
+                        toggleColumn(
+                          option.key as keyof typeof columnVisibility,
+                        )
+                      }
                     >
                       {option.label}
                     </DropdownMenuCheckboxItem>
@@ -257,10 +274,10 @@ export default function LibraryLayout({
             >
               <List className="w-4 h-4" />
             </Button>
-            
+
             {/* Advanced filters - on songs, albums, and artists tabs */}
             {(isSongsTab || isAlbumsTab || isArtistsTab) && (
-              <FilterPopover 
+              <FilterPopover
                 showOptions={{
                   year: isSongsTab || isAlbumsTab,
                   genre: isSongsTab || isAlbumsTab,
@@ -276,7 +293,7 @@ export default function LibraryLayout({
             )}
           </div>
         </div>
-        
+
         {/* Active filter badges - reserve space to prevent layout shift */}
         <div className="px-4 lg:px-6 min-h-2">
           {(isSongsTab || isAlbumsTab || isArtistsTab) && (
@@ -286,7 +303,10 @@ export default function LibraryLayout({
       </header>
 
       {/* Tab Navigation */}
-      <nav className="sticky top-[73px] z-20 bg-background/80 backdrop-blur-lg border-b border-border" aria-label="Library sections">
+      <nav
+        className="sticky top-[73px] z-20 bg-background/80 backdrop-blur-lg border-b border-border"
+        aria-label="Library sections"
+      >
         <div className="h-12 flex items-center px-4 lg:px-6 gap-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -300,7 +320,7 @@ export default function LibraryLayout({
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   isActive
                     ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent/70"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/70",
                 )}
                 aria-current={isActive ? "page" : undefined}
               >

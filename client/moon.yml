@@ -1,55 +1,55 @@
 # Moon project configuration for ferrotune client
 # https://moonrepo.dev/docs/config/project
 
-$schema: 'https://moonrepo.dev/schemas/project.json'
+$schema: "https://moonrepo.dev/schemas/project.json"
 
 # Project metadata
 project:
-  name: 'ferrotune-client'
-  description: 'Modern web client for Ferrotune music server'
-  channel: '#ferrotune'
+  name: "ferrotune-client"
+  description: "Modern web client for Ferrotune music server"
+  channel: "#ferrotune"
 
 # File groups for task inputs
 fileGroups:
   sources:
-    - 'src/**/*'
-    - 'public/**/*'
-    - 'next.config.ts'
-    - 'tsconfig.json'
-    - 'package.json'
+    - "src/**/*"
+    - "public/**/*"
+    - "next.config.ts"
+    - "tsconfig.json"
+    - "package.json"
   e2e:
-    - 'e2e/**/*'
-    - 'playwright.config.ts'
+    - "e2e/**/*"
+    - "playwright.config.ts"
   styles:
-    - 'src/**/*.css'
-    - 'postcss.config.mjs'
-    - 'components.json'
+    - "src/**/*.css"
+    - "postcss.config.mjs"
+    - "components.json"
 
 # Tasks
 tasks:
   # ============================================================================
   # SETUP
   # ============================================================================
-  
+
   install:
-    command: 'npm install'
+    command: "npm install"
     inputs:
-      - 'package.json'
-      - 'package-lock.json'
+      - "package.json"
+      - "package-lock.json"
     outputs:
-      - 'node_modules'
+      - "node_modules"
 
   # ============================================================================
   # DEVELOPMENT
   # ============================================================================
 
   dev:
-    command: 'npm run dev'
+    command: "npm run dev"
     inputs:
-      - '@group(sources)'
+      - "@group(sources)"
     deps:
-      - 'install'
-      - 'ferrotune:generate-bindings'
+      - "install"
+      - "ferrotune:generate-bindings"
     options:
       persistent: true
       runInCI: false
@@ -59,209 +59,227 @@ tasks:
   # ============================================================================
 
   build:
-    command: 'npm run build'
+    command: "npm run build"
     inputs:
-      - '@group(sources)'
-      - '@group(styles)'
+      - "@group(sources)"
+      - "@group(styles)"
     outputs:
-      - '.next'
+      - ".next"
     deps:
-      - 'install'
-      - 'ferrotune:generate-bindings'
+      - "install"
+      - "ferrotune:generate-bindings"
 
   build-export:
-    command: 'npm run build'
+    command: "npm run build"
     inputs:
-      - '@group(sources)'
-      - '@group(styles)'
+      - "@group(sources)"
+      - "@group(styles)"
     outputs:
-      - 'out'
+      - "out"
     deps:
-      - 'install'
-      - 'ferrotune:generate-bindings'
+      - "install"
+      - "ferrotune:generate-bindings"
     env:
-      NEXT_OUTPUT_STATIC: '1'
+      NEXT_OUTPUT_STATIC: "1"
 
   # ============================================================================
   # CODE QUALITY
   # ============================================================================
 
   lint:
-    command: 'npm run lint'
+    command: "npm run lint"
     inputs:
-      - '@group(sources)'
+      - "@group(sources)"
     deps:
-      - 'install'
-      - 'ferrotune:generate-bindings'
+      - "install"
+      - "ferrotune:generate-bindings"
 
   typecheck:
-    command: 'npx tsc --noEmit'
+    command: "npx tsc --noEmit"
     inputs:
-      - '@group(sources)'
+      - "@group(sources)"
     deps:
-      - 'install'
-      - 'ferrotune:generate-bindings'
+      - "install"
+      - "ferrotune:generate-bindings"
+
+  fmt:
+    command: "npx prettier --write ."
+    inputs:
+      - "@group(sources)"
+      - "@group(e2e)"
+    deps:
+      - "install"
+    options:
+      runInCI: false
+
+  fmt-check:
+    command: "npx prettier --check ."
+    inputs:
+      - "@group(sources)"
+      - "@group(e2e)"
+    deps:
+      - "install"
 
   # ============================================================================
   # E2E TESTS
   # ============================================================================
 
   test:
-    command: 'npx playwright test'
+    command: "npx playwright test"
     inputs:
-      - '@group(sources)'
-      - '@group(e2e)'
+      - "@group(sources)"
+      - "@group(e2e)"
     deps:
-      - 'install'
-      - 'ferrotune:build'
-      - 'ferrotune:generate-fixtures'
+      - "install"
+      - "ferrotune:build"
+      - "ferrotune:generate-fixtures"
     env:
-      CI: 'true'
+      CI: "true"
     options:
       timeout: 600
 
   test-e2e:
-    command: 'npx playwright test'
+    command: "npx playwright test"
     inputs:
-      - '@group(sources)'
-      - '@group(e2e)'
+      - "@group(sources)"
+      - "@group(e2e)"
     deps:
-      - 'install'
-      - 'ferrotune:build'
-      - 'ferrotune:generate-fixtures'
+      - "install"
+      - "ferrotune:build"
+      - "ferrotune:generate-fixtures"
     options:
       timeout: 600
 
   test-e2e-ui:
-    command: 'npx playwright test --ui'
+    command: "npx playwright test --ui"
     inputs:
-      - '@group(sources)'
-      - '@group(e2e)'
+      - "@group(sources)"
+      - "@group(e2e)"
     deps:
-      - 'install'
-      - 'ferrotune:build'
-      - 'ferrotune:generate-fixtures'
+      - "install"
+      - "ferrotune:build"
+      - "ferrotune:generate-fixtures"
     options:
       runInCI: false
       persistent: true
 
   test-e2e-headed:
-    command: 'npx playwright test --headed'
+    command: "npx playwright test --headed"
     inputs:
-      - '@group(sources)'
-      - '@group(e2e)'
+      - "@group(sources)"
+      - "@group(e2e)"
     deps:
-      - 'install'
-      - 'ferrotune:build'
-      - 'ferrotune:generate-fixtures'
+      - "install"
+      - "ferrotune:build"
+      - "ferrotune:generate-fixtures"
     options:
       runInCI: false
       timeout: 600
 
   test-e2e-debug:
-    command: 'npx playwright test --debug'
+    command: "npx playwright test --debug"
     inputs:
-      - '@group(sources)'
-      - '@group(e2e)'
+      - "@group(sources)"
+      - "@group(e2e)"
     deps:
-      - 'install'
-      - 'ferrotune:build'
-      - 'ferrotune:generate-fixtures'
+      - "install"
+      - "ferrotune:build"
+      - "ferrotune:generate-fixtures"
     options:
       runInCI: false
       persistent: true
 
   # Individual test spec files
   test-auth:
-    command: 'npx playwright test auth.spec.ts'
+    command: "npx playwright test auth.spec.ts"
     inputs:
-      - '@group(sources)'
-      - 'e2e/auth.spec.ts'
-      - 'e2e/fixtures.ts'
+      - "@group(sources)"
+      - "e2e/auth.spec.ts"
+      - "e2e/fixtures.ts"
     deps:
-      - 'install'
-      - 'ferrotune:build'
-      - 'ferrotune:generate-fixtures'
+      - "install"
+      - "ferrotune:build"
+      - "ferrotune:generate-fixtures"
 
   test-browse:
-    command: 'npx playwright test browse.spec.ts'
+    command: "npx playwright test browse.spec.ts"
     inputs:
-      - '@group(sources)'
-      - 'e2e/browse.spec.ts'
-      - 'e2e/fixtures.ts'
+      - "@group(sources)"
+      - "e2e/browse.spec.ts"
+      - "e2e/fixtures.ts"
     deps:
-      - 'install'
-      - 'ferrotune:build'
-      - 'ferrotune:generate-fixtures'
+      - "install"
+      - "ferrotune:build"
+      - "ferrotune:generate-fixtures"
 
   test-search:
-    command: 'npx playwright test search.spec.ts'
+    command: "npx playwright test search.spec.ts"
     inputs:
-      - '@group(sources)'
-      - 'e2e/search.spec.ts'
-      - 'e2e/fixtures.ts'
+      - "@group(sources)"
+      - "e2e/search.spec.ts"
+      - "e2e/fixtures.ts"
     deps:
-      - 'install'
-      - 'ferrotune:build'
-      - 'ferrotune:generate-fixtures'
+      - "install"
+      - "ferrotune:build"
+      - "ferrotune:generate-fixtures"
 
   test-playback:
-    command: 'npx playwright test playback.spec.ts'
+    command: "npx playwright test playback.spec.ts"
     inputs:
-      - '@group(sources)'
-      - 'e2e/playback.spec.ts'
-      - 'e2e/fixtures.ts'
+      - "@group(sources)"
+      - "e2e/playback.spec.ts"
+      - "e2e/fixtures.ts"
     deps:
-      - 'install'
-      - 'ferrotune:build'
-      - 'ferrotune:generate-fixtures'
+      - "install"
+      - "ferrotune:build"
+      - "ferrotune:generate-fixtures"
 
   test-queue:
-    command: 'npx playwright test queue.spec.ts'
+    command: "npx playwright test queue.spec.ts"
     inputs:
-      - '@group(sources)'
-      - 'e2e/queue.spec.ts'
-      - 'e2e/fixtures.ts'
+      - "@group(sources)"
+      - "e2e/queue.spec.ts"
+      - "e2e/fixtures.ts"
     deps:
-      - 'install'
-      - 'ferrotune:build'
-      - 'ferrotune:generate-fixtures'
+      - "install"
+      - "ferrotune:build"
+      - "ferrotune:generate-fixtures"
 
   test-starring:
-    command: 'npx playwright test starring.spec.ts'
+    command: "npx playwright test starring.spec.ts"
     inputs:
-      - '@group(sources)'
-      - 'e2e/starring.spec.ts'
-      - 'e2e/fixtures.ts'
+      - "@group(sources)"
+      - "e2e/starring.spec.ts"
+      - "e2e/fixtures.ts"
     deps:
-      - 'install'
-      - 'ferrotune:build'
-      - 'ferrotune:generate-fixtures'
+      - "install"
+      - "ferrotune:build"
+      - "ferrotune:generate-fixtures"
 
   test-playlists:
-    command: 'npx playwright test playlists.spec.ts'
+    command: "npx playwright test playlists.spec.ts"
     inputs:
-      - '@group(sources)'
-      - 'e2e/playlists.spec.ts'
-      - 'e2e/fixtures.ts'
+      - "@group(sources)"
+      - "e2e/playlists.spec.ts"
+      - "e2e/fixtures.ts"
     deps:
-      - 'install'
-      - 'ferrotune:build'
-      - 'ferrotune:generate-fixtures'
+      - "install"
+      - "ferrotune:build"
+      - "ferrotune:generate-fixtures"
 
   # ============================================================================
   # PLAYWRIGHT UTILITIES
   # ============================================================================
 
   playwright-install:
-    command: 'npx playwright install chromium'
+    command: "npx playwright install chromium"
     deps:
-      - 'install'
+      - "install"
     options:
       runInCI: true
 
   playwright-report:
-    command: 'npx playwright show-report'
+    command: "npx playwright show-report"
     options:
       runInCI: false
       persistent: true
@@ -271,17 +289,17 @@ tasks:
   # ============================================================================
 
   clean:
-    command: 'rm -rf .next node_modules test-results playwright-report'
+    command: "rm -rf .next node_modules test-results playwright-report"
     options:
       cache: false
       runInCI: false
 
   start:
-    command: 'npm run start'
+    command: "npm run start"
     inputs:
-      - '.next'
+      - ".next"
     deps:
-      - 'build'
+      - "build"
     options:
       persistent: true
       runInCI: false
@@ -290,9 +308,16 @@ tasks:
   # CI PIPELINE
   # ============================================================================
 
+  # Lite CI without E2E tests (for faster CI when E2E is disabled)
+  ci-lite:
+    deps:
+      - "fmt-check"
+      - "lint"
+      - "typecheck"
+      - "build"
+
+  # Full CI including E2E tests
   ci:
     deps:
-      - 'lint'
-      - 'typecheck'
-      - 'build'
-      - 'test-e2e'
+      - "ci-lite"
+      - "test-e2e"

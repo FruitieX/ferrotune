@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo, useRef, Suspense } from "react";
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  Suspense,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAtom, useSetAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
@@ -11,12 +18,24 @@ import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
-import { genreDetailViewModeAtom, genreDetailSortAtom, genreDetailColumnVisibilityAtom } from "@/lib/store/ui";
+import {
+  genreDetailViewModeAtom,
+  genreDetailSortAtom,
+  genreDetailColumnVisibilityAtom,
+} from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
-import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
-import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
+import {
+  SongRow,
+  SongRowSkeleton,
+  SongCard,
+  SongCardSkeleton,
+} from "@/components/browse/song-row";
+import {
+  VirtualizedGrid,
+  VirtualizedList,
+} from "@/components/shared/virtualized-grid";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
@@ -33,19 +52,23 @@ function GenreDetailContent() {
   const encodedName = searchParams.get("name");
   const genreName = encodedName ? decodeURIComponent(encodedName) : null;
   const router = useRouter();
-  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({
+    redirectToLogin: true,
+  });
   const isMounted = useIsMounted();
   const startQueue = useSetAtom(startQueueAtom);
   const loadMoreRef = useRef<HTMLDivElement>(null);
-  
+
   // Filter state
   const [filter, setFilter] = useState("");
   const debouncedFilter = useDebounce(filter, 300);
-  
+
   // View settings
   const [viewMode, setViewMode] = useAtom(genreDetailViewModeAtom);
   const [sortConfig, setSortConfig] = useAtom(genreDetailSortAtom);
-  const [columnVisibility, setColumnVisibility] = useAtom(genreDetailColumnVisibilityAtom);
+  const [columnVisibility, setColumnVisibility] = useAtom(
+    genreDetailColumnVisibilityAtom,
+  );
 
   // Redirect to library if no name
   useEffect(() => {
@@ -93,7 +116,10 @@ function GenreDetailContent() {
       });
       return {
         albums: response.albumList2.album ?? [],
-        nextOffset: response.albumList2.album?.length === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
+        nextOffset:
+          response.albumList2.album?.length === PAGE_SIZE
+            ? pageParam + PAGE_SIZE
+            : undefined,
       };
     },
     getNextPageParam: (lastPage) => lastPage.nextOffset,
@@ -109,7 +135,14 @@ function GenreDetailContent() {
     hasNextPage: hasNextSongsPage,
     isFetchingNextPage: isFetchingNextSongsPage,
   } = useInfiniteQuery({
-    queryKey: ["songs", "byGenre", genreName, sortConfig.field, sortConfig.direction, debouncedFilter],
+    queryKey: [
+      "songs",
+      "byGenre",
+      genreName,
+      sortConfig.field,
+      sortConfig.direction,
+      debouncedFilter,
+    ],
     queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
@@ -117,12 +150,16 @@ function GenreDetailContent() {
         count: PAGE_SIZE,
         offset: pageParam,
         sort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
-        sortDir: sortConfig.field !== "custom" ? sortConfig.direction : undefined,
+        sortDir:
+          sortConfig.field !== "custom" ? sortConfig.direction : undefined,
         filter: debouncedFilter.trim() || undefined,
       });
       return {
         songs: response.songsByGenre.song ?? [],
-        nextOffset: (response.songsByGenre.song?.length ?? 0) === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
+        nextOffset:
+          (response.songsByGenre.song?.length ?? 0) === PAGE_SIZE
+            ? pageParam + PAGE_SIZE
+            : undefined,
       };
     },
     getNextPageParam: (lastPage) => lastPage.nextOffset,
@@ -138,7 +175,7 @@ function GenreDetailContent() {
         fetchNextPage();
       }
     },
-    [fetchNextPage, hasNextPage, isFetchingNextPage]
+    [fetchNextPage, hasNextPage, isFetchingNextPage],
   );
 
   useEffect(() => {
@@ -160,19 +197,27 @@ function GenreDetailContent() {
 
   // Flatten songs from all pages - already sorted and filtered by server
   const displaySongs = songsData?.pages.flatMap((page) => page.songs) ?? [];
-  
+
   // Queue source for genre songs - server materializes with same sort/filter
-  const genreQueueSource = useMemo(() => ({
-    type: "genre" as QueueSourceType,
-    id: genreName,
-    name: genreName ?? "Genre",
-    filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
-    sort: sortConfig.field !== "custom" ? {
-      field: sortConfig.field,
-      direction: sortConfig.direction,
-    } : undefined,
-  }), [genreName, debouncedFilter, sortConfig.field, sortConfig.direction]);
-  
+  const genreQueueSource = useMemo(
+    () => ({
+      type: "genre" as QueueSourceType,
+      id: genreName,
+      name: genreName ?? "Genre",
+      filters: debouncedFilter.trim()
+        ? { filter: debouncedFilter.trim() }
+        : undefined,
+      sort:
+        sortConfig.field !== "custom"
+          ? {
+              field: sortConfig.field,
+              direction: sortConfig.direction,
+            }
+          : undefined,
+    }),
+    [genreName, debouncedFilter, sortConfig.field, sortConfig.direction],
+  );
+
   // Multi-selection support for songs
   const selection = useTrackSelection(displaySongs);
 
@@ -185,11 +230,16 @@ function GenreDetailContent() {
       sourceName: genreName,
       startIndex: 0,
       shuffle: false,
-      filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
-      sort: sortConfig.field !== "custom" ? {
-        field: sortConfig.field,
-        direction: sortConfig.direction,
-      } : undefined,
+      filters: debouncedFilter.trim()
+        ? { filter: debouncedFilter.trim() }
+        : undefined,
+      sort:
+        sortConfig.field !== "custom"
+          ? {
+              field: sortConfig.field,
+              direction: sortConfig.direction,
+            }
+          : undefined,
     });
   };
 
@@ -201,11 +251,16 @@ function GenreDetailContent() {
       sourceName: genreName,
       startIndex: 0,
       shuffle: true,
-      filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
-      sort: sortConfig.field !== "custom" ? {
-        field: sortConfig.field,
-        direction: sortConfig.direction,
-      } : undefined,
+      filters: debouncedFilter.trim()
+        ? { filter: debouncedFilter.trim() }
+        : undefined,
+      sort:
+        sortConfig.field !== "custom"
+          ? {
+              field: sortConfig.field,
+              direction: sortConfig.direction,
+            }
+          : undefined,
     });
   };
 
@@ -215,7 +270,7 @@ function GenreDetailContent() {
       startQueue({
         sourceType: "other",
         sourceName: `${genreName} (selection)`,
-        songIds: selectedSongs.map(s => s.id),
+        songIds: selectedSongs.map((s) => s.id),
       });
       selection.clearSelection();
     }
@@ -284,7 +339,7 @@ function GenreDetailContent() {
             ))}
           </div>
         ) : allAlbums.length > 0 ? (
-          <motion.div 
+          <motion.div
             className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
             initial="hidden"
             animate="visible"
@@ -300,7 +355,10 @@ function GenreDetailContent() {
                   visible: { opacity: 1, y: 0 },
                 }}
               >
-                <AlbumCard album={album} onPlay={() => handlePlayAlbum(album)} />
+                <AlbumCard
+                  album={album}
+                  onPlay={() => handlePlayAlbum(album)}
+                />
               </motion.div>
             ))}
           </motion.div>
@@ -370,9 +428,9 @@ function GenreDetailContent() {
               <VirtualizedList
                 items={displaySongs}
                 renderItem={(song, index) => (
-                  <SongRow 
-                    song={song} 
-                    index={index} 
+                  <SongRow
+                    song={song}
+                    index={index}
                     showCover
                     showArtist={columnVisibility.artist}
                     showAlbum={columnVisibility.album}
@@ -427,11 +485,13 @@ function GenreDetailContent() {
 
 export default function GenreDetailPage() {
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen">
-        <Skeleton className="w-32 h-8" />
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-screen">
+          <Skeleton className="w-32 h-8" />
+        </div>
+      }
+    >
       <GenreDetailContent />
     </Suspense>
   );

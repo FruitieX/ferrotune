@@ -3,12 +3,7 @@
 import { useState, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import {
-  Upload,
-  FileMusic,
-  Loader2,
-  Download,
-} from "lucide-react";
+import { Upload, FileMusic, Loader2, Download } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +18,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { getClient } from "@/lib/api/client";
-import { parsePlaylist, exportOriginalLines, getFormatExtension, getFormatMimeType, type ParsedTrack, type ParseResult } from "@/lib/utils/playlist-parser";
+import {
+  parsePlaylist,
+  exportOriginalLines,
+  getFormatExtension,
+  getFormatMimeType,
+  type ParsedTrack,
+  type ParseResult,
+} from "@/lib/utils/playlist-parser";
 import type { ImportPlaylistEntry } from "@/lib/api/generated/ImportPlaylistEntry";
 import {
   MatchableTrack,
@@ -44,7 +46,11 @@ interface ImportPlaylistDialogProps {
 
 type ImportStep = "upload" | "matching" | "preview" | "importing";
 
-export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportPlaylistDialogProps) {
+export function ImportPlaylistDialog({
+  open,
+  onOpenChange,
+  folderPath,
+}: ImportPlaylistDialogProps) {
   const [step, setStep] = useState<ImportStep>("upload");
   const [playlistName, setPlaylistName] = useState("");
   const [parsedTracks, setParsedTracks] = useState<ParsedTrack[]>([]);
@@ -52,8 +58,11 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
   const [matchingProgress, setMatchingProgress] = useState(0);
   const [isMatching, setIsMatching] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [originalFormat, setOriginalFormat] = useState<ParseResult["format"]>("m3u");
-  const [originalHeaderLine, setOriginalHeaderLine] = useState<string | undefined>(undefined);
+  const [originalFormat, setOriginalFormat] =
+    useState<ParseResult["format"]>("m3u");
+  const [originalHeaderLine, setOriginalHeaderLine] = useState<
+    string | undefined
+  >(undefined);
   const [searchOptions, setSearchOptions] = useState<SearchOptions>({
     useTitle: true,
     useArtist: true,
@@ -87,9 +96,9 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
     setIsMatching(true);
     setStep("matching");
     setMatchingProgress(0);
-    
+
     const result = await matchTracks(
-      tracks.map(t => ({
+      tracks.map((t) => ({
         title: t.title,
         artist: t.artist,
         album: t.album,
@@ -97,9 +106,9 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
         raw: t.raw,
       })),
       searchOptions,
-      setMatchingProgress
+      setMatchingProgress,
     );
-    
+
     if (result) {
       setMatchedTracks(result);
       setStep("preview");
@@ -112,19 +121,19 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
     try {
       const content = await file.text();
       const result = parsePlaylist(content, file.name);
-      
+
       if (result.tracks.length === 0) {
         toast.error("No tracks found in the file");
         return;
       }
-      
+
       setParsedTracks(result.tracks);
       // Prefix with folder path if we're in a folder
       const baseName = file.name.replace(/\.[^.]+$/, "");
       setPlaylistName(folderPath ? `${folderPath}/${baseName}` : baseName);
       setOriginalFormat(result.format);
       setOriginalHeaderLine(result.headerLine);
-      
+
       // Auto-start matching
       await doMatchTracks(result.tracks);
     } catch (error) {
@@ -138,12 +147,12 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
     mutationFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      
+
       // When includeMissing is enabled, use the new import API
       if (includeMissing) {
         // Build entries array preserving order
         // Always include missing data so matched tracks can be refined later
-        const entries: ImportPlaylistEntry[] = matchedTracks.map(t => {
+        const entries: ImportPlaylistEntry[] = matchedTracks.map((t) => {
           const missingData = {
             title: t.parsed.title || null,
             artist: t.parsed.artist || null,
@@ -151,7 +160,7 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
             duration: t.parsed.duration ? Math.round(t.parsed.duration) : null,
             raw: buildSearchText(t.parsed),
           };
-          
+
           if (t.match) {
             // Include missing data even for matched tracks so they can be refined later
             return { songId: t.match.id, missing: missingData };
@@ -169,56 +178,67 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
           entries,
         });
 
-        return { 
-          matchedCount: response.matchedCount, 
-          missingCount: response.missingCount 
+        return {
+          matchedCount: response.matchedCount,
+          missingCount: response.missingCount,
         };
       }
 
       // Standard import - only matched tracks
       const matchedSongIds = matchedTracks
-        .filter(t => t.match)
-        .map(t => t.match!.id);
-      
+        .filter((t) => t.match)
+        .map((t) => t.match!.id);
+
       if (matchedSongIds.length === 0) {
         throw new Error("No tracks to import");
       }
-      
+
       // Create playlist with all matched songs
       // We need to create empty playlist first, then add songs
-      const response = await client.createPlaylist({ name: playlistName.trim() });
+      const response = await client.createPlaylist({
+        name: playlistName.trim(),
+      });
       const playlistId = response.playlist?.id;
-      
+
       if (!playlistId) {
         throw new Error("Failed to create playlist");
       }
-      
+
       // Add songs to playlist
       await client.updatePlaylist({
         playlistId,
         songIdToAdd: matchedSongIds,
       });
-      
+
       return { matchedCount: matchedSongIds.length, missingCount: 0 };
     },
     onSuccess: async (data) => {
       if (data.missingCount > 0) {
         toast.success(
-          `Playlist "${playlistName}" created with ${data.matchedCount} matched tracks and ${data.missingCount} missing entries`
+          `Playlist "${playlistName}" created with ${data.matchedCount} matched tracks and ${data.missingCount} missing entries`,
         );
       } else {
-        toast.success(`Playlist "${playlistName}" created with ${data.matchedCount} songs`);
+        toast.success(
+          `Playlist "${playlistName}" created with ${data.matchedCount} songs`,
+        );
       }
       await queryClient.invalidateQueries({ queryKey: ["playlists"] });
       handleOpenChange(false);
     },
     onError: (error) => {
-      toast.error(`Failed to create playlist: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error(
+        `Failed to create playlist: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     },
   });
 
   // Build search text for missing entries (for server-side filtering)
-  const buildSearchText = (parsed: { title?: string | null; artist?: string | null; album?: string | null; raw?: string | null }) => {
+  const buildSearchText = (parsed: {
+    title?: string | null;
+    artist?: string | null;
+    album?: string | null;
+    raw?: string | null;
+  }) => {
     const parts: string[] = [];
     if (parsed.artist) parts.push(parsed.artist);
     if (parsed.album) parts.push(parsed.album);
@@ -229,23 +249,23 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
   // Download unmatched tracks in the same format as the original file
   const downloadUnmatched = () => {
     const unmatchedIndices = matchedTracks
-      .map((t, i) => t.match ? -1 : i)
-      .filter(i => i >= 0);
+      .map((t, i) => (t.match ? -1 : i))
+      .filter((i) => i >= 0);
     if (unmatchedIndices.length === 0) return;
-    
+
     // Get the original ParsedTrack objects by index for proper export
-    const unmatchedParsed = unmatchedIndices.map(i => parsedTracks[i]);
-    
+    const unmatchedParsed = unmatchedIndices.map((i) => parsedTracks[i]);
+
     // Export using the original format
     const content = exportOriginalLines(
       unmatchedParsed,
       originalFormat,
-      originalHeaderLine
+      originalHeaderLine,
     );
-    
+
     const mimeType = getFormatMimeType(originalFormat);
     const extension = getFormatExtension(originalFormat);
-    
+
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -268,15 +288,15 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    
+
     const file = e.dataTransfer.files[0];
     if (file) {
       handleFileSelect(file);
     }
   };
 
-  const matchedCount = matchedTracks.filter(t => t.match).length;
-  const unmatchedCount = matchedTracks.filter(t => !t.match).length;
+  const matchedCount = matchedTracks.filter((t) => t.match).length;
+  const unmatchedCount = matchedTracks.filter((t) => !t.match).length;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -287,7 +307,8 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
             Import Playlist
           </DialogTitle>
           <DialogDescription>
-            Import a playlist from M3U, PLS, or CSV file. Tracks will be matched against your library.
+            Import a playlist from M3U, PLS, or CSV file. Tracks will be matched
+            against your library.
           </DialogDescription>
         </DialogHeader>
 
@@ -296,7 +317,9 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
             <div
               className={cn(
                 "border-2 border-dashed rounded-lg p-8 text-center transition-colors",
-                isDragging ? "border-primary bg-primary/10" : "border-muted-foreground/25"
+                isDragging
+                  ? "border-primary bg-primary/10"
+                  : "border-muted-foreground/25",
               )}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -313,15 +336,20 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
                 }}
               />
               <FileMusic className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-              <p className="text-lg font-medium mb-1">Drop your playlist file here</p>
+              <p className="text-lg font-medium mb-1">
+                Drop your playlist file here
+              </p>
               <p className="text-sm text-muted-foreground mb-4">
                 Supports M3U, M3U8, PLS, and CSV formats
               </p>
-              <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+              >
                 Browse Files
               </Button>
             </div>
-            
+
             {/* Search options */}
             <div className="mt-4">
               <SearchOptionsControl
@@ -351,7 +379,7 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
                   placeholder="My Imported Playlist"
                 />
               </div>
-              
+
               {/* Search options - can be changed after file selection */}
               <SearchOptionsControl
                 options={searchOptions}
@@ -360,20 +388,22 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
                 isMatching={isMatching}
                 showRematch
               />
-              
+
               {/* Match summary */}
               <MatchSummary
                 matchedCount={matchedCount}
                 unmatchedCount={unmatchedCount}
               />
-              
+
               {/* Include missing entries option */}
               {unmatchedCount > 0 && (
                 <div className="flex items-center space-x-2 pt-2">
                   <Checkbox
                     id="include-missing"
                     checked={includeMissing}
-                    onCheckedChange={(checked) => setIncludeMissing(checked === true)}
+                    onCheckedChange={(checked) =>
+                      setIncludeMissing(checked === true)
+                    }
                   />
                   <label
                     htmlFor="include-missing"
@@ -392,9 +422,13 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
             <TabbedTrackList
               tracks={matchedTracks}
               onUpdateMatch={(index, match, score) => {
-                setMatchedTracks(prev => {
+                setMatchedTracks((prev) => {
                   const updated = [...prev];
-                  updated[index] = { ...updated[index], match, matchScore: score };
+                  updated[index] = {
+                    ...updated[index],
+                    match,
+                    matchScore: score,
+                  };
                   return updated;
                 });
               }}
@@ -411,16 +445,20 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
 
         <DialogFooter className="shrink-0">
           {step === "preview" && unmatchedCount > 0 && (
-            <Button variant="outline" className="mr-auto" onClick={downloadUnmatched}>
+            <Button
+              variant="outline"
+              className="mr-auto"
+              onClick={downloadUnmatched}
+            >
               <Download className="w-4 h-4 mr-2" />
               Download Unmatched
             </Button>
           )}
-          
+
           <Button variant="outline" onClick={() => handleOpenChange(false)}>
             Cancel
           </Button>
-          
+
           {step === "preview" && (
             <Button
               onClick={() => {
@@ -428,8 +466,9 @@ export function ImportPlaylistDialog({ open, onOpenChange, folderPath }: ImportP
                 createPlaylist.mutate();
               }}
               disabled={
-                !playlistName.trim() || 
-                (matchedCount === 0 && (!includeMissing || unmatchedCount === 0)) || 
+                !playlistName.trim() ||
+                (matchedCount === 0 &&
+                  (!includeMissing || unmatchedCount === 0)) ||
                 createPlaylist.isPending
               }
             >

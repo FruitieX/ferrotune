@@ -10,44 +10,66 @@ import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
-import { playlistViewModeAtom, playlistSortAtom, playlistColumnVisibilityAtom } from "@/lib/store/ui";
+import {
+  playlistViewModeAtom,
+  playlistSortAtom,
+  playlistColumnVisibilityAtom,
+} from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
-import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
-import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
+import {
+  VirtualizedGrid,
+  VirtualizedList,
+} from "@/components/shared/virtualized-grid";
+import {
+  SongRow,
+  SongRowSkeleton,
+  SongCard,
+  SongCardSkeleton,
+} from "@/components/browse/song-row";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { formatCount, formatTotalDuration } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 
 export default function HistoryPage() {
-  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({
+    redirectToLogin: true,
+  });
   const isMounted = useIsMounted();
   const startQueue = useSetAtom(startQueueAtom);
-  
+
   // Filter and view settings
   const [filter, setFilter] = useState("");
   const debouncedFilter = useDebounce(filter, 300);
   const [viewMode, setViewMode] = useAtom(playlistViewModeAtom);
   const [sortConfig, setSortConfig] = useAtom(playlistSortAtom);
-  const [columnVisibility, setColumnVisibility] = useAtom(playlistColumnVisibilityAtom);
-  
+  const [columnVisibility, setColumnVisibility] = useAtom(
+    playlistColumnVisibilityAtom,
+  );
+
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
 
   // Fetch play history from the server with server-side sort/filter
   const { data: historyData, isLoading } = useQuery({
-    queryKey: ["playHistory", sortConfig.field, sortConfig.direction, debouncedFilter],
+    queryKey: [
+      "playHistory",
+      sortConfig.field,
+      sortConfig.direction,
+      debouncedFilter,
+    ],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getPlayHistory({ 
+      const response = await client.getPlayHistory({
         size: 500,
         sort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
-        sortDir: sortConfig.field !== "custom" ? sortConfig.direction : undefined,
+        sortDir:
+          sortConfig.field !== "custom" ? sortConfig.direction : undefined,
         filter: debouncedFilter.trim() || undefined,
       });
       return response.playHistory;
@@ -58,18 +80,27 @@ export default function HistoryPage() {
 
   // Songs come from server already sorted and filtered
   const displaySongs: Song[] = historyData?.entry ?? [];
-  
-  const totalDuration = displaySongs.reduce((acc, song) => acc + song.duration, 0);
+
+  const totalDuration = displaySongs.reduce(
+    (acc, song) => acc + song.duration,
+    0,
+  );
 
   // Queue source for history - server materializes with same sort
-  const historyQueueSource = useMemo(() => ({
-    type: "history" as QueueSourceType,
-    name: "Recently Played",
-    sort: sortConfig.field !== "custom" ? {
-      field: sortConfig.field,
-      direction: sortConfig.direction,
-    } : undefined,
-  }), [sortConfig.field, sortConfig.direction]);
+  const historyQueueSource = useMemo(
+    () => ({
+      type: "history" as QueueSourceType,
+      name: "Recently Played",
+      sort:
+        sortConfig.field !== "custom"
+          ? {
+              field: sortConfig.field,
+              direction: sortConfig.direction,
+            }
+          : undefined,
+    }),
+    [sortConfig.field, sortConfig.direction],
+  );
 
   // Track selection
   const {
@@ -90,7 +121,7 @@ export default function HistoryPage() {
       startQueue({
         sourceType: "history",
         sourceName: "Recently Played (selection)",
-        songIds: selected.map(s => s.id),
+        songIds: selected.map((s) => s.id),
       });
       clearSelection();
     }
@@ -145,7 +176,10 @@ export default function HistoryPage() {
         label="History"
         title="Recently Played"
         isLoading={isLoading}
-        subtitle={!isLoading && `${formatCount(displaySongs.length, "song")} • ${formatTotalDuration(totalDuration)}`}
+        subtitle={
+          !isLoading &&
+          `${formatCount(displaySongs.length, "song")} • ${formatTotalDuration(totalDuration)}`
+        }
       />
 
       {/* Action buttons and toolbar */}

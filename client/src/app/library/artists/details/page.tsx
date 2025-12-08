@@ -5,23 +5,35 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import {
-  Heart,
-  MoreHorizontal,
-} from "lucide-react";
+import { Heart, MoreHorizontal } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
-import { artistDetailViewModeAtom, artistDetailSortAtom, artistDetailColumnVisibilityAtom } from "@/lib/store/ui";
+import {
+  artistDetailViewModeAtom,
+  artistDetailSortAtom,
+  artistDetailColumnVisibilityAtom,
+} from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
-import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
-import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
-import { ArtistDropdownMenu, useArtistStar } from "@/components/browse/artist-context-menu";
+import {
+  SongRow,
+  SongRowSkeleton,
+  SongCard,
+  SongCardSkeleton,
+} from "@/components/browse/song-row";
+import {
+  VirtualizedGrid,
+  VirtualizedList,
+} from "@/components/shared/virtualized-grid";
+import {
+  ArtistDropdownMenu,
+  useArtistStar,
+} from "@/components/browse/artist-context-menu";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { ActionBar } from "@/components/shared/action-bar";
@@ -35,18 +47,22 @@ function ArtistDetailContent() {
   const searchParams = useSearchParams();
   const id = searchParams.get("id");
   const router = useRouter();
-  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({
+    redirectToLogin: true,
+  });
   const isMounted = useIsMounted();
   const startQueue = useSetAtom(startQueueAtom);
-  
+
   // Filter state
   const [filter, setFilter] = useState("");
   const debouncedFilter = useDebounce(filter, 300);
-  
+
   // View settings
   const [viewMode, setViewMode] = useAtom(artistDetailViewModeAtom);
   const [sortConfig, setSortConfig] = useAtom(artistDetailSortAtom);
-  const [columnVisibility, setColumnVisibility] = useAtom(artistDetailColumnVisibilityAtom);
+  const [columnVisibility, setColumnVisibility] = useAtom(
+    artistDetailColumnVisibilityAtom,
+  );
 
   // Redirect to library if no ID
   useEffect(() => {
@@ -57,13 +73,20 @@ function ArtistDetailContent() {
 
   // Fetch artist data with server-side sort/filter for songs
   const { data: artistData, isLoading } = useQuery({
-    queryKey: ["artist", id, sortConfig.field, sortConfig.direction, debouncedFilter],
+    queryKey: [
+      "artist",
+      id,
+      sortConfig.field,
+      sortConfig.direction,
+      debouncedFilter,
+    ],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getArtist(id!, {
         sort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
-        sortDir: sortConfig.field !== "custom" ? sortConfig.direction : undefined,
+        sortDir:
+          sortConfig.field !== "custom" ? sortConfig.direction : undefined,
         filter: debouncedFilter.trim() || undefined,
       });
       return response.artist;
@@ -75,21 +98,35 @@ function ArtistDetailContent() {
 
   // Songs come directly from server response - already sorted and filtered
   const displaySongs = artistData?.song ?? [];
-  
+
   // Track if we have any songs (before filtering) to show appropriate empty state
   const hasAnySongs = displaySongs.length > 0 || debouncedFilter.trim() !== "";
 
   // Queue source for artist songs - server materializes with same sort/filter
-  const artistQueueSource = useMemo(() => ({
-    type: "artist" as QueueSourceType,
-    id: id,
-    name: artistData?.name ?? "Artist",
-    filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
-    sort: sortConfig.field !== "custom" ? {
-      field: sortConfig.field,
-      direction: sortConfig.direction,
-    } : undefined,
-  }), [id, artistData?.name, debouncedFilter, sortConfig.field, sortConfig.direction]);
+  const artistQueueSource = useMemo(
+    () => ({
+      type: "artist" as QueueSourceType,
+      id: id,
+      name: artistData?.name ?? "Artist",
+      filters: debouncedFilter.trim()
+        ? { filter: debouncedFilter.trim() }
+        : undefined,
+      sort:
+        sortConfig.field !== "custom"
+          ? {
+              field: sortConfig.field,
+              direction: sortConfig.direction,
+            }
+          : undefined,
+    }),
+    [
+      id,
+      artistData?.name,
+      debouncedFilter,
+      sortConfig.field,
+      sortConfig.direction,
+    ],
+  );
 
   // Multi-selection support for songs
   const selection = useTrackSelection(displaySongs);
@@ -98,7 +135,7 @@ function ArtistDetailContent() {
   const { isStarred, handleStar, setIsStarred } = useArtistStar(
     !!artistData?.starred,
     id ?? "",
-    artistData?.name ?? ""
+    artistData?.name ?? "",
   );
 
   // Sync starred state when artist data changes
@@ -120,11 +157,16 @@ function ArtistDetailContent() {
         sourceName: artistData?.name,
         startIndex: 0,
         shuffle: false,
-        filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
-        sort: sortConfig.field !== "custom" ? {
-          field: sortConfig.field,
-          direction: sortConfig.direction,
-        } : undefined,
+        filters: debouncedFilter.trim()
+          ? { filter: debouncedFilter.trim() }
+          : undefined,
+        sort:
+          sortConfig.field !== "custom"
+            ? {
+                field: sortConfig.field,
+                direction: sortConfig.direction,
+              }
+            : undefined,
       });
     }
   };
@@ -137,11 +179,16 @@ function ArtistDetailContent() {
         sourceName: artistData?.name,
         startIndex: 0,
         shuffle: true,
-        filters: debouncedFilter.trim() ? { filter: debouncedFilter.trim() } : undefined,
-        sort: sortConfig.field !== "custom" ? {
-          field: sortConfig.field,
-          direction: sortConfig.direction,
-        } : undefined,
+        filters: debouncedFilter.trim()
+          ? { filter: debouncedFilter.trim() }
+          : undefined,
+        sort:
+          sortConfig.field !== "custom"
+            ? {
+                field: sortConfig.field,
+                direction: sortConfig.direction,
+              }
+            : undefined,
       });
     }
   };
@@ -152,7 +199,7 @@ function ArtistDetailContent() {
       startQueue({
         sourceType: "other",
         sourceName: `${artistData?.name} (selection)`,
-        songIds: selectedSongs.map(s => s.id),
+        songIds: selectedSongs.map((s) => s.id),
       });
       selection.clearSelection();
     }
@@ -206,17 +253,19 @@ function ArtistDetailContent() {
         onShuffle={handleShuffle}
         disablePlay={isLoading || displaySongs.length === 0}
       >
-        <Button 
-          variant="ghost" 
-          size="icon" 
+        <Button
+          variant="ghost"
+          size="icon"
           className="h-10 w-10"
           onClick={handleStar}
           disabled={!artistData}
         >
-          <Heart className={cn("w-5 h-5", isStarred && "fill-red-500 text-red-500")} />
+          <Heart
+            className={cn("w-5 h-5", isStarred && "fill-red-500 text-red-500")}
+          />
         </Button>
         {artistData && (
-          <ArtistDropdownMenu 
+          <ArtistDropdownMenu
             artist={artistData}
             onPlay={handlePlayAll}
             onShuffle={handleShuffle}
@@ -239,7 +288,7 @@ function ArtistDetailContent() {
             ))}
           </div>
         ) : artistData?.album && artistData.album.length > 0 ? (
-          <motion.div 
+          <motion.div
             className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
             initial="hidden"
             animate="visible"
@@ -255,7 +304,10 @@ function ArtistDetailContent() {
                   visible: { opacity: 1, y: 0 },
                 }}
               >
-                <AlbumCard album={album} onPlay={() => handlePlayAlbum(album)} />
+                <AlbumCard
+                  album={album}
+                  onPlay={() => handlePlayAlbum(album)}
+                />
               </motion.div>
             ))}
           </motion.div>
@@ -319,9 +371,9 @@ function ArtistDetailContent() {
               <VirtualizedList
                 items={displaySongs}
                 renderItem={(song, index) => (
-                  <SongRow 
-                    song={song} 
-                    index={index} 
+                  <SongRow
+                    song={song}
+                    index={index}
                     showCover
                     showArtist={columnVisibility.artist}
                     showAlbum={columnVisibility.album}
@@ -374,11 +426,13 @@ function ArtistDetailContent() {
 
 export default function ArtistDetailPage() {
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen">
-        <Skeleton className="w-32 h-8" />
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-screen">
+          <Skeleton className="w-32 h-8" />
+        </div>
+      }
+    >
       <ArtistDetailContent />
     </Suspense>
   );

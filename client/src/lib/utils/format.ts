@@ -97,14 +97,22 @@ export function formatBitrate(kbps: number | undefined): string {
 /**
  * Pluralize a word based on count
  */
-export function pluralize(count: number, singular: string, plural?: string): string {
+export function pluralize(
+  count: number,
+  singular: string,
+  plural?: string,
+): string {
   return count === 1 ? singular : plural || `${singular}s`;
 }
 
 /**
  * Format count with label (e.g., "5 songs")
  */
-export function formatCount(count: number, singular: string, plural?: string): string {
+export function formatCount(
+  count: number,
+  singular: string,
+  plural?: string,
+): string {
   return `${count} ${pluralize(count, singular, plural)}`;
 }
 
@@ -145,28 +153,28 @@ export function formatListeningTime(totalSeconds: number): string {
   if (!totalSeconds || totalSeconds < 60) {
     return "Less than a minute";
   }
-  
+
   const minutes = Math.floor(totalSeconds / 60);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
-  
+
   if (days > 0) {
     const remainingHours = hours % 24;
     if (remainingHours > 0) {
-      return `${days} day${days > 1 ? 's' : ''} ${remainingHours} hr`;
+      return `${days} day${days > 1 ? "s" : ""} ${remainingHours} hr`;
     }
-    return `${days} day${days > 1 ? 's' : ''}`;
+    return `${days} day${days > 1 ? "s" : ""}`;
   }
-  
+
   if (hours > 0) {
     const remainingMinutes = minutes % 60;
     if (remainingMinutes > 0) {
       return `${hours} hr ${remainingMinutes} min`;
     }
-    return `${hours} hour${hours > 1 ? 's' : ''}`;
+    return `${hours} hour${hours > 1 ? "s" : ""}`;
   }
-  
-  return `${minutes} minute${minutes > 1 ? 's' : ''}`;
+
+  return `${minutes} minute${minutes > 1 ? "s" : ""}`;
 }
 
 /**

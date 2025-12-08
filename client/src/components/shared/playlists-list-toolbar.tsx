@@ -1,6 +1,15 @@
 "use client";
 
-import { Search, X, ArrowUpDown, ArrowUp, ArrowDown, Grid, List, Columns } from "lucide-react";
+import {
+  Search,
+  X,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Grid,
+  List,
+  Columns,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,7 +21,12 @@ import {
   DropdownMenuLabel,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
-import type { SortField, SortDirection, ViewMode, PlaylistColumnVisibility } from "@/lib/store/ui";
+import type {
+  SortField,
+  SortDirection,
+  ViewMode,
+  PlaylistColumnVisibility,
+} from "@/lib/store/ui";
 
 export interface SortConfig {
   field: SortField;
@@ -28,7 +42,10 @@ const playlistSortOptions: { value: SortField; label: string }[] = [
 ];
 
 // Column options for playlists in list view
-const playlistColumnOptions: { key: keyof PlaylistColumnVisibility; label: string }[] = [
+const playlistColumnOptions: {
+  key: keyof PlaylistColumnVisibility;
+  label: string;
+}[] = [
   { key: "songCount", label: "Songs" },
   { key: "duration", label: "Duration" },
   { key: "owner", label: "Owner" },
@@ -40,19 +57,19 @@ interface PlaylistsListToolbarProps {
   filter: string;
   onFilterChange: (filter: string) => void;
   filterPlaceholder?: string;
-  
+
   // Sort
   sortConfig: SortConfig;
   onSortChange: (config: SortConfig) => void;
-  
+
   // View mode
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-  
+
   // Column visibility (optional, only for list view)
   columnVisibility?: PlaylistColumnVisibility;
   onColumnVisibilityChange?: (visibility: PlaylistColumnVisibility) => void;
-  
+
   // Optional: hide certain controls
   showFilter?: boolean;
   showSort?: boolean;
@@ -157,33 +174,36 @@ export function PlaylistsListToolbar({
       )}
 
       {/* Column visibility dropdown - only show in list view */}
-      {showColumns && viewMode === "list" && columnVisibility && onColumnVisibilityChange && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              aria-label="Column visibility"
-            >
-              <Columns className="w-4 h-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuLabel>Columns</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {playlistColumnOptions.map((option) => (
-              <DropdownMenuCheckboxItem
-                key={option.key}
-                checked={columnVisibility[option.key]}
-                onCheckedChange={() => handleColumnToggle(option.key)}
+      {showColumns &&
+        viewMode === "list" &&
+        columnVisibility &&
+        onColumnVisibilityChange && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                aria-label="Column visibility"
               >
-                {option.label}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+                <Columns className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuLabel>Columns</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {playlistColumnOptions.map((option) => (
+                <DropdownMenuCheckboxItem
+                  key={option.key}
+                  checked={columnVisibility[option.key]}
+                  onCheckedChange={() => handleColumnToggle(option.key)}
+                >
+                  {option.label}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
 
       {/* View mode toggle */}
       {showViewMode && (

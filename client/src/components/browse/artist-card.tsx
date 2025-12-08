@@ -5,7 +5,11 @@ import { getClient } from "@/lib/api/client";
 import { useStarredArtist } from "@/lib/store/starred";
 import { formatCount } from "@/lib/utils/format";
 import { MediaCard, MediaCardSkeleton } from "@/components/shared/media-card";
-import { MediaRow, RowActions, RowDropdownTrigger } from "@/components/shared/media-row";
+import {
+  MediaRow,
+  RowActions,
+  RowDropdownTrigger,
+} from "@/components/shared/media-row";
 import { ArtistContextMenu, ArtistDropdownMenu } from "./artist-context-menu";
 
 interface ArtistCardProps {
@@ -17,9 +21,19 @@ interface ArtistCardProps {
   className?: string;
 }
 
-export function ArtistCard({ artist, onPlay, isSelected, isSelectionMode, onSelect, className }: ArtistCardProps) {
-  const { isStarred, toggleStar } = useStarredArtist(artist.id, !!artist.starred);
-  
+export function ArtistCard({
+  artist,
+  onPlay,
+  isSelected,
+  isSelectionMode,
+  onSelect,
+  className,
+}: ArtistCardProps) {
+  const { isStarred, toggleStar } = useStarredArtist(
+    artist.id,
+    !!artist.starred,
+  );
+
   const coverArtUrl = artist.coverArt
     ? getClient()?.getCoverArtUrl(artist.coverArt, 300)
     : undefined;
@@ -45,7 +59,12 @@ export function ArtistCard({ artist, onPlay, isSelected, isSelectionMode, onSele
       isSelected={isSelected}
       isSelectionMode={isSelectionMode}
       onSelect={onSelect ? (e) => onSelect(artist.id, e) : undefined}
-      dropdownMenu={<ArtistDropdownMenu artist={artist} onPlay={onPlay ? () => onPlay(artist.id) : undefined} />}
+      dropdownMenu={
+        <ArtistDropdownMenu
+          artist={artist}
+          onPlay={onPlay ? () => onPlay(artist.id) : undefined}
+        />
+      }
       contextMenu={(children) => (
         <ArtistContextMenu artist={artist}>{children}</ArtistContextMenu>
       )}
@@ -71,18 +90,21 @@ interface ArtistCardCompactProps {
   showAlbumCount?: boolean;
 }
 
-export function ArtistCardCompact({ 
-  artist, 
-  index, 
-  onPlay, 
-  isSelected, 
-  isSelectionMode, 
-  onSelect, 
+export function ArtistCardCompact({
+  artist,
+  index,
+  onPlay,
+  isSelected,
+  isSelectionMode,
+  onSelect,
   className,
   showAlbumCount = true,
 }: ArtistCardCompactProps) {
-  const { isStarred, toggleStar } = useStarredArtist(artist.id, !!artist.starred);
-  
+  const { isStarred, toggleStar } = useStarredArtist(
+    artist.id,
+    !!artist.starred,
+  );
+
   const coverArtUrl = artist.coverArt
     ? getClient()?.getCoverArtUrl(artist.coverArt, 80)
     : undefined;
@@ -97,7 +119,11 @@ export function ArtistCardCompact({
     <MediaRow
       coverArt={coverArtUrl}
       title={artist.name}
-      subtitle={showAlbumCount ? formatCount(artist.albumCount ?? 0, "album") : undefined}
+      subtitle={
+        showAlbumCount
+          ? formatCount(artist.albumCount ?? 0, "album")
+          : undefined
+      }
       href={`/library/artists/details?id=${artist.id}`}
       coverShape="circle"
       colorSeed={artist.name}

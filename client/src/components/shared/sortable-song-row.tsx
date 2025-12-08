@@ -77,7 +77,7 @@ export function SortableSongRow({
       style={style}
       className={cn(
         "group/sortable relative",
-        isDragging && "opacity-50 bg-accent/20 rounded-lg shadow-lg"
+        isDragging && "opacity-50 bg-accent/20 rounded-lg shadow-lg",
       )}
     >
       <div className="flex items-center">
@@ -90,7 +90,7 @@ export function SortableSongRow({
               "absolute -left-2 top-0 bottom-0 flex items-center justify-center w-10 cursor-grab z-10",
               "text-muted-foreground/50 hover:text-muted-foreground",
               "opacity-0 group-hover/sortable:opacity-100 transition-opacity",
-              isDragging && "cursor-grabbing opacity-100"
+              isDragging && "cursor-grabbing opacity-100",
             )}
             {...attributes}
             {...listeners}
@@ -98,7 +98,7 @@ export function SortableSongRow({
             <GripVertical className="w-4 h-4" />
           </button>
         )}
-        
+
         {/* Song row */}
         <div className="flex-1">
           <SongRow

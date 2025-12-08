@@ -76,9 +76,15 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useAtom(sidebarCollapsedAtom);
   const sidebarWidth = useAtomValue(sidebarWidthAtom);
   const isConnected = useAtomValue(isConnectedAtom);
-  const [playlistsExpanded, setPlaylistsExpanded] = useAtom(playlistsSidebarExpandedAtom);
-  const [libraryExpanded, setLibraryExpanded] = useAtom(librarySidebarExpandedAtom);
-  const [expandedFolders, setExpandedFolders] = useAtom(expandedPlaylistFoldersAtom);
+  const [playlistsExpanded, setPlaylistsExpanded] = useAtom(
+    playlistsSidebarExpandedAtom,
+  );
+  const [libraryExpanded, setLibraryExpanded] = useAtom(
+    librarySidebarExpandedAtom,
+  );
+  const [expandedFolders, setExpandedFolders] = useAtom(
+    expandedPlaylistFoldersAtom,
+  );
 
   // Fetch playlists
   const { data: playlists, isLoading: playlistsLoading } = useQuery({
@@ -93,11 +99,13 @@ export function Sidebar() {
   });
 
   // Organize playlists into folder structure
-  const playlistTree = playlists ? organizePlaylistsIntoFolders(playlists) : null;
+  const playlistTree = playlists
+    ? organizePlaylistsIntoFolders(playlists)
+    : null;
 
   const toggleFolder = (path: string) => {
     setExpandedFolders((prev) =>
-      prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]
+      prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path],
     );
   };
 
@@ -105,7 +113,7 @@ export function Sidebar() {
   useEffect(() => {
     if (!hydrated) return;
     const width = collapsed ? 72 : sidebarWidth;
-    document.documentElement.style.setProperty('--sidebar-width', `${width}px`);
+    document.documentElement.style.setProperty("--sidebar-width", `${width}px`);
   }, [hydrated, collapsed, sidebarWidth]);
 
   // Don't show sidebar on login page
@@ -118,9 +126,9 @@ export function Sidebar() {
   if (!hydrated) {
     return (
       <aside
-        style={{ width: 'var(--sidebar-width)' }}
+        style={{ width: "var(--sidebar-width)" }}
         className={cn(
-          "hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden shrink-0"
+          "hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden shrink-0",
         )}
       >
         {/* Minimal skeleton content */}
@@ -139,7 +147,7 @@ export function Sidebar() {
       animate={{ width: collapsed ? 72 : sidebarWidth }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className={cn(
-        "hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden shrink-0"
+        "hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden shrink-0",
       )}
     >
       {/* Logo */}
@@ -183,10 +191,11 @@ export function Sidebar() {
           )}
           <div className="space-y-1">
             {discoverItems.map((item) => {
-              const isActive = item.href === "/" 
-                ? pathname === "/" 
-                : pathname.startsWith(item.href);
-              
+              const isActive =
+                item.href === "/"
+                  ? pathname === "/"
+                  : pathname.startsWith(item.href);
+
               return (
                 <Link key={item.href} href={item.href}>
                   <Button
@@ -194,13 +203,21 @@ export function Sidebar() {
                     className={cn(
                       "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
                       "hover:bg-sidebar-accent",
-                      isActive && "bg-sidebar-accent text-sidebar-primary font-semibold",
-                      collapsed && "justify-center px-0"
+                      isActive &&
+                        "bg-sidebar-accent text-sidebar-primary font-semibold",
+                      collapsed && "justify-center px-0",
                     )}
                   >
-                    <item.icon className={cn("w-5 h-5 shrink-0", isActive && "text-sidebar-primary")} />
+                    <item.icon
+                      className={cn(
+                        "w-5 h-5 shrink-0",
+                        isActive && "text-sidebar-primary",
+                      )}
+                    />
                     {!collapsed && (
-                      <span className="truncate whitespace-nowrap">{item.label}</span>
+                      <span className="truncate whitespace-nowrap">
+                        {item.label}
+                      </span>
                     )}
                   </Button>
                 </Link>
@@ -224,7 +241,10 @@ export function Sidebar() {
           <div className="px-2 space-y-1">
             {/* Library - Expandable */}
             {!collapsed && isConnected && (
-              <Collapsible open={libraryExpanded} onOpenChange={setLibraryExpanded}>
+              <Collapsible
+                open={libraryExpanded}
+                onOpenChange={setLibraryExpanded}
+              >
                 <div className="relative">
                   <Link href="/library" className="block">
                     <Button
@@ -232,11 +252,20 @@ export function Sidebar() {
                       className={cn(
                         "w-full justify-start gap-4 h-10 px-3 pr-10 overflow-hidden",
                         "hover:bg-sidebar-accent",
-                        pathname.startsWith("/library") && "bg-sidebar-accent text-sidebar-primary font-semibold"
+                        pathname.startsWith("/library") &&
+                          "bg-sidebar-accent text-sidebar-primary font-semibold",
                       )}
                     >
-                      <Library className={cn("w-5 h-5 shrink-0", pathname.startsWith("/library") && "text-sidebar-primary")} />
-                      <span className="truncate whitespace-nowrap flex-1 text-left">Library</span>
+                      <Library
+                        className={cn(
+                          "w-5 h-5 shrink-0",
+                          pathname.startsWith("/library") &&
+                            "text-sidebar-primary",
+                        )}
+                      />
+                      <span className="truncate whitespace-nowrap flex-1 text-left">
+                        Library
+                      </span>
                     </Button>
                   </Link>
                   <CollapsibleTrigger asChild>
@@ -245,14 +274,16 @@ export function Sidebar() {
                       size="icon"
                       className={cn(
                         "absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8",
-                        "hover:bg-sidebar-accent/80"
+                        "hover:bg-sidebar-accent/80",
                       )}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <ChevronDown className={cn(
-                        "w-4 h-4 shrink-0 transition-transform duration-200",
-                        libraryExpanded && "rotate-180"
-                      )} />
+                      <ChevronDown
+                        className={cn(
+                          "w-4 h-4 shrink-0 transition-transform duration-200",
+                          libraryExpanded && "rotate-180",
+                        )}
+                      />
                     </Button>
                   </CollapsibleTrigger>
                 </div>
@@ -267,11 +298,14 @@ export function Sidebar() {
                             size="sm"
                             className={cn(
                               "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
-                              isSubActive && "bg-sidebar-accent text-sidebar-primary"
+                              isSubActive &&
+                                "bg-sidebar-accent text-sidebar-primary",
                             )}
                           >
                             <subItem.icon className="w-4 h-4 shrink-0 text-muted-foreground" />
-                            <span className="truncate text-sm">{subItem.label}</span>
+                            <span className="truncate text-sm">
+                              {subItem.label}
+                            </span>
                           </Button>
                         </Link>
                       );
@@ -289,10 +323,16 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-center h-10 px-0",
                     "hover:bg-sidebar-accent",
-                    pathname.startsWith("/library") && "bg-sidebar-accent text-sidebar-primary font-semibold"
+                    pathname.startsWith("/library") &&
+                      "bg-sidebar-accent text-sidebar-primary font-semibold",
                   )}
                 >
-                  <Library className={cn("w-5 h-5 shrink-0", pathname.startsWith("/library") && "text-sidebar-primary")} />
+                  <Library
+                    className={cn(
+                      "w-5 h-5 shrink-0",
+                      pathname.startsWith("/library") && "text-sidebar-primary",
+                    )}
+                  />
                 </Button>
               </Link>
             )}
@@ -303,13 +343,21 @@ export function Sidebar() {
                 className={cn(
                   "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
                   "hover:bg-sidebar-accent",
-                  pathname.startsWith("/favorites") && "bg-sidebar-accent text-sidebar-primary",
-                  collapsed && "justify-center px-0"
+                  pathname.startsWith("/favorites") &&
+                    "bg-sidebar-accent text-sidebar-primary",
+                  collapsed && "justify-center px-0",
                 )}
                 disabled={!isConnected}
               >
-                <Heart className={cn("w-5 h-5 shrink-0", pathname.startsWith("/favorites") && "text-sidebar-primary")} />
-                {!collapsed && <span className="truncate whitespace-nowrap">Favorites</span>}
+                <Heart
+                  className={cn(
+                    "w-5 h-5 shrink-0",
+                    pathname.startsWith("/favorites") && "text-sidebar-primary",
+                  )}
+                />
+                {!collapsed && (
+                  <span className="truncate whitespace-nowrap">Favorites</span>
+                )}
               </Button>
             </Link>
 
@@ -320,19 +368,32 @@ export function Sidebar() {
                 className={cn(
                   "w-full justify-start gap-4 h-10 px-3 overflow-hidden",
                   "hover:bg-sidebar-accent",
-                  pathname.startsWith("/history") && "bg-sidebar-accent text-sidebar-primary",
-                  collapsed && "justify-center px-0"
+                  pathname.startsWith("/history") &&
+                    "bg-sidebar-accent text-sidebar-primary",
+                  collapsed && "justify-center px-0",
                 )}
                 disabled={!isConnected}
               >
-                <History className={cn("w-5 h-5 shrink-0", pathname.startsWith("/history") && "text-sidebar-primary")} />
-                {!collapsed && <span className="truncate whitespace-nowrap">Recently Played</span>}
+                <History
+                  className={cn(
+                    "w-5 h-5 shrink-0",
+                    pathname.startsWith("/history") && "text-sidebar-primary",
+                  )}
+                />
+                {!collapsed && (
+                  <span className="truncate whitespace-nowrap">
+                    Recently Played
+                  </span>
+                )}
               </Button>
             </Link>
 
             {/* Playlists Section */}
             {!collapsed && isConnected && (
-              <Collapsible open={playlistsExpanded} onOpenChange={setPlaylistsExpanded}>
+              <Collapsible
+                open={playlistsExpanded}
+                onOpenChange={setPlaylistsExpanded}
+              >
                 <div className="relative">
                   <Link href="/playlists" className="block">
                     <Button
@@ -340,11 +401,19 @@ export function Sidebar() {
                       className={cn(
                         "w-full justify-start gap-4 h-10 px-3 pr-10 overflow-hidden",
                         "hover:bg-sidebar-accent",
-                        pathname === "/playlists" && "bg-sidebar-accent text-sidebar-primary"
+                        pathname === "/playlists" &&
+                          "bg-sidebar-accent text-sidebar-primary",
                       )}
                     >
-                      <ListMusic className={cn("w-5 h-5 shrink-0", pathname === "/playlists" && "text-sidebar-primary")} />
-                      <span className="truncate whitespace-nowrap flex-1 text-left">Playlists</span>
+                      <ListMusic
+                        className={cn(
+                          "w-5 h-5 shrink-0",
+                          pathname === "/playlists" && "text-sidebar-primary",
+                        )}
+                      />
+                      <span className="truncate whitespace-nowrap flex-1 text-left">
+                        Playlists
+                      </span>
                     </Button>
                   </Link>
                   <CollapsibleTrigger asChild>
@@ -353,14 +422,16 @@ export function Sidebar() {
                       size="icon"
                       className={cn(
                         "absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8",
-                        "hover:bg-sidebar-accent/80"
+                        "hover:bg-sidebar-accent/80",
                       )}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <ChevronDown className={cn(
-                        "w-4 h-4 shrink-0 transition-transform duration-200",
-                        playlistsExpanded && "rotate-180"
-                      )} />
+                      <ChevronDown
+                        className={cn(
+                          "w-4 h-4 shrink-0 transition-transform duration-200",
+                          playlistsExpanded && "rotate-180",
+                        )}
+                      />
                     </Button>
                   </CollapsibleTrigger>
                 </div>
@@ -395,10 +466,17 @@ export function Sidebar() {
                   className={cn(
                     "w-full justify-center h-10 px-0",
                     "hover:bg-sidebar-accent",
-                    pathname.startsWith("/playlists") && "bg-sidebar-accent text-sidebar-primary"
+                    pathname.startsWith("/playlists") &&
+                      "bg-sidebar-accent text-sidebar-primary",
                   )}
                 >
-                  <ListMusic className={cn("w-5 h-5 shrink-0", pathname.startsWith("/playlists") && "text-sidebar-primary")} />
+                  <ListMusic
+                    className={cn(
+                      "w-5 h-5 shrink-0",
+                      pathname.startsWith("/playlists") &&
+                        "text-sidebar-primary",
+                    )}
+                  />
                 </Button>
               </Link>
             )}
@@ -427,12 +505,20 @@ export function Sidebar() {
             variant="ghost"
             className={cn(
               "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent overflow-hidden",
-              pathname.startsWith("/profile") && "bg-sidebar-accent text-sidebar-primary font-semibold",
-              collapsed && "justify-center px-0"
+              pathname.startsWith("/profile") &&
+                "bg-sidebar-accent text-sidebar-primary font-semibold",
+              collapsed && "justify-center px-0",
             )}
           >
-            <User className={cn("w-5 h-5 shrink-0", pathname.startsWith("/profile") && "text-sidebar-primary")} />
-            {!collapsed && <span className="truncate whitespace-nowrap">Profile</span>}
+            <User
+              className={cn(
+                "w-5 h-5 shrink-0",
+                pathname.startsWith("/profile") && "text-sidebar-primary",
+              )}
+            />
+            {!collapsed && (
+              <span className="truncate whitespace-nowrap">Profile</span>
+            )}
           </Button>
         </Link>
 
@@ -441,12 +527,20 @@ export function Sidebar() {
             variant="ghost"
             className={cn(
               "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent overflow-hidden",
-              pathname.startsWith("/settings") && "bg-sidebar-accent text-sidebar-primary font-semibold",
-              collapsed && "justify-center px-0"
+              pathname.startsWith("/settings") &&
+                "bg-sidebar-accent text-sidebar-primary font-semibold",
+              collapsed && "justify-center px-0",
             )}
           >
-            <Settings className={cn("w-5 h-5 shrink-0", pathname.startsWith("/settings") && "text-sidebar-primary")} />
-            {!collapsed && <span className="truncate whitespace-nowrap">Settings</span>}
+            <Settings
+              className={cn(
+                "w-5 h-5 shrink-0",
+                pathname.startsWith("/settings") && "text-sidebar-primary",
+              )}
+            />
+            {!collapsed && (
+              <span className="truncate whitespace-nowrap">Settings</span>
+            )}
           </Button>
         </Link>
 
@@ -455,7 +549,7 @@ export function Sidebar() {
           variant="ghost"
           className={cn(
             "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent overflow-hidden",
-            collapsed && "justify-center px-0"
+            collapsed && "justify-center px-0",
           )}
           onClick={() => setCollapsed(!collapsed)}
         >
@@ -496,18 +590,27 @@ function PlaylistFolderTree({
       {/* Subfolders */}
       {folder.subfolders.map((subfolder) => {
         const isExpanded = expandedFolders.includes(subfolder.path);
-        const isFolderActive = pathname === "/playlists" && searchParams.get("folder") === subfolder.path;
-        
+        const isFolderActive =
+          pathname === "/playlists" &&
+          searchParams.get("folder") === subfolder.path;
+
         return (
-          <Collapsible key={subfolder.path} open={isExpanded} onOpenChange={() => toggleFolder(subfolder.path)}>
+          <Collapsible
+            key={subfolder.path}
+            open={isExpanded}
+            onOpenChange={() => toggleFolder(subfolder.path)}
+          >
             <div className="relative flex items-center">
-              <Link href={`/playlists?folder=${encodeURIComponent(subfolder.path)}`} className="flex-1 min-w-0">
+              <Link
+                href={`/playlists?folder=${encodeURIComponent(subfolder.path)}`}
+                className="flex-1 min-w-0"
+              >
                 <Button
                   variant="ghost"
                   size="sm"
                   className={cn(
                     "w-full justify-start gap-2 h-8 px-2 pr-8 hover:bg-sidebar-accent",
-                    isFolderActive && "bg-sidebar-accent text-sidebar-primary"
+                    isFolderActive && "bg-sidebar-accent text-sidebar-primary",
                   )}
                   style={{ paddingLeft: `${depth * 12 + 8}px` }}
                 >
@@ -526,10 +629,12 @@ function PlaylistFolderTree({
                   className="absolute right-0 h-8 w-8 hover:bg-sidebar-accent/80"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <ChevronDown className={cn(
-                    "w-3 h-3 shrink-0 transition-transform duration-200",
-                    isExpanded && "rotate-180"
-                  )} />
+                  <ChevronDown
+                    className={cn(
+                      "w-3 h-3 shrink-0 transition-transform duration-200",
+                      isExpanded && "rotate-180",
+                    )}
+                  />
                 </Button>
               </CollapsibleTrigger>
             </div>
@@ -549,9 +654,11 @@ function PlaylistFolderTree({
 
       {/* Playlists in this folder */}
       {folder.playlists.map((playlist) => {
-        const isActive = pathname === `/playlists/details` && searchParams.get('id') === playlist.id;
+        const isActive =
+          pathname === `/playlists/details` &&
+          searchParams.get("id") === playlist.id;
         const displayName = getPlaylistDisplayName(playlist);
-        
+
         return (
           <Link key={playlist.id} href={`/playlists/details?id=${playlist.id}`}>
             <Button
@@ -559,7 +666,7 @@ function PlaylistFolderTree({
               size="sm"
               className={cn(
                 "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
-                isActive && "bg-sidebar-accent text-sidebar-primary"
+                isActive && "bg-sidebar-accent text-sidebar-primary",
               )}
               style={{ paddingLeft: `${depth * 12 + 8}px` }}
             >
@@ -579,7 +686,7 @@ const SKELETON_WIDTHS = ["w-3/4", "w-1/2", "w-2/3", "w-4/5", "w-5/6"] as const;
 function PlaylistSkeletonItem({ index = 0 }: { index?: number }) {
   // Use deterministic width based on index to avoid hydration issues
   const widthClass = SKELETON_WIDTHS[index % SKELETON_WIDTHS.length];
-  
+
   return (
     <div className="flex items-center gap-2 h-8 px-2">
       <Skeleton className="w-4 h-4 rounded shrink-0" />

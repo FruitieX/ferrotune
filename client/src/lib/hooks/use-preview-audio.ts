@@ -1,6 +1,6 @@
 /**
  * Preview Audio Hook
- * 
+ *
  * A standalone audio preview system that doesn't interfere with the main playback.
  * Creates its own audio element and manages preview state independently.
  */
@@ -8,7 +8,11 @@
 import { useState, useEffect, useRef } from "react";
 import { useAtomValue } from "jotai";
 import { getClient } from "@/lib/api/client";
-import { audioElementAtom, playbackStateAtom, effectiveVolumeAtom } from "@/lib/store/player";
+import {
+  audioElementAtom,
+  playbackStateAtom,
+  effectiveVolumeAtom,
+} from "@/lib/store/player";
 
 interface UsePreviewAudioReturn {
   // State
@@ -16,7 +20,7 @@ interface UsePreviewAudioReturn {
   progress: number; // 0-100
   isLoading: boolean;
   volume: number; // 0-100
-  
+
   // Actions
   play: (songId: string, startPosition?: number) => void;
   pause: () => void;
@@ -29,17 +33,17 @@ interface UsePreviewAudioReturn {
 export function usePreviewAudio(): UsePreviewAudioReturn {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentSongIdRef = useRef<string | null>(null);
-  
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [volume, setVolumeState] = useState(100);
-  
+
   // Access main player to pause it when starting preview
   const mainAudioElement = useAtomValue(audioElementAtom);
   const mainPlaybackState = useAtomValue(playbackStateAtom);
   const mainVolume = useAtomValue(effectiveVolumeAtom);
-  
+
   // Initialize volume from main player on mount
   useEffect(() => {
     // mainVolume is 0-1, we store as 0-100
@@ -48,7 +52,7 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
       audioRef.current.volume = mainVolume;
     }
   }, []); // Only on mount, don't track mainVolume changes
-  
+
   // Create audio element on mount
   useEffect(() => {
     const audio = new Audio();
@@ -56,14 +60,14 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
     // Set initial volume from main player
     audio.volume = mainVolume;
     audioRef.current = audio;
-    
+
     // Event listeners
     const handleTimeUpdate = () => {
       if (audio.duration > 0) {
         setProgress((audio.currentTime / audio.duration) * 100);
       }
     };
-    
+
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
     const handleEnded = () => {
@@ -76,7 +80,7 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
       setIsLoading(false);
       setIsPlaying(false);
     };
-    
+
     audio.addEventListener("timeupdate", handleTimeUpdate);
     audio.addEventListener("play", handlePlay);
     audio.addEventListener("pause", handlePause);
@@ -84,7 +88,7 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
     audio.addEventListener("canplay", handleCanPlay);
     audio.addEventListener("waiting", handleWaiting);
     audio.addEventListener("error", handleError);
-    
+
     return () => {
       audio.pause();
       audio.src = "";
@@ -97,30 +101,30 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
       audio.removeEventListener("error", handleError);
     };
   }, []);
-  
+
   const play = (songId: string, startPosition: number = 30) => {
     const audio = audioRef.current;
     const client = getClient();
     if (!audio || !client) return;
-    
+
     // Pause main player if playing
     if (mainPlaybackState === "playing" && mainAudioElement) {
       mainAudioElement.pause();
     }
-    
+
     // If same song, just resume
     if (currentSongIdRef.current === songId && audio.src) {
       audio.play().catch(console.error);
       return;
     }
-    
+
     // Load new song
     setIsLoading(true);
     currentSongIdRef.current = songId;
-    
+
     const streamUrl = client.getStreamUrl(songId);
     audio.src = streamUrl;
-    
+
     // Seek to start position after metadata loads
     const handleLoadedMetadata = () => {
       if (audio.duration > 0) {
@@ -131,55 +135,55 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
       audio.play().catch(console.error);
       audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
     };
-    
+
     audio.addEventListener("loadedmetadata", handleLoadedMetadata);
     audio.load();
   };
-  
+
   const pause = () => {
     audioRef.current?.pause();
   };
-  
+
   const toggle = () => {
     const audio = audioRef.current;
     if (!audio) return;
-    
+
     if (isPlaying) {
       audio.pause();
     } else {
       audio.play().catch(console.error);
     }
   };
-  
+
   const seek = (position: number) => {
     const audio = audioRef.current;
     if (!audio || !audio.duration) return;
-    
+
     const newTime = (position / 100) * audio.duration;
     audio.currentTime = newTime;
     setProgress(position);
   };
-  
+
   const stop = () => {
     const audio = audioRef.current;
     if (!audio) return;
-    
+
     audio.pause();
     audio.currentTime = 0;
     currentSongIdRef.current = null;
     setProgress(0);
     setIsPlaying(false);
   };
-  
+
   const setVolume = (newVolume: number) => {
     const audio = audioRef.current;
     if (!audio) return;
-    
+
     const clampedVolume = Math.max(0, Math.min(100, newVolume));
     audio.volume = clampedVolume / 100;
     setVolumeState(clampedVolume);
   };
-  
+
   return {
     isPlaying,
     progress,

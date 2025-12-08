@@ -4,18 +4,43 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSetAtom } from "jotai";
-import { Music2, Loader2, Server, Key, User, Lock, AlertCircle, ChevronDown, Settings } from "lucide-react";
+import {
+  Music2,
+  Loader2,
+  Server,
+  Key,
+  User,
+  Lock,
+  AlertCircle,
+  ChevronDown,
+  Settings,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { serverConnectionAtom, connectionStatusAtom, connectionErrorAtom } from "@/lib/store/auth";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  serverConnectionAtom,
+  connectionStatusAtom,
+  connectionErrorAtom,
+} from "@/lib/store/auth";
 import { initializeClient, SubsonicApiError } from "@/lib/api/client";
 import type { ServerConnection } from "@/lib/api/types";
 
 // Default server URL based on environment
-const DEFAULT_SERVER_URL = process.env.NODE_ENV === "development" ? "http://localhost:4040" : "";
+const DEFAULT_SERVER_URL =
+  process.env.NODE_ENV === "development" ? "http://localhost:4040" : "";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -39,12 +64,12 @@ export default function LoginPage() {
     try {
       // Validate and normalize server URL
       let url = serverUrl.trim();
-      
+
       // If empty, use current origin (for embedded deployments)
       if (!url) {
         url = typeof window !== "undefined" ? window.location.origin : "";
       }
-      
+
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
         url = `http://${url}`;
       }
@@ -70,7 +95,7 @@ export default function LoginPage() {
       // Initialize client and test connection
       const client = initializeClient(connection);
       setConnectionStatus("connecting");
-      
+
       await client.ping();
 
       // Connection successful
@@ -80,7 +105,7 @@ export default function LoginPage() {
     } catch (err) {
       console.error("Connection error:", err);
       setConnectionStatus("error");
-      
+
       if (err instanceof SubsonicApiError) {
         setError(`Authentication failed: ${err.message}`);
       } else if (err instanceof Error) {
@@ -131,7 +156,10 @@ export default function LoginPage() {
 
                 <TabsContent value="password" className="space-y-4 mt-4">
                   <div className="space-y-2">
-                    <label htmlFor="username" className="text-sm font-medium flex items-center gap-2">
+                    <label
+                      htmlFor="username"
+                      className="text-sm font-medium flex items-center gap-2"
+                    >
                       <User className="w-4 h-4" />
                       Username
                     </label>
@@ -145,7 +173,10 @@ export default function LoginPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <label htmlFor="password" className="text-sm font-medium flex items-center gap-2">
+                    <label
+                      htmlFor="password"
+                      className="text-sm font-medium flex items-center gap-2"
+                    >
                       <Lock className="w-4 h-4" />
                       Password
                     </label>
@@ -156,7 +187,12 @@ export default function LoginPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && username && password && !isConnecting) {
+                        if (
+                          e.key === "Enter" &&
+                          username &&
+                          password &&
+                          !isConnecting
+                        ) {
                           handleConnect("password");
                         }
                       }}
@@ -182,7 +218,10 @@ export default function LoginPage() {
 
                 <TabsContent value="apikey" className="space-y-4 mt-4">
                   <div className="space-y-2">
-                    <label htmlFor="api-key" className="text-sm font-medium flex items-center gap-2">
+                    <label
+                      htmlFor="api-key"
+                      className="text-sm font-medium flex items-center gap-2"
+                    >
                       <Key className="w-4 h-4" />
                       API Key
                     </label>
@@ -200,7 +239,8 @@ export default function LoginPage() {
                       disabled={isConnecting}
                     />
                     <p className="text-xs text-muted-foreground">
-                      API keys provide secure authentication without sending passwords
+                      API keys provide secure authentication without sending
+                      passwords
                     </p>
                   </div>
 
@@ -263,7 +303,10 @@ export default function LoginPage() {
                       className="pt-2"
                     >
                       <div className="space-y-2">
-                        <label htmlFor="server-url" className="text-sm font-medium flex items-center gap-2">
+                        <label
+                          htmlFor="server-url"
+                          className="text-sm font-medium flex items-center gap-2"
+                        >
                           <Server className="w-4 h-4" />
                           Server URL
                         </label>

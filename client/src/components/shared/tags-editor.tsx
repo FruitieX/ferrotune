@@ -2,7 +2,18 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Tag, Plus, Trash2, Save, Loader2, AlertTriangle, Edit, Info, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  Tag,
+  Plus,
+  Trash2,
+  Save,
+  Loader2,
+  AlertTriangle,
+  Edit,
+  Info,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -34,7 +45,13 @@ import {
 } from "@/components/ui/collapsible";
 import { getClient } from "@/lib/api/client";
 import { toast } from "sonner";
-import type { Song, GetTagsResponse, TagEntry, TagChange, UpdateTagsRequest } from "@/lib/api/types";
+import type {
+  Song,
+  GetTagsResponse,
+  TagEntry,
+  TagChange,
+  UpdateTagsRequest,
+} from "@/lib/api/types";
 
 interface TagsEditorProps {
   song: Song;
@@ -44,11 +61,34 @@ interface TagsEditorProps {
 
 // Common tag keys for quick add suggestions
 const COMMON_TAGS = [
-  "TITLE", "ARTIST", "ALBUM", "ALBUMARTIST", "TRACKNUMBER", "TRACKTOTAL",
-  "DISCNUMBER", "DISCTOTAL", "YEAR", "DATE", "GENRE", "COMMENT", "COMPOSER",
-  "CONDUCTOR", "LYRICIST", "BPM", "KEY", "MOOD", "LYRICS", "COPYRIGHT",
-  "REPLAYGAIN_TRACK_GAIN", "REPLAYGAIN_TRACK_PEAK", "REPLAYGAIN_ALBUM_GAIN", "REPLAYGAIN_ALBUM_PEAK",
-  "MUSICBRAINZ_TRACKID", "MUSICBRAINZ_ALBUMID", "MUSICBRAINZ_ARTISTID", "MUSICBRAINZ_ALBUMARTISTID",
+  "TITLE",
+  "ARTIST",
+  "ALBUM",
+  "ALBUMARTIST",
+  "TRACKNUMBER",
+  "TRACKTOTAL",
+  "DISCNUMBER",
+  "DISCTOTAL",
+  "YEAR",
+  "DATE",
+  "GENRE",
+  "COMMENT",
+  "COMPOSER",
+  "CONDUCTOR",
+  "LYRICIST",
+  "BPM",
+  "KEY",
+  "MOOD",
+  "LYRICS",
+  "COPYRIGHT",
+  "REPLAYGAIN_TRACK_GAIN",
+  "REPLAYGAIN_TRACK_PEAK",
+  "REPLAYGAIN_ALBUM_GAIN",
+  "REPLAYGAIN_ALBUM_PEAK",
+  "MUSICBRAINZ_TRACKID",
+  "MUSICBRAINZ_ALBUMID",
+  "MUSICBRAINZ_ARTISTID",
+  "MUSICBRAINZ_ALBUMARTISTID",
 ];
 
 export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
@@ -101,9 +141,9 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
   // Compute changes for preview
   const changes = useMemo(() => {
     if (!tagsData) return [];
-    
+
     const result: TagChange[] = [];
-    
+
     // Edited tags
     for (const [key, newValue] of editedTags) {
       const original = tagsData.tags.find((t) => t.key === key);
@@ -116,7 +156,7 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
         });
       }
     }
-    
+
     // Deleted tags
     for (const key of deletedTags) {
       const original = tagsData.tags.find((t) => t.key === key);
@@ -129,7 +169,7 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
         });
       }
     }
-    
+
     // New tags
     for (const tag of newTags) {
       result.push({
@@ -139,26 +179,34 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
         newValue: tag.value,
       });
     }
-    
+
     return result;
   }, [tagsData, editedTags, deletedTags, newTags]);
 
   const hasChanges = changes.length > 0;
-  const rescanRecommended = changes.some((c) => 
-    ["ARTIST", "ALBUM", "ALBUMARTIST", "TITLE", "TRACKNUMBER", "DISCNUMBER", "YEAR", "GENRE"]
-      .includes(c.key.toUpperCase())
+  const rescanRecommended = changes.some((c) =>
+    [
+      "ARTIST",
+      "ALBUM",
+      "ALBUMARTIST",
+      "TITLE",
+      "TRACKNUMBER",
+      "DISCNUMBER",
+      "YEAR",
+      "GENRE",
+    ].includes(c.key.toUpperCase()),
   );
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      
+
       const request: UpdateTagsRequest = {
         set: [],
         delete: [],
       };
-      
+
       // Add edited tags
       for (const [key, value] of editedTags) {
         const original = tagsData?.tags.find((t) => t.key === key);
@@ -166,15 +214,15 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
           request.set!.push({ key, value });
         }
       }
-      
+
       // Add new tags
       for (const tag of newTags) {
         request.set!.push(tag);
       }
-      
+
       // Add deleted tags
       request.delete = Array.from(deletedTags);
-      
+
       return client.updateSongTags(song.id, request);
     },
     onSuccess: (result) => {
@@ -223,18 +271,22 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
 
   function handleAddTag() {
     if (!newTagKey.trim() || !newTagValue.trim()) return;
-    
+
     // Check if key already exists
     const keyUpper = newTagKey.toUpperCase();
-    const exists = tagsData?.tags.some((t) => t.key.toUpperCase() === keyUpper) ||
-                   newTags.some((t) => t.key.toUpperCase() === keyUpper);
-    
+    const exists =
+      tagsData?.tags.some((t) => t.key.toUpperCase() === keyUpper) ||
+      newTags.some((t) => t.key.toUpperCase() === keyUpper);
+
     if (exists) {
       toast.error("Tag with this key already exists");
       return;
     }
-    
-    setNewTags([...newTags, { key: newTagKey.toUpperCase(), value: newTagValue }]);
+
+    setNewTags([
+      ...newTags,
+      { key: newTagKey.toUpperCase(), value: newTagValue },
+    ]);
     setNewTagKey("");
     setNewTagValue("");
   }
@@ -272,7 +324,7 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
       ...newTags.map((t) => t.key.toUpperCase()),
     ]);
     return COMMON_TAGS.filter(
-      (t) => !existingKeys.has(t) && t.includes(newTagKey.toUpperCase())
+      (t) => !existingKeys.has(t) && t.includes(newTagKey.toUpperCase()),
     ).slice(0, 5);
   }, [tagsData, newTags, newTagKey]);
 
@@ -308,8 +360,12 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
             <div className="flex-1 overflow-hidden flex flex-col gap-4 min-h-0">
               {/* File info */}
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Badge variant="outline">{tagsData.fileFormat.toUpperCase()}</Badge>
-                {tagsData.tagType && <Badge variant="secondary">{tagsData.tagType}</Badge>}
+                <Badge variant="outline">
+                  {tagsData.fileFormat.toUpperCase()}
+                </Badge>
+                {tagsData.tagType && (
+                  <Badge variant="secondary">{tagsData.tagType}</Badge>
+                )}
                 {readOnly && (
                   <Badge variant="destructive" className="ml-auto">
                     <Info className="w-3 h-3 mr-1" />
@@ -329,25 +385,38 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
                         value={getCurrentValue(tag.key, tag.value)}
                         originalValue={tag.value}
                         isDeleted={isDeleted(tag.key)}
-                        isModified={editedTags.has(tag.key) && editedTags.get(tag.key) !== tag.value}
+                        isModified={
+                          editedTags.has(tag.key) &&
+                          editedTags.get(tag.key) !== tag.value
+                        }
                         readOnly={readOnly}
                         onValueChange={(v) => handleEditTag(tag.key, v)}
                         onDelete={() => handleDeleteTag(tag.key)}
                         onRestore={() => handleRestoreTag(tag.key)}
                       />
                     ))}
-                    
+
                     {/* New tags */}
                     {newTags.map((tag, index) => (
                       <div
                         key={`new-${index}`}
                         className="flex items-center gap-2 p-2 rounded-md border border-green-500/30 bg-green-500/5"
                       >
-                        <Badge variant="outline" className="shrink-0 font-mono text-xs bg-green-500/10">
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 font-mono text-xs bg-green-500/10"
+                        >
                           {tag.key}
                         </Badge>
-                        <span className="flex-1 text-sm truncate">{tag.value}</span>
-                        <Badge variant="secondary" className="text-xs text-green-600">NEW</Badge>
+                        <span className="flex-1 text-sm truncate">
+                          {tag.value}
+                        </span>
+                        <Badge
+                          variant="secondary"
+                          className="text-xs text-green-600"
+                        >
+                          NEW
+                        </Badge>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -363,13 +432,17 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
                   {/* Add new tag */}
                   {!readOnly && (
                     <div className="space-y-2 pt-2">
-                      <Label className="text-xs text-muted-foreground">Add New Tag</Label>
+                      <Label className="text-xs text-muted-foreground">
+                        Add New Tag
+                      </Label>
                       <div className="flex gap-2">
                         <div className="relative flex-1">
                           <Input
                             placeholder="Key (e.g., MOOD)"
                             value={newTagKey}
-                            onChange={(e) => setNewTagKey(e.target.value.toUpperCase())}
+                            onChange={(e) =>
+                              setNewTagKey(e.target.value.toUpperCase())
+                            }
                             className="font-mono text-sm"
                           />
                           {tagSuggestions.length > 0 && (
@@ -405,43 +478,57 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
                   )}
 
                   {/* Additional tag blocks */}
-                  {tagsData.additionalTags && tagsData.additionalTags.length > 0 && (
-                    <Collapsible open={showAdditionalTags} onOpenChange={setShowAdditionalTags}>
-                      <CollapsibleTrigger asChild>
-                        <Button variant="ghost" className="w-full justify-between">
-                          <span className="text-sm text-muted-foreground">
-                            Additional Tag Blocks ({tagsData.additionalTags.length})
-                          </span>
-                          {showAdditionalTags ? (
-                            <ChevronUp className="h-4 w-4" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="space-y-4 pt-2">
-                        {tagsData.additionalTags.map((block) => (
-                          <div key={block.tagType} className="space-y-2">
-                            <Badge variant="outline">{block.tagType}</Badge>
-                            {block.tags.map((tag, tagIndex) => (
-                              <div
-                                key={`${tag.key}-${tagIndex}`}
-                                className="flex items-center gap-2 p-2 rounded-md bg-muted/50 opacity-60"
-                              >
-                                <Badge variant="outline" className="shrink-0 font-mono text-xs">
-                                  {tag.key}
-                                </Badge>
-                                <span className="flex-1 text-sm truncate">{tag.value}</span>
-                              </div>
-                            ))}
-                          </div>
-                        ))}
-                        <p className="text-xs text-muted-foreground">
-                          Additional tag blocks are shown for reference only. Edits are applied to the primary tag block.
-                        </p>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  )}
+                  {tagsData.additionalTags &&
+                    tagsData.additionalTags.length > 0 && (
+                      <Collapsible
+                        open={showAdditionalTags}
+                        onOpenChange={setShowAdditionalTags}
+                      >
+                        <CollapsibleTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            className="w-full justify-between"
+                          >
+                            <span className="text-sm text-muted-foreground">
+                              Additional Tag Blocks (
+                              {tagsData.additionalTags.length})
+                            </span>
+                            {showAdditionalTags ? (
+                              <ChevronUp className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="space-y-4 pt-2">
+                          {tagsData.additionalTags.map((block) => (
+                            <div key={block.tagType} className="space-y-2">
+                              <Badge variant="outline">{block.tagType}</Badge>
+                              {block.tags.map((tag, tagIndex) => (
+                                <div
+                                  key={`${tag.key}-${tagIndex}`}
+                                  className="flex items-center gap-2 p-2 rounded-md bg-muted/50 opacity-60"
+                                >
+                                  <Badge
+                                    variant="outline"
+                                    className="shrink-0 font-mono text-xs"
+                                  >
+                                    {tag.key}
+                                  </Badge>
+                                  <span className="flex-1 text-sm truncate">
+                                    {tag.value}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                          <p className="text-xs text-muted-foreground">
+                            Additional tag blocks are shown for reference only.
+                            Edits are applied to the primary tag block.
+                          </p>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    )}
                 </div>
               </ScrollArea>
 
@@ -454,7 +541,8 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
                       {hasChanges ? (
                         <span className="text-yellow-600 flex items-center gap-1">
                           <Edit className="w-3 h-3" />
-                          {changes.length} {changes.length === 1 ? "change" : "changes"} pending
+                          {changes.length}{" "}
+                          {changes.length === 1 ? "change" : "changes"} pending
                         </span>
                       ) : (
                         "No changes"
@@ -493,17 +581,29 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
                       <div key={i} className="text-sm">
                         {change.action === "deleted" ? (
                           <span className="text-destructive">
-                            Delete <code className="bg-muted px-1 rounded">{change.key}</code>
+                            Delete{" "}
+                            <code className="bg-muted px-1 rounded">
+                              {change.key}
+                            </code>
                             {change.oldValue && (
-                              <span className="text-muted-foreground"> (was: {change.oldValue})</span>
+                              <span className="text-muted-foreground">
+                                {" "}
+                                (was: {change.oldValue})
+                              </span>
                             )}
                           </span>
                         ) : (
                           <span className="text-green-600">
-                            Set <code className="bg-muted px-1 rounded">{change.key}</code>
+                            Set{" "}
+                            <code className="bg-muted px-1 rounded">
+                              {change.key}
+                            </code>
                             {" = "}&quot;{change.newValue}&quot;
                             {change.oldValue && (
-                              <span className="text-muted-foreground"> (was: {change.oldValue})</span>
+                              <span className="text-muted-foreground">
+                                {" "}
+                                (was: {change.oldValue})
+                              </span>
                             )}
                           </span>
                         )}
@@ -515,7 +615,8 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
                   <div className="flex items-start gap-2 p-2 rounded-md bg-yellow-500/10 border border-yellow-500/30">
                     <AlertTriangle className="w-4 h-4 text-yellow-600 mt-0.5 shrink-0" />
                     <p className="text-sm text-yellow-600">
-                      Changes to artist, album, or track info will require a library rescan to update the database.
+                      Changes to artist, album, or track info will require a
+                      library rescan to update the database.
                     </p>
                   </div>
                 )}
@@ -583,17 +684,17 @@ function TagRow({
 
   // Highlight ReplayGain tags
   const isReplayGain = tagKey.toUpperCase().includes("REPLAYGAIN");
-  
+
   return (
     <div
       className={`flex items-center gap-2 p-2 rounded-md border transition-colors ${
         isDeleted
           ? "border-destructive/30 bg-destructive/5 opacity-60"
           : isModified
-          ? "border-yellow-500/30 bg-yellow-500/5"
-          : isReplayGain
-          ? "border-blue-500/30 bg-blue-500/5"
-          : "border-border/50 bg-muted/30"
+            ? "border-yellow-500/30 bg-yellow-500/5"
+            : isReplayGain
+              ? "border-blue-500/30 bg-blue-500/5"
+              : "border-border/50 bg-muted/30"
       }`}
     >
       <Badge
@@ -604,7 +705,7 @@ function TagRow({
       >
         {tagKey}
       </Badge>
-      
+
       {editing && !readOnly && !isDeleted ? (
         <Input
           value={localValue}
@@ -625,11 +726,13 @@ function TagRow({
           {value || <span className="text-muted-foreground italic">empty</span>}
         </span>
       )}
-      
+
       {isModified && !isDeleted && (
-        <Badge variant="secondary" className="text-xs text-yellow-600">MODIFIED</Badge>
+        <Badge variant="secondary" className="text-xs text-yellow-600">
+          MODIFIED
+        </Badge>
       )}
-      
+
       {!readOnly && (
         <>
           {isDeleted ? (

@@ -48,43 +48,43 @@
   --radius: 0.5rem;
   --sidebar-width: 280px;
   --queue-sidebar-width: 0px;
-  
+
   /* Dark mode as default - slightly brighter than pure black */
   --background: oklch(0.12 0.005 260);
   --foreground: oklch(0.98 0 0);
-  
+
   --card: oklch(0.15 0.005 260);
   --card-foreground: oklch(0.98 0 0);
-  
+
   --popover: oklch(0.17 0.005 260);
   --popover-foreground: oklch(0.98 0 0);
-  
+
   /* Ferrotune brand - rusty iron/copper accent */
   --primary: oklch(0.65 0.16 45);
   --primary-foreground: oklch(0.98 0 0);
-  
+
   --secondary: oklch(0.22 0.01 260);
   --secondary-foreground: oklch(0.98 0 0);
-  
+
   --muted: oklch(0.22 0.01 260);
   --muted-foreground: oklch(0.65 0 0);
-  
+
   --accent: oklch(0.25 0.015 260);
   --accent-foreground: oklch(0.98 0 0);
-  
+
   --destructive: oklch(0.65 0.2 25);
-  
+
   --border: oklch(0.26 0.01 260);
   --input: oklch(0.22 0.01 260);
   --ring: oklch(0.65 0.16 45);
-  
+
   /* Charts */
   --chart-1: oklch(0.65 0.16 45);
   --chart-2: oklch(0.6 0.14 30);
   --chart-3: oklch(0.55 0.12 55);
   --chart-4: oklch(0.7 0.12 70);
   --chart-5: oklch(0.5 0.1 40);
-  
+
   /* Sidebar - slightly darker than main background */
   --sidebar: oklch(0.09 0.005 260);
   --sidebar-foreground: oklch(0.98 0 0);
@@ -222,16 +222,16 @@
     width: 8px;
     height: 8px;
   }
-  
+
   ::-webkit-scrollbar-track {
     background: transparent;
   }
-  
+
   ::-webkit-scrollbar-thumb {
     background: oklch(0.3 0 0);
     border-radius: 4px;
   }
-  
+
   ::-webkit-scrollbar-thumb:hover {
     background: oklch(0.4 0 0);
   }
@@ -264,23 +264,43 @@
 
 /* Now playing bar visualizer animation */
 @keyframes bar-bounce-1 {
-  0%, 100% { height: 6px; }
-  50% { height: 12px; }
+  0%,
+  100% {
+    height: 6px;
+  }
+  50% {
+    height: 12px;
+  }
 }
 
 @keyframes bar-bounce-2 {
-  0%, 100% { height: 8px; }
-  50% { height: 5px; }
+  0%,
+  100% {
+    height: 8px;
+  }
+  50% {
+    height: 5px;
+  }
 }
 
 @keyframes bar-bounce-3 {
-  0%, 100% { height: 5px; }
-  50% { height: 12px; }
+  0%,
+  100% {
+    height: 5px;
+  }
+  50% {
+    height: 12px;
+  }
 }
 
 @keyframes bar-bounce-4 {
-  0%, 100% { height: 10px; }
-  50% { height: 5px; }
+  0%,
+  100% {
+    height: 10px;
+  }
+  50% {
+    height: 5px;
+  }
 }
 
 .animate-bar-1 {
@@ -304,9 +324,15 @@
 
 /* Playful button hover animation */
 @keyframes button-pop {
-  0% { transform: scale(1); }
-  50% { transform: scale(0.95); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.95);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 .button-pop:active {
@@ -315,10 +341,19 @@
 
 /* Heart beat animation for favorites */
 @keyframes heart-beat {
-  0%, 100% { transform: scale(1); }
-  25% { transform: scale(1.15); }
-  50% { transform: scale(1); }
-  75% { transform: scale(1.1); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.15);
+  }
+  50% {
+    transform: scale(1);
+  }
+  75% {
+    transform: scale(1.1);
+  }
 }
 
 .animate-heart-beat {
@@ -327,9 +362,17 @@
 
 /* Success checkmark animation */
 @keyframes checkmark-pop {
-  0% { transform: scale(0); opacity: 0; }
-  50% { transform: scale(1.2); }
-  100% { transform: scale(1); opacity: 1; }
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .animate-checkmark {
@@ -338,8 +381,13 @@
 
 /* Subtle pulse for active items */
 @keyframes gentle-pulse {
-  0%, 100% { opacity: 0.7; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .animate-gentle-pulse {
@@ -348,9 +396,16 @@
 
 /* Wiggle animation for attention */
 @keyframes wiggle {
-  0%, 100% { transform: rotate(0deg); }
-  25% { transform: rotate(-3deg); }
-  75% { transform: rotate(3deg); }
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-3deg);
+  }
+  75% {
+    transform: rotate(3deg);
+  }
 }
 
 .animate-wiggle {

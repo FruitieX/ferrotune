@@ -2,7 +2,13 @@ import { atom } from "jotai";
 import { atomWithServerStorage } from "./server-storage";
 
 // Playback state
-export type PlaybackState = "idle" | "loading" | "playing" | "paused" | "ended" | "error";
+export type PlaybackState =
+  | "idle"
+  | "loading"
+  | "playing"
+  | "paused"
+  | "ended"
+  | "error";
 export const playbackStateAtom = atom<PlaybackState>("idle");
 
 // Playback error details
@@ -39,7 +45,10 @@ export const effectiveVolumeAtom = atom((get) => {
 
 // Repeat mode
 export type RepeatMode = "off" | "all" | "one";
-export const repeatModeAtom = atomWithServerStorage<RepeatMode>("repeat", "off");
+export const repeatModeAtom = atomWithServerStorage<RepeatMode>(
+  "repeat",
+  "off",
+);
 
 // Scrobble tracking
 export const hasScrobbledAtom = atom<boolean>(false);

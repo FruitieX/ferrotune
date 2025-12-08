@@ -1,6 +1,15 @@
 "use client";
 
-import { Search, X, ArrowUpDown, ArrowUp, ArrowDown, Grid, List, Columns } from "lucide-react";
+import {
+  Search,
+  X,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Grid,
+  List,
+  Columns,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,7 +21,13 @@ import {
   DropdownMenuLabel,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
-import type { SortField, SortDirection, ViewMode, AlbumColumnVisibility, ArtistColumnVisibility } from "@/lib/store/ui";
+import type {
+  SortField,
+  SortDirection,
+  ViewMode,
+  AlbumColumnVisibility,
+  ArtistColumnVisibility,
+} from "@/lib/store/ui";
 
 export interface SortConfig {
   field: SortField;
@@ -35,7 +50,10 @@ const artistSortOptions: { value: SortField; label: string }[] = [
 ];
 
 // Column options for albums in list view
-const albumColumnOptions: { key: keyof AlbumColumnVisibility; label: string }[] = [
+const albumColumnOptions: {
+  key: keyof AlbumColumnVisibility;
+  label: string;
+}[] = [
   { key: "artist", label: "Artist" },
   { key: "year", label: "Year" },
   { key: "songCount", label: "Songs" },
@@ -43,31 +61,34 @@ const albumColumnOptions: { key: keyof AlbumColumnVisibility; label: string }[] 
 ];
 
 // Column options for artists in list view
-const artistColumnOptions: { key: keyof ArtistColumnVisibility; label: string }[] = [
-  { key: "albumCount", label: "Albums" },
-];
+const artistColumnOptions: {
+  key: keyof ArtistColumnVisibility;
+  label: string;
+}[] = [{ key: "albumCount", label: "Albums" }];
 
 interface MediaListToolbarProps {
   // Filter
   filter: string;
   onFilterChange: (filter: string) => void;
   filterPlaceholder?: string;
-  
+
   // Sort
   sortConfig: SortConfig;
   onSortChange: (config: SortConfig) => void;
-  
+
   // View mode
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-  
+
   // Media type determines available sort options
   mediaType: "album" | "artist";
-  
+
   // Column visibility (optional, only for list view)
   columnVisibility?: AlbumColumnVisibility | ArtistColumnVisibility;
-  onColumnVisibilityChange?: (visibility: AlbumColumnVisibility | ArtistColumnVisibility) => void;
-  
+  onColumnVisibilityChange?: (
+    visibility: AlbumColumnVisibility | ArtistColumnVisibility,
+  ) => void;
+
   // Optional: hide certain controls
   showFilter?: boolean;
   showSort?: boolean;
@@ -91,8 +112,10 @@ export function MediaListToolbar({
   showViewMode = true,
   showColumns = true,
 }: MediaListToolbarProps) {
-  const sortOptions = mediaType === "album" ? albumSortOptions : artistSortOptions;
-  const columnOptions = mediaType === "album" ? albumColumnOptions : artistColumnOptions;
+  const sortOptions =
+    mediaType === "album" ? albumSortOptions : artistSortOptions;
+  const columnOptions =
+    mediaType === "album" ? albumColumnOptions : artistColumnOptions;
 
   const handleSort = (field: SortField) => {
     if (sortConfig.field === field) {
@@ -177,33 +200,41 @@ export function MediaListToolbar({
       )}
 
       {/* Column visibility dropdown - only show in list view */}
-      {showColumns && viewMode === "list" && columnVisibility && onColumnVisibilityChange && columnOptions.length > 0 && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              aria-label="Column visibility"
-            >
-              <Columns className="w-4 h-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuLabel>Columns</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {columnOptions.map((option) => (
-              <DropdownMenuCheckboxItem
-                key={option.key}
-                checked={(columnVisibility as unknown as Record<string, boolean>)[option.key]}
-                onCheckedChange={() => handleColumnToggle(option.key)}
+      {showColumns &&
+        viewMode === "list" &&
+        columnVisibility &&
+        onColumnVisibilityChange &&
+        columnOptions.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                aria-label="Column visibility"
               >
-                {option.label}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+                <Columns className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuLabel>Columns</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {columnOptions.map((option) => (
+                <DropdownMenuCheckboxItem
+                  key={option.key}
+                  checked={
+                    (columnVisibility as unknown as Record<string, boolean>)[
+                      option.key
+                    ]
+                  }
+                  onCheckedChange={() => handleColumnToggle(option.key)}
+                >
+                  {option.label}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
 
       {/* View mode toggle */}
       {showViewMode && (

@@ -4,16 +4,20 @@ import type { Playlist } from "@/lib/api/types";
  * Filter an array of playlists by the specified query string.
  * Searches in playlist name and comment.
  */
-export function filterPlaylists(playlists: Playlist[], query: string): Playlist[] {
+export function filterPlaylists(
+  playlists: Playlist[],
+  query: string,
+): Playlist[] {
   if (!query.trim()) {
     return playlists;
   }
-  
+
   const lowerQuery = query.toLowerCase();
-  return playlists.filter(playlist =>
-    playlist.name?.toLowerCase().includes(lowerQuery) ||
-    playlist.comment?.toLowerCase().includes(lowerQuery) ||
-    playlist.owner?.toLowerCase().includes(lowerQuery)
+  return playlists.filter(
+    (playlist) =>
+      playlist.name?.toLowerCase().includes(lowerQuery) ||
+      playlist.comment?.toLowerCase().includes(lowerQuery) ||
+      playlist.owner?.toLowerCase().includes(lowerQuery),
   );
 }
 
@@ -23,7 +27,7 @@ export function filterPlaylists(playlists: Playlist[], query: string): Playlist[
 export function sortPlaylists(
   playlists: Playlist[],
   field: string,
-  direction: "asc" | "desc"
+  direction: "asc" | "desc",
 ): Playlist[] {
   const sorted = [...playlists].sort((a, b) => {
     let aVal: string | number = "";

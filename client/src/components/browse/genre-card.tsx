@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Play, ListPlus, ListEnd, Shuffle, MoreHorizontal, Check } from "lucide-react";
+import {
+  Play,
+  ListPlus,
+  ListEnd,
+  Shuffle,
+  MoreHorizontal,
+  Check,
+} from "lucide-react";
 import { useSetAtom } from "jotai";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -21,8 +28,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MediaRow, MediaRowSkeleton, RowDropdownTrigger, RowActions } from "@/components/shared/media-row";
-import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
+import {
+  MediaRow,
+  MediaRowSkeleton,
+  RowDropdownTrigger,
+  RowActions,
+} from "@/components/shared/media-row";
+import {
+  startQueueAtom,
+  addToQueueAtom,
+  type QueueSourceType,
+} from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import type { Genre, Song } from "@/lib/api/types";
 
@@ -39,10 +55,12 @@ function getGenreColor(genreName: string): { hue: number; gradient: string } {
 }
 
 // Helper to fetch songs by genre
-async function fetchGenreSongs(genreName: string): Promise<{ songs: Song[]; error: boolean }> {
+async function fetchGenreSongs(
+  genreName: string,
+): Promise<{ songs: Song[]; error: boolean }> {
   const client = getClient();
   if (!client) return { songs: [], error: true };
-  
+
   try {
     const response = await client.getSongsByGenre(genreName, { count: 500 });
     return { songs: response.songsByGenre.song ?? [], error: false };
@@ -63,7 +81,13 @@ interface GenreCardProps {
 /**
  * Genre card for grid view - colored gradient card with genre name
  */
-export function GenreCard({ genre, className, isSelected, isSelectionMode, onSelect }: GenreCardProps) {
+export function GenreCard({
+  genre,
+  className,
+  isSelected,
+  isSelectionMode,
+  onSelect,
+}: GenreCardProps) {
   const { gradient } = getGenreColor(genre.value);
 
   const handleClick = (e: React.MouseEvent) => {
@@ -80,17 +104,19 @@ export function GenreCard({ genre, className, isSelected, isSelectionMode, onSel
           "group relative h-24 rounded-lg overflow-hidden cursor-pointer media-card",
           "hover:ring-2 hover:ring-primary/50 transition-shadow",
           isSelected && "ring-2 ring-primary",
-          className
+          className,
         )}
         style={{ background: gradient }}
         onClick={handleClick}
       >
         {/* Selection checkbox */}
         {onSelect && (
-          <div 
+          <div
             className={cn(
               "absolute top-2 left-2 z-10 transition-opacity",
-              isSelectionMode ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+              isSelectionMode
+                ? "opacity-100"
+                : "opacity-0 group-hover:opacity-100",
             )}
           >
             <button
@@ -99,7 +125,7 @@ export function GenreCard({ genre, className, isSelected, isSelectionMode, onSel
                 "w-6 h-6 rounded-full flex items-center justify-center transition-colors",
                 isSelected
                   ? "bg-primary text-primary-foreground"
-                  : "bg-black/30 hover:bg-black/50 text-white"
+                  : "bg-black/30 hover:bg-black/50 text-white",
               )}
               onClick={(e) => {
                 e.preventDefault();
@@ -167,7 +193,14 @@ interface GenreRowProps {
 /**
  * Genre row for list view - uses MediaRow with genre-colored cover placeholder
  */
-export function GenreRow({ genre, className, index, isSelected, isSelectionMode, onSelect }: GenreRowProps) {
+export function GenreRow({
+  genre,
+  className,
+  index,
+  isSelected,
+  isSelectionMode,
+  onSelect,
+}: GenreRowProps) {
   const startQueue = useSetAtom(startQueueAtom);
 
   const handlePlay = () => {
@@ -197,7 +230,9 @@ export function GenreRow({ genre, className, index, isSelected, isSelectionMode,
       onDoubleClick={handlePlay}
       actions={
         <RowActions
-          dropdownMenu={<GenreDropdownMenu genre={genre} trigger={<RowDropdownTrigger />} />}
+          dropdownMenu={
+            <GenreDropdownMenu genre={genre} trigger={<RowDropdownTrigger />} />
+          }
         />
       }
       contextMenu={(children) => (
@@ -249,7 +284,7 @@ function GenreContextMenu({ genre, children }: GenreContextMenuProps) {
     if (error) {
       toast.error("Failed to load genre songs");
     } else if (songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position: "next" });
+      addToQueue({ songIds: songs.map((s) => s.id), position: "next" });
       toast.success(`Added "${genre.value}" songs to play next`);
     } else {
       toast.error("No songs found in this genre");
@@ -261,7 +296,7 @@ function GenreContextMenu({ genre, children }: GenreContextMenuProps) {
     if (error) {
       toast.error("Failed to load genre songs");
     } else if (songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position: "end" });
+      addToQueue({ songIds: songs.map((s) => s.id), position: "end" });
       toast.success(`Added "${genre.value}" songs to queue`);
     } else {
       toast.error("No songs found in this genre");
@@ -271,7 +306,10 @@ function GenreContextMenu({ genre, children }: GenreContextMenuProps) {
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent className="w-56" onDoubleClick={(e) => e.stopPropagation()}>
+      <ContextMenuContent
+        className="w-56"
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
         <ContextMenuItem onClick={handlePlay}>
           <Play className="w-4 h-4 mr-2" />
           Play
@@ -331,7 +369,7 @@ function GenreDropdownMenu({ genre, trigger }: GenreDropdownMenuProps) {
     if (error) {
       toast.error("Failed to load genre songs");
     } else if (songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position: "next" });
+      addToQueue({ songIds: songs.map((s) => s.id), position: "next" });
       toast.success(`Added "${genre.value}" songs to play next`);
     } else {
       toast.error("No songs found in this genre");
@@ -343,7 +381,7 @@ function GenreDropdownMenu({ genre, trigger }: GenreDropdownMenuProps) {
     if (error) {
       toast.error("Failed to load genre songs");
     } else if (songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position: "end" });
+      addToQueue({ songIds: songs.map((s) => s.id), position: "end" });
       toast.success(`Added "${genre.value}" songs to queue`);
     } else {
       toast.error("No songs found in this genre");
@@ -355,7 +393,11 @@ function GenreDropdownMenu({ genre, trigger }: GenreDropdownMenuProps) {
       <DropdownMenuTrigger asChild>
         {trigger ?? <RowDropdownTrigger />}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56" onDoubleClick={(e) => e.stopPropagation()}>
+      <DropdownMenuContent
+        align="end"
+        className="w-56"
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
         <DropdownMenuItem onClick={handlePlay}>
           <Play className="w-4 h-4 mr-2" />
           Play

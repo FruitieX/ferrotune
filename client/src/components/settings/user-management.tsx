@@ -80,8 +80,10 @@ function UserCard({
 }: UserCardProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const isSelf = user.id === currentUserId;
-  
-  const accessibleFolders = folders.filter(f => user.libraryAccess.includes(f.id));
+
+  const accessibleFolders = folders.filter((f) =>
+    user.libraryAccess.includes(f.id),
+  );
   const hasAllAccess = user.libraryAccess.length === folders.length;
 
   return (
@@ -100,7 +102,9 @@ function UserCard({
               </Badge>
             )}
             {isSelf && (
-              <Badge variant="outline" className="shrink-0">You</Badge>
+              <Badge variant="outline" className="shrink-0">
+                You
+              </Badge>
             )}
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
@@ -148,7 +152,9 @@ function UserCard({
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete user &quot;{user.username}&quot;?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Delete user &quot;{user.username}&quot;?
+            </AlertDialogTitle>
             <AlertDialogDescription>
               This will permanently delete this user account. Their playlists
               and preferences will be lost. This action cannot be undone.
@@ -176,9 +182,11 @@ export function UserManagement() {
   const queryClient = useQueryClient();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserInfo | null>(null);
-  const [accessDialogUser, setAccessDialogUser] = useState<UserInfo | null>(null);
+  const [accessDialogUser, setAccessDialogUser] = useState<UserInfo | null>(
+    null,
+  );
   const [keysDialogUser, setKeysDialogUser] = useState<UserInfo | null>(null);
-  
+
   // Form state
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -193,7 +201,11 @@ export function UserManagement() {
   const currentUserId = 1; // TODO: Get from auth context
 
   // Fetch users
-  const { data: usersData, isLoading: usersLoading, error: usersError } = useQuery({
+  const {
+    data: usersData,
+    isLoading: usersLoading,
+    error: usersError,
+  } = useQuery({
     queryKey: ["admin", "users"],
     queryFn: async () => {
       const client = getClient();
@@ -243,7 +255,9 @@ export function UserManagement() {
       toast.success("User created successfully");
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to create user");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create user",
+      );
     },
   });
 
@@ -267,7 +281,9 @@ export function UserManagement() {
       toast.success("User updated successfully");
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to update user");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update user",
+      );
     },
   });
 
@@ -283,7 +299,9 @@ export function UserManagement() {
       toast.success("User deleted successfully");
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to delete user");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete user",
+      );
     },
   });
 
@@ -300,7 +318,9 @@ export function UserManagement() {
       toast.success("Library access updated");
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to update access");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update access",
+      );
     },
   });
 
@@ -318,7 +338,9 @@ export function UserManagement() {
       toast.success("API key created");
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to create API key");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create API key",
+      );
     },
   });
 
@@ -334,7 +356,9 @@ export function UserManagement() {
       toast.success("API key deleted");
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to delete API key");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete API key",
+      );
     },
   });
 
@@ -380,7 +404,7 @@ export function UserManagement() {
     setSelectedFolders((prev) =>
       prev.includes(folderId)
         ? prev.filter((id) => id !== folderId)
-        : [...prev, folderId]
+        : [...prev, folderId],
     );
   };
 
@@ -406,10 +430,13 @@ export function UserManagement() {
                 Manage user accounts and their library access
               </CardDescription>
             </div>
-            <Dialog open={createDialogOpen} onOpenChange={(open) => {
-              setCreateDialogOpen(open);
-              if (!open) resetForm();
-            }}>
+            <Dialog
+              open={createDialogOpen}
+              onOpenChange={(open) => {
+                setCreateDialogOpen(open);
+                if (!open) resetForm();
+              }}
+            >
               <DialogTrigger asChild>
                 <Button size="sm" className="gap-1">
                   <Plus className="w-4 h-4" />
@@ -471,11 +498,16 @@ export function UserManagement() {
                       <Label>Library Access</Label>
                       <div className="border rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
                         {folders.map((folder) => (
-                          <div key={folder.id} className="flex items-center gap-2">
+                          <div
+                            key={folder.id}
+                            className="flex items-center gap-2"
+                          >
                             <Checkbox
                               id={`folder-${folder.id}`}
                               checked={selectedFolders.includes(folder.id)}
-                              onCheckedChange={() => toggleFolderAccess(folder.id)}
+                              onCheckedChange={() =>
+                                toggleFolderAccess(folder.id)
+                              }
                             />
                             <Label
                               htmlFor={`folder-${folder.id}`}
@@ -508,7 +540,9 @@ export function UserManagement() {
                       createUserMutation.isPending
                     }
                   >
-                    {createUserMutation.isPending ? "Creating..." : "Create User"}
+                    {createUserMutation.isPending
+                      ? "Creating..."
+                      : "Create User"}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -551,18 +585,19 @@ export function UserManagement() {
       </Card>
 
       {/* Edit User Dialog */}
-      <Dialog open={!!editingUser} onOpenChange={(open) => {
-        if (!open) {
-          setEditingUser(null);
-          resetForm();
-        }
-      }}>
+      <Dialog
+        open={!!editingUser}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingUser(null);
+            resetForm();
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit User</DialogTitle>
-            <DialogDescription>
-              Update user account settings
-            </DialogDescription>
+            <DialogDescription>Update user account settings</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -610,10 +645,7 @@ export function UserManagement() {
             )}
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setEditingUser(null)}
-            >
+            <Button variant="outline" onClick={() => setEditingUser(null)}>
               Cancel
             </Button>
             <Button
@@ -631,12 +663,17 @@ export function UserManagement() {
       </Dialog>
 
       {/* Library Access Dialog */}
-      <Dialog open={!!accessDialogUser} onOpenChange={(open) => {
-        if (!open) setAccessDialogUser(null);
-      }}>
+      <Dialog
+        open={!!accessDialogUser}
+        onOpenChange={(open) => {
+          if (!open) setAccessDialogUser(null);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Library Access for {accessDialogUser?.username}</DialogTitle>
+            <DialogTitle>
+              Library Access for {accessDialogUser?.username}
+            </DialogTitle>
             <DialogDescription>
               Select which music libraries this user can access
             </DialogDescription>
@@ -690,10 +727,7 @@ export function UserManagement() {
             )}
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setAccessDialogUser(null)}
-            >
+            <Button variant="outline" onClick={() => setAccessDialogUser(null)}>
               Cancel
             </Button>
             <Button
@@ -707,13 +741,16 @@ export function UserManagement() {
       </Dialog>
 
       {/* API Keys Dialog */}
-      <Dialog open={!!keysDialogUser} onOpenChange={(open) => {
-        if (!open) {
-          setKeysDialogUser(null);
-          setCreatedKey(null);
-          setNewKeyName("");
-        }
-      }}>
+      <Dialog
+        open={!!keysDialogUser}
+        onOpenChange={(open) => {
+          if (!open) {
+            setKeysDialogUser(null);
+            setCreatedKey(null);
+            setNewKeyName("");
+          }
+        }}
+      >
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>API Keys for {keysDialogUser?.username}</DialogTitle>
@@ -752,11 +789,7 @@ export function UserManagement() {
                   <code className="flex-1 p-2 bg-muted rounded text-xs font-mono break-all">
                     {createdKey}
                   </code>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleCopyKey}
-                  >
+                  <Button size="sm" variant="outline" onClick={handleCopyKey}>
                     {copiedKey ? (
                       <Check className="w-4 h-4" />
                     ) : (
@@ -789,7 +822,11 @@ export function UserManagement() {
                         <p className="text-xs text-muted-foreground mt-0.5">
                           Created {new Date(key.createdAt).toLocaleDateString()}
                           {key.lastUsed && (
-                            <> • Last used {new Date(key.lastUsed).toLocaleDateString()}</>
+                            <>
+                              {" "}
+                              • Last used{" "}
+                              {new Date(key.lastUsed).toLocaleDateString()}
+                            </>
                           )}
                         </p>
                       </div>
@@ -808,10 +845,7 @@ export function UserManagement() {
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setKeysDialogUser(null)}
-            >
+            <Button variant="outline" onClick={() => setKeysDialogUser(null)}>
               Close
             </Button>
           </DialogFooter>

@@ -14,20 +14,23 @@ export function useClearSelectionOnNavigate() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const clearSelection = useSetAtom(clearSelectionAtom);
-  
+
   // Track the previous path to detect navigation
   const previousPathRef = useRef<string | null>(null);
-  
+
   useEffect(() => {
     // Build current full path including search params
     const currentPath = `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
-    
+
     // Skip initial render (when previousPath is null)
-    if (previousPathRef.current !== null && previousPathRef.current !== currentPath) {
+    if (
+      previousPathRef.current !== null &&
+      previousPathRef.current !== currentPath
+    ) {
       // Route changed, clear selection
       clearSelection();
     }
-    
+
     // Update the previous path
     previousPathRef.current = currentPath;
   }, [pathname, searchParams, clearSelection]);

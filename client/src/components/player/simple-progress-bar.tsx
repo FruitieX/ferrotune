@@ -3,7 +3,12 @@
 import { useCallback, useRef, useEffect, useState } from "react";
 import { useAtomValue } from "jotai";
 import { cn } from "@/lib/utils";
-import { currentTimeAtom, durationAtom, playbackStateAtom, bufferedAtom } from "@/lib/store/player";
+import {
+  currentTimeAtom,
+  durationAtom,
+  playbackStateAtom,
+  bufferedAtom,
+} from "@/lib/store/player";
 import { currentSongAtom } from "@/lib/store/server-queue";
 import { accentColorRgbAtom } from "@/lib/store/ui";
 import { useAudioEngine, getGlobalAudio } from "@/lib/audio/hooks";
@@ -20,52 +25,58 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
   const buffered = useAtomValue(bufferedAtom);
   const primaryColor = useAtomValue(accentColorRgbAtom);
   const { seekPercent } = useAudioEngine();
-  
+
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
   const [isHovering, setIsHovering] = useState(false);
-  
+
   // Smooth progress tracking
   const smoothProgressRef = useRef<number>(0);
   const progressAnimationRef = useRef<number | null>(null);
   const [displayProgress, setDisplayProgress] = useState(0);
-  
+
   const isEnded = playbackState === "ended";
-  const atomProgress = isEnded ? 0 : (duration > 0 ? (currentTime / duration) * 100 : 0);
+  const atomProgress = isEnded
+    ? 0
+    : duration > 0
+      ? (currentTime / duration) * 100
+      : 0;
   const bufferedPercent = duration > 0 ? (buffered / duration) * 100 : 0;
-  
+
   // Format time as h:mm:ss or mm:ss depending on duration
   const formatTime = (seconds: number): string => {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
-    
+
     if (hrs > 0) {
       return `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
     }
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
-  
-  const hoverTime = hoverPercent !== null && duration > 0 
-    ? (hoverPercent / 100) * duration 
-    : null;
-  
+
+  const hoverTime =
+    hoverPercent !== null && duration > 0
+      ? (hoverPercent / 100) * duration
+      : null;
+
   // Smooth progress animation loop
   useEffect(() => {
     const isPlaying = playbackState === "playing";
-    
+
     if (isPlaying) {
       const animateProgress = () => {
         const audio = getGlobalAudio();
         if (audio && audio.duration > 0) {
-          smoothProgressRef.current = (audio.currentTime / audio.duration) * 100;
+          smoothProgressRef.current =
+            (audio.currentTime / audio.duration) * 100;
         } else {
           smoothProgressRef.current = atomProgress;
         }
         setDisplayProgress(smoothProgressRef.current);
         progressAnimationRef.current = requestAnimationFrame(animateProgress);
       };
-      
+
       progressAnimationRef.current = requestAnimationFrame(animateProgress);
     } else {
       if (progressAnimationRef.current !== null) {
@@ -75,7 +86,7 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
       smoothProgressRef.current = atomProgress;
       setDisplayProgress(atomProgress);
     }
-    
+
     return () => {
       if (progressAnimationRef.current !== null) {
         cancelAnimationFrame(progressAnimationRef.current);
@@ -83,42 +94,49 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
       }
     };
   }, [playbackState, atomProgress]);
-  
-  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const percent = ((e.clientX - rect.left) / rect.width) * 100;
-    seekPercent(percent);
-  }, [seekPercent]);
-  
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const percent = ((e.clientX - rect.left) / rect.width) * 100;
+      seekPercent(percent);
+    },
+    [seekPercent],
+  );
+
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const percent = ((e.clientX - rect.left) / rect.width) * 100;
     setHoverPercent(Math.max(0, Math.min(100, percent)));
   }, []);
-  
+
   const handleMouseEnter = useCallback(() => {
     setIsHovering(true);
   }, []);
-  
+
   const handleMouseLeave = useCallback(() => {
     setIsHovering(false);
     setHoverPercent(null);
   }, []);
-  
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    const step = e.shiftKey ? 10 : 2;
-    if (e.key === "ArrowRight") {
-      e.preventDefault();
-      seekPercent(Math.min(100, smoothProgressRef.current + step));
-    } else if (e.key === "ArrowLeft") {
-      e.preventDefault();
-      seekPercent(Math.max(0, smoothProgressRef.current - step));
-    }
-  }, [seekPercent]);
-  
-  const hasTrack = !!currentTrack && playbackState !== "idle" && playbackState !== "ended";
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const step = e.shiftKey ? 10 : 2;
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        seekPercent(Math.min(100, smoothProgressRef.current + step));
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        seekPercent(Math.max(0, smoothProgressRef.current - step));
+      }
+    },
+    [seekPercent],
+  );
+
+  const hasTrack =
+    !!currentTrack && playbackState !== "idle" && playbackState !== "ended";
   const barHeight = 4; // pixels
-  
+
   return (
     <div
       ref={containerRef}
@@ -132,7 +150,7 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
         "absolute left-0 right-0 cursor-pointer group",
         "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         !hasTrack && "opacity-50 cursor-default",
-        className
+        className,
       )}
       style={{
         top: `-${barHeight / 2}px`,
@@ -147,7 +165,7 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
     >
       {/* Expand click target area */}
       <div className="absolute inset-0 -top-3 -bottom-3" />
-      
+
       {/* Background track */}
       <div className="absolute inset-0 rounded-full bg-muted/50 overflow-hidden">
         {/* Buffered indicator */}
@@ -155,17 +173,17 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
           className="absolute inset-y-0 left-0 bg-muted transition-[width] duration-300"
           style={{ width: `${bufferedPercent}%` }}
         />
-        
+
         {/* Progress indicator */}
         <div
           className="absolute inset-y-0 left-0 rounded-full"
-          style={{ 
+          style={{
             width: `${displayProgress}%`,
             backgroundColor: primaryColor,
           }}
         />
       </div>
-      
+
       {/* Hover indicator line */}
       {isHovering && hoverPercent !== null && (
         <div
@@ -173,7 +191,7 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
           style={{ left: `${hoverPercent}%` }}
         />
       )}
-      
+
       {/* Hover time tooltip */}
       {isHovering && hoverPercent !== null && hoverTime !== null && (
         <div

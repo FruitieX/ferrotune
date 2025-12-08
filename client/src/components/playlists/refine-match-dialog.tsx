@@ -3,7 +3,16 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Search, Music, Loader2, Play, Pause, Check, CheckCircle, Volume2 } from "lucide-react";
+import {
+  Search,
+  Music,
+  Loader2,
+  Play,
+  Pause,
+  Check,
+  CheckCircle,
+  Volume2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -42,12 +51,16 @@ export function RefineMatchDialog({
   const [includeArtist, setIncludeArtist] = useState(true);
   const [includeAlbum, setIncludeAlbum] = useState(true);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
-  
+
   const queryClient = useQueryClient();
   const preview = usePreviewAudio();
 
   // Build search query from missing data
-  const buildSearchQuery = (title: boolean, artist: boolean, album: boolean) => {
+  const buildSearchQuery = (
+    title: boolean,
+    artist: boolean,
+    album: boolean,
+  ) => {
     const parts: string[] = [];
     if (artist && missing.artist) parts.push(missing.artist);
     if (album && missing.album) parts.push(missing.album);
@@ -58,13 +71,16 @@ export function RefineMatchDialog({
   // Perform search
   const doSearch = async (query: string) => {
     if (!query.trim()) return;
-    
+
     setIsSearching(true);
     try {
       const client = getClient();
       if (!client) return;
-      
-      const response = await client.search3({ query: query.trim(), songCount: 20 });
+
+      const response = await client.search3({
+        query: query.trim(),
+        songCount: 20,
+      });
       setSearchResults(response.searchResult3?.song ?? []);
     } catch (error) {
       console.error("Search error:", error);
@@ -75,7 +91,11 @@ export function RefineMatchDialog({
   };
 
   // Update search query when toggles change and auto-search
-  const updateSearchFromToggles = (title: boolean, artist: boolean, album: boolean) => {
+  const updateSearchFromToggles = (
+    title: boolean,
+    artist: boolean,
+    album: boolean,
+  ) => {
     setIncludeTitle(title);
     setIncludeArtist(artist);
     setIncludeAlbum(album);
@@ -96,7 +116,7 @@ export function RefineMatchDialog({
       setIncludeAlbum(hasAlbum);
       setSearchResults([]);
       setSelectedSong(null);
-      
+
       // Build and set initial query, then search
       const initialQuery = buildSearchQuery(hasTitle, hasArtist, hasAlbum);
       setSearchQuery(initialQuery);
@@ -121,7 +141,9 @@ export function RefineMatchDialog({
     },
     onSuccess: () => {
       toast.success("Match updated successfully");
-      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlistId] });
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlistId],
+      });
       setSearchQuery("");
       setSearchResults([]);
       setSelectedSong(null);
@@ -129,7 +151,9 @@ export function RefineMatchDialog({
       onOpenChange(false);
     },
     onError: (error) => {
-      toast.error(`Failed to update match: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error(
+        `Failed to update match: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     },
   });
 
@@ -183,12 +207,19 @@ export function RefineMatchDialog({
                 <Checkbox
                   id={`refine-title-${position}`}
                   checked={includeTitle}
-                  onCheckedChange={(checked) => 
-                    updateSearchFromToggles(checked === true, includeArtist, includeAlbum)
+                  onCheckedChange={(checked) =>
+                    updateSearchFromToggles(
+                      checked === true,
+                      includeArtist,
+                      includeAlbum,
+                    )
                   }
                   className="h-3.5 w-3.5"
                 />
-                <label htmlFor={`refine-title-${position}`} className="text-xs cursor-pointer">
+                <label
+                  htmlFor={`refine-title-${position}`}
+                  className="text-xs cursor-pointer"
+                >
                   Title
                 </label>
               </div>
@@ -198,12 +229,19 @@ export function RefineMatchDialog({
                 <Checkbox
                   id={`refine-artist-${position}`}
                   checked={includeArtist}
-                  onCheckedChange={(checked) => 
-                    updateSearchFromToggles(includeTitle, checked === true, includeAlbum)
+                  onCheckedChange={(checked) =>
+                    updateSearchFromToggles(
+                      includeTitle,
+                      checked === true,
+                      includeAlbum,
+                    )
                   }
                   className="h-3.5 w-3.5"
                 />
-                <label htmlFor={`refine-artist-${position}`} className="text-xs cursor-pointer">
+                <label
+                  htmlFor={`refine-artist-${position}`}
+                  className="text-xs cursor-pointer"
+                >
                   Artist
                 </label>
               </div>
@@ -213,18 +251,25 @@ export function RefineMatchDialog({
                 <Checkbox
                   id={`refine-album-${position}`}
                   checked={includeAlbum}
-                  onCheckedChange={(checked) => 
-                    updateSearchFromToggles(includeTitle, includeArtist, checked === true)
+                  onCheckedChange={(checked) =>
+                    updateSearchFromToggles(
+                      includeTitle,
+                      includeArtist,
+                      checked === true,
+                    )
                   }
                   className="h-3.5 w-3.5"
                 />
-                <label htmlFor={`refine-album-${position}`} className="text-xs cursor-pointer">
+                <label
+                  htmlFor={`refine-album-${position}`}
+                  className="text-xs cursor-pointer"
+                >
                   Album
                 </label>
               </div>
             )}
           </div>
-          
+
           <div className="flex gap-2">
             <Input
               value={searchQuery}
@@ -238,8 +283,8 @@ export function RefineMatchDialog({
                 }
               }}
             />
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               onClick={() => doSearch(searchQuery)}
               disabled={isSearching || !searchQuery.trim()}
               className="h-8"
@@ -253,7 +298,7 @@ export function RefineMatchDialog({
           </div>
 
           {searchResults.length > 0 && (
-            <div 
+            <div
               className="h-[200px] max-w-full rounded border overflow-y-auto overflow-x-hidden"
               onWheel={(e) => e.stopPropagation()}
             >
@@ -265,7 +310,9 @@ export function RefineMatchDialog({
                       key={song.id}
                       className={cn(
                         "w-full text-left p-2 rounded text-sm flex items-center gap-2 overflow-hidden",
-                        isSelectedSong ? "bg-primary/10 ring-1 ring-primary" : "hover:bg-accent"
+                        isSelectedSong
+                          ? "bg-primary/10 ring-1 ring-primary"
+                          : "hover:bg-accent",
                       )}
                       onClick={() => handleSelectSong(song)}
                     >
@@ -277,7 +324,8 @@ export function RefineMatchDialog({
                       <div className="min-w-0 flex-1 overflow-hidden">
                         <div className="font-medium truncate">{song.title}</div>
                         <div className="text-muted-foreground text-xs truncate">
-                          {song.artist}{song.album ? ` • ${song.album}` : ""}
+                          {song.artist}
+                          {song.album ? ` • ${song.album}` : ""}
                         </div>
                       </div>
                     </button>
@@ -286,7 +334,7 @@ export function RefineMatchDialog({
               </div>
             </div>
           )}
-          
+
           {/* Preview controls for selected song */}
           {selectedSong && (
             <div className="pt-2 border-t space-y-2">
@@ -307,7 +355,9 @@ export function RefineMatchDialog({
                   )}
                 </Button>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">{selectedSong.title}</div>
+                  <div className="text-sm font-medium truncate">
+                    {selectedSong.title}
+                  </div>
                   <Slider
                     value={[preview.progress]}
                     onValueChange={handleSeek}

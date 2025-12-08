@@ -12,7 +12,13 @@ import { usePreferencesSync } from "@/lib/hooks/use-preferences-sync";
 import { useClearSelectionOnNavigate } from "@/lib/hooks/use-clear-selection-on-navigate";
 import { useScanProgressStream } from "@/lib/hooks/use-scan-progress-stream";
 import { DynamicFavicon } from "@/components/dynamic-favicon";
-import { accentColorAtom, customAccentHueAtom, customAccentLightnessAtom, customAccentChromaAtom, queuePanelOpenAtom } from "@/lib/store/ui";
+import {
+  accentColorAtom,
+  customAccentHueAtom,
+  customAccentLightnessAtom,
+  customAccentChromaAtom,
+  queuePanelOpenAtom,
+} from "@/lib/store/ui";
 import { needsDarkForeground } from "@/lib/utils/color";
 
 // Component that handles clearing selection on navigation
@@ -39,12 +45,12 @@ function AccentColorProvider({ children }: { children: React.ReactNode }) {
   const customHue = useAtomValue(customAccentHueAtom);
   const customLightness = useAtomValue(customAccentLightnessAtom);
   const customChroma = useAtomValue(customAccentChromaAtom);
-  
+
   useEffect(() => {
     const html = document.documentElement;
     // Remove any previous accent attribute
     html.removeAttribute("data-accent");
-    
+
     // Clear any custom CSS variables
     html.style.removeProperty("--primary");
     html.style.removeProperty("--primary-foreground");
@@ -53,7 +59,7 @@ function AccentColorProvider({ children }: { children: React.ReactNode }) {
     html.style.removeProperty("--sidebar-primary");
     html.style.removeProperty("--sidebar-primary-foreground");
     html.style.removeProperty("--sidebar-ring");
-    
+
     if (accentColor === "custom") {
       // Apply custom color via inline CSS variables
       const customColor = `oklch(${customLightness} ${customChroma} ${customHue})`;
@@ -62,7 +68,7 @@ function AccentColorProvider({ children }: { children: React.ReactNode }) {
       html.style.setProperty("--chart-1", customColor);
       html.style.setProperty("--sidebar-primary", customColor);
       html.style.setProperty("--sidebar-ring", customColor);
-      
+
       // Adjust foreground color for contrast when using light custom colors
       if (needsDarkForeground(customLightness)) {
         const darkForeground = "oklch(0.1 0 0)";
@@ -74,7 +80,7 @@ function AccentColorProvider({ children }: { children: React.ReactNode }) {
       html.setAttribute("data-accent", accentColor);
     }
   }, [accentColor, customHue, customLightness, customChroma]);
-  
+
   return <>{children}</>;
 }
 
@@ -83,11 +89,11 @@ function ResponsiveToaster() {
   const queueOpen = useAtomValue(queuePanelOpenAtom);
   const QUEUE_SIDEBAR_WIDTH = 360;
   const GAP_FROM_EDGE = 16;
-  
+
   return (
-    <Toaster 
-      position="bottom-right" 
-      richColors 
+    <Toaster
+      position="bottom-right"
+      richColors
       offset={100}
       style={{
         right: GAP_FROM_EDGE,
@@ -106,7 +112,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             refetchOnWindowFocus: false,
           },
         },
-      })
+      }),
   );
 
   return (
@@ -118,15 +124,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
           enableSystem={true}
           disableTransitionOnChange
         >
-            <AccentColorProvider>
-              <DynamicFavicon />
-              <Suspense fallback={null}>
-                <SelectionClearer />
-              </Suspense>
-              <AudioEngineProvider>
-                {children}
-              </AudioEngineProvider>
-            </AccentColorProvider>
+          <AccentColorProvider>
+            <DynamicFavicon />
+            <Suspense fallback={null}>
+              <SelectionClearer />
+            </Suspense>
+            <AudioEngineProvider>{children}</AudioEngineProvider>
+          </AccentColorProvider>
           <ResponsiveToaster />
         </ThemeProvider>
       </QueryClientProvider>

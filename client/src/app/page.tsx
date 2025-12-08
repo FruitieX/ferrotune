@@ -12,7 +12,11 @@ import { getClient } from "@/lib/api/client";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import type { Album, Song } from "@/lib/api/types";
 
@@ -20,10 +24,10 @@ import type { Album, Song } from "@/lib/api/types";
 async function fetchAlbumsSongs(albums: Album[]): Promise<Song[]> {
   const client = getClient();
   if (!client || !albums.length) return [];
-  
+
   try {
-    const songsPromises = albums.map(album => 
-      client.getAlbum(album.id).then(res => res.album.song ?? [])
+    const songsPromises = albums.map((album) =>
+      client.getAlbum(album.id).then((res) => res.album.song ?? []),
     );
     const songsArrays = await Promise.all(songsPromises);
     return songsArrays.flat();
@@ -90,7 +94,7 @@ function AlbumSection({
           </div>
         )}
       </div>
-      
+
       <ScrollArea className="w-full">
         <div className="flex gap-4 px-4 lg:px-6 pb-4">
           {isLoading ? (
@@ -101,21 +105,20 @@ function AlbumSection({
             ))
           ) : albums && albums.length > 0 ? (
             albums.map((album) => (
-              <motion.div 
-                key={album.id} 
+              <motion.div
+                key={album.id}
                 className="w-[180px] shrink-0"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.3 }}
               >
-                <AlbumCard
-                  album={album}
-                  onPlay={() => onPlayAlbum(album)}
-                />
+                <AlbumCard album={album} onPlay={() => onPlayAlbum(album)} />
               </motion.div>
             ))
           ) : (
-            <p className="text-muted-foreground text-sm py-8">No albums found</p>
+            <p className="text-muted-foreground text-sm py-8">
+              No albums found
+            </p>
           )}
         </div>
         <ScrollBar orientation="horizontal" />
@@ -125,7 +128,9 @@ function AlbumSection({
 }
 
 export default function HomePage() {
-  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({
+    redirectToLogin: true,
+  });
   const startQueue = useSetAtom(startQueueAtom);
   const isMounted = useIsMounted();
 
@@ -159,7 +164,10 @@ export default function HomePage() {
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getAlbumList2({ type: "frequent", size: 10 });
+      const response = await client.getAlbumList2({
+        type: "frequent",
+        size: 10,
+      });
       return response.albumList2.album;
     },
     enabled: isReady,
@@ -189,20 +197,23 @@ export default function HomePage() {
   };
 
   // Play all albums in a section - fetch songs and start with explicit IDs
-  const handlePlayAllAlbums = async (albums: Album[] | undefined, sectionName: string) => {
+  const handlePlayAllAlbums = async (
+    albums: Album[] | undefined,
+    sectionName: string,
+  ) => {
     if (!albums?.length) return;
-    
+
     toast.loading("Loading songs...");
     const songs = await fetchAlbumsSongs(albums);
     toast.dismiss();
-    
+
     if (songs.length > 0) {
       startQueue({
         sourceType: "other",
         sourceName: sectionName,
         startIndex: 0,
         shuffle: false,
-        songIds: songs.map(s => s.id),
+        songIds: songs.map((s) => s.id),
       });
       toast.success(`Playing ${songs.length} songs`);
     } else {
@@ -211,20 +222,23 @@ export default function HomePage() {
   };
 
   // Shuffle all albums in a section
-  const handleShuffleAllAlbums = async (albums: Album[] | undefined, sectionName: string) => {
+  const handleShuffleAllAlbums = async (
+    albums: Album[] | undefined,
+    sectionName: string,
+  ) => {
     if (!albums?.length) return;
-    
+
     toast.loading("Loading songs...");
     const songs = await fetchAlbumsSongs(albums);
     toast.dismiss();
-    
+
     if (songs.length > 0) {
       startQueue({
         sourceType: "other",
         sourceName: sectionName,
         startIndex: 0,
         shuffle: true,
-        songIds: songs.map(s => s.id),
+        songIds: songs.map((s) => s.id),
       });
       toast.success(`Shuffling ${songs.length} songs`);
     } else {
@@ -286,7 +300,9 @@ export default function HomePage() {
           isLoading={loadingNewest}
           onPlayAlbum={handlePlayAlbum}
           onPlayAll={() => handlePlayAllAlbums(newestAlbums, "Recently Added")}
-          onShuffleAll={() => handleShuffleAllAlbums(newestAlbums, "Recently Added")}
+          onShuffleAll={() =>
+            handleShuffleAllAlbums(newestAlbums, "Recently Added")
+          }
         />
 
         {/* Continue Listening (Recently Played) */}
@@ -296,8 +312,12 @@ export default function HomePage() {
           albums={recentAlbums}
           isLoading={loadingRecent}
           onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() => handlePlayAllAlbums(recentAlbums, "Continue Listening")}
-          onShuffleAll={() => handleShuffleAllAlbums(recentAlbums, "Continue Listening")}
+          onPlayAll={() =>
+            handlePlayAllAlbums(recentAlbums, "Continue Listening")
+          }
+          onShuffleAll={() =>
+            handleShuffleAllAlbums(recentAlbums, "Continue Listening")
+          }
         />
 
         {/* Most Played */}
@@ -308,7 +328,9 @@ export default function HomePage() {
           isLoading={loadingFrequent}
           onPlayAlbum={handlePlayAlbum}
           onPlayAll={() => handlePlayAllAlbums(frequentAlbums, "Most Played")}
-          onShuffleAll={() => handleShuffleAllAlbums(frequentAlbums, "Most Played")}
+          onShuffleAll={() =>
+            handleShuffleAllAlbums(frequentAlbums, "Most Played")
+          }
         />
 
         {/* Discover */}

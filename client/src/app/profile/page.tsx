@@ -47,7 +47,9 @@ import { formatListeningTime } from "@/lib/utils/format";
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({
+    redirectToLogin: true,
+  });
   const isMounted = useIsMounted();
   const { user, isLoading: userLoading } = useCurrentUser();
   const [connection, setConnection] = useAtom(serverConnectionAtom);
@@ -145,9 +147,13 @@ export default function ProfilePage() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold">{user?.username ?? "Profile"}</h1>
+              <h1 className="text-2xl font-bold">
+                {user?.username ?? "Profile"}
+              </h1>
               {user?.isAdmin && (
-                <Badge variant="secondary" className="text-xs">Admin</Badge>
+                <Badge variant="secondary" className="text-xs">
+                  Admin
+                </Badge>
               )}
             </div>
             <p className="text-sm text-muted-foreground">
@@ -170,9 +176,7 @@ export default function ProfilePage() {
                 <User className="w-5 h-5" />
                 Account
               </CardTitle>
-              <CardDescription>
-                Your account details
-              </CardDescription>
+              <CardDescription>Your account details</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -204,7 +208,7 @@ export default function ProfilePage() {
                     </span>
                   </div>
                   <p className="font-medium">
-                    {user?.createdAt 
+                    {user?.createdAt
                       ? new Date(user.createdAt).toLocaleDateString(undefined, {
                           year: "numeric",
                           month: "long",
@@ -236,7 +240,10 @@ export default function ProfilePage() {
                 </CardDescription>
               </div>
               <Link href="/review">
-                <Button size="sm" className="gap-2 bg-primary hover:bg-primary/80">
+                <Button
+                  size="sm"
+                  className="gap-2 bg-primary hover:bg-primary/80"
+                >
                   <TrendingUp className="w-4 h-4" />
                   Your Review
                 </Button>
@@ -257,38 +264,70 @@ export default function ProfilePage() {
                   <div className="p-3 rounded-lg bg-muted/30">
                     <div className="flex items-center gap-2 text-muted-foreground mb-1">
                       <Calendar className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">Last 7 Days</span>
+                      <span className="text-xs uppercase tracking-wider">
+                        Last 7 Days
+                      </span>
                     </div>
-                    <p className="text-lg font-bold">{formatListeningTime(listeningStats.last7Days.totalSeconds)}</p>
-                    <p className="text-xs text-muted-foreground">{listeningStats.last7Days.uniqueSongs} songs</p>
+                    <p className="text-lg font-bold">
+                      {formatListeningTime(
+                        listeningStats.last7Days.totalSeconds,
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {listeningStats.last7Days.uniqueSongs} songs
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/30">
                     <div className="flex items-center gap-2 text-muted-foreground mb-1">
                       <Calendar className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">Last 30 Days</span>
+                      <span className="text-xs uppercase tracking-wider">
+                        Last 30 Days
+                      </span>
                     </div>
-                    <p className="text-lg font-bold">{formatListeningTime(listeningStats.last30Days.totalSeconds)}</p>
-                    <p className="text-xs text-muted-foreground">{listeningStats.last30Days.uniqueSongs} songs</p>
+                    <p className="text-lg font-bold">
+                      {formatListeningTime(
+                        listeningStats.last30Days.totalSeconds,
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {listeningStats.last30Days.uniqueSongs} songs
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/30">
                     <div className="flex items-center gap-2 text-muted-foreground mb-1">
                       <Calendar className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">This Year</span>
+                      <span className="text-xs uppercase tracking-wider">
+                        This Year
+                      </span>
                     </div>
-                    <p className="text-lg font-bold">{formatListeningTime(listeningStats.thisYear.totalSeconds)}</p>
-                    <p className="text-xs text-muted-foreground">{listeningStats.thisYear.uniqueSongs} songs</p>
+                    <p className="text-lg font-bold">
+                      {formatListeningTime(
+                        listeningStats.thisYear.totalSeconds,
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {listeningStats.thisYear.uniqueSongs} songs
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/30">
                     <div className="flex items-center gap-2 text-muted-foreground mb-1">
                       <Clock className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">All Time</span>
+                      <span className="text-xs uppercase tracking-wider">
+                        All Time
+                      </span>
                     </div>
-                    <p className="text-lg font-bold">{formatListeningTime(listeningStats.allTime.totalSeconds)}</p>
-                    <p className="text-xs text-muted-foreground">{listeningStats.allTime.uniqueSongs} songs</p>
+                    <p className="text-lg font-bold">
+                      {formatListeningTime(listeningStats.allTime.totalSeconds)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {listeningStats.allTime.uniqueSongs} songs
+                    </p>
                   </div>
                 </div>
               ) : (
-                <p className="text-muted-foreground text-sm">No listening data yet. Start playing some music!</p>
+                <p className="text-muted-foreground text-sm">
+                  No listening data yet. Start playing some music!
+                </p>
               )}
             </CardContent>
           </Card>

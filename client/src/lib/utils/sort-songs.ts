@@ -8,7 +8,7 @@ import type { Song } from "@/lib/api/types";
 export function sortSongs(
   songs: Song[],
   field: string,
-  direction: "asc" | "desc"
+  direction: "asc" | "desc",
 ): Song[] {
   // "custom" means preserve original order (no sorting)
   if (field === "custom") {

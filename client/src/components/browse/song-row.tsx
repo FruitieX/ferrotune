@@ -8,14 +8,27 @@ import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { formatDuration, formatDate } from "@/lib/utils/format";
-import { currentSongAtom, serverQueueStateAtom, startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
+import {
+  currentSongAtom,
+  serverQueueStateAtom,
+  startQueueAtom,
+  type QueueSourceType,
+} from "@/lib/store/server-queue";
 import { playbackStateAtom } from "@/lib/store/player";
 import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
 import { useStarred } from "@/lib/store/starred";
 import { useAudioEngine } from "@/lib/audio/hooks";
-import { MediaRow, MediaRowSkeleton, RowActions } from "@/components/shared/media-row";
+import {
+  MediaRow,
+  MediaRowSkeleton,
+  RowActions,
+} from "@/components/shared/media-row";
 import { MediaCard, MediaCardSkeleton } from "@/components/shared/media-card";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { NowPlayingBars } from "@/components/shared/now-playing-bars";
 import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
 
@@ -30,11 +43,19 @@ interface TrackIndexProps {
   onSelect?: (id: string, e: React.MouseEvent) => void;
 }
 
-function TrackIndex({ index, songId, isCurrentTrack, isPlaying, isSelected, isSelectionMode, onSelect }: TrackIndexProps) {
+function TrackIndex({
+  index,
+  songId,
+  isCurrentTrack,
+  isPlaying,
+  isSelected,
+  isSelectionMode,
+  onSelect,
+}: TrackIndexProps) {
   const showCheckbox = isSelected || isSelectionMode;
-  
+
   return (
-    <div 
+    <div
       className="w-8 text-center shrink-0 relative cursor-pointer"
       onClick={(e) => {
         if (onSelect) {
@@ -48,9 +69,7 @@ function TrackIndex({ index, songId, isCurrentTrack, isPlaying, isSelected, isSe
       <div
         className={cn(
           "absolute inset-0 flex items-center justify-center transition-opacity",
-          showCheckbox
-            ? "opacity-100"
-            : "opacity-0 group-hover:opacity-100"
+          showCheckbox ? "opacity-100" : "opacity-0 group-hover:opacity-100",
         )}
       >
         <button
@@ -62,7 +81,7 @@ function TrackIndex({ index, songId, isCurrentTrack, isPlaying, isSelected, isSe
             "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
             isSelected
               ? "bg-primary border-primary text-primary-foreground"
-              : "border-muted-foreground/50 hover:border-primary/50"
+              : "border-muted-foreground/50 hover:border-primary/50",
           )}
         >
           {isSelected && <Check className="w-3 h-3" />}
@@ -73,7 +92,9 @@ function TrackIndex({ index, songId, isCurrentTrack, isPlaying, isSelected, isSe
         className={cn(
           "text-sm tabular-nums text-muted-foreground transition-opacity",
           isCurrentTrack && "text-primary",
-          showCheckbox ? "opacity-0 pointer-events-none" : "group-hover:opacity-0 group-hover:pointer-events-none"
+          showCheckbox
+            ? "opacity-0 pointer-events-none"
+            : "group-hover:opacity-0 group-hover:pointer-events-none",
         )}
       >
         {isCurrentTrack ? (
@@ -169,15 +190,17 @@ export function SongRow({
   // If isCurrentQueuePosition is explicitly set (for views with duplicate songs like playlists),
   // use that to determine if this specific row is the current track.
   // Otherwise, fall back to matching by song ID.
-  const isCurrentTrack = isCurrentQueuePosition !== undefined
-    ? isCurrentQueuePosition && playbackState !== "ended"
-    : currentSong?.id === song.id && playbackState !== "ended";
+  const isCurrentTrack =
+    isCurrentQueuePosition !== undefined
+      ? isCurrentQueuePosition && playbackState !== "ended"
+      : currentSong?.id === song.id && playbackState !== "ended";
   const isPlaying = isCurrentTrack && playbackState === "playing";
   const isExcludedFromShuffle = shuffleExcludes.has(song.id);
 
-  const coverArtUrl = showCover && song.coverArt
-    ? getClient()?.getCoverArtUrl(song.coverArt, 48)
-    : undefined;
+  const coverArtUrl =
+    showCover && song.coverArt
+      ? getClient()?.getCoverArtUrl(song.coverArt, 48)
+      : undefined;
 
   const handlePlay = () => {
     if (isCurrentTrack) {
@@ -185,7 +208,8 @@ export function SongRow({
     } else if (queueSource?.type && queueSource.type !== "other") {
       // Use server-side queue materialization for known sources
       // Use the index prop if available, otherwise try to find from queueSongs
-      const songIndex = index ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
+      const songIndex =
+        index ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
       startQueue({
         sourceType: queueSource.type,
         sourceId: queueSource.id ?? undefined,
@@ -200,7 +224,7 @@ export function SongRow({
       startQueue({
         sourceType: queueSource?.type || "other",
         sourceName: queueSource?.name ?? undefined,
-        songIds: queueSongs.map(s => s.id),
+        songIds: queueSongs.map((s) => s.id),
         startIndex: songIndex >= 0 ? songIndex : 0,
       });
     } else {
@@ -321,25 +345,35 @@ export function SongRow({
               </Tooltip>
             )}
             {showYear && song.year && (
-              <span className="hidden sm:inline w-12 text-right">{song.year}</span>
+              <span className="hidden sm:inline w-12 text-right">
+                {song.year}
+              </span>
             )}
             {showPlayCount && (
-              <span className="hidden md:inline w-12 text-right">{song.playCount ?? 0}</span>
+              <span className="hidden md:inline w-12 text-right">
+                {song.playCount ?? 0}
+              </span>
             )}
             {showLastPlayed && (
-              <span className="hidden lg:inline w-24 text-right">{song.lastPlayed ? formatDate(song.lastPlayed) : "Never"}</span>
+              <span className="hidden lg:inline w-24 text-right">
+                {song.lastPlayed ? formatDate(song.lastPlayed) : "Never"}
+              </span>
             )}
             {showDateAdded && song.created && (
-              <span className="hidden lg:inline w-24 text-right">{formatDate(song.created)}</span>
+              <span className="hidden lg:inline w-24 text-right">
+                {formatDate(song.created)}
+              </span>
             )}
             {showDuration && (
-              <span className="w-12 text-right">{formatDuration(song.duration)}</span>
+              <span className="w-12 text-right">
+                {formatDuration(song.duration)}
+              </span>
             )}
           </div>
         }
         contextMenu={(children) => (
-          <SongContextMenu 
-            song={song} 
+          <SongContextMenu
+            song={song}
             queueSongs={queueSongs}
             songIndex={index}
             queueSource={queueSource}
@@ -358,10 +392,12 @@ export function SongRow({
       >
         {/* Custom content with clickable links */}
         <div className="min-w-0 flex flex-col flex-1">
-          <span className={cn(
-            "text-sm font-medium truncate",
-            isCurrentTrack && "text-primary"
-          )}>
+          <span
+            className={cn(
+              "text-sm font-medium truncate",
+              isCurrentTrack && "text-primary",
+            )}
+          >
             {song.title}
           </span>
           {(showArtist || showAlbum) && subtitle}
@@ -371,7 +407,13 @@ export function SongRow({
   );
 }
 
-export function SongRowSkeleton({ showCover = false, showIndex = true }: { showCover?: boolean; showIndex?: boolean }) {
+export function SongRowSkeleton({
+  showCover = false,
+  showIndex = true,
+}: {
+  showCover?: boolean;
+  showIndex?: boolean;
+}) {
   return (
     <MediaRowSkeleton
       showCover={showCover}
@@ -406,7 +448,21 @@ interface SongCardProps {
   className?: string;
 }
 
-export function SongCard({ song, index, queueSongs, queueSource, isSelected, isSelectionMode, onSelect, showMoveToPosition, onMoveToPosition, showRefineMatch, onRefineMatch, isCurrentQueuePosition, className }: SongCardProps) {
+export function SongCard({
+  song,
+  index,
+  queueSongs,
+  queueSource,
+  isSelected,
+  isSelectionMode,
+  onSelect,
+  showMoveToPosition,
+  onMoveToPosition,
+  showRefineMatch,
+  onRefineMatch,
+  isCurrentQueuePosition,
+  className,
+}: SongCardProps) {
   const currentSong = useAtomValue(currentSongAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
@@ -417,9 +473,10 @@ export function SongCard({ song, index, queueSongs, queueSource, isSelected, isS
   // If isCurrentQueuePosition is explicitly set (for views with duplicate songs like playlists),
   // use that to determine if this specific card is the current track.
   // Otherwise, fall back to matching by song ID.
-  const isCurrentTrack = isCurrentQueuePosition !== undefined
-    ? isCurrentQueuePosition && playbackState !== "ended"
-    : currentSong?.id === song.id && playbackState !== "ended";
+  const isCurrentTrack =
+    isCurrentQueuePosition !== undefined
+      ? isCurrentQueuePosition && playbackState !== "ended"
+      : currentSong?.id === song.id && playbackState !== "ended";
   const isExcludedFromShuffle = shuffleExcludes.has(song.id);
 
   const coverArtUrl = song.coverArt
@@ -432,7 +489,8 @@ export function SongCard({ song, index, queueSongs, queueSource, isSelected, isS
     } else if (queueSource?.type && queueSource.type !== "other") {
       // Use server-side queue materialization for known sources
       // Use the index prop if available, otherwise try to find from queueSongs
-      const songIndex = index ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
+      const songIndex =
+        index ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
       startQueue({
         sourceType: queueSource.type,
         sourceId: queueSource.id ?? undefined,
@@ -447,7 +505,7 @@ export function SongCard({ song, index, queueSongs, queueSource, isSelected, isS
       startQueue({
         sourceType: queueSource?.type || "other",
         sourceName: queueSource?.name ?? undefined,
-        songIds: queueSongs.map(s => s.id),
+        songIds: queueSongs.map((s) => s.id),
         startIndex: songIndex >= 0 ? songIndex : 0,
       });
     } else {
@@ -508,9 +566,31 @@ export function SongCard({ song, index, queueSongs, queueSource, isSelected, isS
       isSelected={isSelected}
       isSelectionMode={isSelectionMode}
       onSelect={onSelect ? (e) => onSelect(song.id, e) : undefined}
-      dropdownMenu={<SongDropdownMenu song={song} queueSongs={queueSongs} songIndex={index} queueSource={queueSource} showMoveToPosition={showMoveToPosition} onMoveToPosition={onMoveToPosition} moveToPositionLabel="Move to Position" showRefineMatch={showRefineMatch} onRefineMatch={onRefineMatch} />}
+      dropdownMenu={
+        <SongDropdownMenu
+          song={song}
+          queueSongs={queueSongs}
+          songIndex={index}
+          queueSource={queueSource}
+          showMoveToPosition={showMoveToPosition}
+          onMoveToPosition={onMoveToPosition}
+          moveToPositionLabel="Move to Position"
+          showRefineMatch={showRefineMatch}
+          onRefineMatch={onRefineMatch}
+        />
+      }
       contextMenu={(children) => (
-        <SongContextMenu song={song} queueSongs={queueSongs} songIndex={index} queueSource={queueSource} showMoveToPosition={showMoveToPosition} onMoveToPosition={onMoveToPosition} moveToPositionLabel="Move to Position" showRefineMatch={showRefineMatch} onRefineMatch={onRefineMatch}>
+        <SongContextMenu
+          song={song}
+          queueSongs={queueSongs}
+          songIndex={index}
+          queueSource={queueSource}
+          showMoveToPosition={showMoveToPosition}
+          onMoveToPosition={onMoveToPosition}
+          moveToPositionLabel="Move to Position"
+          showRefineMatch={showRefineMatch}
+          onRefineMatch={onRefineMatch}
+        >
           {children}
         </SongContextMenu>
       )}

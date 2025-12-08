@@ -5,7 +5,12 @@ import { useSetAtom, useAtomValue } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useItemSelection } from "./use-track-selection";
-import { startQueueAtom, addToQueueAtom, toggleShuffleAtom, serverQueueStateAtom } from "@/lib/store/server-queue";
+import {
+  startQueueAtom,
+  addToQueueAtom,
+  toggleShuffleAtom,
+  serverQueueStateAtom,
+} from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import type { Playlist, Song } from "@/lib/api/types";
 
@@ -24,7 +29,7 @@ export function usePlaylistSelection(playlists: Playlist[]) {
     selectAll,
     getSelectedItems,
   } = useItemSelection(playlists);
-  
+
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
@@ -73,11 +78,20 @@ export function usePlaylistSelection(playlists: Playlist[]) {
     startQueue({
       sourceType: "playlist",
       sourceName: `${getSelectedPlaylists().length} playlists`,
-      songIds: songs.map(s => s.id),
+      songIds: songs.map((s) => s.id),
     });
-    toast.success(`Playing ${songs.length} songs from ${getSelectedPlaylists().length} playlists`);
+    toast.success(
+      `Playing ${songs.length} songs from ${getSelectedPlaylists().length} playlists`,
+    );
     clearSelection();
-  }, [fetchPlaylistSongs, startQueue, queueState, toggleShuffle, clearSelection, getSelectedPlaylists]);
+  }, [
+    fetchPlaylistSongs,
+    startQueue,
+    queueState,
+    toggleShuffle,
+    clearSelection,
+    getSelectedPlaylists,
+  ]);
 
   // Shuffle play all songs from selected playlists
   const shuffleSelected = useCallback(async () => {
@@ -89,10 +103,12 @@ export function usePlaylistSelection(playlists: Playlist[]) {
     startQueue({
       sourceType: "playlist",
       sourceName: `${getSelectedPlaylists().length} playlists`,
-      songIds: songs.map(s => s.id),
+      songIds: songs.map((s) => s.id),
       shuffle: true,
     });
-    toast.success(`Shuffling ${songs.length} songs from ${getSelectedPlaylists().length} playlists`);
+    toast.success(
+      `Shuffling ${songs.length} songs from ${getSelectedPlaylists().length} playlists`,
+    );
     clearSelection();
   }, [fetchPlaylistSongs, startQueue, clearSelection, getSelectedPlaylists]);
 
@@ -105,16 +121,19 @@ export function usePlaylistSelection(playlists: Playlist[]) {
         return;
       }
 
-      addToQueue({ songIds: songs.map(s => s.id), position: position === "last" ? "end" : position });
+      addToQueue({
+        songIds: songs.map((s) => s.id),
+        position: position === "last" ? "end" : position,
+      });
 
       toast.success(
         position === "next"
           ? `Added ${songs.length} songs to play next`
-          : `Added ${songs.length} songs to queue`
+          : `Added ${songs.length} songs to queue`,
       );
       clearSelection();
     },
-    [fetchPlaylistSongs, addToQueue, clearSelection]
+    [fetchPlaylistSongs, addToQueue, clearSelection],
   );
 
   // Delete selected playlists
@@ -129,7 +148,9 @@ export function usePlaylistSelection(playlists: Playlist[]) {
       for (const playlist of selected) {
         await client.deletePlaylist(playlist.id);
       }
-      toast.success(`Deleted ${selected.length} playlist${selected.length > 1 ? 's' : ''}`);
+      toast.success(
+        `Deleted ${selected.length} playlist${selected.length > 1 ? "s" : ""}`,
+      );
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       clearSelection();
     } catch (error) {
@@ -139,30 +160,35 @@ export function usePlaylistSelection(playlists: Playlist[]) {
   }, [getSelectedPlaylists, queryClient, clearSelection]);
 
   // Merge selected playlists into a new one
-  const mergeSelected = useCallback(async (newPlaylistName: string) => {
-    const client = getClient();
-    if (!client) return;
+  const mergeSelected = useCallback(
+    async (newPlaylistName: string) => {
+      const client = getClient();
+      if (!client) return;
 
-    const songs = await fetchPlaylistSongs();
-    if (songs.length === 0) {
-      toast.error("Selected playlists are empty");
-      return;
-    }
+      const songs = await fetchPlaylistSongs();
+      if (songs.length === 0) {
+        toast.error("Selected playlists are empty");
+        return;
+      }
 
-    try {
-      // Create new playlist with all songs
-      await client.createPlaylist({
-        name: newPlaylistName,
-        songId: songs.map(s => s.id),
-      });
-      toast.success(`Created "${newPlaylistName}" with ${songs.length} songs`);
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      clearSelection();
-    } catch (error) {
-      console.error("Failed to merge playlists:", error);
-      toast.error("Failed to merge playlists");
-    }
-  }, [fetchPlaylistSongs, queryClient, clearSelection]);
+      try {
+        // Create new playlist with all songs
+        await client.createPlaylist({
+          name: newPlaylistName,
+          songId: songs.map((s) => s.id),
+        });
+        toast.success(
+          `Created "${newPlaylistName}" with ${songs.length} songs`,
+        );
+        queryClient.invalidateQueries({ queryKey: ["playlists"] });
+        clearSelection();
+      } catch (error) {
+        console.error("Failed to merge playlists:", error);
+        toast.error("Failed to merge playlists");
+      }
+    },
+    [fetchPlaylistSongs, queryClient, clearSelection],
+  );
 
   return {
     selectedIds,

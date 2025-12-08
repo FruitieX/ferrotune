@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 interface DetailHeaderProps {
   /** Back button behavior */
   showBackButton?: boolean;
-  
+
   /** Image/icon display */
   coverUrl?: string | null;
   coverAlt?: string;
@@ -27,28 +27,28 @@ interface DetailHeaderProps {
   circular?: boolean;
   /** Cover size - defaults to 48 (w-48 = 192px) */
   coverSize?: "sm" | "md" | "lg";
-  
+
   /** Gradient color for background (used when no cover or not using blurred background) */
   gradientColor?: string;
   /** Whether to use blurred cover as background */
   useBlurredBackground?: boolean;
   /** Background height when using blurred background - defaults to 400px */
   backgroundHeight?: number;
-  
+
   /** Text content */
   label?: string;
   title: string;
   subtitle?: ReactNode;
-  
+
   /** Optional metadata items */
   metadata?: ReactNode;
-  
+
   /** Additional content in header (e.g., action buttons) */
   headerActions?: ReactNode;
-  
+
   /** Whether the content is loading */
   isLoading?: boolean;
-  
+
   children?: ReactNode;
 }
 
@@ -87,30 +87,30 @@ export function DetailHeader({
 }: DetailHeaderProps) {
   const router = useRouter();
   const shouldBlur = useBlurredBackground && coverUrl;
-  
+
   // Generate gradient color from colorSeed if provided, otherwise use gradientColor
-  const backgroundGradient = colorSeed 
+  const backgroundGradient = colorSeed
     ? `hsl(${stringToHue(colorSeed)}, 70%, 25%)`
     : gradientColor;
-  
+
   return (
     <div className="relative">
       {/* Gradient background - always shown */}
-      <div 
+      <div
         className="absolute inset-0"
         style={{
           height: `${backgroundHeight}px`,
-          background: `linear-gradient(180deg, ${backgroundGradient} 0%, var(--background) 100%)`
+          background: `linear-gradient(180deg, ${backgroundGradient} 0%, var(--background) 100%)`,
         }}
       />
-      
+
       {/* Blurred cover overlay - only when cover exists and blur is enabled */}
       {shouldBlur && (
-        <div 
+        <div
           className="absolute inset-0 overflow-hidden"
           style={{ height: `${backgroundHeight}px` }}
         >
-          <div 
+          <div
             className="absolute inset-0"
             style={{
               backgroundImage: `url(${coverUrl})`,
@@ -120,10 +120,10 @@ export function DetailHeader({
           >
             {/* Blur and gradient overlay */}
             <div className="absolute inset-0 backdrop-blur-3xl bg-background/60" />
-            <div 
+            <div
               className="absolute inset-0"
               style={{
-                background: `linear-gradient(180deg, transparent 0%, var(--background) 100%)`
+                background: `linear-gradient(180deg, transparent 0%, var(--background) 100%)`,
               }}
             />
           </div>
@@ -146,10 +146,12 @@ export function DetailHeader({
       )}
 
       {/* Main content */}
-      <div className={cn(
-        "relative z-10 flex flex-col md:flex-row gap-6 px-4 lg:px-6 pb-6",
-        !showBackButton && "pt-8"
-      )}>
+      <div
+        className={cn(
+          "relative z-10 flex flex-col md:flex-row gap-6 px-4 lg:px-6 pb-6",
+          !showBackButton && "pt-8",
+        )}
+      >
         {/* Cover image or icon */}
         <motion.div
           initial={coverUrl || isLoading ? { opacity: 0, scale: 0.9 } : false}
@@ -157,11 +159,16 @@ export function DetailHeader({
           className={cn(
             responsiveCoverSizes[coverSize],
             circular ? "rounded-full drop-shadow-2xl" : "rounded-lg album-glow",
-            "mx-auto md:mx-0 shrink-0"
+            "mx-auto md:mx-0 shrink-0",
           )}
         >
           {isLoading ? (
-            <Skeleton className={cn("w-full h-full", circular ? "rounded-full" : "rounded-lg")} />
+            <Skeleton
+              className={cn(
+                "w-full h-full",
+                circular ? "rounded-full" : "rounded-lg",
+              )}
+            />
           ) : coverUrl ? (
             <CoverImage
               src={coverUrl}
@@ -173,11 +180,13 @@ export function DetailHeader({
               className={circular ? "rounded-full" : "rounded-lg"}
             />
           ) : Icon ? (
-            <div className={cn(
-              "w-full h-full flex items-center justify-center",
-              circular ? "rounded-full" : "rounded-lg",
-              iconClassName || "bg-linear-to-br from-primary/80 to-primary"
-            )}>
+            <div
+              className={cn(
+                "w-full h-full flex items-center justify-center",
+                circular ? "rounded-full" : "rounded-lg",
+                iconClassName || "bg-linear-to-br from-primary/80 to-primary",
+              )}
+            >
               <Icon className="w-20 h-20 text-white" />
             </div>
           ) : (
@@ -234,7 +243,7 @@ export function DetailHeader({
           )}
         </motion.div>
       </div>
-      
+
       {children}
     </div>
   );

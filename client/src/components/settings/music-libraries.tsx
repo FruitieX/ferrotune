@@ -353,7 +353,10 @@ function AddFolderDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={!name.trim() || !path.trim() || isLoading}>
+            <Button
+              type="submit"
+              disabled={!name.trim() || !path.trim() || isLoading}
+            >
               {isLoading ? "Adding..." : "Add Folder"}
             </Button>
           </DialogFooter>
@@ -514,7 +517,9 @@ export function MusicLibraries() {
           <div className="text-center py-8 text-muted-foreground">
             <FolderOpen className="w-8 h-8 mx-auto mb-2 opacity-50" />
             <p>No music folders configured</p>
-            <p className="text-sm mt-1">Add a folder to start scanning your music library</p>
+            <p className="text-sm mt-1">
+              Add a folder to start scanning your music library
+            </p>
           </div>
         ) : (
           <div className="space-y-3">

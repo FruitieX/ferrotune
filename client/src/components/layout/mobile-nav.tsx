@@ -26,14 +26,15 @@ export function MobileNav() {
       className={cn(
         "lg:hidden z-50",
         "bg-background/95 backdrop-blur-lg border-t border-border",
-        "pb-safe" // Safe area for iOS
+        "pb-safe", // Safe area for iOS
       )}
     >
       <div className="flex items-center justify-around h-16">
         {navItems.map((item) => {
-          const isActive = item.href === "/" 
-            ? pathname === "/" 
-            : pathname.startsWith(item.href);
+          const isActive =
+            item.href === "/"
+              ? pathname === "/"
+              : pathname.startsWith(item.href);
 
           return (
             <Link
@@ -42,10 +43,12 @@ export function MobileNav() {
               className={cn(
                 "flex flex-col items-center justify-center gap-1 w-full h-full",
                 "text-muted-foreground transition-colors",
-                isActive && "text-primary"
+                isActive && "text-primary",
               )}
             >
-              <item.icon className={cn("w-5 h-5", isActive && "text-primary")} />
+              <item.icon
+                className={cn("w-5 h-5", isActive && "text-primary")}
+              />
               <span className="text-xs font-medium">{item.label}</span>
             </Link>
           );

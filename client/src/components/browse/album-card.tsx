@@ -5,7 +5,11 @@ import type { Album } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { useStarredAlbum } from "@/lib/store/starred";
 import { MediaCard, MediaCardSkeleton } from "@/components/shared/media-card";
-import { MediaRow, RowActions, RowDropdownTrigger } from "@/components/shared/media-row";
+import {
+  MediaRow,
+  RowActions,
+  RowDropdownTrigger,
+} from "@/components/shared/media-row";
 import { AlbumContextMenu, AlbumDropdownMenu } from "./album-context-menu";
 import { formatDuration } from "@/lib/utils/format";
 import type { AlbumColumnVisibility } from "@/lib/store/ui";
@@ -19,9 +23,16 @@ interface AlbumCardProps {
   className?: string;
 }
 
-export function AlbumCard({ album, onPlay, isSelected, isSelectionMode, onSelect, className }: AlbumCardProps) {
+export function AlbumCard({
+  album,
+  onPlay,
+  isSelected,
+  isSelectionMode,
+  onSelect,
+  className,
+}: AlbumCardProps) {
   const { isStarred, toggleStar } = useStarredAlbum(album.id, !!album.starred);
-  
+
   const coverArtUrl = album.coverArt
     ? getClient()?.getCoverArtUrl(album.coverArt, 300)
     : undefined;
@@ -59,7 +70,12 @@ export function AlbumCard({ album, onPlay, isSelected, isSelectionMode, onSelect
       isSelected={isSelected}
       isSelectionMode={isSelectionMode}
       onSelect={onSelect ? (e) => onSelect(album.id, e) : undefined}
-      dropdownMenu={<AlbumDropdownMenu album={album} onPlay={onPlay ? () => onPlay(album.id) : undefined} />}
+      dropdownMenu={
+        <AlbumDropdownMenu
+          album={album}
+          onPlay={onPlay ? () => onPlay(album.id) : undefined}
+        />
+      }
       contextMenu={(children) => (
         <AlbumContextMenu album={album}>{children}</AlbumContextMenu>
       )}
@@ -89,13 +105,13 @@ interface AlbumCardCompactProps {
   showDuration?: boolean;
 }
 
-export function AlbumCardCompact({ 
-  album, 
-  index, 
-  onPlay, 
-  isSelected, 
-  isSelectionMode, 
-  onSelect, 
+export function AlbumCardCompact({
+  album,
+  index,
+  onPlay,
+  isSelected,
+  isSelectionMode,
+  onSelect,
   className,
   showArtist = true,
   showYear = false,
@@ -103,7 +119,7 @@ export function AlbumCardCompact({
   showDuration = false,
 }: AlbumCardCompactProps) {
   const { isStarred, toggleStar } = useStarredAlbum(album.id, !!album.starred);
-  
+
   const coverArtUrl = album.coverArt
     ? getClient()?.getCoverArtUrl(album.coverArt, 80)
     : undefined;
@@ -118,23 +134,32 @@ export function AlbumCardCompact({
   const metadataColumns = [];
   if (showYear && album.year) {
     metadataColumns.push(
-      <span key="year" className="text-sm text-muted-foreground tabular-nums w-12 text-right shrink-0">
+      <span
+        key="year"
+        className="text-sm text-muted-foreground tabular-nums w-12 text-right shrink-0"
+      >
         {album.year}
-      </span>
+      </span>,
     );
   }
   if (showSongCount) {
     metadataColumns.push(
-      <span key="songs" className="text-sm text-muted-foreground tabular-nums w-12 text-right shrink-0">
+      <span
+        key="songs"
+        className="text-sm text-muted-foreground tabular-nums w-12 text-right shrink-0"
+      >
         {album.songCount}
-      </span>
+      </span>,
     );
   }
   if (showDuration) {
     metadataColumns.push(
-      <span key="duration" className="text-sm text-muted-foreground tabular-nums w-14 text-right shrink-0">
+      <span
+        key="duration"
+        className="text-sm text-muted-foreground tabular-nums w-14 text-right shrink-0"
+      >
         {formatDuration(album.duration)}
-      </span>
+      </span>,
     );
   }
 
@@ -180,9 +205,7 @@ export function AlbumCardCompact({
       }
       rightContent={
         metadataColumns.length > 0 ? (
-          <div className="flex items-center gap-4">
-            {metadataColumns}
-          </div>
+          <div className="flex items-center gap-4">{metadataColumns}</div>
         ) : undefined
       }
       className={className}

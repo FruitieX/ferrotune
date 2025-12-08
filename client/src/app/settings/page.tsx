@@ -35,15 +35,21 @@ import { useAccentColor } from "@/lib/hooks/use-preferences-sync";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { volumeAtom, repeatModeAtom } from "@/lib/store/player";
-import { serverQueueStateAtom, toggleShuffleAtom } from "@/lib/store/server-queue";
+import {
+  serverQueueStateAtom,
+  toggleShuffleAtom,
+} from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
-import { 
+import {
   ACCENT_PRESETS,
   type AccentColor,
   progressBarStyleAtom,
 } from "@/lib/store/ui";
 import { useEffect, useState } from "react";
-import { parseCssColorToOklch, clampOklchToSliderRanges } from "@/lib/utils/color";
+import {
+  parseCssColorToOklch,
+  clampOklchToSliderRanges,
+} from "@/lib/utils/color";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -67,7 +73,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatTotalDuration, formatFileSize } from "@/lib/utils/format";
 
 export default function SettingsPage() {
-  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({
+    redirectToLogin: true,
+  });
   const isMounted = useIsMounted();
   const { isAdmin } = useCurrentUser();
   const [connection] = useAtom(serverConnectionAtom);
@@ -77,10 +85,10 @@ export default function SettingsPage() {
   const queueState = useAtomValue(serverQueueStateAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const { theme, setTheme } = useTheme();
-  
+
   // Derive shuffle state from server queue state
   const isShuffled = queueState?.isShuffled ?? false;
-  
+
   // Fetch server stats
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ["serverStats"],
@@ -92,7 +100,7 @@ export default function SettingsPage() {
     enabled: isReady,
     staleTime: 60000, // Cache for 1 minute
   });
-  
+
   // Use the centralized accent color hook that syncs with server
   const {
     accentColor,
@@ -104,7 +112,7 @@ export default function SettingsPage() {
     setCustomLightness,
     setCustomChroma,
   } = useAccentColor();
-  
+
   // Local state for OKLCH input to prevent cursor jumping while typing
   const [oklchInputValue, setOklchInputValue] = useState("");
   const [oklchInputFocused, setOklchInputFocused] = useState(false);
@@ -112,20 +120,29 @@ export default function SettingsPage() {
   // Compute display values: use preset values when a preset is active, custom values otherwise
   // This ensures sliders always show correct values even before the sync effect runs
   // Provide defaults to handle hydration edge cases
-  const displayValues = accentColor === "custom" 
-    ? { hue: customHue ?? 45, lightness: customLightness ?? 0.65, chroma: customChroma ?? 0.18 }
-    : (() => {
-        const preset = ACCENT_PRESETS.find(p => p.name === accentColor);
-        return preset 
-          ? { hue: preset.hue, lightness: 0.65, chroma: 0.18 }
-          : { hue: customHue ?? 45, lightness: customLightness ?? 0.65, chroma: customChroma ?? 0.18 };
-      })();
+  const displayValues =
+    accentColor === "custom"
+      ? {
+          hue: customHue ?? 45,
+          lightness: customLightness ?? 0.65,
+          chroma: customChroma ?? 0.18,
+        }
+      : (() => {
+          const preset = ACCENT_PRESETS.find((p) => p.name === accentColor);
+          return preset
+            ? { hue: preset.hue, lightness: 0.65, chroma: 0.18 }
+            : {
+                hue: customHue ?? 45,
+                lightness: customLightness ?? 0.65,
+                chroma: customChroma ?? 0.18,
+              };
+        })();
 
   // Sync custom atom values to preset values when a preset is active
   // This keeps the atoms in sync for when user switches to custom mode
   useEffect(() => {
     if (accentColor !== "custom") {
-      const preset = ACCENT_PRESETS.find(p => p.name === accentColor);
+      const preset = ACCENT_PRESETS.find((p) => p.name === accentColor);
       if (preset) {
         // Update local state only, don't trigger server sync
         setCustomHue(preset.hue);
@@ -268,7 +285,10 @@ export default function SettingsPage() {
                   </CardDescription>
                 </div>
                 <Link href="/admin">
-                  <Button size="sm" className="gap-2 bg-primary hover:bg-primary/80">
+                  <Button
+                    size="sm"
+                    className="gap-2 bg-primary hover:bg-primary/80"
+                  >
                     <Shield className="w-4 h-4" />
                     Administration
                   </Button>
@@ -290,9 +310,7 @@ export default function SettingsPage() {
                 <BarChart3 className="w-5 h-5" />
                 Library Statistics
               </CardTitle>
-              <CardDescription>
-                Overview of your music library
-              </CardDescription>
+              <CardDescription>Overview of your music library</CardDescription>
             </CardHeader>
             <CardContent>
               {statsLoading ? (
@@ -309,58 +327,90 @@ export default function SettingsPage() {
                   <div className="p-3 rounded-lg bg-muted/30">
                     <div className="flex items-center gap-2 text-muted-foreground mb-1">
                       <Music2 className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">Songs</span>
+                      <span className="text-xs uppercase tracking-wider">
+                        Songs
+                      </span>
                     </div>
-                    <p className="text-xl font-bold">{stats.songCount.toLocaleString()}</p>
+                    <p className="text-xl font-bold">
+                      {stats.songCount.toLocaleString()}
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/30">
                     <div className="flex items-center gap-2 text-muted-foreground mb-1">
                       <Disc className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">Albums</span>
+                      <span className="text-xs uppercase tracking-wider">
+                        Albums
+                      </span>
                     </div>
-                    <p className="text-xl font-bold">{stats.albumCount.toLocaleString()}</p>
+                    <p className="text-xl font-bold">
+                      {stats.albumCount.toLocaleString()}
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/30">
                     <div className="flex items-center gap-2 text-muted-foreground mb-1">
                       <Users className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">Artists</span>
+                      <span className="text-xs uppercase tracking-wider">
+                        Artists
+                      </span>
                     </div>
-                    <p className="text-xl font-bold">{stats.artistCount.toLocaleString()}</p>
+                    <p className="text-xl font-bold">
+                      {stats.artistCount.toLocaleString()}
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/30">
                     <div className="flex items-center gap-2 text-muted-foreground mb-1">
                       <ListMusic className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">Playlists</span>
+                      <span className="text-xs uppercase tracking-wider">
+                        Playlists
+                      </span>
                     </div>
-                    <p className="text-xl font-bold">{stats.playlistCount.toLocaleString()}</p>
+                    <p className="text-xl font-bold">
+                      {stats.playlistCount.toLocaleString()}
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/30">
                     <div className="flex items-center gap-2 text-muted-foreground mb-1">
                       <Clock className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">Total Duration</span>
+                      <span className="text-xs uppercase tracking-wider">
+                        Total Duration
+                      </span>
                     </div>
-                    <p className="text-xl font-bold">{formatTotalDuration(stats.totalDurationSeconds)}</p>
+                    <p className="text-xl font-bold">
+                      {formatTotalDuration(stats.totalDurationSeconds)}
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/30">
                     <div className="flex items-center gap-2 text-muted-foreground mb-1">
                       <HardDrive className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">Library Size</span>
+                      <span className="text-xs uppercase tracking-wider">
+                        Library Size
+                      </span>
                     </div>
-                    <p className="text-xl font-bold">{formatFileSize(stats.totalSizeBytes)}</p>
+                    <p className="text-xl font-bold">
+                      {formatFileSize(stats.totalSizeBytes)}
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/30">
                     <div className="flex items-center gap-2 text-muted-foreground mb-1">
                       <PlayCircle className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">Total Plays</span>
+                      <span className="text-xs uppercase tracking-wider">
+                        Total Plays
+                      </span>
                     </div>
-                    <p className="text-xl font-bold">{stats.totalPlays.toLocaleString()}</p>
+                    <p className="text-xl font-bold">
+                      {stats.totalPlays.toLocaleString()}
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/30">
                     <div className="flex items-center gap-2 text-muted-foreground mb-1">
                       <Music2 className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">Genres</span>
+                      <span className="text-xs uppercase tracking-wider">
+                        Genres
+                      </span>
                     </div>
-                    <p className="text-xl font-bold">{stats.genreCount.toLocaleString()}</p>
+                    <p className="text-xl font-bold">
+                      {stats.genreCount.toLocaleString()}
+                    </p>
                   </div>
                 </div>
               ) : null}
@@ -380,9 +430,7 @@ export default function SettingsPage() {
                 <Music2 className="w-5 h-5" />
                 Playback
               </CardTitle>
-              <CardDescription>
-                Audio playback preferences
-              </CardDescription>
+              <CardDescription>Audio playback preferences</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Volume */}
@@ -414,7 +462,12 @@ export default function SettingsPage() {
                   <Repeat className="w-4 h-4" />
                   Repeat Mode
                 </label>
-                <Select value={repeatMode} onValueChange={(v: string) => setRepeatMode(v as typeof repeatMode)}>
+                <Select
+                  value={repeatMode}
+                  onValueChange={(v: string) =>
+                    setRepeatMode(v as typeof repeatMode)
+                  }
+                >
                   <SelectTrigger className="w-32">
                     <SelectValue />
                   </SelectTrigger>
@@ -455,9 +508,7 @@ export default function SettingsPage() {
                 <Palette className="w-5 h-5" />
                 Appearance
               </CardTitle>
-              <CardDescription>
-                Customize the look and feel
-              </CardDescription>
+              <CardDescription>Customize the look and feel</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex items-center justify-between">
@@ -497,9 +548,7 @@ export default function SettingsPage() {
 
               {/* Accent Color */}
               <div className="space-y-3">
-                <div className="text-sm font-medium">
-                  Accent Color
-                </div>
+                <div className="text-sm font-medium">Accent Color</div>
                 <div className="flex flex-wrap gap-2">
                   {ACCENT_PRESETS.map((preset) => (
                     <button
@@ -510,14 +559,16 @@ export default function SettingsPage() {
                           ? "ring-2 ring-offset-2 ring-offset-background ring-foreground"
                           : ""
                       }`}
-                      style={{ backgroundColor: `oklch(0.65 0.18 ${preset.hue})` }}
+                      style={{
+                        backgroundColor: `oklch(0.65 0.18 ${preset.hue})`,
+                      }}
                       title={preset.label}
                     />
                   ))}
                 </div>
-                
+
                 <Separator />
-                
+
                 {/* Custom Color */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -530,19 +581,22 @@ export default function SettingsPage() {
                       {accentColor === "custom" ? "Active" : "Use Custom"}
                     </Button>
                   </div>
-                  
+
                   <div className="space-y-4">
                     {/* Color preview swatch */}
                     <div className="flex items-center gap-3">
-                      <div 
+                      <div
                         className="w-12 h-12 rounded-full shrink-0 border border-border"
-                        style={{ backgroundColor: `oklch(${displayValues.lightness} ${displayValues.chroma} ${displayValues.hue})` }}
+                        style={{
+                          backgroundColor: `oklch(${displayValues.lightness} ${displayValues.chroma} ${displayValues.hue})`,
+                        }}
                       />
                       <input
                         type="text"
-                        value={oklchInputFocused 
-                          ? oklchInputValue 
-                          : `oklch(${displayValues.lightness.toFixed(2)} ${displayValues.chroma.toFixed(2)} ${Math.round(displayValues.hue)})`
+                        value={
+                          oklchInputFocused
+                            ? oklchInputValue
+                            : `oklch(${displayValues.lightness.toFixed(2)} ${displayValues.chroma.toFixed(2)} ${Math.round(displayValues.hue)})`
                         }
                         placeholder="#ff5500, rgb(255,85,0), hsl(20,100%,50%)"
                         onFocus={(e) => {
@@ -554,7 +608,9 @@ export default function SettingsPage() {
                         }}
                         onBlur={(e) => {
                           setOklchInputFocused(false);
-                          const parsed = parseCssColorToOklch(e.target.value.trim());
+                          const parsed = parseCssColorToOklch(
+                            e.target.value.trim(),
+                          );
                           if (parsed) {
                             const clamped = clampOklchToSliderRanges(parsed);
                             handleCustomLightnessChange(clamped.l);
@@ -570,11 +626,13 @@ export default function SettingsPage() {
                         className="flex-1 px-3 py-1.5 text-sm font-mono bg-muted border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                     </div>
-                    
+
                     {/* Hue slider */}
                     <div className="flex items-center gap-4">
                       <div className="w-16 shrink-0">
-                        <span className="text-xs text-muted-foreground">Hue</span>
+                        <span className="text-xs text-muted-foreground">
+                          Hue
+                        </span>
                       </div>
                       <Slider
                         value={[displayValues.hue]}
@@ -600,11 +658,13 @@ export default function SettingsPage() {
                         {Math.round(displayValues.hue)}°
                       </span>
                     </div>
-                    
+
                     {/* Lightness slider */}
                     <div className="flex items-center gap-4">
                       <div className="w-16 shrink-0">
-                        <span className="text-xs text-muted-foreground">Lightness</span>
+                        <span className="text-xs text-muted-foreground">
+                          Lightness
+                        </span>
                       </div>
                       <Slider
                         value={[displayValues.lightness]}
@@ -626,11 +686,13 @@ export default function SettingsPage() {
                         {Math.round(displayValues.lightness * 100)}%
                       </span>
                     </div>
-                    
+
                     {/* Chroma slider */}
                     <div className="flex items-center gap-4">
                       <div className="w-16 shrink-0">
-                        <span className="text-xs text-muted-foreground">Saturation</span>
+                        <span className="text-xs text-muted-foreground">
+                          Saturation
+                        </span>
                       </div>
                       <Slider
                         value={[displayValues.chroma]}
@@ -661,14 +723,18 @@ export default function SettingsPage() {
               {/* Progress Bar Style */}
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label className="text-sm font-medium">Progress Bar Style</Label>
+                  <Label className="text-sm font-medium">
+                    Progress Bar Style
+                  </Label>
                   <p className="text-xs text-muted-foreground">
                     Choose between waveform or simple progress bar
                   </p>
                 </div>
                 <div className="flex gap-2">
                   <Button
-                    variant={progressBarStyle === "waveform" ? "default" : "outline"}
+                    variant={
+                      progressBarStyle === "waveform" ? "default" : "outline"
+                    }
                     size="sm"
                     onClick={() => setProgressBarStyle("waveform")}
                     className="gap-1.5"
@@ -677,7 +743,9 @@ export default function SettingsPage() {
                     Waveform
                   </Button>
                   <Button
-                    variant={progressBarStyle === "simple" ? "default" : "outline"}
+                    variant={
+                      progressBarStyle === "simple" ? "default" : "outline"
+                    }
                     size="sm"
                     onClick={() => setProgressBarStyle("simple")}
                     className="gap-1.5"

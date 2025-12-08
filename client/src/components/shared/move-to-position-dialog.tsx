@@ -44,21 +44,21 @@ export function MoveToPositionDialog({
 
   const handleMove = () => {
     const newPosition = parseInt(inputValue, 10);
-    
+
     // Validate
     if (isNaN(newPosition) || newPosition < 1 || newPosition > totalCount) {
       setError(`Position must be between 1 and ${totalCount}`);
       return;
     }
-    
+
     // Convert back to 0-based index
     const newIndex = newPosition - 1;
-    
+
     if (newIndex === currentPosition) {
       onOpenChange(false);
       return;
     }
-    
+
     onMove(newIndex);
     onOpenChange(false);
   };
@@ -79,12 +79,10 @@ export function MoveToPositionDialog({
             Move &quot;{itemName}&quot; to a new position.
           </DialogDescription>
         </DialogHeader>
-        
+
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label htmlFor="position">
-              Position (1-{totalCount})
-            </Label>
+            <Label htmlFor="position">Position (1-{totalCount})</Label>
             <Input
               id="position"
               type="number"
@@ -99,23 +97,19 @@ export function MoveToPositionDialog({
               placeholder={`Current: ${currentPosition + 1}`}
               autoFocus
             />
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
+            {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
-          
+
           <div className="text-sm text-muted-foreground">
             Current position: {currentPosition + 1} of {totalCount}
           </div>
         </div>
-        
+
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleMove}>
-            Move
-          </Button>
+          <Button onClick={handleMove}>Move</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

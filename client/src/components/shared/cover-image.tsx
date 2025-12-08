@@ -43,7 +43,7 @@ export function stringToHue(str: string): number {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
+    hash = (hash << 5) - hash + char;
     hash = hash & hash; // Convert to 32bit integer
   }
   return Math.abs(hash % 360);
@@ -65,8 +65,17 @@ export function CoverImage({
   const [isVisible, setIsVisible] = useState(!lazy);
   const containerRef = useRef<HTMLDivElement>(null);
   const prevSrcRef = useRef<string | null | undefined>(src);
-  
-  const Icon = type === "artist" ? User : type === "playlist" ? ListMusic : type === "song" ? Music : type === "genre" ? Tag : Disc;
+
+  const Icon =
+    type === "artist"
+      ? User
+      : type === "playlist"
+        ? ListMusic
+        : type === "song"
+          ? Music
+          : type === "genre"
+            ? Tag
+            : Disc;
   const isRound = type === "artist";
 
   // Reset state only when src actually changes to a different value
@@ -79,12 +88,15 @@ export function CoverImage({
   }, [src]);
 
   // Generate a unique color based on colorSeed (album/artist name) or fall back to alt
-  const placeholderHue = useMemo(() => stringToHue(colorSeed || alt || ""), [colorSeed, alt]);
+  const placeholderHue = useMemo(
+    () => stringToHue(colorSeed || alt || ""),
+    [colorSeed, alt],
+  );
 
   // Use IntersectionObserver for true lazy loading
   useEffect(() => {
     if (!lazy || isVisible) return;
-    
+
     const element = containerRef.current;
     if (!element) return;
 
@@ -99,7 +111,7 @@ export function CoverImage({
       {
         rootMargin: "100px", // Start loading slightly before entering viewport
         threshold: 0,
-      }
+      },
     );
 
     observer.observe(element);
@@ -109,12 +121,18 @@ export function CoverImage({
   // Determine what to show:
   // - If no src provided, show placeholder
   // - If src provided and loaded successfully, show image
-  // - If src provided and error occurred, show placeholder  
+  // - If src provided and error occurred, show placeholder
   // - If src provided and still loading, show skeleton (or placeholder if showPlaceholderWhileLoading is true)
   const hasSrc = !!src;
   const showImage = hasSrc && !hasError && isVisible;
-  const showPlaceholder = !hasSrc || hasError || (showPlaceholderWhileLoading && !isLoaded);
-  const showSkeleton = hasSrc && !hasError && !isLoaded && !showPlaceholderWhileLoading && isVisible;
+  const showPlaceholder =
+    !hasSrc || hasError || (showPlaceholderWhileLoading && !isLoaded);
+  const showSkeleton =
+    hasSrc &&
+    !hasError &&
+    !isLoaded &&
+    !showPlaceholderWhileLoading &&
+    isVisible;
 
   return (
     <div
@@ -123,14 +141,14 @@ export function CoverImage({
         "relative bg-muted overflow-hidden shrink-0",
         isRound ? "rounded-full" : "rounded-md",
         sizeClasses[size],
-        className
+        className,
       )}
     >
       {/* Skeleton/loading state */}
       {showSkeleton && (
         <div className="absolute inset-0 animate-pulse bg-muted" />
       )}
-      
+
       {/* Image - render when we have a src, keep it mounted to handle load/error events */}
       {showImage && (
         <Image
@@ -139,7 +157,7 @@ export function CoverImage({
           fill
           className={cn(
             "object-cover transition-opacity duration-200",
-            isLoaded ? "opacity-100" : "opacity-0"
+            isLoaded ? "opacity-100" : "opacity-0",
           )}
           sizes={
             size === "full"
@@ -156,10 +174,10 @@ export function CoverImage({
           onError={() => setHasError(true)}
         />
       )}
-      
+
       {/* Placeholder - shown when no src, or after error, or while loading if showPlaceholderWhileLoading */}
       {showPlaceholder && !showSkeleton && (
-        <div 
+        <div
           className="absolute inset-0 flex items-center justify-center"
           style={{
             background: `linear-gradient(135deg, hsl(${placeholderHue}, 50%, 25%) 0%, hsl(${(placeholderHue + 40) % 360}, 45%, 18%) 100%)`,
@@ -189,10 +207,7 @@ export function CoverGradient({ seed = "", className }: CoverGradientProps) {
 
   return (
     <div
-      className={cn(
-        "w-full aspect-square rounded-md",
-        className
-      )}
+      className={cn("w-full aspect-square rounded-md", className)}
       style={{
         background: `linear-gradient(135deg, hsl(${hue1}, 70%, 30%) 0%, hsl(${hue2}, 60%, 20%) 100%)`,
       }}

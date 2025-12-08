@@ -28,7 +28,11 @@ interface EditPlaylistDialogProps {
   } | null;
 }
 
-export function EditPlaylistDialog({ open, onOpenChange, playlist }: EditPlaylistDialogProps) {
+export function EditPlaylistDialog({
+  open,
+  onOpenChange,
+  playlist,
+}: EditPlaylistDialogProps) {
   const [name, setName] = useState("");
   const [comment, setComment] = useState("");
   const queryClient = useQueryClient();
@@ -42,7 +46,13 @@ export function EditPlaylistDialog({ open, onOpenChange, playlist }: EditPlaylis
   }, [playlist]);
 
   const updatePlaylist = useMutation({
-    mutationFn: async ({ name, comment }: { name: string; comment: string }) => {
+    mutationFn: async ({
+      name,
+      comment,
+    }: {
+      name: string;
+      comment: string;
+    }) => {
       const client = getClient();
       if (!client || !playlist) throw new Error("Not connected");
       return client.updatePlaylist({
@@ -54,7 +64,9 @@ export function EditPlaylistDialog({ open, onOpenChange, playlist }: EditPlaylis
     onSuccess: () => {
       toast.success(`Playlist updated successfully`);
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlist?.id] });
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlist?.id],
+      });
       onOpenChange(false);
     },
     onError: (error) => {
@@ -100,7 +112,9 @@ export function EditPlaylistDialog({ open, onOpenChange, playlist }: EditPlaylis
                 id="playlist-comment"
                 placeholder="Add a description..."
                 value={comment}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setComment(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                  setComment(e.target.value)
+                }
                 rows={3}
               />
             </div>

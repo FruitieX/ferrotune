@@ -23,8 +23,19 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { CoverImage } from "@/components/shared/cover-image";
 import { fullscreenPlayerOpenAtom, queuePanelOpenAtom } from "@/lib/store/ui";
-import { currentSongAtom, queueWindowAtom, serverQueueStateAtom, toggleShuffleAtom } from "@/lib/store/server-queue";
-import { playbackStateAtom, currentTimeAtom, volumeAtom, repeatModeAtom, isMutedAtom } from "@/lib/store/player";
+import {
+  currentSongAtom,
+  queueWindowAtom,
+  serverQueueStateAtom,
+  toggleShuffleAtom,
+} from "@/lib/store/server-queue";
+import {
+  playbackStateAtom,
+  currentTimeAtom,
+  volumeAtom,
+  repeatModeAtom,
+  isMutedAtom,
+} from "@/lib/store/player";
 import { useStarred } from "@/lib/store/starred";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { formatDuration } from "@/lib/utils/format";
@@ -43,11 +54,11 @@ export function FullscreenPlayer() {
   const queueWindow = useAtomValue(queueWindowAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
-  
+
   const { togglePlayPause, seek, next, previous } = useAudioEngine();
   const { isStarred, toggleStar } = useStarred(
     currentTrack?.id ?? "",
-    !!currentTrack?.starred
+    !!currentTrack?.starred,
   );
   const [localProgress, setLocalProgress] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -71,7 +82,7 @@ export function FullscreenPlayer() {
   };
 
   const cycleRepeat = () => {
-    const modes: typeof repeatMode[] = ["off", "all", "one"];
+    const modes: (typeof repeatMode)[] = ["off", "all", "one"];
     const currentIndex = modes.indexOf(repeatMode);
     setRepeatMode(modes[(currentIndex + 1) % modes.length]);
   };
@@ -92,9 +103,9 @@ export function FullscreenPlayer() {
           initial={{ y: "100%" }}
           animate={{ y: 0 }}
           exit={{ y: "100%" }}
-          transition={{ 
-            type: "spring", 
-            damping: 25, 
+          transition={{
+            type: "spring",
+            damping: 25,
             stiffness: 300,
             mass: 0.8,
           }}
@@ -110,7 +121,7 @@ export function FullscreenPlayer() {
         >
           {/* Blur overlay */}
           <div className="absolute inset-0 backdrop-blur-3xl bg-background/70" />
-          
+
           {/* Content */}
           <div className="relative z-10 flex flex-col h-full max-w-lg mx-auto w-full px-6 py-4">
             {/* Header */}
@@ -128,7 +139,8 @@ export function FullscreenPlayer() {
                   {isEnded ? "Queue Ended" : "Now Playing"}
                 </p>
                 <p className="text-sm font-medium">
-                  {(queueState?.currentIndex ?? 0) + 1} / {queueState?.totalCount ?? 0}
+                  {(queueState?.currentIndex ?? 0) + 1} /{" "}
+                  {queueState?.totalCount ?? 0}
                 </p>
               </div>
               <SongDropdownMenu song={currentTrack} />
@@ -162,8 +174,12 @@ export function FullscreenPlayer() {
               className="flex items-center justify-between mb-6"
             >
               <div className="min-w-0 flex-1">
-                <h2 className="text-xl font-bold truncate">{currentTrack.title}</h2>
-                <p className="text-muted-foreground truncate">{currentTrack.artist}</p>
+                <h2 className="text-xl font-bold truncate">
+                  {currentTrack.title}
+                </h2>
+                <p className="text-muted-foreground truncate">
+                  {currentTrack.artist}
+                </p>
               </div>
               <Button
                 variant="ghost"
@@ -171,7 +187,12 @@ export function FullscreenPlayer() {
                 className="rounded-full shrink-0"
                 onClick={toggleStar}
               >
-                <Heart className={cn("w-6 h-6", isStarred && "fill-red-500 text-red-500")} />
+                <Heart
+                  className={cn(
+                    "w-6 h-6",
+                    isStarred && "fill-red-500 text-red-500",
+                  )}
+                />
               </Button>
             </motion.div>
 
@@ -192,8 +213,12 @@ export function FullscreenPlayer() {
                 disabled={isEnded}
               />
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span className="tabular-nums">{formatDuration(isEnded ? 0 : Math.floor(progress))}</span>
-                <span className="tabular-nums">{formatDuration(isEnded ? 0 : duration)}</span>
+                <span className="tabular-nums">
+                  {formatDuration(isEnded ? 0 : Math.floor(progress))}
+                </span>
+                <span className="tabular-nums">
+                  {formatDuration(isEnded ? 0 : duration)}
+                </span>
               </div>
             </motion.div>
 
@@ -207,7 +232,10 @@ export function FullscreenPlayer() {
               <Button
                 variant="ghost"
                 size="icon"
-                className={cn("rounded-full", queueState?.isShuffled && "text-primary")}
+                className={cn(
+                  "rounded-full",
+                  queueState?.isShuffled && "text-primary",
+                )}
                 onClick={() => toggleShuffle()}
               >
                 <Shuffle className="w-5 h-5" />
@@ -246,7 +274,10 @@ export function FullscreenPlayer() {
               <Button
                 variant="ghost"
                 size="icon"
-                className={cn("rounded-full", repeatMode !== "off" && "text-primary")}
+                className={cn(
+                  "rounded-full",
+                  repeatMode !== "off" && "text-primary",
+                )}
                 onClick={cycleRepeat}
               >
                 {repeatMode === "one" ? (

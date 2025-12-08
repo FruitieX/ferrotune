@@ -12,7 +12,7 @@ import { CoverImage } from "@/components/shared/cover-image";
 export const rowContainerStyles = cn(
   "group flex items-center gap-4 px-4 pr-6 py-2 rounded-md",
   "hover:bg-accent/70 transition-all cursor-pointer",
-  "border-l-2 border-transparent hover:border-primary"
+  "border-l-2 border-transparent hover:border-primary",
 );
 
 // Shared action button styles
@@ -21,7 +21,7 @@ export const rowActionButtonStyles = "h-8 w-8";
 // Shared actions container styles
 export const rowActionsContainerStyles = cn(
   "flex items-center gap-1",
-  "opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+  "opacity-0 group-hover:opacity-100 transition-opacity shrink-0",
 );
 
 interface MediaRowProps {
@@ -101,9 +101,9 @@ export function MediaRow({
 }: MediaRowProps) {
   // Index column with checkbox on hover (when onSelect is provided and no custom leftContent)
   const showIndexColumn = onSelect && index !== undefined && !leftContent;
-  
+
   const indexColumn = showIndexColumn ? (
-    <div 
+    <div
       className="w-8 text-center shrink-0 relative cursor-pointer"
       onClick={(e) => {
         e.preventDefault();
@@ -117,7 +117,7 @@ export function MediaRow({
           "absolute inset-0 flex items-center justify-center transition-opacity",
           isSelected || isSelectionMode
             ? "opacity-100"
-            : "opacity-0 group-hover:opacity-100"
+            : "opacity-0 group-hover:opacity-100",
         )}
       >
         <button
@@ -129,7 +129,7 @@ export function MediaRow({
             "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
             isSelected
               ? "bg-primary border-primary text-primary-foreground"
-              : "border-muted-foreground/50 hover:border-primary/50"
+              : "border-muted-foreground/50 hover:border-primary/50",
           )}
         >
           {isSelected && <Check className="w-3 h-3" />}
@@ -140,9 +140,9 @@ export function MediaRow({
         className={cn(
           "text-sm tabular-nums text-muted-foreground transition-opacity",
           isActive && "text-primary",
-          (isSelected || isSelectionMode) 
-            ? "opacity-0 pointer-events-none" 
-            : "group-hover:opacity-0 group-hover:pointer-events-none"
+          isSelected || isSelectionMode
+            ? "opacity-0 pointer-events-none"
+            : "group-hover:opacity-0 group-hover:pointer-events-none",
         )}
       >
         {index + 1}
@@ -153,7 +153,7 @@ export function MediaRow({
     <div
       className={cn(
         "group/cover relative w-10 h-10 overflow-hidden shrink-0",
-        coverShape === "circle" ? "rounded-full" : "rounded"
+        coverShape === "circle" ? "rounded-full" : "rounded",
       )}
     >
       <CoverImage
@@ -173,7 +173,7 @@ export function MediaRow({
             "absolute inset-0 flex items-center justify-center",
             "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
             "cursor-pointer",
-            coverShape === "circle" && "rounded-full"
+            coverShape === "circle" && "rounded-full",
           )}
           onClick={(e) => {
             e.preventDefault();
@@ -196,7 +196,7 @@ export function MediaRow({
       <p
         className={cn(
           "font-medium text-sm truncate",
-          isActive && "text-primary"
+          isActive && "text-primary",
         )}
       >
         {href ? (
@@ -226,13 +226,13 @@ export function MediaRow({
         "media-row",
         isActive && "bg-accent/30",
         isSelected && "bg-primary/15 border-primary",
-        className
+        className,
       )}
       onDoubleClick={onDoubleClick}
     >
       {/* Index column with checkbox (when onSelect provided) */}
       {indexColumn}
-      
+
       {/* Left content (e.g., custom track number / now playing indicator) */}
       {leftContent}
 
@@ -302,7 +302,8 @@ export function RowActions({
           aria-pressed={isStarred}
           className={cn(
             rowActionButtonStyles,
-            !isStarred && "opacity-0 group-hover:opacity-100 transition-opacity"
+            !isStarred &&
+              "opacity-0 group-hover:opacity-100 transition-opacity",
           )}
           onClick={(e) => {
             e.preventDefault();
@@ -311,10 +312,7 @@ export function RowActions({
           }}
         >
           <Heart
-            className={cn(
-              "w-4 h-4",
-              isStarred && "fill-red-500 text-red-500"
-            )}
+            className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")}
           />
         </Button>
       )}
@@ -369,7 +367,7 @@ export function MediaRowSkeleton({
   showRightContent?: boolean;
 }) {
   const showIndexColumn = showIndex || showLeftContent;
-  
+
   return (
     <div className="flex items-center gap-4 px-4 pr-6 py-2">
       {/* Index/track number skeleton */}
@@ -383,7 +381,7 @@ export function MediaRowSkeleton({
         <Skeleton
           className={cn(
             "w-10 h-10 shrink-0",
-            coverShape === "circle" ? "rounded-full" : "rounded"
+            coverShape === "circle" ? "rounded-full" : "rounded",
           )}
         />
       )}
@@ -393,9 +391,7 @@ export function MediaRowSkeleton({
         <Skeleton className="h-3 w-32 max-w-[80%]" />
       </div>
       {/* Right content skeleton */}
-      {showRightContent && (
-        <Skeleton className="h-4 w-10 shrink-0" />
-      )}
+      {showRightContent && <Skeleton className="h-4 w-10 shrink-0" />}
     </div>
   );
 }

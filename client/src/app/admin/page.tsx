@@ -3,13 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import {
-  Shield,
-  FolderOpen,
-  Users,
-  Server,
-  RefreshCw,
-} from "lucide-react";
+import { Shield, FolderOpen, Users, Server, RefreshCw } from "lucide-react";
 import { useSetAtom } from "jotai";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
@@ -31,7 +25,9 @@ import { ServerConfig } from "@/components/settings/server-config";
 
 export default function AdministrationPage() {
   const router = useRouter();
-  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({
+    redirectToLogin: true,
+  });
   const isMounted = useIsMounted();
   const { user, isAdmin, isLoading: userLoading } = useCurrentUser();
   const setScanDialogOpen = useSetAtom(scanDialogOpenAtom);
@@ -100,12 +96,14 @@ export default function AdministrationPage() {
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label className="text-sm font-medium">Full Library Scan</Label>
+                  <Label className="text-sm font-medium">
+                    Full Library Scan
+                  </Label>
                   <p className="text-xs text-muted-foreground">
                     Scan all music folders and update the database
                   </p>
                 </div>
-                <Button 
+                <Button
                   variant="outline"
                   onClick={() => setScanDialogOpen(true)}
                   className="gap-2"

@@ -27,6 +27,11 @@ tasks:
   # ============================================================================
   # BUILD TASKS
   # ============================================================================
+
+  check:
+    command: 'cargo check'
+    inputs:
+      - '@group(sources)'
   
   build:
     command: 'cargo build'
@@ -41,6 +46,16 @@ tasks:
       - '@group(sources)'
     outputs:
       - 'target/release/ferrotune'
+
+  build-release-musl:
+    command: 'cargo build --release --features embedded-ui --target x86_64-unknown-linux-musl'
+    inputs:
+      - '@group(sources)'
+      - 'client/out/**/*'
+    outputs:
+      - 'target/x86_64-unknown-linux-musl/release/ferrotune'
+    deps:
+      - 'client:build-export'
 
   build-release-ui:
     command: 'bash scripts/build-release.sh'
@@ -327,6 +342,13 @@ tasks:
   # FULL STACK CI (includes client)
   # ============================================================================
 
+  # Lite CI without E2E tests (for faster CI when E2E is disabled)
+  ci-all-lite:
+    deps:
+      - 'ci'
+      - 'client:ci-lite'
+
+  # Full CI including E2E tests
   ci-all:
     deps:
       - 'ci'

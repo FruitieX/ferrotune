@@ -3,16 +3,41 @@
 import { useState, useEffect } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { useQuery } from "@tanstack/react-query";
-import { Filter, X, Star, Clock, Calendar, Music, Disc, Shuffle, HardDrive, CalendarPlus } from "lucide-react";
+import {
+  Filter,
+  X,
+  Star,
+  Clock,
+  Calendar,
+  Music,
+  Disc,
+  Shuffle,
+  HardDrive,
+  CalendarPlus,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { advancedFiltersAtom, hasActiveFiltersAtom, type AdvancedFilters } from "@/lib/store/ui";
+import {
+  advancedFiltersAtom,
+  hasActiveFiltersAtom,
+  type AdvancedFilters,
+} from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 
 interface FilterPopoverProps {
@@ -39,7 +64,7 @@ function formatDuration(seconds: number): string {
   return `${secs}s`;
 }
 
-export function FilterPopover({ 
+export function FilterPopover({
   showOptions = {
     year: true,
     genre: true,
@@ -51,7 +76,7 @@ export function FilterPopover({
     bitrate: true,
     dateAdded: true,
   },
-  className 
+  className,
 }: FilterPopoverProps) {
   const [filters, setFilters] = useAtom(advancedFiltersAtom);
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
@@ -81,7 +106,7 @@ export function FilterPopover({
 
   // Count active filters
   const activeFilterCount = Object.entries(filters).filter(
-    ([, v]) => v !== undefined && v !== false && v !== ''
+    ([, v]) => v !== undefined && v !== false && v !== "",
   ).length;
 
   const handleApply = () => {
@@ -90,19 +115,31 @@ export function FilterPopover({
     if (localFilters.minYear) cleanedFilters.minYear = localFilters.minYear;
     if (localFilters.maxYear) cleanedFilters.maxYear = localFilters.maxYear;
     if (localFilters.genre) cleanedFilters.genre = localFilters.genre;
-    if (localFilters.minDuration) cleanedFilters.minDuration = localFilters.minDuration;
-    if (localFilters.maxDuration) cleanedFilters.maxDuration = localFilters.maxDuration;
-    if (localFilters.minRating) cleanedFilters.minRating = localFilters.minRating;
-    if (localFilters.maxRating) cleanedFilters.maxRating = localFilters.maxRating;
-    if (localFilters.starredOnly) cleanedFilters.starredOnly = localFilters.starredOnly;
-    if (localFilters.minPlayCount) cleanedFilters.minPlayCount = localFilters.minPlayCount;
-    if (localFilters.maxPlayCount) cleanedFilters.maxPlayCount = localFilters.maxPlayCount;
-    if (localFilters.shuffleExcludedOnly) cleanedFilters.shuffleExcludedOnly = localFilters.shuffleExcludedOnly;
-    if (localFilters.minBitrate) cleanedFilters.minBitrate = localFilters.minBitrate;
-    if (localFilters.maxBitrate) cleanedFilters.maxBitrate = localFilters.maxBitrate;
-    if (localFilters.addedAfter) cleanedFilters.addedAfter = localFilters.addedAfter;
-    if (localFilters.addedBefore) cleanedFilters.addedBefore = localFilters.addedBefore;
-    
+    if (localFilters.minDuration)
+      cleanedFilters.minDuration = localFilters.minDuration;
+    if (localFilters.maxDuration)
+      cleanedFilters.maxDuration = localFilters.maxDuration;
+    if (localFilters.minRating)
+      cleanedFilters.minRating = localFilters.minRating;
+    if (localFilters.maxRating)
+      cleanedFilters.maxRating = localFilters.maxRating;
+    if (localFilters.starredOnly)
+      cleanedFilters.starredOnly = localFilters.starredOnly;
+    if (localFilters.minPlayCount)
+      cleanedFilters.minPlayCount = localFilters.minPlayCount;
+    if (localFilters.maxPlayCount)
+      cleanedFilters.maxPlayCount = localFilters.maxPlayCount;
+    if (localFilters.shuffleExcludedOnly)
+      cleanedFilters.shuffleExcludedOnly = localFilters.shuffleExcludedOnly;
+    if (localFilters.minBitrate)
+      cleanedFilters.minBitrate = localFilters.minBitrate;
+    if (localFilters.maxBitrate)
+      cleanedFilters.maxBitrate = localFilters.maxBitrate;
+    if (localFilters.addedAfter)
+      cleanedFilters.addedAfter = localFilters.addedAfter;
+    if (localFilters.addedBefore)
+      cleanedFilters.addedBefore = localFilters.addedBefore;
+
     setFilters(cleanedFilters);
     setOpen(false);
   };
@@ -112,8 +149,11 @@ export function FilterPopover({
     setFilters({});
   };
 
-  const updateLocalFilter = <K extends keyof AdvancedFilters>(key: K, value: AdvancedFilters[K]) => {
-    setLocalFilters(prev => ({
+  const updateLocalFilter = <K extends keyof AdvancedFilters>(
+    key: K,
+    value: AdvancedFilters[K],
+  ) => {
+    setLocalFilters((prev) => ({
       ...prev,
       [key]: value || undefined,
     }));
@@ -162,7 +202,12 @@ export function FilterPopover({
                   min={1900}
                   max={new Date().getFullYear()}
                   value={localFilters.minYear ?? ""}
-                  onChange={(e) => updateLocalFilter("minYear", e.target.value ? parseInt(e.target.value) : undefined)}
+                  onChange={(e) =>
+                    updateLocalFilter(
+                      "minYear",
+                      e.target.value ? parseInt(e.target.value) : undefined,
+                    )
+                  }
                   className="h-8"
                 />
                 <span className="text-muted-foreground self-center">–</span>
@@ -172,7 +217,12 @@ export function FilterPopover({
                   min={1900}
                   max={new Date().getFullYear()}
                   value={localFilters.maxYear ?? ""}
-                  onChange={(e) => updateLocalFilter("maxYear", e.target.value ? parseInt(e.target.value) : undefined)}
+                  onChange={(e) =>
+                    updateLocalFilter(
+                      "maxYear",
+                      e.target.value ? parseInt(e.target.value) : undefined,
+                    )
+                  }
                   className="h-8"
                 />
               </div>
@@ -188,11 +238,18 @@ export function FilterPopover({
               </Label>
               <Select
                 value={localFilters.genre ?? "__any__"}
-                onValueChange={(value) => updateLocalFilter("genre", value === "__any__" ? undefined : value)}
+                onValueChange={(value) =>
+                  updateLocalFilter(
+                    "genre",
+                    value === "__any__" ? undefined : value,
+                  )
+                }
                 disabled={genresLoading}
               >
                 <SelectTrigger className="h-8">
-                  <SelectValue placeholder={genresLoading ? "Loading..." : "Any genre"} />
+                  <SelectValue
+                    placeholder={genresLoading ? "Loading..." : "Any genre"}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__any__">Any genre</SelectItem>
@@ -218,7 +275,12 @@ export function FilterPopover({
               <div className="flex gap-2">
                 <Select
                   value={localFilters.minDuration?.toString() ?? "__none__"}
-                  onValueChange={(value) => updateLocalFilter("minDuration", value === "__none__" ? undefined : parseInt(value))}
+                  onValueChange={(value) =>
+                    updateLocalFilter(
+                      "minDuration",
+                      value === "__none__" ? undefined : parseInt(value),
+                    )
+                  }
                 >
                   <SelectTrigger className="h-8">
                     <SelectValue placeholder="Min" />
@@ -235,7 +297,12 @@ export function FilterPopover({
                 <span className="text-muted-foreground self-center">–</span>
                 <Select
                   value={localFilters.maxDuration?.toString() ?? "__none__"}
-                  onValueChange={(value) => updateLocalFilter("maxDuration", value === "__none__" ? undefined : parseInt(value))}
+                  onValueChange={(value) =>
+                    updateLocalFilter(
+                      "maxDuration",
+                      value === "__none__" ? undefined : parseInt(value),
+                    )
+                  }
                 >
                   <SelectTrigger className="h-8">
                     <SelectValue placeholder="Max" />
@@ -263,7 +330,12 @@ export function FilterPopover({
               <div className="flex gap-2">
                 <Select
                   value={localFilters.minRating?.toString() ?? "__none__"}
-                  onValueChange={(value) => updateLocalFilter("minRating", value === "__none__" ? undefined : parseInt(value))}
+                  onValueChange={(value) =>
+                    updateLocalFilter(
+                      "minRating",
+                      value === "__none__" ? undefined : parseInt(value),
+                    )
+                  }
                 >
                   <SelectTrigger className="h-8">
                     <SelectValue placeholder="Min" />
@@ -280,7 +352,12 @@ export function FilterPopover({
                 <span className="text-muted-foreground self-center">–</span>
                 <Select
                   value={localFilters.maxRating?.toString() ?? "__none__"}
-                  onValueChange={(value) => updateLocalFilter("maxRating", value === "__none__" ? undefined : parseInt(value))}
+                  onValueChange={(value) =>
+                    updateLocalFilter(
+                      "maxRating",
+                      value === "__none__" ? undefined : parseInt(value),
+                    )
+                  }
                 >
                   <SelectTrigger className="h-8">
                     <SelectValue placeholder="Max" />
@@ -311,7 +388,12 @@ export function FilterPopover({
                   placeholder="Min"
                   min={0}
                   value={localFilters.minPlayCount ?? ""}
-                  onChange={(e) => updateLocalFilter("minPlayCount", e.target.value ? parseInt(e.target.value) : undefined)}
+                  onChange={(e) =>
+                    updateLocalFilter(
+                      "minPlayCount",
+                      e.target.value ? parseInt(e.target.value) : undefined,
+                    )
+                  }
                   className="h-8"
                 />
                 <span className="text-muted-foreground self-center">–</span>
@@ -320,7 +402,12 @@ export function FilterPopover({
                   placeholder="Max"
                   min={0}
                   value={localFilters.maxPlayCount ?? ""}
-                  onChange={(e) => updateLocalFilter("maxPlayCount", e.target.value ? parseInt(e.target.value) : undefined)}
+                  onChange={(e) =>
+                    updateLocalFilter(
+                      "maxPlayCount",
+                      e.target.value ? parseInt(e.target.value) : undefined,
+                    )
+                  }
                   className="h-8"
                 />
               </div>
@@ -336,7 +423,9 @@ export function FilterPopover({
               </Label>
               <Switch
                 checked={localFilters.starredOnly ?? false}
-                onCheckedChange={(checked) => updateLocalFilter("starredOnly", checked || undefined)}
+                onCheckedChange={(checked) =>
+                  updateLocalFilter("starredOnly", checked || undefined)
+                }
               />
             </div>
           )}
@@ -350,7 +439,9 @@ export function FilterPopover({
               </Label>
               <Switch
                 checked={localFilters.shuffleExcludedOnly ?? false}
-                onCheckedChange={(checked) => updateLocalFilter("shuffleExcludedOnly", checked || undefined)}
+                onCheckedChange={(checked) =>
+                  updateLocalFilter("shuffleExcludedOnly", checked || undefined)
+                }
               />
             </div>
           )}
@@ -365,7 +456,12 @@ export function FilterPopover({
               <div className="flex gap-2">
                 <Select
                   value={localFilters.minBitrate?.toString() ?? "__none__"}
-                  onValueChange={(value) => updateLocalFilter("minBitrate", value === "__none__" ? undefined : parseInt(value))}
+                  onValueChange={(value) =>
+                    updateLocalFilter(
+                      "minBitrate",
+                      value === "__none__" ? undefined : parseInt(value),
+                    )
+                  }
                 >
                   <SelectTrigger className="h-8">
                     <SelectValue placeholder="Min" />
@@ -383,7 +479,12 @@ export function FilterPopover({
                 <span className="text-muted-foreground self-center">–</span>
                 <Select
                   value={localFilters.maxBitrate?.toString() ?? "__none__"}
-                  onValueChange={(value) => updateLocalFilter("maxBitrate", value === "__none__" ? undefined : parseInt(value))}
+                  onValueChange={(value) =>
+                    updateLocalFilter(
+                      "maxBitrate",
+                      value === "__none__" ? undefined : parseInt(value),
+                    )
+                  }
                 >
                   <SelectTrigger className="h-8">
                     <SelectValue placeholder="Max" />
@@ -414,7 +515,9 @@ export function FilterPopover({
                   type="date"
                   placeholder="From"
                   value={localFilters.addedAfter ?? ""}
-                  onChange={(e) => updateLocalFilter("addedAfter", e.target.value || undefined)}
+                  onChange={(e) =>
+                    updateLocalFilter("addedAfter", e.target.value || undefined)
+                  }
                   className="h-8"
                 />
                 <span className="text-muted-foreground self-center">–</span>
@@ -422,7 +525,12 @@ export function FilterPopover({
                   type="date"
                   placeholder="To"
                   value={localFilters.addedBefore ?? ""}
-                  onChange={(e) => updateLocalFilter("addedBefore", e.target.value || undefined)}
+                  onChange={(e) =>
+                    updateLocalFilter(
+                      "addedBefore",
+                      e.target.value || undefined,
+                    )
+                  }
                   className="h-8"
                 />
               </div>
@@ -449,7 +557,7 @@ export function ActiveFilterBadges({ className }: { className?: string }) {
   if (!hasActiveFilters) return null;
 
   const removeFilter = (key: keyof AdvancedFilters) => {
-    setFilters(prev => {
+    setFilters((prev) => {
       const next = { ...prev };
       delete next[key];
       return next;
@@ -457,70 +565,76 @@ export function ActiveFilterBadges({ className }: { className?: string }) {
   };
 
   const badges: { key: keyof AdvancedFilters; label: string }[] = [];
-  
+
   if (filters.minYear || filters.maxYear) {
-    const yearLabel = filters.minYear && filters.maxYear 
-      ? `${filters.minYear}–${filters.maxYear}`
-      : filters.minYear 
-        ? `${filters.minYear}+`
-        : `≤${filters.maxYear}`;
+    const yearLabel =
+      filters.minYear && filters.maxYear
+        ? `${filters.minYear}–${filters.maxYear}`
+        : filters.minYear
+          ? `${filters.minYear}+`
+          : `≤${filters.maxYear}`;
     badges.push({ key: "minYear", label: `Year: ${yearLabel}` });
   }
-  
+
   if (filters.genre) {
     badges.push({ key: "genre", label: `Genre: ${filters.genre}` });
   }
-  
+
   if (filters.minDuration || filters.maxDuration) {
-    const durLabel = filters.minDuration && filters.maxDuration
-      ? `${formatDuration(filters.minDuration)}–${formatDuration(filters.maxDuration)}`
-      : filters.minDuration
-        ? `${formatDuration(filters.minDuration)}+`
-        : `≤${formatDuration(filters.maxDuration!)}`;
+    const durLabel =
+      filters.minDuration && filters.maxDuration
+        ? `${formatDuration(filters.minDuration)}–${formatDuration(filters.maxDuration)}`
+        : filters.minDuration
+          ? `${formatDuration(filters.minDuration)}+`
+          : `≤${formatDuration(filters.maxDuration!)}`;
     badges.push({ key: "minDuration", label: `Duration: ${durLabel}` });
   }
-  
+
   if (filters.minRating || filters.maxRating) {
-    const ratingLabel = filters.minRating && filters.maxRating
-      ? `${filters.minRating}–${filters.maxRating} ★`
-      : filters.minRating
-        ? `${filters.minRating}+ ★`
-        : `≤${filters.maxRating} ★`;
+    const ratingLabel =
+      filters.minRating && filters.maxRating
+        ? `${filters.minRating}–${filters.maxRating} ★`
+        : filters.minRating
+          ? `${filters.minRating}+ ★`
+          : `≤${filters.maxRating} ★`;
     badges.push({ key: "minRating", label: `Rating: ${ratingLabel}` });
   }
-  
+
   if (filters.minPlayCount || filters.maxPlayCount) {
-    const pcLabel = filters.minPlayCount && filters.maxPlayCount
-      ? `${filters.minPlayCount}–${filters.maxPlayCount}`
-      : filters.minPlayCount
-        ? `${filters.minPlayCount}+`
-        : `≤${filters.maxPlayCount}`;
+    const pcLabel =
+      filters.minPlayCount && filters.maxPlayCount
+        ? `${filters.minPlayCount}–${filters.maxPlayCount}`
+        : filters.minPlayCount
+          ? `${filters.minPlayCount}+`
+          : `≤${filters.maxPlayCount}`;
     badges.push({ key: "minPlayCount", label: `Plays: ${pcLabel}` });
   }
-  
+
   if (filters.starredOnly) {
     badges.push({ key: "starredOnly", label: "Favorites Only" });
   }
-  
+
   if (filters.shuffleExcludedOnly) {
     badges.push({ key: "shuffleExcludedOnly", label: "Shuffle Excluded" });
   }
 
   if (filters.minBitrate || filters.maxBitrate) {
-    const brLabel = filters.minBitrate && filters.maxBitrate
-      ? `${filters.minBitrate}–${filters.maxBitrate} kbps`
-      : filters.minBitrate
-        ? `${filters.minBitrate}+ kbps`
-        : `≤${filters.maxBitrate} kbps`;
+    const brLabel =
+      filters.minBitrate && filters.maxBitrate
+        ? `${filters.minBitrate}–${filters.maxBitrate} kbps`
+        : filters.minBitrate
+          ? `${filters.minBitrate}+ kbps`
+          : `≤${filters.maxBitrate} kbps`;
     badges.push({ key: "minBitrate", label: `Bitrate: ${brLabel}` });
   }
 
   if (filters.addedAfter || filters.addedBefore) {
-    const dateLabel = filters.addedAfter && filters.addedBefore
-      ? `${filters.addedAfter} – ${filters.addedBefore}`
-      : filters.addedAfter
-        ? `After ${filters.addedAfter}`
-        : `Before ${filters.addedBefore}`;
+    const dateLabel =
+      filters.addedAfter && filters.addedBefore
+        ? `${filters.addedAfter} – ${filters.addedBefore}`
+        : filters.addedAfter
+          ? `After ${filters.addedAfter}`
+          : `Before ${filters.addedBefore}`;
     badges.push({ key: "addedAfter", label: `Added: ${dateLabel}` });
   }
 

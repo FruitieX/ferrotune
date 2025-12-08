@@ -21,7 +21,7 @@ import type { Song, SearchParams } from "@/lib/api/types";
  * Options for item selection hook.
  */
 interface UseItemSelectionOptions {
-  /** 
+  /**
    * Total count of items in the full dataset.
    * When provided, enables "select all" to fetch all IDs from backend.
    */
@@ -44,7 +44,7 @@ interface UseItemSelectionOptions {
  */
 export function useItemSelection<T extends SelectableItem>(
   items: T[],
-  options: UseItemSelectionOptions = {}
+  options: UseItemSelectionOptions = {},
 ) {
   const { totalCount, searchParams, onClear } = options;
   const [selectionState] = useAtom(selectionStateAtom);
@@ -71,7 +71,7 @@ export function useItemSelection<T extends SelectableItem>(
   // Check if a specific item is selected
   const isSelected = useCallback(
     (id: string) => selectionState.selectedIds.has(id),
-    [selectionState.selectedIds]
+    [selectionState.selectedIds],
   );
 
   // Handle click with modifiers - stable callback using ref for items
@@ -84,7 +84,7 @@ export function useItemSelection<T extends SelectableItem>(
         ctrlKey: event?.ctrlKey ?? event?.metaKey ?? false,
       });
     },
-    [selectItem]
+    [selectItem],
   );
 
   // Select all - either from loaded items or fetch from backend
@@ -107,9 +107,9 @@ export function useItemSelection<T extends SelectableItem>(
     try {
       const response = await client.getSongIds(searchParams);
       // Create fake selectable items with just IDs
-      const allItems: SelectableItem[] = response.ids.map(id => ({ id }));
+      const allItems: SelectableItem[] = response.ids.map((id) => ({ id }));
       selectAllItems(allItems);
-      
+
       if (response.total > items.length) {
         toast.success(`Selected all ${response.total} matching songs`);
       }
@@ -166,7 +166,7 @@ export function useItemSelection<T extends SelectableItem>(
  */
 export function useTrackSelection(
   songs: Song[],
-  options: UseItemSelectionOptions = {}
+  options: UseItemSelectionOptions = {},
 ) {
   const {
     selectedIds,
@@ -179,7 +179,7 @@ export function useTrackSelection(
     getSelectedItems,
     isSelectingAll,
   } = useItemSelection(songs, options);
-  
+
   const addToQueue = useSetAtom(addToQueueAtom);
   const setStarredItems = useSetAtom(starredItemsAtom);
   const invalidateFavorites = useInvalidateFavorites();
@@ -203,11 +203,11 @@ export function useTrackSelection(
       toast.success(
         position === "next"
           ? `Added ${ids.length} songs to play next`
-          : `Added ${ids.length} songs to queue`
+          : `Added ${ids.length} songs to queue`,
       );
       clearSelection();
     },
-    [selectedIds, addToQueue, clearSelection]
+    [selectedIds, addToQueue, clearSelection],
   );
 
   const starSelected = useCallback(
@@ -236,7 +236,7 @@ export function useTrackSelection(
           }
           toast.success(`Removed ${ids.length} songs from favorites`);
         }
-        
+
         // Update the global starred state so UI reflects the change immediately
         setStarredItems((current) => {
           const updated = new Map(current);
@@ -246,17 +246,17 @@ export function useTrackSelection(
           }
           return updated;
         });
-        
+
         // Invalidate favorites queries so the favorites view updates
         invalidateFavorites("song");
-        
+
         clearSelection();
       } catch (error) {
         toast.error("Failed to update favorites");
         console.error(error);
       }
     },
-    [selectedIds, clearSelection, setStarredItems, invalidateFavorites]
+    [selectedIds, clearSelection, setStarredItems, invalidateFavorites],
   );
 
   return {

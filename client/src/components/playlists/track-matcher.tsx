@@ -73,14 +73,14 @@ export interface SearchOptions {
 // Levenshtein distance
 function levenshteinDistance(a: string, b: string): number {
   const matrix: number[][] = [];
-  
+
   for (let i = 0; i <= b.length; i++) {
     matrix[i] = [i];
   }
   for (let j = 0; j <= a.length; j++) {
     matrix[0][j] = j;
   }
-  
+
   for (let i = 1; i <= b.length; i++) {
     for (let j = 1; j <= a.length; j++) {
       if (b.charAt(i - 1) === a.charAt(j - 1)) {
@@ -89,12 +89,12 @@ function levenshteinDistance(a: string, b: string): number {
         matrix[i][j] = Math.min(
           matrix[i - 1][j - 1] + 1,
           matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1
+          matrix[i - 1][j] + 1,
         );
       }
     }
   }
-  
+
   return matrix[b.length][a.length];
 }
 
@@ -102,46 +102,52 @@ function levenshteinDistance(a: string, b: string): number {
 function stringSimilarity(a: string, b: string): number {
   const aLower = a.toLowerCase().trim();
   const bLower = b.toLowerCase().trim();
-  
+
   if (aLower === bLower) return 1;
   if (aLower.includes(bLower) || bLower.includes(aLower)) return 0.9;
-  
+
   // Levenshtein-based similarity
   const maxLen = Math.max(aLower.length, bLower.length);
   if (maxLen === 0) return 1;
-  
+
   const distance = levenshteinDistance(aLower, bLower);
   return 1 - distance / maxLen;
 }
 
 // Calculate match score between parsed track and library song
-export function calculateMatchScore(parsed: ParsedTrackInfo, song: Song): number {
+export function calculateMatchScore(
+  parsed: ParsedTrackInfo,
+  song: Song,
+): number {
   let score = 0;
   let factors = 0;
-  
+
   if (parsed.title && song.title) {
     const similarity = stringSimilarity(parsed.title, song.title);
     score += similarity * 2; // Title is weighted more
     factors += 2;
   }
-  
+
   if (parsed.artist && song.artist) {
     const similarity = stringSimilarity(parsed.artist, song.artist);
     score += similarity;
     factors += 1;
   }
-  
+
   if (parsed.album && song.album) {
     const similarity = stringSimilarity(parsed.album, song.album);
     score += similarity * 0.5;
     factors += 0.5;
   }
-  
+
   return factors > 0 ? score / factors : 0;
 }
 
 // Build search query from parsed track in "artist - album - title" format
-export function buildTrackSearchQuery(parsed: ParsedTrackInfo, options: SearchOptions): string {
+export function buildTrackSearchQuery(
+  parsed: ParsedTrackInfo,
+  options: SearchOptions,
+): string {
   const parts: string[] = [];
   if (options.useArtist && parsed.artist) parts.push(parsed.artist);
   if (options.useAlbum && parsed.album) parts.push(parsed.album);
@@ -154,7 +160,10 @@ interface MatchingProgressProps {
   progress: number;
 }
 
-export function MatchingProgress({ tracksCount, progress }: MatchingProgressProps) {
+export function MatchingProgress({
+  tracksCount,
+  progress,
+}: MatchingProgressProps) {
   return (
     <div className="py-8 text-center">
       <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-primary" />
@@ -205,21 +214,23 @@ export function SearchOptionsControl({
         )}
       </div>
       <p className="text-xs text-muted-foreground mb-3">
-        {showRematch 
+        {showRematch
           ? "Choose which fields to use when matching tracks, then click Re-match"
-          : "Choose which fields to use when matching tracks against your library"
-        }
+          : "Choose which fields to use when matching tracks against your library"}
       </p>
       <div className="flex flex-wrap gap-4">
         <div className="flex items-center space-x-2">
           <Checkbox
             id="search-title"
             checked={options.useTitle}
-            onCheckedChange={(checked) => 
+            onCheckedChange={(checked) =>
               onChange({ ...options, useTitle: checked === true })
             }
           />
-          <label htmlFor="search-title" className="text-sm font-medium leading-none cursor-pointer">
+          <label
+            htmlFor="search-title"
+            className="text-sm font-medium leading-none cursor-pointer"
+          >
             Title
           </label>
         </div>
@@ -227,11 +238,14 @@ export function SearchOptionsControl({
           <Checkbox
             id="search-artist"
             checked={options.useArtist}
-            onCheckedChange={(checked) => 
+            onCheckedChange={(checked) =>
               onChange({ ...options, useArtist: checked === true })
             }
           />
-          <label htmlFor="search-artist" className="text-sm font-medium leading-none cursor-pointer">
+          <label
+            htmlFor="search-artist"
+            className="text-sm font-medium leading-none cursor-pointer"
+          >
             Artist
           </label>
         </div>
@@ -239,11 +253,14 @@ export function SearchOptionsControl({
           <Checkbox
             id="search-album"
             checked={options.useAlbum}
-            onCheckedChange={(checked) => 
+            onCheckedChange={(checked) =>
               onChange({ ...options, useAlbum: checked === true })
             }
           />
-          <label htmlFor="search-album" className="text-sm font-medium leading-none cursor-pointer">
+          <label
+            htmlFor="search-album"
+            className="text-sm font-medium leading-none cursor-pointer"
+          >
             Album
           </label>
         </div>
@@ -258,7 +275,11 @@ interface MatchSummaryProps {
   lockedCount?: number;
 }
 
-export function MatchSummary({ matchedCount, unmatchedCount, lockedCount = 0 }: MatchSummaryProps) {
+export function MatchSummary({
+  matchedCount,
+  unmatchedCount,
+  lockedCount = 0,
+}: MatchSummaryProps) {
   return (
     <div className="flex gap-4">
       <div className="flex items-center gap-2 text-sm">
@@ -275,9 +296,7 @@ export function MatchSummary({ matchedCount, unmatchedCount, lockedCount = 0 }: 
       </div>
       {lockedCount > 0 && (
         <div className="flex items-center gap-2 text-sm">
-          <Badge variant="outline">
-            {lockedCount} already matched
-          </Badge>
+          <Badge variant="outline">{lockedCount} already matched</Badge>
         </div>
       )}
     </div>
@@ -286,11 +305,19 @@ export function MatchSummary({ matchedCount, unmatchedCount, lockedCount = 0 }: 
 
 interface TrackListProps {
   tracks: MatchableTrack[];
-  onUpdateMatch: (index: number, match: MatchedSongInfo | null, score: number) => void;
+  onUpdateMatch: (
+    index: number,
+    match: MatchedSongInfo | null,
+    score: number,
+  ) => void;
   showPosition?: boolean;
 }
 
-export function TrackList({ tracks, onUpdateMatch, showPosition }: TrackListProps) {
+export function TrackList({
+  tracks,
+  onUpdateMatch,
+  showPosition,
+}: TrackListProps) {
   if (tracks.length === 0) {
     return (
       <div className="flex items-center justify-center py-8 text-muted-foreground">
@@ -304,7 +331,7 @@ export function TrackList({ tracks, onUpdateMatch, showPosition }: TrackListProp
     <ScrollArea className="h-[300px] rounded-md border">
       <div className="p-2">
         {tracks.map((track, index) => (
-          <TrackRow 
+          <TrackRow
             key={index}
             track={track}
             index={index}
@@ -320,11 +347,20 @@ export function TrackList({ tracks, onUpdateMatch, showPosition }: TrackListProp
 interface TrackRowProps {
   track: MatchableTrack;
   index: number;
-  onUpdateMatch: (index: number, match: MatchedSongInfo | null, score: number) => void;
+  onUpdateMatch: (
+    index: number,
+    match: MatchedSongInfo | null,
+    score: number,
+  ) => void;
   showPosition?: boolean;
 }
 
-export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRowProps) {
+export function TrackRow({
+  track,
+  index,
+  onUpdateMatch,
+  showPosition,
+}: TrackRowProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Song[]>([]);
@@ -333,13 +369,17 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
   const [includeTitle, setIncludeTitle] = useState(true);
   const [includeArtist, setIncludeArtist] = useState(true);
   const [includeAlbum, setIncludeAlbum] = useState(true);
-  
+
   // Selection and preview state
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const preview = usePreviewAudio();
 
   // Build search query from selected fields in "artist - album - title" format
-  const buildSearchQuery = (title: boolean, artist: boolean, album: boolean) => {
+  const buildSearchQuery = (
+    title: boolean,
+    artist: boolean,
+    album: boolean,
+  ) => {
     const parts: string[] = [];
     // Build in order: artist, album, title (common search format)
     if (artist && track.parsed.artist) parts.push(track.parsed.artist);
@@ -351,13 +391,16 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
   // Perform search
   const doSearch = async (query: string) => {
     if (!query.trim()) return;
-    
+
     setIsSearching(true);
     try {
       const client = getClient();
       if (!client) return;
-      
-      const response = await client.search3({ query: query.trim(), songCount: 20 });
+
+      const response = await client.search3({
+        query: query.trim(),
+        songCount: 20,
+      });
       setSearchResults(response.searchResult3?.song ?? []);
     } catch (error) {
       console.error("Search error:", error);
@@ -368,7 +411,11 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
   };
 
   // Update search query when toggles change and auto-search
-  const updateSearchFromToggles = (title: boolean, artist: boolean, album: boolean) => {
+  const updateSearchFromToggles = (
+    title: boolean,
+    artist: boolean,
+    album: boolean,
+  ) => {
     setIncludeTitle(title);
     setIncludeArtist(artist);
     setIncludeAlbum(album);
@@ -384,7 +431,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
       preview.stop();
       return;
     }
-    
+
     // If preview was playing, auto-start the new track
     const wasPlaying = preview.isPlaying;
     preview.stop();
@@ -393,7 +440,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
       preview.play(song.id, 30);
     }
   };
-  
+
   const handleConfirmMatch = () => {
     if (!selectedSong) return;
     // Stop preview when confirming
@@ -404,10 +451,10 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
     setSearchResults([]);
     setSelectedSong(null);
   };
-  
+
   const handlePreviewToggle = () => {
     if (!selectedSong) return;
-    
+
     if (preview.isPlaying) {
       preview.pause();
     } else {
@@ -415,7 +462,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
       preview.play(selectedSong.id, 30);
     }
   };
-  
+
   const handleSeek = (value: number[]) => {
     preview.seek(value[0]);
   };
@@ -423,7 +470,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
   const handleVolumeChange = (value: number[]) => {
     preview.setVolume(value[0]);
   };
-  
+
   // Handle popover close - stop preview
   const handleOpenChange = (open: boolean) => {
     if (!open) {
@@ -441,12 +488,12 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
   // Initialize search query with all available track info when opening and auto-search
   const openSearch = () => {
     if (track.locked) return;
-    
+
     // Reset toggles based on what data is available
     const hasTitle = !!track.parsed.title;
     const hasArtist = !!track.parsed.artist;
     const hasAlbum = !!track.parsed.album;
-    
+
     setIncludeTitle(hasTitle);
     setIncludeArtist(hasArtist);
     setIncludeAlbum(hasAlbum);
@@ -455,7 +502,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
     setSearchResults([]);
     setSelectedSong(null);
     setSearchOpen(true);
-    
+
     // Auto-search after opening
     doSearch(initialQuery);
   };
@@ -465,7 +512,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
       className={cn(
         "flex items-center gap-3 p-2 rounded-md group",
         track.locked && "opacity-60",
-        track.match ? "hover:bg-accent/50" : "bg-orange-500/10"
+        track.match ? "hover:bg-accent/50" : "bg-orange-500/10",
       )}
     >
       {/* Position number */}
@@ -474,7 +521,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
           {track.position + 1}
         </div>
       )}
-      
+
       <div className="shrink-0">
         {track.match ? (
           <Check className="w-4 h-4 text-green-500" />
@@ -482,7 +529,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
           <X className="w-4 h-4 text-orange-500" />
         )}
       </div>
-      
+
       <div className="flex-1 min-w-0">
         <div className="font-medium truncate">
           {track.parsed.title || track.parsed.raw || "Unknown"}
@@ -500,7 +547,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
           </Badge>
         )}
       </div>
-      
+
       {track.match && (
         <div className="text-right text-sm truncate max-w-[200px]">
           <div className="font-medium truncate">{track.match.title}</div>
@@ -515,9 +562,9 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
       {!track.locked && (
         <Popover open={searchOpen} onOpenChange={handleOpenChange}>
           <PopoverTrigger asChild>
-            <Button 
-              variant="ghost" 
-              size="icon" 
+            <Button
+              variant="ghost"
+              size="icon"
               className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7"
               onClick={openSearch}
             >
@@ -527,7 +574,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
           <PopoverContent className="w-[500px] p-3" align="end">
             <div className="space-y-3">
               <div className="font-medium text-sm">Find alternative match</div>
-              
+
               {/* Quick field toggles */}
               <div className="flex flex-wrap gap-3 pb-2 border-b">
                 {track.parsed.title && (
@@ -535,12 +582,19 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
                     <Checkbox
                       id={`title-${index}`}
                       checked={includeTitle}
-                      onCheckedChange={(checked) => 
-                        updateSearchFromToggles(checked === true, includeArtist, includeAlbum)
+                      onCheckedChange={(checked) =>
+                        updateSearchFromToggles(
+                          checked === true,
+                          includeArtist,
+                          includeAlbum,
+                        )
                       }
                       className="h-3.5 w-3.5"
                     />
-                    <label htmlFor={`title-${index}`} className="text-xs cursor-pointer">
+                    <label
+                      htmlFor={`title-${index}`}
+                      className="text-xs cursor-pointer"
+                    >
                       Title
                     </label>
                   </div>
@@ -550,12 +604,19 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
                     <Checkbox
                       id={`artist-${index}`}
                       checked={includeArtist}
-                      onCheckedChange={(checked) => 
-                        updateSearchFromToggles(includeTitle, checked === true, includeAlbum)
+                      onCheckedChange={(checked) =>
+                        updateSearchFromToggles(
+                          includeTitle,
+                          checked === true,
+                          includeAlbum,
+                        )
                       }
                       className="h-3.5 w-3.5"
                     />
-                    <label htmlFor={`artist-${index}`} className="text-xs cursor-pointer">
+                    <label
+                      htmlFor={`artist-${index}`}
+                      className="text-xs cursor-pointer"
+                    >
                       Artist
                     </label>
                   </div>
@@ -565,18 +626,25 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
                     <Checkbox
                       id={`album-${index}`}
                       checked={includeAlbum}
-                      onCheckedChange={(checked) => 
-                        updateSearchFromToggles(includeTitle, includeArtist, checked === true)
+                      onCheckedChange={(checked) =>
+                        updateSearchFromToggles(
+                          includeTitle,
+                          includeArtist,
+                          checked === true,
+                        )
                       }
                       className="h-3.5 w-3.5"
                     />
-                    <label htmlFor={`album-${index}`} className="text-xs cursor-pointer">
+                    <label
+                      htmlFor={`album-${index}`}
+                      className="text-xs cursor-pointer"
+                    >
                       Album
                     </label>
                   </div>
                 )}
               </div>
-              
+
               <div className="flex gap-2">
                 <Input
                   value={searchQuery}
@@ -590,8 +658,8 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
                     }
                   }}
                 />
-                <Button 
-                  size="sm" 
+                <Button
+                  size="sm"
                   onClick={() => doSearch(searchQuery)}
                   disabled={isSearching || !searchQuery.trim()}
                   className="h-8"
@@ -605,7 +673,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
               </div>
 
               {searchResults.length > 0 && (
-                <div 
+                <div
                   className="h-[200px] max-w-full rounded border overflow-y-auto overflow-x-hidden"
                   onWheel={(e) => {
                     // Prevent popover from capturing wheel events
@@ -620,7 +688,9 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
                           key={song.id}
                           className={cn(
                             "w-full text-left p-2 rounded text-sm flex items-center gap-2",
-                            isSelected ? "bg-primary/10 ring-1 ring-primary" : "hover:bg-accent"
+                            isSelected
+                              ? "bg-primary/10 ring-1 ring-primary"
+                              : "hover:bg-accent",
                           )}
                           onClick={() => handleSelectSong(song)}
                         >
@@ -630,9 +700,12 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
                             <Music className="w-4 h-4 shrink-0 text-muted-foreground" />
                           )}
                           <div className="min-w-0 flex-1">
-                            <div className="font-medium truncate">{song.title}</div>
+                            <div className="font-medium truncate">
+                              {song.title}
+                            </div>
                             <div className="text-muted-foreground text-xs truncate">
-                              {song.artist}{song.album ? ` • ${song.album}` : ""}
+                              {song.artist}
+                              {song.album ? ` • ${song.album}` : ""}
                             </div>
                           </div>
                         </button>
@@ -641,7 +714,7 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
                   </div>
                 </div>
               )}
-              
+
               {/* Preview controls for selected song */}
               {selectedSong && (
                 <div className="pt-2 border-t space-y-2">
@@ -662,7 +735,9 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
                       )}
                     </Button>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{selectedSong.title}</div>
+                      <div className="text-sm font-medium truncate">
+                        {selectedSong.title}
+                      </div>
                       <Slider
                         value={[preview.progress]}
                         onValueChange={handleSeek}
@@ -700,9 +775,9 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
               )}
 
               {track.match && (
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+                <Button
+                  variant="outline"
+                  size="sm"
                   className="w-full"
                   onClick={handleClearMatch}
                 >
@@ -720,66 +795,92 @@ export function TrackRow({ track, index, onUpdateMatch, showPosition }: TrackRow
 
 interface TabbedTrackListProps {
   tracks: MatchableTrack[];
-  onUpdateMatch: (originalIndex: number, match: MatchedSongInfo | null, score: number) => void;
+  onUpdateMatch: (
+    originalIndex: number,
+    match: MatchedSongInfo | null,
+    score: number,
+  ) => void;
   showPosition?: boolean;
   showLockedTab?: boolean;
 }
 
-export function TabbedTrackList({ 
-  tracks, 
-  onUpdateMatch, 
+export function TabbedTrackList({
+  tracks,
+  onUpdateMatch,
   showPosition,
   showLockedTab = false,
 }: TabbedTrackListProps) {
   // Separate tracks
-  const editableTracks = tracks.filter(t => !t.locked);
-  const lockedTracks = tracks.filter(t => t.locked);
-  const matchedTracks = editableTracks.filter(t => t.match);
-  const unmatchedTracks = editableTracks.filter(t => !t.match);
+  const editableTracks = tracks.filter((t) => !t.locked);
+  const lockedTracks = tracks.filter((t) => t.locked);
+  const matchedTracks = editableTracks.filter((t) => t.match);
+  const unmatchedTracks = editableTracks.filter((t) => !t.match);
 
   // Helper to find original index when updating a filtered list
-  const getOriginalIndex = (filteredList: MatchableTrack[], filteredIndex: number): number => {
+  const getOriginalIndex = (
+    filteredList: MatchableTrack[],
+    filteredIndex: number,
+  ): number => {
     const track = filteredList[filteredIndex];
-    return tracks.findIndex(t => t === track);
+    return tracks.findIndex((t) => t === track);
   };
 
   const defaultTab = unmatchedTracks.length > 0 ? "unmatched" : "all";
 
   return (
     <Tabs defaultValue={defaultTab} className="flex-1 min-h-0">
-      <TabsList className={cn("grid w-full", showLockedTab && lockedTracks.length > 0 ? "grid-cols-4" : "grid-cols-3")}>
+      <TabsList
+        className={cn(
+          "grid w-full",
+          showLockedTab && lockedTracks.length > 0
+            ? "grid-cols-4"
+            : "grid-cols-3",
+        )}
+      >
         <TabsTrigger value="all">All ({editableTracks.length})</TabsTrigger>
-        <TabsTrigger value="matched">Matched ({matchedTracks.length})</TabsTrigger>
-        <TabsTrigger value="unmatched">Not Found ({unmatchedTracks.length})</TabsTrigger>
+        <TabsTrigger value="matched">
+          Matched ({matchedTracks.length})
+        </TabsTrigger>
+        <TabsTrigger value="unmatched">
+          Not Found ({unmatchedTracks.length})
+        </TabsTrigger>
         {showLockedTab && lockedTracks.length > 0 && (
-          <TabsTrigger value="locked">Already Matched ({lockedTracks.length})</TabsTrigger>
+          <TabsTrigger value="locked">
+            Already Matched ({lockedTracks.length})
+          </TabsTrigger>
         )}
       </TabsList>
-      
+
       <TabsContent value="all" className="flex-1 mt-2">
-        <TrackList 
-          tracks={editableTracks} 
-          onUpdateMatch={(idx, match, score) => onUpdateMatch(getOriginalIndex(editableTracks, idx), match, score)}
+        <TrackList
+          tracks={editableTracks}
+          onUpdateMatch={(idx, match, score) =>
+            onUpdateMatch(getOriginalIndex(editableTracks, idx), match, score)
+          }
           showPosition={showPosition}
         />
       </TabsContent>
       <TabsContent value="matched" className="flex-1 mt-2">
-        <TrackList 
+        <TrackList
           tracks={matchedTracks}
-          onUpdateMatch={(idx, match, score) => onUpdateMatch(getOriginalIndex(matchedTracks, idx), match, score)}
+          onUpdateMatch={(idx, match, score) =>
+            onUpdateMatch(getOriginalIndex(matchedTracks, idx), match, score)
+          }
           showPosition={showPosition}
         />
       </TabsContent>
       <TabsContent value="unmatched" className="flex-1 mt-2">
-        <TrackList 
+        <TrackList
           tracks={unmatchedTracks}
-          onUpdateMatch={(idx, match, score) => onUpdateMatch(getOriginalIndex(unmatchedTracks, idx), match, score)}
+          onUpdateMatch={(idx, match, score) =>
+            onUpdateMatch(getOriginalIndex(unmatchedTracks, idx), match, score)
+          }
           showPosition={showPosition}
         />
       </TabsContent>
       {showLockedTab && lockedTracks.length > 0 && (
         <TabsContent value="locked" className="flex-1 mt-2">
-          <TrackList 
+          <TrackList
             tracks={lockedTracks}
             onUpdateMatch={() => {}} // No-op for locked tracks
             showPosition={showPosition}
@@ -803,38 +904,40 @@ export function useTrackMatcher() {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
-    
+
     // Create new abort controller for this operation
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
-    
+
     const client = getClient();
     if (!client) {
       toast.error("Not connected to server");
       return null;
     }
-    
+
     // Process a single track
-    const processTrack = async (track: ParsedTrackInfo): Promise<MatchableTrack> => {
+    const processTrack = async (
+      track: ParsedTrackInfo,
+    ): Promise<MatchableTrack> => {
       const query = buildTrackSearchQuery(track, searchOptions);
-      
+
       if (!query) {
         return { parsed: track, match: null, matchScore: 0 };
       }
-      
+
       try {
         const response = await client.search3({ query, songCount: 10 });
-        
+
         if (abortController.signal.aborted) {
           throw new Error("Aborted");
         }
-        
+
         const songs = response.searchResult3?.song ?? [];
-        
+
         // Find best match
         let bestMatch: Song | null = null;
         let bestScore = 0;
-        
+
         for (const song of songs) {
           const score = calculateMatchScore(track, song);
           if (score > bestScore) {
@@ -842,7 +945,7 @@ export function useTrackMatcher() {
             bestMatch = song;
           }
         }
-        
+
         // Only accept matches above threshold
         if (bestScore >= 0.5) {
           return { parsed: track, match: bestMatch, matchScore: bestScore };
@@ -857,33 +960,40 @@ export function useTrackMatcher() {
         return { parsed: track, match: null, matchScore: 0 };
       }
     };
-    
+
     // Process tracks in parallel batches
     const BATCH_SIZE = 5; // Process 5 tracks concurrently
     const results: MatchableTrack[] = new Array(tracks.length);
     let completedCount = 0;
-    
-    for (let batchStart = 0; batchStart < tracks.length; batchStart += BATCH_SIZE) {
+
+    for (
+      let batchStart = 0;
+      batchStart < tracks.length;
+      batchStart += BATCH_SIZE
+    ) {
       if (abortController.signal.aborted) {
         return null;
       }
-      
+
       const batchEnd = Math.min(batchStart + BATCH_SIZE, tracks.length);
       const batchTracks = tracks.slice(batchStart, batchEnd);
-      
+
       try {
         // Process batch in parallel
         const batchResults = await Promise.all(
-          batchTracks.map((track, i) => 
-            processTrack(track).then(result => ({ index: batchStart + i, result }))
-          )
+          batchTracks.map((track, i) =>
+            processTrack(track).then((result) => ({
+              index: batchStart + i,
+              result,
+            })),
+          ),
         );
-        
+
         // Store results in correct positions
         for (const { index, result } of batchResults) {
           results[index] = result;
         }
-        
+
         completedCount += batchTracks.length;
         onProgress(Math.round((completedCount / tracks.length) * 100));
       } catch (error) {
@@ -893,14 +1003,18 @@ export function useTrackMatcher() {
         // If batch fails, process remaining tracks individually
         for (let i = 0; i < batchTracks.length; i++) {
           if (!results[batchStart + i]) {
-            results[batchStart + i] = { parsed: batchTracks[i], match: null, matchScore: 0 };
+            results[batchStart + i] = {
+              parsed: batchTracks[i],
+              match: null,
+              matchScore: 0,
+            };
           }
         }
         completedCount += batchTracks.length;
         onProgress(Math.round((completedCount / tracks.length) * 100));
       }
     }
-    
+
     return results;
   };
 

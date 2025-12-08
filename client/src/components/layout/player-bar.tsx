@@ -24,7 +24,11 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   useAudioEngine,
   useVolumeControl,
@@ -37,7 +41,11 @@ import {
   playbackStateAtom,
 } from "@/lib/store/player";
 import { currentSongAtom } from "@/lib/store/server-queue";
-import { queuePanelOpenAtom, fullscreenPlayerOpenAtom, progressBarStyleAtom } from "@/lib/store/ui";
+import {
+  queuePanelOpenAtom,
+  fullscreenPlayerOpenAtom,
+  progressBarStyleAtom,
+} from "@/lib/store/ui";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { useStarred } from "@/lib/store/starred";
 import { formatDuration } from "@/lib/utils/format";
@@ -60,11 +68,14 @@ interface NowPlayingInfoProps {
 }
 
 /** Now playing track info - only re-renders when track changes */
-const NowPlayingInfo = memo(function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
+const NowPlayingInfo = memo(function NowPlayingInfo({
+  track,
+  isEnded,
+}: NowPlayingInfoProps) {
   // Use global starred state
   const { isStarred, toggleStar } = useStarred(
     track?.id ?? "",
-    !!track?.starred
+    !!track?.starred,
   );
 
   // Get cover art URL
@@ -122,7 +133,9 @@ const NowPlayingInfo = memo(function NowPlayingInfo({ track, isEnded }: NowPlayi
         className="hidden sm:flex shrink-0 h-8 w-8"
         onClick={toggleStar}
       >
-        <Heart className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")} />
+        <Heart
+          className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")}
+        />
       </Button>
       <div className="hidden sm:block">
         <SongDropdownMenu song={track} />
@@ -137,7 +150,10 @@ interface PlaybackControlsProps {
 }
 
 /** Play/pause and skip buttons - only re-renders when playback state changes */
-const PlaybackControls = memo(function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
+const PlaybackControls = memo(function PlaybackControls({
+  hasTrack,
+  playbackState,
+}: PlaybackControlsProps) {
   const { togglePlayPause, next, previous } = useAudioEngine();
   const { isShuffled, toggleShuffle } = useShuffle();
   const { repeatMode, cycleRepeatMode } = useRepeatMode();
@@ -152,10 +168,7 @@ const PlaybackControls = memo(function PlaybackControls({ hasTrack, playbackStat
       <Button
         variant="ghost"
         size="icon"
-        className={cn(
-          "hidden sm:flex h-8 w-8",
-          isShuffled && "text-primary"
-        )}
+        className={cn("hidden sm:flex h-8 w-8", isShuffled && "text-primary")}
         onClick={toggleShuffle}
         aria-label="Shuffle"
       >
@@ -211,7 +224,7 @@ const PlaybackControls = memo(function PlaybackControls({ hasTrack, playbackStat
         size="icon"
         className={cn(
           "hidden sm:flex h-8 w-8",
-          repeatMode !== "off" && "text-primary"
+          repeatMode !== "off" && "text-primary",
         )}
         onClick={cycleRepeatMode}
         aria-label="Repeat"
@@ -230,7 +243,11 @@ const TimeSlider = memo(function TimeSlider() {
   const { seekPercent } = useAudioEngine();
 
   const isEnded = playbackState === "ended";
-  const progress = isEnded ? 0 : (duration > 0 ? (currentTime / duration) * 100 : 0);
+  const progress = isEnded
+    ? 0
+    : duration > 0
+      ? (currentTime / duration) * 100
+      : 0;
   const displayTime = isEnded ? 0 : currentTime;
   const displayDuration = isEnded ? 0 : duration;
 
@@ -258,11 +275,8 @@ const TimeSlider = memo(function TimeSlider() {
 const VolumeControls = memo(function VolumeControls() {
   const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
 
-  const VolumeIcon = isMuted || volume === 0 
-    ? VolumeX 
-    : volume < 0.5 
-      ? Volume1 
-      : Volume2;
+  const VolumeIcon =
+    isMuted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
   return (
     <>
@@ -278,11 +292,7 @@ const VolumeControls = memo(function VolumeControls() {
             <VolumeIcon className="w-4 h-4" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent 
-          side="top" 
-          align="center" 
-          className="w-auto p-3"
-        >
+        <PopoverContent side="top" align="center" className="w-auto p-3">
           <div className="flex flex-col items-center gap-3">
             <span className="text-xs text-muted-foreground">Volume</span>
             <div className="h-32 flex items-center">
@@ -336,7 +346,7 @@ const VolumeControls = memo(function VolumeControls() {
 /** Queue button - separated to avoid re-renders */
 const QueueButton = memo(function QueueButton() {
   const [queuePanelOpen, setQueuePanelOpen] = useAtom(queuePanelOpenAtom);
-  
+
   const toggleQueue = useCallback(() => {
     setQueuePanelOpen(!queuePanelOpen);
   }, [queuePanelOpen, setQueuePanelOpen]);
@@ -374,19 +384,12 @@ const MobileMoreMenu = memo(function MobileMoreMenu() {
           <MoreHorizontal className="w-4 h-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent 
-        side="top" 
-        align="end" 
-        className="w-auto p-2"
-      >
+      <PopoverContent side="top" align="end" className="w-auto p-2">
         <div className="flex flex-col gap-1">
           <Button
             variant="ghost"
             size="sm"
-            className={cn(
-              "justify-start gap-2",
-              isShuffled && "text-primary"
-            )}
+            className={cn("justify-start gap-2", isShuffled && "text-primary")}
             onClick={toggleShuffle}
           >
             <Shuffle className="w-4 h-4" />
@@ -397,12 +400,17 @@ const MobileMoreMenu = memo(function MobileMoreMenu() {
             size="sm"
             className={cn(
               "justify-start gap-2",
-              repeatMode !== "off" && "text-primary"
+              repeatMode !== "off" && "text-primary",
             )}
             onClick={cycleRepeatMode}
           >
             <RepeatIcon className="w-4 h-4" />
-            Repeat {repeatMode === "one" ? "One" : repeatMode === "all" ? "All" : "Off"}
+            Repeat{" "}
+            {repeatMode === "one"
+              ? "One"
+              : repeatMode === "all"
+                ? "All"
+                : "Off"}
           </Button>
           <Button
             variant="ghost"
@@ -459,7 +467,7 @@ export function PlayerBar() {
       className={cn(
         "relative z-50",
         "h-[88px] bg-background/95 backdrop-blur-lg",
-        "transition-all duration-200"
+        "transition-all duration-200",
       )}
     >
       {/* Progress bar at top - waveform or simple based on preference */}

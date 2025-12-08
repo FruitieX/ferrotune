@@ -17,7 +17,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
-import type { ServerConfigResponse, UpdateServerConfigRequest } from "@/lib/api/generated";
+import type {
+  ServerConfigResponse,
+  UpdateServerConfigRequest,
+} from "@/lib/api/generated";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,19 +44,23 @@ import {
 
 export function ServerConfig() {
   const queryClient = useQueryClient();
-  
+
   // Form state
   const [serverName, setServerName] = useState("");
   const [serverHost, setServerHost] = useState("");
   const [serverPort, setServerPort] = useState("");
   const [maxCoverSize, setMaxCoverSize] = useState("");
   const [readonlyTags, setReadonlyTags] = useState(false);
-  
+
   // Track if form has unsaved changes
   const [hasChanges, setHasChanges] = useState(false);
 
   // Fetch server config
-  const { data: config, isLoading, error } = useQuery({
+  const {
+    data: config,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ["serverConfig"],
     queryFn: async () => {
       const client = getClient();
@@ -78,14 +85,14 @@ export function ServerConfig() {
   // Track changes
   useEffect(() => {
     if (!config) return;
-    
-    const changed = 
+
+    const changed =
       serverName !== (config.serverName || "") ||
       serverHost !== (config.serverHost || "") ||
       serverPort !== (config.serverPort?.toString() || "") ||
       maxCoverSize !== (config.maxCoverSize?.toString() || "") ||
       readonlyTags !== (config.readonlyTags ?? false);
-    
+
     setHasChanges(changed);
   }, [config, serverName, serverHost, serverPort, maxCoverSize, readonlyTags]);
 
@@ -108,16 +115,29 @@ export function ServerConfig() {
 
   const handleSave = () => {
     const updates: UpdateServerConfigRequest = {
-      serverName: serverName !== (config?.serverName || "") ? (serverName || null) : null,
-      serverHost: serverHost !== (config?.serverHost || "") ? (serverHost || null) : null,
-      serverPort: serverPort !== (config?.serverPort?.toString() || "") ? (serverPort ? parseInt(serverPort, 10) : null) : null,
-      maxCoverSize: maxCoverSize !== (config?.maxCoverSize?.toString() || "") ? (maxCoverSize ? parseInt(maxCoverSize, 10) : null) : null,
-      readonlyTags: readonlyTags !== (config?.readonlyTags ?? false) ? readonlyTags : null,
+      serverName:
+        serverName !== (config?.serverName || "") ? serverName || null : null,
+      serverHost:
+        serverHost !== (config?.serverHost || "") ? serverHost || null : null,
+      serverPort:
+        serverPort !== (config?.serverPort?.toString() || "")
+          ? serverPort
+            ? parseInt(serverPort, 10)
+            : null
+          : null,
+      maxCoverSize:
+        maxCoverSize !== (config?.maxCoverSize?.toString() || "")
+          ? maxCoverSize
+            ? parseInt(maxCoverSize, 10)
+            : null
+          : null,
+      readonlyTags:
+        readonlyTags !== (config?.readonlyTags ?? false) ? readonlyTags : null,
       adminUser: null,
       adminPassword: null,
       configured: null,
     };
-    
+
     updateMutation.mutate(updates);
   };
 
@@ -231,8 +251,10 @@ export function ServerConfig() {
 
         {/* Network Settings */}
         <div className="space-y-4">
-          <h4 className="text-sm font-medium text-muted-foreground">Network Settings</h4>
-          
+          <h4 className="text-sm font-medium text-muted-foreground">
+            Network Settings
+          </h4>
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="serverHost" className="flex items-center gap-2">
@@ -269,8 +291,10 @@ export function ServerConfig() {
 
         {/* Media Settings */}
         <div className="space-y-4">
-          <h4 className="text-sm font-medium text-muted-foreground">Media Settings</h4>
-          
+          <h4 className="text-sm font-medium text-muted-foreground">
+            Media Settings
+          </h4>
+
           <div className="space-y-2">
             <Label htmlFor="maxCoverSize" className="flex items-center gap-2">
               <Image className="w-4 h-4 text-muted-foreground" />
@@ -298,10 +322,7 @@ export function ServerConfig() {
                 Prevent modifications to audio file metadata
               </p>
             </div>
-            <Switch
-              checked={readonlyTags}
-              onCheckedChange={setReadonlyTags}
-            />
+            <Switch checked={readonlyTags} onCheckedChange={setReadonlyTags} />
           </div>
         </div>
 
@@ -309,15 +330,19 @@ export function ServerConfig() {
 
         {/* Read-only Info */}
         <div className="space-y-4">
-          <h4 className="text-sm font-medium text-muted-foreground">Storage Paths</h4>
-          
+          <h4 className="text-sm font-medium text-muted-foreground">
+            Storage Paths
+          </h4>
+
           <div className="grid gap-3">
             {config?.databasePath && (
               <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30">
                 <Database className="w-4 h-4 text-muted-foreground shrink-0" />
                 <div className="min-w-0 flex-1">
                   <p className="text-xs text-muted-foreground">Database</p>
-                  <p className="text-sm font-mono truncate">{config.databasePath}</p>
+                  <p className="text-sm font-mono truncate">
+                    {config.databasePath}
+                  </p>
                 </div>
               </div>
             )}
@@ -326,7 +351,9 @@ export function ServerConfig() {
                 <Folder className="w-4 h-4 text-muted-foreground shrink-0" />
                 <div className="min-w-0 flex-1">
                   <p className="text-xs text-muted-foreground">Cache</p>
-                  <p className="text-sm font-mono truncate">{config.cachePath}</p>
+                  <p className="text-sm font-mono truncate">
+                    {config.cachePath}
+                  </p>
                 </div>
               </div>
             )}
@@ -340,8 +367,8 @@ export function ServerConfig() {
               Reset
             </Button>
           )}
-          <Button 
-            onClick={handleSave} 
+          <Button
+            onClick={handleSave}
             disabled={!hasChanges || updateMutation.isPending}
           >
             {updateMutation.isPending ? (

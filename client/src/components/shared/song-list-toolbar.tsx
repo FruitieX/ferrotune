@@ -1,6 +1,15 @@
 "use client";
 
-import { Search, X, ArrowUpDown, ArrowUp, ArrowDown, Columns, Grid, List } from "lucide-react";
+import {
+  Search,
+  X,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Columns,
+  Grid,
+  List,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,8 +21,16 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
-import { FilterPopover, ActiveFilterBadges } from "@/components/shared/filter-popover";
-import type { SortField, SortDirection, ColumnVisibility, ViewMode } from "@/lib/store/ui";
+import {
+  FilterPopover,
+  ActiveFilterBadges,
+} from "@/components/shared/filter-popover";
+import type {
+  SortField,
+  SortDirection,
+  ColumnVisibility,
+  ViewMode,
+} from "@/lib/store/ui";
 
 export interface SortConfig {
   field: SortField;
@@ -46,19 +63,19 @@ interface SongListToolbarProps {
   filter: string;
   onFilterChange: (filter: string) => void;
   filterPlaceholder?: string;
-  
+
   // Sort
   sortConfig: SortConfig;
   onSortChange: (config: SortConfig) => void;
-  
+
   // Columns (only shown in list view)
   columnVisibility: ColumnVisibility;
   onColumnVisibilityChange: (visibility: ColumnVisibility) => void;
-  
+
   // View mode
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-  
+
   // Optional: hide certain controls
   showFilter?: boolean;
   showSort?: boolean;
@@ -67,7 +84,7 @@ interface SongListToolbarProps {
   showAdvancedFilters?: boolean;
   /** Show the "Custom" sort option (for playlist reordering) */
   showCustomSort?: boolean;
-  
+
   // Advanced filter options
   advancedFilterOptions?: {
     year?: boolean;
@@ -144,101 +161,101 @@ export function SongListToolbar({
               </Button>
             )}
           </div>
-      )}
+        )}
 
-      {/* Sort dropdown */}
-      {showSort && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        {/* Sort dropdown */}
+        {showSort && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                aria-label="Sort options"
+              >
+                <ArrowUpDown className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {sortOptions
+                .filter((option) => showCustomSort || option.value !== "custom")
+                .map((option) => (
+                  <DropdownMenuItem
+                    key={option.value}
+                    onClick={() => handleSort(option.value)}
+                    className="flex items-center justify-between"
+                  >
+                    <span>{option.label}</span>
+                    {sortConfig.field === option.value && (
+                      <SortIcon className="w-4 h-4 text-primary" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
+        {/* Column visibility dropdown - only in list view */}
+        {showColumns && viewMode === "list" && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                aria-label="Toggle columns"
+              >
+                <Columns className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel>Visible Columns</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {columnOptions.map((option) => (
+                <DropdownMenuCheckboxItem
+                  key={option.key}
+                  checked={columnVisibility[option.key]}
+                  onCheckedChange={() => toggleColumn(option.key)}
+                >
+                  {option.label}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
+        {/* View mode toggle */}
+        {showViewMode && (
+          <>
             <Button
-              variant="ghost"
+              variant={viewMode === "grid" ? "secondary" : "ghost"}
               size="icon"
               className="h-8 w-8"
-              aria-label="Sort options"
+              onClick={() => onViewModeChange("grid")}
+              aria-label="Grid view"
+              aria-pressed={viewMode === "grid"}
             >
-              <ArrowUpDown className="w-4 h-4" />
+              <Grid className="w-4 h-4" />
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {sortOptions
-              .filter((option) => showCustomSort || option.value !== "custom")
-              .map((option) => (
-              <DropdownMenuItem
-                key={option.value}
-                onClick={() => handleSort(option.value)}
-                className="flex items-center justify-between"
-              >
-                <span>{option.label}</span>
-                {sortConfig.field === option.value && (
-                  <SortIcon className="w-4 h-4 text-primary" />
-                )}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-
-      {/* Column visibility dropdown - only in list view */}
-      {showColumns && viewMode === "list" && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
             <Button
-              variant="ghost"
+              variant={viewMode === "list" ? "secondary" : "ghost"}
               size="icon"
               className="h-8 w-8"
-              aria-label="Toggle columns"
+              onClick={() => onViewModeChange("list")}
+              aria-label="List view"
+              aria-pressed={viewMode === "list"}
             >
-              <Columns className="w-4 h-4" />
+              <List className="w-4 h-4" />
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuLabel>Visible Columns</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {columnOptions.map((option) => (
-              <DropdownMenuCheckboxItem
-                key={option.key}
-                checked={columnVisibility[option.key]}
-                onCheckedChange={() => toggleColumn(option.key)}
-              >
-                {option.label}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+          </>
+        )}
 
-      {/* View mode toggle */}
-      {showViewMode && (
-        <>
-          <Button
-            variant={viewMode === "grid" ? "secondary" : "ghost"}
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => onViewModeChange("grid")}
-            aria-label="Grid view"
-            aria-pressed={viewMode === "grid"}
-          >
-            <Grid className="w-4 h-4" />
-          </Button>
-          <Button
-            variant={viewMode === "list" ? "secondary" : "ghost"}
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => onViewModeChange("list")}
-            aria-label="List view"
-            aria-pressed={viewMode === "list"}
-          >
-            <List className="w-4 h-4" />
-          </Button>
-        </>
-      )}
-
-      {/* Advanced filters */}
-      {showAdvancedFilters && (
-        <FilterPopover showOptions={advancedFilterOptions} />
-      )}
+        {/* Advanced filters */}
+        {showAdvancedFilters && (
+          <FilterPopover showOptions={advancedFilterOptions} />
+        )}
       </div>
 
       {/* Active filter badges */}

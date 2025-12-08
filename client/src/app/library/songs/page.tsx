@@ -9,18 +9,35 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import { albumViewModeAtom, libraryFilterAtom, librarySortAtom, columnVisibilityAtom, advancedFiltersAtom, hasActiveFiltersAtom } from "@/lib/store/ui";
+import {
+  albumViewModeAtom,
+  libraryFilterAtom,
+  librarySortAtom,
+  columnVisibilityAtom,
+  advancedFiltersAtom,
+  hasActiveFiltersAtom,
+} from "@/lib/store/ui";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
-import { SongRow, SongRowSkeleton, SongCard, SongCardSkeleton } from "@/components/browse/song-row";
-import { VirtualizedGrid, VirtualizedList } from "@/components/shared/virtualized-grid";
+import {
+  SongRow,
+  SongRowSkeleton,
+  SongCard,
+  SongCardSkeleton,
+} from "@/components/browse/song-row";
+import {
+  VirtualizedGrid,
+  VirtualizedList,
+} from "@/components/shared/virtualized-grid";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import type { Song } from "@/lib/api/types";
 
 const PAGE_SIZE = 50;
 
 export default function SongsPage() {
-  const { isReady, isLoading: authLoading } = useAuth({ redirectToLogin: true });
+  const { isReady, isLoading: authLoading } = useAuth({
+    redirectToLogin: true,
+  });
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
   const sortConfig = useAtomValue(librarySortAtom);
@@ -29,7 +46,7 @@ export default function SongsPage() {
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
   const debouncedFilter = useDebounce(filter, 300);
   const startQueue = useSetAtom(startQueueAtom);
-  
+
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
 
@@ -43,7 +60,13 @@ export default function SongsPage() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["songs", "all", sortConfig.field, sortConfig.direction, advancedFilters],
+    queryKey: [
+      "songs",
+      "all",
+      sortConfig.field,
+      sortConfig.direction,
+      advancedFilters,
+    ],
     queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
@@ -65,7 +88,8 @@ export default function SongsPage() {
       return {
         songs,
         total,
-        nextOffset: songs.length === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
+        nextOffset:
+          songs.length === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
       };
     },
     getNextPageParam: (lastPage) => lastPage.nextOffset,
@@ -77,7 +101,14 @@ export default function SongsPage() {
 
   // Search songs when filter is active (also with server-side sorting)
   const { data: searchData, isLoading: isSearching } = useQuery({
-    queryKey: ["songs", "search", debouncedFilter, sortConfig.field, sortConfig.direction, advancedFilters],
+    queryKey: [
+      "songs",
+      "search",
+      debouncedFilter,
+      sortConfig.field,
+      sortConfig.direction,
+      advancedFilters,
+    ],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
@@ -101,7 +132,7 @@ export default function SongsPage() {
   // Flatten songs from all pages
   const allSongs = songsData?.pages.flatMap((page) => page.songs) ?? [];
   const totalSongs = songsData?.pages[0]?.total ?? allSongs.length;
-  
+
   // Use search results when filtering, otherwise use paginated list
   // Sorting is now handled server-side, no need for client-side sorting
   const displaySongs = debouncedFilter ? (searchData ?? []) : allSongs;
@@ -110,26 +141,32 @@ export default function SongsPage() {
   const isLoadingData = debouncedFilter ? isSearching : isLoading;
 
   // Build queue source with filters and sort for server-side materialization
-  const queueSource = useMemo(() => ({
-    type: (debouncedFilter ? "search" : "library") as QueueSourceType,
-    name: debouncedFilter ? `Search: ${debouncedFilter}` : "Library",
-    filters: {
-      query: debouncedFilter || "*",
-      ...advancedFilters,
-    },
-    sort: {
-      field: sortConfig.field,
-      direction: sortConfig.direction,
-    },
-  }), [debouncedFilter, advancedFilters, sortConfig]);
+  const queueSource = useMemo(
+    () => ({
+      type: (debouncedFilter ? "search" : "library") as QueueSourceType,
+      name: debouncedFilter ? `Search: ${debouncedFilter}` : "Library",
+      filters: {
+        query: debouncedFilter || "*",
+        ...advancedFilters,
+      },
+      sort: {
+        field: sortConfig.field,
+        direction: sortConfig.direction,
+      },
+    }),
+    [debouncedFilter, advancedFilters, sortConfig],
+  );
 
   // Build search params for "select all" functionality
-  const searchParamsForSelection = useMemo(() => ({
-    query: debouncedFilter || "*",
-    songSort: sortConfig.field,
-    songSortDir: sortConfig.direction,
-    ...advancedFilters,
-  }), [debouncedFilter, sortConfig, advancedFilters]);
+  const searchParamsForSelection = useMemo(
+    () => ({
+      query: debouncedFilter || "*",
+      songSort: sortConfig.field,
+      songSortDir: sortConfig.direction,
+      ...advancedFilters,
+    }),
+    [debouncedFilter, sortConfig, advancedFilters],
+  );
 
   // Track selection with support for selecting all songs from backend
   const {
@@ -181,7 +218,12 @@ export default function SongsPage() {
   }
 
   return (
-    <div className={cn("p-4 lg:p-6", hasSelection && "select-none-during-selection")}>
+    <div
+      className={cn(
+        "p-4 lg:p-6",
+        hasSelection && "select-none-during-selection",
+      )}
+    >
       {isLoadingData && displaySongs.length === 0 ? (
         viewMode === "grid" ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -252,7 +294,13 @@ export default function SongsPage() {
           />
         )
       ) : (
-        <EmptyState message={debouncedFilter ? "No songs match your filter" : "No songs in your library"} />
+        <EmptyState
+          message={
+            debouncedFilter
+              ? "No songs match your filter"
+              : "No songs in your library"
+          }
+        />
       )}
 
       {/* Bulk actions bar */}

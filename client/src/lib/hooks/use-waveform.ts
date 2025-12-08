@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { waveformCacheAtom, loadingWaveformIdAtom, lastChunkInfoAtom, WAVEFORM_BAR_COUNT, FLAT_BAR_HEIGHT } from "@/lib/store/waveform";
+import {
+  waveformCacheAtom,
+  loadingWaveformIdAtom,
+  lastChunkInfoAtom,
+  WAVEFORM_BAR_COUNT,
+  FLAT_BAR_HEIGHT,
+} from "@/lib/store/waveform";
 import { currentSongAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 
@@ -38,7 +44,7 @@ function normalizeRmsToHeights(rmsValues: number[]): number[] {
     const dbMin = -10; // Adjust for compression strength (-30 = more, -60 = less)
     const db = 20 * Math.log10(Math.max(normalized, 1e-6));
     const dbNormalized = Math.max(0, (db - dbMin) / -dbMin);
-    
+
     // Map to height range (FLAT_BAR_HEIGHT to 1.0)
     const height = FLAT_BAR_HEIGHT + dbNormalized * (1 - FLAT_BAR_HEIGHT);
 
@@ -55,7 +61,9 @@ export function useWaveform() {
   const [waveformCache, setWaveformCache] = useAtom(waveformCacheAtom);
   const [loadingId, setLoadingId] = useAtom(loadingWaveformIdAtom);
   const setLastChunkInfo = useSetAtom(lastChunkInfoAtom);
-  const [streamingHeights, setStreamingHeights] = useState<number[] | null>(null);
+  const [streamingHeights, setStreamingHeights] = useState<number[] | null>(
+    null,
+  );
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const trackId = currentTrack?.id ?? null;
@@ -68,12 +76,12 @@ export function useWaveform() {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
-    
+
     if (!trackId) {
       setStreamingHeights(null);
       return;
     }
-    
+
     // Always reset to flat bars when track changes
     // If cached, the return statement below will show cached data immediately
     // If not cached, streaming will progressively update
@@ -108,15 +116,18 @@ export function useWaveform() {
     const fetchWaveformStreaming = async () => {
       const client = getClient();
       if (!client) return;
-      
+
       // Accumulate raw RMS values across all chunks
       // We'll dynamically track where to place each chunk's RMS values
       const allRmsValues = new Array<number>(WAVEFORM_BAR_COUNT).fill(0);
       let currentBarIndex = 0;
-      
+
       try {
-        const streamUrl = client.getWaveformStreamUrl(trackId, WAVEFORM_BAR_COUNT);
-        
+        const streamUrl = client.getWaveformStreamUrl(
+          trackId,
+          WAVEFORM_BAR_COUNT,
+        );
+
         const response = await fetch(streamUrl, {
           signal: abortController.signal,
           headers: client.getAuthHeaders(),
@@ -147,19 +158,24 @@ export function useWaveform() {
 
           for (const line of lines) {
             if (!line.startsWith("data:")) continue;
-            
+
             const jsonStr = line.slice(5).trim();
             if (!jsonStr) continue;
 
             try {
               const chunk: WaveformChunk = JSON.parse(jsonStr);
-              
+
               // Track the start index before adding new bars
               const chunkStartIndex = currentBarIndex;
-              
+
               // Store raw RMS values at current position (sequential append)
               // Server sends chunks sequentially, so we just append
-              for (let i = 0; i < chunk.rms_values.length && currentBarIndex < WAVEFORM_BAR_COUNT; i++) {
+              for (
+                let i = 0;
+                i < chunk.rms_values.length &&
+                currentBarIndex < WAVEFORM_BAR_COUNT;
+                i++
+              ) {
                 allRmsValues[currentBarIndex++] = chunk.rms_values[i];
               }
 
@@ -196,8 +212,11 @@ export function useWaveform() {
         }
       } catch (error) {
         if ((error as Error).name === "AbortError") return;
-        
-        console.warn("[Waveform] Streaming failed, falling back to batch:", error);
+
+        console.warn(
+          "[Waveform] Streaming failed, falling back to batch:",
+          error,
+        );
         await fetchWaveformBatch();
       }
     };
@@ -236,14 +255,23 @@ export function useWaveform() {
     return () => {
       abortController.abort();
     };
-  }, [trackId, waveformCache, setWaveformCache, setLoadingId, setLastChunkInfo]);
+  }, [
+    trackId,
+    waveformCache,
+    setWaveformCache,
+    setLoadingId,
+    setLastChunkInfo,
+  ]);
 
   // Get current waveform data
   const waveformData = trackId ? waveformCache.get(trackId) : null;
   const isLoading = loadingId === trackId && !waveformData?.isLoaded;
-  
+
   // Priority: streaming > cached > flat
-  const heights = streamingHeights ?? waveformData?.heights ?? Array(WAVEFORM_BAR_COUNT).fill(FLAT_BAR_HEIGHT);
+  const heights =
+    streamingHeights ??
+    waveformData?.heights ??
+    Array(WAVEFORM_BAR_COUNT).fill(FLAT_BAR_HEIGHT);
 
   return {
     heights,

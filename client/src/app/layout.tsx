@@ -168,40 +168,38 @@ export default function RootLayout({
         <Providers>
           <SetupGuard>
             <div className="h-screen flex flex-col">
-            {/* Main container - takes up all space except footer */}
-            <div className="flex flex-1 min-h-0">
-              {/* Sidebar - hidden on mobile, spans full height of main container */}
-              <Suspense fallback={<SidebarSkeleton />}>
-                <Sidebar />
-              </Suspense>
-              
-              {/* Main content area - uses MainContent wrapper for responsive margins */}
-              <MainContent>
-                {children}
-              </MainContent>
-              
-              {/* Queue sidebar - desktop only, fixed right side, spans full height of main container */}
-              <QueueSidebar />
-              
-              {/* Queue panel - mobile/tablet only sheet/drawer */}
-              <div className="xl:hidden">
-                <QueuePanel />
+              {/* Main container - takes up all space except footer */}
+              <div className="flex flex-1 min-h-0">
+                {/* Sidebar - hidden on mobile, spans full height of main container */}
+                <Suspense fallback={<SidebarSkeleton />}>
+                  <Sidebar />
+                </Suspense>
+
+                {/* Main content area - uses MainContent wrapper for responsive margins */}
+                <MainContent>{children}</MainContent>
+
+                {/* Queue sidebar - desktop only, fixed right side, spans full height of main container */}
+                <QueueSidebar />
+
+                {/* Queue panel - mobile/tablet only sheet/drawer */}
+                <div className="xl:hidden">
+                  <QueuePanel />
+                </div>
               </div>
-            </div>
-            
-            {/* Footer section - player bar and mobile nav */}
-            <div className="shrink-0">
-              {/* Player bar */}
-              <PlayerBar />
-              
-              {/* Mobile navigation - only on mobile */}
-              <div className="lg:hidden">
-                <MobileNav />
+
+              {/* Footer section - player bar and mobile nav */}
+              <div className="shrink-0">
+                {/* Player bar */}
+                <PlayerBar />
+
+                {/* Mobile navigation - only on mobile */}
+                <div className="lg:hidden">
+                  <MobileNav />
+                </div>
               </div>
-            </div>
-            
-            {/* Fullscreen player - modal overlay */}
-            <FullscreenPlayer />
+
+              {/* Fullscreen player - modal overlay */}
+              <FullscreenPlayer />
             </div>
           </SetupGuard>
         </Providers>

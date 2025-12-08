@@ -43,8 +43,8 @@ export function MergePlaylistsDialog({
         <DialogHeader>
           <DialogTitle>Merge Playlists</DialogTitle>
           <DialogDescription>
-            Merge {selectedCount} playlists into a new playlist. All songs from the
-            selected playlists will be combined.
+            Merge {selectedCount} playlists into a new playlist. All songs from
+            the selected playlists will be combined.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>

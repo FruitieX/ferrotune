@@ -9,7 +9,7 @@ export function useMediaQuery(query: string): boolean {
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(query);
-    
+
     // Set initial value
     setMatches(mediaQuery.matches);
 
@@ -47,6 +47,6 @@ export function useIsMobile(): boolean {
 
   // During SSR and initial render, return false to prevent hydration issues
   if (!hasMounted) return false;
-  
+
   return !isDesktop;
 }

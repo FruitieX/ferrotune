@@ -30,7 +30,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
-import { startQueueAtom, addToQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
+import {
+  startQueueAtom,
+  addToQueueAtom,
+  type QueueSourceType,
+} from "@/lib/store/server-queue";
 import { useInvalidateFavorites } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
 import type { Artist, Song } from "@/lib/api/types";
@@ -44,11 +48,11 @@ interface ArtistContextMenuProps {
 async function fetchArtistSongs(artistId: string): Promise<Song[]> {
   const client = getClient();
   if (!client) return [];
-  
+
   try {
     const artistData = await client.getArtist(artistId);
     if (!artistData.artist.album?.length) return [];
-    
+
     // Get songs from all albums
     const allSongs: Song[] = [];
     for (const album of artistData.artist.album) {
@@ -64,7 +68,10 @@ async function fetchArtistSongs(artistId: string): Promise<Song[]> {
   }
 }
 
-export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) {
+export function ArtistContextMenu({
+  artist,
+  children,
+}: ArtistContextMenuProps) {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const invalidateFavorites = useInvalidateFavorites();
@@ -98,7 +105,7 @@ export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) 
   const handlePlayNext = async () => {
     const songs = await fetchArtistSongs(artist.id);
     if (songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position: "next" });
+      addToQueue({ songIds: songs.map((s) => s.id), position: "next" });
       toast.success(`Added "${artist.name}" songs to play next`);
     } else {
       toast.error("No songs found for this artist");
@@ -108,7 +115,7 @@ export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) 
   const handleAddToQueue = async () => {
     const songs = await fetchArtistSongs(artist.id);
     if (songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position: "end" });
+      addToQueue({ songIds: songs.map((s) => s.id), position: "end" });
       toast.success(`Added "${artist.name}" songs to queue`);
     } else {
       toast.error("No songs found for this artist");
@@ -172,7 +179,9 @@ export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) 
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onClick={handleStar}>
-        <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
+        <Heart
+          className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`}
+        />
         {isStarred ? "Remove from Favorites" : "Add to Favorites"}
       </ContextMenuItem>
       <ContextMenuSeparator />
@@ -187,7 +196,12 @@ export function ArtistContextMenu({ artist, children }: ArtistContextMenuProps) 
     <>
       <ContextMenu>
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent className="w-56" onDoubleClick={(e) => e.stopPropagation()}>{menuItems}</ContextMenuContent>
+        <ContextMenuContent
+          className="w-56"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          {menuItems}
+        </ContextMenuContent>
       </ContextMenu>
       {artistSongs && (
         <AddToPlaylistDialog
@@ -213,7 +227,12 @@ interface ArtistDropdownMenuProps {
   trigger?: React.ReactNode;
 }
 
-export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: ArtistDropdownMenuProps) {
+export function ArtistDropdownMenu({
+  artist,
+  onPlay,
+  onShuffle,
+  trigger,
+}: ArtistDropdownMenuProps) {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const invalidateFavorites = useInvalidateFavorites();
@@ -255,7 +274,7 @@ export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: Artis
   const handlePlayNext = async () => {
     const songs = await fetchArtistSongs(artist.id);
     if (songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position: "next" });
+      addToQueue({ songIds: songs.map((s) => s.id), position: "next" });
       toast.success(`Added "${artist.name}" songs to play next`);
     } else {
       toast.error("No songs found for this artist");
@@ -265,7 +284,7 @@ export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: Artis
   const handleAddToQueue = async () => {
     const songs = await fetchArtistSongs(artist.id);
     if (songs.length > 0) {
-      addToQueue({ songIds: songs.map(s => s.id), position: "end" });
+      addToQueue({ songIds: songs.map((s) => s.id), position: "end" });
       toast.success(`Added "${artist.name}" songs to queue`);
     } else {
       toast.error("No songs found for this artist");
@@ -324,7 +343,11 @@ export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: Artis
         <DropdownMenuTrigger asChild>
           {trigger ?? defaultTrigger}
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56" onDoubleClick={(e) => e.stopPropagation()}>
+        <DropdownMenuContent
+          align="end"
+          className="w-56"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
           <DropdownMenuItem onClick={handlePlay}>
             <Play className="w-4 h-4 mr-2" />
             Play
@@ -348,7 +371,9 @@ export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: Artis
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleStar}>
-            <Heart className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`} />
+            <Heart
+              className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`}
+            />
             {isStarred ? "Remove from Favorites" : "Add to Favorites"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -375,7 +400,11 @@ export function ArtistDropdownMenu({ artist, onPlay, onShuffle, trigger }: Artis
 }
 
 // Hook to manage artist star state (for use in pages where we need external control)
-export function useArtistStar(initialStarred: boolean, artistId: string, artistName: string) {
+export function useArtistStar(
+  initialStarred: boolean,
+  artistId: string,
+  artistName: string,
+) {
   const [isStarred, setIsStarred] = useState(initialStarred);
   const invalidateFavorites = useInvalidateFavorites();
 
