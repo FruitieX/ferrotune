@@ -37,6 +37,8 @@ jobs:
           sudo apt-get install -y ./hurl_6.0.0_amd64.deb
       - name: Install ffmpeg for test fixtures
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install libopus dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake
       - run: moon run ci-all-lite
 
   e2e-tests:
@@ -58,6 +60,8 @@ jobs:
         run: moon run client:playwright-install -- --with-deps
       - name: Install ffmpeg for test fixtures
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install libopus dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake
       - run: moon run client:test-e2e
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -79,6 +83,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
+
+      - name: Install libopus dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake
 
       - uses: Swatinem/rust-cache@v2
 

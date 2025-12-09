@@ -34,6 +34,7 @@ lofty = "0.21"
 
 # Audio decoding (for waveform generation)
 symphonia = { version = "0.5", features = ["mp3", "flac", "ogg", "aac", "alac", "pcm", "adpcm", "isomp4", "mkv"] }
+symphonia-adapter-libopus = "0.2"
 
 # Async streams
 futures = "0.3"

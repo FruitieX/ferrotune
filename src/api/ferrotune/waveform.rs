@@ -19,12 +19,24 @@ use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::codecs::{CodecRegistry, DecoderOptions};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
+use symphonia_adapter_libopus::OpusDecoder;
+
+/// Custom codec registry that includes Opus support via libopus adapter.
+static CODEC_REGISTRY: LazyLock<CodecRegistry> = LazyLock::new(|| {
+    let mut registry = CodecRegistry::new();
+    // Register the libopus decoder for Opus support
+    registry.register_all::<OpusDecoder>();
+    // Register all default symphonia codecs
+    symphonia::default::register_enabled_codecs(&mut registry);
+    registry
+});
 use tokio::sync::mpsc;
 use ts_rs::TS;
 
@@ -187,7 +199,7 @@ fn generate_waveform_streaming(
     let estimated_samples = n_frames.unwrap_or(sample_rate as u64 * 300) as usize;
     let estimated_total_chunks = (estimated_samples + samples_per_chunk - 1) / samples_per_chunk;
 
-    let mut decoder = symphonia::default::get_codecs()
+    let mut decoder = CODEC_REGISTRY
         .make(&track.codec_params, &DecoderOptions::default())
         .map_err(|e| Error::InvalidRequest(format!("Could not create decoder: {}", e)))?;
 

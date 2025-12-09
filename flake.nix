@@ -32,6 +32,7 @@
             pkgs.moon  # moon task runner
             pkgs.proto
             pkgs.sqlite  # for database inspection
+            pkgs.cmake # needed for libopus
           ];
           shellHook = ''
             echo "Loaded ferrotune dev shell (server + ui)"
