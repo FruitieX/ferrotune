@@ -19,9 +19,14 @@ import {
   Download,
   ArrowUpDown,
   Filter,
+  Columns3,
+  Disc,
+  User,
+  Tag,
+  FolderOpen,
 } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, usePathname } from "next/navigation";
 
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
@@ -66,7 +71,8 @@ type SortField =
   | "year"
   | "duration"
   | "size"
-  | "dateAdded";
+  | "dateAdded"
+  | "itemCount";
 type SortDir = "asc" | "desc";
 
 // Convert DirectoryChildPaged to Song for playlist/queue operations
@@ -120,6 +126,18 @@ function FilesPageContent() {
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
 
+  // Column visibility state
+  const [visibleColumns, setVisibleColumns] = useState({
+    size: true,
+    duration: true,
+    artist: true,
+    album: true,
+  });
+
+  const toggleColumn = (column: keyof typeof visibleColumns) => {
+    setVisibleColumns((prev) => ({ ...prev, [column]: !prev[column] }));
+  };
+
   // Fetch directory contents with pagination
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useInfiniteQuery({
@@ -172,10 +190,18 @@ function FilesPageContent() {
       .filter((s): s is Song => s !== null);
   }, [allItems]);
 
-  // Get selected songs
+  // Get selected songs (files only)
   const selectedSongs = useMemo(() => {
     return songs.filter((s) => selectedIds.has(s.id));
   }, [songs, selectedIds]);
+
+  // Get selected directories
+  const selectedDirectories = useMemo(() => {
+    return allItems.filter((item) => item.isDir && selectedIds.has(item.id));
+  }, [allItems, selectedIds]);
+
+  // Total selected count (files + directories)
+  const totalSelectedCount = selectedSongs.length + selectedDirectories.length;
 
   // Clear selection when directory changes
   const currentDirId = directoryId ?? "root";
@@ -187,9 +213,9 @@ function FilesPageContent() {
     setFilterText("");
   }
 
-  // Selection handlers
+  // Selection handlers - supports both files and directories
   const handleSelect = useCallback(
-    (id: string, e: React.MouseEvent) => {
+    (id: string, e: React.MouseEvent, isCheckbox = false) => {
       setSelectedIds((prev) => {
         const next = new Set(prev);
 
@@ -208,14 +234,12 @@ function FilesPageContent() {
                 : [endIndex, startIndex];
 
             for (let i = from; i <= to; i++) {
-              // Only add songs, not directories
-              if (!items[i].isDir) {
-                next.add(items[i].id);
-              }
+              // Select both files and directories
+              next.add(items[i].id);
             }
           }
-        } else if (e.ctrlKey || e.metaKey) {
-          // Toggle selection
+        } else if (isCheckbox || e.ctrlKey || e.metaKey) {
+          // Toggle selection (always toggle for checkbox clicks)
           if (next.has(id)) {
             next.delete(id);
           } else {
@@ -240,10 +264,10 @@ function FilesPageContent() {
   }, []);
 
   const selectAll = useCallback(() => {
-    // Only select songs, not directories
-    const songIds = songs.map((s) => s.id);
-    setSelectedIds(new Set(songIds));
-  }, [songs]);
+    // Select all items (both files and directories)
+    const allIds = allItems.map((item) => item.id);
+    setSelectedIds(new Set(allIds));
+  }, [allItems]);
 
   // Playback handlers
   const handlePlayFolder = useCallback(async () => {
@@ -312,6 +336,34 @@ function FilesPageContent() {
     [selectedSongs, addToQueue],
   );
 
+  // Directory playback handlers - use server-side queue materialization
+  const handlePlayDirectory = useCallback(
+    (dirId: string) => {
+      // Find the directory name from items
+      const dir = allItems.find((item) => item.id === dirId);
+      startQueue({
+        sourceType: "directory",
+        sourceId: dirId,
+        sourceName: dir?.title ?? "Folder",
+      });
+    },
+    [allItems, startQueue],
+  );
+
+  const handleAddDirectoryToQueue = useCallback(
+    (dirId: string, position: "next" | "end") => {
+      addToQueue({
+        sourceType: "directory",
+        sourceId: dirId,
+        position,
+      });
+      toast.success(
+        position === "next" ? "Added folder to play next" : "Added folder to queue",
+      );
+    },
+    [addToQueue],
+  );
+
   const toggleSort = useCallback(
     (field: SortField) => {
       if (sortField === field) {
@@ -326,6 +378,71 @@ function FilesPageContent() {
 
   return (
     <div className="min-h-screen">
+      {/* Library Tab Navigation */}
+      <nav
+        className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border"
+        aria-label="Library sections"
+      >
+        <div className="h-12 flex items-center px-4 lg:px-6 gap-1">
+          <Link
+            href="/library/albums"
+            className={cn(
+              "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "text-muted-foreground hover:text-foreground hover:bg-accent/70",
+            )}
+          >
+            <Disc className="w-4 h-4" aria-hidden="true" />
+            <span>Albums</span>
+          </Link>
+          <Link
+            href="/library/artists"
+            className={cn(
+              "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "text-muted-foreground hover:text-foreground hover:bg-accent/70",
+            )}
+          >
+            <User className="w-4 h-4" aria-hidden="true" />
+            <span>Artists</span>
+          </Link>
+          <Link
+            href="/library/songs"
+            className={cn(
+              "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "text-muted-foreground hover:text-foreground hover:bg-accent/70",
+            )}
+          >
+            <Music className="w-4 h-4" aria-hidden="true" />
+            <span>Songs</span>
+          </Link>
+          <Link
+            href="/library/genres"
+            className={cn(
+              "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "text-muted-foreground hover:text-foreground hover:bg-accent/70",
+            )}
+          >
+            <Tag className="w-4 h-4" aria-hidden="true" />
+            <span>Genres</span>
+          </Link>
+          <Link
+            href="/library/files"
+            className={cn(
+              "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "bg-accent text-accent-foreground",
+            )}
+            aria-current="page"
+          >
+            <FolderOpen className="w-4 h-4" aria-hidden="true" />
+            <span>Files</span>
+          </Link>
+        </div>
+      </nav>
+
       {/* Header */}
       <div className="px-4 lg:px-6 pt-8 pb-4">
         <motion.div
@@ -455,6 +572,48 @@ function FilesPageContent() {
                 Date Added{" "}
                 {sortField === "dateAdded" && (sortDir === "asc" ? "↑" : "↓")}
               </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={sortField === "itemCount"}
+                onCheckedChange={() => toggleSort("itemCount")}
+              >
+                Item Count{" "}
+                {sortField === "itemCount" && (sortDir === "asc" ? "↑" : "↓")}
+              </DropdownMenuCheckboxItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Columns3 className="w-4 h-4 mr-2" />
+                Columns
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Visible Columns</DropdownMenuLabel>
+              <DropdownMenuCheckboxItem
+                checked={visibleColumns.artist}
+                onCheckedChange={() => toggleColumn("artist")}
+              >
+                Artist
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={visibleColumns.album}
+                onCheckedChange={() => toggleColumn("album")}
+              >
+                Album
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={visibleColumns.size}
+                onCheckedChange={() => toggleColumn("size")}
+              >
+                Size
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={visibleColumns.duration}
+                onCheckedChange={() => toggleColumn("duration")}
+              >
+                Duration
+              </DropdownMenuCheckboxItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -470,7 +629,7 @@ function FilesPageContent() {
         {isLoading && allItems.length === 0 ? (
           <div className="space-y-2">
             {Array.from({ length: 10 }).map((_, i) => (
-              <Skeleton key={i} className="h-[72px] w-full rounded-lg" />
+              <Skeleton key={i} className="h-[56px] w-full rounded-lg" />
             ))}
           </div>
         ) : allItems.length === 0 ? (
@@ -490,17 +649,20 @@ function FilesPageContent() {
             onSelect={handleSelect}
             onPlaySong={handlePlaySong}
             onAddToQueue={handleAddSongToQueue}
+            onPlayDirectory={handlePlayDirectory}
+            onAddDirectoryToQueue={handleAddDirectoryToQueue}
             songs={songs}
             hasNextPage={hasNextPage ?? false}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
+            visibleColumns={visibleColumns}
           />
         )}
       </div>
 
       {/* Bulk actions bar */}
       <BulkActionsBar
-        selectedCount={selectedSongs.length}
+        selectedCount={totalSelectedCount}
         onClear={clearSelection}
         onPlayNow={handlePlaySelected}
         onPlayNext={() => handleAddSelectedToQueue("next")}
@@ -528,13 +690,20 @@ interface BreadcrumbsProps {
 function Breadcrumbs({ breadcrumbs, currentName }: BreadcrumbsProps) {
   if (breadcrumbs.length === 0) return null;
 
+  // Filter out the last breadcrumb if it's the same as currentName
+  // (the API may include the current directory in breadcrumbs)
+  const filteredBreadcrumbs = breadcrumbs.filter(
+    (crumb, index) =>
+      index !== breadcrumbs.length - 1 || crumb.name !== currentName,
+  );
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className="flex items-center gap-1 mt-4 text-sm text-muted-foreground flex-wrap"
     >
-      {breadcrumbs.map((crumb, index) => (
+      {filteredBreadcrumbs.map((crumb, index) => (
         <span key={crumb.id} className="flex items-center gap-1">
           {index > 0 && <ChevronRight className="w-4 h-4 shrink-0" />}
           {index === 0 ? (
@@ -562,17 +731,27 @@ function Breadcrumbs({ breadcrumbs, currentName }: BreadcrumbsProps) {
 }
 
 // Directory contents view
+interface VisibleColumns {
+  size: boolean;
+  duration: boolean;
+  artist: boolean;
+  album: boolean;
+}
+
 interface DirectoryContentsProps {
   items: DirectoryChildPaged[];
   totalCount: number;
   selectedIds: Set<string>;
-  onSelect: (id: string, e: React.MouseEvent) => void;
+  onSelect: (id: string, e: React.MouseEvent, isCheckbox?: boolean) => void;
   onPlaySong: (song: Song, index: number) => void;
   onAddToQueue: (songId: string, position: "next" | "end") => void;
+  onPlayDirectory: (dirId: string) => void;
+  onAddDirectoryToQueue: (dirId: string, position: "next" | "end") => void;
   songs: Song[];
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
+  visibleColumns: VisibleColumns;
 }
 
 function DirectoryContents({
@@ -582,10 +761,13 @@ function DirectoryContents({
   onSelect,
   onPlaySong,
   onAddToQueue,
+  onPlayDirectory,
+  onAddDirectoryToQueue,
   songs,
   hasNextPage,
   isFetchingNextPage,
   fetchNextPage,
+  visibleColumns,
 }: DirectoryContentsProps) {
   // Helper to get cover art URL
   const getCoverUrl = (coverArt: string | null | undefined) => {
@@ -599,7 +781,7 @@ function DirectoryContents({
       items={items}
       totalCount={totalCount}
       getItemKey={(item) => item.id}
-      estimateItemHeight={72}
+      estimateItemHeight={56}
       hasNextPage={hasNextPage}
       isFetchingNextPage={isFetchingNextPage}
       fetchNextPage={fetchNextPage}
@@ -609,7 +791,15 @@ function DirectoryContents({
         const songIndex = song ? songs.findIndex((s) => s.id === song.id) : -1;
 
         return item.isDir ? (
-          <DirectoryRow item={item} coverUrl={getCoverUrl(item.coverArt)} />
+          <DirectoryRow
+            item={item}
+            coverUrl={getCoverUrl(item.coverArt)}
+            isSelected={isSelected}
+            onSelect={onSelect}
+            onPlay={() => onPlayDirectory(item.id)}
+            onAddToQueue={(position) => onAddDirectoryToQueue(item.id, position)}
+            visibleColumns={visibleColumns}
+          />
         ) : (
           <FileRow
             item={item}
@@ -620,50 +810,215 @@ function DirectoryContents({
             onSelect={onSelect}
             onPlay={() => onPlaySong(song!, songIndex)}
             onAddToQueue={onAddToQueue}
+            visibleColumns={visibleColumns}
           />
         );
       }}
-      renderSkeleton={() => <Skeleton className="h-[72px] w-full rounded-lg" />}
+      renderSkeleton={() => <Skeleton className="h-[56px] w-full rounded-lg" />}
     />
   );
 }
 
-// Directory row component
+// Directory row component with selection and context menu
 interface DirectoryRowProps {
   item: DirectoryChildPaged;
   coverUrl?: string;
+  isSelected: boolean;
+  onSelect: (id: string, e: React.MouseEvent, isCheckbox?: boolean) => void;
+  onPlay: () => void;
+  onAddToQueue: (position: "next" | "end") => void;
+  visibleColumns: VisibleColumns;
 }
 
-function DirectoryRow({ item, coverUrl }: DirectoryRowProps) {
-  return (
-    <Link href={`/library/files?id=${encodeURIComponent(item.id)}`}>
-      <div
-        className={cn(
-          "flex items-center gap-3 p-3 rounded-lg h-[72px]",
-          "hover:bg-muted/50 transition-colors cursor-pointer group",
-        )}
+function DirectoryRow({
+  item,
+  coverUrl,
+  isSelected,
+  onSelect,
+  onPlay,
+  onAddToQueue,
+  visibleColumns,
+}: DirectoryRowProps) {
+  const handleClick = (e: React.MouseEvent) => {
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      onSelect(item.id, e);
+    }
+  };
+
+  const contextMenuContent = (
+    <>
+      <ContextMenuItem
+        onClick={(e) => {
+          e.preventDefault();
+          onPlay();
+        }}
       >
-        <CoverImage
-          src={coverUrl}
-          alt={item.title}
-          colorSeed={item.title}
-          type="album"
-          size="md"
-          className="rounded"
-        />
-        <div className="flex-1 min-w-0">
-          <p className="font-medium truncate flex items-center gap-2">
-            <Folder className="w-4 h-4 text-muted-foreground shrink-0" />
-            {item.title}
-          </p>
-          <p className="text-sm text-muted-foreground truncate">
-            {item.childCount != null && `${item.childCount} items`}
-            {item.folderSize != null && ` • ${formatBytes(item.folderSize)}`}
-          </p>
-        </div>
-        <ChevronRight className="w-5 h-5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-      </div>
-    </Link>
+        <Play className="w-4 h-4 mr-2" />
+        Play
+      </ContextMenuItem>
+      <ContextMenuItem
+        onClick={(e) => {
+          e.preventDefault();
+          onAddToQueue("next");
+        }}
+      >
+        <ListPlus className="w-4 h-4 mr-2" />
+        Play Next
+      </ContextMenuItem>
+      <ContextMenuItem
+        onClick={(e) => {
+          e.preventDefault();
+          onAddToQueue("end");
+        }}
+      >
+        <ListEnd className="w-4 h-4 mr-2" />
+        Add to Queue
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem asChild>
+        <Link href={`/library/files?id=${encodeURIComponent(item.id)}`}>
+          <FolderPlus className="w-4 h-4 mr-2" />
+          Open Folder
+        </Link>
+      </ContextMenuItem>
+    </>
+  );
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <Link
+          href={`/library/files?id=${encodeURIComponent(item.id)}`}
+          onClick={handleClick}
+        >
+          <div
+            className={cn(
+              "flex items-center gap-3 px-3 py-2 rounded-lg h-[56px]",
+              "hover:bg-muted/50 transition-colors cursor-pointer group",
+              isSelected && "bg-primary/10 hover:bg-primary/15",
+            )}
+          >
+            {/* Selection checkbox */}
+            <div
+              className={cn(
+                "w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all cursor-pointer",
+                isSelected
+                  ? "bg-primary border-primary text-primary-foreground"
+                  : "border-muted-foreground/30 opacity-0 group-hover:opacity-100 hover:border-primary/50",
+              )}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onSelect(item.id, e, true);
+              }}
+            >
+              {isSelected && <Check className="w-3 h-3" />}
+            </div>
+            {/* Cover art with play button overlay */}
+            <div className="group/cover relative shrink-0">
+              <CoverImage
+                src={coverUrl}
+                alt={item.title}
+                colorSeed={item.title}
+                type="folder"
+                size="sm"
+                className="rounded"
+              />
+              <button
+                type="button"
+                aria-label="Play folder"
+                className={cn(
+                  "absolute inset-0 flex items-center justify-center rounded",
+                  "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
+                  "cursor-pointer",
+                )}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onPlay();
+                }}
+              >
+                <Play className="w-5 h-5 ml-0.5 text-white" />
+              </button>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium truncate flex items-center gap-2">
+                <Folder className="w-4 h-4 text-muted-foreground shrink-0" />
+                {item.title}
+              </p>
+            </div>
+            {/* Right-aligned columns for item count and size */}
+            <div className="flex items-center gap-4 text-sm text-muted-foreground shrink-0">
+              {visibleColumns.size && item.folderSize != null && (
+                <span className="hidden md:inline w-16 text-right">
+                  {formatBytes(item.folderSize)}
+                </span>
+              )}
+              {visibleColumns.duration && item.childCount != null && (
+                <span className="w-12 text-right">{item.childCount} items</span>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 opacity-0 group-hover:opacity-100"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                  >
+                    <MoreHorizontal className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onPlay();
+                    }}
+                  >
+                    <Play className="w-4 h-4 mr-2" />
+                    Play
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onAddToQueue("next");
+                    }}
+                  >
+                    <ListPlus className="w-4 h-4 mr-2" />
+                    Play Next
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onAddToQueue("end");
+                    }}
+                  >
+                    <ListEnd className="w-4 h-4 mr-2" />
+                    Add to Queue
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link
+                      href={`/library/files?id=${encodeURIComponent(item.id)}`}
+                    >
+                      <FolderPlus className="w-4 h-4 mr-2" />
+                      Open Folder
+                    </Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </Link>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-48">
+        {contextMenuContent}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -674,9 +1029,10 @@ interface FileRowProps {
   songIndex: number;
   coverUrl?: string;
   isSelected: boolean;
-  onSelect: (id: string, e: React.MouseEvent) => void;
+  onSelect: (id: string, e: React.MouseEvent, isCheckbox?: boolean) => void;
   onPlay: () => void;
   onAddToQueue: (songId: string, position: "next" | "end") => void;
+  visibleColumns: VisibleColumns;
 }
 
 function FileRow({
@@ -688,6 +1044,7 @@ function FileRow({
   onSelect,
   onPlay,
   onAddToQueue,
+  visibleColumns,
 }: FileRowProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (e.shiftKey || e.ctrlKey || e.metaKey) {
@@ -751,7 +1108,7 @@ function FileRow({
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
           className={cn(
-            "flex items-center gap-3 p-3 rounded-lg h-[72px]",
+            "flex items-center gap-3 px-3 py-2 rounded-lg h-[56px]",
             "hover:bg-muted/50 transition-colors cursor-pointer group",
             isSelected && "bg-primary/10 hover:bg-primary/15",
           )}
@@ -766,36 +1123,62 @@ function FileRow({
             )}
             onClick={(e) => {
               e.stopPropagation();
-              onSelect(item.id, e);
+              onSelect(item.id, e, true); // isCheckbox = true for toggle behavior
             }}
           >
             {isSelected && <Check className="w-3 h-3" />}
           </div>
 
-          <CoverImage
-            src={coverUrl}
-            alt={item.title}
-            colorSeed={item.title}
-            type="song"
-            size="md"
-            className="rounded"
-          />
+          {/* Cover art with play button overlay */}
+          <div className="group/cover relative shrink-0">
+            <CoverImage
+              src={coverUrl}
+              alt={item.title}
+              colorSeed={item.title}
+              type="song"
+              size="sm"
+              className="rounded"
+            />
+            <button
+              type="button"
+              aria-label="Play"
+              className={cn(
+                "absolute inset-0 flex items-center justify-center rounded",
+                "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
+                "cursor-pointer",
+              )}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onPlay();
+              }}
+            >
+              <Play className="w-5 h-5 ml-0.5 text-white" />
+            </button>
+          </div>
           <div className="flex-1 min-w-0">
             <p className="font-medium truncate flex items-center gap-2">
               <Music className="w-4 h-4 text-muted-foreground shrink-0" />
               {item.title}
             </p>
-            <p className="text-sm text-muted-foreground truncate">
-              {[item.artist, item.album].filter(Boolean).join(" • ")}
-            </p>
+            {(visibleColumns.artist || visibleColumns.album) && (
+              <p className="text-sm text-muted-foreground truncate">
+                {[
+                  visibleColumns.artist && item.artist,
+                  visibleColumns.album && item.album,
+                ]
+                  .filter(Boolean)
+                  .join(" • ")}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-4 text-sm text-muted-foreground shrink-0">
-            {item.size != null && (
+            {visibleColumns.size && item.size != null && (
               <span className="hidden md:inline w-16 text-right">
                 {formatBytes(item.size)}
               </span>
             )}
-            {item.duration != null && (
+            {visibleColumns.duration && item.duration != null && (
               <span className="w-12 text-right">
                 {formatDuration(item.duration)}
               </span>

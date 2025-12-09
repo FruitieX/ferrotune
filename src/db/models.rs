@@ -241,6 +241,7 @@ pub enum QueueSourceType {
     Search,
     Favorites,
     History,
+    Directory,
     #[default]
     Other,
 }
@@ -256,6 +257,7 @@ impl QueueSourceType {
             QueueSourceType::Search => "search",
             QueueSourceType::Favorites => "favorites",
             QueueSourceType::History => "history",
+            QueueSourceType::Directory => "directory",
             QueueSourceType::Other => "other",
         }
     }
@@ -270,6 +272,7 @@ impl QueueSourceType {
             "search" => QueueSourceType::Search,
             "favorites" => QueueSourceType::Favorites,
             "history" => QueueSourceType::History,
+            "directory" => QueueSourceType::Directory,
             _ => QueueSourceType::Other,
         }
     }

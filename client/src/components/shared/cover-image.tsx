@@ -3,14 +3,14 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
-import { Music, User, Disc, ListMusic, Tag } from "lucide-react";
+import { Music, User, Disc, ListMusic, Tag, Folder } from "lucide-react";
 
 interface CoverImageProps {
   src?: string | null;
   alt: string;
   /** String to use for generating placeholder color (e.g. album name for albums, artist name for artists) */
   colorSeed?: string;
-  type?: "album" | "artist" | "song" | "playlist" | "genre";
+  type?: "album" | "artist" | "song" | "playlist" | "genre" | "folder";
   size?: "sm" | "md" | "lg" | "xl" | "full";
   className?: string;
   priority?: boolean;
@@ -75,7 +75,9 @@ export function CoverImage({
           ? Music
           : type === "genre"
             ? Tag
-            : Disc;
+            : type === "folder"
+              ? Folder
+              : Disc;
   const isRound = type === "artist";
 
   // Reset state only when src actually changes to a different value

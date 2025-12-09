@@ -166,10 +166,15 @@ pub struct CurrentWindowParams {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddToQueueRequest {
-    /// Song IDs to add
+    /// Song IDs to add (either this OR sourceType+sourceId)
+    #[serde(default)]
     pub song_ids: Vec<String>,
     /// Position: "next" (after current), "end", or a number
     pub position: AddPosition,
+    /// Source type for server-side materialization (e.g., "directory")
+    pub source_type: Option<String>,
+    /// Source ID for materialization (e.g., directory ID)
+    pub source_id: Option<String>,
 }
 
 /// Position for adding songs
@@ -524,8 +529,43 @@ pub async fn add_to_queue(
         AddPosition::Index(i) => i as i64,
     };
 
+    // Get song IDs either from explicit list or from source materialization
+    let song_ids: Vec<String> = if !request.song_ids.is_empty() {
+        request.song_ids
+    } else if let (Some(source_type_str), Some(source_id)) =
+        (&request.source_type, &request.source_id)
+    {
+        // Materialize songs from source
+        let source_type = QueueSourceType::from_str(source_type_str);
+        let songs = materialize_queue_songs(
+            &state.pool,
+            user.user_id,
+            source_type,
+            Some(source_id),
+            None,
+            None,
+        )
+        .await?;
+        songs.into_iter().map(|s| s.id).collect()
+    } else {
+        return Err(Error::InvalidRequest(
+            "Either songIds or sourceType+sourceId required".to_string(),
+        ));
+    };
+
+    if song_ids.is_empty() {
+        return Ok((
+            StatusCode::OK,
+            Json(QueueSuccessResponse {
+                success: true,
+                new_index: None,
+                total_count: Some(current_len as usize),
+            }),
+        ));
+    }
+
     let new_len =
-        queries::add_to_queue(&state.pool, user.user_id, &request.song_ids, position).await?;
+        queries::add_to_queue(&state.pool, user.user_id, &song_ids, position).await?;
 
     // If shuffle is enabled, we need to update shuffle indices
     if queue.is_shuffled {
@@ -540,18 +580,18 @@ pub async fn add_to_queue(
 
         // Add indices for new songs (their original queue positions)
         let start_original_pos = position as usize;
-        for (i, _) in request.song_ids.iter().enumerate() {
+        for (i, _) in song_ids.iter().enumerate() {
             new_indices.insert(insert_pos + i, start_original_pos + i);
         }
 
         // Adjust existing indices that point to positions >= insert position
         for idx in new_indices.iter_mut() {
-            if *idx >= start_original_pos && *idx < start_original_pos + request.song_ids.len() {
+            if *idx >= start_original_pos && *idx < start_original_pos + song_ids.len() {
                 // This is one of the new songs, skip
                 continue;
             }
             if *idx >= start_original_pos {
-                *idx += request.song_ids.len();
+                *idx += song_ids.len();
             }
         }
 
@@ -1013,6 +1053,18 @@ async fn materialize_queue_songs(
             let search_params = build_search_params_from_json(filters, sort);
 
             Ok(search_songs_for_queue(pool, user_id, query, &search_params).await?)
+        }
+        QueueSourceType::Directory => {
+            let dir_id = source_id
+                .ok_or_else(|| Error::InvalidRequest("Directory ID required".to_string()))?;
+            let songs = queries::get_songs_by_directory(pool, dir_id).await?;
+            // Apply text filtering and sorting if provided
+            Ok(sorting::filter_and_sort_songs(
+                songs,
+                text_filter,
+                sort_field.as_deref(),
+                sort_dir.as_deref(),
+            ))
         }
         QueueSourceType::History => {
             // History requires explicit song IDs from the client

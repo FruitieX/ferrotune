@@ -34,6 +34,7 @@ export type QueueSourceType =
   | "search"
   | "favorites"
   | "history"
+  | "directory"
   | "other";
 
 export type RepeatMode = "off" | "all" | "one";
@@ -423,7 +424,16 @@ export const setRepeatModeAtom = atom(
 // Add songs to queue
 export const addToQueueAtom = atom(
   null,
-  async (get, set, params: { songIds: string[]; position: "next" | "end" }) => {
+  async (
+    get,
+    set,
+    params: {
+      songIds?: string[];
+      position: "next" | "end";
+      sourceType?: QueueSourceType;
+      sourceId?: string;
+    },
+  ) => {
     const client = getClient();
     if (!client) return;
 
@@ -431,8 +441,10 @@ export const addToQueueAtom = atom(
 
     try {
       const response = await client.addToServerQueue({
-        songIds: params.songIds,
+        songIds: params.songIds ?? [],
         position: params.position,
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
       });
 
       // Update total count

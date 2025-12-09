@@ -515,6 +515,20 @@ async fn get_directory_contents_paged(
                 };
                 a_size.cmp(&b_size)
             }
+            Some("itemCount") => {
+                // For directories, use child_count; for files, treat as 0
+                let a_count = if a.is_dir {
+                    a.child_count.unwrap_or(0)
+                } else {
+                    0
+                };
+                let b_count = if b.is_dir {
+                    b.child_count.unwrap_or(0)
+                } else {
+                    0
+                };
+                a_count.cmp(&b_count)
+            }
             Some("dateAdded") => a.created.cmp(&b.created),
             _ => a.title.to_lowercase().cmp(&b.title.to_lowercase()), // default: name
         };

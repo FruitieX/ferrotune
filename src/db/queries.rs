@@ -1229,3 +1229,50 @@ pub async fn get_songs_by_genre(pool: &SqlitePool, genre: &str) -> sqlx::Result<
     .fetch_all(pool)
     .await
 }
+
+/// Get songs recursively under a directory path (includes play stats for sorting)
+pub async fn get_songs_by_directory(pool: &SqlitePool, path: &str) -> sqlx::Result<Vec<Song>> {
+    // Normalize path: if it's a dir- prefixed ID, extract the path
+    let actual_path = path
+        .strip_prefix("dir-")
+        .map(|p| urlencoding::decode(p).unwrap_or_default().into_owned())
+        .unwrap_or_else(|| path.to_string());
+
+    // Build path prefix for matching (add trailing slash for non-empty paths)
+    let path_prefix = if actual_path.is_empty() {
+        String::new()
+    } else {
+        format!("{}/", actual_path.trim_end_matches('/'))
+    };
+
+    // For root (empty path), match all songs; otherwise match songs starting with the path
+    if path_prefix.is_empty() {
+        sqlx::query_as::<_, Song>(
+            "SELECT s.*, ar.name as artist_name, al.name as album_name,
+                    pc.play_count, pc.last_played, NULL as starred_at
+             FROM songs s
+             INNER JOIN artists ar ON s.artist_id = ar.id
+             LEFT JOIN albums al ON s.album_id = al.id
+             LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
+                        FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+             ORDER BY s.file_path COLLATE NOCASE",
+        )
+        .fetch_all(pool)
+        .await
+    } else {
+        sqlx::query_as::<_, Song>(
+            "SELECT s.*, ar.name as artist_name, al.name as album_name,
+                    pc.play_count, pc.last_played, NULL as starred_at
+             FROM songs s
+             INNER JOIN artists ar ON s.artist_id = ar.id
+             LEFT JOIN albums al ON s.album_id = al.id
+             LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
+                        FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+             WHERE s.file_path LIKE ? || '%'
+             ORDER BY s.file_path COLLATE NOCASE",
+        )
+        .bind(&path_prefix)
+        .fetch_all(pool)
+        .await
+    }
+}

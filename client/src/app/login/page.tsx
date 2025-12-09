@@ -72,14 +72,22 @@ export default function LoginPage() {
     queryKey: ["setupStatus", backendUrl],
     queryFn: async () => {
       try {
-        const response = await fetch(`${backendUrl}/ferrotune/setup/status`);
+        // Add timeout to prevent hanging when server is unreachable
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+        const response = await fetch(`${backendUrl}/ferrotune/setup/status`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
           // If endpoint doesn't exist (old server), assume setup is complete
           return { setupComplete: true } as SetupStatusResponse;
         }
         return response.json() as Promise<SetupStatusResponse>;
       } catch {
-        // Network error - assume setup is complete to avoid blocking
+        // Network error or timeout - assume setup is complete to avoid blocking
         return { setupComplete: true } as SetupStatusResponse;
       }
     },

@@ -48,6 +48,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { DirectoryBrowser } from "@/components/admin/directory-browser";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -309,7 +310,7 @@ function AddFolderDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Add Music Folder</DialogTitle>
           <DialogDescription>
@@ -330,14 +331,12 @@ function AddFolderDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="path">Path</Label>
-              <Input
-                id="path"
-                placeholder="/path/to/music"
+              <Label>Path</Label>
+              <DirectoryBrowser
                 value={path}
-                onChange={(e) => setPath(e.target.value)}
+                onChange={setPath}
+                placeholder="/path/to/music"
                 disabled={isLoading}
-                className="font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground">
                 The absolute path to the music directory on the server

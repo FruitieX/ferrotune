@@ -919,12 +919,16 @@ export class SubsonicClient {
   async addToServerQueue(params: {
     songIds: string[];
     position: "next" | "end" | number;
+    sourceType?: string;
+    sourceId?: string;
   }): Promise<QueueSuccessResponse> {
     return this.adminRequest("/ferrotune/queue/add", {
       method: "POST",
       body: JSON.stringify({
         songIds: params.songIds,
         position: params.position,
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
       }),
     });
   }

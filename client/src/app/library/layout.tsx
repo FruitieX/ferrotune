@@ -18,6 +18,7 @@ import {
   ArrowDown,
   Columns,
   Check,
+  FolderOpen,
 } from "lucide-react";
 import {
   albumViewModeAtom,
@@ -54,6 +55,7 @@ const tabs = [
   { href: "/library/artists", icon: User, label: "Artists" },
   { href: "/library/songs", icon: Music, label: "Songs" },
   { href: "/library/genres", icon: Tag, label: "Genres" },
+  { href: "/library/files", icon: FolderOpen, label: "Files" },
 ];
 
 const sortOptions: { value: SortField; label: string }[] = [
@@ -124,11 +126,13 @@ export default function LibraryLayout({
   const isSongsTab = pathname === "/library/songs";
   const isAlbumsTab = pathname === "/library/albums";
   const isArtistsTab = pathname === "/library/artists";
+  const isFilesTab = pathname.startsWith("/library/files");
 
   // Don't show tabs on detail pages
   const isDetailPage = pathname.includes("/details");
 
-  if (isDetailPage) {
+  // Files page has its own header and controls
+  if (isDetailPage || isFilesTab) {
     return <>{children}</>;
   }
 

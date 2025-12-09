@@ -48,6 +48,8 @@ export function DirectoryBrowser({
 }: DirectoryBrowserProps) {
   const [browserPath, setBrowserPath] = useState<string>("");
   const [isExpanded, setIsExpanded] = useState(false);
+  // Track the highlighted (but not yet confirmed) directory in the browser
+  const [highlightedPath, setHighlightedPath] = useState<string | null>(null);
 
   // Fetch directory contents
   const {
@@ -81,25 +83,29 @@ export function DirectoryBrowser({
   // Navigate to a directory in the browser
   const navigateTo = (path: string) => {
     setBrowserPath(path);
+    setHighlightedPath(null); // Clear highlight when navigating
   };
 
-  // Select a directory
-  const selectDirectory = (entry: DirectoryEntry) => {
-    onChange(entry.path);
+  // Highlight a directory (single click)
+  const highlightDirectory = (entry: DirectoryEntry) => {
+    setHighlightedPath(entry.path);
+  };
+
+  // Confirm selection and close the browser
+  const confirmSelection = (path: string) => {
+    onChange(path);
     if (onSelect) {
-      onSelect(entry.path);
+      onSelect(path);
     }
     setIsExpanded(false);
+    setHighlightedPath(null);
   };
 
-  // Use the current browser path as the value
-  const useCurrentPath = () => {
-    if (browserPath) {
-      onChange(browserPath);
-      if (onSelect) {
-        onSelect(browserPath);
-      }
-      setIsExpanded(false);
+  // Use the current browser path or highlighted path as the value
+  const useSelectedPath = () => {
+    const pathToUse = highlightedPath || browserPath;
+    if (pathToUse) {
+      confirmSelection(pathToUse);
     }
   };
 
@@ -218,34 +224,37 @@ export function DirectoryBrowser({
               </div>
             ) : (
               <div className="p-1">
-                {browserData?.directories?.map((entry) => (
-                  <div
-                    key={entry.path}
-                    className={cn(
-                      "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer",
-                      "hover:bg-accent/50 transition-colors",
-                      !entry.readable && "opacity-50",
-                    )}
-                  >
-                    {/* Double-click to navigate, single click to select */}
-                    <button
-                      className="flex items-center gap-2 flex-1 min-w-0 text-left"
-                      onClick={() => selectDirectory(entry)}
-                      onDoubleClick={(e) => {
-                        e.preventDefault();
-                        if (entry.readable) {
-                          navigateTo(entry.path);
-                        }
-                      }}
-                      disabled={!entry.readable}
-                    >
-                      {entry.readable ? (
-                        <FolderOpen className="w-4 h-4 text-primary shrink-0" />
-                      ) : (
-                        <Folder className="w-4 h-4 text-muted-foreground shrink-0" />
+                {browserData?.directories?.map((entry) => {
+                  const isHighlighted = highlightedPath === entry.path;
+                  return (
+                    <div
+                      key={entry.path}
+                      className={cn(
+                        "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer",
+                        "hover:bg-accent/50 transition-colors",
+                        isHighlighted && "bg-primary/15 hover:bg-primary/20",
+                        !entry.readable && "opacity-50",
                       )}
-                      <span className="truncate text-sm">{entry.name}</span>
-                    </button>
+                    >
+                      {/* Single click to highlight, double-click to navigate */}
+                      <button
+                        className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                        onClick={() => highlightDirectory(entry)}
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          if (entry.readable) {
+                            navigateTo(entry.path);
+                          }
+                        }}
+                        disabled={!entry.readable}
+                      >
+                        {entry.readable ? (
+                          <FolderOpen className="w-4 h-4 text-primary shrink-0" />
+                        ) : (
+                          <Folder className="w-4 h-4 text-muted-foreground shrink-0" />
+                        )}
+                        <span className="truncate text-sm">{entry.name}</span>
+                      </button>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -260,22 +269,23 @@ export function DirectoryBrowser({
                       <ChevronRight className="w-4 h-4" />
                     </Button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </ScrollArea>
 
-          {/* Use current directory button */}
-          {browserPath && (
+          {/* Use selected/current directory button */}
+          {(highlightedPath || browserPath) && (
             <div className="p-2 border-t bg-muted/50">
               <Button
                 variant="outline"
                 size="sm"
                 className="w-full"
-                onClick={useCurrentPath}
+                onClick={useSelectedPath}
               >
                 <Check className="w-4 h-4 mr-2" />
-                Use: {browserPath}
+                Use: {highlightedPath || browserPath}
               </Button>
             </div>
           )}
