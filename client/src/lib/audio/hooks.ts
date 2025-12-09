@@ -27,6 +27,7 @@ import {
   toggleShuffleAtom,
   setRepeatModeAtom,
   fetchQueueAtom,
+  playAtIndexAtom,
   type RepeatMode,
 } from "@/lib/store/server-queue";
 import { serverConnectionAtom, isHydratedAtom } from "@/lib/store/auth";
@@ -212,6 +213,8 @@ export function useAudioEngineInit() {
   const initializedRef = useRef(false);
   // Track if we've fetched the initial queue
   const hasInitialFetchRef = useRef(false);
+  // Track the last processed signal to detect restarts of the same track
+  const lastProcessedSignalRef = useRef<number>(-1);
 
   // Callback to invalidate queries that contain play count data
   const invalidatePlayCountQueries = useCallback(() => {
@@ -601,10 +604,13 @@ export function useAudioEngineInit() {
       return;
     }
 
-    // Skip if same track is already loaded
-    if (currentSong.id === currentLoadedTrackId) {
+    // Skip if same track is already loaded AND signal hasn't changed
+    // (signal changes when user explicitly starts playback or repeat-all wraps around)
+    const signalChanged = trackChangeSignal !== lastProcessedSignalRef.current;
+    if (currentSong.id === currentLoadedTrackId && !signalChanged) {
       return;
     }
+    lastProcessedSignalRef.current = trackChangeSignal;
 
     // Log listening time for the track we're leaving
     if (currentLoadedTrackId && currentSong.id !== currentLoadedTrackId) {
@@ -665,6 +671,7 @@ export function useAudioEngine() {
   const queueState = useAtomValue(serverQueueStateAtom);
   const goToNextAction = useSetAtom(goToNextAtom);
   const goToPreviousAction = useSetAtom(goToPreviousAtom);
+  const playAtIndex = useSetAtom(playAtIndexAtom);
   const setIsRestoring = useSetAtom(isRestoringQueueAtom);
 
   // Retry playback by forcing a fresh load of the current track
@@ -711,12 +718,11 @@ export function useAudioEngine() {
       // If loading, pause to cancel the pending play
       pause();
     } else if (playbackState === "ended") {
-      // Queue finished - the server will handle replay logic
+      // Queue finished - restart from the beginning
       if (queueState && queueState.totalCount > 0) {
         currentLoadedTrackId = null; // Force reload
-        // Restart from beginning - trigger via setting restoring false and going to index 0
         setIsRestoring(false);
-        play();
+        playAtIndex(0); // Go back to first track
       }
     } else if (playbackState === "error") {
       // Retry playback after error
@@ -724,7 +730,7 @@ export function useAudioEngine() {
     } else {
       play();
     }
-  }, [playbackState, play, pause, queueState, retryPlayback, setIsRestoring]);
+  }, [playbackState, play, pause, queueState, retryPlayback, setIsRestoring, playAtIndex]);
 
   const seek = useCallback(
     (time: number) => {

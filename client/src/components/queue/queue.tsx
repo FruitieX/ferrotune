@@ -207,20 +207,15 @@ export function QueuePanel() {
             <div className="flex items-center gap-1">
               {queueState && queueState.totalCount > 0 && !isQueueLoading && (
                 <>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={handleJumpToNowPlaying}
-                        className="text-muted-foreground hover:text-foreground h-8 w-8"
-                        aria-label="Jump to now playing"
-                      >
-                        <ListStart className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Jump to now playing</TooltipContent>
-                  </Tooltip>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleJumpToNowPlaying}
+                    className="text-muted-foreground hover:text-foreground h-8 w-8"
+                    aria-label="Jump to now playing"
+                  >
+                    <ListStart className="w-4 h-4" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
