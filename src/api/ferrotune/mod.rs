@@ -84,6 +84,7 @@
 
 mod directory;
 mod duplicates;
+mod filesystem;
 mod listening;
 mod media;
 pub mod music_folders;
@@ -129,6 +130,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/duplicates", get(duplicates::get_duplicates))
         // Directory browsing endpoint
         .route("/ferrotune/directory", get(directory::get_directory_paged))
+        // Filesystem browsing endpoints (for setup)
+        .route("/ferrotune/filesystem", get(filesystem::browse_filesystem))
+        .route("/ferrotune/filesystem/validate", get(filesystem::validate_path))
         // Music folder management endpoints
         .route(
             "/ferrotune/music-folders",

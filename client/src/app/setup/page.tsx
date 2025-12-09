@@ -8,9 +8,7 @@ import {
   Music2,
   FolderOpen,
   Check,
-  ChevronRight,
   User,
-  Lock,
   ArrowRight,
   AlertCircle,
   Loader2,
@@ -18,6 +16,7 @@ import {
   Trash2,
   RefreshCw,
   Server,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useSetAtom, useAtomValue } from "jotai";
@@ -32,14 +31,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Progress } from "@/components/ui/progress";
 import {
   serverConnectionAtom,
   connectionStatusAtom,
   isConnectedAtom,
 } from "@/lib/store/auth";
+import { scanDialogOpenAtom } from "@/lib/store/scan";
 import { initializeClient, getClient } from "@/lib/api/client";
+import { DirectoryBrowser } from "@/components/admin/directory-browser";
+import { ScanDialog } from "@/components/admin/scan-dialog";
 import type { SetupStatusResponse } from "@/lib/api/generated/SetupStatusResponse";
 
 type SetupStep = "welcome" | "credentials" | "folders" | "scan" | "complete";
@@ -65,10 +65,15 @@ export default function SetupPage() {
 
   // Folder management state
   const [folders, setFolders] = useState<
-    Array<{ name: string; path: string; tempId: string }>
+    Array<{ name: string; path: string; tempId: string; validated?: boolean }>
   >([]);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderPath, setNewFolderPath] = useState("");
+  const [folderValidationError, setFolderValidationError] = useState<
+    string | null
+  >(null);
+  const [isValidatingFolder, setIsValidatingFolder] = useState(false);
+  const setScanDialogOpen = useSetAtom(scanDialogOpenAtom);
 
   // Compute backend URL for API calls
   const backendUrl =
@@ -83,11 +88,7 @@ export default function SetupPage() {
   const [setupCompleted, setSetupCompleted] = useState(false);
 
   // Check setup status
-  const {
-    data: setupStatus,
-    isLoading: statusLoading,
-    refetch: refetchStatus,
-  } = useQuery({
+  const { data: setupStatus, isLoading: statusLoading } = useQuery({
     queryKey: ["setupStatus", backendUrl],
     queryFn: async () => {
       const response = await fetch(`${backendUrl}/ferrotune/setup/status`);
@@ -181,19 +182,51 @@ export default function SetupPage() {
     },
   });
 
-  // Add folder
-  const handleAddFolder = () => {
+  // Add folder with validation
+  const handleAddFolder = async () => {
     if (!newFolderName.trim() || !newFolderPath.trim()) return;
-    setFolders([
-      ...folders,
-      {
-        name: newFolderName.trim(),
-        path: newFolderPath.trim(),
-        tempId: Math.random().toString(36).substring(7),
-      },
-    ]);
-    setNewFolderName("");
-    setNewFolderPath("");
+
+    setFolderValidationError(null);
+    setIsValidatingFolder(true);
+
+    try {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+
+      // Validate the path exists and is readable
+      const validation = await client.validatePath(newFolderPath.trim());
+
+      if (!validation.valid) {
+        setFolderValidationError(
+          validation.error || "Path is not a valid directory",
+        );
+        return;
+      }
+
+      // Check if path is already in the list
+      if (folders.some((f) => f.path === newFolderPath.trim())) {
+        setFolderValidationError("This folder is already in the list");
+        return;
+      }
+
+      setFolders([
+        ...folders,
+        {
+          name: newFolderName.trim(),
+          path: newFolderPath.trim(),
+          tempId: Math.random().toString(36).substring(7),
+          validated: true,
+        },
+      ]);
+      setNewFolderName("");
+      setNewFolderPath("");
+    } catch (err) {
+      setFolderValidationError(
+        err instanceof Error ? err.message : "Failed to validate path",
+      );
+    } finally {
+      setIsValidatingFolder(false);
+    }
   };
 
   // Remove folder
@@ -236,21 +269,6 @@ export default function SetupPage() {
     },
     onError: (err: Error) => {
       toast.error(`Failed to add folders: ${err.message}`);
-    },
-  });
-
-  // Start scan mutation
-  const scanMutation = useMutation({
-    mutationFn: async () => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      return client.startScan({ full: true });
-    },
-    onSuccess: () => {
-      toast.success("Scan started");
-    },
-    onError: (err: Error) => {
-      toast.error(`Failed to start scan: ${err.message}`);
     },
   });
 
@@ -315,6 +333,8 @@ export default function SetupPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+      {/* Scan Dialog - shared across setup */}
+      <ScanDialog />
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -631,29 +651,42 @@ export default function SetupPage() {
                         placeholder="My Music"
                         value={newFolderName}
                         onChange={(e) => setNewFolderName(e.target.value)}
+                        disabled={isValidatingFolder}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="folderPath">Path</Label>
-                      <Input
-                        id="folderPath"
-                        placeholder="/path/to/music"
-                        className="font-mono text-sm"
+                      <DirectoryBrowser
                         value={newFolderPath}
-                        onChange={(e) => setNewFolderPath(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleAddFolder();
+                        onChange={(path) => {
+                          setNewFolderPath(path);
+                          setFolderValidationError(null);
                         }}
+                        disabled={isValidatingFolder}
+                        error={folderValidationError}
                       />
                     </div>
                     <Button
                       variant="outline"
                       className="w-full"
                       onClick={handleAddFolder}
-                      disabled={!newFolderName.trim() || !newFolderPath.trim()}
+                      disabled={
+                        !newFolderName.trim() ||
+                        !newFolderPath.trim() ||
+                        isValidatingFolder
+                      }
                     >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Folder
+                      {isValidatingFolder ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Validating...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Folder
+                        </>
+                      )}
                     </Button>
                   </div>
 
@@ -705,65 +738,39 @@ export default function SetupPage() {
                     Scan Your Library
                   </CardTitle>
                   <CardDescription>
-                    Scan your music folders to index all your songs.
+                    Start a library scan to index your music files. You can
+                    start using Ferrotune immediately - the library will
+                    populate as the scan progresses.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {scanStatus?.scanning ? (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Scanning...</span>
+                  <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5" />
+                      <div className="text-sm">
+                        <p className="font-medium text-blue-500">
+                          Scanning runs in the background
+                        </p>
+                        <p className="text-muted-foreground mt-1">
+                          You can start browsing your library while the scan is
+                          in progress. New files will appear as they are
+                          indexed.
+                        </p>
                       </div>
-                      {scanStatus.progress && (
-                        <>
-                          <Progress
-                            value={
-                              scanStatus.progress.total
-                                ? (scanStatus.progress.scanned /
-                                    scanStatus.progress.total) *
-                                  100
-                                : 0
-                            }
-                          />
-                          <p className="text-sm text-muted-foreground">
-                            Processed {scanStatus.progress.scanned}
-                            {scanStatus.progress.total
-                              ? ` of ${scanStatus.progress.total}`
-                              : ""}{" "}
-                            files
-                            {scanStatus.progress.currentFolder && (
-                              <span className="block truncate text-xs mt-1">
-                                {scanStatus.progress.currentFolder}
-                              </span>
-                            )}
-                          </p>
-                        </>
-                      )}
                     </div>
-                  ) : (
-                    <div className="text-center py-4">
-                      <p className="text-muted-foreground mb-4">
-                        Ready to scan your music library
-                      </p>
-                      <Button
-                        onClick={() => scanMutation.mutate()}
-                        disabled={scanMutation.isPending}
-                      >
-                        {scanMutation.isPending ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Starting...
-                          </>
-                        ) : (
-                          <>
-                            <RefreshCw className="w-4 h-4 mr-2" />
-                            Start Scan
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  )}
+                  </div>
+
+                  <div className="text-center py-4">
+                    <p className="text-muted-foreground mb-4">
+                      Open the scanner dialog to start scanning and monitor
+                      progress
+                    </p>
+                    <Button onClick={() => setScanDialogOpen(true)}>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Open Scanner
+                      <ExternalLink className="w-4 h-4 ml-2" />
+                    </Button>
+                  </div>
 
                   <div className="flex gap-2">
                     <Button
@@ -776,9 +783,7 @@ export default function SetupPage() {
                     <Button
                       className="flex-1"
                       onClick={() => completeSetupMutation.mutate()}
-                      disabled={
-                        scanStatus?.scanning || completeSetupMutation.isPending
-                      }
+                      disabled={completeSetupMutation.isPending}
                     >
                       {completeSetupMutation.isPending ? (
                         <>

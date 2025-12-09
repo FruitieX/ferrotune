@@ -201,6 +201,19 @@ function AlbumDetailContent() {
     }
   };
 
+  const handleShuffleSelected = () => {
+    const selectedSongs = selection.getSelectedSongs();
+    if (selectedSongs.length > 0) {
+      startQueue({
+        sourceType: "other",
+        sourceName: `${albumData?.name} (selection)`,
+        songIds: selectedSongs.map((s) => s.id),
+        shuffle: true,
+      });
+      selection.clearSelection();
+    }
+  };
+
   // Always render the same loading state on server and during hydration
   // This prevents hydration mismatches
   if (!isMounted || authLoading) {
@@ -393,6 +406,7 @@ function AlbumDetailContent() {
         selectedCount={selection.selectedCount}
         onClear={selection.clearSelection}
         onPlayNow={handlePlaySelected}
+        onShuffle={handleShuffleSelected}
         onPlayNext={() => selection.addSelectedToQueue("next")}
         onAddToQueue={() => selection.addSelectedToQueue("end")}
         onStar={() => selection.starSelected(true)}

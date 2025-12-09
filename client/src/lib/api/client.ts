@@ -59,6 +59,8 @@ import type { PeriodReviewResponse } from "./generated/PeriodReviewResponse";
 import type { ImportPlaylistRequest } from "./generated/ImportPlaylistRequest";
 import type { ImportPlaylistResponse } from "./generated/ImportPlaylistResponse";
 import type { PlaylistEntriesResponse } from "./generated/PlaylistEntriesResponse";
+import type { BrowseFilesystemResponse } from "./generated/BrowseFilesystemResponse";
+import type { ValidatePathResponse } from "./generated/ValidatePathResponse";
 import type { PlaylistSongsResponse } from "./generated/PlaylistSongsResponse";
 
 // Ping response is empty
@@ -1100,6 +1102,32 @@ export class SubsonicClient {
       method: "DELETE",
     });
   }
+
+  // ==========================================
+  // Filesystem Browsing (Admin API)
+  // ==========================================
+
+  /**
+   * Browse the server's filesystem for selecting music folder paths.
+   * If no path is provided, returns common root directories.
+   */
+  async browseFilesystem(path?: string): Promise<BrowseFilesystemResponse> {
+    const params = path ? `?path=${encodeURIComponent(path)}` : "";
+    return this.adminRequest(`/ferrotune/filesystem${params}`);
+  }
+
+  /**
+   * Validate a filesystem path exists and is a readable directory.
+   */
+  async validatePath(path: string): Promise<ValidatePathResponse> {
+    return this.adminRequest(
+      `/ferrotune/filesystem/validate?path=${encodeURIComponent(path)}`,
+    );
+  }
+
+  // ==========================================
+  // Scanning (Admin API)
+  // ==========================================
 
   /**
    * Get current scan status

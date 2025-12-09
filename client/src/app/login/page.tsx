@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSetAtom } from "jotai";
+import { useQuery } from "@tanstack/react-query";
 import {
   Music2,
   Loader2,
@@ -37,6 +38,7 @@ import {
 } from "@/lib/store/auth";
 import { initializeClient, SubsonicApiError } from "@/lib/api/client";
 import type { ServerConnection } from "@/lib/api/types";
+import type { SetupStatusResponse } from "@/lib/api/generated/SetupStatusResponse";
 
 // Default server URL based on environment
 const DEFAULT_SERVER_URL =
@@ -55,6 +57,41 @@ export default function LoginPage() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Compute backend URL for setup check
+  const backendUrl =
+    serverUrl.trim() ||
+    (process.env.NODE_ENV === "development"
+      ? "http://localhost:4040"
+      : typeof window !== "undefined"
+        ? window.location.origin
+        : "");
+
+  // Check setup status - redirect to setup if not complete
+  const { data: setupStatus, isLoading: setupLoading } = useQuery({
+    queryKey: ["setupStatus", backendUrl],
+    queryFn: async () => {
+      try {
+        const response = await fetch(`${backendUrl}/ferrotune/setup/status`);
+        if (!response.ok) {
+          // If endpoint doesn't exist (old server), assume setup is complete
+          return { setupComplete: true } as SetupStatusResponse;
+        }
+        return response.json() as Promise<SetupStatusResponse>;
+      } catch {
+        // Network error - assume setup is complete to avoid blocking
+        return { setupComplete: true } as SetupStatusResponse;
+      }
+    },
+    retry: false,
+  });
+
+  // Redirect to setup if not complete
+  useEffect(() => {
+    if (setupStatus && !setupStatus.setupComplete) {
+      router.push("/setup");
+    }
+  }, [setupStatus, router]);
 
   const handleConnect = async (authMethod: "apikey" | "password") => {
     setIsConnecting(true);
@@ -122,6 +159,30 @@ export default function LoginPage() {
       setIsConnecting(false);
     }
   };
+
+  // Show loading state while checking setup status
+  if (setupLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-muted-foreground" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If setup not complete, the effect will redirect - show loading
+  if (setupStatus && !setupStatus.setupComplete) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-muted-foreground" />
+          <p className="text-muted-foreground">Redirecting to setup...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-background">
