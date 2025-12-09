@@ -255,20 +255,20 @@ export function DirectoryBrowser({
                         )}
                         <span className="truncate text-sm">{entry.name}</span>
                       </button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 shrink-0"
-                      onClick={() => {
-                        if (entry.readable) {
-                          navigateTo(entry.path);
-                        }
-                      }}
-                      disabled={!entry.readable}
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </Button>
-                  </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0"
+                        onClick={() => {
+                          if (entry.readable) {
+                            navigateTo(entry.path);
+                          }
+                        }}
+                        disabled={!entry.readable}
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
                   );
                 })}
               </div>

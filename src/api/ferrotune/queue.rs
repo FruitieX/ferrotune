@@ -564,8 +564,7 @@ pub async fn add_to_queue(
         ));
     }
 
-    let new_len =
-        queries::add_to_queue(&state.pool, user.user_id, &song_ids, position).await?;
+    let new_len = queries::add_to_queue(&state.pool, user.user_id, &song_ids, position).await?;
 
     // If shuffle is enabled, we need to update shuffle indices
     if queue.is_shuffled {
@@ -1058,6 +1057,19 @@ async fn materialize_queue_songs(
             let dir_id = source_id
                 .ok_or_else(|| Error::InvalidRequest("Directory ID required".to_string()))?;
             let songs = queries::get_songs_by_directory(pool, dir_id).await?;
+            // Apply text filtering and sorting if provided
+            Ok(sorting::filter_and_sort_songs(
+                songs,
+                text_filter,
+                sort_field.as_deref(),
+                sort_dir.as_deref(),
+            ))
+        }
+        QueueSourceType::DirectoryFlat => {
+            // Non-recursive directory - only files in the current folder, not subfolders
+            let dir_id = source_id
+                .ok_or_else(|| Error::InvalidRequest("Directory ID required".to_string()))?;
+            let songs = queries::get_songs_by_directory_flat(pool, dir_id).await?;
             // Apply text filtering and sorting if provided
             Ok(sorting::filter_and_sort_songs(
                 songs,

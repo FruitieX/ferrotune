@@ -204,7 +204,7 @@ async fn get_artist_cover_art(state: &AppState, artist_id: &str) -> Result<Vec<u
 async fn extract_embedded_cover_art(state: &AppState, file_path: &str) -> Result<Vec<u8>> {
     // Find the full path from database folders
     let music_folders = crate::db::queries::get_music_folders(&state.pool).await?;
-    
+
     let mut full_path: Option<PathBuf> = None;
     for folder in &music_folders {
         let candidate = PathBuf::from(&folder.path).join(file_path);
@@ -249,7 +249,7 @@ async fn extract_embedded_cover_art(state: &AppState, file_path: &str) -> Result
 async fn find_external_cover_art(state: &AppState, file_path: &str) -> Result<Vec<u8>> {
     // Find the full path from database folders
     let music_folders = crate::db::queries::get_music_folders(&state.pool).await?;
-    
+
     let mut full_path: Option<PathBuf> = None;
     for folder in &music_folders {
         let candidate = PathBuf::from(&folder.path).join(file_path);

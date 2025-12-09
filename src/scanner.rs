@@ -165,7 +165,15 @@ pub async fn scan_library_with_progress(
         if let Some(ref state) = scan_state {
             state.log("INFO", "Detecting duplicates...").await;
         }
-        detect_duplicates(pool, folder_id).await?;
+        let duplicate_count = detect_duplicates(pool, folder_id, scan_state.clone()).await?;
+        if let Some(ref state) = scan_state {
+            if duplicate_count > 0 {
+                state.add_duplicates(duplicate_count);
+                state
+                    .log("WARN", format!("Found {} duplicate files", duplicate_count))
+                    .await;
+            }
+        }
     } else {
         // In dry-run mode, just report potential duplicates
         detect_duplicates_dry_run(pool, folder_id).await?;
@@ -267,9 +275,13 @@ async fn scan_folder_with_progress(
                 }
             }
         }
-        state.set_total(total_count).await;
+        // Add to total instead of setting (for multi-folder scans)
+        state.add_to_total(total_count).await;
         state
-            .log("INFO", format!("Found {} audio files to scan", total_count))
+            .log(
+                "INFO",
+                format!("Found {} audio files in this folder", total_count),
+            )
             .await;
     }
 
@@ -922,7 +934,13 @@ async fn get_or_create_album(
 /// Phase 1: Find all songs with duplicate partial_hash values
 /// Phase 2: For each collision group, compute full file hashes
 /// Phase 3: Update full_file_hash in database and log duplicates
-async fn detect_duplicates(pool: &SqlitePool, folder_id: Option<i64>) -> Result<()> {
+///
+/// Returns the total number of duplicate files found.
+async fn detect_duplicates(
+    pool: &SqlitePool,
+    folder_id: Option<i64>,
+    scan_state: Option<Arc<ScanState>>,
+) -> Result<u64> {
     // First, clear full_file_hash for songs that will be re-evaluated
     // (in case files were modified and are no longer duplicates)
     if let Some(fid) = folder_id {
@@ -949,7 +967,10 @@ async fn detect_duplicates(pool: &SqlitePool, folder_id: Option<i64>) -> Result<
 
     if collision_hashes.is_empty() {
         tracing::info!("No potential duplicates found (no partial hash collisions)");
-        return Ok(());
+        if let Some(ref state) = scan_state {
+            state.log("INFO", "No duplicate files found").await;
+        }
+        return Ok(0);
     }
 
     tracing::info!(
@@ -1053,9 +1074,17 @@ async fn detect_duplicates(pool: &SqlitePool, folder_id: Option<i64>) -> Result<
         );
     } else {
         tracing::info!("Duplicate detection complete: no actual duplicates found (partial hash collisions were false positives)");
+        if let Some(ref state) = scan_state {
+            state
+                .log(
+                    "INFO",
+                    "No actual duplicate files found (false positives resolved)",
+                )
+                .await;
+        }
     }
 
-    Ok(())
+    Ok(total_duplicates as u64)
 }
 
 /// Dry-run version of duplicate detection - just reports what would be found.

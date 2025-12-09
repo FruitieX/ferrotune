@@ -17,13 +17,6 @@ import {
   Check,
   MoreHorizontal,
   Download,
-  ArrowUpDown,
-  Filter,
-  Columns3,
-  Disc,
-  User,
-  Tag,
-  FolderOpen,
   Library,
 } from "lucide-react";
 import Link from "next/link";
@@ -32,19 +25,21 @@ import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { isConnectedAtom } from "@/lib/store/auth";
+import {
+  libraryFilterAtom,
+  filesSortAtom,
+  filesColumnVisibilityAtom,
+} from "@/lib/store/ui";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuCheckboxItem,
-  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import {
   ContextMenu,
@@ -65,17 +60,6 @@ import type { Song } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 100;
-
-type SortField =
-  | "name"
-  | "artist"
-  | "album"
-  | "year"
-  | "duration"
-  | "size"
-  | "dateAdded"
-  | "itemCount";
-type SortDir = "asc" | "desc";
 
 // Convert DirectoryChildPaged to Song for playlist/queue operations
 function directoryChildToSong(child: DirectoryChildPaged): Song | null {
@@ -120,28 +104,16 @@ function FilesPageContent() {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
 
-  // Filter and sort state
-  const [filterText, setFilterText] = useState("");
-  const debouncedFilter = useDebounce(filterText, 300);
-  const [sortField, setSortField] = useState<SortField>("name");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  // Use shared atoms from layout header
+  const libraryFilter = useAtomValue(libraryFilterAtom);
+  const debouncedFilter = useDebounce(libraryFilter, 300);
+  const sortConfig = useAtomValue(filesSortAtom);
+  const visibleColumns = useAtomValue(filesColumnVisibilityAtom);
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
-
-  // Column visibility state
-  const [visibleColumns, setVisibleColumns] = useState({
-    size: true,
-    duration: true,
-    artist: true,
-    album: true,
-  });
-
-  const toggleColumn = (column: keyof typeof visibleColumns) => {
-    setVisibleColumns((prev) => ({ ...prev, [column]: !prev[column] }));
-  };
 
   // Fetch accessible libraries for root view
   const { data: librariesData, isLoading: librariesLoading } = useQuery({
@@ -162,8 +134,8 @@ function FilesPageContent() {
         "directory-paged",
         libraryId,
         pathParam,
-        sortField,
-        sortDir,
+        sortConfig.field,
+        sortConfig.direction,
         debouncedFilter,
       ],
       queryFn: async ({ pageParam = 0 }) => {
@@ -174,8 +146,8 @@ function FilesPageContent() {
           path: pathParam || null,
           count: PAGE_SIZE,
           offset: pageParam,
-          sort: sortField,
-          sortDir: sortDir,
+          sort: sortConfig.field,
+          sortDir: sortConfig.direction,
           filter: debouncedFilter || null,
           foldersOnly: null,
           filesOnly: null,
@@ -229,7 +201,6 @@ function FilesPageContent() {
     setSelectedIds(new Set());
     setLastSelectedId(null);
     setLastKey(currentKey);
-    setFilterText("");
   }
 
   // Selection handlers - supports both files and directories
@@ -328,14 +299,25 @@ function FilesPageContent() {
     (song: Song, index: number) => {
       if (!libraryId) return;
       const relativePath = pathParam;
+      // Use directoryFlat - only plays files in current directory, not subfolders
+      // Pass sort and filter so the server materializes the queue in the same order
       startQueue({
-        sourceType: "directory",
+        sourceType: "directoryFlat",
         sourceId: `${libraryId}:${relativePath}`,
         sourceName: directoryInfo?.name ?? "Folder",
         startIndex: index,
+        sort: { field: sortConfig.field, direction: sortConfig.direction },
+        filters: debouncedFilter ? { filter: debouncedFilter } : undefined,
       });
     },
-    [libraryId, pathParam, directoryInfo, startQueue],
+    [
+      libraryId,
+      pathParam,
+      directoryInfo,
+      startQueue,
+      sortConfig,
+      debouncedFilter,
+    ],
   );
 
   const handleAddSongToQueue = useCallback(
@@ -383,82 +365,56 @@ function FilesPageContent() {
         position,
       });
       toast.success(
-        position === "next" ? "Added folder to play next" : "Added folder to queue",
+        position === "next"
+          ? "Added folder to play next"
+          : "Added folder to queue",
       );
     },
     [addToQueue, libraryId],
   );
 
-  const toggleSort = useCallback(
-    (field: SortField) => {
-      if (sortField === field) {
-        setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-      } else {
-        setSortField(field);
-        setSortDir("asc");
-      }
-    },
-    [sortField],
-  );
+  // Client-side filter libraries by the shared filter input (for library selection view)
+  const filteredLibraries =
+    librariesData?.libraries?.filter((lib) => {
+      if (!debouncedFilter) return true;
+      const lowerFilter = debouncedFilter.toLowerCase();
+      return lib.name.toLowerCase().includes(lowerFilter);
+    }) ?? [];
 
   // Show library selection if no library is selected
   if (libraryId === null) {
     return (
-      <div className="min-h-screen">
-        {/* Library Tab Navigation */}
-        <LibraryTabNav />
-
-        {/* Header */}
-        <div className="px-4 lg:px-6 pt-8 pb-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-3"
-          >
-            <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center">
-              <Library className="w-6 h-6" />
-            </div>
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold">Browse Files</h1>
-              <p className="text-sm text-muted-foreground">
-                Select a library to browse your music by folder structure
-              </p>
-            </div>
-          </motion.div>
-        </div>
-
-        {/* Libraries List */}
-        <div className="px-4 lg:px-6 pb-24">
-          {librariesLoading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Skeleton key={i} className="h-[56px] w-full rounded-lg" />
-              ))}
-            </div>
-          ) : librariesData?.libraries.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <Library className="w-12 h-12 mx-auto mb-4 opacity-50" />
+      <div className="px-4 lg:px-6 py-6 pb-24">
+        {librariesLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-[56px] w-full rounded-lg" />
+            ))}
+          </div>
+        ) : filteredLibraries.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <Library className="w-12 h-12 mx-auto mb-4 opacity-50" />
+            {debouncedFilter ? (
+              <p>No libraries match &quot;{debouncedFilter}&quot;</p>
+            ) : (
               <p>No music libraries available</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {librariesData?.libraries.map((library) => (
-                <LibraryCard key={library.id} library={library} />
-              ))}
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {filteredLibraries.map((library) => (
+              <LibraryCard key={library.id} library={library} />
+            ))}
+          </div>
+        )}
       </div>
     );
   }
 
   return (
     <div className="min-h-screen">
-      {/* Library Tab Navigation */}
-      <LibraryTabNav />
-
-      {/* Header */}
-      <div className="px-4 lg:px-6 pt-8 pb-4">
+      {/* Directory Info Header */}
+      <div className="px-4 lg:px-6 pt-4 pb-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -469,7 +425,9 @@ function FilesPageContent() {
           </div>
           <div className="flex-1">
             <h1 className="text-2xl font-bold">
-              {directoryInfo?.name ?? directoryInfo?.libraryName ?? "Browse Files"}
+              {directoryInfo?.name ??
+                directoryInfo?.libraryName ??
+                "Browse Files"}
             </h1>
             <p className="text-sm text-muted-foreground">
               {directoryInfo
@@ -518,121 +476,12 @@ function FilesPageContent() {
         {/* Breadcrumbs */}
         <Breadcrumbs
           breadcrumbs={breadcrumbs}
-          currentName={directoryInfo?.name ?? directoryInfo?.libraryName ?? "Files"}
+          currentName={
+            directoryInfo?.name ?? directoryInfo?.libraryName ?? "Files"
+          }
           libraryId={libraryId}
           libraryName={directoryInfo?.libraryName ?? "Library"}
         />
-
-        {/* Filter and Sort Controls */}
-        <div className="flex items-center gap-2 mt-4">
-          <div className="relative flex-1 max-w-sm">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Filter by name, artist, album..."
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <ArrowUpDown className="w-4 h-4 mr-2" />
-                Sort
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-              <DropdownMenuCheckboxItem
-                checked={sortField === "name"}
-                onCheckedChange={() => toggleSort("name")}
-              >
-                Name {sortField === "name" && (sortDir === "asc" ? "↑" : "↓")}
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={sortField === "artist"}
-                onCheckedChange={() => toggleSort("artist")}
-              >
-                Artist{" "}
-                {sortField === "artist" && (sortDir === "asc" ? "↑" : "↓")}
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={sortField === "album"}
-                onCheckedChange={() => toggleSort("album")}
-              >
-                Album {sortField === "album" && (sortDir === "asc" ? "↑" : "↓")}
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={sortField === "year"}
-                onCheckedChange={() => toggleSort("year")}
-              >
-                Year {sortField === "year" && (sortDir === "asc" ? "↑" : "↓")}
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={sortField === "duration"}
-                onCheckedChange={() => toggleSort("duration")}
-              >
-                Duration{" "}
-                {sortField === "duration" && (sortDir === "asc" ? "↑" : "↓")}
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={sortField === "size"}
-                onCheckedChange={() => toggleSort("size")}
-              >
-                Size {sortField === "size" && (sortDir === "asc" ? "↑" : "↓")}
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={sortField === "dateAdded"}
-                onCheckedChange={() => toggleSort("dateAdded")}
-              >
-                Date Added{" "}
-                {sortField === "dateAdded" && (sortDir === "asc" ? "↑" : "↓")}
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={sortField === "itemCount"}
-                onCheckedChange={() => toggleSort("itemCount")}
-              >
-                Item Count{" "}
-                {sortField === "itemCount" && (sortDir === "asc" ? "↑" : "↓")}
-              </DropdownMenuCheckboxItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Columns3 className="w-4 h-4 mr-2" />
-                Columns
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Visible Columns</DropdownMenuLabel>
-              <DropdownMenuCheckboxItem
-                checked={visibleColumns.artist}
-                onCheckedChange={() => toggleColumn("artist")}
-              >
-                Artist
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={visibleColumns.album}
-                onCheckedChange={() => toggleColumn("album")}
-              >
-                Album
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={visibleColumns.size}
-                onCheckedChange={() => toggleColumn("size")}
-              >
-                Size
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={visibleColumns.duration}
-                onCheckedChange={() => toggleColumn("duration")}
-              >
-                Duration
-              </DropdownMenuCheckboxItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
       </div>
 
       {/* Content */}
@@ -706,7 +555,12 @@ interface BreadcrumbsProps {
   libraryName: string;
 }
 
-function Breadcrumbs({ breadcrumbs, currentName, libraryId, libraryName }: BreadcrumbsProps) {
+function Breadcrumbs({
+  breadcrumbs,
+  currentName,
+  libraryId,
+  libraryName,
+}: BreadcrumbsProps) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -751,75 +605,6 @@ function Breadcrumbs({ breadcrumbs, currentName, libraryId, libraryName }: Bread
         <span className="text-foreground truncate">{libraryName}</span>
       )}
     </motion.div>
-  );
-}
-
-// Library tab navigation component
-function LibraryTabNav() {
-  return (
-    <nav
-      className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border"
-      aria-label="Library sections"
-    >
-      <div className="h-12 flex items-center px-4 lg:px-6 gap-1">
-        <Link
-          href="/library/albums"
-          className={cn(
-            "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            "text-muted-foreground hover:text-foreground hover:bg-accent/70",
-          )}
-        >
-          <Disc className="w-4 h-4" aria-hidden="true" />
-          <span>Albums</span>
-        </Link>
-        <Link
-          href="/library/artists"
-          className={cn(
-            "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            "text-muted-foreground hover:text-foreground hover:bg-accent/70",
-          )}
-        >
-          <User className="w-4 h-4" aria-hidden="true" />
-          <span>Artists</span>
-        </Link>
-        <Link
-          href="/library/songs"
-          className={cn(
-            "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            "text-muted-foreground hover:text-foreground hover:bg-accent/70",
-          )}
-        >
-          <Music className="w-4 h-4" aria-hidden="true" />
-          <span>Songs</span>
-        </Link>
-        <Link
-          href="/library/genres"
-          className={cn(
-            "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            "text-muted-foreground hover:text-foreground hover:bg-accent/70",
-          )}
-        >
-          <Tag className="w-4 h-4" aria-hidden="true" />
-          <span>Genres</span>
-        </Link>
-        <Link
-          href="/library/files"
-          className={cn(
-            "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            "bg-accent text-accent-foreground",
-          )}
-          aria-current="page"
-        >
-          <FolderOpen className="w-4 h-4" aria-hidden="true" />
-          <span>Files</span>
-        </Link>
-      </div>
-    </nav>
   );
 }
 
@@ -922,7 +707,9 @@ function DirectoryContents({
             isSelected={isSelected}
             onSelect={onSelect}
             onPlay={() => onPlayDirectory(item.path ?? "")}
-            onAddToQueue={(position) => onAddDirectoryToQueue(item.path ?? "", position)}
+            onAddToQueue={(position) =>
+              onAddDirectoryToQueue(item.path ?? "", position)
+            }
             visibleColumns={visibleColumns}
             libraryId={libraryId}
           />
@@ -1019,10 +806,7 @@ function DirectoryRow({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <Link
-          href={dirUrl}
-          onClick={handleClick}
-        >
+        <Link href={dirUrl} onClick={handleClick}>
           <div
             className={cn(
               "flex items-center gap-3 px-3 py-2 rounded-lg h-[56px]",

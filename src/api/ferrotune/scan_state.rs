@@ -41,6 +41,9 @@ pub struct ScanProgressUpdate {
     /// Number of errors encountered
     #[ts(type = "number")]
     pub errors: u64,
+    /// Number of duplicate files detected
+    #[ts(type = "number")]
+    pub duplicates: u64,
     /// Current folder being scanned
     pub current_folder: Option<String>,
     /// Current file being processed
@@ -63,6 +66,7 @@ impl Default for ScanProgressUpdate {
             updated: 0,
             removed: 0,
             errors: 0,
+            duplicates: 0,
             current_folder: None,
             current_file: None,
             mode: "incremental".to_string(),
@@ -83,6 +87,7 @@ pub struct ScanState {
     updated: AtomicU64,
     removed: AtomicU64,
     errors: AtomicU64,
+    duplicates: AtomicU64,
     total: RwLock<Option<u64>>,
     /// String fields (require locks)
     current_folder: RwLock<Option<String>>,
@@ -109,6 +114,7 @@ impl ScanState {
             updated: AtomicU64::new(0),
             removed: AtomicU64::new(0),
             errors: AtomicU64::new(0),
+            duplicates: AtomicU64::new(0),
             total: RwLock::new(None),
             current_folder: RwLock::new(None),
             current_file: RwLock::new(None),
@@ -141,6 +147,7 @@ impl ScanState {
             updated: self.updated.load(Ordering::Relaxed),
             removed: self.removed.load(Ordering::Relaxed),
             errors: self.errors.load(Ordering::Relaxed),
+            duplicates: self.duplicates.load(Ordering::Relaxed),
             current_folder: self.current_folder.read().await.clone(),
             current_file: self.current_file.read().await.clone(),
             mode: self.mode.read().await.clone(),
@@ -176,6 +183,7 @@ impl ScanState {
         self.updated.store(0, Ordering::Relaxed);
         self.removed.store(0, Ordering::Relaxed);
         self.errors.store(0, Ordering::Relaxed);
+        self.duplicates.store(0, Ordering::Relaxed);
         self.finished.store(false, Ordering::Relaxed);
         self.cancelled.store(false, Ordering::Relaxed);
 
@@ -224,9 +232,20 @@ impl ScanState {
         self.errors.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Add to the duplicates counter.
+    pub fn add_duplicates(&self, count: u64) {
+        self.duplicates.fetch_add(count, Ordering::Relaxed);
+    }
+
     /// Set the total count.
     pub async fn set_total(&self, total: u64) {
         *self.total.write().await = Some(total);
+    }
+
+    /// Add to the total count (for multi-folder scans).
+    pub async fn add_to_total(&self, count: u64) {
+        let mut total = self.total.write().await;
+        *total = Some(total.unwrap_or(0) + count);
     }
 
     /// Set the current folder being scanned.

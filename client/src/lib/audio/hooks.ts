@@ -730,7 +730,15 @@ export function useAudioEngine() {
     } else {
       play();
     }
-  }, [playbackState, play, pause, queueState, retryPlayback, setIsRestoring, playAtIndex]);
+  }, [
+    playbackState,
+    play,
+    pause,
+    queueState,
+    retryPlayback,
+    setIsRestoring,
+    playAtIndex,
+  ]);
 
   const seek = useCallback(
     (time: number) => {

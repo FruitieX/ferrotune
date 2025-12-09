@@ -132,7 +132,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/directory", get(directory::get_directory_paged))
         // Filesystem browsing endpoints (for setup)
         .route("/ferrotune/filesystem", get(filesystem::browse_filesystem))
-        .route("/ferrotune/filesystem/validate", get(filesystem::validate_path))
+        .route(
+            "/ferrotune/filesystem/validate",
+            get(filesystem::validate_path),
+        )
         // Music folder management endpoints
         .route(
             "/ferrotune/music-folders",

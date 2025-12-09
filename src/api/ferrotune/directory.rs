@@ -209,18 +209,17 @@ pub async fn get_directory_paged(
     let offset = params.offset.unwrap_or(0) as i64;
 
     // Library ID is required
-    let library_id = params.library_id.ok_or_else(|| {
-        crate::error::Error::InvalidRequest("libraryId is required".to_string())
-    })?;
+    let library_id = params
+        .library_id
+        .ok_or_else(|| crate::error::Error::InvalidRequest("libraryId is required".to_string()))?;
 
     // Get the music folder
-    let folder: crate::db::models::MusicFolder = sqlx::query_as(
-        "SELECT * FROM music_folders WHERE id = ? AND enabled = 1",
-    )
-    .bind(library_id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| crate::error::Error::NotFound("Library not found".to_string()))?;
+    let folder: crate::db::models::MusicFolder =
+        sqlx::query_as("SELECT * FROM music_folders WHERE id = ? AND enabled = 1")
+            .bind(library_id)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or_else(|| crate::error::Error::NotFound("Library not found".to_string()))?;
 
     // Get the relative path (empty string means library root)
     let relative_path = params.path.clone().unwrap_or_default();
@@ -571,89 +570,117 @@ async fn get_directory_contents_for_library(
                 (false, true) => std::cmp::Ordering::Greater,
                 _ => {
                     let cmp = a.title.to_lowercase().cmp(&b.title.to_lowercase());
-                    if ascending { cmp } else { cmp.reverse() }
+                    if ascending {
+                        cmp
+                    } else {
+                        cmp.reverse()
+                    }
                 }
             }
         }),
-        "artist" => all_children.sort_by(|a, b| {
-            match (a.is_dir, b.is_dir) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                (true, true) => {
-                    let cmp = a.title.to_lowercase().cmp(&b.title.to_lowercase());
-                    if ascending { cmp } else { cmp.reverse() }
+        "artist" => all_children.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            (true, true) => {
+                let cmp = a.title.to_lowercase().cmp(&b.title.to_lowercase());
+                if ascending {
+                    cmp
+                } else {
+                    cmp.reverse()
                 }
-                (false, false) => {
-                    let a_artist = a.artist.as_deref().unwrap_or("");
-                    let b_artist = b.artist.as_deref().unwrap_or("");
-                    let cmp = a_artist.to_lowercase().cmp(&b_artist.to_lowercase());
-                    if ascending { cmp } else { cmp.reverse() }
+            }
+            (false, false) => {
+                let a_artist = a.artist.as_deref().unwrap_or("");
+                let b_artist = b.artist.as_deref().unwrap_or("");
+                let cmp = a_artist.to_lowercase().cmp(&b_artist.to_lowercase());
+                if ascending {
+                    cmp
+                } else {
+                    cmp.reverse()
                 }
             }
         }),
-        "album" => all_children.sort_by(|a, b| {
-            match (a.is_dir, b.is_dir) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                (true, true) => {
-                    let cmp = a.title.to_lowercase().cmp(&b.title.to_lowercase());
-                    if ascending { cmp } else { cmp.reverse() }
+        "album" => all_children.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            (true, true) => {
+                let cmp = a.title.to_lowercase().cmp(&b.title.to_lowercase());
+                if ascending {
+                    cmp
+                } else {
+                    cmp.reverse()
                 }
-                (false, false) => {
-                    let a_album = a.album.as_deref().unwrap_or("");
-                    let b_album = b.album.as_deref().unwrap_or("");
-                    let cmp = a_album.to_lowercase().cmp(&b_album.to_lowercase());
-                    if ascending { cmp } else { cmp.reverse() }
+            }
+            (false, false) => {
+                let a_album = a.album.as_deref().unwrap_or("");
+                let b_album = b.album.as_deref().unwrap_or("");
+                let cmp = a_album.to_lowercase().cmp(&b_album.to_lowercase());
+                if ascending {
+                    cmp
+                } else {
+                    cmp.reverse()
                 }
             }
         }),
-        "year" => all_children.sort_by(|a, b| {
-            match (a.is_dir, b.is_dir) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => {
-                    let a_year = a.year.unwrap_or(0);
-                    let b_year = b.year.unwrap_or(0);
-                    if ascending { a_year.cmp(&b_year) } else { b_year.cmp(&a_year) }
+        "year" => all_children.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => {
+                let a_year = a.year.unwrap_or(0);
+                let b_year = b.year.unwrap_or(0);
+                if ascending {
+                    a_year.cmp(&b_year)
+                } else {
+                    b_year.cmp(&a_year)
                 }
             }
         }),
-        "duration" => all_children.sort_by(|a, b| {
-            match (a.is_dir, b.is_dir) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => {
-                    let a_dur = a.duration.unwrap_or(0);
-                    let b_dur = b.duration.unwrap_or(0);
-                    if ascending { a_dur.cmp(&b_dur) } else { b_dur.cmp(&a_dur) }
+        "duration" => all_children.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => {
+                let a_dur = a.duration.unwrap_or(0);
+                let b_dur = b.duration.unwrap_or(0);
+                if ascending {
+                    a_dur.cmp(&b_dur)
+                } else {
+                    b_dur.cmp(&a_dur)
                 }
             }
         }),
-        "size" => all_children.sort_by(|a, b| {
-            match (a.is_dir, b.is_dir) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                (true, true) => {
-                    let a_size = a.folder_size.unwrap_or(0);
-                    let b_size = b.folder_size.unwrap_or(0);
-                    if ascending { a_size.cmp(&b_size) } else { b_size.cmp(&a_size) }
+        "size" => all_children.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            (true, true) => {
+                let a_size = a.folder_size.unwrap_or(0);
+                let b_size = b.folder_size.unwrap_or(0);
+                if ascending {
+                    a_size.cmp(&b_size)
+                } else {
+                    b_size.cmp(&a_size)
                 }
-                (false, false) => {
-                    let a_size = a.size.unwrap_or(0);
-                    let b_size = b.size.unwrap_or(0);
-                    if ascending { a_size.cmp(&b_size) } else { b_size.cmp(&a_size) }
+            }
+            (false, false) => {
+                let a_size = a.size.unwrap_or(0);
+                let b_size = b.size.unwrap_or(0);
+                if ascending {
+                    a_size.cmp(&b_size)
+                } else {
+                    b_size.cmp(&a_size)
                 }
             }
         }),
-        "dateAdded" => all_children.sort_by(|a, b| {
-            match (a.is_dir, b.is_dir) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => {
-                    let a_created = a.created.as_deref().unwrap_or("");
-                    let b_created = b.created.as_deref().unwrap_or("");
-                    let cmp = a_created.cmp(b_created);
-                    if ascending { cmp } else { cmp.reverse() }
+        "dateAdded" => all_children.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => {
+                let a_created = a.created.as_deref().unwrap_or("");
+                let b_created = b.created.as_deref().unwrap_or("");
+                let cmp = a_created.cmp(b_created);
+                if ascending {
+                    cmp
+                } else {
+                    cmp.reverse()
                 }
             }
         }),

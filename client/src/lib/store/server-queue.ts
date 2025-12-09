@@ -35,6 +35,7 @@ export type QueueSourceType =
   | "favorites"
   | "history"
   | "directory"
+  | "directoryFlat"
   | "other";
 
 export type RepeatMode = "off" | "all" | "one";

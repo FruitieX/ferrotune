@@ -72,7 +72,9 @@ pub async fn get_waveform_stream(
         .ok_or_else(|| Error::NotFound(format!("Song {} not found", song_id)))?;
 
     // Check if user has access to this song's library
-    if !crate::api::ferrotune::users::user_has_song_access(&state.pool, user.user_id, &song_id).await? {
+    if !crate::api::ferrotune::users::user_has_song_access(&state.pool, user.user_id, &song_id)
+        .await?
+    {
         return Err(Error::Forbidden(format!(
             "You do not have access to song {}",
             song_id
@@ -259,8 +261,10 @@ fn generate_waveform_streaming(
             frame_idx += 1;
 
             // Calculate bars per chunk based on progress
-            let chunk_start_ratio = (current_chunk * samples_per_chunk) as f64 / estimated_samples as f64;
-            let chunk_end_ratio = ((current_chunk + 1) * samples_per_chunk) as f64 / estimated_samples as f64;
+            let chunk_start_ratio =
+                (current_chunk * samples_per_chunk) as f64 / estimated_samples as f64;
+            let chunk_end_ratio =
+                ((current_chunk + 1) * samples_per_chunk) as f64 / estimated_samples as f64;
             let bar_start = (chunk_start_ratio * resolution as f64).floor() as usize;
             let bar_end = (chunk_end_ratio * resolution as f64).ceil() as usize;
             let bars_in_chunk = bar_end.saturating_sub(bar_start).max(1);
@@ -268,8 +272,8 @@ fn generate_waveform_streaming(
 
             // Check if we've completed a bar within this chunk
             let current_bar_in_chunk = chunk_rms_values.len();
-            if samples_per_bar_in_chunk > 0 
-                && bar_count >= samples_per_bar_in_chunk 
+            if samples_per_bar_in_chunk > 0
+                && bar_count >= samples_per_bar_in_chunk
                 && current_bar_in_chunk < bars_in_chunk
             {
                 let rms = (bar_sum / bar_count as f64).sqrt() as f32;

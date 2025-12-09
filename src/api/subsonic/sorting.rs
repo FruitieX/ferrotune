@@ -74,6 +74,7 @@ pub fn sort_songs(mut songs: Vec<Song>, sort: Option<&str>, sort_dir: Option<&st
             "playCount" => a.play_count.unwrap_or(0).cmp(&b.play_count.unwrap_or(0)),
             "lastPlayed" => a.last_played.cmp(&b.last_played),
             "duration" => a.duration.cmp(&b.duration),
+            "size" => a.file_size.cmp(&b.file_size),
             _ => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
         };
         cmp

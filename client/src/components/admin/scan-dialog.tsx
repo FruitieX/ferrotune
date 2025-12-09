@@ -126,7 +126,7 @@ export function ScanDialog() {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+      <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <RefreshCw
@@ -213,7 +213,7 @@ export function ScanDialog() {
               )}
 
               {/* Stats */}
-              <div className="grid grid-cols-4 gap-2 text-center">
+              <div className="grid grid-cols-5 gap-2 text-center">
                 <div className="p-2 bg-muted/50 rounded-md">
                   <p className="text-lg font-bold text-green-600">
                     {progress.added}
@@ -231,6 +231,12 @@ export function ScanDialog() {
                     {progress.removed}
                   </p>
                   <p className="text-xs text-muted-foreground">Removed</p>
+                </div>
+                <div className="p-2 bg-muted/50 rounded-md">
+                  <p className="text-lg font-bold text-yellow-600">
+                    {progress.duplicates}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Duplicates</p>
                 </div>
                 <div className="p-2 bg-muted/50 rounded-md">
                   <p className="text-lg font-bold text-red-600">

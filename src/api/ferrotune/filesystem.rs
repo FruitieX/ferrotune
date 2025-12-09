@@ -102,7 +102,7 @@ pub async fn browse_filesystem(
     }
 
     let path_str = params.path.as_deref().unwrap_or("");
-    
+
     // If no path provided or empty path, return common root directories
     if path_str.is_empty() {
         return Ok(Json(browse_roots()?));
@@ -127,17 +127,14 @@ pub async fn browse_filesystem(
 
     // Read directory contents
     let mut directories = Vec::new();
-    
+
     match std::fs::read_dir(&path) {
         Ok(entries) => {
             for entry in entries.filter_map(|e| e.ok()) {
                 let entry_path = entry.path();
                 if entry_path.is_dir() {
-                    let name = entry
-                        .file_name()
-                        .to_string_lossy()
-                        .to_string();
-                    
+                    let name = entry.file_name().to_string_lossy().to_string();
+
                     // Skip hidden directories (starting with .)
                     if name.starts_with('.') {
                         continue;

@@ -586,15 +586,15 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   }, [draw, containerWidth]);
 
   // Event handlers
-  const getPercentFromEvent = useCallback(
-    (clientX: number) => {
-      const container = containerRef.current;
-      if (!container) return 0;
-      const rect = container.getBoundingClientRect();
-      return Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
-    },
-    [],
-  );
+  const getPercentFromEvent = useCallback((clientX: number) => {
+    const container = containerRef.current;
+    if (!container) return 0;
+    const rect = container.getBoundingClientRect();
+    return Math.max(
+      0,
+      Math.min(100, ((clientX - rect.left) / rect.width) * 100),
+    );
+  }, []);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -707,14 +707,16 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
         className="absolute inset-0 w-full h-full"
         style={{ imageRendering: "pixelated" }}
       />
-      {(isHovering || isDragging) && hoverPercent !== null && hoverTime !== null && (
-        <div
-          className="absolute bottom-full mb-2 px-2 py-1 text-xs font-medium rounded bg-popover text-popover-foreground shadow-md border border-border whitespace-nowrap pointer-events-none"
-          style={{ left: `${hoverPercent}%`, transform: "translateX(-50%)" }}
-        >
-          {formatTime(hoverTime)}
-        </div>
-      )}
+      {(isHovering || isDragging) &&
+        hoverPercent !== null &&
+        hoverTime !== null && (
+          <div
+            className="absolute bottom-full mb-2 px-2 py-1 text-xs font-medium rounded bg-popover text-popover-foreground shadow-md border border-border whitespace-nowrap pointer-events-none"
+            style={{ left: `${hoverPercent}%`, transform: "translateX(-50%)" }}
+          >
+            {formatTime(hoverTime)}
+          </div>
+        )}
     </div>
   );
 }

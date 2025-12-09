@@ -90,6 +90,45 @@ export const columnVisibilityAtom = atomWithServerStorage<ColumnVisibility>(
   },
 );
 
+// Files browser sort options
+export type FilesSortField =
+  | "name"
+  | "artist"
+  | "album"
+  | "year"
+  | "duration"
+  | "size"
+  | "dateAdded";
+
+export interface FilesSortConfig {
+  field: FilesSortField;
+  direction: SortDirection;
+}
+
+export const filesSortAtom = atomWithServerStorage<FilesSortConfig>(
+  "files-sort",
+  {
+    field: "name",
+    direction: "asc",
+  },
+);
+
+// Files browser column visibility
+export interface FilesColumnVisibility {
+  size: boolean;
+  duration: boolean;
+  artist: boolean;
+  album: boolean;
+}
+
+export const filesColumnVisibilityAtom =
+  atomWithServerStorage<FilesColumnVisibility>("files-columns", {
+    size: true,
+    duration: true,
+    artist: true,
+    album: true,
+  });
+
 // Playlist-style views settings (favorites, history, playlist details)
 export const playlistViewModeAtom = atomWithServerStorage<ViewMode>(
   "playlist-view",

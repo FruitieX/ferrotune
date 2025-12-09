@@ -36,7 +36,11 @@ import {
   connectionStatusAtom,
   isConnectedAtom,
 } from "@/lib/store/auth";
-import { scanDialogOpenAtom, scanFolderIdAtom, scanFolderNameAtom } from "@/lib/store/scan";
+import {
+  scanDialogOpenAtom,
+  scanFolderIdAtom,
+  scanFolderNameAtom,
+} from "@/lib/store/scan";
 import { initializeClient, getClient } from "@/lib/api/client";
 import { DirectoryBrowser } from "@/components/admin/directory-browser";
 import { ScanDialog } from "@/components/admin/scan-dialog";

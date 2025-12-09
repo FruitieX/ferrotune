@@ -242,6 +242,8 @@ pub enum QueueSourceType {
     Favorites,
     History,
     Directory,
+    /// Non-recursive directory - only files in the current folder, not subfolders
+    DirectoryFlat,
     #[default]
     Other,
 }
@@ -258,6 +260,7 @@ impl QueueSourceType {
             QueueSourceType::Favorites => "favorites",
             QueueSourceType::History => "history",
             QueueSourceType::Directory => "directory",
+            QueueSourceType::DirectoryFlat => "directoryFlat",
             QueueSourceType::Other => "other",
         }
     }
@@ -273,6 +276,7 @@ impl QueueSourceType {
             "favorites" => QueueSourceType::Favorites,
             "history" => QueueSourceType::History,
             "directory" => QueueSourceType::Directory,
+            "directoryFlat" => QueueSourceType::DirectoryFlat,
             _ => QueueSourceType::Other,
         }
     }

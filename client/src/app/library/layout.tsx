@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAtom, useSetAtom } from "jotai";
 import {
@@ -17,7 +17,6 @@ import {
   ArrowUp,
   ArrowDown,
   Columns,
-  Check,
   FolderOpen,
 } from "lucide-react";
 import {
@@ -26,7 +25,10 @@ import {
   librarySortAtom,
   columnVisibilityAtom,
   advancedFiltersAtom,
+  filesSortAtom,
+  filesColumnVisibilityAtom,
   type SortField,
+  type FilesSortField,
 } from "@/lib/store/ui";
 import {
   shuffleExcludesAtom,
@@ -68,6 +70,16 @@ const sortOptions: { value: SortField; label: string }[] = [
   { value: "duration", label: "Duration" },
 ];
 
+const filesSortOptions: { value: FilesSortField; label: string }[] = [
+  { value: "name", label: "Name" },
+  { value: "artist", label: "Artist" },
+  { value: "album", label: "Album" },
+  { value: "year", label: "Year" },
+  { value: "duration", label: "Duration" },
+  { value: "size", label: "Size" },
+  { value: "dateAdded", label: "Date Added" },
+];
+
 const columnOptions: {
   key: keyof import("@/lib/store/ui").ColumnVisibility;
   label: string;
@@ -80,16 +92,31 @@ const columnOptions: {
   { key: "year", label: "Year" },
 ];
 
+const filesColumnOptions: {
+  key: keyof import("@/lib/store/ui").FilesColumnVisibility;
+  label: string;
+}[] = [
+  { key: "size", label: "Size" },
+  { key: "duration", label: "Duration" },
+  { key: "artist", label: "Artist" },
+  { key: "album", label: "Album" },
+];
+
 export default function LibraryLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [viewMode, setViewMode] = useAtom(albumViewModeAtom);
   const [filter, setFilter] = useAtom(libraryFilterAtom);
   const [sortConfig, setSortConfig] = useAtom(librarySortAtom);
   const [columnVisibility, setColumnVisibility] = useAtom(columnVisibilityAtom);
+  const [filesSortConfig, setFilesSortConfig] = useAtom(filesSortAtom);
+  const [filesColumnVisibility, setFilesColumnVisibility] = useAtom(
+    filesColumnVisibilityAtom,
+  );
   const setAdvancedFilters = useSetAtom(advancedFiltersAtom);
   const setShuffleExcludes = useSetAtom(shuffleExcludesAtom);
   const setShuffleExcludesLoading = useSetAtom(shuffleExcludesLoadingAtom);
@@ -126,13 +153,15 @@ export default function LibraryLayout({
   const isSongsTab = pathname === "/library/songs";
   const isAlbumsTab = pathname === "/library/albums";
   const isArtistsTab = pathname === "/library/artists";
-  const isFilesTab = pathname.startsWith("/library/files");
+  const isFilesTab = pathname === "/library/files";
+  // Files tab is "browsing" when it has a libraryId param (showing directory contents)
+  const isFilesBrowsing = isFilesTab && searchParams.has("libraryId");
 
   // Don't show tabs on detail pages
   const isDetailPage = pathname.includes("/details");
 
-  // Files page has its own header and controls
-  if (isDetailPage || isFilesTab) {
+  // Only detail pages bypass the shared layout entirely
+  if (isDetailPage) {
     return <>{children}</>;
   }
 
@@ -148,6 +177,18 @@ export default function LibraryLayout({
     }
   };
 
+  const handleFilesSort = (field: FilesSortField) => {
+    if (filesSortConfig.field === field) {
+      // Toggle direction
+      setFilesSortConfig({
+        field,
+        direction: filesSortConfig.direction === "asc" ? "desc" : "asc",
+      });
+    } else {
+      setFilesSortConfig({ field, direction: "asc" });
+    }
+  };
+
   const toggleColumn = (key: keyof typeof columnVisibility) => {
     setColumnVisibility((prev) => ({
       ...prev,
@@ -155,7 +196,16 @@ export default function LibraryLayout({
     }));
   };
 
+  const toggleFilesColumn = (key: keyof typeof filesColumnVisibility) => {
+    setFilesColumnVisibility((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
   const SortIcon = sortConfig.direction === "asc" ? ArrowUp : ArrowDown;
+  const FilesSortIcon =
+    filesSortConfig.direction === "asc" ? ArrowUp : ArrowDown;
 
   return (
     <div>
@@ -191,38 +241,103 @@ export default function LibraryLayout({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Sort dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  aria-label="Sort options"
-                >
-                  <ArrowUpDown className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {sortOptions.map((option) => (
-                  <DropdownMenuItem
-                    key={option.value}
-                    onClick={() => handleSort(option.value)}
-                    className="flex items-center justify-between"
+            {/* Sort dropdown - different options for files browsing */}
+            {isFilesBrowsing ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    aria-label="Sort options"
                   >
-                    <span>{option.label}</span>
-                    {sortConfig.field === option.value && (
-                      <SortIcon className="w-4 h-4 text-primary" />
-                    )}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    <ArrowUpDown className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {filesSortOptions.map((option) => (
+                    <DropdownMenuItem
+                      key={option.value}
+                      onClick={() => handleFilesSort(option.value)}
+                      className="flex items-center justify-between"
+                    >
+                      <span>{option.label}</span>
+                      {filesSortConfig.field === option.value && (
+                        <FilesSortIcon className="w-4 h-4 text-primary" />
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : !isFilesTab ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    aria-label="Sort options"
+                  >
+                    <ArrowUpDown className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {sortOptions.map((option) => (
+                    <DropdownMenuItem
+                      key={option.value}
+                      onClick={() => handleSort(option.value)}
+                      className="flex items-center justify-between"
+                    >
+                      <span>{option.label}</span>
+                      {sortConfig.field === option.value && (
+                        <SortIcon className="w-4 h-4 text-primary" />
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
 
-            {/* Column visibility dropdown - only in list view */}
-            {viewMode === "list" && (
+            {/* Column visibility dropdown - different options for files browsing */}
+            {isFilesBrowsing ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    aria-label="Toggle columns"
+                  >
+                    <Columns className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Visible Columns</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {filesColumnOptions.map((option) => (
+                    <DropdownMenuCheckboxItem
+                      key={option.key}
+                      checked={
+                        filesColumnVisibility[
+                          option.key as keyof typeof filesColumnVisibility
+                        ]
+                      }
+                      onCheckedChange={() =>
+                        toggleFilesColumn(
+                          option.key as keyof typeof filesColumnVisibility,
+                        )
+                      }
+                    >
+                      {option.label}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : viewMode === "list" && !isFilesTab ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -256,28 +371,33 @@ export default function LibraryLayout({
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-            )}
+            ) : null}
 
-            <Button
-              variant={viewMode === "grid" ? "secondary" : "ghost"}
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setViewMode("grid")}
-              aria-label="Grid view"
-              aria-pressed={viewMode === "grid"}
-            >
-              <Grid className="w-4 h-4" />
-            </Button>
-            <Button
-              variant={viewMode === "list" ? "secondary" : "ghost"}
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setViewMode("list")}
-              aria-label="List view"
-              aria-pressed={viewMode === "list"}
-            >
-              <List className="w-4 h-4" />
-            </Button>
+            {/* View mode buttons - hidden on Files tab (always uses list view) */}
+            {!isFilesTab && (
+              <>
+                <Button
+                  variant={viewMode === "grid" ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setViewMode("grid")}
+                  aria-label="Grid view"
+                  aria-pressed={viewMode === "grid"}
+                >
+                  <Grid className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant={viewMode === "list" ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setViewMode("list")}
+                  aria-label="List view"
+                  aria-pressed={viewMode === "list"}
+                >
+                  <List className="w-4 h-4" />
+                </Button>
+              </>
+            )}
 
             {/* Advanced filters - on songs, albums, and artists tabs */}
             {(isSongsTab || isAlbumsTab || isArtistsTab) && (
