@@ -29,6 +29,7 @@ import type {
   ListeningStatsResponse,
   StartQueueResponse,
   GetQueueResponse,
+  LibrariesResponse,
   QueueSuccessResponse,
   IndexesResponse,
   DirectoryResponse,
@@ -199,12 +200,19 @@ export class SubsonicClient {
     return this.request<DirectoryResponse>("getMusicDirectory", { id });
   }
 
+  // Get accessible libraries (music folders)
+  async getLibraries(): Promise<LibrariesResponse> {
+    return this.adminRequest<LibrariesResponse>("/ferrotune/libraries");
+  }
+
   // Paginated directory browsing (Ferrotune extension)
   async getDirectoryPaged(
     params: Partial<GetDirectoryPagedParams> = {},
   ): Promise<DirectoryPagedResponse> {
     const queryParams = new URLSearchParams();
-    if (params.id != null) queryParams.set("id", params.id);
+    if (params.libraryId != null)
+      queryParams.set("libraryId", String(params.libraryId));
+    if (params.path != null) queryParams.set("path", params.path);
     if (params.count != null) queryParams.set("count", String(params.count));
     if (params.offset != null) queryParams.set("offset", String(params.offset));
     if (params.sort != null) queryParams.set("sort", params.sort);

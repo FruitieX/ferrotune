@@ -127,7 +127,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/scan/full", get(scan::full_scan_status))
         .route("/ferrotune/scan/cancel", post(scan::cancel_scan))
         .route("/ferrotune/duplicates", get(duplicates::get_duplicates))
-        // Directory browsing endpoint
+        // Directory browsing endpoints
+        .route("/ferrotune/libraries", get(directory::get_libraries))
         .route("/ferrotune/directory", get(directory::get_directory_paged))
         // Filesystem browsing endpoints (for setup)
         .route("/ferrotune/filesystem", get(filesystem::browse_filesystem))

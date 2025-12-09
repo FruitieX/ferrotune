@@ -36,7 +36,7 @@ import {
   connectionStatusAtom,
   isConnectedAtom,
 } from "@/lib/store/auth";
-import { scanDialogOpenAtom } from "@/lib/store/scan";
+import { scanDialogOpenAtom, scanFolderIdAtom, scanFolderNameAtom } from "@/lib/store/scan";
 import { initializeClient, getClient } from "@/lib/api/client";
 import { DirectoryBrowser } from "@/components/admin/directory-browser";
 import { ScanDialog } from "@/components/admin/scan-dialog";
@@ -74,6 +74,15 @@ export default function SetupPage() {
   >(null);
   const [isValidatingFolder, setIsValidatingFolder] = useState(false);
   const setScanDialogOpen = useSetAtom(scanDialogOpenAtom);
+  const setScanFolderId = useSetAtom(scanFolderIdAtom);
+  const setScanFolderName = useSetAtom(scanFolderNameAtom);
+
+  // Helper to open scanner for all libraries
+  const openFullScan = () => {
+    setScanFolderId(null);
+    setScanFolderName(null);
+    setScanDialogOpen(true);
+  };
 
   // Compute backend URL for API calls
   const backendUrl =
@@ -765,7 +774,7 @@ export default function SetupPage() {
                       Open the scanner dialog to start scanning and monitor
                       progress
                     </p>
-                    <Button onClick={() => setScanDialogOpen(true)}>
+                    <Button onClick={openFullScan}>
                       <RefreshCw className="w-4 h-4 mr-2" />
                       Open Scanner
                       <ExternalLink className="w-4 h-4 ml-2" />

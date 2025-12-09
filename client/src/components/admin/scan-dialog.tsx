@@ -17,6 +17,8 @@ import {
   scanProgressAtom,
   scanLogsAtom,
   scanDialogOpenAtom,
+  scanFolderIdAtom,
+  scanFolderNameAtom,
 } from "@/lib/store/scan";
 import {
   Dialog,
@@ -34,6 +36,8 @@ import { cn } from "@/lib/utils";
 
 export function ScanDialog() {
   const [open, setOpen] = useAtom(scanDialogOpenAtom);
+  const [folderId, setFolderId] = useAtom(scanFolderIdAtom);
+  const [folderName, setFolderName] = useAtom(scanFolderNameAtom);
   const progress = useAtomValue(scanProgressAtom);
   const logs = useAtomValue(scanLogsAtom);
   const setProgress = useSetAtom(scanProgressAtom);
@@ -44,6 +48,15 @@ export function ScanDialog() {
   const [fullScan, setFullScan] = useState(false);
   const [dryRun, setDryRun] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
+
+  // Reset folder ID when dialog closes
+  const handleOpenChange = (newOpen: boolean) => {
+    setOpen(newOpen);
+    if (!newOpen) {
+      setFolderId(null);
+      setFolderName(null);
+    }
+  };
 
   // Auto-scroll to bottom of logs
   useEffect(() => {
@@ -64,6 +77,7 @@ export function ScanDialog() {
       const response = await client.startScan({
         full: fullScan,
         dryRun: dryRun,
+        folderId: folderId ?? undefined,
       });
 
       if (response.status === "started") {
@@ -105,19 +119,22 @@ export function ScanDialog() {
       ? Math.round((progress.scanned / progress.total) * 100)
       : undefined;
 
+  const dialogTitle = folderName ? `Scan "${folderName}"` : "Library Scan";
+  const dialogDescription = folderName
+    ? `Scan the "${folderName}" folder for new or changed files`
+    : "Scan your music folders for new or changed files";
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <RefreshCw
               className={cn("w-5 h-5", isScanning && "animate-spin")}
             />
-            Library Scan
+            {dialogTitle}
           </DialogTitle>
-          <DialogDescription>
-            Scan your music folders for new or changed files
-          </DialogDescription>
+          <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 min-h-0 space-y-4">

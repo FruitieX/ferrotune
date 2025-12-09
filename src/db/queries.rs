@@ -1231,12 +1231,62 @@ pub async fn get_songs_by_genre(pool: &SqlitePool, genre: &str) -> sqlx::Result<
 }
 
 /// Get songs recursively under a directory path (includes play stats for sorting)
-pub async fn get_songs_by_directory(pool: &SqlitePool, path: &str) -> sqlx::Result<Vec<Song>> {
-    // Normalize path: if it's a dir- prefixed ID, extract the path
-    let actual_path = path
+/// Supports new format: "libraryId:relativePath" (e.g., "1:Artist/Album")
+/// Also supports legacy format for Subsonic compatibility: "dir-<encoded_path>"
+pub async fn get_songs_by_directory(pool: &SqlitePool, source_id: &str) -> sqlx::Result<Vec<Song>> {
+    // Parse the source ID - new format is "libraryId:path"
+    if let Some((library_id_str, relative_path)) = source_id.split_once(':') {
+        if let Ok(library_id) = library_id_str.parse::<i64>() {
+            // New format: libraryId:relativePath
+            let path_prefix = if relative_path.is_empty() {
+                // Library root - match all songs in this library
+                String::new()
+            } else {
+                format!("{}/", relative_path.trim_end_matches('/'))
+            };
+
+            if path_prefix.is_empty() {
+                // All songs in this library
+                return sqlx::query_as::<_, Song>(
+                    "SELECT s.*, ar.name as artist_name, al.name as album_name,
+                            pc.play_count, pc.last_played, NULL as starred_at
+                     FROM songs s
+                     INNER JOIN artists ar ON s.artist_id = ar.id
+                     LEFT JOIN albums al ON s.album_id = al.id
+                     LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
+                                FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+                     WHERE s.music_folder_id = ?
+                     ORDER BY s.file_path COLLATE NOCASE",
+                )
+                .bind(library_id)
+                .fetch_all(pool)
+                .await;
+            } else {
+                // Songs under a specific path in this library
+                return sqlx::query_as::<_, Song>(
+                    "SELECT s.*, ar.name as artist_name, al.name as album_name,
+                            pc.play_count, pc.last_played, NULL as starred_at
+                     FROM songs s
+                     INNER JOIN artists ar ON s.artist_id = ar.id
+                     LEFT JOIN albums al ON s.album_id = al.id
+                     LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
+                                FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+                     WHERE s.music_folder_id = ? AND s.file_path LIKE ? || '%'
+                     ORDER BY s.file_path COLLATE NOCASE",
+                )
+                .bind(library_id)
+                .bind(&path_prefix)
+                .fetch_all(pool)
+                .await;
+            }
+        }
+    }
+
+    // Legacy format: dir-<encoded_path> or just a path (for Subsonic compatibility)
+    let actual_path = source_id
         .strip_prefix("dir-")
         .map(|p| urlencoding::decode(p).unwrap_or_default().into_owned())
-        .unwrap_or_else(|| path.to_string());
+        .unwrap_or_else(|| source_id.to_string());
 
     // Build path prefix for matching (add trailing slash for non-empty paths)
     let path_prefix = if actual_path.is_empty() {

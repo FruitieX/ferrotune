@@ -149,6 +149,14 @@ export type { DirectoryResponse } from "./generated";
 export type { Directory } from "./generated";
 export type { DirectoryChild } from "./generated";
 
+// Ferrotune library browsing
+export type { LibrariesResponse } from "./generated";
+export type { LibraryInfo } from "./generated";
+export type { DirectoryPagedResponse } from "./generated";
+export type { DirectoryChildPaged } from "./generated";
+export type { BreadcrumbItem } from "./generated";
+export type { GetDirectoryPagedParams } from "./generated";
+
 // getMusicFolders response
 export type { MusicFolders } from "./generated";
 import type { MusicFolders as _MusicFolders } from "./generated";

@@ -22,3 +22,9 @@ export const isScanningAtom = atom((get) => {
 
 // Whether the scan dialog is open
 export const scanDialogOpenAtom = atom(false);
+
+// Which folder ID to scan (null = scan all folders)
+export const scanFolderIdAtom = atom<number | null>(null);
+
+// Folder name for display in dialog (optional)
+export const scanFolderNameAtom = atom<string | null>(null);

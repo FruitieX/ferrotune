@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSetAtom } from "jotai";
 import {
   FolderOpen,
   Plus,
@@ -22,6 +23,11 @@ import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
 import type { MusicFolderInfo } from "@/lib/api/types";
 import { formatFileSize, formatTotalDuration } from "@/lib/utils/format";
+import {
+  scanDialogOpenAtom,
+  scanFolderIdAtom,
+  scanFolderNameAtom,
+} from "@/lib/store/scan";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -369,6 +375,11 @@ export function MusicLibraries() {
   const queryClient = useQueryClient();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
 
+  // Scan dialog atoms
+  const setScanDialogOpen = useSetAtom(scanDialogOpenAtom);
+  const setScanFolderId = useSetAtom(scanFolderIdAtom);
+  const setScanFolderName = useSetAtom(scanFolderNameAtom);
+
   // Fetch music folders
   const { data, isLoading, error } = useQuery({
     queryKey: ["adminMusicFolders"],
@@ -447,24 +458,12 @@ export function MusicLibraries() {
     },
   });
 
-  // Scan mutation
-  const scanMutation = useMutation({
-    mutationFn: async (folderId: number) => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      return client.startScan({ folderId });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["scanStatus"] });
-      toast.success("Scan started");
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to start scan");
-    },
-  });
-
   const handleScan = (id: number) => {
-    scanMutation.mutate(id);
+    // Find the folder name
+    const folder = folders.find((f) => f.id === id);
+    setScanFolderId(id);
+    setScanFolderName(folder?.name ?? null);
+    setScanDialogOpen(true);
   };
 
   const handleToggleEnabled = (id: number, enabled: boolean) => {

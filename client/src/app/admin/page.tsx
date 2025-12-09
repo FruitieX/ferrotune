@@ -8,7 +8,11 @@ import { useSetAtom } from "jotai";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
-import { scanDialogOpenAtom } from "@/lib/store/scan";
+import {
+  scanDialogOpenAtom,
+  scanFolderIdAtom,
+  scanFolderNameAtom,
+} from "@/lib/store/scan";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -31,6 +35,15 @@ export default function AdministrationPage() {
   const isMounted = useIsMounted();
   const { user, isAdmin, isLoading: userLoading } = useCurrentUser();
   const setScanDialogOpen = useSetAtom(scanDialogOpenAtom);
+  const setScanFolderId = useSetAtom(scanFolderIdAtom);
+  const setScanFolderName = useSetAtom(scanFolderNameAtom);
+
+  // Helper to open scanner for all libraries
+  const openFullScan = () => {
+    setScanFolderId(null);
+    setScanFolderName(null);
+    setScanDialogOpen(true);
+  };
 
   // Redirect non-admin users to settings
   useEffect(() => {
@@ -105,7 +118,7 @@ export default function AdministrationPage() {
                 </div>
                 <Button
                   variant="outline"
-                  onClick={() => setScanDialogOpen(true)}
+                  onClick={openFullScan}
                   className="gap-2"
                 >
                   <RefreshCw className="w-4 h-4" />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, Suspense } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useAtomValue, useSetAtom } from "jotai";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -24,9 +24,10 @@ import {
   User,
   Tag,
   FolderOpen,
+  Library,
 } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams, usePathname } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
@@ -59,6 +60,7 @@ import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dial
 import { formatDuration, formatBytes } from "@/lib/utils/format";
 import type { DirectoryChildPaged } from "@/lib/api/generated/DirectoryChildPaged";
 import type { BreadcrumbItem } from "@/lib/api/generated/BreadcrumbItem";
+import type { LibraryInfo } from "@/lib/api/generated/LibraryInfo";
 import type { Song } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
@@ -108,7 +110,10 @@ function directoryChildToSong(child: DirectoryChildPaged): Song | null {
 
 function FilesPageContent() {
   const searchParams = useSearchParams();
-  const directoryId = searchParams.get("id") ?? undefined;
+  // New URL structure: ?libraryId=X&path=relative/path
+  const libraryIdParam = searchParams.get("libraryId");
+  const pathParam = searchParams.get("path") ?? "";
+  const libraryId = libraryIdParam ? Number(libraryIdParam) : null;
 
   const { isReady } = useAuth({ redirectToLogin: true });
   const isConnected = useAtomValue(isConnectedAtom);
@@ -138,12 +143,25 @@ function FilesPageContent() {
     setVisibleColumns((prev) => ({ ...prev, [column]: !prev[column] }));
   };
 
-  // Fetch directory contents with pagination
+  // Fetch accessible libraries for root view
+  const { data: librariesData, isLoading: librariesLoading } = useQuery({
+    queryKey: ["libraries"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.getLibraries();
+    },
+    enabled: isReady && isConnected && libraryId === null,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
+  // Fetch directory contents with pagination (only when libraryId is provided)
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useInfiniteQuery({
       queryKey: [
         "directory-paged",
-        directoryId,
+        libraryId,
+        pathParam,
         sortField,
         sortDir,
         debouncedFilter,
@@ -152,7 +170,8 @@ function FilesPageContent() {
         const client = getClient();
         if (!client) throw new Error("Not connected");
         return client.getDirectoryPaged({
-          id: directoryId ?? null,
+          libraryId: libraryId!,
+          path: pathParam || null,
           count: PAGE_SIZE,
           offset: pageParam,
           sort: sortField,
@@ -170,7 +189,7 @@ function FilesPageContent() {
         return loadedCount < lastPage.total ? loadedCount : undefined;
       },
       initialPageParam: 0,
-      enabled: isReady && isConnected,
+      enabled: isReady && isConnected && libraryId !== null,
       staleTime: 60 * 1000,
     });
 
@@ -203,13 +222,13 @@ function FilesPageContent() {
   // Total selected count (files + directories)
   const totalSelectedCount = selectedSongs.length + selectedDirectories.length;
 
-  // Clear selection when directory changes
-  const currentDirId = directoryId ?? "root";
-  const [lastDirId, setLastDirId] = useState<string>(currentDirId);
-  if (currentDirId !== lastDirId) {
+  // Clear selection when library or path changes
+  const currentKey = `${libraryId ?? "root"}-${pathParam}`;
+  const [lastKey, setLastKey] = useState<string>(currentKey);
+  if (currentKey !== lastKey) {
     setSelectedIds(new Set());
     setLastSelectedId(null);
-    setLastDirId(currentDirId);
+    setLastKey(currentKey);
     setFilterText("");
   }
 
@@ -271,26 +290,28 @@ function FilesPageContent() {
 
   // Playback handlers
   const handlePlayFolder = useCallback(async () => {
-    if (songs.length === 0) return;
+    if (!libraryId) return;
+    const relativePath = pathParam;
     startQueue({
-      sourceType: "other",
+      sourceType: "directory",
+      sourceId: `${libraryId}:${relativePath}`,
       sourceName: directoryInfo?.name ?? "Folder",
-      songIds: songs.map((s) => s.id),
       startIndex: 0,
       shuffle: false,
     });
-  }, [songs, directoryInfo, startQueue]);
+  }, [libraryId, pathParam, directoryInfo, startQueue]);
 
   const handleShuffleFolder = useCallback(async () => {
-    if (songs.length === 0) return;
+    if (!libraryId) return;
+    const relativePath = pathParam;
     startQueue({
-      sourceType: "other",
+      sourceType: "directory",
+      sourceId: `${libraryId}:${relativePath}`,
       sourceName: directoryInfo?.name ?? "Folder",
-      songIds: songs.map((s) => s.id),
       startIndex: 0,
       shuffle: true,
     });
-  }, [songs, directoryInfo, startQueue]);
+  }, [libraryId, pathParam, directoryInfo, startQueue]);
 
   const handlePlaySelected = useCallback(() => {
     if (selectedSongs.length === 0) return;
@@ -305,14 +326,16 @@ function FilesPageContent() {
 
   const handlePlaySong = useCallback(
     (song: Song, index: number) => {
+      if (!libraryId) return;
+      const relativePath = pathParam;
       startQueue({
-        sourceType: "other",
+        sourceType: "directory",
+        sourceId: `${libraryId}:${relativePath}`,
         sourceName: directoryInfo?.name ?? "Folder",
-        songIds: songs.map((s) => s.id),
         startIndex: index,
       });
     },
-    [songs, directoryInfo, startQueue],
+    [libraryId, pathParam, directoryInfo, startQueue],
   );
 
   const handleAddSongToQueue = useCallback(
@@ -338,30 +361,32 @@ function FilesPageContent() {
 
   // Directory playback handlers - use server-side queue materialization
   const handlePlayDirectory = useCallback(
-    (dirId: string) => {
+    (dirPath: string) => {
+      if (!libraryId) return;
       // Find the directory name from items
-      const dir = allItems.find((item) => item.id === dirId);
+      const dir = allItems.find((item) => item.path === dirPath);
       startQueue({
         sourceType: "directory",
-        sourceId: dirId,
+        sourceId: `${libraryId}:${dirPath}`,
         sourceName: dir?.title ?? "Folder",
       });
     },
-    [allItems, startQueue],
+    [allItems, startQueue, libraryId],
   );
 
   const handleAddDirectoryToQueue = useCallback(
-    (dirId: string, position: "next" | "end") => {
+    (dirPath: string, position: "next" | "end") => {
+      if (!libraryId) return;
       addToQueue({
         sourceType: "directory",
-        sourceId: dirId,
+        sourceId: `${libraryId}:${dirPath}`,
         position,
       });
       toast.success(
         position === "next" ? "Added folder to play next" : "Added folder to queue",
       );
     },
-    [addToQueue],
+    [addToQueue, libraryId],
   );
 
   const toggleSort = useCallback(
@@ -376,72 +401,61 @@ function FilesPageContent() {
     [sortField],
   );
 
+  // Show library selection if no library is selected
+  if (libraryId === null) {
+    return (
+      <div className="min-h-screen">
+        {/* Library Tab Navigation */}
+        <LibraryTabNav />
+
+        {/* Header */}
+        <div className="px-4 lg:px-6 pt-8 pb-4">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center gap-3"
+          >
+            <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center">
+              <Library className="w-6 h-6" />
+            </div>
+            <div className="flex-1">
+              <h1 className="text-2xl font-bold">Browse Files</h1>
+              <p className="text-sm text-muted-foreground">
+                Select a library to browse your music by folder structure
+              </p>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Libraries List */}
+        <div className="px-4 lg:px-6 pb-24">
+          {librariesLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-[56px] w-full rounded-lg" />
+              ))}
+            </div>
+          ) : librariesData?.libraries.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Library className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>No music libraries available</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {librariesData?.libraries.map((library) => (
+                <LibraryCard key={library.id} library={library} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen">
       {/* Library Tab Navigation */}
-      <nav
-        className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border"
-        aria-label="Library sections"
-      >
-        <div className="h-12 flex items-center px-4 lg:px-6 gap-1">
-          <Link
-            href="/library/albums"
-            className={cn(
-              "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              "text-muted-foreground hover:text-foreground hover:bg-accent/70",
-            )}
-          >
-            <Disc className="w-4 h-4" aria-hidden="true" />
-            <span>Albums</span>
-          </Link>
-          <Link
-            href="/library/artists"
-            className={cn(
-              "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              "text-muted-foreground hover:text-foreground hover:bg-accent/70",
-            )}
-          >
-            <User className="w-4 h-4" aria-hidden="true" />
-            <span>Artists</span>
-          </Link>
-          <Link
-            href="/library/songs"
-            className={cn(
-              "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              "text-muted-foreground hover:text-foreground hover:bg-accent/70",
-            )}
-          >
-            <Music className="w-4 h-4" aria-hidden="true" />
-            <span>Songs</span>
-          </Link>
-          <Link
-            href="/library/genres"
-            className={cn(
-              "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              "text-muted-foreground hover:text-foreground hover:bg-accent/70",
-            )}
-          >
-            <Tag className="w-4 h-4" aria-hidden="true" />
-            <span>Genres</span>
-          </Link>
-          <Link
-            href="/library/files"
-            className={cn(
-              "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              "bg-accent text-accent-foreground",
-            )}
-            aria-current="page"
-          >
-            <FolderOpen className="w-4 h-4" aria-hidden="true" />
-            <span>Files</span>
-          </Link>
-        </div>
-      </nav>
+      <LibraryTabNav />
 
       {/* Header */}
       <div className="px-4 lg:px-6 pt-8 pb-4">
@@ -455,7 +469,7 @@ function FilesPageContent() {
           </div>
           <div className="flex-1">
             <h1 className="text-2xl font-bold">
-              {directoryInfo?.name ?? "Browse Files"}
+              {directoryInfo?.name ?? directoryInfo?.libraryName ?? "Browse Files"}
             </h1>
             <p className="text-sm text-muted-foreground">
               {directoryInfo
@@ -504,7 +518,9 @@ function FilesPageContent() {
         {/* Breadcrumbs */}
         <Breadcrumbs
           breadcrumbs={breadcrumbs}
-          currentName={directoryInfo?.name ?? "Files"}
+          currentName={directoryInfo?.name ?? directoryInfo?.libraryName ?? "Files"}
+          libraryId={libraryId}
+          libraryName={directoryInfo?.libraryName ?? "Library"}
         />
 
         {/* Filter and Sort Controls */}
@@ -656,6 +672,7 @@ function FilesPageContent() {
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
             visibleColumns={visibleColumns}
+            libraryId={libraryId}
           />
         )}
       </div>
@@ -685,48 +702,154 @@ function FilesPageContent() {
 interface BreadcrumbsProps {
   breadcrumbs: BreadcrumbItem[];
   currentName: string;
+  libraryId: number;
+  libraryName: string;
 }
 
-function Breadcrumbs({ breadcrumbs, currentName }: BreadcrumbsProps) {
-  if (breadcrumbs.length === 0) return null;
-
-  // Filter out the last breadcrumb if it's the same as currentName
-  // (the API may include the current directory in breadcrumbs)
-  const filteredBreadcrumbs = breadcrumbs.filter(
-    (crumb, index) =>
-      index !== breadcrumbs.length - 1 || crumb.name !== currentName,
-  );
-
+function Breadcrumbs({ breadcrumbs, currentName, libraryId, libraryName }: BreadcrumbsProps) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className="flex items-center gap-1 mt-4 text-sm text-muted-foreground flex-wrap"
     >
-      {filteredBreadcrumbs.map((crumb, index) => (
-        <span key={crumb.id} className="flex items-center gap-1">
-          {index > 0 && <ChevronRight className="w-4 h-4 shrink-0" />}
-          {index === 0 ? (
-            <Link
-              href="/library/files"
-              className="flex items-center gap-1 hover:text-foreground transition-colors"
-            >
-              <Home className="w-4 h-4" />
-              <span>Files</span>
-            </Link>
-          ) : (
-            <Link
-              href={`/library/files?id=${encodeURIComponent(crumb.id)}`}
-              className="hover:text-foreground transition-colors truncate max-w-32"
-            >
-              {crumb.name}
-            </Link>
-          )}
-        </span>
-      ))}
+      {/* Files root */}
+      <Link
+        href="/library/files"
+        className="flex items-center gap-1 hover:text-foreground transition-colors"
+      >
+        <Home className="w-4 h-4" />
+        <span>Files</span>
+      </Link>
       <ChevronRight className="w-4 h-4 shrink-0" />
-      <span className="text-foreground truncate">{currentName}</span>
+
+      {/* Library name as link to library root */}
+      {breadcrumbs.length > 0 ? (
+        <>
+          <Link
+            href={`/library/files?libraryId=${libraryId}`}
+            className="hover:text-foreground transition-colors truncate max-w-32"
+          >
+            {libraryName}
+          </Link>
+          {breadcrumbs.map((crumb) => (
+            <span key={crumb.id} className="flex items-center gap-1">
+              <ChevronRight className="w-4 h-4 shrink-0" />
+              <Link
+                href={`/library/files?libraryId=${libraryId}&path=${encodeURIComponent(crumb.id)}`}
+                className="hover:text-foreground transition-colors truncate max-w-32"
+              >
+                {crumb.name}
+              </Link>
+            </span>
+          ))}
+          <ChevronRight className="w-4 h-4 shrink-0" />
+          <span className="text-foreground truncate">{currentName}</span>
+        </>
+      ) : (
+        // At library root, show library name as current (not a link)
+        <span className="text-foreground truncate">{libraryName}</span>
+      )}
     </motion.div>
+  );
+}
+
+// Library tab navigation component
+function LibraryTabNav() {
+  return (
+    <nav
+      className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border"
+      aria-label="Library sections"
+    >
+      <div className="h-12 flex items-center px-4 lg:px-6 gap-1">
+        <Link
+          href="/library/albums"
+          className={cn(
+            "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "text-muted-foreground hover:text-foreground hover:bg-accent/70",
+          )}
+        >
+          <Disc className="w-4 h-4" aria-hidden="true" />
+          <span>Albums</span>
+        </Link>
+        <Link
+          href="/library/artists"
+          className={cn(
+            "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "text-muted-foreground hover:text-foreground hover:bg-accent/70",
+          )}
+        >
+          <User className="w-4 h-4" aria-hidden="true" />
+          <span>Artists</span>
+        </Link>
+        <Link
+          href="/library/songs"
+          className={cn(
+            "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "text-muted-foreground hover:text-foreground hover:bg-accent/70",
+          )}
+        >
+          <Music className="w-4 h-4" aria-hidden="true" />
+          <span>Songs</span>
+        </Link>
+        <Link
+          href="/library/genres"
+          className={cn(
+            "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "text-muted-foreground hover:text-foreground hover:bg-accent/70",
+          )}
+        >
+          <Tag className="w-4 h-4" aria-hidden="true" />
+          <span>Genres</span>
+        </Link>
+        <Link
+          href="/library/files"
+          className={cn(
+            "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "bg-accent text-accent-foreground",
+          )}
+          aria-current="page"
+        >
+          <FolderOpen className="w-4 h-4" aria-hidden="true" />
+          <span>Files</span>
+        </Link>
+      </div>
+    </nav>
+  );
+}
+
+// Library card for library selection view
+interface LibraryCardProps {
+  library: LibraryInfo;
+}
+
+function LibraryCard({ library }: LibraryCardProps) {
+  return (
+    <Link href={`/library/files?libraryId=${library.id}`}>
+      <div
+        className={cn(
+          "flex items-center gap-3 px-3 py-2 rounded-lg h-[56px]",
+          "hover:bg-muted/50 transition-colors cursor-pointer group",
+        )}
+      >
+        {/* Library icon */}
+        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0">
+          <Library className="w-5 h-5 text-muted-foreground" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-medium truncate">{library.name}</p>
+          <p className="text-sm text-muted-foreground">
+            {library.songCount} songs • {formatBytes(library.totalSize)}
+          </p>
+        </div>
+        <ChevronRight className="w-5 h-5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+      </div>
+    </Link>
   );
 }
 
@@ -745,13 +868,14 @@ interface DirectoryContentsProps {
   onSelect: (id: string, e: React.MouseEvent, isCheckbox?: boolean) => void;
   onPlaySong: (song: Song, index: number) => void;
   onAddToQueue: (songId: string, position: "next" | "end") => void;
-  onPlayDirectory: (dirId: string) => void;
-  onAddDirectoryToQueue: (dirId: string, position: "next" | "end") => void;
+  onPlayDirectory: (dirPath: string) => void;
+  onAddDirectoryToQueue: (dirPath: string, position: "next" | "end") => void;
   songs: Song[];
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
   visibleColumns: VisibleColumns;
+  libraryId: number;
 }
 
 function DirectoryContents({
@@ -768,6 +892,7 @@ function DirectoryContents({
   isFetchingNextPage,
   fetchNextPage,
   visibleColumns,
+  libraryId,
 }: DirectoryContentsProps) {
   // Helper to get cover art URL
   const getCoverUrl = (coverArt: string | null | undefined) => {
@@ -796,15 +921,14 @@ function DirectoryContents({
             coverUrl={getCoverUrl(item.coverArt)}
             isSelected={isSelected}
             onSelect={onSelect}
-            onPlay={() => onPlayDirectory(item.id)}
-            onAddToQueue={(position) => onAddDirectoryToQueue(item.id, position)}
+            onPlay={() => onPlayDirectory(item.path ?? "")}
+            onAddToQueue={(position) => onAddDirectoryToQueue(item.path ?? "", position)}
             visibleColumns={visibleColumns}
+            libraryId={libraryId}
           />
         ) : (
           <FileRow
             item={item}
-            song={song!}
-            songIndex={songIndex}
             coverUrl={getCoverUrl(item.coverArt)}
             isSelected={isSelected}
             onSelect={onSelect}
@@ -828,6 +952,7 @@ interface DirectoryRowProps {
   onPlay: () => void;
   onAddToQueue: (position: "next" | "end") => void;
   visibleColumns: VisibleColumns;
+  libraryId: number;
 }
 
 function DirectoryRow({
@@ -838,7 +963,13 @@ function DirectoryRow({
   onPlay,
   onAddToQueue,
   visibleColumns,
+  libraryId,
 }: DirectoryRowProps) {
+  // Build the URL for navigating into this directory
+  const dirUrl = item.path
+    ? `/library/files?libraryId=${libraryId}&path=${encodeURIComponent(item.path)}`
+    : `/library/files?libraryId=${libraryId}`;
+
   const handleClick = (e: React.MouseEvent) => {
     if (e.shiftKey || e.ctrlKey || e.metaKey) {
       e.preventDefault();
@@ -877,7 +1008,7 @@ function DirectoryRow({
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem asChild>
-        <Link href={`/library/files?id=${encodeURIComponent(item.id)}`}>
+        <Link href={dirUrl}>
           <FolderPlus className="w-4 h-4 mr-2" />
           Open Folder
         </Link>
@@ -889,7 +1020,7 @@ function DirectoryRow({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <Link
-          href={`/library/files?id=${encodeURIComponent(item.id)}`}
+          href={dirUrl}
           onClick={handleClick}
         >
           <div
@@ -1002,9 +1133,7 @@ function DirectoryRow({
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    <Link
-                      href={`/library/files?id=${encodeURIComponent(item.id)}`}
-                    >
+                    <Link href={dirUrl}>
                       <FolderPlus className="w-4 h-4 mr-2" />
                       Open Folder
                     </Link>
@@ -1025,8 +1154,6 @@ function DirectoryRow({
 // File row component with selection and context menu
 interface FileRowProps {
   item: DirectoryChildPaged;
-  song: Song;
-  songIndex: number;
   coverUrl?: string;
   isSelected: boolean;
   onSelect: (id: string, e: React.MouseEvent, isCheckbox?: boolean) => void;
@@ -1037,8 +1164,6 @@ interface FileRowProps {
 
 function FileRow({
   item,
-  song,
-  songIndex,
   coverUrl,
   isSelected,
   onSelect,
