@@ -784,29 +784,6 @@ export class SubsonicClient {
     );
   }
 
-  // Waveform data (Admin API)
-  async getWaveform(
-    songId: string,
-    resolution: number = 200,
-  ): Promise<{ heights: number[]; peak_rms: number }> {
-    const url = `${this.buildAdminUrl(`/ferrotune/songs/${encodeURIComponent(songId)}/waveform`)}?resolution=${resolution}`;
-
-    const headers: Record<string, string> = {};
-    if (this.username && this.password) {
-      headers["Authorization"] =
-        `Basic ${btoa(`${this.username}:${this.password}`)}`;
-    }
-
-    const response = await fetch(url, { headers });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || `HTTP error: ${response.status}`);
-    }
-
-    return response.json();
-  }
-
   // Streaming waveform URL (Admin API - returns URL for SSE endpoint)
   getWaveformStreamUrl(songId: string, resolution: number = 200): string {
     // Build URL with resolution param

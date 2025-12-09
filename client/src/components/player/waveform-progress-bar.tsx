@@ -91,6 +91,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
   const [isHovering, setIsHovering] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [containerWidth, setContainerWidth] = useState(0); // Start at 0, update on mount
 
@@ -585,13 +586,50 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   }, [draw, containerWidth]);
 
   // Event handlers
-  const handleClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      seekPercent(((e.clientX - rect.left) / rect.width) * 100);
+  const getPercentFromEvent = useCallback(
+    (clientX: number) => {
+      const container = containerRef.current;
+      if (!container) return 0;
+      const rect = container.getBoundingClientRect();
+      return Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
     },
-    [seekPercent],
+    [],
   );
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return; // Only left click
+      e.preventDefault();
+      setIsDragging(true);
+      const percent = getPercentFromEvent(e.clientX);
+      setHoverPercent(percent);
+      seekPercent(percent);
+    },
+    [seekPercent, getPercentFromEvent],
+  );
+
+  // Handle mouse move during drag (global listener)
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      const percent = getPercentFromEvent(e.clientX);
+      setHoverPercent(percent);
+      seekPercent(percent);
+    };
+
+    const handleGlobalMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    window.addEventListener("mousemove", handleGlobalMouseMove);
+    window.addEventListener("mouseup", handleGlobalMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleGlobalMouseMove);
+      window.removeEventListener("mouseup", handleGlobalMouseUp);
+    };
+  }, [isDragging, seekPercent, getPercentFromEvent]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -644,6 +682,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
         "absolute left-0 right-0 cursor-pointer overflow-visible",
         "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         !hasTrack && "opacity-50 cursor-default",
+        isDragging && "cursor-grabbing",
         className,
       )}
       style={{
@@ -651,13 +690,15 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
         height: `${waveformHeight}px`,
         zIndex: 100,
       }}
-      onClick={hasTrack ? handleClick : undefined}
+      onMouseDown={hasTrack ? handleMouseDown : undefined}
       onKeyDown={hasTrack ? handleKeyDown : undefined}
-      onMouseMove={hasTrack ? handleMouseMove : undefined}
+      onMouseMove={hasTrack && !isDragging ? handleMouseMove : undefined}
       onMouseEnter={hasTrack ? () => setIsHovering(true) : undefined}
       onMouseLeave={() => {
-        setIsHovering(false);
-        setHoverPercent(null);
+        if (!isDragging) {
+          setIsHovering(false);
+          setHoverPercent(null);
+        }
       }}
     >
       <div className="absolute inset-0 -top-2 -bottom-2" />
@@ -666,7 +707,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
         className="absolute inset-0 w-full h-full"
         style={{ imageRendering: "pixelated" }}
       />
-      {isHovering && hoverPercent !== null && hoverTime !== null && (
+      {(isHovering || isDragging) && hoverPercent !== null && hoverTime !== null && (
         <div
           className="absolute bottom-full mb-2 px-2 py-1 text-xs font-medium rounded bg-popover text-popover-foreground shadow-md border border-border whitespace-nowrap pointer-events-none"
           style={{ left: `${hoverPercent}%`, transform: "translateX(-50%)" }}

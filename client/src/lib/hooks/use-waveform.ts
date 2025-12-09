@@ -212,41 +212,8 @@ export function useWaveform() {
         }
       } catch (error) {
         if ((error as Error).name === "AbortError") return;
-
-        console.warn(
-          "[Waveform] Streaming failed, falling back to batch:",
-          error,
-        );
-        await fetchWaveformBatch();
-      }
-    };
-
-    // Fallback batch fetch
-    const fetchWaveformBatch = async () => {
-      const client = getClient();
-      if (!client) return;
-
-      try {
-        const data = await client.getWaveform(trackId, WAVEFORM_BAR_COUNT);
-
-        if (abortController.signal.aborted) return;
-
-        setWaveformCache((prev) => {
-          const next = new Map(prev);
-          next.set(trackId, {
-            heights: data.heights,
-            isLoaded: true,
-          });
-          return next;
-        });
-        setStreamingHeights(null);
-      } catch (error) {
-        if ((error as Error).name === "AbortError") return;
         console.warn("[Waveform] Failed to fetch waveform:", error);
-      } finally {
-        if (!abortController.signal.aborted) {
-          setLoadingId(null);
-        }
+        setLoadingId(null);
       }
     };
 

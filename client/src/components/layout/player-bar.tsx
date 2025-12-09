@@ -278,6 +278,19 @@ const VolumeControls = memo(function VolumeControls() {
   const VolumeIcon =
     isMuted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
+  // Handle scroll wheel to adjust volume
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      e.preventDefault();
+      // Scroll up = increase volume, scroll down = decrease
+      // Use small step (5%) for fine control
+      const delta = e.deltaY < 0 ? 0.05 : -0.05;
+      const newVolume = Math.max(0, Math.min(1, volume + delta));
+      changeVolume(newVolume);
+    },
+    [volume, changeVolume],
+  );
+
   return (
     <>
       {/* Volume control - popover on mobile, inline on desktop */}
@@ -320,7 +333,10 @@ const VolumeControls = memo(function VolumeControls() {
       </Popover>
 
       {/* Desktop volume - hidden on mobile */}
-      <div className="hidden sm:flex items-center gap-2 w-32">
+      <div
+        className="hidden sm:flex items-center gap-2 w-32"
+        onWheel={handleWheel}
+      >
         <Button
           variant="ghost"
           size="icon"
