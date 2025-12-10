@@ -34,10 +34,7 @@ import {
   RowDropdownTrigger,
   RowActions,
 } from "@/components/shared/media-row";
-import {
-  startQueueAtom,
-  addToQueueAtom,
-} from "@/lib/store/server-queue";
+import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import type { Genre, Song } from "@/lib/api/types";
 

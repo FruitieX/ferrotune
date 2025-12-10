@@ -47,10 +47,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  startQueueAtom,
-  addToQueueAtom,
-} from "@/lib/store/server-queue";
+import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { EditPlaylistDialog } from "./edit-playlist-dialog";
 import {

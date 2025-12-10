@@ -68,10 +68,7 @@ interface NowPlayingInfoProps {
 }
 
 /** Now playing track info - only re-renders when track changes */
-function NowPlayingInfo({
-  track,
-  isEnded,
-}: NowPlayingInfoProps) {
+function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
   // Use global starred state
   const { isStarred, toggleStar } = useStarred(
     track?.id ?? "",
@@ -148,10 +145,7 @@ interface PlaybackControlsProps {
 }
 
 /** Play/pause and skip buttons - only re-renders when playback state changes */
-function PlaybackControls({
-  hasTrack,
-  playbackState,
-}: PlaybackControlsProps) {
+function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
   const { togglePlayPause, next, previous } = useAudioEngine();
   const { isShuffled, toggleShuffle } = useShuffle();
   const { repeatMode, cycleRepeatMode } = useRepeatMode();

@@ -177,9 +177,7 @@ export default function RootLayout({
 
                 {/* Main content area - uses MainContent wrapper for responsive margins */}
                 <MainContent>
-                  <Suspense>
-                    {children}
-                  </Suspense>
+                  <Suspense>{children}</Suspense>
                 </MainContent>
 
                 {/* Queue sidebar - desktop only, fixed right side, spans full height of main container */}

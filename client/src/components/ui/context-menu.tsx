@@ -217,10 +217,7 @@ function ContextMenuSeparator({
   );
 }
 
-function ContextMenuShortcut({
-  className,
-  ...props
-}: ComponentProps<"span">) {
+function ContextMenuShortcut({ className, ...props }: ComponentProps<"span">) {
   return (
     <span
       data-slot="context-menu-shortcut"

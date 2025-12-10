@@ -46,9 +46,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getClient } from "@/lib/api/client";
-import {
-  type PlaylistFolder,
-} from "@/lib/utils/playlist-folders";
+import { type PlaylistFolder } from "@/lib/utils/playlist-folders";
 import type { Playlist } from "@/lib/api/types";
 
 interface FolderContextMenuProps {

@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  useState,
-  useEffect,
-  Suspense,
-} from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
@@ -473,7 +469,10 @@ function PlaylistDetailContent() {
   // Check if a song at a given playlist position is the currently playing track
   // Uses the server-provided songIndex which maps directly to queue indices
   // Returns undefined if we can't determine (falls back to song ID matching in SongRow)
-  const isCurrentQueuePosition = (songIndex: number | undefined, _songId: string): boolean | undefined => {
+  const isCurrentQueuePosition = (
+    songIndex: number | undefined,
+    _songId: string,
+  ): boolean | undefined => {
     if (!queueState || songIndex === undefined) return undefined;
 
     // Check if the queue source is this playlist
@@ -640,7 +639,11 @@ function PlaylistDetailContent() {
   };
 
   // Missing entry selection handler (wrapper for unified handler)
-  const handleMissingSelect = (id: string, selected: boolean, event?: React.MouseEvent) => {
+  const handleMissingSelect = (
+    id: string,
+    selected: boolean,
+    event?: React.MouseEvent,
+  ) => {
     // Extract position from "missing-{position}" format
     const match = id.match(/^missing-(\d+)$/);
     if (match) {

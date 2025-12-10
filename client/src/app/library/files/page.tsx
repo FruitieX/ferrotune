@@ -181,7 +181,9 @@ function FilesPageContent() {
   const selectedSongs = songs.filter((s) => selectedIds.has(s.id));
 
   // Get selected directories
-  const selectedDirectories = allItems.filter((item) => item.isDir && selectedIds.has(item.id));
+  const selectedDirectories = allItems.filter(
+    (item) => item.isDir && selectedIds.has(item.id),
+  );
 
   // Total selected count (files + directories)
   const totalSelectedCount = selectedSongs.length + selectedDirectories.length;
@@ -196,7 +198,11 @@ function FilesPageContent() {
   }
 
   // Selection handlers - supports both files and directories
-  const handleSelect = (id: string, e: React.MouseEvent, isCheckbox = false) => {
+  const handleSelect = (
+    id: string,
+    e: React.MouseEvent,
+    isCheckbox = false,
+  ) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
 
@@ -326,7 +332,10 @@ function FilesPageContent() {
     });
   };
 
-  const handleAddDirectoryToQueue = (dirPath: string, position: "next" | "end") => {
+  const handleAddDirectoryToQueue = (
+    dirPath: string,
+    position: "next" | "end",
+  ) => {
     if (!libraryId) return;
     addToQueue({
       sourceType: "directory",

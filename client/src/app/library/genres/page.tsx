@@ -62,7 +62,10 @@ export default function GenresPage() {
   })();
 
   // Genre selection - use value as id since genres don't have an id field
-  const genresWithId = (filteredGenres ?? []).map((g) => ({ ...g, id: g.value }));
+  const genresWithId = (filteredGenres ?? []).map((g) => ({
+    ...g,
+    id: g.value,
+  }));
 
   const {
     selectedCount,

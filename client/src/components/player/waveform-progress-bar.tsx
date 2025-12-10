@@ -131,7 +131,11 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     return Math.min(maxBars, sourceBarCount);
   })();
 
-  const heights = downsampleHeights(sourceHeights, sourceBarCount, displayBarCount);
+  const heights = downsampleHeights(
+    sourceHeights,
+    sourceBarCount,
+    displayBarCount,
+  );
 
   const rawTrackId = currentTrack?.id ?? null;
   const isEnded = playbackState === "ended";
@@ -324,98 +328,94 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
 
   // Animation loop
   const animate = (time: number) => {
-      const a = anim.current;
-      const delta = a.lastTime === 0 ? 16 : time - a.lastTime;
-      a.lastTime = time;
+    const a = anim.current;
+    const delta = a.lastTime === 0 ? 16 : time - a.lastTime;
+    a.lastTime = time;
 
-      const barCount = a.heights?.length ?? 0;
-      if (barCount === 0) {
-        a.rafId = requestAnimationFrame(animate);
-        return;
+    const barCount = a.heights?.length ?? 0;
+    if (barCount === 0) {
+      a.rafId = requestAnimationFrame(animate);
+      return;
+    }
+
+    const endPos = 1 + WAVE_WIDTH;
+    const speed = (ANIMATION_SPEED * delta) / 1000;
+    let changed = false;
+
+    // Advance outgoing wave
+    if (a.outProgress > 0 && a.outProgress < endPos) {
+      a.outProgress = Math.min(endPos, a.outProgress + speed);
+      changed = true;
+    }
+
+    // Start incoming when outgoing has advanced enough AND we have sufficient data buffered
+    // Use chunk-based buffer: need at least MIN_CHUNK_BUFFER chunks
+    const hasEnoughData =
+      a.loadComplete || a.receivedChunks >= MIN_CHUNK_BUFFER;
+    if (a.inProgress === 0 && hasEnoughData && a.outProgress >= PROGRESS_GAP) {
+      a.inProgress = 0.001;
+    }
+
+    // Advance incoming wave
+    if (a.inProgress > 0 && a.inProgress < endPos) {
+      // Calculate how far we can animate based on chunk buffer
+      const dataProgress = a.lastChunkEndIndex / barCount;
+
+      // Adaptive speed based on chunk buffer
+      let inSpeed = speed;
+      if (a.loadComplete) {
+        // All data loaded - animate at full speed
+        inSpeed = speed;
+      } else {
+        // Calculate chunks ahead of animation
+        const animatedBarIndex = a.inProgress * barCount;
+        const chunksAhead =
+          a.receivedChunks -
+          Math.floor(
+            (animatedBarIndex / a.lastChunkEndIndex) * a.receivedChunks,
+          );
+
+        if (chunksAhead < MIN_CHUNK_BUFFER) {
+          // Too close to data edge - pause/very slow
+          inSpeed *= 0.05;
+        } else if (chunksAhead < TARGET_CHUNK_BUFFER) {
+          // Below target - slow down
+          inSpeed *= 0.3;
+        } else if (chunksAhead > MAX_CHUNK_BUFFER) {
+          // Too far ahead - speed up
+          inSpeed *= 1.5;
+        }
+        // else: in sweet spot, use base speed
       }
 
-      const endPos = 1 + WAVE_WIDTH;
-      const speed = (ANIMATION_SPEED * delta) / 1000;
-      let changed = false;
-
-      // Advance outgoing wave
-      if (a.outProgress > 0 && a.outProgress < endPos) {
-        a.outProgress = Math.min(endPos, a.outProgress + speed);
+      // Only advance if we have data ahead or loading is complete
+      const maxProgress = a.loadComplete ? endPos : dataProgress;
+      if (a.inProgress < maxProgress || a.loadComplete) {
+        a.inProgress = Math.min(endPos, a.inProgress + inSpeed);
         changed = true;
       }
+    }
 
-      // Start incoming when outgoing has advanced enough AND we have sufficient data buffered
-      // Use chunk-based buffer: need at least MIN_CHUNK_BUFFER chunks
-      const hasEnoughData =
-        a.loadComplete || a.receivedChunks >= MIN_CHUNK_BUFFER;
-      if (
-        a.inProgress === 0 &&
-        hasEnoughData &&
-        a.outProgress >= PROGRESS_GAP
-      ) {
-        a.inProgress = 0.001;
-      }
+    // Check if done - both waves must have completed their full animation
+    const outComplete = a.outProgress >= endPos;
+    const inComplete = a.inProgress >= endPos;
 
-      // Advance incoming wave
-      if (a.inProgress > 0 && a.inProgress < endPos) {
-        // Calculate how far we can animate based on chunk buffer
-        const dataProgress = a.lastChunkEndIndex / barCount;
+    // Only stop when both are complete (or outgoing was never started, which shouldn't happen)
+    if (outComplete && inComplete) {
+      // Reset for next track change
+      a.outProgress = 0;
+      a.rafId = null;
+      a.lastTime = 0;
+      return;
+    }
 
-        // Adaptive speed based on chunk buffer
-        let inSpeed = speed;
-        if (a.loadComplete) {
-          // All data loaded - animate at full speed
-          inSpeed = speed;
-        } else {
-          // Calculate chunks ahead of animation
-          const animatedBarIndex = a.inProgress * barCount;
-          const chunksAhead =
-            a.receivedChunks -
-            Math.floor(
-              (animatedBarIndex / a.lastChunkEndIndex) * a.receivedChunks,
-            );
+    if (changed) {
+      updateHeights();
+      draw();
+    }
 
-          if (chunksAhead < MIN_CHUNK_BUFFER) {
-            // Too close to data edge - pause/very slow
-            inSpeed *= 0.05;
-          } else if (chunksAhead < TARGET_CHUNK_BUFFER) {
-            // Below target - slow down
-            inSpeed *= 0.3;
-          } else if (chunksAhead > MAX_CHUNK_BUFFER) {
-            // Too far ahead - speed up
-            inSpeed *= 1.5;
-          }
-          // else: in sweet spot, use base speed
-        }
-
-        // Only advance if we have data ahead or loading is complete
-        const maxProgress = a.loadComplete ? endPos : dataProgress;
-        if (a.inProgress < maxProgress || a.loadComplete) {
-          a.inProgress = Math.min(endPos, a.inProgress + inSpeed);
-          changed = true;
-        }
-      }
-
-      // Check if done - both waves must have completed their full animation
-      const outComplete = a.outProgress >= endPos;
-      const inComplete = a.inProgress >= endPos;
-
-      // Only stop when both are complete (or outgoing was never started, which shouldn't happen)
-      if (outComplete && inComplete) {
-        // Reset for next track change
-        a.outProgress = 0;
-        a.rafId = null;
-        a.lastTime = 0;
-        return;
-      }
-
-      if (changed) {
-        updateHeights();
-        draw();
-      }
-
-      a.rafId = requestAnimationFrame(animate);
-    };
+    a.rafId = requestAnimationFrame(animate);
+  };
 
   // Start animation
   const startAnim = () => {

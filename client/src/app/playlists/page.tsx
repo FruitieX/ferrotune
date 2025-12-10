@@ -222,7 +222,9 @@ function PlaylistsPageContent() {
   };
 
   // Organize playlists into folder tree
-  const playlistTree = playlists ? organizePlaylistsIntoFolders(playlists) : null;
+  const playlistTree = playlists
+    ? organizePlaylistsIntoFolders(playlists)
+    : null;
 
   // Get current folder from path
   const currentFolder = (() => {

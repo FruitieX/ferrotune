@@ -165,9 +165,7 @@ export function usePlaylistSelection(playlists: Playlist[]) {
         name: newPlaylistName,
         songId: songs.map((s: Song) => s.id),
       });
-      toast.success(
-        `Created "${newPlaylistName}" with ${songs.length} songs`,
-      );
+      toast.success(`Created "${newPlaylistName}" with ${songs.length} songs`);
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       clearSelection();
     } catch (error) {

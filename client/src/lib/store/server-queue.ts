@@ -13,11 +13,7 @@
  */
 
 import { atom } from "jotai";
-import type {
-  Song,
-  QueueSourceInfo,
-  QueueWindow,
-} from "@/lib/api/types";
+import type { Song, QueueSourceInfo, QueueWindow } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 
 // ============================================================================

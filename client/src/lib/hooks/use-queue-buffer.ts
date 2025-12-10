@@ -79,7 +79,10 @@ export function useQueueBuffer() {
         needsFetch = true;
       }
       // Near end of buffer - need to fetch forwards
-      else if (distanceToEnd < PREFETCH_THRESHOLD && windowEnd < totalCount - 1) {
+      else if (
+        distanceToEnd < PREFETCH_THRESHOLD &&
+        windowEnd < totalCount - 1
+      ) {
         fetchOffset = windowEnd + 1;
         fetchLimit = Math.min(BUFFER_RADIUS, totalCount - fetchOffset);
         needsFetch = true;

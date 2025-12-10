@@ -30,10 +30,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
-import {
-  startQueueAtom,
-  addToQueueAtom,
-} from "@/lib/store/server-queue";
+import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { useInvalidateFavorites } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
 import type { Artist, Song } from "@/lib/api/types";

@@ -127,7 +127,10 @@ function QueueSourceDisplay({ variant }: { variant: "mobile" | "desktop" }) {
         isMobile ? "text-sm" : "text-xs",
       )}
     >
-      <QueueSourceIcon type={queueSource.type} className="w-3.5 h-3.5 shrink-0" />
+      <QueueSourceIcon
+        type={queueSource.type}
+        className="w-3.5 h-3.5 shrink-0"
+      />
       <span className="truncate">
         Playing from{" "}
         {queueSource.name ||

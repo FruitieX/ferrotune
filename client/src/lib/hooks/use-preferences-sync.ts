@@ -95,7 +95,7 @@ export function usePreferencesSync() {
   useEffect(() => {
     if (isSuccess && serverPreferences && !hasLoadedFromServer) {
       isApplyingServerValues.current = true;
-      
+
       // Schedule state updates to avoid synchronous setState in effect
       const timeoutId = setTimeout(() => {
         setHasLoadedFromServer(true);
@@ -129,7 +129,7 @@ export function usePreferencesSync() {
           isApplyingServerValues.current = false;
         }, 100);
       }, 0);
-      
+
       return () => clearTimeout(timeoutId);
     }
   }, [

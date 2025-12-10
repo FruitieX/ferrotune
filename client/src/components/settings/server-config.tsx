@@ -53,8 +53,9 @@ export function ServerConfig() {
   const [readonlyTags, setReadonlyTags] = useState(false);
 
   // Track the config we've synced form state from
-  const [syncedConfig, setSyncedConfig] =
-    useState<ServerConfigResponse | null>(null);
+  const [syncedConfig, setSyncedConfig] = useState<ServerConfigResponse | null>(
+    null,
+  );
 
   // Fetch server config
   const {

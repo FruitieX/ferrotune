@@ -147,8 +147,8 @@ export function Sidebar() {
           <div className="flex items-center justify-center w-10 h-10 shrink-0 rounded-lg bg-primary">
             <Music className="w-6 h-6 text-primary-foreground" />
           </div>
-          {!isCollapsed && (
-            hydrated ? (
+          {!isCollapsed &&
+            (hydrated ? (
               <motion.span
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -161,8 +161,7 @@ export function Sidebar() {
               <span className="font-bold text-xl text-foreground whitespace-nowrap">
                 Ferrotune
               </span>
-            )
-          )}
+            ))}
         </div>
         {/* Scan Status Indicator - only after hydration when connected */}
         {hydrated && isConnected && (
@@ -461,7 +460,8 @@ export function Sidebar() {
                           <ListMusic
                             className={cn(
                               "w-5 h-5 shrink-0",
-                              pathname === "/playlists" && "text-sidebar-primary",
+                              pathname === "/playlists" &&
+                                "text-sidebar-primary",
                             )}
                           />
                           <span className="truncate whitespace-nowrap flex-1 text-left">

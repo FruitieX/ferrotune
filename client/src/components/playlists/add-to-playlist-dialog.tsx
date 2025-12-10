@@ -97,9 +97,7 @@ export function AddToPlaylistDialog({
       );
 
       const duplicateIds = idsToAdd.filter((id) => existingSongIds.has(id));
-      const nonDuplicateIds = idsToAdd.filter(
-        (id) => !existingSongIds.has(id),
-      );
+      const nonDuplicateIds = idsToAdd.filter((id) => !existingSongIds.has(id));
 
       if (duplicateIds.length > 0) {
         return {
