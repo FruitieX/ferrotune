@@ -192,6 +192,7 @@ async fn get_music_folder(pool: &SqlitePool, id: i64) -> Result<crate::db::model
     .ok_or_else(|| Error::NotFound(format!("Music folder with id {} not found", id)))
 }
 
+#[allow(dead_code)]
 async fn scan_folder(
     pool: &SqlitePool,
     config: &Config,
@@ -511,7 +512,7 @@ async fn remove_missing_songs(
 
     let count = missing_files.len();
 
-    for (file_path, _id) in missing_files {
+    for file_path in missing_files.keys() {
         tracing::info!("Missing file: {}", file_path);
     }
 
@@ -526,7 +527,7 @@ async fn remove_missing_songs(
     // Delete missing songs in a transaction
     let mut tx = pool.begin().await?;
 
-    for (_file_path, id) in missing_files {
+    for id in missing_files.values() {
         sqlx::query("DELETE FROM songs WHERE id = ?")
             .bind(id)
             .execute(&mut *tx)
@@ -611,9 +612,9 @@ struct SongMetadata {
 
 async fn extract_metadata(path: &Path, file_mtime: Option<i64>) -> Result<SongMetadata> {
     let tagged_file = Probe::open(path)
-        .map_err(|e| Error::Lofty(e))?
+        .map_err(Error::Lofty)?
         .read()
-        .map_err(|e| Error::Lofty(e))?;
+        .map_err(Error::Lofty)?;
 
     let properties = tagged_file.properties();
     let tag = tagged_file

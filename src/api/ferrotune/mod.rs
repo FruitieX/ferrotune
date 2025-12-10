@@ -105,7 +105,7 @@ use crate::api::AppState;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Json},
-    routing::{delete, get, patch, post, put},
+    routing::{delete, get, patch, post},
     Router,
 };
 use serde::Serialize;

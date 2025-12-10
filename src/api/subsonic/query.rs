@@ -195,7 +195,7 @@ where
             A: de::SeqAccess<'de>,
         {
             // Return the first element if present
-            Ok(seq.next_element()?)
+            seq.next_element()
         }
     }
 

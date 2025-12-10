@@ -218,6 +218,7 @@ impl ScanState {
     }
 
     /// Increment the removed counter.
+    #[allow(dead_code)]
     pub fn increment_removed(&self) {
         self.removed.fetch_add(1, Ordering::Relaxed);
     }
@@ -238,6 +239,7 @@ impl ScanState {
     }
 
     /// Set the total count.
+    #[allow(dead_code)]
     pub async fn set_total(&self, total: u64) {
         *self.total.write().await = Some(total);
     }

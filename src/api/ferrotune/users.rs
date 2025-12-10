@@ -708,6 +708,7 @@ fn generate_api_key() -> String {
 // ============================================================================
 
 /// Check if a user has access to a specific music folder
+#[allow(dead_code)]
 pub async fn user_has_folder_access(
     pool: &sqlx::SqlitePool,
     user_id: i64,
@@ -744,6 +745,7 @@ pub async fn user_has_song_access(
 }
 
 /// Get the list of music folder IDs a user has access to
+#[allow(dead_code)]
 pub async fn get_user_accessible_folders(
     pool: &sqlx::SqlitePool,
     user_id: i64,

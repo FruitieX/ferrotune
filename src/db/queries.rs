@@ -1,3 +1,6 @@
+// Some query functions are defined for completeness and future use
+#![allow(dead_code)]
+
 use crate::db::models::*;
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -814,6 +817,7 @@ pub async fn get_queue_song_ids(pool: &SqlitePool, user_id: i64) -> sqlx::Result
 }
 
 /// Create or replace the play queue for a user
+#[allow(clippy::too_many_arguments)]
 pub async fn create_queue(
     pool: &SqlitePool,
     user_id: i64,

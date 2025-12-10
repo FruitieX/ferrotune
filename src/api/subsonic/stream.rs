@@ -21,6 +21,7 @@ pub struct StreamParams {
     #[serde(rename = "maxBitRate")]
     max_bit_rate: Option<u32>,
     format: Option<String>,
+    #[allow(dead_code)]
     #[serde(rename = "timeOffset")]
     time_offset: Option<u32>,
 }
@@ -89,7 +90,7 @@ pub async fn stream(
     }
 
     // Open file
-    let mut file = File::open(&canonical_path).await?;
+    let file = File::open(&canonical_path).await?;
     let file_size = file.metadata().await?.len();
 
     // Determine content type

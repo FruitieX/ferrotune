@@ -329,6 +329,8 @@ fn build_breadcrumbs_for_library(relative_path: &str) -> Vec<BreadcrumbItem> {
 }
 
 /// Get paginated directory contents for a library
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 async fn get_directory_contents_for_library(
     pool: &sqlx::SqlitePool,
     user_id: i64,

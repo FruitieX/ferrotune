@@ -249,10 +249,20 @@ pub async fn get_music_directory(
         let ratings_map = get_ratings_map(&state.pool, user.user_id, "album", &album_ids).await?;
 
         // Get starred for artist
-        let artist_starred =
-            get_starred_map(&state.pool, user.user_id, "artist", &[id.clone()]).await?;
-        let artist_rating =
-            get_ratings_map(&state.pool, user.user_id, "artist", &[id.clone()]).await?;
+        let artist_starred = get_starred_map(
+            &state.pool,
+            user.user_id,
+            "artist",
+            std::slice::from_ref(id),
+        )
+        .await?;
+        let artist_rating = get_ratings_map(
+            &state.pool,
+            user.user_id,
+            "artist",
+            std::slice::from_ref(id),
+        )
+        .await?;
 
         let children: Vec<DirectoryChild> = albums
             .iter()
@@ -309,9 +319,9 @@ pub async fn get_music_directory(
 
         // Get starred for album
         let album_starred =
-            get_starred_map(&state.pool, user.user_id, "album", &[id.clone()]).await?;
+            get_starred_map(&state.pool, user.user_id, "album", std::slice::from_ref(id)).await?;
         let album_rating =
-            get_ratings_map(&state.pool, user.user_id, "album", &[id.clone()]).await?;
+            get_ratings_map(&state.pool, user.user_id, "album", std::slice::from_ref(id)).await?;
 
         let children: Vec<DirectoryChild> = songs
             .iter()

@@ -20,6 +20,7 @@ pub struct AuthenticatedUser {
 }
 
 /// Extractor for just the response format (no auth required)
+#[allow(dead_code)]
 pub struct RequestFormat(pub ResponseFormat);
 
 impl<S: Send + Sync> FromRequestParts<S> for RequestFormat {
@@ -252,9 +253,8 @@ async fn authenticate_with_password(
     format: ResponseFormat,
     client: String,
 ) -> Result<AuthenticatedUser> {
-    let password = if password.starts_with("enc:") {
+    let password = if let Some(hex_str) = password.strip_prefix("enc:") {
         // Hex-encoded password
-        let hex_str = &password[4..];
         String::from_utf8(
             hex::decode(hex_str)
                 .map_err(|e| Error::InvalidRequest(format!("Invalid hex encoding: {}", e)))?,

@@ -77,7 +77,7 @@ pub async fn get_cover_art(
 
 async fn process_image(data: Vec<u8>, max_size: Option<u32>) -> Result<Vec<u8>> {
     tokio::task::spawn_blocking(move || {
-        let img = image::load_from_memory(&data).map_err(|e| Error::Image(e))?;
+        let img = image::load_from_memory(&data).map_err(Error::Image)?;
 
         let (width, height) = (img.width(), img.height());
 
@@ -92,7 +92,7 @@ async fn process_image(data: Vec<u8>, max_size: Option<u32>) -> Result<Vec<u8>> 
             }
             let mut buffer = Cursor::new(Vec::new());
             img.write_to(&mut buffer, ImageFormat::Jpeg)
-                .map_err(|e| Error::Image(e))?;
+                .map_err(Error::Image)?;
             return Ok(buffer.into_inner());
         }
 
@@ -113,7 +113,7 @@ async fn process_image(data: Vec<u8>, max_size: Option<u32>) -> Result<Vec<u8>> 
         let mut buffer = Cursor::new(Vec::new());
         resized
             .write_to(&mut buffer, ImageFormat::Jpeg)
-            .map_err(|e| Error::Image(e))?;
+            .map_err(Error::Image)?;
 
         Ok(buffer.into_inner())
     })
@@ -407,7 +407,7 @@ fn generate_tiled_cover(covers: Vec<Vec<u8>>, target_size: u32) -> Result<Vec<u8
     let mut buffer = Cursor::new(Vec::new());
     DynamicImage::ImageRgb8(output)
         .write_to(&mut buffer, ImageFormat::Jpeg)
-        .map_err(|e| Error::Image(e))?;
+        .map_err(Error::Image)?;
 
     Ok(buffer.into_inner())
 }

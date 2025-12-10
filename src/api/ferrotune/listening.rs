@@ -327,7 +327,7 @@ pub async fn get_period_review(
 ) -> impl IntoResponse {
     // Default to current year if not specified
     let now = chrono::Utc::now();
-    let year = query.year.unwrap_or(now.year() as i32);
+    let year = query.year.unwrap_or(now.year());
     let month = query.month;
 
     // Build date filter based on year and optional month

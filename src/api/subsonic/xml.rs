@@ -8,6 +8,9 @@
 //! The `ToXml` trait allows API handlers to construct only JSON response types,
 //! while `FormatResponse` automatically handles XML conversion when needed.
 
+// Some XML response types are prepared for future use
+#![allow(dead_code)]
+
 use serde::Serialize;
 
 /// Response format enum extracted from query params

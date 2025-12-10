@@ -653,7 +653,7 @@ pub async fn match_missing_entry(
         )
     })?;
 
-    let Some((song_id, missing_data)) = entry else {
+    let Some((_song_id, missing_data)) = entry else {
         return Err((
             StatusCode::NOT_FOUND,
             Json(super::ErrorResponse::new("Entry not found at position")),
@@ -1245,6 +1245,7 @@ pub async fn get_playlist_songs(
     }
 
     // Get all playlist entries (positions, song_ids, missing data)
+    #[allow(clippy::type_complexity)]
     let entries_raw: Vec<(i64, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT position, song_id, missing_entry_data, missing_search_text 
          FROM playlist_songs 
@@ -1312,6 +1313,7 @@ pub async fn get_playlist_songs(
 
     // Build unified entry list with position info
     #[derive(Clone)]
+    #[allow(clippy::large_enum_variant)]
     enum EntryData {
         Song {
             position: i64,
@@ -1334,20 +1336,13 @@ pub async fn get_playlist_songs(
 
             if let Some(sid) = song_id {
                 // Matched song - include the missing_data so UI can show "Refine Match" option
-                if let Some(song) = song_map.get(&sid) {
-                    Some(EntryData::Song {
-                        position,
-                        song: song.clone(),
-                        missing_data,
-                    })
-                } else {
-                    None // Song was deleted?
-                }
-            } else if let Some(data) = missing_data {
-                // Missing entry
-                Some(EntryData::Missing { position, data })
+                song_map.get(&sid).map(|song| EntryData::Song {
+                    position,
+                    song: song.clone(),
+                    missing_data,
+                })
             } else {
-                None // Empty entry?
+                missing_data.map(|data| EntryData::Missing { position, data })
             }
         })
         .collect();
@@ -1571,7 +1566,7 @@ pub async fn get_playlist_entries(
     };
 
     // Check access
-    if owner_id != user.user_id as i64 && !is_public {
+    if owner_id != user.user_id && !is_public {
         return Err((
             StatusCode::FORBIDDEN,
             Json(super::ErrorResponse::new(

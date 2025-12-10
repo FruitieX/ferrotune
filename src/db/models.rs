@@ -1,3 +1,6 @@
+// Many model structs are defined for completeness and future use
+#![allow(dead_code)]
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

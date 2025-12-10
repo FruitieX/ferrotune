@@ -42,6 +42,7 @@ pub fn has_embedded_ui() -> bool {
 
 /// Check if embedded UI assets are available.
 #[cfg(not(feature = "embedded-ui"))]
+#[allow(dead_code)]
 pub fn has_embedded_ui() -> bool {
     false
 }

@@ -4,6 +4,9 @@
 //! All sorting should be done server-side to ensure queue materialization
 //! uses the same order as the displayed list.
 
+// Sorting types and functions prepared for future use
+#![allow(dead_code)]
+
 use crate::db::models::Song;
 use serde::Deserialize;
 

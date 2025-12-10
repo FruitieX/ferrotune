@@ -16,6 +16,7 @@ pub struct IdParam {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MusicFolderParam {
+    #[allow(dead_code)]
     music_folder_id: Option<i64>,
 }
 
@@ -95,17 +96,14 @@ pub async fn get_artists(
         let starred = starred_map.get(&artist.id).cloned();
         let user_rating = ratings_map.get(&artist.id).copied();
 
-        grouped
-            .entry(index_name)
-            .or_insert_with(Vec::new)
-            .push(ArtistResponse {
-                id: artist.id.clone(),
-                name: artist.name.clone(),
-                album_count: Some(artist.album_count),
-                cover_art: Some(artist.id),
-                starred,
-                user_rating,
-            });
+        grouped.entry(index_name).or_default().push(ArtistResponse {
+            id: artist.id.clone(),
+            name: artist.name.clone(),
+            album_count: Some(artist.album_count),
+            cover_art: Some(artist.id),
+            starred,
+            user_rating,
+        });
     }
 
     // Sort into index list
@@ -234,10 +232,20 @@ pub async fn get_artist(
     let song_ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
 
     // Get starred status and rating for the artist itself
-    let artist_starred_map =
-        get_starred_map(&state.pool, user.user_id, "artist", &[params.id.clone()]).await?;
-    let artist_ratings_map =
-        get_ratings_map(&state.pool, user.user_id, "artist", &[params.id.clone()]).await?;
+    let artist_starred_map = get_starred_map(
+        &state.pool,
+        user.user_id,
+        "artist",
+        std::slice::from_ref(&params.id),
+    )
+    .await?;
+    let artist_ratings_map = get_ratings_map(
+        &state.pool,
+        user.user_id,
+        "artist",
+        std::slice::from_ref(&params.id),
+    )
+    .await?;
 
     let album_responses: Vec<AlbumResponse> = albums
         .iter()
@@ -482,10 +490,20 @@ pub async fn get_album(
     let ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
 
     // Get starred status and rating for the album itself
-    let album_starred_map =
-        get_starred_map(&state.pool, user.user_id, "album", &[params.id.clone()]).await?;
-    let album_ratings_map =
-        get_ratings_map(&state.pool, user.user_id, "album", &[params.id.clone()]).await?;
+    let album_starred_map = get_starred_map(
+        &state.pool,
+        user.user_id,
+        "album",
+        std::slice::from_ref(&params.id),
+    )
+    .await?;
+    let album_ratings_map = get_ratings_map(
+        &state.pool,
+        user.user_id,
+        "album",
+        std::slice::from_ref(&params.id),
+    )
+    .await?;
 
     let song_responses: Vec<SongResponse> = songs
         .iter()
@@ -554,11 +572,21 @@ pub async fn get_song(
     };
 
     // Get starred status and rating
-    let starred_map =
-        get_starred_map(&state.pool, user.user_id, "song", &[params.id.clone()]).await?;
+    let starred_map = get_starred_map(
+        &state.pool,
+        user.user_id,
+        "song",
+        std::slice::from_ref(&params.id),
+    )
+    .await?;
     let starred = starred_map.get(&params.id).cloned();
-    let ratings_map =
-        get_ratings_map(&state.pool, user.user_id, "song", &[params.id.clone()]).await?;
+    let ratings_map = get_ratings_map(
+        &state.pool,
+        user.user_id,
+        "song",
+        std::slice::from_ref(&params.id),
+    )
+    .await?;
     let user_rating = ratings_map.get(&params.id).copied();
 
     // Get play statistics (Ferrotune extension)

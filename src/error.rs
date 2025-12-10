@@ -1,3 +1,6 @@
+// Some error types are prepared for future use
+#![allow(dead_code)]
+
 use axum::{
     http::{header, StatusCode},
     response::{IntoResponse, Response},

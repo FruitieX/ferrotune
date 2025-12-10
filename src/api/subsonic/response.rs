@@ -54,6 +54,7 @@ impl<T: Serialize> IntoResponse for SubsonicResponse<T> {
 #[derive(Serialize)]
 pub struct EmptyResponse {}
 
+#[allow(dead_code)]
 pub fn ok_empty() -> SubsonicResponse<EmptyResponse> {
     SubsonicResponse::ok(EmptyResponse {})
 }

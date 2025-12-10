@@ -197,7 +197,7 @@ fn generate_waveform_streaming(
 
     // Estimate total samples and total chunks
     let estimated_samples = n_frames.unwrap_or(sample_rate as u64 * 300) as usize;
-    let estimated_total_chunks = (estimated_samples + samples_per_chunk - 1) / samples_per_chunk;
+    let estimated_total_chunks = estimated_samples.div_ceil(samples_per_chunk);
 
     let mut decoder = CODEC_REGISTRY
         .make(&track.codec_params, &DecoderOptions::default())
