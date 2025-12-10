@@ -15,29 +15,34 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
   ]),
   {
-    "rules": {
+    rules: {
       // Allow unused vars prefixed with underscore (for intentionally unused params)
       "@typescript-eslint/no-unused-vars": [
         "warn",
         {
-          "argsIgnorePattern": "^_",
-          "varsIgnorePattern": "^_",
-          "caughtErrorsIgnorePattern": "^_"
-        }
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
       ],
       "no-restricted-imports": [
         "error",
         {
-          "paths": [
+          paths: [
             {
-              "name": "react",
-              "importNames": ["useCallback", "useMemo", "memo"],
-              "message": "React Compiler handles memoization automatically. Do not use useCallback, useMemo and memo."
-            }
-          ]
-        }
-    ]}
-  }
+              name: "react",
+              importNames: ["useCallback", "useMemo", "memo"],
+              message:
+                "React Compiler handles memoization automatically. Do not use useCallback, useMemo and memo.",
+            },
+          ],
+        },
+      ],
+      // useVirtualizer returns functions that can't be memoized - this is expected behavior
+      // and React Compiler handles it by skipping memoization for those components
+      "react-hooks/incompatible-library": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

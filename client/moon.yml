@@ -87,8 +87,9 @@ tasks:
   # ============================================================================
 
   lint:
-    command: "npm run lint"
+    command: "npx eslint . --max-warnings 0"
     inputs:
+      - "eslint.config.mjs"
       - "@group(sources)"
     deps:
       - "install"
