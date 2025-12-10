@@ -58,7 +58,7 @@ tasks:
       - 'client:build-export'
 
   build-release-ui:
-    command: 'bash scripts/build-release.sh'
+    command: 'cargo build --release --features embedded-ui'
     inputs:
       - '@group(sources)'
       - 'client/src/**/*'

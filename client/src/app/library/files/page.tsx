@@ -1155,7 +1155,7 @@ export default function FilesPage() {
         <div className="p-4 lg:p-6 space-y-4">
           <Skeleton className="h-8 w-48" />
           <div className="space-y-2">
-            {Array.from({ length: 10 }).map((_, i) => (
+            {Array.from({ length: 3 }).map((_, i) => (
               <Skeleton key={i} className="h-14 w-full rounded-lg" />
             ))}
           </div>

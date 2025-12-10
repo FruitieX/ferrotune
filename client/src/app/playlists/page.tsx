@@ -724,13 +724,21 @@ function DroppableFolderGridCard({
       onCreateSubfolder={onCreateSubfolder}
       onCreatePlaylist={onCreatePlaylist}
     >
-      <button
+      <div
         ref={setNodeRef}
         onClick={() => onNavigate(folder.path)}
         className={cn(
-          "group relative flex flex-col items-center text-left w-full rounded-lg transition-colors hover:bg-accent/50 p-4",
+          "group relative flex flex-col items-center text-left w-full rounded-lg transition-colors hover:bg-accent/50 p-4 cursor-pointer",
           isOver && "bg-emerald-500/20 ring-2 ring-emerald-500",
         )}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onNavigate(folder.path);
+          }
+        }}
       >
         <FolderDropdownMenu
           folder={folder}
@@ -757,7 +765,7 @@ function DroppableFolderGridCard({
             {formatCount(playlistCount, "playlist")}
           </p>
         </div>
-      </button>
+      </div>
     </FolderContextMenu>
   );
 }

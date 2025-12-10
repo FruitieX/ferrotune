@@ -4,7 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { SetupGuard } from "@/components/setup-guard";
-import { Sidebar, SidebarSkeleton } from "@/components/layout/sidebar";
+import { Sidebar } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { PlayerBar } from "@/components/layout/player-bar";
 import { QueuePanel, QueueSidebar } from "@/components/queue/queue";
@@ -171,12 +171,14 @@ export default function RootLayout({
               {/* Main container - takes up all space except footer */}
               <div className="flex flex-1 min-h-0">
                 {/* Sidebar - hidden on mobile, spans full height of main container */}
-                <Suspense fallback={<SidebarSkeleton />}>
-                  <Sidebar />
-                </Suspense>
+                <Sidebar />
 
                 {/* Main content area - uses MainContent wrapper for responsive margins */}
-                <MainContent>{children}</MainContent>
+                <MainContent>
+                  <Suspense>
+                    {children}
+                  </Suspense>
+                </MainContent>
 
                 {/* Queue sidebar - desktop only, fixed right side, spans full height of main container */}
                 <QueueSidebar />

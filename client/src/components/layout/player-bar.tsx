@@ -473,8 +473,10 @@ export function PlayerBar() {
   const isEnded = playbackState === "ended";
   const hasTrack = !!currentTrack;
 
+  // During SSR or before hydration, render a static skeleton
+  // This prevents layout shift and provides consistent SSR output
   if (!connection) {
-    return null;
+    return <PlayerBarSkeleton />;
   }
 
   return (
@@ -517,23 +519,128 @@ export function PlayerBar() {
   );
 }
 
-// Loading skeleton for player bar
+// Loading skeleton for player bar - also used during SSR
 export function PlayerBarSkeleton() {
   return (
-    <div className="h-[88px] bg-background border-t border-border">
+    <footer
+      data-testid="player-bar-skeleton"
+      className={cn(
+        "relative z-50",
+        "h-[88px] bg-background/95 backdrop-blur-lg",
+      )}
+    >
+      {/* Progress bar placeholder */}
+      <div className="absolute top-0 left-0 right-0 h-1 bg-muted" />
+
       <div className="flex items-center h-full px-4 gap-4">
-        <div className="flex items-center gap-3 w-[30%]">
-          <Skeleton className="w-14 h-14 rounded-md" />
-          <div className="space-y-2">
+        {/* Now Playing Info - skeleton */}
+        <div className="flex items-center gap-3 w-[30%] min-w-0">
+          <Skeleton className="w-14 h-14 rounded-md shrink-0" />
+          <div className="min-w-0 space-y-2">
             <Skeleton className="w-24 h-4" />
             <Skeleton className="w-16 h-3" />
           </div>
         </div>
-        <div className="flex-1 flex justify-center">
-          <Skeleton className="w-32 h-10 rounded-full" />
+
+        {/* Center Controls - static buttons */}
+        <div className="flex flex-col items-center gap-1 flex-1 max-w-[40%]">
+          <div className="flex items-center gap-1 sm:gap-2">
+            {/* Shuffle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden sm:flex h-8 w-8"
+              disabled
+            >
+              <Shuffle className="w-4 h-4" />
+            </Button>
+            {/* Previous */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 sm:h-9 sm:w-9"
+              disabled
+            >
+              <SkipBack className="w-4 h-4 sm:w-5 sm:h-5" />
+            </Button>
+            {/* Play */}
+            <Button
+              variant="default"
+              size="icon"
+              className="h-9 w-9 sm:h-10 sm:w-10 rounded-full"
+              disabled
+            >
+              <Play className="w-4 h-4 sm:w-5 sm:h-5 ml-0.5" />
+            </Button>
+            {/* Next */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 sm:h-9 sm:w-9"
+              disabled
+            >
+              <SkipForward className="w-4 h-4 sm:w-5 sm:h-5" />
+            </Button>
+            {/* Repeat */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden sm:flex h-8 w-8"
+              disabled
+            >
+              <Repeat className="w-4 h-4" />
+            </Button>
+          </div>
+          {/* Time slider skeleton */}
+          <div className="hidden sm:flex items-center gap-2 w-full max-w-md text-xs text-muted-foreground">
+            <span className="w-10 text-right tabular-nums">0:00</span>
+            <Slider value={[0]} max={100} className="flex-1" disabled />
+            <span className="w-10 tabular-nums">0:00</span>
+          </div>
         </div>
-        <div className="w-[30%]" />
+
+        {/* Right Controls - static buttons */}
+        <div className="flex items-center gap-1 sm:gap-2 w-[30%] justify-end">
+          {/* Queue */}
+          <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
+            <ListMusic className="w-4 h-4" />
+          </Button>
+          {/* Volume - mobile popover trigger */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 sm:hidden"
+            disabled
+          >
+            <Volume2 className="w-4 h-4" />
+          </Button>
+          {/* Volume - desktop */}
+          <div className="hidden sm:flex items-center gap-2 w-32">
+            <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
+              <Volume2 className="w-4 h-4" />
+            </Button>
+            <Slider value={[70]} max={100} className="flex-1" disabled />
+          </div>
+          {/* More - mobile */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 sm:hidden"
+            disabled
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </Button>
+          {/* Fullscreen - desktop */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden sm:flex h-8 w-8"
+            disabled
+          >
+            <Maximize2 className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
-    </div>
+    </footer>
   );
 }

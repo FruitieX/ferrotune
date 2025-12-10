@@ -16,6 +16,7 @@ import {
   playlistColumnVisibilityAtom,
 } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
@@ -154,14 +155,41 @@ export default function HistoryPage() {
   if (!isMounted || authLoading) {
     return (
       <div className="min-h-screen">
-        <DetailHeader
-          icon={History}
-          iconClassName="bg-linear-to-br from-purple-500 to-purple-800"
-          gradientColor="rgba(147,51,234,0.2)"
-          label="History"
-          title="Recently Played"
-          isLoading
-        />
+        {/* Header skeleton */}
+        <div className="relative">
+          <div className="absolute inset-0 h-[300px] bg-linear-to-b from-purple-500/20 to-background" />
+          <div className="relative z-10 px-4 lg:px-6 pt-8 pb-6">
+            <div className="flex items-center gap-6">
+              <Skeleton className="w-48 h-48 rounded-lg" />
+              <div>
+                <Skeleton className="h-4 w-16 mb-2" />
+                <Skeleton className="h-12 w-48 mb-4" />
+                <Skeleton className="h-4 w-32" />
+              </div>
+            </div>
+          </div>
+        </div>
+        {/* Action buttons skeleton */}
+        <div className="px-4 lg:px-6 py-4 border-b border-border">
+          <div className="flex items-center gap-4">
+            <Skeleton className="h-12 w-28 rounded-full" />
+            <Skeleton className="h-12 w-28 rounded-full" />
+          </div>
+        </div>
+        {/* Track list skeleton */}
+        <div className="px-4 lg:px-6 py-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-4 py-2">
+              <Skeleton className="w-8 h-4" />
+              <Skeleton className="w-10 h-10 rounded" />
+              <div className="flex-1">
+                <Skeleton className="h-4 w-40 mb-1" />
+                <Skeleton className="h-3 w-32" />
+              </div>
+              <Skeleton className="h-4 w-10" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
