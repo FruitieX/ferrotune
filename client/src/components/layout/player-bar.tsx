@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useMemo, useEffect, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -274,22 +274,28 @@ const TimeSlider = memo(function TimeSlider() {
 /** Volume controls - separated to avoid re-renders from time updates */
 const VolumeControls = memo(function VolumeControls() {
   const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
+  const volumeContainerRef = useRef<HTMLDivElement>(null);
 
   const VolumeIcon =
     isMuted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
-  // Handle scroll wheel to adjust volume
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
+  // Handle scroll wheel to adjust volume using native event listener with passive: false
+  useEffect(() => {
+    const container = volumeContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       // Scroll up = increase volume, scroll down = decrease
       // Use small step (5%) for fine control
       const delta = e.deltaY < 0 ? 0.05 : -0.05;
       const newVolume = Math.max(0, Math.min(1, volume + delta));
       changeVolume(newVolume);
-    },
-    [volume, changeVolume],
-  );
+    };
+
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheel);
+  }, [volume, changeVolume]);
 
   return (
     <>
@@ -334,8 +340,8 @@ const VolumeControls = memo(function VolumeControls() {
 
       {/* Desktop volume - hidden on mobile */}
       <div
+        ref={volumeContainerRef}
         className="hidden sm:flex items-center gap-2 w-32"
-        onWheel={handleWheel}
       >
         <Button
           variant="ghost"
