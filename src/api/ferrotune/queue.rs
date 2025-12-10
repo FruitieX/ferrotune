@@ -231,6 +231,9 @@ pub struct QueueSuccessResponse {
     pub new_index: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_count: Option<usize>,
+    /// Number of songs added (only for add operations)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub added_count: Option<usize>,
 }
 
 // ============================================================================
@@ -560,6 +563,7 @@ pub async fn add_to_queue(
                 success: true,
                 new_index: None,
                 total_count: Some(current_len as usize),
+                added_count: Some(0),
             }),
         ));
     }
@@ -606,12 +610,15 @@ pub async fn add_to_queue(
         .await?;
     }
 
+    let added_count = song_ids.len();
+
     Ok((
         StatusCode::OK,
         Json(QueueSuccessResponse {
             success: true,
             new_index: None,
             total_count: Some(new_len as usize),
+            added_count: Some(added_count),
         }),
     ))
 }
@@ -705,6 +712,7 @@ pub async fn remove_from_queue(
             success: true,
             new_index: Some(new_current_index as usize),
             total_count: Some(new_len as usize),
+            added_count: None,
         }),
     ))
 }
@@ -762,6 +770,7 @@ pub async fn move_in_queue(
                 success: true,
                 new_index: Some(new_current as usize),
                 total_count: None,
+                added_count: None,
             }),
         ))
     } else {
@@ -807,6 +816,7 @@ pub async fn move_in_queue(
                 success: true,
                 new_index: Some(new_current),
                 total_count: None,
+                added_count: None,
             }),
         ))
     }
@@ -847,6 +857,7 @@ pub async fn toggle_shuffle(
                 success: true,
                 new_index: Some(current_index),
                 total_count: None,
+                added_count: None,
             }),
         ))
     } else {
@@ -869,6 +880,7 @@ pub async fn toggle_shuffle(
                 success: true,
                 new_index: Some(current_index),
                 total_count: None,
+                added_count: None,
             }),
         ))
     }
@@ -917,6 +929,7 @@ pub async fn update_position(
             success: true,
             new_index: Some(request.current_index),
             total_count: None,
+            added_count: None,
         }),
     ))
 }
@@ -938,6 +951,7 @@ pub async fn update_repeat_mode(
             success: true,
             new_index: None,
             total_count: None,
+            added_count: None,
         }),
     ))
 }
@@ -955,6 +969,7 @@ pub async fn clear_queue(
             success: true,
             new_index: None,
             total_count: Some(0),
+            added_count: None,
         }),
     ))
 }

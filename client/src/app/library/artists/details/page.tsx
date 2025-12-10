@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAtom, useSetAtom } from "jotai";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Heart, MoreHorizontal } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -16,6 +16,7 @@ import {
   artistDetailSortAtom,
   artistDetailColumnVisibilityAtom,
 } from "@/lib/store/ui";
+import { useStarredArtist } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,10 +31,7 @@ import {
   VirtualizedGrid,
   VirtualizedList,
 } from "@/components/shared/virtualized-grid";
-import {
-  ArtistDropdownMenu,
-  useArtistStar,
-} from "@/components/browse/artist-context-menu";
+import { ArtistDropdownMenu } from "@/components/browse/artist-context-menu";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { ActionBar } from "@/components/shared/action-bar";
@@ -52,6 +50,7 @@ function ArtistDetailContent() {
   });
   const isMounted = useIsMounted();
   const startQueue = useSetAtom(startQueueAtom);
+  const queryClient = useQueryClient();
 
   // Filter state
   const [filter, setFilter] = useState("");
@@ -96,6 +95,20 @@ function ArtistDetailContent() {
     placeholderData: (previousData) => previousData,
   });
 
+  // Use artist star hook - manages the starred state and handles API calls
+  const { isStarred, toggleStar } = useStarredArtist(
+    id ?? "",
+    !!artistData?.starred,
+  );
+
+  // Handle starring with additional artist query invalidation
+  const handleToggleStar = async () => {
+    await toggleStar();
+    // Also invalidate artist queries to update artist list views
+    queryClient.invalidateQueries({ queryKey: ["artists"] });
+    queryClient.invalidateQueries({ queryKey: ["artist", id] });
+  };
+
   // Songs come directly from server response - already sorted and filtered
   const displaySongs = artistData?.song ?? [];
 
@@ -118,20 +131,6 @@ function ArtistDetailContent() {
 
   // Multi-selection support for songs
   const selection = useTrackSelection(displaySongs);
-
-  // Use the artist star hook
-  const { isStarred, handleStar, setIsStarred } = useArtistStar(
-    !!artistData?.starred,
-    id ?? "",
-    artistData?.name ?? "",
-  );
-
-  // Sync starred state when artist data changes
-  useEffect(() => {
-    if (artistData) {
-      setIsStarred(!!artistData.starred);
-    }
-  }, [artistData, setIsStarred]);
 
   const coverArtUrl = artistData?.coverArt
     ? getClient()?.getCoverArtUrl(artistData.coverArt, 400)
@@ -245,7 +244,7 @@ function ArtistDetailContent() {
           variant="ghost"
           size="icon"
           className="h-10 w-10"
-          onClick={handleStar}
+          onClick={handleToggleStar}
           disabled={!artistData}
         >
           <Heart

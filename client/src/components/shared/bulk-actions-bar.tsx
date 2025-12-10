@@ -63,6 +63,8 @@ interface BaseBulkActionsBarProps {
   onSelectAll: () => void;
   /** Selected IDs for bulk operations (used when not all songs are loaded) */
   selectedIds?: Set<string>;
+  /** Custom label to display instead of auto-generated count label */
+  customLabel?: string;
   className?: string;
 }
 
@@ -131,6 +133,7 @@ interface LegacyBulkActionsBarProps {
   onSelectAll: () => void;
   getSelectedSongs: () => Song[];
   selectedIds?: Set<string>;
+  customLabel?: string;
   className?: string;
 }
 
@@ -215,7 +218,12 @@ export function BulkActionsBar(
       : 0;
 
   // Build selection label - show breakdown for playlist-songs with missing entries
+  // or use customLabel if provided
   const getSelectionLabel = () => {
+    // Use customLabel if provided
+    if ("customLabel" in props && props.customLabel) {
+      return props.customLabel;
+    }
     if (missingCount > 0 && isPlaylistSongsType) {
       const songCount = props.selectedCount - missingCount;
       const songLabel = songCount === 1 ? "song" : "songs";

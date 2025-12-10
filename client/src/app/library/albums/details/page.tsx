@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAtom, useSetAtom } from "jotai";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Heart, MoreHorizontal, FolderPlus, ListEnd } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -21,6 +21,7 @@ import {
   albumDetailSortAtom,
   albumDetailColumnVisibilityAtom,
 } from "@/lib/store/ui";
+import { useStarredAlbum } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -59,6 +60,7 @@ function AlbumDetailContent() {
   const isMounted = useIsMounted();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
+  const queryClient = useQueryClient();
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
 
   // Filter state
@@ -103,6 +105,20 @@ function AlbumDetailContent() {
     // Keep previous data while fetching new sort/filter results
     placeholderData: (previousData) => previousData,
   });
+
+  // Use album star hook - manages the starred state and handles API calls
+  const { isStarred, toggleStar } = useStarredAlbum(
+    id ?? "",
+    !!albumData?.starred,
+  );
+
+  // Handle starring with additional album query invalidation
+  const handleToggleStar = async () => {
+    await toggleStar();
+    // Also invalidate album queries to update album list views
+    queryClient.invalidateQueries({ queryKey: ["albums"] });
+    queryClient.invalidateQueries({ queryKey: ["album", id] });
+  };
 
   // Songs come directly from server response - already sorted and filtered
   const displaySongs = albumData?.song ?? [];
@@ -282,8 +298,16 @@ function AlbumDetailContent() {
           />
         }
       >
-        <Button variant="ghost" size="icon" className="h-10 w-10">
-          <Heart className="w-5 h-5" />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-10 w-10"
+          onClick={handleToggleStar}
+          disabled={!albumData}
+        >
+          <Heart
+            className={cn("w-5 h-5", isStarred && "fill-red-500 text-red-500")}
+          />
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

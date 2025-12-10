@@ -417,7 +417,7 @@ export const setRepeatModeAtom = atom(
   },
 );
 
-// Add songs to queue
+// Add songs to queue - returns { success, addedCount } for better messaging
 export const addToQueueAtom = atom(
   null,
   async (
@@ -429,9 +429,9 @@ export const addToQueueAtom = atom(
       sourceType?: QueueSourceType;
       sourceId?: string;
     },
-  ) => {
+  ): Promise<{ success: boolean; addedCount: number }> => {
     const client = getClient();
-    if (!client) return;
+    if (!client) return { success: false, addedCount: 0 };
 
     set(isQueueOperationPendingAtom, true);
 
@@ -459,8 +459,10 @@ export const addToQueueAtom = atom(
       // Refresh window
       const queueResponse = await client.getQueueCurrentWindow(20);
       set(queueWindowAtom, queueResponse.window);
+      return { success: true, addedCount: response.added_count ?? 0 };
     } catch (error) {
       console.error("Failed to add to queue:", error);
+      return { success: false, addedCount: 0 };
     } finally {
       set(isQueueOperationPendingAtom, false);
     }

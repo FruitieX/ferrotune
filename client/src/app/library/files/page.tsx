@@ -188,6 +188,22 @@ function FilesPageContent() {
   // Total selected count (files + directories)
   const totalSelectedCount = selectedSongs.length + selectedDirectories.length;
 
+  // Build selection label based on what's selected
+  const getSelectionLabel = () => {
+    const songCount = selectedSongs.length;
+    const dirCount = selectedDirectories.length;
+
+    if (songCount > 0 && dirCount > 0) {
+      const songLabel = songCount === 1 ? "song" : "songs";
+      const dirLabel = dirCount === 1 ? "directory" : "directories";
+      return `${songCount} ${songLabel}, ${dirCount} ${dirLabel}`;
+    } else if (dirCount > 0) {
+      return `${dirCount} ${dirCount === 1 ? "directory" : "directories"}`;
+    } else {
+      return `${songCount} ${songCount === 1 ? "song" : "songs"}`;
+    }
+  };
+
   // Clear selection when library or path changes
   const currentKey = `${libraryId ?? "root"}-${pathParam}`;
   const [lastKey, setLastKey] = useState<string>(currentKey);
@@ -305,19 +321,33 @@ function FilesPageContent() {
     });
   };
 
-  const handleAddSongToQueue = (songId: string, position: "next" | "end") => {
-    addToQueue({ songIds: [songId], position });
-    toast.success(
-      position === "next" ? "Added to play next" : "Added to queue",
-    );
+  const handleAddSongToQueue = async (
+    songId: string,
+    position: "next" | "end",
+  ) => {
+    const result = await addToQueue({ songIds: [songId], position });
+    if (result.success) {
+      toast.success(
+        position === "next" ? "Added to play next" : "Added to queue",
+      );
+    } else {
+      toast.error("Start playback first to add to queue");
+    }
   };
 
-  const handleAddSelectedToQueue = (position: "next" | "end") => {
+  const handleAddSelectedToQueue = async (position: "next" | "end") => {
     if (selectedSongs.length === 0) return;
-    addToQueue({ songIds: selectedSongs.map((s) => s.id), position });
-    toast.success(
-      `Added ${selectedSongs.length} songs to ${position === "next" ? "play next" : "queue"}`,
-    );
+    const result = await addToQueue({
+      songIds: selectedSongs.map((s) => s.id),
+      position,
+    });
+    if (result.success) {
+      toast.success(
+        `Added ${result.addedCount} song${result.addedCount === 1 ? "" : "s"} to ${position === "next" ? "play next" : "queue"}`,
+      );
+    } else {
+      toast.error("Start playback first to add to queue");
+    }
   };
 
   // Directory playback handlers - use server-side queue materialization
@@ -332,21 +362,29 @@ function FilesPageContent() {
     });
   };
 
-  const handleAddDirectoryToQueue = (
+  const handleAddDirectoryToQueue = async (
     dirPath: string,
     position: "next" | "end",
   ) => {
     if (!libraryId) return;
-    addToQueue({
+    const result = await addToQueue({
       sourceType: "directory",
       sourceId: `${libraryId}:${dirPath}`,
       position,
     });
-    toast.success(
-      position === "next"
-        ? "Added folder to play next"
-        : "Added folder to queue",
-    );
+    if (result.success) {
+      if (result.addedCount === 0) {
+        toast.info("No songs found in folder");
+      } else {
+        toast.success(
+          position === "next"
+            ? `Added ${result.addedCount} song${result.addedCount === 1 ? "" : "s"} to play next`
+            : `Added ${result.addedCount} song${result.addedCount === 1 ? "" : "s"} to queue`,
+        );
+      }
+    } else {
+      toast.error("Start playback first to add to queue");
+    }
   };
 
   // Client-side filter libraries by the shared filter input (for library selection view)
@@ -357,32 +395,65 @@ function FilesPageContent() {
       return lib.name.toLowerCase().includes(lowerFilter);
     }) ?? [];
 
+  // Calculate combined stats for all libraries (for root view header)
+  const combinedLibraryStats = librariesData?.libraries?.reduce(
+    (acc, lib) => ({
+      libraryCount: acc.libraryCount + 1,
+      songCount: acc.songCount + lib.songCount,
+      totalSize: acc.totalSize + lib.totalSize,
+    }),
+    { libraryCount: 0, songCount: 0, totalSize: 0 },
+  ) ?? { libraryCount: 0, songCount: 0, totalSize: 0 };
+
   // Show library selection if no library is selected
   if (libraryId === null) {
     return (
-      <div className="px-4 lg:px-6 py-6 pb-24">
-        {librariesLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-[56px] w-full rounded-lg" />
-            ))}
-          </div>
-        ) : filteredLibraries.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            <Library className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            {debouncedFilter ? (
-              <p>No libraries match &quot;{debouncedFilter}&quot;</p>
-            ) : (
-              <p>No music libraries available</p>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {filteredLibraries.map((library) => (
-              <LibraryCard key={library.id} library={library} />
-            ))}
-          </div>
-        )}
+      <div className="min-h-screen">
+        {/* Header */}
+        <div className="px-4 lg:px-6 pt-4 pb-4">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center gap-3"
+          >
+            <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center">
+              <Library className="w-6 h-6" />
+            </div>
+            <div className="flex-1">
+              <h1 className="text-2xl font-bold">Browse Files</h1>
+              <p className="text-sm text-muted-foreground">
+                {librariesLoading
+                  ? "Loading libraries..."
+                  : `${combinedLibraryStats.libraryCount} ${combinedLibraryStats.libraryCount === 1 ? "library" : "libraries"}, ${combinedLibraryStats.songCount} songs • ${formatBytes(combinedLibraryStats.totalSize)}`}
+              </p>
+            </div>
+          </motion.div>
+        </div>
+
+        <div className="px-4 lg:px-6 pb-24">
+          {librariesLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-[56px] w-full rounded-lg" />
+              ))}
+            </div>
+          ) : filteredLibraries.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Library className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              {debouncedFilter ? (
+                <p>No libraries match &quot;{debouncedFilter}&quot;</p>
+              ) : (
+                <p>No music libraries available</p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filteredLibraries.map((library) => (
+                <LibraryCard key={library.id} library={library} />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -468,9 +539,9 @@ function FilesPageContent() {
         )}
       >
         {isLoading && allItems.length === 0 ? (
-          <div className="space-y-2">
+          <div className="space-y-1">
             {Array.from({ length: 10 }).map((_, i) => (
-              <Skeleton key={i} className="h-[56px] w-full rounded-lg" />
+              <FileRowSkeleton key={i} />
             ))}
           </div>
         ) : allItems.length === 0 ? (
@@ -505,6 +576,7 @@ function FilesPageContent() {
       {/* Bulk actions bar */}
       <BulkActionsBar
         selectedCount={totalSelectedCount}
+        customLabel={getSelectionLabel()}
         onClear={clearSelection}
         onPlayNow={handlePlaySelected}
         onPlayNext={() => handleAddSelectedToQueue("next")}
@@ -537,6 +609,11 @@ function Breadcrumbs({
   libraryId,
   libraryName,
 }: BreadcrumbsProps) {
+  // Filter out the last breadcrumb if we have breadcrumbs, as the current directory
+  // is displayed separately with currentName at the end (fixes duplicate bug)
+  const displayBreadcrumbs =
+    breadcrumbs.length > 0 ? breadcrumbs.slice(0, -1) : breadcrumbs;
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -562,7 +639,7 @@ function Breadcrumbs({
           >
             {libraryName}
           </Link>
-          {breadcrumbs.map((crumb) => (
+          {displayBreadcrumbs.map((crumb) => (
             <span key={crumb.id} className="flex items-center gap-1">
               <ChevronRight className="w-4 h-4 shrink-0" />
               <Link
@@ -701,7 +778,7 @@ function DirectoryContents({
           />
         );
       }}
-      renderSkeleton={() => <Skeleton className="h-[56px] w-full rounded-lg" />}
+      renderSkeleton={() => <FileRowSkeleton />}
     />
   );
 }
@@ -1124,15 +1201,37 @@ function FileRow({
   );
 }
 
+// Skeleton for directory/file rows - matches actual row structure
+function FileRowSkeleton() {
+  return (
+    <div className="flex items-center gap-3 px-3 py-2 h-[56px]">
+      {/* Checkbox placeholder - same size as actual checkbox */}
+      <div className="w-5 h-5 shrink-0 rounded bg-muted/30" />
+      {/* Cover art skeleton - matches CoverImage size="sm" (40px) */}
+      <Skeleton className="w-10 h-10 rounded shrink-0" />
+      {/* Text content - two lines like actual content */}
+      <div className="flex-1 min-w-0 space-y-1">
+        <Skeleton className="h-4 w-[45%] max-w-[180px]" />
+        <Skeleton className="h-3 w-[30%] max-w-[120px]" />
+      </div>
+      {/* Right side columns - duration/size */}
+      <div className="flex items-center gap-4 shrink-0">
+        <Skeleton className="h-3.5 w-10 hidden md:block" />
+        <Skeleton className="h-3.5 w-8" />
+      </div>
+    </div>
+  );
+}
+
 export default function FilesPage() {
   return (
     <Suspense
       fallback={
         <div className="p-4 lg:p-6 space-y-4">
           <Skeleton className="h-8 w-48" />
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-14 w-full rounded-lg" />
+          <div className="space-y-1">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <FileRowSkeleton key={i} />
             ))}
           </div>
         </div>
