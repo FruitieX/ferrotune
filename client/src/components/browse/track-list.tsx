@@ -32,7 +32,7 @@ export function TrackList({
   showCover = false,
   showAlbum = true,
   showArtist = true,
-  showHeader = true,
+  showHeader: _showHeader = true,
   emptyMessage = "No tracks",
   className,
   queueSource,

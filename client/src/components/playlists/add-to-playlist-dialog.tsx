@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, ListMusic, Loader2, Check, AlertTriangle } from "lucide-react";
@@ -86,38 +86,35 @@ export function AddToPlaylistDialog({
   });
 
   // Check for duplicates before adding
-  const checkDuplicates = useCallback(
-    async (playlistId: string, playlistName: string) => {
-      const client = getClient();
-      if (!client) return null;
+  const checkDuplicates = async (playlistId: string, playlistName: string) => {
+    const client = getClient();
+    if (!client) return null;
 
-      try {
-        const playlistResponse = await client.getPlaylist(playlistId);
-        const existingSongIds = new Set(
-          playlistResponse.playlist.entry?.map((s) => s.id) ?? [],
-        );
+    try {
+      const playlistResponse = await client.getPlaylist(playlistId);
+      const existingSongIds = new Set(
+        playlistResponse.playlist.entry?.map((s) => s.id) ?? [],
+      );
 
-        const duplicateIds = idsToAdd.filter((id) => existingSongIds.has(id));
-        const nonDuplicateIds = idsToAdd.filter(
-          (id) => !existingSongIds.has(id),
-        );
+      const duplicateIds = idsToAdd.filter((id) => existingSongIds.has(id));
+      const nonDuplicateIds = idsToAdd.filter(
+        (id) => !existingSongIds.has(id),
+      );
 
-        if (duplicateIds.length > 0) {
-          return {
-            playlistId,
-            playlistName,
-            duplicateCount: duplicateIds.length,
-            nonDuplicateIds,
-          };
-        }
-        return null;
-      } catch (error) {
-        console.error("Failed to check for duplicates:", error);
-        return null;
+      if (duplicateIds.length > 0) {
+        return {
+          playlistId,
+          playlistName,
+          duplicateCount: duplicateIds.length,
+          nonDuplicateIds,
+        };
       }
-    },
-    [idsToAdd],
-  );
+      return null;
+    } catch (error) {
+      console.error("Failed to check for duplicates:", error);
+      return null;
+    }
+  };
 
   // Add to existing playlist mutation
   const addToPlaylistMutation = useMutation({

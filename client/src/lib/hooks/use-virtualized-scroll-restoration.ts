@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 
 // Store scroll positions by route key
@@ -48,20 +48,17 @@ export function useVirtualizedScrollRestoration(
   const lastSavedOffsetRef = useRef<number>(0);
 
   // Get the initial offset for the virtualizer
-  const getInitialOffset = useCallback(() => {
+  const getInitialOffset = () => {
     return scrollPositions.get(routeKey) ?? 0;
-  }, [routeKey]);
+  };
 
   // Save the scroll offset - debounced via requestAnimationFrame
-  const saveOffset = useCallback(
-    (offset: number) => {
-      // Avoid redundant saves
-      if (offset === lastSavedOffsetRef.current) return;
-      lastSavedOffsetRef.current = offset;
-      scrollPositions.set(routeKey, offset);
-    },
-    [routeKey],
-  );
+  const saveOffset = (offset: number) => {
+    // Avoid redundant saves
+    if (offset === lastSavedOffsetRef.current) return;
+    lastSavedOffsetRef.current = offset;
+    scrollPositions.set(routeKey, offset);
+  };
 
   // Also sync the actual scroll container position on route changes
   // This handles the case where the virtualizer sets scrollOffset but

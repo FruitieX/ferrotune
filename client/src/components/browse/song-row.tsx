@@ -10,7 +10,6 @@ import { getClient } from "@/lib/api/client";
 import { formatDuration, formatDate } from "@/lib/utils/format";
 import {
   currentSongAtom,
-  serverQueueStateAtom,
   startQueueAtom,
   type QueueSourceType,
 } from "@/lib/store/server-queue";

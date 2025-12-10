@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Pencil,
@@ -47,7 +47,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getClient } from "@/lib/api/client";
 import {
-  organizePlaylistsIntoFolders,
   type PlaylistFolder,
 } from "@/lib/utils/playlist-folders";
 import type { Playlist } from "@/lib/api/types";

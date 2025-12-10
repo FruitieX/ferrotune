@@ -4,9 +4,6 @@ import {
   useState,
   useRef,
   useEffect,
-  useCallback,
-  useMemo,
-  memo,
   forwardRef,
   useImperativeHandle,
 } from "react";
@@ -97,11 +94,11 @@ interface VirtualQueueItemProps {
  * Memoized queue item component to prevent unnecessary re-renders.
  * Only re-renders when its specific props change.
  */
-const VirtualQueueItem = memo(function VirtualQueueItem({
+function VirtualQueueItem({
   entry,
   isCurrent,
   isPlaying,
-  totalCount,
+  totalCount: _totalCount,
   onPlay,
   onRemove,
   onTogglePlayPause,
@@ -233,7 +230,7 @@ const VirtualQueueItem = memo(function VirtualQueueItem({
       </div>
     </SongContextMenu>
   );
-});
+}
 
 interface VirtualizedQueueDisplayProps {
   variant?: "mobile" | "desktop";
@@ -293,7 +290,7 @@ export const VirtualizedQueueDisplay = forwardRef<
 
   // Create a memoized map of loaded songs by position for O(1) lookup
   // Only recreate when the songs array changes
-  const songsByPosition = useMemo(() => {
+  const songsByPosition = (() => {
     const map = new Map<number, QueueSongEntry>();
     if (songs) {
       for (const entry of songs) {
@@ -301,7 +298,7 @@ export const VirtualizedQueueDisplay = forwardRef<
       }
     }
     return map;
-  }, [songs]);
+  })();
 
   // Virtualizer setup
   const virtualizer = useVirtualizer({
@@ -321,23 +318,17 @@ export const VirtualizedQueueDisplay = forwardRef<
   const firstVisible = virtualItems[0]?.index ?? 0;
   const lastVisible = virtualItems[virtualItems.length - 1]?.index ?? 0;
 
-  // Scroll to now playing track
-  const scrollToNowPlaying = useCallback(
-    (behavior: "auto" | "smooth" = "smooth") => {
-      if (totalCount === 0) return;
-      virtualizer.scrollToIndex(currentIndex, { align: "start", behavior });
-      userScrolledAwayRef.current = false;
-    },
-    [virtualizer, currentIndex, totalCount],
-  );
-
   // Expose imperative handle
   useImperativeHandle(
     ref,
     () => ({
-      scrollToNowPlaying,
+      scrollToNowPlaying: (behavior: "auto" | "smooth" = "smooth") => {
+        if (totalCount === 0) return;
+        virtualizer.scrollToIndex(currentIndex, { align: "start", behavior });
+        userScrolledAwayRef.current = false;
+      },
     }),
-    [scrollToNowPlaying],
+    [totalCount, virtualizer, currentIndex],
   );
 
   // Track when user scrolls away from the now playing track
@@ -417,46 +408,45 @@ export const VirtualizedQueueDisplay = forwardRef<
     }
   }, [trackChangeSignal, isRestoring, virtualizer, currentIndex]);
 
-  // Fetch more songs when scrolling near edges of loaded data
-  const checkAndFetchMore = useCallback(async () => {
-    if (isFetchingRef.current || totalCount === 0) return;
-
-    // Find gaps in the loaded data within the visible + threshold range
-    const checkStart = Math.max(0, firstVisible - FETCH_THRESHOLD);
-    const checkEnd = Math.min(totalCount - 1, lastVisible + FETCH_THRESHOLD);
-
-    let fetchStart = -1;
-    let fetchEnd = -1;
-
-    for (let i = checkStart; i <= checkEnd; i++) {
-      if (!songsByPosition.has(i)) {
-        if (fetchStart === -1) fetchStart = i;
-        fetchEnd = i;
-      }
-    }
-
-    if (fetchStart !== -1 && fetchEnd !== -1) {
-      const rangeKey = `${fetchStart}-${fetchEnd}`;
-      if (!fetchedRangesRef.current.has(rangeKey)) {
-        fetchedRangesRef.current.add(rangeKey);
-        isFetchingRef.current = true;
-
-        try {
-          await fetchQueueRange({
-            offset: fetchStart,
-            limit: fetchEnd - fetchStart + 1,
-          });
-        } finally {
-          isFetchingRef.current = false;
-        }
-      }
-    }
-  }, [firstVisible, lastVisible, totalCount, songsByPosition, fetchQueueRange]);
-
   // Check for more data to fetch when scroll position changes
   useEffect(() => {
+    const checkAndFetchMore = async () => {
+      if (isFetchingRef.current || totalCount === 0) return;
+
+      // Find gaps in the loaded data within the visible + threshold range
+      const checkStart = Math.max(0, firstVisible - FETCH_THRESHOLD);
+      const checkEnd = Math.min(totalCount - 1, lastVisible + FETCH_THRESHOLD);
+
+      let fetchStart = -1;
+      let fetchEnd = -1;
+
+      for (let i = checkStart; i <= checkEnd; i++) {
+        if (!songsByPosition.has(i)) {
+          if (fetchStart === -1) fetchStart = i;
+          fetchEnd = i;
+        }
+      }
+
+      if (fetchStart !== -1 && fetchEnd !== -1) {
+        const rangeKey = `${fetchStart}-${fetchEnd}`;
+        if (!fetchedRangesRef.current.has(rangeKey)) {
+          fetchedRangesRef.current.add(rangeKey);
+          isFetchingRef.current = true;
+
+          try {
+            await fetchQueueRange({
+              offset: fetchStart,
+              limit: fetchEnd - fetchStart + 1,
+            });
+          } finally {
+            isFetchingRef.current = false;
+          }
+        }
+      }
+    };
+
     checkAndFetchMore();
-  }, [checkAndFetchMore]);
+  }, [firstVisible, lastVisible, totalCount, songsByPosition, fetchQueueRange]);
 
   // Reset fetched ranges when queue changes
   useEffect(() => {
@@ -464,27 +454,24 @@ export const VirtualizedQueueDisplay = forwardRef<
   }, [queueState?.source.id, queueState?.isShuffled]);
 
   // Handle move to position
-  const handleMoveToPosition = useCallback(
-    (_song: QueueSongEntry["song"], index: number) => {
-      // Find the entry by position
-      const entry = songsByPosition.get(index);
-      if (!entry) return;
-      setMoveDialogEntry(entry);
-      setMoveDialogOpen(true);
-    },
-    [songsByPosition],
-  );
+  const handleMoveToPosition = (
+    _song: QueueSongEntry["song"],
+    index: number,
+  ) => {
+    // Find the entry by position
+    const entry = songsByPosition.get(index);
+    if (!entry) return;
+    setMoveDialogEntry(entry);
+    setMoveDialogOpen(true);
+  };
 
-  const handleMove = useCallback(
-    async (newPosition: number) => {
-      if (!moveDialogEntry) return;
-      await moveInQueue({
-        fromPosition: moveDialogEntry.position,
-        toPosition: newPosition,
-      });
-    },
-    [moveDialogEntry, moveInQueue],
-  );
+  const handleMove = async (newPosition: number) => {
+    if (!moveDialogEntry) return;
+    await moveInQueue({
+      fromPosition: moveDialogEntry.position,
+      toPosition: newPosition,
+    });
+  };
 
   // Show loading state
   if (isLoading) {
@@ -536,7 +523,7 @@ export const VirtualizedQueueDisplay = forwardRef<
                 {entry ? (
                   <VirtualQueueItem
                     entry={entry}
-                    isCurrent={isCurrent}
+                    isCurrent={isCurrent && playbackState !== "ended"}
                     isPlaying={isCurrent && playbackState === "playing"}
                     totalCount={totalCount}
                     onPlay={() => playAtIndex(virtualItem.index)}

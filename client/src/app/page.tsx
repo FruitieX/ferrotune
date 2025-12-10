@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
 import { Play, Clock, Sparkles, TrendingUp, Shuffle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
+import { startQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";

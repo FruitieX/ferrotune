@@ -12,7 +12,6 @@ import {
 } from "@/components/shared/media-row";
 import { AlbumContextMenu, AlbumDropdownMenu } from "./album-context-menu";
 import { formatDuration } from "@/lib/utils/format";
-import type { AlbumColumnVisibility } from "@/lib/store/ui";
 
 interface AlbumCardProps {
   album: Album;

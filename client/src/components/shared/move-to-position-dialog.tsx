@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -33,14 +33,16 @@ export function MoveToPositionDialog({
   // Use 1-based position for user display (more intuitive)
   const [inputValue, setInputValue] = useState(String(currentPosition + 1));
   const [error, setError] = useState<string | null>(null);
+  const [prevOpen, setPrevOpen] = useState(open);
 
-  // Reset input when dialog opens
-  useEffect(() => {
+  // Reset input when dialog opens (React-recommended pattern for adjusting state when props change)
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setInputValue(String(currentPosition + 1));
       setError(null);
     }
-  }, [open, currentPosition]);
+  }
 
   const handleMove = () => {
     const newPosition = parseInt(inputValue, 10);

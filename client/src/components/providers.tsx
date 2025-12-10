@@ -86,8 +86,8 @@ function AccentColorProvider({ children }: { children: React.ReactNode }) {
 
 // Toaster with dynamic positioning based on queue panel state
 function ResponsiveToaster() {
-  const queueOpen = useAtomValue(queuePanelOpenAtom);
-  const QUEUE_SIDEBAR_WIDTH = 360;
+  const _queueOpen = useAtomValue(queuePanelOpenAtom);
+  const _QUEUE_SIDEBAR_WIDTH = 360;
   const GAP_FROM_EDGE = 16;
 
   return (

@@ -164,7 +164,7 @@ function SongDetails({
   song: Song;
   onDeleted?: () => void;
 }) {
-  const [coverError, setCoverError] = useState(false);
+  const [coverError, _setCoverError] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showTagsEditor, setShowTagsEditor] = useState(false);
   const [fullSong, setFullSong] = useState<Song>(song);

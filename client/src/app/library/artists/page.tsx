@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { User } from "lucide-react";
@@ -30,7 +29,7 @@ import {
   VirtualizedList,
 } from "@/components/shared/virtualized-grid";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
-import type { Artist, Song } from "@/lib/api/types";
+import type { Song } from "@/lib/api/types";
 
 export default function ArtistsPage() {
   const { isReady, isLoading: authLoading } = useAuth({
@@ -187,24 +186,16 @@ export default function ArtistsPage() {
     }
   };
 
-  // Use a ref to track display artists for stable callbacks
-  const displayArtistsRef = useRef(displayArtists);
-  displayArtistsRef.current = displayArtists;
-
   // Play artist handler - plays all songs by this artist
-  // Takes id for stable callback, looks up artist data from ref
-  const handlePlayArtist = useCallback(
-    (id: string) => {
-      const artist = displayArtistsRef.current.find((a) => a.id === id);
-      if (!artist) return;
-      startQueue({
-        sourceType: "artist",
-        sourceId: artist.id,
-        sourceName: artist.name,
-      });
-    },
-    [startQueue],
-  );
+  const handlePlayArtist = (id: string) => {
+    const artist = displayArtists.find((a) => a.id === id);
+    if (!artist) return;
+    startQueue({
+      sourceType: "artist",
+      sourceId: artist.id,
+      sourceName: artist.name,
+    });
+  };
 
   if (authLoading) {
     return (

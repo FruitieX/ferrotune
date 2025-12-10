@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, Suspense } from "react";
+import { useState, Suspense } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useAtomValue, useSetAtom } from "jotai";
 import { motion } from "framer-motion";
@@ -166,30 +166,22 @@ function FilesPageContent() {
     });
 
   // Flatten all pages
-  const allItems = useMemo(() => {
-    return data?.pages.flatMap((page) => page.children) ?? [];
-  }, [data]);
+  const allItems = data?.pages.flatMap((page) => page.children) ?? [];
 
   const directoryInfo = data?.pages[0];
   const totalCount = directoryInfo?.total ?? 0;
   const breadcrumbs = directoryInfo?.breadcrumbs ?? [];
 
   // Get songs for playback and playlist operations
-  const songs: Song[] = useMemo(() => {
-    return allItems
-      .map(directoryChildToSong)
-      .filter((s): s is Song => s !== null);
-  }, [allItems]);
+  const songs: Song[] = allItems
+    .map(directoryChildToSong)
+    .filter((s): s is Song => s !== null);
 
   // Get selected songs (files only)
-  const selectedSongs = useMemo(() => {
-    return songs.filter((s) => selectedIds.has(s.id));
-  }, [songs, selectedIds]);
+  const selectedSongs = songs.filter((s) => selectedIds.has(s.id));
 
   // Get selected directories
-  const selectedDirectories = useMemo(() => {
-    return allItems.filter((item) => item.isDir && selectedIds.has(item.id));
-  }, [allItems, selectedIds]);
+  const selectedDirectories = allItems.filter((item) => item.isDir && selectedIds.has(item.id));
 
   // Total selected count (files + directories)
   const totalSelectedCount = selectedSongs.length + selectedDirectories.length;
@@ -204,63 +196,60 @@ function FilesPageContent() {
   }
 
   // Selection handlers - supports both files and directories
-  const handleSelect = useCallback(
-    (id: string, e: React.MouseEvent, isCheckbox = false) => {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
+  const handleSelect = (id: string, e: React.MouseEvent, isCheckbox = false) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
 
-        if (e.shiftKey && lastSelectedId) {
-          // Range selection
-          const items = allItems;
-          const startIndex = items.findIndex(
-            (item) => item.id === lastSelectedId,
-          );
-          const endIndex = items.findIndex((item) => item.id === id);
+      if (e.shiftKey && lastSelectedId) {
+        // Range selection
+        const items = allItems;
+        const startIndex = items.findIndex(
+          (item) => item.id === lastSelectedId,
+        );
+        const endIndex = items.findIndex((item) => item.id === id);
 
-          if (startIndex !== -1 && endIndex !== -1) {
-            const [from, to] =
-              startIndex < endIndex
-                ? [startIndex, endIndex]
-                : [endIndex, startIndex];
+        if (startIndex !== -1 && endIndex !== -1) {
+          const [from, to] =
+            startIndex < endIndex
+              ? [startIndex, endIndex]
+              : [endIndex, startIndex];
 
-            for (let i = from; i <= to; i++) {
-              // Select both files and directories
-              next.add(items[i].id);
-            }
+          for (let i = from; i <= to; i++) {
+            // Select both files and directories
+            next.add(items[i].id);
           }
-        } else if (isCheckbox || e.ctrlKey || e.metaKey) {
-          // Toggle selection (always toggle for checkbox clicks)
-          if (next.has(id)) {
-            next.delete(id);
-          } else {
-            next.add(id);
-          }
+        }
+      } else if (isCheckbox || e.ctrlKey || e.metaKey) {
+        // Toggle selection (always toggle for checkbox clicks)
+        if (next.has(id)) {
+          next.delete(id);
         } else {
-          // Single selection
-          next.clear();
           next.add(id);
         }
+      } else {
+        // Single selection
+        next.clear();
+        next.add(id);
+      }
 
-        return next;
-      });
-      setLastSelectedId(id);
-    },
-    [allItems, lastSelectedId],
-  );
+      return next;
+    });
+    setLastSelectedId(id);
+  };
 
-  const clearSelection = useCallback(() => {
+  const clearSelection = () => {
     setSelectedIds(new Set());
     setLastSelectedId(null);
-  }, []);
+  };
 
-  const selectAll = useCallback(() => {
+  const selectAll = () => {
     // Select all items (both files and directories)
     const allIds = allItems.map((item) => item.id);
     setSelectedIds(new Set(allIds));
-  }, [allItems]);
+  };
 
   // Playback handlers
-  const handlePlayFolder = useCallback(async () => {
+  const handlePlayFolder = async () => {
     if (!libraryId) return;
     const relativePath = pathParam;
     startQueue({
@@ -270,9 +259,9 @@ function FilesPageContent() {
       startIndex: 0,
       shuffle: false,
     });
-  }, [libraryId, pathParam, directoryInfo, startQueue]);
+  };
 
-  const handleShuffleFolder = useCallback(async () => {
+  const handleShuffleFolder = async () => {
     if (!libraryId) return;
     const relativePath = pathParam;
     startQueue({
@@ -282,9 +271,9 @@ function FilesPageContent() {
       startIndex: 0,
       shuffle: true,
     });
-  }, [libraryId, pathParam, directoryInfo, startQueue]);
+  };
 
-  const handlePlaySelected = useCallback(() => {
+  const handlePlaySelected = () => {
     if (selectedSongs.length === 0) return;
     startQueue({
       sourceType: "other",
@@ -293,85 +282,63 @@ function FilesPageContent() {
       startIndex: 0,
     });
     clearSelection();
-  }, [selectedSongs, startQueue, clearSelection]);
+  };
 
-  const handlePlaySong = useCallback(
-    (song: Song, index: number) => {
-      if (!libraryId) return;
-      const relativePath = pathParam;
-      // Use directoryFlat - only plays files in current directory, not subfolders
-      // Pass sort and filter so the server materializes the queue in the same order
-      startQueue({
-        sourceType: "directoryFlat",
-        sourceId: `${libraryId}:${relativePath}`,
-        sourceName: directoryInfo?.name ?? "Folder",
-        startIndex: index,
-        sort: { field: sortConfig.field, direction: sortConfig.direction },
-        filters: debouncedFilter ? { filter: debouncedFilter } : undefined,
-      });
-    },
-    [
-      libraryId,
-      pathParam,
-      directoryInfo,
-      startQueue,
-      sortConfig,
-      debouncedFilter,
-    ],
-  );
+  const handlePlaySong = (song: Song, index: number) => {
+    if (!libraryId) return;
+    const relativePath = pathParam;
+    // Use directoryFlat - only plays files in current directory, not subfolders
+    // Pass sort and filter so the server materializes the queue in the same order
+    startQueue({
+      sourceType: "directoryFlat",
+      sourceId: `${libraryId}:${relativePath}`,
+      sourceName: directoryInfo?.name ?? "Folder",
+      startIndex: index,
+      sort: { field: sortConfig.field, direction: sortConfig.direction },
+      filters: debouncedFilter ? { filter: debouncedFilter } : undefined,
+    });
+  };
 
-  const handleAddSongToQueue = useCallback(
-    (songId: string, position: "next" | "end") => {
-      addToQueue({ songIds: [songId], position });
-      toast.success(
-        position === "next" ? "Added to play next" : "Added to queue",
-      );
-    },
-    [addToQueue],
-  );
+  const handleAddSongToQueue = (songId: string, position: "next" | "end") => {
+    addToQueue({ songIds: [songId], position });
+    toast.success(
+      position === "next" ? "Added to play next" : "Added to queue",
+    );
+  };
 
-  const handleAddSelectedToQueue = useCallback(
-    (position: "next" | "end") => {
-      if (selectedSongs.length === 0) return;
-      addToQueue({ songIds: selectedSongs.map((s) => s.id), position });
-      toast.success(
-        `Added ${selectedSongs.length} songs to ${position === "next" ? "play next" : "queue"}`,
-      );
-    },
-    [selectedSongs, addToQueue],
-  );
+  const handleAddSelectedToQueue = (position: "next" | "end") => {
+    if (selectedSongs.length === 0) return;
+    addToQueue({ songIds: selectedSongs.map((s) => s.id), position });
+    toast.success(
+      `Added ${selectedSongs.length} songs to ${position === "next" ? "play next" : "queue"}`,
+    );
+  };
 
   // Directory playback handlers - use server-side queue materialization
-  const handlePlayDirectory = useCallback(
-    (dirPath: string) => {
-      if (!libraryId) return;
-      // Find the directory name from items
-      const dir = allItems.find((item) => item.path === dirPath);
-      startQueue({
-        sourceType: "directory",
-        sourceId: `${libraryId}:${dirPath}`,
-        sourceName: dir?.title ?? "Folder",
-      });
-    },
-    [allItems, startQueue, libraryId],
-  );
+  const handlePlayDirectory = (dirPath: string) => {
+    if (!libraryId) return;
+    // Find the directory name from items
+    const dir = allItems.find((item) => item.path === dirPath);
+    startQueue({
+      sourceType: "directory",
+      sourceId: `${libraryId}:${dirPath}`,
+      sourceName: dir?.title ?? "Folder",
+    });
+  };
 
-  const handleAddDirectoryToQueue = useCallback(
-    (dirPath: string, position: "next" | "end") => {
-      if (!libraryId) return;
-      addToQueue({
-        sourceType: "directory",
-        sourceId: `${libraryId}:${dirPath}`,
-        position,
-      });
-      toast.success(
-        position === "next"
-          ? "Added folder to play next"
-          : "Added folder to queue",
-      );
-    },
-    [addToQueue, libraryId],
-  );
+  const handleAddDirectoryToQueue = (dirPath: string, position: "next" | "end") => {
+    if (!libraryId) return;
+    addToQueue({
+      sourceType: "directory",
+      sourceId: `${libraryId}:${dirPath}`,
+      position,
+    });
+    toast.success(
+      position === "next"
+        ? "Added folder to play next"
+        : "Added folder to queue",
+    );
+  };
 
   // Client-side filter libraries by the shared filter input (for library selection view)
   const filteredLibraries =

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { toast } from "sonner";
 import {
@@ -547,11 +547,11 @@ export function SongDropdownMenu({
   );
 
   // Dismiss any open context menu when dropdown opens
-  const handleDropdownOpenChange = useCallback((open: boolean) => {
+  const handleDropdownOpenChange = (open: boolean) => {
     if (open) {
       dismissContextMenu();
     }
-  }, []);
+  };
 
   return (
     <>

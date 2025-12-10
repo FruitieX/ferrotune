@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
@@ -15,7 +14,6 @@ import {
   librarySortAtom,
   columnVisibilityAtom,
   advancedFiltersAtom,
-  hasActiveFiltersAtom,
 } from "@/lib/store/ui";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
@@ -30,7 +28,6 @@ import {
   VirtualizedList,
 } from "@/components/shared/virtualized-grid";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
-import type { Song } from "@/lib/api/types";
 
 const PAGE_SIZE = 50;
 
@@ -43,7 +40,6 @@ export default function SongsPage() {
   const sortConfig = useAtomValue(librarySortAtom);
   const columnVisibility = useAtomValue(columnVisibilityAtom);
   const advancedFilters = useAtomValue(advancedFiltersAtom);
-  const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
   const debouncedFilter = useDebounce(filter, 300);
   const startQueue = useSetAtom(startQueueAtom);
 
@@ -141,32 +137,26 @@ export default function SongsPage() {
   const isLoadingData = debouncedFilter ? isSearching : isLoading;
 
   // Build queue source with filters and sort for server-side materialization
-  const queueSource = useMemo(
-    () => ({
-      type: (debouncedFilter ? "search" : "library") as QueueSourceType,
-      name: debouncedFilter ? `Search: ${debouncedFilter}` : "Library",
-      filters: {
-        query: debouncedFilter || "*",
-        ...advancedFilters,
-      },
-      sort: {
-        field: sortConfig.field,
-        direction: sortConfig.direction,
-      },
-    }),
-    [debouncedFilter, advancedFilters, sortConfig],
-  );
+  const queueSource = {
+    type: (debouncedFilter ? "search" : "library") as QueueSourceType,
+    name: debouncedFilter ? `Search: ${debouncedFilter}` : "Library",
+    filters: {
+      query: debouncedFilter || "*",
+      ...advancedFilters,
+    },
+    sort: {
+      field: sortConfig.field,
+      direction: sortConfig.direction,
+    },
+  };
 
   // Build search params for "select all" functionality
-  const searchParamsForSelection = useMemo(
-    () => ({
-      query: debouncedFilter || "*",
-      songSort: sortConfig.field,
-      songSortDir: sortConfig.direction,
-      ...advancedFilters,
-    }),
-    [debouncedFilter, sortConfig, advancedFilters],
-  );
+  const searchParamsForSelection = {
+    query: debouncedFilter || "*",
+    songSort: sortConfig.field,
+    songSortDir: sortConfig.direction,
+    ...advancedFilters,
+  };
 
   // Track selection with support for selecting all songs from backend
   const {

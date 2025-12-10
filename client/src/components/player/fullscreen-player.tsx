@@ -15,7 +15,6 @@ import {
   VolumeX,
   ListMusic,
   Heart,
-  MoreHorizontal,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -25,7 +24,6 @@ import { CoverImage } from "@/components/shared/cover-image";
 import { fullscreenPlayerOpenAtom, queuePanelOpenAtom } from "@/lib/store/ui";
 import {
   currentSongAtom,
-  queueWindowAtom,
   serverQueueStateAtom,
   toggleShuffleAtom,
 } from "@/lib/store/server-queue";
@@ -51,7 +49,6 @@ export function FullscreenPlayer() {
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
   const [isMuted, setIsMuted] = useAtom(isMutedAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
-  const queueWindow = useAtomValue(queueWindowAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
 

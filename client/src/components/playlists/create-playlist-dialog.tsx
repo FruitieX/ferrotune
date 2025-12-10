@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -35,6 +35,7 @@ export function CreatePlaylistDialog({
   createFolder = false,
 }: CreatePlaylistDialogProps) {
   const [name, setName] = useState("");
+  const [prevOpen, setPrevOpen] = useState(open);
   const queryClient = useQueryClient();
   const router = useRouter();
 
@@ -50,12 +51,13 @@ export function CreatePlaylistDialog({
     enabled: open && !createFolder, // Only need this when creating a playlist (not a folder)
   });
 
-  // Reset name when dialog opens
-  useEffect(() => {
+  // Reset name when dialog opens (React-recommended pattern for adjusting state when props change)
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setName("");
     }
-  }, [open]);
+  }
 
   const createPlaylist = useMutation({
     mutationFn: async (playlistName: string) => {

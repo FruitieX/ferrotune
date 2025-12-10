@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { History } from "lucide-react";
@@ -88,20 +88,17 @@ export default function HistoryPage() {
   );
 
   // Queue source for history - server materializes with same sort
-  const historyQueueSource = useMemo(
-    () => ({
-      type: "history" as QueueSourceType,
-      name: "Recently Played",
-      sort:
-        sortConfig.field !== "custom"
-          ? {
-              field: sortConfig.field,
-              direction: sortConfig.direction,
-            }
-          : undefined,
-    }),
-    [sortConfig.field, sortConfig.direction],
-  );
+  const historyQueueSource = {
+    type: "history" as QueueSourceType,
+    name: "Recently Played",
+    sort:
+      sortConfig.field !== "custom"
+        ? {
+            field: sortConfig.field,
+            direction: sortConfig.direction,
+          }
+        : undefined,
+  };
 
   // Track selection
   const {

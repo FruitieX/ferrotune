@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { toast } from "sonner";
 import {
@@ -64,31 +64,25 @@ export function useItemSelection<T extends SelectableItem>(
   const allItemsLoaded = totalCount === undefined || items.length >= totalCount;
 
   // Get selected items in order
-  const getSelectedItems = useCallback(() => {
+  const getSelectedItems = () => {
     return items.filter((item) => selectionState.selectedIds.has(item.id));
-  }, [items, selectionState.selectedIds]);
+  };
 
   // Check if a specific item is selected
-  const isSelected = useCallback(
-    (id: string) => selectionState.selectedIds.has(id),
-    [selectionState.selectedIds],
-  );
+  const isSelected = (id: string) => selectionState.selectedIds.has(id);
 
   // Handle click with modifiers - stable callback using ref for items
-  const handleSelect = useCallback(
-    (id: string, event?: React.MouseEvent) => {
-      selectItem({
-        id,
-        items: itemsRef.current,
-        shiftKey: event?.shiftKey ?? false,
-        ctrlKey: event?.ctrlKey ?? event?.metaKey ?? false,
-      });
-    },
-    [selectItem],
-  );
+  const handleSelect = (id: string, event?: React.MouseEvent) => {
+    selectItem({
+      id,
+      items: itemsRef.current,
+      shiftKey: event?.shiftKey ?? false,
+      ctrlKey: event?.ctrlKey ?? event?.metaKey ?? false,
+    });
+  };
 
   // Select all - either from loaded items or fetch from backend
-  const selectAll = useCallback(async () => {
+  const selectAll = async () => {
     // If all items are loaded locally, use them directly
     if (allItemsLoaded) {
       selectAllItems(items);
@@ -121,7 +115,11 @@ export function useItemSelection<T extends SelectableItem>(
     } finally {
       setIsSelectingAll(false);
     }
-  }, [allItemsLoaded, items, searchParams, selectAllItems]);
+  };
+
+  // Use a ref for selectAll to avoid recreating the effect on every render
+  const selectAllRef = useRef(selectAll);
+  selectAllRef.current = selectAll;
 
   // Keyboard shortcuts for selection
   useEffect(() => {
@@ -133,7 +131,7 @@ export function useItemSelection<T extends SelectableItem>(
           return;
         }
         e.preventDefault();
-        selectAll();
+        selectAllRef.current();
       }
 
       // Escape to clear selection
@@ -145,7 +143,7 @@ export function useItemSelection<T extends SelectableItem>(
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectAll, clearSelection, hasSelection, onClear]);
+  }, [clearSelection, hasSelection, onClear]);
 
   return {
     selectedIds: selectionState.selectedIds,
@@ -187,77 +185,71 @@ export function useTrackSelection(
   // Get selected songs (type-safe alias)
   // NOTE: This only returns songs that are currently loaded in memory.
   // For bulk actions after "select all", use selectedIds directly.
-  const getSelectedSongs = useCallback(() => {
+  const getSelectedSongs = () => {
     return getSelectedItems() as Song[];
-  }, [getSelectedItems]);
+  };
 
   // Bulk action handlers
   // Uses selectedIds directly for operations that work with IDs
-  const addSelectedToQueue = useCallback(
-    (position: "next" | "end" = "end") => {
-      const ids = Array.from(selectedIds);
-      if (ids.length === 0) return;
+  const addSelectedToQueue = (position: "next" | "end" = "end") => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
 
-      addToQueue({ songIds: ids, position });
+    addToQueue({ songIds: ids, position });
 
-      toast.success(
-        position === "next"
-          ? `Added ${ids.length} songs to play next`
-          : `Added ${ids.length} songs to queue`,
-      );
-      clearSelection();
-    },
-    [selectedIds, addToQueue, clearSelection],
-  );
+    toast.success(
+      position === "next"
+        ? `Added ${ids.length} songs to play next`
+        : `Added ${ids.length} songs to queue`,
+    );
+    clearSelection();
+  };
 
-  const starSelected = useCallback(
-    async (star: boolean) => {
-      const client = getClient();
-      if (!client) return;
+  const starSelected = async (star: boolean) => {
+    const client = getClient();
+    if (!client) return;
 
-      const ids = Array.from(selectedIds);
-      if (ids.length === 0) return;
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
 
-      try {
-        // Star/unstar works with IDs
-        if (star) {
-          // Star in batches to avoid overwhelming the server
-          const batchSize = 50;
-          for (let i = 0; i < ids.length; i += batchSize) {
-            const batch = ids.slice(i, i + batchSize);
-            await Promise.all(batch.map((id) => client.star({ id })));
-          }
-          toast.success(`Added ${ids.length} songs to favorites`);
-        } else {
-          const batchSize = 50;
-          for (let i = 0; i < ids.length; i += batchSize) {
-            const batch = ids.slice(i, i + batchSize);
-            await Promise.all(batch.map((id) => client.unstar({ id })));
-          }
-          toast.success(`Removed ${ids.length} songs from favorites`);
+    try {
+      // Star/unstar works with IDs
+      if (star) {
+        // Star in batches to avoid overwhelming the server
+        const batchSize = 50;
+        for (let i = 0; i < ids.length; i += batchSize) {
+          const batch = ids.slice(i, i + batchSize);
+          await Promise.all(batch.map((id) => client.star({ id })));
         }
-
-        // Update the global starred state so UI reflects the change immediately
-        setStarredItems((current) => {
-          const updated = new Map(current);
-          for (const id of ids) {
-            // Use song: prefix to match the starred store key format
-            updated.set(`song:${id}`, star);
-          }
-          return updated;
-        });
-
-        // Invalidate favorites queries so the favorites view updates
-        invalidateFavorites("song");
-
-        clearSelection();
-      } catch (error) {
-        toast.error("Failed to update favorites");
-        console.error(error);
+        toast.success(`Added ${ids.length} songs to favorites`);
+      } else {
+        const batchSize = 50;
+        for (let i = 0; i < ids.length; i += batchSize) {
+          const batch = ids.slice(i, i + batchSize);
+          await Promise.all(batch.map((id) => client.unstar({ id })));
+        }
+        toast.success(`Removed ${ids.length} songs from favorites`);
       }
-    },
-    [selectedIds, clearSelection, setStarredItems, invalidateFavorites],
-  );
+
+      // Update the global starred state so UI reflects the change immediately
+      setStarredItems((current) => {
+        const updated = new Map(current);
+        for (const id of ids) {
+          // Use song: prefix to match the starred store key format
+          updated.set(`song:${id}`, star);
+        }
+        return updated;
+      });
+
+      // Invalidate favorites queries so the favorites view updates
+      invalidateFavorites("song");
+
+      clearSelection();
+    } catch (error) {
+      toast.error("Failed to update favorites");
+      console.error(error);
+    }
+  };
 
   return {
     selectedIds,

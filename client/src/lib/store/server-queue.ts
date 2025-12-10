@@ -17,7 +17,6 @@ import type {
   Song,
   QueueSourceInfo,
   QueueWindow,
-  QueueSongEntry,
 } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 

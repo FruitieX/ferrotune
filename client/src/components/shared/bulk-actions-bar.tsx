@@ -140,7 +140,7 @@ export function BulkActionsBar(
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
-  const [shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
+  const [_shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
 
   // Determine media type and get label
   const mediaType = "mediaType" in props ? (props.mediaType ?? "song") : "song";

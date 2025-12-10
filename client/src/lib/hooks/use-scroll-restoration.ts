@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 
 // Store scroll positions by route key
@@ -25,25 +25,6 @@ export function useScrollRestoration(
   // Use pathname as the route key (simpler, no Suspense needed)
   const routeKey = pathname;
 
-  // Restore scroll position - may need multiple attempts for virtualized content
-  const attemptRestoreScroll = useCallback(() => {
-    const container = document.getElementById(containerId);
-    if (!container) return false;
-
-    const savedPosition = scrollPositions.get(routeKey);
-    if (savedPosition === undefined || savedPosition === 0) return true; // Nothing to restore
-
-    // Check if content is tall enough to scroll to the saved position
-    const canScroll = container.scrollHeight > savedPosition;
-
-    if (canScroll) {
-      container.scrollTop = savedPosition;
-      return true;
-    }
-
-    return false;
-  }, [containerId, routeKey]);
-
   // Restore scroll position on mount - with retries for dynamic content
   useEffect(() => {
     // Only restore once per mount
@@ -54,6 +35,25 @@ export function useScrollRestoration(
       hasRestoredRef.current = true;
       return;
     }
+
+    // Restore scroll position - may need multiple attempts for virtualized content
+    const attemptRestoreScroll = () => {
+      const container = document.getElementById(containerId);
+      if (!container) return false;
+
+      const pos = scrollPositions.get(routeKey);
+      if (pos === undefined || pos === 0) return true; // Nothing to restore
+
+      // Check if content is tall enough to scroll to the saved position
+      const canScroll = container.scrollHeight > pos;
+
+      if (canScroll) {
+        container.scrollTop = pos;
+        return true;
+      }
+
+      return false;
+    };
 
     // Try immediately
     if (attemptRestoreScroll()) {
@@ -83,7 +83,7 @@ export function useScrollRestoration(
     };
 
     tryRestore();
-  }, [containerId, routeKey, attemptRestoreScroll]);
+  }, [containerId, routeKey]);
 
   // Save scroll position on unmount and during scroll
   useEffect(() => {

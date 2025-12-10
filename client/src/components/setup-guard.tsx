@@ -26,7 +26,7 @@ export function SetupGuard({ children }: { children: React.ReactNode }) {
   // Use stored connection URL or default backend URL
   const backendUrl = connection?.serverUrl || DEFAULT_BACKEND_URL;
 
-  const { data: setupStatus, isError } = useQuery({
+  const { data: setupStatus, isError: _isError } = useQuery({
     queryKey: ["setupStatus", backendUrl],
     queryFn: async () => {
       try {

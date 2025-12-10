@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
@@ -15,7 +14,6 @@ import {
   libraryFilterAtom,
   librarySortAtom,
   advancedFiltersAtom,
-  hasActiveFiltersAtom,
 } from "@/lib/store/ui";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { useInvalidateFavorites } from "@/lib/store/starred";
@@ -31,7 +29,7 @@ import {
   VirtualizedList,
 } from "@/components/shared/virtualized-grid";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
-import type { Album, Song } from "@/lib/api/types";
+import type { Song } from "@/lib/api/types";
 
 const PAGE_SIZE = 50;
 
@@ -43,7 +41,6 @@ export default function AlbumsPage() {
   const filter = useAtomValue(libraryFilterAtom);
   const sortConfig = useAtomValue(librarySortAtom);
   const advancedFilters = useAtomValue(advancedFiltersAtom);
-  const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
   const debouncedFilter = useDebounce(filter, 300);
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -146,10 +143,6 @@ export default function AlbumsPage() {
   const displayCount = debouncedFilter ? displayAlbums.length : totalAlbums;
   const isLoadingData = debouncedFilter ? isSearching : isLoading;
 
-  // Ref for displayAlbums to make callbacks stable
-  const displayAlbumsRef = useRef(displayAlbums);
-  displayAlbumsRef.current = displayAlbums;
-
   // Album selection
   const {
     selectedCount,
@@ -242,19 +235,16 @@ export default function AlbumsPage() {
   };
 
   // Play album handler - accepts id for stable callback reference
-  const handlePlayAlbum = useCallback(
-    (id: string) => {
-      const album = displayAlbumsRef.current.find((a) => a.id === id);
-      if (album) {
-        startQueue({
-          sourceType: "album",
-          sourceId: album.id,
-          sourceName: album.name,
-        });
-      }
-    },
-    [startQueue],
-  );
+  const handlePlayAlbum = (id: string) => {
+    const album = displayAlbums.find((a) => a.id === id);
+    if (album) {
+      startQueue({
+        sourceType: "album",
+        sourceId: album.id,
+        sourceName: album.name,
+      });
+    }
+  };
 
   if (authLoading) {
     return (

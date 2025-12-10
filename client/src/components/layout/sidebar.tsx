@@ -3,7 +3,7 @@
 import { Suspense, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { useAtom, useAtomValue } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -17,7 +17,6 @@ import {
   ChevronRight,
   ChevronDown,
   Settings,
-  Music2,
   Folder,
   FolderOpen,
   Disc,
@@ -54,7 +53,6 @@ import {
   getPlaylistDisplayName,
   type PlaylistFolder,
 } from "@/lib/utils/playlist-folders";
-import type { Playlist } from "@/lib/api/types";
 
 const discoverItems = [
   { href: "/", icon: Home, label: "Home" },

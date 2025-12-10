@@ -3,10 +3,7 @@
 import {
   useState,
   useEffect,
-  useMemo,
   Suspense,
-  useCallback,
-  useRef,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
@@ -270,8 +267,8 @@ function PlaylistDetailContent() {
     },
   });
 
-  // Reorder mutation
-  const reorderMutation = useMutation({
+  // Reorder mutation (kept for potential future use)
+  const _reorderMutation = useMutation({
     mutationFn: async (songIds: string[]) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
@@ -357,15 +354,11 @@ function PlaylistDetailContent() {
     },
   });
 
-  // Use ref to access current display items without adding to callback dependencies
-  const displayItemsRef = useRef(displayItems);
-  displayItemsRef.current = displayItems;
-
   // Helper to remove a single song by its position (for context menu)
   // Shows confirmation dialog instead of direct removal
-  const handleRemoveSingleSong = useCallback((songId: string) => {
+  const handleRemoveSingleSong = (songId: string) => {
     // Find the position of the song in the display items
-    const item = displayItemsRef.current.find(
+    const item = displayItems.find(
       (item) => item.type === "song" && item.song.id === songId,
     );
     if (!item || item.type !== "song") return;
@@ -375,10 +368,10 @@ function PlaylistDetailContent() {
       position: item.position,
     });
     setRemoveSingleSongDialogOpen(true);
-  }, []);
+  };
 
   // Confirm single song removal
-  const confirmRemoveSingleSong = useCallback(() => {
+  const confirmRemoveSingleSong = () => {
     if (pendingSingleRemove) {
       removeSongsMutation.mutate({
         indices: [pendingSingleRemove.position],
@@ -387,58 +380,46 @@ function PlaylistDetailContent() {
     }
     setRemoveSingleSongDialogOpen(false);
     setPendingSingleRemove(null);
-  }, [pendingSingleRemove, removeSongsMutation]);
+  };
 
   // Helper to remove a missing entry by position (no undo since we can't add it back)
-  const handleRemoveMissingEntry = useCallback(
-    async (position: number) => {
-      const client = getClient();
-      if (!client) return;
-      try {
-        await client.updatePlaylist({
-          playlistId: playlistId!,
-          songIndexToRemove: [position],
-        });
-        queryClient.invalidateQueries({
-          queryKey: ["playlistSongs", playlistId],
-        });
-        toast.success("Entry removed from playlist");
-      } catch {
-        toast.error("Failed to remove entry from playlist");
-      }
-    },
-    [playlistId, queryClient],
-  );
+  const handleRemoveMissingEntry = async (position: number) => {
+    const client = getClient();
+    if (!client) return;
+    try {
+      await client.updatePlaylist({
+        playlistId: playlistId!,
+        songIndexToRemove: [position],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlistId],
+      });
+      toast.success("Entry removed from playlist");
+    } catch {
+      toast.error("Failed to remove entry from playlist");
+    }
+  };
 
   // Handle move to position for playlists (works for both songs and missing entries)
-  const handleMoveToPosition = useCallback(
-    (item: { name: string; position: number }) => {
-      setMoveDialogItem(item);
-      setMoveDialogOpen(true);
-    },
-    [],
-  );
+  const handleMoveToPosition = (item: { name: string; position: number }) => {
+    setMoveDialogItem(item);
+    setMoveDialogOpen(true);
+  };
 
   // Wrapper for song move to position (adapts Song to the generic interface)
-  const handleSongMoveToPosition = useCallback(
-    (song: Song, currentIndex: number) => {
-      handleMoveToPosition({ name: song.title, position: currentIndex });
-    },
-    [handleMoveToPosition],
-  );
+  const handleSongMoveToPosition = (song: Song, currentIndex: number) => {
+    handleMoveToPosition({ name: song.title, position: currentIndex });
+  };
 
   // Handler for missing entry move to position
-  const handleMissingMoveToPosition = useCallback(
-    (name: string, position: number) => {
-      handleMoveToPosition({ name, position });
-    },
-    [handleMoveToPosition],
-  );
+  const handleMissingMoveToPosition = (name: string, position: number) => {
+    handleMoveToPosition({ name, position });
+  };
 
   // Handler for refine match (for songs that have associated missing data)
-  const handleRefineMatch = useCallback((song: Song, index: number) => {
+  const handleRefineMatch = (song: Song, index: number) => {
     // Find the display item to get the missing data
-    const item = displayItemsRef.current.find(
+    const item = displayItems.find(
       (i) => i.type === "song" && i.song.id === song.id && i.position === index,
     );
     if (!item || item.type !== "song" || !item.missing) return;
@@ -448,82 +429,67 @@ function PlaylistDetailContent() {
       missing: item.missing,
     });
     setRefineMatchDialogOpen(true);
-  }, []);
+  };
 
-  const handleMoveItem = useCallback(
-    async (newPosition: number) => {
-      if (!moveDialogItem) return;
+  const handleMoveItem = async (newPosition: number) => {
+    if (!moveDialogItem) return;
 
-      const { position: oldPosition } = moveDialogItem;
-      if (oldPosition === newPosition) return;
+    const { position: oldPosition } = moveDialogItem;
+    if (oldPosition === newPosition) return;
 
-      // Use the server-side move endpoint
-      const client = getClient();
-      if (!client) return;
+    // Use the server-side move endpoint
+    const client = getClient();
+    if (!client) return;
 
-      try {
-        await client.movePlaylistEntry(playlistId!, oldPosition, newPosition);
-        queryClient.invalidateQueries({
-          queryKey: ["playlistSongs", playlistId],
-        });
-        toast.success("Entry moved");
-      } catch (error) {
-        toast.error("Failed to move entry");
-        console.error(error);
-      }
-    },
-    [moveDialogItem, playlistId, queryClient],
-  );
+    try {
+      await client.movePlaylistEntry(playlistId!, oldPosition, newPosition);
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlistId],
+      });
+      toast.success("Entry moved");
+    } catch (error) {
+      toast.error("Failed to move entry");
+      console.error(error);
+    }
+  };
 
   // Queue source for playlist - server materializes with same sort/filter
-  const playlistQueueSource = useMemo(
-    () => ({
-      type: "playlist" as const,
-      id: playlistId,
-      name: playlist?.name ?? "Playlist",
-      filters: debouncedFilter.trim()
-        ? { filter: debouncedFilter.trim() }
+  const playlistQueueSource = {
+    type: "playlist" as const,
+    id: playlistId,
+    name: playlist?.name ?? "Playlist",
+    filters: debouncedFilter.trim()
+      ? { filter: debouncedFilter.trim() }
+      : undefined,
+    sort:
+      sortConfig.field !== "custom"
+        ? {
+            field: sortConfig.field,
+            direction: sortConfig.direction,
+          }
         : undefined,
-      sort:
-        sortConfig.field !== "custom"
-          ? {
-              field: sortConfig.field,
-              direction: sortConfig.direction,
-            }
-          : undefined,
-    }),
-    [
-      playlistId,
-      playlist?.name,
-      debouncedFilter,
-      sortConfig.field,
-      sortConfig.direction,
-    ],
-  );
+  };
 
   // Check if a song at a given playlist position is the currently playing track
   // Uses the server-provided songIndex which maps directly to queue indices
   // Returns undefined if we can't determine (falls back to song ID matching in SongRow)
-  const isCurrentQueuePosition = useCallback(
-    (songIndex: number | undefined, _songId: string): boolean | undefined => {
-      if (!queueState || songIndex === undefined) return undefined;
+  const isCurrentQueuePosition = (songIndex: number | undefined, _songId: string): boolean | undefined => {
+    if (!queueState || songIndex === undefined) return undefined;
 
-      // Check if the queue source is this playlist
-      const isPlaylistQueue =
-        queueState.source?.type === "playlist" &&
-        queueState.source?.id === playlistId;
+    // Check if the queue source is this playlist
+    const isPlaylistQueue =
+      queueState.source?.type === "playlist" &&
+      queueState.source?.id === playlistId;
 
-      if (isPlaylistQueue) {
-        // songIndex from server maps directly to queue index
-        return queueState.currentIndex === songIndex;
-      }
+    if (isPlaylistQueue) {
+      // songIndex from server maps directly to queue index
+      return queueState.currentIndex === songIndex;
+    }
 
-      // For other sources, we can't reliably determine position
-      // Return undefined to let SongRow fall back to song ID matching
-      return undefined;
-    },
-    [queueState, playlistId],
-  );
+    // For other sources, we can't reliably determine position
+    // Return undefined to let SongRow fall back to song ID matching
+    return undefined;
+  };
 
   // Determine if we should use position-based highlighting
   const isPlaylistInQueue =
@@ -531,7 +497,7 @@ function PlaylistDetailContent() {
     queueState?.source?.id === playlistId;
 
   // Build breadcrumb items from playlist name (which includes folder path)
-  const breadcrumbItems = useMemo(() => {
+  const breadcrumbItems = (() => {
     const items: { label: string; path: string }[] = [
       { label: "Playlists", path: "" },
     ];
@@ -551,32 +517,29 @@ function PlaylistDetailContent() {
     }
 
     return items;
-  }, [playlist?.name]);
+  })();
 
   // Get the display name (last part of the path)
-  const displayName = useMemo(() => {
+  const displayName = (() => {
     if (!playlist?.name) return "Playlist";
     const parts = playlist.name.split("/");
     return parts[parts.length - 1];
-  }, [playlist?.name]);
+  })();
 
   // Navigate to a folder
-  const navigateToFolder = useCallback(
-    (path: string) => {
-      if (path === "") {
-        router.push("/playlists");
-      } else {
-        router.push(`/playlists?folder=${encodeURIComponent(path)}`);
-      }
-    },
-    [router],
-  );
+  const navigateToFolder = (path: string) => {
+    if (path === "") {
+      router.push("/playlists");
+    } else {
+      router.push(`/playlists?folder=${encodeURIComponent(path)}`);
+    }
+  };
 
   // Clear missing entries selection
-  const clearMissingSelection = useCallback(() => {
+  const clearMissingSelection = () => {
     setSelectedMissingIds(new Set());
     setSelectionAnchorPosition(null);
-  }, []);
+  };
 
   // Track selection
   const {
@@ -592,7 +555,7 @@ function PlaylistDetailContent() {
   } = useTrackSelection(displaySongs, { onClear: clearMissingSelection });
 
   // Get indices of selected songs in the original order (for removal)
-  const getSelectedIndices = useCallback(() => {
+  const getSelectedIndices = () => {
     const selected = getSelectedSongs();
     const selectedIds = new Set(selected.map((s) => s.id));
     const indices: number[] = [];
@@ -602,10 +565,10 @@ function PlaylistDetailContent() {
       }
     });
     return indices;
-  }, [getSelectedSongs, displayItems]);
+  };
 
   // Get all selected indices including missing entries
-  const getAllSelectedIndices = useCallback(() => {
+  const getAllSelectedIndices = () => {
     const songIndices = getSelectedIndices();
     const missingIndices: number[] = [];
     selectedMissingIds.forEach((id) => {
@@ -617,113 +580,101 @@ function PlaylistDetailContent() {
     });
     // Combine and sort in descending order (remove from end first to preserve indices)
     return [...songIndices, ...missingIndices].sort((a, b) => b - a);
-  }, [getSelectedIndices, selectedMissingIds]);
+  };
 
-  const handleRemoveSelected = useCallback(() => {
+  const handleRemoveSelected = () => {
     const indices = getAllSelectedIndices();
     if (indices.length > 0) {
       setRemoveTracksDialogOpen(true);
     }
-  }, [getAllSelectedIndices]);
+  };
 
   // Unified selection handler for both songs and missing entries with shift-click support
-  const handleUnifiedSelect = useCallback(
-    (
-      itemId: string,
-      position: number,
-      isMissing: boolean,
-      event?: React.MouseEvent,
-    ) => {
-      const shiftKey = event?.shiftKey ?? false;
+  const handleUnifiedSelect = (
+    itemId: string,
+    position: number,
+    isMissing: boolean,
+    event?: React.MouseEvent,
+  ) => {
+    const shiftKey = event?.shiftKey ?? false;
 
-      if (shiftKey && selectionAnchorPosition !== null) {
-        // Range selection: select all items between anchor and current position
-        const start = Math.min(selectionAnchorPosition, position);
-        const end = Math.max(selectionAnchorPosition, position);
+    if (shiftKey && selectionAnchorPosition !== null) {
+      // Range selection: select all items between anchor and current position
+      const start = Math.min(selectionAnchorPosition, position);
+      const end = Math.max(selectionAnchorPosition, position);
 
-        const newMissingIds = new Set(selectedMissingIds);
+      const newMissingIds = new Set(selectedMissingIds);
 
-        displayItems.forEach((item) => {
-          if (item.position >= start && item.position <= end) {
-            if (item.type === "missing") {
-              newMissingIds.add(`missing-${item.position}`);
-            } else {
-              // For songs, we use the handleSelect from useTrackSelection
-              // but we need to add them without shift since we're handling range ourselves
-              handleSelect(item.song.id);
-            }
+      displayItems.forEach((item) => {
+        if (item.position >= start && item.position <= end) {
+          if (item.type === "missing") {
+            newMissingIds.add(`missing-${item.position}`);
+          } else {
+            // For songs, we use the handleSelect from useTrackSelection
+            // but we need to add them without shift since we're handling range ourselves
+            handleSelect(item.song.id);
           }
-        });
-
-        setSelectedMissingIds(newMissingIds);
-        // Don't update anchor on shift-click to allow extending selection
-      } else {
-        // Normal selection - toggle the item
-        if (isMissing) {
-          setSelectedMissingIds((prev) => {
-            const next = new Set(prev);
-            if (next.has(itemId)) {
-              next.delete(itemId);
-            } else {
-              next.add(itemId);
-            }
-            return next;
-          });
-        } else {
-          handleSelect(itemId, event);
         }
-        // Update anchor position
-        setSelectionAnchorPosition(position);
+      });
+
+      setSelectedMissingIds(newMissingIds);
+      // Don't update anchor on shift-click to allow extending selection
+    } else {
+      // Normal selection - toggle the item
+      if (isMissing) {
+        setSelectedMissingIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(itemId)) {
+            next.delete(itemId);
+          } else {
+            next.add(itemId);
+          }
+          return next;
+        });
+      } else {
+        handleSelect(itemId, event);
       }
-    },
-    [selectionAnchorPosition, selectedMissingIds, displayItems, handleSelect],
-  );
+      // Update anchor position
+      setSelectionAnchorPosition(position);
+    }
+  };
 
   // Missing entry selection handler (wrapper for unified handler)
-  const handleMissingSelect = useCallback(
-    (id: string, selected: boolean, event?: React.MouseEvent) => {
-      // Extract position from "missing-{position}" format
-      const match = id.match(/^missing-(\d+)$/);
-      if (match) {
-        const position = parseInt(match[1], 10);
-        handleUnifiedSelect(id, position, true, event);
-      }
-    },
-    [handleUnifiedSelect],
-  );
+  const handleMissingSelect = (id: string, selected: boolean, event?: React.MouseEvent) => {
+    // Extract position from "missing-{position}" format
+    const match = id.match(/^missing-(\d+)$/);
+    if (match) {
+      const position = parseInt(match[1], 10);
+      handleUnifiedSelect(id, position, true, event);
+    }
+  };
 
   // Song selection handler (wrapper for unified handler with position tracking)
-  const handleSongSelect = useCallback(
-    (id: string, event?: React.MouseEvent) => {
-      const item = displayItems.find(
-        (i) => i.type === "song" && i.song.id === id,
-      );
-      if (item) {
-        handleUnifiedSelect(id, item.position, false, event);
-      } else {
-        // Fallback to original handler if item not found
-        handleSelect(id, event);
-      }
-    },
-    [displayItems, handleUnifiedSelect, handleSelect],
-  );
+  const handleSongSelect = (id: string, event?: React.MouseEvent) => {
+    const item = displayItems.find(
+      (i) => i.type === "song" && i.song.id === id,
+    );
+    if (item) {
+      handleUnifiedSelect(id, item.position, false, event);
+    } else {
+      // Fallback to original handler if item not found
+      handleSelect(id, event);
+    }
+  };
 
-  const isMissingSelected = useCallback(
-    (id: string) => {
-      return selectedMissingIds.has(id);
-    },
-    [selectedMissingIds],
-  );
+  const isMissingSelected = (id: string) => {
+    return selectedMissingIds.has(id);
+  };
 
   // Clear all selection (songs + missing)
-  const clearAllSelection = useCallback(() => {
+  const clearAllSelection = () => {
     clearSelection();
     setSelectedMissingIds(new Set());
     setSelectionAnchorPosition(null);
-  }, [clearSelection]);
+  };
 
   // Select all items (songs + missing entries)
-  const selectAllItems = useCallback(() => {
+  const selectAllItems = () => {
     // Select all songs
     selectAll();
     // Select all missing entries
@@ -734,13 +685,13 @@ function PlaylistDetailContent() {
       }
     });
     setSelectedMissingIds(allMissingIds);
-  }, [selectAll, displayItems]);
+  };
 
   // Total selection count
   const totalSelectedCount = selectedCount + selectedMissingIds.size;
   const hasMissingInSelection = selectedMissingIds.size > 0;
 
-  const confirmRemoveSelected = useCallback(() => {
+  const confirmRemoveSelected = () => {
     const indices = getAllSelectedIndices();
     const songIds = getSelectedSongs().map((s) => s.id);
     if (indices.length > 0) {
@@ -748,12 +699,7 @@ function PlaylistDetailContent() {
       clearAllSelection();
     }
     setRemoveTracksDialogOpen(false);
-  }, [
-    getAllSelectedIndices,
-    getSelectedSongs,
-    removeSongsMutation,
-    clearAllSelection,
-  ]);
+  };
 
   const handlePlaySelected = () => {
     const selected = getSelectedSongs();
@@ -1003,7 +949,7 @@ function PlaylistDetailContent() {
             <VirtualizedGrid
               items={displayItems}
               totalCount={filteredCount}
-              renderItem={(item, index) => {
+              renderItem={(item, _index) => {
                 if (item.type === "missing" && item.entry.missing) {
                   const missingId = `missing-${item.position}`;
                   return (
@@ -1046,7 +992,7 @@ function PlaylistDetailContent() {
                 );
               }}
               renderSkeleton={() => <SongCardSkeleton />}
-              getItemKey={(item, index) =>
+              getItemKey={(item, _index) =>
                 item.type === "song"
                   ? `${item.position}-${item.song.id}`
                   : `missing-${item.position}`
@@ -1059,7 +1005,7 @@ function PlaylistDetailContent() {
             <VirtualizedList
               items={displayItems}
               totalCount={filteredCount}
-              renderItem={(item, index) => {
+              renderItem={(item, _index) => {
                 if (item.type === "missing" && item.entry.missing) {
                   const missingId = `missing-${item.position}`;
                   return (
@@ -1112,7 +1058,7 @@ function PlaylistDetailContent() {
                 );
               }}
               renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
-              getItemKey={(item, index) =>
+              getItemKey={(item, _index) =>
                 item.type === "song"
                   ? `${item.position}-${item.song.id}`
                   : `missing-${item.position}`

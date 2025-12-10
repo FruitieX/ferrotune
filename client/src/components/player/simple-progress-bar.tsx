@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState } from "react";
 import { useAtomValue } from "jotai";
 import { cn } from "@/lib/utils";
 import {
@@ -84,7 +84,11 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
         progressAnimationRef.current = null;
       }
       smoothProgressRef.current = atomProgress;
-      setDisplayProgress(atomProgress);
+      // Schedule the update via RAF to avoid synchronous setState in effect
+      progressAnimationRef.current = requestAnimationFrame(() => {
+        setDisplayProgress(atomProgress);
+        progressAnimationRef.current = null;
+      });
     }
 
     return () => {
@@ -95,43 +99,37 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
     };
   }, [playbackState, atomProgress]);
 
-  const handleClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const percent = ((e.clientX - rect.left) / rect.width) * 100;
-      seekPercent(percent);
-    },
-    [seekPercent],
-  );
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const percent = ((e.clientX - rect.left) / rect.width) * 100;
+    seekPercent(percent);
+  };
 
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const percent = ((e.clientX - rect.left) / rect.width) * 100;
     setHoverPercent(Math.max(0, Math.min(100, percent)));
-  }, []);
+  };
 
-  const handleMouseEnter = useCallback(() => {
+  const handleMouseEnter = () => {
     setIsHovering(true);
-  }, []);
+  };
 
-  const handleMouseLeave = useCallback(() => {
+  const handleMouseLeave = () => {
     setIsHovering(false);
     setHoverPercent(null);
-  }, []);
+  };
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
-      const step = e.shiftKey ? 10 : 2;
-      if (e.key === "ArrowRight") {
-        e.preventDefault();
-        seekPercent(Math.min(100, smoothProgressRef.current + step));
-      } else if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        seekPercent(Math.max(0, smoothProgressRef.current - step));
-      }
-    },
-    [seekPercent],
-  );
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 10 : 2;
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      seekPercent(Math.min(100, smoothProgressRef.current + step));
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      seekPercent(Math.max(0, smoothProgressRef.current - step));
+    }
+  };
 
   const hasTrack =
     !!currentTrack && playbackState !== "idle" && playbackState !== "ended";

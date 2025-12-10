@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback, useEffect, useState } from "react";
+import { useRef, useEffect, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 
@@ -66,25 +66,22 @@ export function VirtualizedGrid<T>({
   const onScrollChangeRef = useRef(onScrollChange);
   onScrollChangeRef.current = onScrollChange;
 
-  // Get scroll element (main content area)
-  const getScrollElement = useCallback(() => {
+  // Get scroll element (main content area) - stored in ref for stability
+  const getScrollElement = () => {
     return document.getElementById("main-scroll-container");
-  }, []);
+  };
 
-  // Calculate current column count based on container width
-  const getColumnCount = useCallback(
-    (width: number) => {
+  // Update column count and scroll margin on resize
+  useEffect(() => {
+    // Calculate current column count based on container width
+    const getColumnCount = (width: number) => {
       if (width >= 1280 && columns.xl) return columns.xl;
       if (width >= 1024 && columns.lg) return columns.lg;
       if (width >= 768 && columns.md) return columns.md;
       if (width >= 640 && columns.sm) return columns.sm;
       return columns.default;
-    },
-    [columns],
-  );
+    };
 
-  // Update column count and scroll margin on resize
-  useEffect(() => {
     const updateLayout = () => {
       if (containerRef.current) {
         setColumnCount(getColumnCount(containerRef.current.offsetWidth));
@@ -120,7 +117,7 @@ export function VirtualizedGrid<T>({
     }
 
     return () => resizeObserver.disconnect();
-  }, [getColumnCount, autoScrollMargin, getScrollElement]);
+  }, [autoScrollMargin, columns]);
 
   // Calculate total rows
   const effectiveTotalCount = totalCount ?? items.length;
@@ -129,14 +126,14 @@ export function VirtualizedGrid<T>({
 
   // Calculate dynamic estimate based on container and column count
   // This accounts for aspect-square images + padding + text
-  const getDynamicEstimate = useCallback(() => {
+  const getDynamicEstimate = () => {
     if (!containerRef.current) return estimateItemHeight;
     const containerWidth = containerRef.current.offsetWidth;
     const totalGap = (columnCount - 1) * gap;
     const columnWidth = (containerWidth - totalGap) / columnCount;
     // Column width + top padding (16) + margin below image (16) + text area (~56) + bottom padding (16)
     return columnWidth + 16 + 16 + 56 + 16;
-  }, [columnCount, gap, estimateItemHeight]);
+  };
 
   const virtualizer = useVirtualizer({
     count: totalRows,
@@ -269,7 +266,7 @@ export function VirtualizedList<T>({
   totalCount,
   renderItem,
   renderSkeleton,
-  getItemKey,
+  getItemKey: _getItemKey,
   estimateItemHeight = 56,
   className,
   overscan = 10,
@@ -283,10 +280,10 @@ export function VirtualizedList<T>({
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
 
-  // Get scroll element (main content area)
-  const getScrollElement = useCallback(() => {
+  // Get scroll element (main content area) - stored in ref for stability
+  const getScrollElementRef = useRef(() => {
     return document.getElementById("main-scroll-container");
-  }, []);
+  });
 
   // Use ref for onScrollChange to avoid recreating virtualizer options
   const onScrollChangeRef = useRef(onScrollChange);
@@ -297,7 +294,7 @@ export function VirtualizedList<T>({
     if (!autoScrollMargin || !containerRef.current) return;
 
     const updateScrollMargin = () => {
-      const scrollElement = getScrollElement();
+      const scrollElement = getScrollElementRef.current();
       if (!scrollElement || !containerRef.current) return;
 
       const scrollRect = scrollElement.getBoundingClientRect();
@@ -322,13 +319,13 @@ export function VirtualizedList<T>({
     }
 
     return () => resizeObserver.disconnect();
-  }, [autoScrollMargin, getScrollElement]);
+  }, [autoScrollMargin]);
 
   const effectiveTotalCount = totalCount ?? items.length;
 
   const virtualizer = useVirtualizer({
     count: effectiveTotalCount,
-    getScrollElement,
+    getScrollElement: getScrollElementRef.current,
     estimateSize: () => estimateItemHeight,
     overscan,
     initialOffset,

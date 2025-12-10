@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
@@ -99,34 +99,22 @@ function ArtistDetailContent() {
   // Songs come directly from server response - already sorted and filtered
   const displaySongs = artistData?.song ?? [];
 
-  // Track if we have any songs (before filtering) to show appropriate empty state
-  const hasAnySongs = displaySongs.length > 0 || debouncedFilter.trim() !== "";
-
   // Queue source for artist songs - server materializes with same sort/filter
-  const artistQueueSource = useMemo(
-    () => ({
-      type: "artist" as QueueSourceType,
-      id: id,
-      name: artistData?.name ?? "Artist",
-      filters: debouncedFilter.trim()
-        ? { filter: debouncedFilter.trim() }
+  const artistQueueSource = {
+    type: "artist" as QueueSourceType,
+    id: id,
+    name: artistData?.name ?? "Artist",
+    filters: debouncedFilter.trim()
+      ? { filter: debouncedFilter.trim() }
+      : undefined,
+    sort:
+      sortConfig.field !== "custom"
+        ? {
+            field: sortConfig.field,
+            direction: sortConfig.direction,
+          }
         : undefined,
-      sort:
-        sortConfig.field !== "custom"
-          ? {
-              field: sortConfig.field,
-              direction: sortConfig.direction,
-            }
-          : undefined,
-    }),
-    [
-      id,
-      artistData?.name,
-      debouncedFilter,
-      sortConfig.field,
-      sortConfig.direction,
-    ],
-  );
+  };
 
   // Multi-selection support for songs
   const selection = useTrackSelection(displaySongs);

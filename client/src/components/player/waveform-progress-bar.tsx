@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useAtomValue } from "jotai";
 import { cn } from "@/lib/utils";
 import {
@@ -120,19 +120,24 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const smoothProgressRef = useRef(0);
   const progressRafRef = useRef<number | null>(null);
 
+  // Refs for functions that need to be called from effects but shouldn't be deps
+  const drawRef = useRef<() => void>(() => {});
+  const startAnimRef = useRef<() => void>(() => {});
+
   // Derived values - handle zero width gracefully during SSR and before mount
-  const displayBarCount = useMemo(() => {
+  const displayBarCount = (() => {
     if (containerWidth === 0) return sourceBarCount; // Use source count until measured
     const maxBars = calculateMaxBars(containerWidth);
     return Math.min(maxBars, sourceBarCount);
-  }, [containerWidth, sourceBarCount]);
+  })();
 
-  const heights = useMemo(() => {
-    return downsampleHeights(sourceHeights, sourceBarCount, displayBarCount);
-  }, [sourceHeights, sourceBarCount, displayBarCount]);
+  const heights = downsampleHeights(sourceHeights, sourceBarCount, displayBarCount);
 
-  const trackId = currentTrack?.id ?? null;
+  const rawTrackId = currentTrack?.id ?? null;
   const isEnded = playbackState === "ended";
+  // Treat "ended" playback as no track for waveform animation purposes
+  // This ensures the waveform animates out when queue ends
+  const trackId = isEnded ? null : rawTrackId;
   const atomProgress = isEnded
     ? 0
     : duration > 0
@@ -188,7 +193,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   }, []);
 
   // Draw function
-  const draw = useCallback(() => {
+  const draw = () => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     const a = anim.current;
@@ -270,10 +275,15 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       ctx.fillStyle = isDarkMode ? "rgba(255,255,255,0.9)" : "rgba(0,0,0,0.9)";
       ctx.fillRect(x - 1.5, -4, 2, rect.height + 8);
     }
-  }, [isDarkMode, bufferedPercent, primaryColor, isHovering, hoverPercent]);
+  };
+
+  // Keep ref in sync with latest draw function
+  useEffect(() => {
+    drawRef.current = draw;
+  });
 
   // Update heights based on wave positions
-  const updateHeights = useCallback(() => {
+  const updateHeights = () => {
     const a = anim.current;
     if (!a.heights || !a.incoming || !a.outgoing) return;
 
@@ -310,11 +320,10 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       const afterOut = outHeight * (1 - outT) + FLAT_BAR_HEIGHT * outT;
       a.heights[i] = afterOut * (1 - inT) + inHeight * inT;
     }
-  }, []);
+  };
 
   // Animation loop
-  const animate = useCallback(
-    (time: number) => {
+  const animate = (time: number) => {
       const a = anim.current;
       const delta = a.lastTime === 0 ? 16 : time - a.lastTime;
       a.lastTime = time;
@@ -406,18 +415,21 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       }
 
       a.rafId = requestAnimationFrame(animate);
-    },
-    [updateHeights, draw],
-  );
+    };
 
   // Start animation
-  const startAnim = useCallback(() => {
+  const startAnim = () => {
     const a = anim.current;
     if (a.rafId === null) {
       a.lastTime = 0;
       a.rafId = requestAnimationFrame(animate);
     }
-  }, [animate]);
+  };
+
+  // Keep ref in sync with latest startAnim function
+  useEffect(() => {
+    startAnimRef.current = startAnim;
+  });
 
   // Handle track changes
   useEffect(() => {
@@ -434,17 +446,30 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
 
       // Reset incoming
       a.inProgress = 0;
-      if (a.incoming) a.incoming.fill(FLAT_BAR_HEIGHT);
+      if (a.incoming) {
+        // If the new track is already loaded (cached), initialize incoming with target heights
+        // This ensures the animation fades TO the cached data, not to flat bars
+        // Only do this if there IS a track - if trackId is null (queue ended), use flat bars
+        if (trackId && isLoaded && heights.length === displayBarCount) {
+          for (let i = 0; i < displayBarCount; i++) {
+            a.incoming[i] = heights[i] ?? FLAT_BAR_HEIGHT;
+          }
+          // Mark as complete so animation can start immediately
+          a.loadComplete = true;
+        } else {
+          a.incoming.fill(FLAT_BAR_HEIGHT);
+          a.loadComplete = false;
+        }
+      }
 
       // Reset data tracking
       a.receivedChunks = 0;
       a.lastChunkEndIndex = 0;
-      a.loadComplete = false;
 
       a.trackId = trackId;
-      startAnim();
+      startAnimRef.current();
     }
-  }, [trackId, startAnim]);
+  }, [trackId, isLoaded, heights, displayBarCount]);
 
   // Update incoming heights when data arrives - smooth lerp to avoid jarring changes
   useEffect(() => {
@@ -532,13 +557,13 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       }
     }
 
-    startAnim();
-  }, [lastChunkInfo, sourceBarCount, displayBarCount, isLoaded, startAnim]);
+    startAnimRef.current();
+  }, [lastChunkInfo, sourceBarCount, displayBarCount, isLoaded]);
 
   // Cleanup
   useEffect(() => {
+    const a = anim.current;
     return () => {
-      const a = anim.current;
       if (a.rafId !== null) {
         cancelAnimationFrame(a.rafId);
         a.rafId = null;
@@ -559,7 +584,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
         } else {
           smoothProgressRef.current = atomProgress;
         }
-        draw();
+        drawRef.current();
         progressRafRef.current = requestAnimationFrame(animateProgress);
       };
       progressRafRef.current = requestAnimationFrame(animateProgress);
@@ -569,7 +594,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
         progressRafRef.current = null;
       }
       smoothProgressRef.current = atomProgress;
-      draw();
+      drawRef.current();
     }
 
     return () => {
@@ -578,15 +603,15 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
         progressRafRef.current = null;
       }
     };
-  }, [playbackState, atomProgress, draw]);
+  }, [playbackState, atomProgress]);
 
   // Redraw on visual changes or container resize
   useEffect(() => {
-    draw();
-  }, [draw, containerWidth]);
+    drawRef.current();
+  }, [containerWidth]);
 
   // Event handlers
-  const getPercentFromEvent = useCallback((clientX: number) => {
+  const getPercentFromEvent = (clientX: number) => {
     const container = containerRef.current;
     if (!container) return 0;
     const rect = container.getBoundingClientRect();
@@ -594,19 +619,16 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       0,
       Math.min(100, ((clientX - rect.left) / rect.width) * 100),
     );
-  }, []);
+  };
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (e.button !== 0) return; // Only left click
-      e.preventDefault();
-      setIsDragging(true);
-      const percent = getPercentFromEvent(e.clientX);
-      setHoverPercent(percent);
-      seekPercent(percent);
-    },
-    [seekPercent, getPercentFromEvent],
-  );
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return; // Only left click
+    e.preventDefault();
+    setIsDragging(true);
+    const percent = getPercentFromEvent(e.clientX);
+    setHoverPercent(percent);
+    seekPercent(percent);
+  };
 
   // Handle mouse move during drag (global listener)
   useEffect(() => {
@@ -629,28 +651,25 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       window.removeEventListener("mousemove", handleGlobalMouseMove);
       window.removeEventListener("mouseup", handleGlobalMouseUp);
     };
-  }, [isDragging, seekPercent, getPercentFromEvent]);
+  }, [isDragging, seekPercent]);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     setHoverPercent(
       Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)),
     );
-  }, []);
+  };
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
-      const step = e.shiftKey ? 10 : 2;
-      if (e.key === "ArrowRight") {
-        e.preventDefault();
-        seekPercent(Math.min(100, smoothProgressRef.current + step));
-      } else if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        seekPercent(Math.max(0, smoothProgressRef.current - step));
-      }
-    },
-    [seekPercent],
-  );
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 10 : 2;
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      seekPercent(Math.min(100, smoothProgressRef.current + step));
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      seekPercent(Math.max(0, smoothProgressRef.current - step));
+    }
+  };
 
   const formatTime = (seconds: number): string => {
     const hrs = Math.floor(seconds / 3600);
@@ -676,7 +695,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       aria-label="Playback progress"
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={Math.round(smoothProgressRef.current)}
+      aria-valuenow={Math.round(atomProgress)}
       tabIndex={hasTrack ? 0 : -1}
       className={cn(
         "absolute left-0 right-0 cursor-pointer overflow-visible",

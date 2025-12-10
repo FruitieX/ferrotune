@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback } from "react";
 import { useSetAtom, useAtomValue } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -37,12 +36,12 @@ export function usePlaylistSelection(playlists: Playlist[]) {
   const queryClient = useQueryClient();
 
   // Get selected playlists (type-safe alias)
-  const getSelectedPlaylists = useCallback(() => {
+  const getSelectedPlaylists = () => {
     return getSelectedItems() as Playlist[];
-  }, [getSelectedItems]);
+  };
 
   // Fetch all songs from selected playlists
-  const fetchPlaylistSongs = useCallback(async (): Promise<Song[]> => {
+  const fetchPlaylistSongs = async (): Promise<Song[]> => {
     const client = getClient();
     if (!client) return [];
 
@@ -62,10 +61,10 @@ export function usePlaylistSelection(playlists: Playlist[]) {
       console.error("Failed to fetch playlist songs:", error);
       return [];
     }
-  }, [getSelectedPlaylists]);
+  };
 
   // Play all songs from selected playlists
-  const playSelectedNow = useCallback(async () => {
+  const playSelectedNow = async () => {
     const songs = await fetchPlaylistSongs();
     if (songs.length === 0) {
       toast.error("Selected playlists are empty");
@@ -78,23 +77,16 @@ export function usePlaylistSelection(playlists: Playlist[]) {
     startQueue({
       sourceType: "playlist",
       sourceName: `${getSelectedPlaylists().length} playlists`,
-      songIds: songs.map((s) => s.id),
+      songIds: songs.map((s: Song) => s.id),
     });
     toast.success(
       `Playing ${songs.length} songs from ${getSelectedPlaylists().length} playlists`,
     );
     clearSelection();
-  }, [
-    fetchPlaylistSongs,
-    startQueue,
-    queueState,
-    toggleShuffle,
-    clearSelection,
-    getSelectedPlaylists,
-  ]);
+  };
 
   // Shuffle play all songs from selected playlists
-  const shuffleSelected = useCallback(async () => {
+  const shuffleSelected = async () => {
     const songs = await fetchPlaylistSongs();
     if (songs.length === 0) {
       toast.error("Selected playlists are empty");
@@ -103,41 +95,38 @@ export function usePlaylistSelection(playlists: Playlist[]) {
     startQueue({
       sourceType: "playlist",
       sourceName: `${getSelectedPlaylists().length} playlists`,
-      songIds: songs.map((s) => s.id),
+      songIds: songs.map((s: Song) => s.id),
       shuffle: true,
     });
     toast.success(
       `Shuffling ${songs.length} songs from ${getSelectedPlaylists().length} playlists`,
     );
     clearSelection();
-  }, [fetchPlaylistSongs, startQueue, clearSelection, getSelectedPlaylists]);
+  };
 
   // Add selected playlist songs to queue
-  const addSelectedToQueue = useCallback(
-    async (position: "next" | "last" = "last") => {
-      const songs = await fetchPlaylistSongs();
-      if (songs.length === 0) {
-        toast.error("Selected playlists are empty");
-        return;
-      }
+  const addSelectedToQueue = async (position: "next" | "last" = "last") => {
+    const songs = await fetchPlaylistSongs();
+    if (songs.length === 0) {
+      toast.error("Selected playlists are empty");
+      return;
+    }
 
-      addToQueue({
-        songIds: songs.map((s) => s.id),
-        position: position === "last" ? "end" : position,
-      });
+    addToQueue({
+      songIds: songs.map((s: Song) => s.id),
+      position: position === "last" ? "end" : position,
+    });
 
-      toast.success(
-        position === "next"
-          ? `Added ${songs.length} songs to play next`
-          : `Added ${songs.length} songs to queue`,
-      );
-      clearSelection();
-    },
-    [fetchPlaylistSongs, addToQueue, clearSelection],
-  );
+    toast.success(
+      position === "next"
+        ? `Added ${songs.length} songs to play next`
+        : `Added ${songs.length} songs to queue`,
+    );
+    clearSelection();
+  };
 
   // Delete selected playlists
-  const deleteSelected = useCallback(async () => {
+  const deleteSelected = async () => {
     const client = getClient();
     if (!client) return;
 
@@ -157,38 +146,35 @@ export function usePlaylistSelection(playlists: Playlist[]) {
       console.error("Failed to delete playlists:", error);
       toast.error("Failed to delete playlists");
     }
-  }, [getSelectedPlaylists, queryClient, clearSelection]);
+  };
 
   // Merge selected playlists into a new one
-  const mergeSelected = useCallback(
-    async (newPlaylistName: string) => {
-      const client = getClient();
-      if (!client) return;
+  const mergeSelected = async (newPlaylistName: string) => {
+    const client = getClient();
+    if (!client) return;
 
-      const songs = await fetchPlaylistSongs();
-      if (songs.length === 0) {
-        toast.error("Selected playlists are empty");
-        return;
-      }
+    const songs = await fetchPlaylistSongs();
+    if (songs.length === 0) {
+      toast.error("Selected playlists are empty");
+      return;
+    }
 
-      try {
-        // Create new playlist with all songs
-        await client.createPlaylist({
-          name: newPlaylistName,
-          songId: songs.map((s) => s.id),
-        });
-        toast.success(
-          `Created "${newPlaylistName}" with ${songs.length} songs`,
-        );
-        queryClient.invalidateQueries({ queryKey: ["playlists"] });
-        clearSelection();
-      } catch (error) {
-        console.error("Failed to merge playlists:", error);
-        toast.error("Failed to merge playlists");
-      }
-    },
-    [fetchPlaylistSongs, queryClient, clearSelection],
-  );
+    try {
+      // Create new playlist with all songs
+      await client.createPlaylist({
+        name: newPlaylistName,
+        songId: songs.map((s: Song) => s.id),
+      });
+      toast.success(
+        `Created "${newPlaylistName}" with ${songs.length} songs`,
+      );
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      clearSelection();
+    } catch (error) {
+      console.error("Failed to merge playlists:", error);
+      toast.error("Failed to merge playlists");
+    }
+  };
 
   return {
     selectedIds,

@@ -35,7 +35,6 @@ import { DetailsDialog } from "@/components/shared/details-dialog";
 import {
   startQueueAtom,
   addToQueueAtom,
-  type QueueSourceType,
 } from "@/lib/store/server-queue";
 import { useInvalidateFavorites } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";

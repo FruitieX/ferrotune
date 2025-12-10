@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue } from "jotai";
 import {
   useAudioEngine,
   useVolumeControl,
@@ -40,13 +40,13 @@ export function useKeyboardShortcuts() {
   const duration = useAtomValue(durationAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
 
-  const { togglePlayPause, next, previous } = useAudioEngine();
+  const { togglePlayPause, next, previous, seek } = useAudioEngine();
   const { changeVolume, volume, toggleMute } = useVolumeControl();
   const { toggleShuffle } = useShuffle();
   const { cycleRepeatMode } = useRepeatMode();
 
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent) => {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
       // Don't handle shortcuts when user is typing
       const target = event.target as HTMLElement;
       const isInputFocused =
@@ -93,10 +93,8 @@ export function useKeyboardShortcuts() {
           event.preventDefault();
           if (audioElement && duration > 0) {
             const seekAmount = event.shiftKey ? 30 : 5;
-            audioElement.currentTime = Math.max(
-              0,
-              audioElement.currentTime - seekAmount,
-            );
+            const newTime = Math.max(0, audioElement.currentTime - seekAmount);
+            seek(newTime);
           }
           break;
 
@@ -104,10 +102,11 @@ export function useKeyboardShortcuts() {
           event.preventDefault();
           if (audioElement && duration > 0) {
             const seekAmount = event.shiftKey ? 30 : 5;
-            audioElement.currentTime = Math.min(
+            const newTime = Math.min(
               duration,
               audioElement.currentTime + seekAmount,
             );
+            seek(newTime);
           }
           break;
 
@@ -170,26 +169,24 @@ export function useKeyboardShortcuts() {
           previous();
           break;
       }
-    },
-    [
-      audioElement,
-      duration,
-      queueState,
-      playbackState,
-      togglePlayPause,
-      next,
-      previous,
-      changeVolume,
-      volume,
-      toggleMute,
-      toggleShuffle,
-      cycleRepeatMode,
-      router,
-    ],
-  );
+    };
 
-  useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleKeyDown]);
+  }, [
+    audioElement,
+    duration,
+    queueState,
+    playbackState,
+    togglePlayPause,
+    next,
+    previous,
+    seek,
+    changeVolume,
+    volume,
+    toggleMute,
+    toggleShuffle,
+    cycleRepeatMode,
+    router,
+  ]);
 }

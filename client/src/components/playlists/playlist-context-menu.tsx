@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useSetAtom } from "jotai";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -13,7 +12,6 @@ import {
   Trash2,
   MoreHorizontal,
   Shuffle,
-  Info,
   FolderInput,
   Folder,
   Home,
@@ -52,7 +50,6 @@ import { Button } from "@/components/ui/button";
 import {
   startQueueAtom,
   addToQueueAtom,
-  type QueueSourceType,
 } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { EditPlaylistDialog } from "./edit-playlist-dialog";
@@ -72,7 +69,6 @@ export function PlaylistContextMenu({
   playlist,
   children,
 }: PlaylistContextMenuProps) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);

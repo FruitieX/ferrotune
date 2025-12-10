@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { Heart, Play, Shuffle } from "lucide-react";
@@ -199,20 +199,17 @@ export default function FavoritesPage() {
   );
 
   // Queue source for favorites songs - server materializes with same sort
-  const favoritesQueueSource = useMemo(
-    () => ({
-      type: "favorites" as QueueSourceType,
-      name: "Favorites",
-      sort:
-        songSortConfig.field !== "custom"
-          ? {
-              field: songSortConfig.field,
-              direction: songSortConfig.direction,
-            }
-          : undefined,
-    }),
-    [songSortConfig.field, songSortConfig.direction],
-  );
+  const favoritesQueueSource = {
+    type: "favorites" as QueueSourceType,
+    name: "Favorites",
+    sort:
+      songSortConfig.field !== "custom"
+        ? {
+            field: songSortConfig.field,
+            direction: songSortConfig.direction,
+          }
+        : undefined,
+  };
 
   // Track selection for songs tab
   const songSelection = useTrackSelection(displaySongs);

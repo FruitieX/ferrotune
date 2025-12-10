@@ -65,9 +65,7 @@ import type { ValidatePathResponse } from "./generated/ValidatePathResponse";
 import type { PlaylistSongsResponse } from "./generated/PlaylistSongsResponse";
 
 // Ping response is empty
-interface PingResponse {
-  // Empty for ping
-}
+type PingResponse = Record<string, never>;
 
 const API_VERSION = "1.16.1";
 const CLIENT_NAME = "ferrotune-web";

@@ -107,6 +107,41 @@ export function RefineMatchDialog({
 
   // Initialize state and trigger search when dialog opens
   useEffect(() => {
+    // Local function for building search query
+    const buildInitialQuery = (
+      title: boolean,
+      artist: boolean,
+      album: boolean,
+    ) => {
+      const parts: string[] = [];
+      if (artist && missing.artist) parts.push(missing.artist);
+      if (album && missing.album) parts.push(missing.album);
+      if (title && missing.title) parts.push(missing.title);
+      return parts.join(" - ").trim() || missing.raw || "";
+    };
+
+    // Local function for performing initial search
+    const performInitialSearch = async (query: string) => {
+      if (!query.trim()) return;
+
+      setIsSearching(true);
+      try {
+        const client = getClient();
+        if (!client) return;
+
+        const response = await client.search3({
+          query: query.trim(),
+          songCount: 20,
+        });
+        setSearchResults(response.searchResult3?.song ?? []);
+      } catch (error) {
+        console.error("Search error:", error);
+        toast.error("Search failed");
+      } finally {
+        setIsSearching(false);
+      }
+    };
+
     if (open) {
       const hasTitle = !!missing.title;
       const hasArtist = !!missing.artist;
@@ -118,14 +153,14 @@ export function RefineMatchDialog({
       setSelectedSong(null);
 
       // Build and set initial query, then search
-      const initialQuery = buildSearchQuery(hasTitle, hasArtist, hasAlbum);
+      const initialQuery = buildInitialQuery(hasTitle, hasArtist, hasAlbum);
       setSearchQuery(initialQuery);
-      doSearch(initialQuery);
+      performInitialSearch(initialQuery);
     } else {
       preview.stop();
       setSelectedSong(null);
     }
-  }, [open, missing]);
+  }, [open, missing, preview]);
 
   // Handle dialog close
   const handleOpenChange = (newOpen: boolean) => {

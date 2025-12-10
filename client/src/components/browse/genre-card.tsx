@@ -37,7 +37,6 @@ import {
 import {
   startQueueAtom,
   addToQueueAtom,
-  type QueueSourceType,
 } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import type { Genre, Song } from "@/lib/api/types";

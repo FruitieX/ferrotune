@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
@@ -28,14 +28,11 @@ import {
   ArtistCardSkeleton,
 } from "@/components/browse/artist-card";
 import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
-import {
-  VirtualizedGrid,
-  VirtualizedList,
-} from "@/components/shared/virtualized-grid";
-import { GenreCard, GenreCardSkeleton } from "@/components/browse/genre-card";
+import { VirtualizedList } from "@/components/shared/virtualized-grid";
+import { GenreCard } from "@/components/browse/genre-card";
 import { CoverImage } from "@/components/shared/cover-image";
 import { formatDuration, formatCount } from "@/lib/utils/format";
-import type { Album, Artist, Genre, Playlist } from "@/lib/api/types";
+import type { Album, Artist, Playlist } from "@/lib/api/types";
 
 export function SearchPageContent() {
   const router = useRouter();
@@ -149,20 +146,17 @@ export function SearchPageContent() {
   };
 
   // Queue source for search results - uses server-side search materialization
-  const searchQueueSource = useMemo(
-    () => ({
-      type: "search" as QueueSourceType,
-      name: `Search: ${debouncedQuery}`,
-      filters: {
-        query: debouncedQuery,
-      },
-      sort: {
-        field: "title",
-        direction: "asc",
-      },
-    }),
-    [debouncedQuery],
-  );
+  const searchQueueSource = {
+    type: "search" as QueueSourceType,
+    name: `Search: ${debouncedQuery}`,
+    filters: {
+      query: debouncedQuery,
+    },
+    sort: {
+      field: "title",
+      direction: "asc",
+    },
+  };
 
   const hasResults =
     (searchResults?.artist?.length ?? 0) > 0 ||

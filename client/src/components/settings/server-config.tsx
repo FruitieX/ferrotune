@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Server,
@@ -10,7 +10,7 @@ import {
   Loader2,
   Globe,
   Hash,
-  Image,
+  Image as ImageIcon,
   Tag,
   Database,
   Folder,
@@ -52,8 +52,9 @@ export function ServerConfig() {
   const [maxCoverSize, setMaxCoverSize] = useState("");
   const [readonlyTags, setReadonlyTags] = useState(false);
 
-  // Track if form has unsaved changes
-  const [hasChanges, setHasChanges] = useState(false);
+  // Track the config we've synced form state from
+  const [syncedConfig, setSyncedConfig] =
+    useState<ServerConfigResponse | null>(null);
 
   // Fetch server config
   const {
@@ -70,31 +71,24 @@ export function ServerConfig() {
     staleTime: 30000, // Cache for 30 seconds
   });
 
-  // Initialize form when config loads
-  useEffect(() => {
-    if (config) {
-      setServerName(config.serverName || "");
-      setServerHost(config.serverHost || "");
-      setServerPort(config.serverPort?.toString() || "");
-      setMaxCoverSize(config.maxCoverSize?.toString() || "");
-      setReadonlyTags(config.readonlyTags ?? false);
-      setHasChanges(false);
-    }
-  }, [config]);
+  // Initialize form when config loads (React-recommended pattern for adjusting state when props change)
+  if (config && config !== syncedConfig) {
+    setSyncedConfig(config);
+    setServerName(config.serverName || "");
+    setServerHost(config.serverHost || "");
+    setServerPort(config.serverPort?.toString() || "");
+    setMaxCoverSize(config.maxCoverSize?.toString() || "");
+    setReadonlyTags(config.readonlyTags ?? false);
+  }
 
-  // Track changes
-  useEffect(() => {
-    if (!config) return;
-
-    const changed =
-      serverName !== (config.serverName || "") ||
+  // Derive hasChanges from current state vs config (computed during render, no effect needed)
+  const computedHasChanges = config
+    ? serverName !== (config.serverName || "") ||
       serverHost !== (config.serverHost || "") ||
       serverPort !== (config.serverPort?.toString() || "") ||
       maxCoverSize !== (config.maxCoverSize?.toString() || "") ||
-      readonlyTags !== (config.readonlyTags ?? false);
-
-    setHasChanges(changed);
-  }, [config, serverName, serverHost, serverPort, maxCoverSize, readonlyTags]);
+      readonlyTags !== (config.readonlyTags ?? false)
+    : false;
 
   // Update mutation
   const updateMutation = useMutation({
@@ -106,7 +100,6 @@ export function ServerConfig() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["serverConfig"] });
       toast.success("Server configuration saved");
-      setHasChanges(false);
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to save configuration");
@@ -148,7 +141,6 @@ export function ServerConfig() {
       setServerPort(config.serverPort?.toString() || "");
       setMaxCoverSize(config.maxCoverSize?.toString() || "");
       setReadonlyTags(config.readonlyTags ?? false);
-      setHasChanges(false);
     }
   };
 
@@ -297,7 +289,7 @@ export function ServerConfig() {
 
           <div className="space-y-2">
             <Label htmlFor="maxCoverSize" className="flex items-center gap-2">
-              <Image className="w-4 h-4 text-muted-foreground" />
+              <ImageIcon className="w-4 h-4 text-muted-foreground" />
               Max Cover Size
             </Label>
             <Input
@@ -362,14 +354,14 @@ export function ServerConfig() {
 
         {/* Action buttons */}
         <div className="flex items-center justify-end gap-2 pt-2">
-          {hasChanges && (
+          {computedHasChanges && (
             <Button variant="outline" onClick={handleReset}>
               Reset
             </Button>
           )}
           <Button
             onClick={handleSave}
-            disabled={!hasChanges || updateMutation.isPending}
+            disabled={!computedHasChanges || updateMutation.isPending}
           >
             {updateMutation.isPending ? (
               <>

@@ -1,8 +1,8 @@
 "use client";
 
-import { atom, useAtom, useAtomValue, useSetAtom } from "jotai";
-import { atomFamily, selectAtom } from "jotai/utils";
-import { useCallback, useMemo } from "react";
+import { atom, useAtom } from "jotai";
+import { atomFamily } from "jotai/utils";
+
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
@@ -59,12 +59,9 @@ function invalidateFavoritesQueries(
  */
 export function useInvalidateFavorites() {
   const queryClient = useQueryClient();
-  return useCallback(
-    (type: StarType) => {
-      invalidateFavoritesQueries(queryClient, type);
-    },
-    [queryClient],
-  );
+  return (type: StarType) => {
+    invalidateFavoritesQueries(queryClient, type);
+  };
 }
 
 /**
@@ -105,7 +102,7 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
   const key = `${type}:${id}`;
 
   // Get the atom for this specific item
-  const itemAtom = useMemo(() => starredItemAtomFamily(key), [key]);
+  const itemAtom = starredItemAtomFamily(key);
   const [starredValue, setStarredValue] = useAtom(itemAtom);
 
   // Initialize lazily - only set if undefined (not yet in the map)
@@ -121,7 +118,7 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
     });
   }
 
-  const toggleStar = useCallback(async () => {
+  const toggleStar = async () => {
     const client = getClient();
     if (!client) return;
 
@@ -207,7 +204,7 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
       toast.error("Failed to update favorites");
       console.error(error);
     }
-  }, [key, id, type, isStarred, setStarredValue, queryClient]);
+  };
 
   return { isStarred, toggleStar };
 }

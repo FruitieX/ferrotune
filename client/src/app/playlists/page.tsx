@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef, Suspense } from "react";
+import { useState, Suspense } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   DndContext,
@@ -26,7 +25,6 @@ import {
   FolderPlus,
   ChevronRight,
   Home,
-  GripVertical,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -173,70 +171,61 @@ function PlaylistsPageContent() {
   });
 
   // DnD handlers
-  const handleDragStart = useCallback(
-    (event: DragStartEvent) => {
-      const { active } = event;
-      const playlistId = String(active.id).replace("playlist-", "");
-      const playlist = playlists?.find((p) => p.id === playlistId);
-      if (playlist) {
-        setActiveDragPlaylist(playlist);
-      }
-    },
-    [playlists],
-  );
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    const playlistId = String(active.id).replace("playlist-", "");
+    const playlist = playlists?.find((p) => p.id === playlistId);
+    if (playlist) {
+      setActiveDragPlaylist(playlist);
+    }
+  };
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      setActiveDragPlaylist(null);
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveDragPlaylist(null);
 
-      if (!over) return;
+    if (!over) return;
 
-      const playlistId = String(active.id).replace("playlist-", "");
-      const playlist = playlists?.find((p) => p.id === playlistId);
-      if (!playlist) return;
+    const playlistId = String(active.id).replace("playlist-", "");
+    const playlist = playlists?.find((p) => p.id === playlistId);
+    if (!playlist) return;
 
-      const overId = String(over.id);
+    const overId = String(over.id);
 
-      // Determine target folder path
-      let targetFolderPath: string;
-      if (overId === "drop-root") {
-        // Moving to root
-        targetFolderPath = "";
-      } else if (overId.startsWith("folder-")) {
-        // Moving to a folder
-        targetFolderPath = overId.replace("folder-", "");
-      } else if (overId.startsWith("breadcrumb-")) {
-        // Moving to a breadcrumb level
-        targetFolderPath = overId.replace("breadcrumb-", "");
-      } else {
-        return; // Unknown drop target
-      }
+    // Determine target folder path
+    let targetFolderPath: string;
+    if (overId === "drop-root") {
+      // Moving to root
+      targetFolderPath = "";
+    } else if (overId.startsWith("folder-")) {
+      // Moving to a folder
+      targetFolderPath = overId.replace("folder-", "");
+    } else if (overId.startsWith("breadcrumb-")) {
+      // Moving to a breadcrumb level
+      targetFolderPath = overId.replace("breadcrumb-", "");
+    } else {
+      return; // Unknown drop target
+    }
 
-      // Get the current folder path of the playlist
-      const currentPlaylistPath = playlist.name.includes("/")
-        ? playlist.name.substring(0, playlist.name.lastIndexOf("/"))
-        : "";
+    // Get the current folder path of the playlist
+    const currentPlaylistPath = playlist.name.includes("/")
+      ? playlist.name.substring(0, playlist.name.lastIndexOf("/"))
+      : "";
 
-      // Don't do anything if dropping on the same folder
-      if (targetFolderPath === currentPlaylistPath) return;
+    // Don't do anything if dropping on the same folder
+    if (targetFolderPath === currentPlaylistPath) return;
 
-      // Don't allow dropping a playlist into a subfolder that doesn't exist yet
-      // (folders are created by naming convention)
+    // Don't allow dropping a playlist into a subfolder that doesn't exist yet
+    // (folders are created by naming convention)
 
-      movePlaylistMutation.mutate({ playlist, targetFolderPath });
-    },
-    [playlists, movePlaylistMutation],
-  );
+    movePlaylistMutation.mutate({ playlist, targetFolderPath });
+  };
 
   // Organize playlists into folder tree
-  const playlistTree = useMemo(() => {
-    if (!playlists) return null;
-    return organizePlaylistsIntoFolders(playlists);
-  }, [playlists]);
+  const playlistTree = playlists ? organizePlaylistsIntoFolders(playlists) : null;
 
   // Get current folder from path
-  const currentFolder = useMemo(() => {
+  const currentFolder = (() => {
     if (!playlistTree) return null;
     if (!currentPath) return playlistTree;
 
@@ -247,51 +236,40 @@ function PlaylistsPageContent() {
       folder = subfolder;
     }
     return folder;
-  }, [playlistTree, currentPath, pathParts]);
+  })();
 
   // Get items in current folder (folders and playlists combined for display)
-  const folderItems = useMemo(() => {
-    if (!currentFolder) return { folders: [], playlists: [] };
-    return {
-      folders: currentFolder.subfolders,
-      playlists: currentFolder.playlists,
-    };
-  }, [currentFolder]);
+  const folderItems = currentFolder
+    ? { folders: currentFolder.subfolders, playlists: currentFolder.playlists }
+    : { folders: [], playlists: [] };
 
   // Filter and sort playlists in current folder
-  const displayPlaylists = useMemo(() => {
+  const displayPlaylists = (() => {
     if (!folderItems.playlists) return [];
     const filtered = filterPlaylists(folderItems.playlists, debouncedFilter);
     return sortPlaylists(filtered, sortConfig.field, sortConfig.direction);
-  }, [folderItems.playlists, debouncedFilter, sortConfig]);
-
-  // Ref for displayPlaylists to make callbacks stable
-  const displayPlaylistsRef = useRef(displayPlaylists);
-  displayPlaylistsRef.current = displayPlaylists;
+  })();
 
   // Play playlist handler - accepts id for stable callback reference
-  const handlePlayPlaylist = useCallback(
-    (id: string) => {
-      const playlist = displayPlaylistsRef.current.find((p) => p.id === id);
-      if (playlist) {
-        startQueue({
-          sourceType: "playlist",
-          sourceId: playlist.id,
-          sourceName: getPlaylistDisplayName(playlist),
-        });
-      }
-    },
-    [startQueue],
-  );
+  const handlePlayPlaylist = (id: string) => {
+    const playlist = displayPlaylists.find((p) => p.id === id);
+    if (playlist) {
+      startQueue({
+        sourceType: "playlist",
+        sourceId: playlist.id,
+        sourceName: getPlaylistDisplayName(playlist),
+      });
+    }
+  };
 
   // Filter folders
-  const displayFolders = useMemo(() => {
+  const displayFolders = (() => {
     if (!debouncedFilter.trim()) return folderItems.folders;
     const query = debouncedFilter.toLowerCase();
     return folderItems.folders.filter((f) =>
       f.name.toLowerCase().includes(query),
     );
-  }, [folderItems.folders, debouncedFilter]);
+  })();
 
   // Calculate totals
   const totalDuration = displayPlaylists.reduce(
@@ -325,18 +303,18 @@ function PlaylistsPageContent() {
   };
 
   // Handlers for creating playlist/folder in a specific folder via context menu
-  const handleCreatePlaylistInFolder = useCallback((folderPath: string) => {
+  const handleCreatePlaylistInFolder = (folderPath: string) => {
     setCreateInFolderPath(folderPath);
     setCreateDialogOpen(true);
-  }, []);
+  };
 
-  const handleCreateSubfolder = useCallback((parentPath: string) => {
+  const handleCreateSubfolder = (parentPath: string) => {
     setCreateInFolderPath(parentPath);
     setCreateFolderDialogOpen(true);
-  }, []);
+  };
 
   // Build breadcrumb items
-  const breadcrumbItems = useMemo(() => {
+  const breadcrumbItems = (() => {
     const items = [{ label: "Playlists", path: "" }];
     let currentPathBuilt = "";
     for (const part of pathParts) {
@@ -346,7 +324,7 @@ function PlaylistsPageContent() {
       items.push({ label: part, path: currentPathBuilt });
     }
     return items;
-  }, [pathParts]);
+  })();
 
   // Always render the same loading state on server and during hydration
   if (!isMounted || authLoading) {

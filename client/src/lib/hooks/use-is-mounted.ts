@@ -1,6 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useSyncExternalStore } from "react";
+
+// Store for tracking mount state
+const emptySubscribe = () => () => {};
+const getClientSnapshot = () => true;
+const getServerSnapshot = () => false;
 
 /**
  * Hook that returns true after the component has mounted on the client.
@@ -8,8 +13,8 @@ import { useState, useEffect } from "react";
  * This is useful for preventing hydration mismatches in Next.js when
  * you need to render different content on the server vs client.
  *
- * The hook always returns false on the first render (matching SSR),
- * then true after the useEffect runs (client-side only).
+ * Uses useSyncExternalStore which is the React-recommended approach for
+ * handling mount state without cascading renders.
  *
  * @example
  * ```tsx
@@ -25,11 +30,9 @@ import { useState, useEffect } from "react";
  * ```
  */
 export function useIsMounted(): boolean {
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  return isMounted;
+  return useSyncExternalStore(
+    emptySubscribe,
+    getClientSnapshot,
+    getServerSnapshot,
+  );
 }

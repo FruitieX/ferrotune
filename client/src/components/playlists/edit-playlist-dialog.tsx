@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Pencil, Loader2 } from "lucide-react";
@@ -35,15 +35,15 @@ export function EditPlaylistDialog({
 }: EditPlaylistDialogProps) {
   const [name, setName] = useState("");
   const [comment, setComment] = useState("");
+  const [prevPlaylistId, setPrevPlaylistId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  // Update form when playlist changes
-  useEffect(() => {
-    if (playlist) {
-      setName(playlist.name);
-      setComment(playlist.comment ?? "");
-    }
-  }, [playlist]);
+  // Update form when playlist changes (React-recommended pattern for adjusting state when props change)
+  if (playlist && playlist.id !== prevPlaylistId) {
+    setPrevPlaylistId(playlist.id);
+    setName(playlist.name);
+    setComment(playlist.comment ?? "");
+  }
 
   const updatePlaylist = useMutation({
     mutationFn: async ({

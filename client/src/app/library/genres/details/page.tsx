@@ -2,9 +2,7 @@
 
 import {
   useState,
-  useCallback,
   useEffect,
-  useMemo,
   useRef,
   Suspense,
 } from "react";
@@ -168,19 +166,16 @@ function GenreDetailContent() {
   });
 
   // Intersection observer for infinite scroll (albums)
-  const handleObserver = useCallback(
-    (entries: IntersectionObserverEntry[]) => {
+  useEffect(() => {
+    const element = loadMoreRef.current;
+    if (!element) return;
+
+    const handleObserver = (entries: IntersectionObserverEntry[]) => {
       const [target] = entries;
       if (target.isIntersecting && hasNextPage && !isFetchingNextPage) {
         fetchNextPage();
       }
-    },
-    [fetchNextPage, hasNextPage, isFetchingNextPage],
-  );
-
-  useEffect(() => {
-    const element = loadMoreRef.current;
-    if (!element) return;
+    };
 
     const observer = new IntersectionObserver(handleObserver, {
       root: null,
@@ -190,7 +185,7 @@ function GenreDetailContent() {
 
     observer.observe(element);
     return () => observer.disconnect();
-  }, [handleObserver]);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // Flatten albums from all pages
   const allAlbums = albumsData?.pages.flatMap((page) => page.albums) ?? [];
@@ -199,24 +194,21 @@ function GenreDetailContent() {
   const displaySongs = songsData?.pages.flatMap((page) => page.songs) ?? [];
 
   // Queue source for genre songs - server materializes with same sort/filter
-  const genreQueueSource = useMemo(
-    () => ({
-      type: "genre" as QueueSourceType,
-      id: genreName,
-      name: genreName ?? "Genre",
-      filters: debouncedFilter.trim()
-        ? { filter: debouncedFilter.trim() }
+  const genreQueueSource = {
+    type: "genre" as QueueSourceType,
+    id: genreName,
+    name: genreName ?? "Genre",
+    filters: debouncedFilter.trim()
+      ? { filter: debouncedFilter.trim() }
+      : undefined,
+    sort:
+      sortConfig.field !== "custom"
+        ? {
+            field: sortConfig.field,
+            direction: sortConfig.direction,
+          }
         : undefined,
-      sort:
-        sortConfig.field !== "custom"
-          ? {
-              field: sortConfig.field,
-              direction: sortConfig.direction,
-            }
-          : undefined,
-    }),
-    [genreName, debouncedFilter, sortConfig.field, sortConfig.direction],
-  );
+  };
 
   // Multi-selection support for songs
   const selection = useTrackSelection(displaySongs);

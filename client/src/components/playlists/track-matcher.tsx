@@ -996,7 +996,7 @@ export function useTrackMatcher() {
 
         completedCount += batchTracks.length;
         onProgress(Math.round((completedCount / tracks.length) * 100));
-      } catch (error) {
+      } catch (_error) {
         if (abortController.signal.aborted) {
           return null;
         }

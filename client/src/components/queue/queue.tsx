@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -55,48 +55,34 @@ interface QueueSourceInfo {
   name?: string | null;
 }
 
-// Get icon component for queue source type
-function getQueueSourceIcon(type: string) {
+// Queue source icon component - renders the appropriate icon based on source type
+function QueueSourceIcon({
+  type,
+  className,
+}: {
+  type: string;
+  className?: string;
+}) {
   switch (type) {
     case "library":
-      return Library;
+      return <Library className={className} />;
     case "album":
-      return Disc3;
+      return <Disc3 className={className} />;
     case "artist":
-      return User;
+      return <User className={className} />;
     case "playlist":
-      return PlaylistIcon;
+      return <PlaylistIcon className={className} />;
     case "genre":
-      return Music2;
+      return <Music2 className={className} />;
     case "search":
-      return Search;
+      return <Search className={className} />;
     case "favorites":
-      return Heart;
+      return <Heart className={className} />;
     case "history":
-      return History;
+      return <History className={className} />;
     default:
-      return ListMusic;
+      return <ListMusic className={className} />;
   }
-}
-
-// Get display label for queue source
-function getQueueSourceLabel(source: QueueSourceInfo): string {
-  const typeLabels: Record<string, string> = {
-    library: "Library",
-    album: "Album",
-    artist: "Artist",
-    playlist: "Playlist",
-    genre: "Genre",
-    search: "Search Results",
-    favorites: "Favorites",
-    history: "Recently Played",
-    other: "Queue",
-  };
-
-  if (source.name) {
-    return `${typeLabels[source.type] || "Queue"}: ${source.name}`;
-  }
-  return typeLabels[source.type] || "Queue";
 }
 
 // Get link for queue source (if navigable)
@@ -131,7 +117,6 @@ function QueueSourceDisplay({ variant }: { variant: "mobile" | "desktop" }) {
   }
 
   const queueSource = queueState.source;
-  const Icon = getQueueSourceIcon(queueSource.type);
   const link = getQueueSourceLink(queueSource);
   const isMobile = variant === "mobile";
 
@@ -142,7 +127,7 @@ function QueueSourceDisplay({ variant }: { variant: "mobile" | "desktop" }) {
         isMobile ? "text-sm" : "text-xs",
       )}
     >
-      <Icon className="w-3.5 h-3.5 shrink-0" />
+      <QueueSourceIcon type={queueSource.type} className="w-3.5 h-3.5 shrink-0" />
       <span className="truncate">
         Playing from{" "}
         {queueSource.name ||
@@ -177,15 +162,15 @@ export function QueuePanel() {
   const clearQueue = useSetAtom(clearQueueAtom);
   const queueDisplayRef = useRef<VirtualizedQueueDisplayHandle>(null);
 
-  const handleClearQueue = useCallback(() => {
+  const handleClearQueue = () => {
     const trackCount = queueState?.totalCount ?? 0;
     clearQueue();
     toast.success(`Cleared ${trackCount} tracks from queue`);
-  }, [queueState, clearQueue]);
+  };
 
-  const handleJumpToNowPlaying = useCallback(() => {
+  const handleJumpToNowPlaying = () => {
     queueDisplayRef.current?.scrollToNowPlaying("smooth");
-  }, []);
+  };
 
   // Don't render the Sheet on desktop - use QueueSidebar instead
   if (isDesktop) {
@@ -250,15 +235,15 @@ export function QueueSidebar() {
   const clearQueue = useSetAtom(clearQueueAtom);
   const queueDisplayRef = useRef<VirtualizedQueueDisplayHandle>(null);
 
-  const handleClearQueue = useCallback(() => {
+  const handleClearQueue = () => {
     const trackCount = queueState?.totalCount ?? 0;
     clearQueue();
     toast.success(`Cleared ${trackCount} tracks from queue`);
-  }, [queueState, clearQueue]);
+  };
 
-  const handleJumpToNowPlaying = useCallback(() => {
+  const handleJumpToNowPlaying = () => {
     queueDisplayRef.current?.scrollToNowPlaying("smooth");
-  }, []);
+  };
 
   // Wait for hydration to avoid flash
   if (!hydrated) {

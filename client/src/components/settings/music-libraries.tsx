@@ -22,7 +22,7 @@ import {
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
 import type { MusicFolderInfo } from "@/lib/api/types";
-import { formatFileSize, formatTotalDuration } from "@/lib/utils/format";
+import { formatFileSize } from "@/lib/utils/format";
 import {
   scanDialogOpenAtom,
   scanFolderIdAtom,
@@ -45,7 +45,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,

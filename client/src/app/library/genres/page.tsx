@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { Tag } from "lucide-react";
@@ -53,20 +52,17 @@ export default function GenresPage() {
   });
 
   // Filter genres based on search filter (client-side - API doesn't support genre search)
-  const filteredGenres = useMemo(() => {
+  const filteredGenres = (() => {
     const genres = genresData ?? [];
     if (!debouncedFilter?.trim() || genres.length === 0) return genres;
     const lowerFilter = debouncedFilter.toLowerCase();
     return genres.filter((genre) =>
       genre.value.toLowerCase().includes(lowerFilter),
     );
-  }, [genresData, debouncedFilter]);
+  })();
 
   // Genre selection - use value as id since genres don't have an id field
-  const genresWithId = useMemo(
-    () => (filteredGenres ?? []).map((g) => ({ ...g, id: g.value })),
-    [filteredGenres],
-  );
+  const genresWithId = (filteredGenres ?? []).map((g) => ({ ...g, id: g.value }));
 
   const {
     selectedCount,

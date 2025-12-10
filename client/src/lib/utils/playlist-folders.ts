@@ -97,7 +97,7 @@ export function organizePlaylistsIntoFolders(
   }
 
   for (const playlist of playlists) {
-    const { displayName, folderPath, isPlaceholder } = parsePlaylistPath(
+    const { displayName: _displayName, folderPath, isPlaceholder } = parsePlaylistPath(
       playlist.name,
     );
 

@@ -34,24 +34,24 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentSongIdRef = useRef<string | null>(null);
 
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [volume, setVolumeState] = useState(100);
-
   // Access main player to pause it when starting preview
   const mainAudioElement = useAtomValue(audioElementAtom);
   const mainPlaybackState = useAtomValue(playbackStateAtom);
   const mainVolume = useAtomValue(effectiveVolumeAtom);
 
-  // Initialize volume from main player on mount
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  // Initialize volume from main player (mainVolume is 0-1, we store as 0-100)
+  const [volume, setVolumeState] = useState(() => Math.round(mainVolume * 100));
+
+  // Sync initial volume to audio element when it's created
   useEffect(() => {
-    // mainVolume is 0-1, we store as 0-100
-    setVolumeState(Math.round(mainVolume * 100));
     if (audioRef.current) {
       audioRef.current.volume = mainVolume;
     }
-  }, []); // Only on mount, don't track mainVolume changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Only sync on mount
+  }, []); // Only on mount
 
   // Create audio element on mount
   useEffect(() => {
@@ -100,6 +100,7 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
       audio.removeEventListener("waiting", handleWaiting);
       audio.removeEventListener("error", handleError);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Only run on mount, mainVolume is captured at init time
   }, []);
 
   const play = (songId: string, startPosition: number = 30) => {

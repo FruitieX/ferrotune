@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { Music, User, Disc, ListMusic, Tag, Folder } from "lucide-react";
@@ -63,8 +63,8 @@ export function CoverImage({
   const [hasError, setHasError] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isVisible, setIsVisible] = useState(!lazy);
+  const [prevSrc, setPrevSrc] = useState<string | null | undefined>(src);
   const containerRef = useRef<HTMLDivElement>(null);
-  const prevSrcRef = useRef<string | null | undefined>(src);
 
   const Icon =
     type === "artist"
@@ -80,20 +80,15 @@ export function CoverImage({
               : Disc;
   const isRound = type === "artist";
 
-  // Reset state only when src actually changes to a different value
-  useEffect(() => {
-    if (prevSrcRef.current !== src) {
-      prevSrcRef.current = src;
-      setHasError(false);
-      setIsLoaded(false);
-    }
-  }, [src]);
+  // Reset state when src changes (React-recommended pattern for adjusting state when props change)
+  if (src !== prevSrc) {
+    setPrevSrc(src);
+    setHasError(false);
+    setIsLoaded(false);
+  }
 
   // Generate a unique color based on colorSeed (album/artist name) or fall back to alt
-  const placeholderHue = useMemo(
-    () => stringToHue(colorSeed || alt || ""),
-    [colorSeed, alt],
-  );
+  const placeholderHue = stringToHue(colorSeed || alt || "");
 
   // Use IntersectionObserver for true lazy loading
   useEffect(() => {

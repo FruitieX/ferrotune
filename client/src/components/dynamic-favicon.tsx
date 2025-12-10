@@ -50,11 +50,11 @@ const oklchToHex = (l: number, c: number, h: number): string => {
   const sCubed = s_ * s_ * s_;
 
   // Linear sRGB
-  let rLinear =
+  const rLinear =
     +4.0767416621 * lCubed - 3.3077115913 * mCubed + 0.2309699292 * sCubed;
-  let gLinear =
+  const gLinear =
     -1.2684380046 * lCubed + 2.6097574011 * mCubed - 0.3413193965 * sCubed;
-  let bLinear =
+  const bLinear =
     -0.0041960863 * lCubed - 0.7034186147 * mCubed + 1.707614701 * sCubed;
 
   // Apply sRGB gamma correction

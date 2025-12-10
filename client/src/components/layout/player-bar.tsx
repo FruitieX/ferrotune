@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useMemo, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -68,7 +68,7 @@ interface NowPlayingInfoProps {
 }
 
 /** Now playing track info - only re-renders when track changes */
-const NowPlayingInfo = memo(function NowPlayingInfo({
+function NowPlayingInfo({
   track,
   isEnded,
 }: NowPlayingInfoProps) {
@@ -79,11 +79,9 @@ const NowPlayingInfo = memo(function NowPlayingInfo({
   );
 
   // Get cover art URL
-  const coverArtUrl = useMemo(() => {
-    return track?.coverArt
-      ? getClient()?.getCoverArtUrl(track.coverArt, 96)
-      : null;
-  }, [track?.coverArt]);
+  const coverArtUrl = track?.coverArt
+    ? getClient()?.getCoverArtUrl(track.coverArt, 96)
+    : null;
 
   if (!track || isEnded) {
     return (
@@ -142,7 +140,7 @@ const NowPlayingInfo = memo(function NowPlayingInfo({
       </div>
     </>
   );
-});
+}
 
 interface PlaybackControlsProps {
   hasTrack: boolean;
@@ -150,7 +148,7 @@ interface PlaybackControlsProps {
 }
 
 /** Play/pause and skip buttons - only re-renders when playback state changes */
-const PlaybackControls = memo(function PlaybackControls({
+function PlaybackControls({
   hasTrack,
   playbackState,
 }: PlaybackControlsProps) {
@@ -233,10 +231,10 @@ const PlaybackControls = memo(function PlaybackControls({
       </Button>
     </div>
   );
-});
+}
 
 /** Time slider and duration display - this component subscribes to currentTimeAtom */
-const TimeSlider = memo(function TimeSlider() {
+function TimeSlider() {
   const currentTime = useAtomValue(currentTimeAtom);
   const duration = useAtomValue(durationAtom);
   const playbackState = useAtomValue(playbackStateAtom);
@@ -269,10 +267,10 @@ const TimeSlider = memo(function TimeSlider() {
       </span>
     </div>
   );
-});
+}
 
 /** Volume controls - separated to avoid re-renders from time updates */
-const VolumeControls = memo(function VolumeControls() {
+function VolumeControls() {
   const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
   const volumeContainerRef = useRef<HTMLDivElement>(null);
 
@@ -363,15 +361,15 @@ const VolumeControls = memo(function VolumeControls() {
       </div>
     </>
   );
-});
+}
 
 /** Queue button - separated to avoid re-renders */
-const QueueButton = memo(function QueueButton() {
+function QueueButton() {
   const [queuePanelOpen, setQueuePanelOpen] = useAtom(queuePanelOpenAtom);
 
-  const toggleQueue = useCallback(() => {
+  const toggleQueue = () => {
     setQueuePanelOpen(!queuePanelOpen);
-  }, [queuePanelOpen, setQueuePanelOpen]);
+  };
 
   return (
     <Button
@@ -384,10 +382,10 @@ const QueueButton = memo(function QueueButton() {
       <ListMusic className="w-4 h-4" />
     </Button>
   );
-});
+}
 
 /** Mobile more options menu - separated to avoid re-renders */
-const MobileMoreMenu = memo(function MobileMoreMenu() {
+function MobileMoreMenu() {
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
   const { isShuffled, toggleShuffle } = useShuffle();
   const { repeatMode, cycleRepeatMode } = useRepeatMode();
@@ -447,10 +445,10 @@ const MobileMoreMenu = memo(function MobileMoreMenu() {
       </PopoverContent>
     </Popover>
   );
-});
+}
 
 /** Fullscreen button - separated to avoid re-renders */
-const FullscreenButton = memo(function FullscreenButton() {
+function FullscreenButton() {
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
 
   return (
@@ -464,7 +462,7 @@ const FullscreenButton = memo(function FullscreenButton() {
       <Maximize2 className="w-4 h-4" />
     </Button>
   );
-});
+}
 
 // ============================================================================
 // Main PlayerBar Component

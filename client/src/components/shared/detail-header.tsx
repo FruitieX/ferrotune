@@ -52,7 +52,7 @@ interface DetailHeaderProps {
   children?: ReactNode;
 }
 
-const coverSizes = {
+const _coverSizes = {
   sm: "w-32 h-32",
   md: "w-48 h-48 md:w-56 md:h-56",
   lg: "w-56 h-56",

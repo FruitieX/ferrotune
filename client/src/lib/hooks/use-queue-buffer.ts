@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
   serverQueueStateAtom,
@@ -49,63 +49,62 @@ export function useQueueBuffer() {
     });
   }, [isConnected, authLoading, fetchQueue, setIsRestoring]);
 
-  // Pre-fetch buffer when approaching edges
-  const checkAndPrefetch = useCallback(async () => {
-    if (!queueState || !queueWindow || isFetchingRef.current) return;
-
-    const currentIndex = queueState.currentIndex;
-    const totalCount = queueState.totalCount;
-
-    // Don't refetch if we're at the same position
-    if (lastFetchedIndexRef.current === currentIndex) return;
-
-    // Calculate current window bounds
-    const windowStart = queueWindow.offset;
-    const windowEnd = windowStart + queueWindow.songs.length - 1;
-
-    // Check if current position is near the edge of the buffer
-    const distanceToStart = currentIndex - windowStart;
-    const distanceToEnd = windowEnd - currentIndex;
-
-    let needsFetch = false;
-    let fetchOffset = 0;
-    let fetchLimit = 0;
-
-    // Near start of buffer - need to fetch backwards
-    if (distanceToStart < PREFETCH_THRESHOLD && windowStart > 0) {
-      fetchOffset = Math.max(0, windowStart - BUFFER_RADIUS);
-      fetchLimit = windowStart - fetchOffset;
-      needsFetch = true;
-    }
-    // Near end of buffer - need to fetch forwards
-    else if (distanceToEnd < PREFETCH_THRESHOLD && windowEnd < totalCount - 1) {
-      fetchOffset = windowEnd + 1;
-      fetchLimit = Math.min(BUFFER_RADIUS, totalCount - fetchOffset);
-      needsFetch = true;
-    }
-    // Current position outside loaded window entirely
-    else if (currentIndex < windowStart || currentIndex > windowEnd) {
-      fetchOffset = Math.max(0, currentIndex - BUFFER_RADIUS);
-      fetchLimit = Math.min(BUFFER_RADIUS * 2 + 1, totalCount - fetchOffset);
-      needsFetch = true;
-    }
-
-    if (needsFetch && fetchLimit > 0) {
-      isFetchingRef.current = true;
-      lastFetchedIndexRef.current = currentIndex;
-
-      try {
-        await fetchQueueRange({ offset: fetchOffset, limit: fetchLimit });
-      } finally {
-        isFetchingRef.current = false;
-      }
-    }
-  }, [queueState, queueWindow, fetchQueueRange]);
-
-  // Check buffer on position changes
+  // Check buffer on position changes and pre-fetch when approaching edges
   useEffect(() => {
+    const checkAndPrefetch = async () => {
+      if (!queueState || !queueWindow || isFetchingRef.current) return;
+
+      const currentIndex = queueState.currentIndex;
+      const totalCount = queueState.totalCount;
+
+      // Don't refetch if we're at the same position
+      if (lastFetchedIndexRef.current === currentIndex) return;
+
+      // Calculate current window bounds
+      const windowStart = queueWindow.offset;
+      const windowEnd = windowStart + queueWindow.songs.length - 1;
+
+      // Check if current position is near the edge of the buffer
+      const distanceToStart = currentIndex - windowStart;
+      const distanceToEnd = windowEnd - currentIndex;
+
+      let needsFetch = false;
+      let fetchOffset = 0;
+      let fetchLimit = 0;
+
+      // Near start of buffer - need to fetch backwards
+      if (distanceToStart < PREFETCH_THRESHOLD && windowStart > 0) {
+        fetchOffset = Math.max(0, windowStart - BUFFER_RADIUS);
+        fetchLimit = windowStart - fetchOffset;
+        needsFetch = true;
+      }
+      // Near end of buffer - need to fetch forwards
+      else if (distanceToEnd < PREFETCH_THRESHOLD && windowEnd < totalCount - 1) {
+        fetchOffset = windowEnd + 1;
+        fetchLimit = Math.min(BUFFER_RADIUS, totalCount - fetchOffset);
+        needsFetch = true;
+      }
+      // Current position outside loaded window entirely
+      else if (currentIndex < windowStart || currentIndex > windowEnd) {
+        fetchOffset = Math.max(0, currentIndex - BUFFER_RADIUS);
+        fetchLimit = Math.min(BUFFER_RADIUS * 2 + 1, totalCount - fetchOffset);
+        needsFetch = true;
+      }
+
+      if (needsFetch && fetchLimit > 0) {
+        isFetchingRef.current = true;
+        lastFetchedIndexRef.current = currentIndex;
+
+        try {
+          await fetchQueueRange({ offset: fetchOffset, limit: fetchLimit });
+        } finally {
+          isFetchingRef.current = false;
+        }
+      }
+    };
+
     checkAndPrefetch();
-  }, [queueState?.currentIndex, checkAndPrefetch]);
+  }, [queueState, queueWindow, fetchQueueRange]);
 
   // Return current state for external use
   return {

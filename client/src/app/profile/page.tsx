@@ -10,7 +10,6 @@ import {
   Headphones,
   Calendar,
   Clock,
-  Music2,
   ExternalLink,
   TrendingUp,
 } from "lucide-react";
@@ -52,7 +51,7 @@ export default function ProfilePage() {
   });
   const isMounted = useIsMounted();
   const { user, isLoading: userLoading } = useCurrentUser();
-  const [connection, setConnection] = useAtom(serverConnectionAtom);
+  const [, setConnection] = useAtom(serverConnectionAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
 
   // Fetch listening stats

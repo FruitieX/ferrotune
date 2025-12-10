@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAtom, useSetAtom } from "jotai";
@@ -111,30 +111,21 @@ function AlbumDetailContent() {
   const selection = useTrackSelection(displaySongs);
 
   // Queue source for album songs - server materializes with same sort/filter
-  const albumQueueSource = useMemo(
-    () => ({
-      type: "album" as QueueSourceType,
-      id: id,
-      name: albumData?.name ?? "Album",
-      filters: debouncedFilter.trim()
-        ? { filter: debouncedFilter.trim() }
+  const albumQueueSource = {
+    type: "album" as QueueSourceType,
+    id: id,
+    name: albumData?.name ?? "Album",
+    filters: debouncedFilter.trim()
+      ? { filter: debouncedFilter.trim() }
+      : undefined,
+    sort:
+      sortConfig.field !== "custom"
+        ? {
+            field: sortConfig.field,
+            direction: sortConfig.direction,
+          }
         : undefined,
-      sort:
-        sortConfig.field !== "custom"
-          ? {
-              field: sortConfig.field,
-              direction: sortConfig.direction,
-            }
-          : undefined,
-    }),
-    [
-      id,
-      albumData?.name,
-      debouncedFilter,
-      sortConfig.field,
-      sortConfig.direction,
-    ],
-  );
+  };
 
   const coverArtUrl = albumData?.coverArt
     ? getClient()?.getCoverArtUrl(albumData.coverArt, 400)

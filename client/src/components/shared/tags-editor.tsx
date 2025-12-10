@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Tag,
@@ -104,7 +104,7 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
   const [showAdditionalTags, setShowAdditionalTags] = useState(false);
   const queryClient = useQueryClient();
 
-  const loadTags = useCallback(async () => {
+  const loadTags = async () => {
     setLoading(true);
     setError(null);
     try {
@@ -117,14 +117,20 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
     } finally {
       setLoading(false);
     }
-  }, [song.id]);
+  };
+
+  // Ref to hold the latest loadTags function for effects
+  const loadTagsRef = useRef(loadTags);
+  useEffect(() => {
+    loadTagsRef.current = loadTags;
+  });
 
   // Load tags when dialog opens
   useEffect(() => {
     if (open && song?.id) {
-      loadTags();
+      loadTagsRef.current();
     }
-  }, [open, song?.id, loadTags]);
+  }, [open, song?.id]);
 
   // Reset state when dialog closes
   useEffect(() => {
@@ -139,7 +145,7 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
   }, [open]);
 
   // Compute changes for preview
-  const changes = useMemo(() => {
+  const changes = (() => {
     if (!tagsData) return [];
 
     const result: TagChange[] = [];
@@ -181,7 +187,7 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
     }
 
     return result;
-  }, [tagsData, editedTags, deletedTags, newTags]);
+  })();
 
   const hasChanges = changes.length > 0;
   const rescanRecommended = changes.some((c) =>
@@ -317,7 +323,7 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
   }
 
   // Suggestions for new tag key
-  const tagSuggestions = useMemo(() => {
+  const tagSuggestions = (() => {
     if (!tagsData || !newTagKey) return [];
     const existingKeys = new Set([
       ...tagsData.tags.map((t) => t.key.toUpperCase()),
@@ -326,7 +332,7 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
     return COMMON_TAGS.filter(
       (t) => !existingKeys.has(t) && t.includes(newTagKey.toUpperCase()),
     ).slice(0, 5);
-  }, [tagsData, newTags, newTagKey]);
+  })();
 
   const readOnly = !tagsData?.editingEnabled;
 

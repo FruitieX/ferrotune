@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Shield, FolderOpen, Users, Server, RefreshCw } from "lucide-react";
+import { Shield, RefreshCw } from "lucide-react";
 import { useSetAtom } from "jotai";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
@@ -29,7 +29,7 @@ import { ServerConfig } from "@/components/settings/server-config";
 
 export default function AdministrationPage() {
   const router = useRouter();
-  const { isReady, isLoading: authLoading } = useAuth({
+  const { isLoading: authLoading } = useAuth({
     redirectToLogin: true,
   });
   const isMounted = useIsMounted();

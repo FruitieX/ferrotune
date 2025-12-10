@@ -1,28 +1,24 @@
-import { useState, useEffect } from "react";
+import { useSyncExternalStore } from "react";
 
 /**
  * Hook that returns whether a media query matches.
- * Returns false during SSR and initial hydration to prevent hydration mismatches.
+ * Returns false during SSR to prevent hydration mismatches.
+ * Uses useSyncExternalStore for proper external state subscription.
  */
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(false);
-
-  useEffect(() => {
+  const subscribe = (callback: () => void) => {
     const mediaQuery = window.matchMedia(query);
+    mediaQuery.addEventListener("change", callback);
+    return () => mediaQuery.removeEventListener("change", callback);
+  };
 
-    // Set initial value
-    setMatches(mediaQuery.matches);
+  const getSnapshot = () => {
+    return window.matchMedia(query).matches;
+  };
 
-    // Listen for changes
-    const handler = (event: MediaQueryListEvent) => {
-      setMatches(event.matches);
-    };
+  const getServerSnapshot = () => false;
 
-    mediaQuery.addEventListener("change", handler);
-    return () => mediaQuery.removeEventListener("change", handler);
-  }, [query]);
-
-  return matches;
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
 /**
@@ -39,14 +35,5 @@ export function useIsDesktop(): boolean {
  */
 export function useIsMobile(): boolean {
   const isDesktop = useIsDesktop();
-  const [hasMounted, setHasMounted] = useState(false);
-
-  useEffect(() => {
-    setHasMounted(true);
-  }, []);
-
-  // During SSR and initial render, return false to prevent hydration issues
-  if (!hasMounted) return false;
-
   return !isDesktop;
 }

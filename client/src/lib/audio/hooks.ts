@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -217,7 +217,7 @@ export function useAudioEngineInit() {
   const lastProcessedSignalRef = useRef<number>(-1);
 
   // Callback to invalidate queries that contain play count data
-  const invalidatePlayCountQueries = useCallback(() => {
+  const invalidatePlayCountQueries = () => {
     // Invalidate all queries that display play counts
     queryClient.invalidateQueries({ queryKey: ["songs"] });
     queryClient.invalidateQueries({ queryKey: ["starred-search"] });
@@ -225,7 +225,7 @@ export function useAudioEngineInit() {
     queryClient.invalidateQueries({ queryKey: ["album"] });
     queryClient.invalidateQueries({ queryKey: ["artist"] });
     queryClient.invalidateQueries({ queryKey: ["playlistSongs"] });
-  }, [queryClient]);
+  };
 
   // Refs for setters to avoid stale closures
   const settersRef = useRef({
@@ -560,6 +560,7 @@ export function useAudioEngineInit() {
       stopListeningUpdateInterval();
       initializedRef.current = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally run once on mount; setAudioElement is stable
   }, []);
 
   // Update volume
@@ -568,6 +569,15 @@ export function useAudioEngineInit() {
       globalAudio.volume = effectiveVolume;
     }
   }, [effectiveVolume]);
+
+  // Pause audio when playback state becomes "ended" (e.g., when queue ends via goToNext)
+  useEffect(() => {
+    if (playbackState === "ended" && globalAudio && !globalAudio.paused) {
+      // Set flag to prevent handlePause from overwriting "ended" state with "paused"
+      isEndingQueue = true;
+      globalAudio.pause();
+    }
+  }, [playbackState]);
 
   // Load new track when current song changes (triggered by trackChangeSignal or currentSong)
   useEffect(() => {
@@ -588,7 +598,7 @@ export function useAudioEngineInit() {
         try {
           audio.removeAttribute("src");
           audio.load(); // Reset the media element
-        } catch (e) {
+        } catch (_e) {
           // Fallback if removeAttribute fails
           audio.src = "";
         }
@@ -675,7 +685,7 @@ export function useAudioEngine() {
   const setIsRestoring = useSetAtom(isRestoringQueueAtom);
 
   // Retry playback by forcing a fresh load of the current track
-  const retryPlayback = useCallback(() => {
+  const retryPlayback = () => {
     if (!globalAudio || !currentSong) return;
 
     const client = getClient();
@@ -697,19 +707,19 @@ export function useAudioEngine() {
       console.error("[Audio] Retry playback failed:", err);
       setPlaybackState("error");
     });
-  }, [currentSong, setPlaybackError, setPlaybackState]);
+  };
 
-  const play = useCallback(() => {
+  const play = () => {
     // Clear restore flag on explicit user interaction
     setIsRestoring(false);
     globalAudio?.play().catch(console.error);
-  }, [setIsRestoring]);
+  };
 
-  const pause = useCallback(() => {
+  const pause = () => {
     globalAudio?.pause();
-  }, []);
+  };
 
-  const togglePlayPause = useCallback(() => {
+  const togglePlayPause = () => {
     if (!globalAudio) return;
 
     if (playbackState === "playing") {
@@ -730,45 +740,31 @@ export function useAudioEngine() {
     } else {
       play();
     }
-  }, [
-    playbackState,
-    play,
-    pause,
-    queueState,
-    retryPlayback,
-    setIsRestoring,
-    playAtIndex,
-  ]);
+  };
 
-  const seek = useCallback(
-    (time: number) => {
-      if (globalAudio) {
-        globalAudio.currentTime = time;
-        setCurrentTime(time);
-      }
-    },
-    [setCurrentTime],
-  );
+  const seek = (time: number) => {
+    if (globalAudio) {
+      globalAudio.currentTime = time;
+      setCurrentTime(time);
+    }
+  };
 
-  const seekPercent = useCallback(
-    (percent: number) => {
-      if (globalAudio && globalAudio.duration) {
-        const time = (percent / 100) * globalAudio.duration;
-        seek(time);
-      }
-    },
-    [seek],
-  );
+  const seekPercent = (percent: number) => {
+    if (globalAudio && globalAudio.duration) {
+      const time = (percent / 100) * globalAudio.duration;
+      seek(time);
+    }
+  };
 
-  const next = useCallback(() => {
+  const next = () => {
     // Log listening time before skipping
     logListeningTimeAndReset();
     // Clear restore flag on explicit user interaction
     setIsRestoring(false);
     goToNextAction();
-  }, [goToNextAction, setIsRestoring]);
+  };
 
-  const previous = useCallback(() => {
+  const previous = () => {
     // Clear restore flag on explicit user interaction
     setIsRestoring(false);
 
@@ -780,7 +776,7 @@ export function useAudioEngine() {
     // Log listening time before going to previous track
     logListeningTimeAndReset();
     goToPreviousAction();
-  }, [goToPreviousAction, setIsRestoring]);
+  };
 
   return {
     play,
@@ -800,19 +796,16 @@ export function useVolumeControl() {
   const [volume, setVolume] = useAtom(volumeAtom);
   const [isMuted, setIsMuted] = useAtom(isMutedAtom);
 
-  const toggleMute = useCallback(() => {
+  const toggleMute = () => {
     setIsMuted((prev) => !prev);
-  }, [setIsMuted]);
+  };
 
-  const changeVolume = useCallback(
-    (newVolume: number) => {
-      setVolume(Math.max(0, Math.min(1, newVolume)));
-      if (newVolume > 0 && isMuted) {
-        setIsMuted(false);
-      }
-    },
-    [setVolume, isMuted, setIsMuted],
-  );
+  const changeVolume = (newVolume: number) => {
+    setVolume(Math.max(0, Math.min(1, newVolume)));
+    if (newVolume > 0 && isMuted) {
+      setIsMuted(false);
+    }
+  };
 
   return { volume, isMuted, toggleMute, changeVolume };
 }
@@ -824,14 +817,14 @@ export function useRepeatMode() {
 
   const repeatMode = queueState?.repeatMode ?? "off";
 
-  const cycleRepeatMode = useCallback(() => {
+  const cycleRepeatMode = () => {
     const nextMode: Record<RepeatMode, RepeatMode> = {
       off: "all",
       all: "one",
       one: "off",
     };
     setRepeatModeAction(nextMode[repeatMode]);
-  }, [repeatMode, setRepeatModeAction]);
+  };
 
   return { repeatMode, cycleRepeatMode };
 }
@@ -843,9 +836,9 @@ export function useShuffle() {
 
   const isShuffled = queueState?.isShuffled ?? false;
 
-  const toggleShuffle = useCallback(() => {
+  const toggleShuffle = () => {
     toggleShuffleAction();
-  }, [toggleShuffleAction]);
+  };
 
   return { isShuffled, toggleShuffle };
 }
