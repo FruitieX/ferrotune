@@ -86,7 +86,7 @@ export function ImportPlaylistDialog({
       setOriginalFormat("m3u");
       setOriginalHeaderLine(undefined);
       setSearchOptions({ useTitle: true, useArtist: true, useAlbum: false });
-      setIncludeMissing(false);
+      setIncludeMissing(true);
     }
     onOpenChange(open);
   };
