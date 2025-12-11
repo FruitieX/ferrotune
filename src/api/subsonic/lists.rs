@@ -2,6 +2,7 @@ use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::browse::{
     get_ratings_map, get_starred_map, song_to_response, AlbumResponse, SongResponse,
 };
+use crate::api::subsonic::inline_thumbnails::{get_album_thumbnails_base64, InlineImagesParam};
 use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
 use crate::api::AppState;
 use crate::error::Result;
@@ -42,6 +43,10 @@ pub struct AlbumListParams {
     pub genre: Option<String>,
     #[ts(type = "number | null")]
     pub music_folder_id: Option<i64>,
+    /// Include inline cover art thumbnails (small or medium)
+    #[serde(flatten)]
+    #[ts(skip)]
+    pub inline_images: InlineImagesParam,
 }
 
 #[derive(Serialize, TS)]
@@ -69,6 +74,7 @@ pub async fn get_album_list2(
 ) -> Result<FormatResponse<AlbumList2Response>> {
     let size = params.size.unwrap_or(10).min(500) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
+    let inline_size = params.inline_images.get_size();
 
     let albums: Vec<crate::db::models::Album> = match params.list_type {
         AlbumListType::Random => {
@@ -273,6 +279,13 @@ pub async fn get_album_list2(
     let starred_map = get_starred_map(&state.pool, user.user_id, "album", &album_ids).await?;
     let ratings_map = get_ratings_map(&state.pool, user.user_id, "album", &album_ids).await?;
 
+    // Get inline thumbnails if requested
+    let thumbnails = if let Some(size) = inline_size {
+        get_album_thumbnails_base64(&state.pool, &album_ids, size).await
+    } else {
+        std::collections::HashMap::new()
+    };
+
     let album_responses: Vec<AlbumResponse> = albums
         .into_iter()
         .map(|album| AlbumResponse {
@@ -281,6 +294,7 @@ pub async fn get_album_list2(
             artist: album.artist_name,
             artist_id: album.artist_id,
             cover_art: Some(album.id.clone()),
+            cover_art_data: thumbnails.get(&album.id).cloned(),
             song_count: album.song_count,
             duration: album.duration,
             year: album.year,

@@ -246,10 +246,179 @@ pub async fn delete_music_folder(
         return Err(Error::NotFound(format!("Music folder {} not found", id)));
     }
 
-    // Delete all songs from this folder (cascade)
-    // Songs reference albums and artists, which may become orphaned
-    // but we'll leave cleanup for a separate maintenance operation
+    // Get song IDs being deleted for cleanup
+    let song_ids: Vec<(String,)> = sqlx::query_as("SELECT id FROM songs WHERE music_folder_id = ?")
+        .bind(id)
+        .fetch_all(&state.pool)
+        .await?;
+    let song_ids: Vec<String> = song_ids.into_iter().map(|(id,)| id).collect();
+
+    // Get album IDs from songs being deleted
+    let album_ids: Vec<(Option<String>,)> =
+        sqlx::query_as("SELECT DISTINCT album_id FROM songs WHERE music_folder_id = ?")
+            .bind(id)
+            .fetch_all(&state.pool)
+            .await?;
+    let album_ids: Vec<String> = album_ids.into_iter().filter_map(|(id,)| id).collect();
+
+    // Get artist IDs from songs being deleted
+    let artist_ids: Vec<(String,)> =
+        sqlx::query_as("SELECT DISTINCT artist_id FROM songs WHERE music_folder_id = ?")
+            .bind(id)
+            .fetch_all(&state.pool)
+            .await?;
+    let artist_ids: Vec<String> = artist_ids.into_iter().map(|(id,)| id).collect();
+
+    // Delete play history (scrobbles) for songs in this folder
+    if !song_ids.is_empty() {
+        let placeholders = song_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let query = format!("DELETE FROM scrobbles WHERE song_id IN ({})", placeholders);
+        let mut q = sqlx::query(&query);
+        for song_id in &song_ids {
+            q = q.bind(song_id);
+        }
+        q.execute(&state.pool).await?;
+
+        // Delete listening sessions
+        let query = format!(
+            "DELETE FROM listening_sessions WHERE song_id IN ({})",
+            placeholders
+        );
+        let mut q = sqlx::query(&query);
+        for song_id in &song_ids {
+            q = q.bind(song_id);
+        }
+        q.execute(&state.pool).await?;
+
+        // Delete starred items for songs
+        let query = format!(
+            "DELETE FROM starred WHERE item_type = 'song' AND item_id IN ({})",
+            placeholders
+        );
+        let mut q = sqlx::query(&query);
+        for song_id in &song_ids {
+            q = q.bind(song_id);
+        }
+        q.execute(&state.pool).await?;
+
+        // Delete ratings for songs
+        let query = format!(
+            "DELETE FROM ratings WHERE item_type = 'song' AND item_id IN ({})",
+            placeholders
+        );
+        let mut q = sqlx::query(&query);
+        for song_id in &song_ids {
+            q = q.bind(song_id);
+        }
+        q.execute(&state.pool).await?;
+
+        // Delete shuffle excludes
+        let query = format!(
+            "DELETE FROM shuffle_excludes WHERE song_id IN ({})",
+            placeholders
+        );
+        let mut q = sqlx::query(&query);
+        for song_id in &song_ids {
+            q = q.bind(song_id);
+        }
+        q.execute(&state.pool).await?;
+
+        // Delete play queue entries
+        let query = format!(
+            "DELETE FROM play_queue_entries WHERE song_id IN ({})",
+            placeholders
+        );
+        let mut q = sqlx::query(&query);
+        for song_id in &song_ids {
+            q = q.bind(song_id);
+        }
+        q.execute(&state.pool).await?;
+    }
+
+    // Delete all songs from this folder
     sqlx::query("DELETE FROM songs WHERE music_folder_id = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await?;
+
+    // Clean up orphaned albums (albums with no remaining songs)
+    if !album_ids.is_empty() {
+        let placeholders = album_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+
+        // Delete starred items for orphaned albums
+        let query = format!(
+            "DELETE FROM starred WHERE item_type = 'album' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
+            placeholders
+        );
+        let mut q = sqlx::query(&query);
+        for album_id in &album_ids {
+            q = q.bind(album_id);
+        }
+        q.execute(&state.pool).await?;
+
+        // Delete ratings for orphaned albums
+        let query = format!(
+            "DELETE FROM ratings WHERE item_type = 'album' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
+            placeholders
+        );
+        let mut q = sqlx::query(&query);
+        for album_id in &album_ids {
+            q = q.bind(album_id);
+        }
+        q.execute(&state.pool).await?;
+
+        // Delete orphaned albums
+        let query = format!(
+            "DELETE FROM albums WHERE id IN ({}) AND id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)",
+            placeholders
+        );
+        let mut q = sqlx::query(&query);
+        for album_id in &album_ids {
+            q = q.bind(album_id);
+        }
+        q.execute(&state.pool).await?;
+    }
+
+    // Clean up orphaned artists (artists with no remaining songs)
+    if !artist_ids.is_empty() {
+        let placeholders = artist_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+
+        // Delete starred items for orphaned artists
+        let query = format!(
+            "DELETE FROM starred WHERE item_type = 'artist' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT artist_id FROM songs)",
+            placeholders
+        );
+        let mut q = sqlx::query(&query);
+        for artist_id in &artist_ids {
+            q = q.bind(artist_id);
+        }
+        q.execute(&state.pool).await?;
+
+        // Delete ratings for orphaned artists
+        let query = format!(
+            "DELETE FROM ratings WHERE item_type = 'artist' AND item_id IN ({}) AND item_id NOT IN (SELECT DISTINCT artist_id FROM songs)",
+            placeholders
+        );
+        let mut q = sqlx::query(&query);
+        for artist_id in &artist_ids {
+            q = q.bind(artist_id);
+        }
+        q.execute(&state.pool).await?;
+
+        // Delete orphaned artists
+        let query = format!(
+            "DELETE FROM artists WHERE id IN ({}) AND id NOT IN (SELECT DISTINCT artist_id FROM songs)",
+            placeholders
+        );
+        let mut q = sqlx::query(&query);
+        for artist_id in &artist_ids {
+            q = q.bind(artist_id);
+        }
+        q.execute(&state.pool).await?;
+    }
+
+    // Delete user library access for this folder
+    sqlx::query("DELETE FROM user_library_access WHERE music_folder_id = ?")
         .bind(id)
         .execute(&state.pool)
         .await?;

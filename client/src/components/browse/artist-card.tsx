@@ -34,9 +34,11 @@ export function ArtistCard({
     !!artist.starred,
   );
 
-  const coverArtUrl = artist.coverArt
-    ? getClient()?.getCoverArtUrl(artist.coverArt, 300)
-    : undefined;
+  // Use inline thumbnail if available, otherwise construct URL for fetching
+  const coverArtUrl =
+    artist.coverArt && !artist.coverArtData
+      ? getClient()?.getCoverArtUrl(artist.coverArt, "medium")
+      : undefined;
 
   const handleStar = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -47,6 +49,7 @@ export function ArtistCard({
   return (
     <MediaCard
       coverArt={coverArtUrl}
+      coverArtData={artist.coverArtData}
       title={artist.name}
       subtitle={formatCount(artist.albumCount ?? 0, "album")}
       href={`/library/artists/details?id=${artist.id}`}
@@ -105,9 +108,11 @@ export function ArtistCardCompact({
     !!artist.starred,
   );
 
-  const coverArtUrl = artist.coverArt
-    ? getClient()?.getCoverArtUrl(artist.coverArt, 80)
-    : undefined;
+  // Use inline thumbnail if available, otherwise construct URL for fetching
+  const coverArtUrl =
+    artist.coverArt && !artist.coverArtData
+      ? getClient()?.getCoverArtUrl(artist.coverArt, "small")
+      : undefined;
 
   const handleStar = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -118,6 +123,7 @@ export function ArtistCardCompact({
   return (
     <MediaRow
       coverArt={coverArtUrl}
+      coverArtData={artist.coverArtData}
       title={artist.name}
       subtitle={
         showAlbumCount

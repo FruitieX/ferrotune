@@ -34,6 +34,7 @@ pub struct Artist {
     pub name: String,
     pub sort_name: Option<String>,
     pub album_count: i64,
+    pub cover_art_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -47,6 +48,7 @@ pub struct Album {
     pub song_count: i64,
     pub duration: i64,
     pub created_at: DateTime<Utc>,
+    pub cover_art_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -68,6 +70,7 @@ pub struct Song {
     pub file_format: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub cover_art_hash: Option<String>,
     // Optional fields populated via JOINs when needed
     /// Play count from scrobbles table (populated via JOIN)
     #[sqlx(default)]
@@ -100,6 +103,7 @@ pub struct SongWithFolder {
     pub file_format: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub cover_art_hash: Option<String>,
     /// The base path of the music folder this song belongs to
     pub folder_path: Option<String>,
     // Optional fields populated via JOINs when needed
@@ -132,6 +136,7 @@ impl SongWithFolder {
             file_format: self.file_format,
             created_at: self.created_at,
             updated_at: self.updated_at,
+            cover_art_hash: self.cover_art_hash,
             play_count: self.play_count,
             last_played: self.last_played,
             starred_at: self.starred_at,
@@ -393,6 +398,7 @@ pub struct QueueEntryWithSong {
     pub last_played: Option<DateTime<Utc>>,
     #[sqlx(default)]
     pub starred_at: Option<DateTime<Utc>>,
+    pub cover_art_hash: Option<String>,
 }
 
 // ============================================================================

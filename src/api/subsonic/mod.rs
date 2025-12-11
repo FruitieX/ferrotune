@@ -8,6 +8,7 @@ pub mod browse;
 pub mod coverart;
 pub mod directory;
 pub mod history;
+pub mod inline_thumbnails;
 pub mod lists;
 pub mod playlists;
 pub mod playqueue;

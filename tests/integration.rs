@@ -421,6 +421,33 @@ fn test_user_management_endpoints() {
 }
 
 // ============================================================================
+// SONG MATCHING TESTS (require scanned library)
+// ============================================================================
+
+#[test]
+fn test_song_matching_endpoints() {
+    if !hurl_available() {
+        eprintln!("Skipping test: hurl not available");
+        return;
+    }
+
+    if !fixtures_exist() {
+        eprintln!(
+            "Skipping test: fixtures not generated. Run scripts/generate-test-fixtures.sh first."
+        );
+        return;
+    }
+
+    let server = TestServer::new().expect("Failed to start test server");
+
+    // Scan the library first to have songs to match against
+    server.scan_library().expect("Failed to scan library");
+
+    run_hurl_script(&server, &hurl_script("16_song_matching.hurl"))
+        .expect("Song matching endpoint tests failed");
+}
+
+// ============================================================================
 // SCANNER TESTS
 // ============================================================================
 

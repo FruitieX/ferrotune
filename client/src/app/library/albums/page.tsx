@@ -1,7 +1,7 @@
 "use client";
 
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -60,15 +60,17 @@ export default function AlbumsPage() {
     queryKey: [
       "albums",
       "all",
+      debouncedFilter, // Include filter in query key
       sortConfig.field,
       sortConfig.direction,
       advancedFilters,
+      viewMode, // Include viewMode because inline image size depends on it
     ],
     queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.search3({
-        query: "*", // Wildcard to match all
+        query: debouncedFilter || "*", // Use filter or wildcard to match all
         albumCount: PAGE_SIZE,
         albumOffset: pageParam,
         artistCount: 0,
@@ -82,6 +84,8 @@ export default function AlbumsPage() {
         minRating: advancedFilters.minRating,
         maxRating: advancedFilters.maxRating,
         starredOnly: advancedFilters.starredOnly,
+        // Request inline thumbnails - medium for cards, small for list rows
+        inlineImages: viewMode === "grid" ? "medium" : "small",
       });
       const albums = response.searchResult3.album ?? [];
       const total = response.searchResult3.albumTotal;
@@ -94,54 +98,15 @@ export default function AlbumsPage() {
     },
     getNextPageParam: (lastPage) => lastPage.nextOffset,
     initialPageParam: 0,
-    enabled: isReady && !debouncedFilter,
-    staleTime: 0,
-    refetchOnMount: "always",
-  });
-
-  // Search albums when filter is active (with server-side sorting and filters)
-  const { data: searchData, isLoading: isSearching } = useQuery({
-    queryKey: [
-      "albums",
-      "search",
-      debouncedFilter,
-      sortConfig.field,
-      sortConfig.direction,
-      advancedFilters,
-    ],
-    queryFn: async () => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      const response = await client.search3({
-        query: debouncedFilter,
-        albumCount: 100,
-        artistCount: 0,
-        songCount: 0,
-        albumSort: sortConfig.field,
-        albumSortDir: sortConfig.direction,
-        // Pass advanced filters
-        minYear: advancedFilters.minYear,
-        maxYear: advancedFilters.maxYear,
-        genre: advancedFilters.genre,
-        minRating: advancedFilters.minRating,
-        maxRating: advancedFilters.maxRating,
-        starredOnly: advancedFilters.starredOnly,
-      });
-      return response.searchResult3.album ?? [];
-    },
-    enabled: isReady && debouncedFilter.length >= 1,
+    enabled: isReady,
     staleTime: 0,
     refetchOnMount: "always",
   });
 
   // Flatten albums from all pages
-  const allAlbums = albumsData?.pages.flatMap((page) => page.albums) ?? [];
-  const totalAlbums = albumsData?.pages[0]?.total ?? allAlbums.length;
-
-  // Use search results when filtering, otherwise use paginated list
-  const displayAlbums = debouncedFilter ? (searchData ?? []) : allAlbums;
-  const displayCount = debouncedFilter ? displayAlbums.length : totalAlbums;
-  const isLoadingData = debouncedFilter ? isSearching : isLoading;
+  const displayAlbums = albumsData?.pages.flatMap((page) => page.albums) ?? [];
+  const totalAlbums = albumsData?.pages[0]?.total ?? displayAlbums.length;
+  const isLoadingData = isLoading;
 
   // Album selection
   const {
@@ -291,7 +256,7 @@ export default function AlbumsPage() {
         viewMode === "grid" ? (
           <VirtualizedGrid
             items={displayAlbums}
-            totalCount={displayCount}
+            totalCount={totalAlbums}
             renderItem={(album) => (
               <AlbumCard
                 album={album}
@@ -303,7 +268,7 @@ export default function AlbumsPage() {
             )}
             renderSkeleton={() => <AlbumCardSkeleton />}
             getItemKey={(album) => album.id}
-            hasNextPage={!debouncedFilter && (hasNextPage ?? false)}
+            hasNextPage={hasNextPage ?? false}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
             initialOffset={getInitialOffset()}
@@ -312,7 +277,7 @@ export default function AlbumsPage() {
         ) : (
           <VirtualizedList
             items={displayAlbums}
-            totalCount={displayCount}
+            totalCount={totalAlbums}
             renderItem={(album, index) => (
               <AlbumCardCompact
                 album={album}
@@ -326,7 +291,7 @@ export default function AlbumsPage() {
             renderSkeleton={() => <MediaRowSkeleton showIndex />}
             getItemKey={(album) => album.id}
             estimateItemHeight={56}
-            hasNextPage={!debouncedFilter && (hasNextPage ?? false)}
+            hasNextPage={hasNextPage ?? false}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
             initialOffset={getInitialOffset()}

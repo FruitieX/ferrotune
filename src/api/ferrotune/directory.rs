@@ -5,6 +5,7 @@
 
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::browse::{get_ratings_map, get_starred_map};
+use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::AppState;
 use axum::extract::{Query, State};
 use axum::response::Json;
@@ -101,6 +102,10 @@ pub struct GetDirectoryPagedParams {
     pub folders_only: Option<bool>,
     /// Filter to show only files (songs)
     pub files_only: Option<bool>,
+    /// Include inline cover art thumbnails (small or medium)
+    #[serde(flatten)]
+    #[ts(skip)]
+    pub inline_images: InlineImagesParam,
 }
 
 /// Paginated directory response
@@ -163,6 +168,9 @@ pub struct DirectoryChildPaged {
     pub album_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    /// Base64-encoded cover art thumbnail data (only present if inlineImages requested)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art_data: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub year: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -207,6 +215,7 @@ pub async fn get_directory_paged(
 ) -> crate::error::Result<Json<DirectoryPagedResponse>> {
     let count = params.count.unwrap_or(100).min(500) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
+    let inline_size = params.inline_images.get_size();
 
     // Library ID is required
     let library_id = params
@@ -273,6 +282,7 @@ pub async fn get_directory_paged(
         params.filter.as_deref(),
         params.folders_only.unwrap_or(false),
         params.files_only.unwrap_or(false),
+        inline_size,
     )
     .await?;
 
@@ -345,6 +355,7 @@ async fn get_directory_contents_for_library(
     filter: Option<&str>,
     folders_only: bool,
     files_only: bool,
+    inline_size: Option<crate::thumbnails::ThumbnailSize>,
 ) -> crate::error::Result<(Vec<DirectoryChildPaged>, DirectoryStats)> {
     // Path prefix for finding files in this directory
     // file_path in DB is relative to library root, so we use relative_path
@@ -472,6 +483,7 @@ async fn get_directory_contents_for_library(
                 album: None,
                 album_id: None,
                 cover_art: None,
+                cover_art_data: None,
                 year: None,
                 genre: None,
                 track: None,
@@ -494,6 +506,18 @@ async fn get_directory_contents_for_library(
     let song_ids: Vec<String> = direct_songs.iter().map(|s| s.0.clone()).collect();
     let starred_map = get_starred_map(pool, user_id, "song", &song_ids).await?;
     let ratings_map = get_ratings_map(pool, user_id, "song", &song_ids).await?;
+
+    // Get inline thumbnails if requested
+    let thumbnails = if let Some(size) = inline_size {
+        // song_thumbnail_data: (song_id, album_id)
+        let song_thumbnail_data: Vec<(String, Option<String>)> = direct_songs
+            .iter()
+            .map(|s| (s.0.clone(), s.3.clone()))
+            .collect();
+        get_song_thumbnails_base64(pool, &song_thumbnail_data, size).await
+    } else {
+        HashMap::new()
+    };
 
     // Add songs
     if !folders_only {
@@ -535,6 +559,7 @@ async fn get_directory_contents_for_library(
                 album: song.4.clone(),
                 album_id: song.3.clone(),
                 cover_art: song.3.clone(), // Use album ID for cover art
+                cover_art_data: thumbnails.get(&song.0).cloned(),
                 year: song.5,
                 genre: song.6.clone(),
                 track: song.7,

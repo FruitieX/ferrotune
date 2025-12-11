@@ -185,6 +185,7 @@ function PlaylistDetailContent() {
         sort: sortConfig.field,
         sortDir: sortConfig.direction,
         filter: debouncedFilter.trim() || undefined,
+        inlineImages: "small",
       });
     },
     getNextPageParam: (lastPage, allPages) => {
@@ -324,11 +325,11 @@ function PlaylistDetailContent() {
       });
       return songIds; // Return for undo
     },
-    onSuccess: (songIds) => {
-      queryClient.invalidateQueries({
+    onSuccess: async (songIds) => {
+      await queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
       });
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      await queryClient.invalidateQueries({ queryKey: ["playlists"] });
       const count = songIds.length;
       toast.success(
         count === 1
@@ -425,6 +426,19 @@ function PlaylistDetailContent() {
       missing: item.missing,
     });
     setRefineMatchDialogOpen(true);
+  };
+
+  // Handler for unmatch (revert a matched song back to missing)
+  const handleUnmatch = async (song: Song, index: number) => {
+    const client = getClient();
+    if (!client || !playlistId) return;
+
+    try {
+      await client.unmatchEntry(playlistId, index);
+      queryClient.invalidateQueries({ queryKey: ["playlist-entries"] });
+    } catch (error) {
+      console.error("Failed to unmatch entry:", error);
+    }
   };
 
   const handleMoveItem = async (newPosition: number) => {
@@ -991,6 +1005,8 @@ function PlaylistDetailContent() {
                     onMoveToPosition={handleSongMoveToPosition}
                     showRefineMatch={!!songItem.missing}
                     onRefineMatch={handleRefineMatch}
+                    showUnmatch={!!songItem.missing}
+                    onUnmatch={handleUnmatch}
                   />
                 );
               }}
@@ -1057,6 +1073,8 @@ function PlaylistDetailContent() {
                     onMoveToPosition={handleSongMoveToPosition}
                     showRefineMatch={!!songItem.missing}
                     onRefineMatch={handleRefineMatch}
+                    showUnmatch={!!songItem.missing}
+                    onUnmatch={handleUnmatch}
                   />
                 );
               }}
@@ -1201,11 +1219,9 @@ function PlaylistDetailContent() {
           open={massResolveDialogOpen}
           onOpenChange={setMassResolveDialogOpen}
           playlistId={playlistId!}
-          entries={allEntries.map((e) => ({
-            position: e.position,
-            songId: e.song?.id ?? null,
-            missing: e.missing ?? null,
-          }))}
+          filter={debouncedFilter.trim() || undefined}
+          sortField={sortConfig.field}
+          sortDir={sortConfig.direction}
         />
       )}
 

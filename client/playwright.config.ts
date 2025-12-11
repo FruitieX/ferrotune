@@ -67,16 +67,33 @@ export default defineConfig({
 
   /* Configure projects for major browsers */
   projects: [
-    /* Desktop Chrome */
+    /* Setup project - runs once to authenticate */
+    {
+      name: "setup",
+      testMatch: /.*\.setup\.ts/,
+    },
+
+    /* Desktop Chrome - use larger viewport to ensure xl breakpoint for queue sidebar */
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1440, height: 900 },
+        /* Use saved authentication state */
+        storageState: "e2e/.auth/user.json",
+      },
+      dependencies: ["setup"],
     },
 
     /* Mobile Chrome */
     {
       name: "mobile-chrome",
-      use: { ...devices["Pixel 5"] },
+      use: {
+        ...devices["Pixel 5"],
+        /* Use saved authentication state */
+        storageState: "e2e/.auth/user.json",
+      },
+      dependencies: ["setup"],
     },
   ],
 

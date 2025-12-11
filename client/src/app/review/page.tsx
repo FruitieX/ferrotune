@@ -65,9 +65,11 @@ function formatPeriodLabel(period: AvailablePeriod): string {
 }
 
 function TopArtistCard({ artist, rank }: { artist: TopArtist; rank: number }) {
-  const coverArtUrl = artist.coverArt
-    ? getClient()?.getCoverArtUrl(artist.coverArt, 80)
-    : undefined;
+  // Use inline data if available, otherwise fall back to getCoverArtUrl
+  const coverArtUrl =
+    artist.coverArt && !artist.coverArtData
+      ? getClient()?.getCoverArtUrl(artist.coverArt, 80)
+      : undefined;
 
   return (
     <motion.div
@@ -81,6 +83,7 @@ function TopArtistCard({ artist, rank }: { artist: TopArtist; rank: number }) {
       </div>
       <CoverImage
         src={coverArtUrl}
+        inlineData={artist.coverArtData}
         alt={artist.artistName}
         colorSeed={artist.artistName}
         type="artist"
@@ -109,9 +112,11 @@ function TopArtistCard({ artist, rank }: { artist: TopArtist; rank: number }) {
 }
 
 function TopAlbumCard({ album, rank }: { album: TopAlbum; rank: number }) {
-  const coverArtUrl = album.coverArt
-    ? getClient()?.getCoverArtUrl(album.coverArt, 80)
-    : undefined;
+  // Use inline data if available, otherwise fall back to getCoverArtUrl
+  const coverArtUrl =
+    album.coverArt && !album.coverArtData
+      ? getClient()?.getCoverArtUrl(album.coverArt, 80)
+      : undefined;
 
   return (
     <motion.div
@@ -125,6 +130,7 @@ function TopAlbumCard({ album, rank }: { album: TopAlbum; rank: number }) {
       </div>
       <CoverImage
         src={coverArtUrl}
+        inlineData={album.coverArtData}
         alt={album.albumName}
         colorSeed={album.albumName}
         type="album"
@@ -156,9 +162,11 @@ function TopAlbumCard({ album, rank }: { album: TopAlbum; rank: number }) {
 }
 
 function TopTrackCard({ track, rank }: { track: TopTrack; rank: number }) {
-  const coverArtUrl = track.coverArt
-    ? getClient()?.getCoverArtUrl(track.coverArt, 80)
-    : undefined;
+  // Use inline data if available, otherwise fall back to getCoverArtUrl
+  const coverArtUrl =
+    track.coverArt && !track.coverArtData
+      ? getClient()?.getCoverArtUrl(track.coverArt, 80)
+      : undefined;
 
   return (
     <motion.div
@@ -172,6 +180,7 @@ function TopTrackCard({ track, rank }: { track: TopTrack; rank: number }) {
       </div>
       <CoverImage
         src={coverArtUrl}
+        inlineData={track.coverArtData}
         alt={track.trackTitle}
         colorSeed={track.trackTitle}
         type="song"
@@ -223,6 +232,7 @@ export default function ReviewPage() {
       return client.getPeriodReview(
         selectedPeriod?.year,
         selectedPeriod?.month,
+        "small",
       );
     },
     enabled: isReady,

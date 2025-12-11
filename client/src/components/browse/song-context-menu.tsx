@@ -19,6 +19,7 @@ import {
   Shuffle,
   Move,
   RefreshCw,
+  Unlink,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -96,6 +97,10 @@ interface SongContextMenuProps {
   showRefineMatch?: boolean;
   /** Callback for refine match */
   onRefineMatch?: (song: Song, index: number) => void;
+  /** Show "Unmatch Song" option (for reverting auto-matched songs back to missing entries) */
+  showUnmatch?: boolean;
+  /** Callback for unmatch */
+  onUnmatch?: (song: Song, index: number) => void;
 }
 
 export function SongContextMenu({
@@ -114,6 +119,8 @@ export function SongContextMenu({
   moveToPositionLabel = "Move to Position",
   showRefineMatch = false,
   onRefineMatch,
+  showUnmatch = false,
+  onUnmatch,
 }: SongContextMenuProps) {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -163,6 +170,7 @@ export function SongContextMenu({
         sourceId: queueSource.id ?? undefined,
         sourceName: queueSource.name ?? undefined,
         startIndex: index >= 0 ? index : 0,
+        startSongId: song.id,
         filters: queueSource.filters,
         sort: queueSource.sort,
       });
@@ -174,6 +182,7 @@ export function SongContextMenu({
         sourceType: (queueSource?.type as QueueSourceType) || "other",
         sourceName: queueSource?.name ?? undefined,
         startIndex: index >= 0 ? index : 0,
+        startSongId: song.id,
         songIds: queueSongs.map((s) => s.id),
       });
     } else {
@@ -181,6 +190,7 @@ export function SongContextMenu({
       startQueue({
         sourceType: "other",
         startIndex: 0,
+        startSongId: song.id,
         songIds: [song.id],
       });
     }
@@ -269,6 +279,15 @@ export function SongContextMenu({
         <ContextMenuItem onClick={() => onRefineMatch(song, songIndex)}>
           <RefreshCw className="w-4 h-4 mr-2" />
           Refine Match
+        </ContextMenuItem>
+      )}
+      {showUnmatch && onUnmatch && songIndex !== undefined && (
+        <ContextMenuItem
+          onClick={() => onUnmatch(song, songIndex)}
+          className="text-destructive"
+        >
+          <Unlink className="w-4 h-4 mr-2" />
+          Unmatch Song
         </ContextMenuItem>
       )}
 
@@ -407,6 +426,10 @@ interface SongDropdownMenuProps {
   showRefineMatch?: boolean;
   /** Callback for refine match */
   onRefineMatch?: (song: Song, index: number) => void;
+  /** Show "Unmatch" option (to revert a matched song back to missing) */
+  showUnmatch?: boolean;
+  /** Callback for unmatch */
+  onUnmatch?: (song: Song, index: number) => void;
 }
 
 export function SongDropdownMenu({
@@ -425,6 +448,8 @@ export function SongDropdownMenu({
   moveToPositionLabel = "Move to Position",
   showRefineMatch = false,
   onRefineMatch,
+  showUnmatch = false,
+  onUnmatch,
 }: SongDropdownMenuProps) {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -474,6 +499,7 @@ export function SongDropdownMenu({
         sourceId: queueSource.id ?? undefined,
         sourceName: queueSource.name ?? undefined,
         startIndex: index >= 0 ? index : 0,
+        startSongId: song.id,
         filters: queueSource.filters,
         sort: queueSource.sort,
       });
@@ -485,12 +511,14 @@ export function SongDropdownMenu({
         sourceName: queueSource?.name ?? undefined,
         songIds: queueSongs.map((s) => s.id),
         startIndex: index >= 0 ? index : 0,
+        startSongId: song.id,
       });
     } else {
       startQueue({
         sourceType: "other",
         songIds: [song.id],
         startIndex: 0,
+        startSongId: song.id,
       });
     }
   };
@@ -613,6 +641,15 @@ export function SongDropdownMenu({
             <DropdownMenuItem onClick={() => onRefineMatch(song, songIndex)}>
               <RefreshCw className="w-4 h-4 mr-2" />
               Refine Match
+            </DropdownMenuItem>
+          )}
+          {showUnmatch && onUnmatch && songIndex !== undefined && (
+            <DropdownMenuItem
+              onClick={() => onUnmatch(song, songIndex)}
+              className="text-destructive"
+            >
+              <Unlink className="w-4 h-4 mr-2" />
+              Unmatch Song
             </DropdownMenuItem>
           )}
 

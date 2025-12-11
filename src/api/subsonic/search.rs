@@ -58,6 +58,8 @@ pub struct SearchParams {
     pub album_sort: Option<String>,
     /// Ferrotune extension: sort direction for albums (asc, desc)
     pub album_sort_dir: Option<String>,
+    /// Ferrotune extension: inline thumbnail size ("small" or "medium")
+    pub inline_images: Option<String>,
     // ===== Advanced Filter Parameters (Ferrotune extension) =====
     /// Filter songs/albums by minimum year
     pub min_year: Option<i32>,
@@ -268,12 +270,24 @@ pub async fn search3(
     State(state): State<Arc<AppState>>,
     Query(params): Query<SearchParams>,
 ) -> Result<FormatResponse<SearchResult3>> {
+    use super::inline_thumbnails::{
+        get_album_thumbnails_base64, get_artist_thumbnails_base64, get_song_thumbnails_base64,
+    };
+    use crate::thumbnails::ThumbnailSize;
+
     let artist_count = params.artist_count.unwrap_or(20).min(500) as i64;
     let artist_offset = params.artist_offset.unwrap_or(0) as i64;
     let album_count = params.album_count.unwrap_or(20).min(500) as i64;
     let album_offset = params.album_offset.unwrap_or(0) as i64;
     let song_count = params.song_count.unwrap_or(20).min(500) as i64;
     let song_offset = params.song_offset.unwrap_or(0) as i64;
+
+    // Parse inline images parameter
+    let inline_size: Option<ThumbnailSize> = match params.inline_images.as_deref() {
+        Some("small") | Some("s") => Some(ThumbnailSize::Small),
+        Some("medium") | Some("m") => Some(ThumbnailSize::Medium),
+        _ => None,
+    };
 
     let song_order =
         get_song_order_clause(params.song_sort.as_ref(), params.song_sort_dir.as_ref());
@@ -385,6 +399,13 @@ pub async fn search3(
     let artist_ratings_map =
         get_ratings_map(&state.pool, user.user_id, "artist", &artist_ids).await?;
 
+    // Get inline thumbnails for artists if requested
+    let artist_thumbnails = if let Some(size) = inline_size {
+        get_artist_thumbnails_base64(&state.pool, &artist_ids, size).await
+    } else {
+        std::collections::HashMap::new()
+    };
+
     let artist_responses: Vec<ArtistResponse> = artists
         .into_iter()
         .map(|artist| ArtistResponse {
@@ -392,6 +413,7 @@ pub async fn search3(
             name: artist.name,
             album_count: Some(artist.album_count),
             cover_art: Some(artist.id.clone()),
+            cover_art_data: artist_thumbnails.get(&artist.id).cloned(),
             starred: artist_starred_map.get(&artist.id).cloned(),
             user_rating: artist_ratings_map.get(&artist.id).copied(),
         })
@@ -485,6 +507,13 @@ pub async fn search3(
     let album_starred_map = get_starred_map(&state.pool, user.user_id, "album", &album_ids).await?;
     let album_ratings_map = get_ratings_map(&state.pool, user.user_id, "album", &album_ids).await?;
 
+    // Get inline thumbnails for albums if requested
+    let album_thumbnails = if let Some(size) = inline_size {
+        get_album_thumbnails_base64(&state.pool, &album_ids, size).await
+    } else {
+        std::collections::HashMap::new()
+    };
+
     let album_responses: Vec<AlbumResponse> = albums
         .into_iter()
         .map(|album| {
@@ -498,6 +527,7 @@ pub async fn search3(
                 artist: album.artist_name,
                 artist_id: album.artist_id,
                 cover_art: Some(album.id.clone()),
+                cover_art_data: album_thumbnails.get(&album.id).cloned(),
                 song_count: album.song_count,
                 duration: album.duration,
                 year: album.year,
@@ -606,6 +636,17 @@ pub async fn search3(
     let song_starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
     let song_ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
 
+    // Get inline thumbnails for songs if requested (uses album thumbnails)
+    let song_thumbnail_data: Vec<(String, Option<String>)> = songs
+        .iter()
+        .map(|s| (s.id.clone(), s.album_id.clone()))
+        .collect();
+    let song_thumbnails = if let Some(size) = inline_size {
+        get_song_thumbnails_base64(&state.pool, &song_thumbnail_data, size).await
+    } else {
+        std::collections::HashMap::new()
+    };
+
     let mut song_responses = Vec::new();
     for song in songs {
         let album = if let Some(album_id) = &song.album_id {
@@ -615,6 +656,7 @@ pub async fn search3(
         };
         let starred = song_starred_map.get(&song.id).cloned();
         let user_rating = song_ratings_map.get(&song.id).copied();
+        let cover_art_data = song_thumbnails.get(&song.id).cloned();
         let play_stats = SongPlayStats {
             play_count: song.play_count,
             last_played: song
@@ -628,6 +670,7 @@ pub async fn search3(
             user_rating,
             Some(play_stats),
             None,
+            cover_art_data,
         ));
     }
 

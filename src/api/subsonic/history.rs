@@ -4,6 +4,7 @@ use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::browse::{
     get_ratings_map, get_starred_map, song_to_response_with_stats, SongPlayStats, SongResponse,
 };
+use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
 use crate::error::Result;
@@ -28,6 +29,9 @@ pub struct PlayHistoryParams {
     /// Filter text to match against song title, artist, album
     #[serde(default)]
     filter: Option<String>,
+    /// Include inline cover art thumbnails (small or medium)
+    #[serde(flatten)]
+    inline_images: InlineImagesParam,
 }
 
 #[derive(Serialize, TS)]
@@ -68,6 +72,7 @@ pub async fn get_play_history(
 
     let size = params.size.unwrap_or(50).min(500) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
+    let inline_size = params.inline_images.get_size();
 
     // Get scrobbles with song data joined, deduplicated by song_id (keeping most recent play)
     // Uses a subquery to get the most recent played_at for each song per user
@@ -76,7 +81,7 @@ pub async fn get_play_history(
         r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
                   s.track_number, s.disc_number, s.year, s.genre, s.duration,
                   s.bitrate, s.file_path, s.file_size, s.file_format, 
-                  s.created_at, s.updated_at,
+                  s.created_at, s.updated_at, s.cover_art_hash,
                   pc.play_count,
                   sc.played_at as last_played,
                   NULL as starred_at
@@ -125,12 +130,24 @@ pub async fn get_play_history(
     let starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
     let ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
 
+    // Get inline thumbnails if requested
+    let thumbnails = if let Some(size) = inline_size {
+        let song_thumbnail_data: Vec<(String, Option<String>)> = songs
+            .iter()
+            .map(|s| (s.id.clone(), s.album_id.clone()))
+            .collect();
+        get_song_thumbnails_base64(&state.pool, &song_thumbnail_data, size).await
+    } else {
+        std::collections::HashMap::new()
+    };
+
     // Convert to response format
     let entries: Vec<PlayHistoryEntry> = songs
         .into_iter()
         .map(|song| {
             let starred = starred_map.get(&song.id).cloned();
             let user_rating = ratings_map.get(&song.id).copied();
+            let cover_art_data = thumbnails.get(&song.id).cloned();
             let played_at = song
                 .last_played
                 .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
@@ -149,6 +166,7 @@ pub async fn get_play_history(
                     user_rating,
                     Some(play_stats),
                     None,
+                    cover_art_data,
                 ),
                 played_at,
             }

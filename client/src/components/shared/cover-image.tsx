@@ -7,6 +7,8 @@ import { Music, User, Disc, ListMusic, Tag, Folder } from "lucide-react";
 
 interface CoverImageProps {
   src?: string | null;
+  /** Inline base64 JPEG thumbnail data (pre-fetched from API response) - takes priority over src */
+  inlineData?: string | null;
   alt: string;
   /** String to use for generating placeholder color (e.g. album name for albums, artist name for artists) */
   colorSeed?: string;
@@ -51,12 +53,13 @@ export function stringToHue(str: string): number {
 
 export function CoverImage({
   src,
+  inlineData,
   alt,
   colorSeed,
   type = "album",
   size = "md",
   className,
-  priority = false,
+  priority = true,
   lazy = !priority,
   showPlaceholderWhileLoading = false,
 }: CoverImageProps) {
@@ -64,6 +67,9 @@ export function CoverImage({
   const [isLoaded, setIsLoaded] = useState(false);
   const [isVisible, setIsVisible] = useState(!lazy);
   const [prevSrc, setPrevSrc] = useState<string | null | undefined>(src);
+  const [prevInlineData, setPrevInlineData] = useState<
+    string | null | undefined
+  >(inlineData);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const Icon =
@@ -80,9 +86,10 @@ export function CoverImage({
               : Disc;
   const isRound = type === "artist";
 
-  // Reset state when src changes (React-recommended pattern for adjusting state when props change)
-  if (src !== prevSrc) {
+  // Reset state when src or inlineData changes (React-recommended pattern for adjusting state when props change)
+  if (src !== prevSrc || inlineData !== prevInlineData) {
     setPrevSrc(src);
+    setPrevInlineData(inlineData);
     setHasError(false);
     setIsLoaded(false);
   }
@@ -116,20 +123,34 @@ export function CoverImage({
   }, [lazy, isVisible]);
 
   // Determine what to show:
+  // - If inlineData is provided, use it immediately (no loading needed for inline data)
   // - If no src provided, show placeholder
   // - If src provided and loaded successfully, show image
   // - If src provided and error occurred, show placeholder
   // - If src provided and still loading, show skeleton (or placeholder if showPlaceholderWhileLoading is true)
+
+  // Inline data takes priority and is shown immediately (no fetch needed)
+  const hasInlineData = !!inlineData;
   const hasSrc = !!src;
-  const showImage = hasSrc && !hasError && isVisible;
+  const showImage = (hasInlineData || hasSrc) && !hasError && isVisible;
   const showPlaceholder =
-    !hasSrc || hasError || (showPlaceholderWhileLoading && !isLoaded);
+    (!hasInlineData && !hasSrc) ||
+    hasError ||
+    (showPlaceholderWhileLoading && !isLoaded && !hasInlineData);
   const showSkeleton =
+    !hasInlineData &&
     hasSrc &&
     !hasError &&
     !isLoaded &&
     !showPlaceholderWhileLoading &&
     isVisible;
+
+  // For inline data, convert to data URL
+  const imageSrc = hasInlineData
+    ? `data:image/jpeg;base64,${inlineData}`
+    : src || "";
+  // Inline data is immediately "loaded"
+  const isImageLoaded = hasInlineData || isLoaded;
 
   return (
     <div
@@ -149,12 +170,12 @@ export function CoverImage({
       {/* Image - render when we have a src, keep it mounted to handle load/error events */}
       {showImage && (
         <Image
-          src={src}
+          src={imageSrc}
           alt={alt || "Cover art"}
           fill
           className={cn(
             "object-cover transition-opacity duration-200",
-            isLoaded ? "opacity-100" : "opacity-0",
+            isImageLoaded ? "opacity-100" : "opacity-0",
           )}
           sizes={
             size === "full"

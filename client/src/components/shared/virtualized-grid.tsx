@@ -152,6 +152,9 @@ export function VirtualizedGrid<T>({
 
   const virtualRows = virtualizer.getVirtualItems();
 
+  // Ref to track last fetch to prevent duplicate calls
+  const lastFetchedRowRef = useRef<number>(-1);
+
   // Fetch more when approaching the end of loaded data
   useEffect(() => {
     if (!fetchNextPage || !hasNextPage || isFetchingNextPage) return;
@@ -161,9 +164,22 @@ export function VirtualizedGrid<T>({
 
     // If we're within 5 rows of the end of loaded data, fetch more
     if (lastVirtualRow.index >= loadedRows - 5) {
+      // Guard against fetching same row range multiple times
+      if (lastFetchedRowRef.current >= loadedRows) return;
+      lastFetchedRowRef.current = loadedRows;
       fetchNextPage();
     }
-  }, [virtualRows, loadedRows, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, virtualRows, loadedRows]);
+
+  // Reset fetch ref when data changes (allows fetching more after new data arrives)
+  useEffect(() => {
+    if (!isFetchingNextPage) {
+      // Only reset if we've loaded more than we previously fetched
+      if (loadedRows > lastFetchedRowRef.current) {
+        lastFetchedRowRef.current = -1;
+      }
+    }
+  }, [loadedRows, isFetchingNextPage]);
 
   return (
     <div ref={containerRef} className={cn("w-full", className)}>
@@ -339,6 +355,9 @@ export function VirtualizedList<T>({
 
   const virtualItems = virtualizer.getVirtualItems();
 
+  // Ref to track last fetch to prevent duplicate calls
+  const lastFetchedIndexRef = useRef<number>(-1);
+
   // Fetch more when approaching the end of loaded data
   useEffect(() => {
     if (!fetchNextPage || !hasNextPage || isFetchingNextPage) return;
@@ -347,15 +366,28 @@ export function VirtualizedList<T>({
     if (!lastVirtualItem) return;
 
     if (lastVirtualItem.index >= items.length - 10) {
+      // Guard against fetching same index range multiple times
+      if (lastFetchedIndexRef.current >= items.length) return;
+      lastFetchedIndexRef.current = items.length;
       fetchNextPage();
     }
   }, [
-    virtualItems,
-    items.length,
+    fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-    fetchNextPage,
+    virtualItems,
+    items.length,
   ]);
+
+  // Reset fetch ref when data changes (allows fetching more after new data arrives)
+  useEffect(() => {
+    if (!isFetchingNextPage) {
+      // Only reset if we've loaded more than we previously fetched
+      if (items.length > lastFetchedIndexRef.current) {
+        lastFetchedIndexRef.current = -1;
+      }
+    }
+  }, [items.length, isFetchingNextPage]);
 
   return (
     <div ref={containerRef} className={cn("w-full", className)}>

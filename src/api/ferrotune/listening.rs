@@ -1,6 +1,10 @@
 //! Listening statistics endpoints for tracking user listening time.
 
 use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::inline_thumbnails::{
+    get_album_thumbnails_base64, get_artist_thumbnails_base64, get_song_thumbnails_base64,
+    InlineImagesParam,
+};
 use crate::api::AppState;
 use axum::{
     extract::{Query, State},
@@ -253,6 +257,10 @@ pub struct TopArtist {
     pub play_count: i64,
     pub total_duration_secs: i64,
     pub cover_art: Option<String>,
+    /// Base64-encoded cover art thumbnail data (only present if inlineImages requested)
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art_data: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, TS)]
@@ -265,6 +273,10 @@ pub struct TopAlbum {
     pub play_count: i64,
     pub total_duration_secs: i64,
     pub cover_art: Option<String>,
+    /// Base64-encoded cover art thumbnail data (only present if inlineImages requested)
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art_data: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, TS)]
@@ -278,6 +290,10 @@ pub struct TopTrack {
     pub play_count: i64,
     pub total_duration_secs: i64,
     pub cover_art: Option<String>,
+    /// Base64-encoded cover art thumbnail data (only present if inlineImages requested)
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art_data: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -317,6 +333,9 @@ pub struct PeriodReviewResponse {
 pub struct PeriodReviewQuery {
     pub year: Option<i32>,
     pub month: Option<i32>,
+    /// Include inline cover art thumbnails (small or medium)
+    #[serde(flatten)]
+    pub inline_images: InlineImagesParam,
 }
 
 /// Get period review (year in review or month in review)
@@ -395,7 +414,7 @@ pub async fn get_period_review(
         date_filter
     );
 
-    let top_artists: Vec<TopArtist> = sqlx::query_as(&top_artists_query)
+    let mut top_artists: Vec<TopArtist> = sqlx::query_as(&top_artists_query)
         .bind(user.user_id)
         .fetch_all(&state.pool)
         .await
@@ -423,7 +442,7 @@ pub async fn get_period_review(
         date_filter
     );
 
-    let top_albums: Vec<TopAlbum> = sqlx::query_as(&top_albums_query)
+    let mut top_albums: Vec<TopAlbum> = sqlx::query_as(&top_albums_query)
         .bind(user.user_id)
         .fetch_all(&state.pool)
         .await
@@ -452,11 +471,40 @@ pub async fn get_period_review(
         date_filter
     );
 
-    let top_tracks: Vec<TopTrack> = sqlx::query_as(&top_tracks_query)
+    let mut top_tracks: Vec<TopTrack> = sqlx::query_as(&top_tracks_query)
         .bind(user.user_id)
         .fetch_all(&state.pool)
         .await
         .unwrap_or_default();
+
+    // Get inline thumbnails if requested
+    let inline_size = query.inline_images.get_size();
+    if let Some(size) = inline_size {
+        // Artist thumbnails
+        let artist_ids: Vec<String> = top_artists.iter().map(|a| a.artist_id.clone()).collect();
+        let artist_thumbnails = get_artist_thumbnails_base64(&state.pool, &artist_ids, size).await;
+        for artist in &mut top_artists {
+            artist.cover_art_data = artist_thumbnails.get(&artist.artist_id).cloned();
+        }
+
+        // Album thumbnails
+        let album_ids: Vec<String> = top_albums.iter().map(|a| a.album_id.clone()).collect();
+        let album_thumbnails = get_album_thumbnails_base64(&state.pool, &album_ids, size).await;
+        for album in &mut top_albums {
+            album.cover_art_data = album_thumbnails.get(&album.album_id).cloned();
+        }
+
+        // Track thumbnails - use album_id for cover art
+        let song_thumbnail_data: Vec<(String, Option<String>)> = top_tracks
+            .iter()
+            .map(|t| (t.track_id.clone(), t.cover_art.clone()))
+            .collect();
+        let track_thumbnails =
+            get_song_thumbnails_base64(&state.pool, &song_thumbnail_data, size).await;
+        for track in &mut top_tracks {
+            track.cover_art_data = track_thumbnails.get(&track.track_id).cloned();
+        }
+    }
 
     // Get available periods (years and months with data)
     let available_periods_query = r#"

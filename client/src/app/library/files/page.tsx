@@ -77,6 +77,7 @@ function directoryChildToSong(child: DirectoryChildPaged): Song | null {
     year: child.year ?? null,
     genre: child.genre ?? null,
     coverArt: child.coverArt ?? null,
+    coverArtData: child.coverArtData ?? null, // Use inline thumbnail from API
     starred: child.starred ?? null,
     playCount: null,
     created: child.created ?? new Date().toISOString(),
@@ -151,6 +152,7 @@ function FilesPageContent() {
           filter: debouncedFilter || null,
           foldersOnly: null,
           filesOnly: null,
+          inlineImages: "small",
         });
       },
       getNextPageParam: (lastPage, allPages) => {
@@ -316,6 +318,7 @@ function FilesPageContent() {
       sourceId: `${libraryId}:${relativePath}`,
       sourceName: directoryInfo?.name ?? "Folder",
       startIndex: index,
+      startSongId: song.id,
       sort: { field: sortConfig.field, direction: sortConfig.direction },
       filters: debouncedFilter ? { filter: debouncedFilter } : undefined,
     });
@@ -668,7 +671,7 @@ interface LibraryCardProps {
 
 function LibraryCard({ library }: LibraryCardProps) {
   return (
-    <Link href={`/library/files?libraryId=${library.id}`}>
+    <Link href={`/library/files?libraryId=${library.id}`} prefetch={false}>
       <div
         className={cn(
           "flex items-center gap-3 px-3 py-2 rounded-lg h-[56px]",
@@ -732,9 +735,12 @@ function DirectoryContents({
   visibleColumns,
   libraryId,
 }: DirectoryContentsProps) {
-  // Helper to get cover art URL
-  const getCoverUrl = (coverArt: string | null | undefined) => {
-    if (!coverArt) return undefined;
+  // Helper to get cover art URL - only used when no inline data
+  const getCoverUrl = (
+    coverArt: string | null | undefined,
+    coverArtData: string | null | undefined,
+  ) => {
+    if (coverArtData || !coverArt) return undefined;
     const client = getClient();
     return client?.getCoverArtUrl(coverArt, 100);
   };
@@ -756,7 +762,8 @@ function DirectoryContents({
         return item.isDir ? (
           <DirectoryRow
             item={item}
-            coverUrl={getCoverUrl(item.coverArt)}
+            coverUrl={getCoverUrl(item.coverArt, item.coverArtData)}
+            coverArtData={item.coverArtData}
             isSelected={isSelected}
             onSelect={onSelect}
             onPlay={() => onPlayDirectory(item.path ?? "")}
@@ -769,7 +776,8 @@ function DirectoryContents({
         ) : (
           <FileRow
             item={item}
-            coverUrl={getCoverUrl(item.coverArt)}
+            coverUrl={getCoverUrl(item.coverArt, item.coverArtData)}
+            coverArtData={item.coverArtData}
             isSelected={isSelected}
             onSelect={onSelect}
             onPlay={() => onPlaySong(song!, songIndex)}
@@ -787,6 +795,7 @@ function DirectoryContents({
 interface DirectoryRowProps {
   item: DirectoryChildPaged;
   coverUrl?: string;
+  coverArtData?: string | null;
   isSelected: boolean;
   onSelect: (id: string, e: React.MouseEvent, isCheckbox?: boolean) => void;
   onPlay: () => void;
@@ -798,6 +807,7 @@ interface DirectoryRowProps {
 function DirectoryRow({
   item,
   coverUrl,
+  coverArtData,
   isSelected,
   onSelect,
   onPlay,
@@ -848,7 +858,7 @@ function DirectoryRow({
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem asChild>
-        <Link href={dirUrl}>
+        <Link href={dirUrl} prefetch={false}>
           <FolderPlus className="w-4 h-4 mr-2" />
           Open Folder
         </Link>
@@ -859,7 +869,7 @@ function DirectoryRow({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <Link href={dirUrl} onClick={handleClick}>
+        <Link href={dirUrl} onClick={handleClick} prefetch={false}>
           <div
             className={cn(
               "flex items-center gap-3 px-3 py-2 rounded-lg h-[56px]",
@@ -887,6 +897,7 @@ function DirectoryRow({
             <div className="group/cover relative shrink-0">
               <CoverImage
                 src={coverUrl}
+                inlineData={coverArtData}
                 alt={item.title}
                 colorSeed={item.title}
                 type="folder"
@@ -970,7 +981,7 @@ function DirectoryRow({
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    <Link href={dirUrl}>
+                    <Link href={dirUrl} prefetch={false}>
                       <FolderPlus className="w-4 h-4 mr-2" />
                       Open Folder
                     </Link>
@@ -992,6 +1003,7 @@ function DirectoryRow({
 interface FileRowProps {
   item: DirectoryChildPaged;
   coverUrl?: string;
+  coverArtData?: string | null;
   isSelected: boolean;
   onSelect: (id: string, e: React.MouseEvent, isCheckbox?: boolean) => void;
   onPlay: () => void;
@@ -1002,6 +1014,7 @@ interface FileRowProps {
 function FileRow({
   item,
   coverUrl,
+  coverArtData,
   isSelected,
   onSelect,
   onPlay,
@@ -1095,6 +1108,7 @@ function FileRow({
           <div className="group/cover relative shrink-0">
             <CoverImage
               src={coverUrl}
+              inlineData={coverArtData}
               alt={item.title}
               colorSeed={item.title}
               type="song"

@@ -75,6 +75,8 @@ export function SearchPageContent() {
         artistCount: 20,
         albumCount: 20,
         songCount: 50,
+        // Request medium thumbnails for cards (overview) and small for song rows
+        inlineImages: "medium",
       });
       return response.searchResult3;
     },

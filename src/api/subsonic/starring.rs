@@ -237,6 +237,7 @@ async fn fetch_starred_content(
                 name: artist.name,
                 album_count: Some(artist.album_count),
                 cover_art: Some(artist.id.clone()),
+                cover_art_data: None,
                 starred: Some(starred_at.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
                 user_rating: artist_ratings.get(&artist.id).copied(),
             });
@@ -268,6 +269,7 @@ async fn fetch_starred_content(
                 artist: album.artist_name,
                 artist_id: album.artist_id,
                 cover_art: Some(album.id.clone()),
+                cover_art_data: None,
                 song_count: album.song_count,
                 duration: album.duration,
                 year: album.year,
@@ -284,7 +286,7 @@ async fn fetch_starred_content(
         r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
                   s.track_number, s.disc_number, s.year, s.genre, s.duration,
                   s.bitrate, s.file_path, s.file_size, s.file_format, 
-                  s.created_at, s.updated_at,
+                  s.created_at, s.updated_at, s.cover_art_hash,
                   pc.play_count,
                   pc.last_played,
                   st.starred_at
@@ -333,6 +335,7 @@ async fn fetch_starred_content(
             starred,
             user_rating,
             Some(play_stats),
+            None,
             None,
         ));
     }

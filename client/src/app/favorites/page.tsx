@@ -118,14 +118,19 @@ export default function FavoritesPage() {
 
   // Fetch starred songs using search3 API with starredOnly for server-side sorting
   const { data: songsData, isLoading: isSongsLoading } = useQuery({
-    queryKey: ["starred-songs", debouncedSongSearch, songSortConfig],
+    queryKey: [
+      "starred-songs",
+      debouncedSongSearch,
+      songSortConfig,
+      songViewMode,
+    ],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
 
       const response = await client.search3({
         query: debouncedSongSearch.trim() || "*",
-        songCount: 500,
+        songCount: 50,
         albumCount: 0,
         artistCount: 0,
         starredOnly: true,
@@ -133,6 +138,8 @@ export default function FavoritesPage() {
           songSortConfig.field !== "custom" ? songSortConfig.field : null,
         songSortDir:
           songSortConfig.field !== "custom" ? songSortConfig.direction : null,
+        // Request small thumbnails for rows, medium for grid
+        inlineImages: songViewMode === "grid" ? "medium" : "small",
       });
       return response.searchResult3.song ?? [];
     },
@@ -150,13 +157,15 @@ export default function FavoritesPage() {
       const response = await client.search3({
         query: debouncedAlbumSearch.trim() || "*",
         songCount: 0,
-        albumCount: 500,
+        albumCount: 50,
         artistCount: 0,
         starredOnly: true,
         albumSort:
           albumSortConfig.field !== "custom" ? albumSortConfig.field : null,
         albumSortDir:
           albumSortConfig.field !== "custom" ? albumSortConfig.direction : null,
+        // Request medium inline thumbnails for album cards
+        inlineImages: "medium",
       });
       return response.searchResult3.album ?? [];
     },
@@ -176,8 +185,10 @@ export default function FavoritesPage() {
         query: debouncedArtistSearch.trim() || "*",
         songCount: 0,
         albumCount: 0,
-        artistCount: 500,
+        artistCount: 50,
         starredOnly: true,
+        // Request medium inline thumbnails for artist cards
+        inlineImages: "medium",
       });
       return response.searchResult3.artist ?? [];
     },

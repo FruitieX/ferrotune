@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
+import type { TrackToMatch } from "@/lib/api/generated/TrackToMatch";
 import { TrackSearchPanel } from "./track-search-panel";
 
 // Parsed track info - can come from import or from missing entry data
@@ -54,79 +55,6 @@ export interface SearchOptions {
   useTitle: boolean;
   useArtist: boolean;
   useAlbum: boolean;
-}
-
-// Levenshtein distance
-function levenshteinDistance(a: string, b: string): number {
-  const matrix: number[][] = [];
-
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
-
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1,
-        );
-      }
-    }
-  }
-
-  return matrix[b.length][a.length];
-}
-
-// Simple string similarity (case-insensitive)
-function stringSimilarity(a: string, b: string): number {
-  const aLower = a.toLowerCase().trim();
-  const bLower = b.toLowerCase().trim();
-
-  if (aLower === bLower) return 1;
-  if (aLower.includes(bLower) || bLower.includes(aLower)) return 0.9;
-
-  // Levenshtein-based similarity
-  const maxLen = Math.max(aLower.length, bLower.length);
-  if (maxLen === 0) return 1;
-
-  const distance = levenshteinDistance(aLower, bLower);
-  return 1 - distance / maxLen;
-}
-
-// Calculate match score between parsed track and library song
-export function calculateMatchScore(
-  parsed: ParsedTrackInfo,
-  song: Song,
-): number {
-  let score = 0;
-  let factors = 0;
-
-  if (parsed.title && song.title) {
-    const similarity = stringSimilarity(parsed.title, song.title);
-    score += similarity * 2; // Title is weighted more
-    factors += 2;
-  }
-
-  if (parsed.artist && song.artist) {
-    const similarity = stringSimilarity(parsed.artist, song.artist);
-    score += similarity;
-    factors += 1;
-  }
-
-  if (parsed.album && song.album) {
-    const similarity = stringSimilarity(parsed.album, song.album);
-    score += similarity * 0.5;
-    factors += 0.5;
-  }
-
-  return factors > 0 ? score / factors : 0;
 }
 
 // Build search query from parsed track in "artist - album - title" format
@@ -468,6 +396,8 @@ interface TabbedTrackListProps {
   ) => void;
   showPosition?: boolean;
   showLockedTab?: boolean;
+  /** Show filter by match percentage control */
+  showMatchFilter?: boolean;
 }
 
 export function TabbedTrackList({
@@ -475,12 +405,29 @@ export function TabbedTrackList({
   onUpdateMatch,
   showPosition,
   showLockedTab = false,
+  showMatchFilter = false,
 }: TabbedTrackListProps) {
+  const [maxMatchPercent, setMaxMatchPercent] = useState<number | null>(null);
+
   // Separate tracks
   const editableTracks = tracks.filter((t) => !t.locked);
   const lockedTracks = tracks.filter((t) => t.locked);
-  const matchedTracks = editableTracks.filter((t) => t.match);
+
+  // Apply match percentage filter to matched tracks
+  const matchedTracks = editableTracks.filter((t) => {
+    if (!t.match) return false;
+    if (maxMatchPercent !== null) {
+      return Math.round(t.matchScore * 100) <= maxMatchPercent;
+    }
+    return true;
+  });
+
   const unmatchedTracks = editableTracks.filter((t) => !t.match);
+
+  // Count tracks below different thresholds for the filter UI
+  const lowConfidenceCount = editableTracks.filter(
+    (t) => t.match && t.matchScore < 0.8,
+  ).length;
 
   // Helper to find original index when updating a filtered list
   const getOriginalIndex = (
@@ -494,70 +441,132 @@ export function TabbedTrackList({
   const defaultTab = unmatchedTracks.length > 0 ? "unmatched" : "all";
 
   return (
-    <Tabs defaultValue={defaultTab} className="flex-1 min-h-0">
-      <TabsList
-        className={cn(
-          "grid w-full",
-          showLockedTab && lockedTracks.length > 0
-            ? "grid-cols-4"
-            : "grid-cols-3",
-        )}
-      >
-        <TabsTrigger value="all">All ({editableTracks.length})</TabsTrigger>
-        <TabsTrigger value="matched">
-          Matched ({matchedTracks.length})
-        </TabsTrigger>
-        <TabsTrigger value="unmatched">
-          Not Found ({unmatchedTracks.length})
-        </TabsTrigger>
-        {showLockedTab && lockedTracks.length > 0 && (
-          <TabsTrigger value="locked">
-            Already Matched ({lockedTracks.length})
-          </TabsTrigger>
-        )}
-      </TabsList>
+    <div className="flex-1 min-h-0 flex flex-col">
+      {/* Match percentage filter */}
+      {showMatchFilter && lowConfidenceCount > 0 && (
+        <div className="mb-3 flex items-center gap-3 text-sm">
+          <span className="text-muted-foreground">Filter by confidence:</span>
+          <div className="flex gap-1">
+            <Button
+              variant={maxMatchPercent === null ? "default" : "outline"}
+              size="sm"
+              className="h-7 px-2"
+              onClick={() => setMaxMatchPercent(null)}
+            >
+              All
+            </Button>
+            <Button
+              variant={maxMatchPercent === 80 ? "default" : "outline"}
+              size="sm"
+              className="h-7 px-2"
+              onClick={() => setMaxMatchPercent(80)}
+            >
+              ≤80%
+            </Button>
+            <Button
+              variant={maxMatchPercent === 70 ? "default" : "outline"}
+              size="sm"
+              className="h-7 px-2"
+              onClick={() => setMaxMatchPercent(70)}
+            >
+              ≤70%
+            </Button>
+            <Button
+              variant={maxMatchPercent === 60 ? "default" : "outline"}
+              size="sm"
+              className="h-7 px-2"
+              onClick={() => setMaxMatchPercent(60)}
+            >
+              ≤60%
+            </Button>
+          </div>
+          {maxMatchPercent !== null && (
+            <span className="text-muted-foreground">
+              ({matchedTracks.length} tracks)
+            </span>
+          )}
+        </div>
+      )}
 
-      <TabsContent value="all" className="flex-1 mt-2">
-        <TrackList
-          tracks={editableTracks}
-          onUpdateMatch={(idx, match, score) =>
-            onUpdateMatch(getOriginalIndex(editableTracks, idx), match, score)
-          }
-          showPosition={showPosition}
-        />
-      </TabsContent>
-      <TabsContent value="matched" className="flex-1 mt-2">
-        <TrackList
-          tracks={matchedTracks}
-          onUpdateMatch={(idx, match, score) =>
-            onUpdateMatch(getOriginalIndex(matchedTracks, idx), match, score)
-          }
-          showPosition={showPosition}
-        />
-      </TabsContent>
-      <TabsContent value="unmatched" className="flex-1 mt-2">
-        <TrackList
-          tracks={unmatchedTracks}
-          onUpdateMatch={(idx, match, score) =>
-            onUpdateMatch(getOriginalIndex(unmatchedTracks, idx), match, score)
-          }
-          showPosition={showPosition}
-        />
-      </TabsContent>
-      {showLockedTab && lockedTracks.length > 0 && (
-        <TabsContent value="locked" className="flex-1 mt-2">
+      <Tabs defaultValue={defaultTab} className="flex-1 min-h-0">
+        <TabsList
+          className={cn(
+            "grid w-full",
+            showLockedTab && lockedTracks.length > 0
+              ? "grid-cols-4"
+              : "grid-cols-3",
+          )}
+        >
+          <TabsTrigger value="all">All ({editableTracks.length})</TabsTrigger>
+          <TabsTrigger value="matched">
+            Matched ({matchedTracks.length})
+          </TabsTrigger>
+          <TabsTrigger value="unmatched">
+            Not Found ({unmatchedTracks.length})
+          </TabsTrigger>
+          {showLockedTab && lockedTracks.length > 0 && (
+            <TabsTrigger value="locked">
+              Already Matched ({lockedTracks.length})
+            </TabsTrigger>
+          )}
+        </TabsList>
+
+        <TabsContent value="all" className="flex-1 mt-2">
           <TrackList
-            tracks={lockedTracks}
-            onUpdateMatch={() => {}} // No-op for locked tracks
+            tracks={editableTracks}
+            onUpdateMatch={(idx, match, score) =>
+              onUpdateMatch(getOriginalIndex(editableTracks, idx), match, score)
+            }
             showPosition={showPosition}
           />
         </TabsContent>
-      )}
-    </Tabs>
+        <TabsContent value="matched" className="flex-1 mt-2">
+          <TrackList
+            tracks={matchedTracks}
+            onUpdateMatch={(idx, match, score) =>
+              onUpdateMatch(getOriginalIndex(matchedTracks, idx), match, score)
+            }
+            showPosition={showPosition}
+          />
+        </TabsContent>
+        <TabsContent value="unmatched" className="flex-1 mt-2">
+          <TrackList
+            tracks={unmatchedTracks}
+            onUpdateMatch={(idx, match, score) =>
+              onUpdateMatch(
+                getOriginalIndex(unmatchedTracks, idx),
+                match,
+                score,
+              )
+            }
+            showPosition={showPosition}
+          />
+        </TabsContent>
+        {showLockedTab && lockedTracks.length > 0 && (
+          <TabsContent value="locked" className="flex-1 mt-2">
+            <TrackList
+              tracks={lockedTracks}
+              onUpdateMatch={() => {}} // No-op for locked tracks
+              showPosition={showPosition}
+            />
+          </TabsContent>
+        )}
+      </Tabs>
+    </div>
   );
 }
 
-// Hook to perform automatic matching with parallel batch processing
+// =============================================================================
+// Track matching hook - uses server-side fuzzy matching
+// =============================================================================
+
+/** Batch size for server-side matching requests */
+const MATCH_BATCH_SIZE = 100;
+
+/**
+ * Hook to perform automatic matching using server-side fuzzy matching.
+ * Sends tracks in batches to the server for efficient token-based matching.
+ */
 export function useTrackMatcher() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -581,103 +590,68 @@ export function useTrackMatcher() {
       return null;
     }
 
-    // Process a single track
-    const processTrack = async (
-      track: ParsedTrackInfo,
-    ): Promise<MatchableTrack> => {
-      const query = buildTrackSearchQuery(track, searchOptions);
+    const results: MatchableTrack[] = [];
+    const totalTracks = tracks.length;
+    let processedTracks = 0;
 
-      if (!query) {
-        return { parsed: track, match: null, matchScore: 0 };
-      }
+    // Process tracks in batches
+    for (let i = 0; i < totalTracks; i += MATCH_BATCH_SIZE) {
+      if (abortController.signal.aborted) return null;
 
-      try {
-        const response = await client.search3({ query, songCount: 10 });
+      const batch = tracks.slice(i, i + MATCH_BATCH_SIZE);
 
-        if (abortController.signal.aborted) {
-          throw new Error("Aborted");
-        }
-
-        const songs = response.searchResult3?.song ?? [];
-
-        // Find best match
-        let bestMatch: Song | null = null;
-        let bestScore = 0;
-
-        for (const song of songs) {
-          const score = calculateMatchScore(track, song);
-          if (score > bestScore) {
-            bestScore = score;
-            bestMatch = song;
-          }
-        }
-
-        // Only accept matches above threshold
-        if (bestScore >= 0.5) {
-          return { parsed: track, match: bestMatch, matchScore: bestScore };
-        } else {
-          return { parsed: track, match: null, matchScore: 0 };
-        }
-      } catch (error) {
-        if (abortController.signal.aborted) {
-          throw error;
-        }
-        console.error("Search error:", error);
-        return { parsed: track, match: null, matchScore: 0 };
-      }
-    };
-
-    // Process tracks in parallel batches
-    const BATCH_SIZE = 5; // Process 5 tracks concurrently
-    const results: MatchableTrack[] = new Array(tracks.length);
-    let completedCount = 0;
-
-    for (
-      let batchStart = 0;
-      batchStart < tracks.length;
-      batchStart += BATCH_SIZE
-    ) {
-      if (abortController.signal.aborted) {
-        return null;
-      }
-
-      const batchEnd = Math.min(batchStart + BATCH_SIZE, tracks.length);
-      const batchTracks = tracks.slice(batchStart, batchEnd);
+      // Convert to server request format
+      const tracksToMatch: TrackToMatch[] = batch.map((track) => ({
+        title: track.title ?? null,
+        artist: track.artist ?? null,
+        album: track.album ?? null,
+        duration: track.duration ?? null,
+        raw: track.raw ?? null,
+      }));
 
       try {
-        // Process batch in parallel
-        const batchResults = await Promise.all(
-          batchTracks.map((track, i) =>
-            processTrack(track).then((result) => ({
-              index: batchStart + i,
-              result,
-            })),
-          ),
-        );
+        const response = await client.matchTracks({
+          tracks: tracksToMatch,
+          useTitle: searchOptions.useTitle,
+          useArtist: searchOptions.useArtist,
+          useAlbum: searchOptions.useAlbum,
+        });
 
-        // Store results in correct positions
-        for (const { index, result } of batchResults) {
-          results[index] = result;
-        }
+        if (abortController.signal.aborted) return null;
 
-        completedCount += batchTracks.length;
-        onProgress(Math.round((completedCount / tracks.length) * 100));
-      } catch (_error) {
-        if (abortController.signal.aborted) {
-          return null;
-        }
-        // If batch fails, process remaining tracks individually
-        for (let i = 0; i < batchTracks.length; i++) {
-          if (!results[batchStart + i]) {
-            results[batchStart + i] = {
-              parsed: batchTracks[i],
+        // Convert server response to MatchableTrack format
+        for (let j = 0; j < batch.length; j++) {
+          const track = batch[j];
+          const result = response.results[j];
+
+          if (result.song && result.score >= 0.5) {
+            results.push({
+              parsed: track,
+              match: {
+                id: result.song.id,
+                title: result.song.title,
+                artist: result.song.artist ?? null,
+                album: result.song.album ?? null,
+                duration: result.song.duration ?? null,
+              },
+              matchScore: result.score,
+            });
+          } else {
+            results.push({
+              parsed: track,
               match: null,
               matchScore: 0,
-            };
+            });
           }
         }
-        completedCount += batchTracks.length;
-        onProgress(Math.round((completedCount / tracks.length) * 100));
+
+        processedTracks += batch.length;
+        onProgress(Math.round((processedTracks / totalTracks) * 100));
+      } catch (error) {
+        if (abortController.signal.aborted) return null;
+        console.error("Failed to match batch:", error);
+        toast.error("Failed to match tracks");
+        return null;
       }
     }
 

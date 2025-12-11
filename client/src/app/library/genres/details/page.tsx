@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAtom, useSetAtom } from "jotai";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import { Tag } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
@@ -50,7 +49,6 @@ function GenreDetailContent() {
   });
   const isMounted = useIsMounted();
   const startQueue = useSetAtom(startQueueAtom);
-  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   // Filter state
   const [filter, setFilter] = useState("");
@@ -89,7 +87,7 @@ function GenreDetailContent() {
     select: (genres) => genres.find((g) => g.value === genreName),
   });
 
-  // Fetch albums by genre with infinite scroll
+  // Fetch albums by genre with infinite scroll using search3
   const {
     data: albumsData,
     isLoading: loadingAlbums,
@@ -101,18 +99,20 @@ function GenreDetailContent() {
     queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getAlbumList2({
-        type: "byGenre",
+      const response = await client.search3({
+        query: "*",
         genre: genreName!,
-        size: PAGE_SIZE,
-        offset: pageParam,
+        albumCount: PAGE_SIZE,
+        albumOffset: pageParam,
+        artistCount: 0,
+        songCount: 0,
+        inlineImages: "medium",
       });
+      const albums = response.searchResult3.album ?? [];
       return {
-        albums: response.albumList2.album ?? [],
+        albums,
         nextOffset:
-          response.albumList2.album?.length === PAGE_SIZE
-            ? pageParam + PAGE_SIZE
-            : undefined,
+          albums.length === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
       };
     },
     getNextPageParam: (lastPage) => lastPage.nextOffset,
@@ -120,7 +120,7 @@ function GenreDetailContent() {
     enabled: isReady && !!genreName,
   });
 
-  // Fetch songs by genre with infinite scroll - server-side sort/filter
+  // Fetch songs by genre with infinite scroll using search3 - server-side sort/filter
   const {
     data: songsData,
     isLoading: loadingSongs,
@@ -135,24 +135,30 @@ function GenreDetailContent() {
       sortConfig.field,
       sortConfig.direction,
       debouncedFilter,
+      viewMode, // Include view mode for proper thumbnail size
     ],
     queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getSongsByGenre(genreName!, {
-        count: PAGE_SIZE,
-        offset: pageParam,
-        sort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
-        sortDir:
+      const response = await client.search3({
+        query: debouncedFilter.trim() || "*",
+        genre: genreName!,
+        songCount: PAGE_SIZE,
+        songOffset: pageParam,
+        artistCount: 0,
+        albumCount: 0,
+        songSort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
+        songSortDir:
           sortConfig.field !== "custom" ? sortConfig.direction : undefined,
-        filter: debouncedFilter.trim() || undefined,
+        inlineImages: viewMode === "grid" ? "medium" : "small",
       });
+      const songs = response.searchResult3.song ?? [];
+      const total = response.searchResult3.songTotal;
       return {
-        songs: response.songsByGenre.song ?? [],
+        songs,
+        total,
         nextOffset:
-          (response.songsByGenre.song?.length ?? 0) === PAGE_SIZE
-            ? pageParam + PAGE_SIZE
-            : undefined,
+          songs.length === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
       };
     },
     getNextPageParam: (lastPage) => lastPage.nextOffset,
@@ -160,33 +166,12 @@ function GenreDetailContent() {
     enabled: isReady && !!genreName,
   });
 
-  // Intersection observer for infinite scroll (albums)
-  useEffect(() => {
-    const element = loadMoreRef.current;
-    if (!element) return;
-
-    const handleObserver = (entries: IntersectionObserverEntry[]) => {
-      const [target] = entries;
-      if (target.isIntersecting && hasNextPage && !isFetchingNextPage) {
-        fetchNextPage();
-      }
-    };
-
-    const observer = new IntersectionObserver(handleObserver, {
-      root: null,
-      rootMargin: "200px",
-      threshold: 0,
-    });
-
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
-
   // Flatten albums from all pages
   const allAlbums = albumsData?.pages.flatMap((page) => page.albums) ?? [];
 
   // Flatten songs from all pages - already sorted and filtered by server
   const displaySongs = songsData?.pages.flatMap((page) => page.songs) ?? [];
+  const totalSongsCount = songsData?.pages[0]?.total ?? displaySongs.length;
 
   // Queue source for genre songs - server materializes with same sort/filter
   const genreQueueSource = {
@@ -326,39 +311,21 @@ function GenreDetailContent() {
             ))}
           </div>
         ) : allAlbums.length > 0 ? (
-          <motion.div
-            className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
-            initial="hidden"
-            animate="visible"
-            variants={{
-              visible: { transition: { staggerChildren: 0.05 } },
-            }}
-          >
-            {allAlbums.map((album) => (
-              <motion.div
-                key={album.id}
-                variants={{
-                  hidden: { opacity: 0, y: 20 },
-                  visible: { opacity: 1, y: 0 },
-                }}
-              >
-                <AlbumCard
-                  album={album}
-                  onPlay={() => handlePlayAlbum(album)}
-                />
-              </motion.div>
-            ))}
-          </motion.div>
+          <VirtualizedGrid
+            items={allAlbums}
+            renderItem={(album) => (
+              <AlbumCard album={album} onPlay={() => handlePlayAlbum(album)} />
+            )}
+            renderSkeleton={() => <AlbumCardSkeleton />}
+            getItemKey={(album) => album.id}
+            hasNextPage={hasNextPage ?? false}
+            isFetchingNextPage={isFetchingNextPage}
+            fetchNextPage={fetchNextPage}
+            autoScrollMargin
+          />
         ) : (
           <div className="py-10 text-center text-muted-foreground">
             No albums found in this genre
-          </div>
-        )}
-        {/* Infinite scroll trigger for albums */}
-        <div ref={loadMoreRef} className="h-10" />
-        {isFetchingNextPage && (
-          <div className="flex justify-center py-4">
-            <Skeleton className="w-8 h-8 rounded-full" />
           </div>
         )}
       </div>
@@ -398,6 +365,7 @@ function GenreDetailContent() {
             {viewMode === "grid" ? (
               <VirtualizedGrid
                 items={displaySongs}
+                totalCount={totalSongsCount}
                 renderItem={(song, index) => (
                   <SongCard
                     song={song}
@@ -410,10 +378,15 @@ function GenreDetailContent() {
                 )}
                 renderSkeleton={() => <SongCardSkeleton />}
                 getItemKey={(song) => song.id}
+                hasNextPage={hasNextSongsPage ?? false}
+                isFetchingNextPage={isFetchingNextSongsPage}
+                fetchNextPage={fetchNextSongsPage}
+                autoScrollMargin
               />
             ) : (
               <VirtualizedList
                 items={displaySongs}
+                totalCount={totalSongsCount}
                 renderItem={(song, index) => (
                   <SongRow
                     song={song}
@@ -435,9 +408,10 @@ function GenreDetailContent() {
                 renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
                 getItemKey={(song) => song.id}
                 estimateItemHeight={56}
-                hasNextPage={hasNextSongsPage}
+                hasNextPage={hasNextSongsPage ?? false}
                 isFetchingNextPage={isFetchingNextSongsPage}
                 fetchNextPage={fetchNextSongsPage}
+                autoScrollMargin
               />
             )}
           </div>

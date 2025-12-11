@@ -1,7 +1,7 @@
 "use client";
 
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { User } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -31,6 +31,8 @@ import {
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import type { Song } from "@/lib/api/types";
 
+const PAGE_SIZE = 50;
+
 export default function ArtistsPage() {
   const { isReady, isLoading: authLoading } = useAuth({
     redirectToLogin: true,
@@ -47,51 +49,59 @@ export default function ArtistsPage() {
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
 
-  // Fetch all artists (when no filter and no advanced filters)
-  const { data: artistsData, isLoading } = useQuery({
-    queryKey: ["artists"],
-    queryFn: async () => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      const response = await client.getArtists();
-      return response.artists?.index ?? [];
-    },
-    enabled: isReady && !debouncedFilter && !hasActiveFilters,
-  });
-
-  // Search artists when filter or advanced filters are active
-  const { data: searchData, isLoading: isSearching } = useQuery({
-    queryKey: ["artists", "search", debouncedFilter, advancedFilters],
-    queryFn: async () => {
+  // Fetch artists using search3 with filters and infinite scroll
+  const {
+    data: artistsData,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: [
+      "artists",
+      "all",
+      debouncedFilter,
+      advancedFilters,
+      viewMode, // Include viewMode because inline image size depends on it
+    ],
+    queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.search3({
-        query: debouncedFilter || "*",
-        artistCount: 500,
+        query: debouncedFilter || "*", // Wildcard to match all when no filter
+        artistCount: PAGE_SIZE,
+        artistOffset: pageParam,
         albumCount: 0,
         songCount: 0,
         starredOnly: advancedFilters.starredOnly,
         minRating: advancedFilters.minRating,
         maxRating: advancedFilters.maxRating,
+        // Request inline thumbnails - medium for cards, small for list rows
+        inlineImages: viewMode === "grid" ? "medium" : "small",
       });
-      return response.searchResult3.artist ?? [];
+      const artists = response.searchResult3.artist ?? [];
+      const total = response.searchResult3.artistTotal;
+      return {
+        artists,
+        total,
+        nextOffset:
+          artists.length === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
+      };
     },
-    enabled: isReady && (debouncedFilter.length >= 1 || hasActiveFilters),
+    getNextPageParam: (lastPage) => lastPage.nextOffset,
+    initialPageParam: 0,
+    enabled: isReady,
     staleTime: 0,
     refetchOnMount: "always",
   });
 
-  // Flatten artists from indexes, filter out artists with 0 albums
-  const allArtists =
-    artistsData
-      ?.flatMap((index) => index.artist)
-      .filter((a) => (a.albumCount ?? 0) > 0) ?? [];
-
-  // Use search results when filtering or using advanced filters, otherwise use full list
+  // Flatten artists from all pages, filter out artists with 0 albums
   const displayArtists =
-    debouncedFilter || hasActiveFilters ? (searchData ?? []) : allArtists;
-  const isLoadingData =
-    debouncedFilter || hasActiveFilters ? isSearching : isLoading;
+    artistsData?.pages
+      .flatMap((page) => page.artists)
+      .filter((a) => (a.albumCount ?? 0) > 0) ?? [];
+  const totalArtists = artistsData?.pages[0]?.total ?? displayArtists.length;
+  const isLoadingData = isLoading;
 
   // Artist selection
   const {
@@ -242,6 +252,7 @@ export default function ArtistsPage() {
         viewMode === "grid" ? (
           <VirtualizedGrid
             items={displayArtists}
+            totalCount={totalArtists}
             renderItem={(artist) => (
               <ArtistCard
                 artist={artist}
@@ -253,12 +264,16 @@ export default function ArtistsPage() {
             )}
             renderSkeleton={() => <ArtistCardSkeleton />}
             getItemKey={(artist) => artist.id}
+            hasNextPage={hasNextPage ?? false}
+            isFetchingNextPage={isFetchingNextPage}
+            fetchNextPage={fetchNextPage}
             initialOffset={getInitialOffset()}
             onScrollChange={saveOffset}
           />
         ) : (
           <VirtualizedList
             items={displayArtists}
+            totalCount={totalArtists}
             renderItem={(artist, index) => (
               <ArtistCardCompact
                 artist={artist}
@@ -274,6 +289,9 @@ export default function ArtistsPage() {
             )}
             getItemKey={(artist) => artist.id}
             estimateItemHeight={56}
+            hasNextPage={hasNextPage ?? false}
+            isFetchingNextPage={isFetchingNextPage}
+            fetchNextPage={fetchNextPage}
             initialOffset={getInitialOffset()}
             onScrollChange={saveOffset}
           />

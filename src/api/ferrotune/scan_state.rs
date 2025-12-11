@@ -16,6 +16,35 @@ pub struct ScanLogEntry {
     pub message: String,
 }
 
+/// A scan detail entry describing a file affected by the scan.
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ScanDetailEntry {
+    /// The file path
+    pub path: String,
+    /// Optional error message if this is an error entry
+    #[ts(optional)]
+    pub error: Option<String>,
+}
+
+/// Scan details response containing lists of affected files.
+#[derive(Clone, Debug, Serialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ScanDetails {
+    /// Files that were added
+    pub added: Vec<ScanDetailEntry>,
+    /// Files that were updated
+    pub updated: Vec<ScanDetailEntry>,
+    /// Files that were removed
+    pub removed: Vec<ScanDetailEntry>,
+    /// Duplicate files found
+    pub duplicates: Vec<ScanDetailEntry>,
+    /// Files with errors
+    pub errors: Vec<ScanDetailEntry>,
+}
+
 /// Scan progress update sent via SSE.
 #[derive(Clone, Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -101,6 +130,8 @@ pub struct ScanState {
     tx: broadcast::Sender<ScanProgressUpdate>,
     /// Recent log entries (limited buffer)
     logs: RwLock<Vec<ScanLogEntry>>,
+    /// Detailed lists of affected files
+    details: RwLock<ScanDetails>,
 }
 
 impl ScanState {
@@ -124,6 +155,7 @@ impl ScanState {
             cancelled: AtomicBool::new(false),
             tx,
             logs: RwLock::new(Vec::new()),
+            details: RwLock::new(ScanDetails::default()),
         }
     }
 
@@ -166,6 +198,11 @@ impl ScanState {
         self.logs.read().await.clone()
     }
 
+    /// Get scan details (lists of affected files).
+    pub async fn get_details(&self) -> ScanDetails {
+        self.details.read().await.clone()
+    }
+
     /// Start a new scan. Returns false if a scan is already in progress.
     pub async fn start(&self, mode: String) -> bool {
         // Use compare_exchange to atomically check and set
@@ -197,6 +234,9 @@ impl ScanState {
         // Clear logs on new scan
         self.logs.write().await.clear();
 
+        // Clear details on new scan
+        *self.details.write().await = ScanDetails::default();
+
         // Broadcast the initial state
         let _ = self.tx.send(self.get_progress().await);
         true
@@ -207,12 +247,32 @@ impl ScanState {
         self.scanned.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Increment the added counter.
+    /// Increment the added counter and track the file.
+    pub async fn track_added(&self, path: &str) {
+        self.added.fetch_add(1, Ordering::Relaxed);
+        self.details.write().await.added.push(ScanDetailEntry {
+            path: path.to_string(),
+            error: None,
+        });
+    }
+
+    /// Increment the updated counter and track the file.
+    pub async fn track_updated(&self, path: &str) {
+        self.updated.fetch_add(1, Ordering::Relaxed);
+        self.details.write().await.updated.push(ScanDetailEntry {
+            path: path.to_string(),
+            error: None,
+        });
+    }
+
+    /// Increment the added counter (without tracking - for backwards compatibility).
+    #[allow(dead_code)]
     pub fn increment_added(&self) {
         self.added.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Increment the updated counter.
+    /// Increment the updated counter (without tracking - for backwards compatibility).
+    #[allow(dead_code)]
     pub fn increment_updated(&self) {
         self.updated.fetch_add(1, Ordering::Relaxed);
     }
@@ -223,17 +283,55 @@ impl ScanState {
         self.removed.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Add to the removed counter.
+    /// Add removed files to tracking.
+    pub async fn track_removed(&self, paths: &[String]) {
+        self.removed
+            .fetch_add(paths.len() as u64, Ordering::Relaxed);
+        let mut details = self.details.write().await;
+        for path in paths {
+            details.removed.push(ScanDetailEntry {
+                path: path.clone(),
+                error: None,
+            });
+        }
+    }
+
+    /// Add to the removed counter (without tracking - for backwards compatibility).
+    #[allow(dead_code)]
     pub fn add_removed(&self, count: u64) {
         self.removed.fetch_add(count, Ordering::Relaxed);
     }
 
-    /// Increment the errors counter.
+    /// Increment the errors counter and track the file.
+    pub async fn track_error(&self, path: &str, error: &str) {
+        self.errors.fetch_add(1, Ordering::Relaxed);
+        self.details.write().await.errors.push(ScanDetailEntry {
+            path: path.to_string(),
+            error: Some(error.to_string()),
+        });
+    }
+
+    /// Increment the errors counter (without tracking - for backwards compatibility).
+    #[allow(dead_code)]
     pub fn increment_errors(&self) {
         self.errors.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Add to the duplicates counter.
+    /// Track duplicate files.
+    pub async fn track_duplicates(&self, paths: &[String]) {
+        self.duplicates
+            .fetch_add(paths.len() as u64, Ordering::Relaxed);
+        let mut details = self.details.write().await;
+        for path in paths {
+            details.duplicates.push(ScanDetailEntry {
+                path: path.clone(),
+                error: None,
+            });
+        }
+    }
+
+    /// Add to the duplicates counter (without tracking - for backwards compatibility).
+    #[allow(dead_code)]
     pub fn add_duplicates(&self, count: u64) {
         self.duplicates.fetch_add(count, Ordering::Relaxed);
     }

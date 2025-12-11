@@ -4,6 +4,7 @@ mod db;
 mod error;
 mod password;
 mod scanner;
+mod thumbnails;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};

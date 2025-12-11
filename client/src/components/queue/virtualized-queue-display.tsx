@@ -36,8 +36,6 @@ import {
 } from "@/components/browse/song-context-menu";
 import { MoveToPositionDialog } from "@/components/shared/move-to-position-dialog";
 import { formatDuration } from "@/lib/utils/format";
-import { getClient } from "@/lib/api/client";
-import { isClientInitializedAtom } from "@/lib/store/auth";
 import type { QueueSongEntry } from "@/lib/api/types";
 
 // Item height for virtualization (px)
@@ -46,6 +44,8 @@ const ITEM_HEIGHT = 56;
 const OVERSCAN = 5;
 // Buffer threshold - fetch more when within N items of edge
 const FETCH_THRESHOLD = 10;
+// Minimum batch size for fetching - always fetch at least this many items
+const MIN_FETCH_BATCH_SIZE = 50;
 
 // Loading placeholder for unfetched items
 function QueueItemPlaceholder() {
@@ -104,16 +104,6 @@ function VirtualQueueItem({
   onTogglePlayPause,
   onMoveToPosition,
 }: VirtualQueueItemProps) {
-  // Subscribe to client initialization state to re-render when client becomes available
-  // This ensures cover art URLs are generated correctly after page reload
-  const isClientInitialized = useAtomValue(isClientInitializedAtom);
-
-  // Get cover URL - only available after client is initialized
-  const coverUrl =
-    isClientInitialized && entry.song.coverArt
-      ? getClient()?.getCoverArtUrl(entry.song.coverArt, 100)
-      : undefined;
-
   const song = entry.song;
 
   return (
@@ -149,7 +139,7 @@ function VirtualQueueItem({
           onClick={isCurrent ? onTogglePlayPause : onPlay}
         >
           <CoverImage
-            src={coverUrl}
+            inlineData={song.coverArtData}
             alt={song.title}
             colorSeed={song.album ?? undefined}
             type="song"
@@ -183,6 +173,7 @@ function VirtualQueueItem({
               href={`/library/artists/details?id=${song.artistId}`}
               className="hover:underline hover:text-foreground transition-colors"
               onClick={(e) => e.stopPropagation()}
+              prefetch={false}
             >
               {song.artist}
             </Link>
@@ -193,6 +184,7 @@ function VirtualQueueItem({
                   href={`/library/albums/details?id=${song.albumId}`}
                   className="hover:underline hover:text-foreground transition-colors"
                   onClick={(e) => e.stopPropagation()}
+                  prefetch={false}
                 >
                   {song.album}
                 </Link>
@@ -418,25 +410,39 @@ export const VirtualizedQueueDisplay = forwardRef<
       const checkEnd = Math.min(totalCount - 1, lastVisible + FETCH_THRESHOLD);
 
       let fetchStart = -1;
-      let fetchEnd = -1;
 
       for (let i = checkStart; i <= checkEnd; i++) {
         if (!songsByPosition.has(i)) {
           if (fetchStart === -1) fetchStart = i;
-          fetchEnd = i;
         }
       }
 
-      if (fetchStart !== -1 && fetchEnd !== -1) {
-        const rangeKey = `${fetchStart}-${fetchEnd}`;
+      // If we found a gap, fetch a reasonable batch starting from there
+      if (fetchStart !== -1) {
+        // Expand the fetch range to be at least MIN_FETCH_BATCH_SIZE items
+        // Center the batch around the visible area for smoother scrolling
+        const batchSize = Math.max(
+          MIN_FETCH_BATCH_SIZE,
+          lastVisible - firstVisible + FETCH_THRESHOLD * 2,
+        );
+        const adjustedStart = Math.max(
+          0,
+          fetchStart - Math.floor(batchSize / 4),
+        );
+        const adjustedEnd = Math.min(
+          totalCount - 1,
+          adjustedStart + batchSize - 1,
+        );
+
+        const rangeKey = `${adjustedStart}-${adjustedEnd}`;
         if (!fetchedRangesRef.current.has(rangeKey)) {
           fetchedRangesRef.current.add(rangeKey);
           isFetchingRef.current = true;
 
           try {
             await fetchQueueRange({
-              offset: fetchStart,
-              limit: fetchEnd - fetchStart + 1,
+              offset: adjustedStart,
+              limit: adjustedEnd - adjustedStart + 1,
             });
           } finally {
             isFetchingRef.current = false;

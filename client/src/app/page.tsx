@@ -140,7 +140,11 @@ export default function HomePage() {
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getAlbumList2({ type: "newest", size: 10 });
+      const response = await client.getAlbumList2({
+        type: "newest",
+        size: 10,
+        inlineImages: "medium",
+      });
       return response.albumList2.album;
     },
     enabled: isReady,
@@ -152,7 +156,11 @@ export default function HomePage() {
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getAlbumList2({ type: "random", size: 10 });
+      const response = await client.getAlbumList2({
+        type: "random",
+        size: 10,
+        inlineImages: "medium",
+      });
       return response.albumList2.album;
     },
     enabled: isReady,
@@ -167,6 +175,7 @@ export default function HomePage() {
       const response = await client.getAlbumList2({
         type: "frequent",
         size: 10,
+        inlineImages: "medium",
       });
       return response.albumList2.album;
     },
@@ -179,7 +188,11 @@ export default function HomePage() {
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getAlbumList2({ type: "recent", size: 10 });
+      const response = await client.getAlbumList2({
+        type: "recent",
+        size: 10,
+        inlineImages: "medium",
+      });
       return response.albumList2.album;
     },
     enabled: isReady,

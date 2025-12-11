@@ -13,8 +13,9 @@
 
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::browse::{
-    get_ratings_map, get_starred_map, song_to_response, SongResponse,
+    get_ratings_map, get_starred_map, song_to_response_with_stats, SongResponse,
 };
+use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::subsonic::search::{search_songs_for_queue, SearchParams};
 use crate::api::subsonic::sorting;
 use crate::api::AppState;
@@ -49,6 +50,11 @@ pub struct StartQueueRequest {
     /// Index of the song to start playing (0-based, in the original order)
     #[serde(default)]
     pub start_index: usize,
+    /// ID of the song the client intends to play (for verification against index)
+    /// If the song at start_index doesn't match this ID, the server will find the
+    /// correct index for this song in the materialized queue. This handles cases
+    /// where songs are duplicated (e.g., in playlists) or the list changed.
+    pub start_song_id: Option<String>,
     /// Whether to enable shuffle when starting
     #[serde(default)]
     pub shuffle: bool,
@@ -62,6 +68,8 @@ pub struct StartQueueRequest {
     /// Optional explicit song IDs (for search results, history, or custom queues)
     /// When provided, these songs are used instead of materializing from source_type
     pub song_ids: Option<Vec<String>>,
+    /// Whether to include inline cover art thumbnails (small or medium)
+    pub inline_images: Option<String>,
 }
 
 /// Response after starting a queue
@@ -151,6 +159,9 @@ pub struct QueuePaginationParams {
     /// Maximum number of songs to return
     #[serde(default)]
     pub limit: Option<usize>,
+    /// Size of inline thumbnails: "small", "medium", or empty (no inline images)
+    #[serde(default, flatten)]
+    pub inline_images: InlineImagesParam,
 }
 
 /// Query parameters for current window fetch
@@ -160,6 +171,9 @@ pub struct CurrentWindowParams {
     /// Number of songs to fetch before and after current position
     #[serde(default)]
     pub radius: Option<usize>,
+    /// Size of inline thumbnails: "small", "medium", or empty (no inline images)
+    #[serde(default, flatten)]
+    pub inline_images: InlineImagesParam,
 }
 
 /// Request to add songs to the queue
@@ -341,7 +355,7 @@ pub async fn start_queue(
     // Translate start_index for playlists with missing entries
     // The client sends the position in the full playlist (including gaps),
     // but we need the index in our materialized songs array
-    let start_index = if let Some(ref mapping) = position_to_index_map {
+    let mut start_index = if let Some(ref mapping) = position_to_index_map {
         // Try to find exact position match first
         if let Some(&idx) = mapping.get(&(request.start_index as i64)) {
             idx
@@ -360,6 +374,23 @@ pub async fn start_queue(
         request.start_index.min(total_count - 1)
     };
 
+    // Verify start_song_id matches the song at start_index
+    // If not, find the correct index for the intended song
+    // This handles cases where:
+    // - Songs were deleted/changed between client view and server materialization
+    // - Duplicates exist in playlists and client clicked on a different instance
+    if let Some(ref intended_song_id) = request.start_song_id {
+        let song_at_index = song_ids.get(start_index);
+        if song_at_index != Some(intended_song_id) {
+            // Song at index doesn't match - find the correct index
+            if let Some(correct_index) = song_ids.iter().position(|id| id == intended_song_id) {
+                start_index = correct_index;
+            }
+            // If the song isn't found at all, keep the original start_index
+            // (the song may have been deleted)
+        }
+    }
+
     // Handle shuffle - only shuffle tracks after the starting position
     let (is_shuffled, shuffle_seed, shuffle_indices, current_index) = if request.shuffle {
         let seed = rand::random::<u64>() as i64;
@@ -374,6 +405,13 @@ pub async fn start_queue(
     let repeat_mode = request.repeat_mode.as_deref().unwrap_or("off");
     let filters_json = request.filters.as_ref().map(|f| f.to_string());
     let sort_json = request.sort.as_ref().map(|s| s.to_string());
+
+    // Parse inline_images option
+    let inline_size = match request.inline_images.as_deref() {
+        Some("small") => Some(crate::thumbnails::ThumbnailSize::Small),
+        Some("medium") => Some(crate::thumbnails::ThumbnailSize::Medium),
+        _ => None,
+    };
 
     // Save queue to database
     queries::create_queue(
@@ -406,6 +444,7 @@ pub async fn start_queue(
         20,
         is_shuffled,
         shuffle_indices.as_deref(),
+        inline_size,
     )
     .await?;
 
@@ -433,6 +472,7 @@ pub async fn get_queue(
 
     let offset = params.offset.unwrap_or(0);
     let limit = params.limit.unwrap_or(50).min(200);
+    let inline_size = params.inline_images.get_size();
 
     // Get all queue entries with songs (we need them for shuffle mapping)
     let all_entries = queries::get_queue_entries_with_songs(&state.pool, user.user_id).await?;
@@ -446,6 +486,7 @@ pub async fn get_queue(
         limit,
         queue.is_shuffled,
         queue.shuffle_indices_json.as_deref(),
+        inline_size,
     )
     .await?;
 
@@ -478,6 +519,7 @@ pub async fn get_current_window(
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
     let radius = params.radius.unwrap_or(20);
+    let inline_size = params.inline_images.get_size();
 
     // Get all queue entries with songs
     let all_entries = queries::get_queue_entries_with_songs(&state.pool, user.user_id).await?;
@@ -491,6 +533,7 @@ pub async fn get_current_window(
         radius,
         queue.is_shuffled,
         queue.shuffle_indices_json.as_deref(),
+        inline_size,
     )
     .await?;
 
@@ -1033,16 +1076,18 @@ async fn materialize_queue_songs(
             ))
         }
         QueueSourceType::Genre => {
+            // Genre uses search_songs_for_queue with genre filter for consistency with search3 API
             let genre =
                 source_id.ok_or_else(|| Error::InvalidRequest("Genre required".to_string()))?;
-            let songs = queries::get_songs_by_genre(pool, genre).await?;
-            // Apply text filtering and sorting if provided
-            Ok(sorting::filter_and_sort_songs(
-                songs,
-                text_filter,
-                sort_field.as_deref(),
-                sort_dir.as_deref(),
-            ))
+
+            // Build search params with genre filter
+            let mut search_params = build_search_params_from_json(filters, sort);
+            search_params.genre = Some(genre.to_string());
+
+            // Use text filter as FTS query, or wildcard for all songs in genre
+            let query = text_filter.unwrap_or("*");
+
+            Ok(search_songs_for_queue(pool, user_id, query, &search_params).await?)
         }
         QueueSourceType::Favorites => {
             let songs = queries::get_starred_songs(pool, user_id).await?;
@@ -1139,6 +1184,7 @@ fn build_search_params_from_json(
         max_bitrate: None,
         added_after: None,
         added_before: None,
+        inline_images: None, // Not used for queue materialization
     };
 
     // Parse filters
@@ -1236,6 +1282,7 @@ fn generate_shuffle_indices(total: usize, current_index: usize, seed: u64) -> Ve
 }
 
 /// Build a window of songs around a position
+#[allow(clippy::too_many_arguments)]
 async fn build_queue_window(
     pool: &sqlx::SqlitePool,
     user_id: i64,
@@ -1244,6 +1291,7 @@ async fn build_queue_window(
     radius: usize,
     is_shuffled: bool,
     shuffle_indices_json: Option<&str>,
+    inline_size: Option<crate::thumbnails::ThumbnailSize>,
 ) -> Result<QueueWindow> {
     let total = all_entries.len();
     if total == 0 {
@@ -1264,11 +1312,13 @@ async fn build_queue_window(
         end - start,
         is_shuffled,
         shuffle_indices_json,
+        inline_size,
     )
     .await
 }
 
 /// Build a window of songs for a range
+#[allow(clippy::too_many_arguments)]
 async fn build_queue_window_range(
     pool: &sqlx::SqlitePool,
     user_id: i64,
@@ -1277,6 +1327,7 @@ async fn build_queue_window_range(
     limit: usize,
     is_shuffled: bool,
     shuffle_indices_json: Option<&str>,
+    inline_size: Option<crate::thumbnails::ThumbnailSize>,
 ) -> Result<QueueWindow> {
     let total = all_entries.len();
     if total == 0 {
@@ -1296,22 +1347,37 @@ async fn build_queue_window_range(
 
     let end = (offset + limit).min(total);
 
-    // Collect song IDs in the window for starred/rating lookup
-    let window_song_ids: Vec<String> = (offset..end)
-        .filter_map(|i| shuffle_indices.get(i))
-        .filter_map(|&orig_idx| all_entries.get(orig_idx))
-        .map(|e| e.id.clone())
+    // Collect song IDs and album IDs in the window for starred/rating/thumbnail lookup
+    let window_entries: Vec<(&crate::db::models::QueueEntryWithSong, usize)> = (offset..end)
+        .filter_map(|display_pos| {
+            let orig_idx = *shuffle_indices.get(display_pos)?;
+            let entry = all_entries.get(orig_idx)?;
+            Some((entry, display_pos))
+        })
         .collect();
+
+    let window_song_ids: Vec<String> = window_entries.iter().map(|(e, _)| e.id.clone()).collect();
 
     let starred_map = get_starred_map(pool, user_id, "song", &window_song_ids).await?;
     let ratings_map = get_ratings_map(pool, user_id, "song", &window_song_ids).await?;
 
-    let songs: Vec<QueueSongEntry> = (offset..end)
-        .filter_map(|display_pos| {
-            let orig_idx = *shuffle_indices.get(display_pos)?;
-            let entry = all_entries.get(orig_idx)?;
+    // Get inline thumbnails if requested
+    let thumbnails = if let Some(size) = inline_size {
+        let song_thumbnail_data: Vec<(String, Option<String>)> = window_entries
+            .iter()
+            .map(|(e, _)| (e.id.clone(), e.album_id.clone()))
+            .collect();
+        get_song_thumbnails_base64(pool, &song_thumbnail_data, size).await
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    let songs: Vec<QueueSongEntry> = window_entries
+        .into_iter()
+        .map(|(entry, display_pos)| {
             let starred = starred_map.get(&entry.id).cloned();
             let user_rating = ratings_map.get(&entry.id).copied();
+            let cover_art_data = thumbnails.get(&entry.id).cloned();
             // Convert QueueEntryWithSong to Song for song_to_response
             let song = crate::db::models::Song {
                 id: entry.id.clone(),
@@ -1334,13 +1400,22 @@ async fn build_queue_window_range(
                 play_count: entry.play_count,
                 last_played: entry.last_played,
                 starred_at: entry.starred_at,
+                cover_art_hash: entry.cover_art_hash.clone(),
             };
-            let song_response = song_to_response(song, None, starred, user_rating);
-            Some(QueueSongEntry {
+            let song_response = song_to_response_with_stats(
+                song,
+                None,
+                starred,
+                user_rating,
+                None,
+                None,
+                cover_art_data,
+            );
+            QueueSongEntry {
                 entry_id: entry.entry_id.clone(),
                 position: display_pos,
                 song: song_response,
-            })
+            }
         })
         .collect();
 

@@ -27,6 +27,8 @@ export const rowActionsContainerStyles = cn(
 interface MediaRowProps {
   /** Cover art URL */
   coverArt?: string;
+  /** Inline base64 thumbnail data (pre-fetched from API response) - takes priority over coverArt */
+  coverArtData?: string | null;
   /** Primary text (title) */
   title: string;
   /** Secondary text (subtitle) - simple string */
@@ -77,6 +79,7 @@ interface MediaRowProps {
  */
 export function MediaRow({
   coverArt,
+  coverArtData,
   title,
   subtitle,
   subtitleContent,
@@ -158,6 +161,7 @@ export function MediaRow({
     >
       <CoverImage
         src={coverArt}
+        inlineData={coverArtData}
         alt={title}
         colorSeed={colorSeed ?? title}
         type={coverType}
@@ -202,6 +206,7 @@ export function MediaRow({
         {href ? (
           <Link
             href={href}
+            prefetch={false}
             className="hover:underline"
             onClick={(e) => e.stopPropagation()}
           >
@@ -239,7 +244,11 @@ export function MediaRow({
       {/* Cover art and content */}
       <div className="flex items-center gap-4 flex-1 min-w-0">
         {href ? (
-          <Link href={href} onClick={(e) => e.stopPropagation()}>
+          <Link
+            href={href}
+            prefetch={false}
+            onClick={(e) => e.stopPropagation()}
+          >
             {coverArtElement}
           </Link>
         ) : (

@@ -114,10 +114,10 @@ HTTP 200
 [Asserts]
 header "Content-Type" matches "image/.*"
 
-# Test: getCoverArt - invalid ID - server returns 400 Bad Request
+# Test: getCoverArt - invalid ID - server returns 404 Not Found
 GET {{base_url}}/rest/getCoverArt?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&id=invalid-cover-id&f=xml
-HTTP 400
+HTTP 404
 
-# Test: getCoverArt - invalid ID (JSON) - server returns 400 Bad Request
+# Test: getCoverArt - invalid ID (JSON) - server returns 404 Not Found
 GET {{base_url}}/rest/getCoverArt?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&id=invalid-cover-id&f=json
-HTTP 400
+HTTP 404

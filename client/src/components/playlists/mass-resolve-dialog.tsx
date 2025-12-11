@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Wand2 } from "lucide-react";
+import { Loader2, Wand2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getClient } from "@/lib/api/client";
-import type { PlaylistEntryResponse } from "@/lib/api/generated/PlaylistEntryResponse";
+import type { PlaylistSongEntry } from "@/lib/api/generated/PlaylistSongEntry";
 import {
   MatchableTrack,
   SearchOptions,
@@ -29,21 +29,41 @@ interface MassResolveDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   playlistId: string;
-  entries: PlaylistEntryResponse[];
+  /** Filter text to apply when fetching entries (matches current playlist view filter) */
+  filter?: string;
+  /** Sort field to apply when fetching entries */
+  sortField?: string;
+  /** Sort direction */
+  sortDir?: string;
 }
 
-type ResolveStep = "options" | "matching" | "preview" | "saving";
+type ResolveStep = "loading" | "options" | "matching" | "preview" | "saving";
+
+interface MissingEntry {
+  position: number;
+  missing: {
+    title: string | null;
+    artist: string | null;
+    album: string | null;
+    duration: number | null;
+    raw: string;
+  };
+}
 
 export function MassResolveDialog({
   open,
   onOpenChange,
   playlistId,
-  entries,
+  filter,
+  sortField,
+  sortDir,
 }: MassResolveDialogProps) {
   const queryClient = useQueryClient();
   const { matchTracks, cancel: cancelMatching } = useTrackMatcher();
 
-  const [step, setStep] = useState<ResolveStep>("options");
+  const [step, setStep] = useState<ResolveStep>("loading");
+  const [missingEntries, setMissingEntries] = useState<MissingEntry[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [matchedTracks, setMatchedTracks] = useState<MatchableTrack[]>([]);
   const [matchingProgress, setMatchingProgress] = useState(0);
   const [searchOptions, setSearchOptions] = useState<SearchOptions>({
@@ -52,14 +72,67 @@ export function MassResolveDialog({
     useAlbum: false,
   });
 
-  // Get missing entries only
-  const missingEntries = entries.filter((entry) => entry.missing);
+  // Fetch all missing entries when dialog opens
+  useEffect(() => {
+    if (!open) return;
+
+    const fetchMissingEntries = async () => {
+      setStep("loading");
+      setLoadError(null);
+      setMissingEntries([]);
+
+      const client = getClient();
+      if (!client) {
+        setLoadError("Not connected");
+        return;
+      }
+
+      try {
+        // Fetch only missing entries using the entryType filter
+        // This is much more efficient than fetching all entries and filtering client-side
+        // Apply the same filter/sort as the current playlist view
+        const response = await client.getPlaylistSongs(playlistId, {
+          count: 10000,
+          sort: sortField || "custom",
+          sortDir: sortDir || "asc",
+          filter: filter || undefined,
+          entryType: "missing", // Only fetch missing entries
+        });
+
+        // Convert entries to MissingEntry format
+        const missing: MissingEntry[] = response.entries.map(
+          (entry: PlaylistSongEntry) => ({
+            position: entry.position,
+            missing: {
+              title: entry.missing?.title ?? null,
+              artist: entry.missing?.artist ?? null,
+              album: entry.missing?.album ?? null,
+              duration: entry.missing?.duration ?? null,
+              raw: entry.missing?.raw ?? "",
+            },
+          }),
+        );
+
+        setMissingEntries(missing);
+        setStep("options");
+      } catch (error) {
+        console.error("Failed to fetch missing entries:", error);
+        setLoadError(
+          error instanceof Error ? error.message : "Failed to load entries",
+        );
+      }
+    };
+
+    fetchMissingEntries();
+  }, [open, playlistId, filter, sortField, sortDir]);
 
   // Reset state when dialog closes
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
       cancelMatching();
-      setStep("options");
+      setStep("loading");
+      setMissingEntries([]);
+      setLoadError(null);
       setMatchedTracks([]);
       setMatchingProgress(0);
     }
@@ -73,11 +146,11 @@ export function MassResolveDialog({
 
     // Convert entries to ParsedTrackInfo format
     const tracksToMatch = missingEntries.map((entry) => ({
-      title: entry.missing?.title ?? null,
-      artist: entry.missing?.artist ?? null,
-      album: entry.missing?.album ?? null,
-      duration: entry.missing?.duration ?? null,
-      raw: entry.missing?.raw ?? null,
+      title: entry.missing.title,
+      artist: entry.missing.artist,
+      album: entry.missing.album,
+      duration: entry.missing.duration,
+      raw: entry.missing.raw,
       // Store original position for saving later
       originalPosition: entry.position,
     }));
@@ -178,10 +251,33 @@ export function MassResolveDialog({
               <span className="block mt-1">
                 {missingEntries.length} missing{" "}
                 {missingEntries.length === 1 ? "entry" : "entries"} to resolve
+                {filter && (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    (filtered by &quot;{filter}&quot;)
+                  </span>
+                )}
               </span>
             )}
           </DialogDescription>
         </DialogHeader>
+
+        {step === "loading" && (
+          <div className="py-8 text-center">
+            <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-primary" />
+            <p className="text-lg font-medium">Loading missing entries...</p>
+          </div>
+        )}
+
+        {loadError && (
+          <div className="py-4 text-center">
+            <AlertCircle className="w-12 h-12 mx-auto mb-4 text-destructive" />
+            <p className="text-lg font-medium text-destructive">
+              Failed to load entries
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">{loadError}</p>
+          </div>
+        )}
 
         {step === "options" && (
           <div className="py-4 space-y-4">
@@ -236,6 +332,7 @@ export function MassResolveDialog({
                   return updated;
                 });
               }}
+              showMatchFilter
             />
           </>
         )}

@@ -141,6 +141,24 @@ GET {{base_url}}/ferrotune/playlists/nonexistent-playlist-id-xyz/songs
 Authorization: Basic {{auth_basic}}
 HTTP 404
 
+# Test: Get playlist songs - filter by entry type "song" (should return only matched songs)
+GET {{base_url}}/ferrotune/playlists/{{test_playlist_id}}/songs?entryType=song
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.entries[*].entryType" includes "song"
+# All entries should be songs (no missing entries)
+jsonpath "$.entries[?(@.entryType == 'missing')]" count == 0
+
+# Test: Get playlist songs - filter by entry type "missing" (should return only missing entries)
+GET {{base_url}}/ferrotune/playlists/{{test_playlist_id}}/songs?entryType=missing
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+# Should have 0 missing entries in this test playlist (all songs are matched)
+jsonpath "$.entries" count == 0
+jsonpath "$.filteredCount" == 0
+
 # ============================================================================
 # CLEANUP - Delete test playlist
 # ============================================================================

@@ -10,6 +10,8 @@ import { CoverImage } from "@/components/shared/cover-image";
 interface MediaCardProps {
   /** Cover art URL */
   coverArt?: string;
+  /** Inline base64 thumbnail data (pre-fetched from API response) - takes priority over coverArt */
+  coverArtData?: string | null;
   /** Primary text (title) */
   title: string;
   /** Secondary text (subtitle) - simple string */
@@ -52,6 +54,7 @@ interface MediaCardProps {
  */
 export function MediaCard({
   coverArt,
+  coverArtData,
   title,
   subtitle,
   subtitleContent,
@@ -149,7 +152,7 @@ export function MediaCard({
         )}
 
         {/* Cover art with play overlay - wrapped in Link */}
-        <Link href={href} className="block group/cover">
+        <Link href={href} prefetch={false} className="block group/cover">
           <div
             className={cn(
               "relative aspect-square overflow-hidden",
@@ -160,6 +163,7 @@ export function MediaCard({
           >
             <CoverImage
               src={coverArt}
+              inlineData={coverArtData}
               alt={title}
               colorSeed={colorSeed ?? title}
               type={coverType}
@@ -197,7 +201,7 @@ export function MediaCard({
       <div
         className={cn("space-y-1", coverShape === "circle" && "text-center")}
       >
-        <Link href={href}>
+        <Link href={href} prefetch={false}>
           <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
             {title}
           </h3>

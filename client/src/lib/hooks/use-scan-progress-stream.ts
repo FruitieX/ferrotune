@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
 import { scanProgressAtom, scanLogsAtom } from "@/lib/store/scan";
-import { isConnectedAtom } from "@/lib/store/auth";
+import { isClientInitializedAtom } from "@/lib/store/auth";
 import type { ScanProgressUpdate } from "@/lib/api/types";
 
 /**
@@ -15,7 +15,9 @@ import type { ScanProgressUpdate } from "@/lib/api/types";
  * even when the scan dialog is closed.
  */
 export function useScanProgressStream() {
-  const isConnected = useAtomValue(isConnectedAtom);
+  // We need to wait for the client to be initialized, not just connected
+  // This ensures getClient() returns a valid instance
+  const isClientInitialized = useAtomValue(isClientInitializedAtom);
   const setProgress = useSetAtom(scanProgressAtom);
   const setLogs = useSetAtom(scanLogsAtom);
   const queryClient = useQueryClient();
@@ -24,7 +26,7 @@ export function useScanProgressStream() {
   const hasShownCompletionToast = useRef(false);
 
   useEffect(() => {
-    if (!isConnected) return;
+    if (!isClientInitialized) return;
 
     const client = getClient();
     if (!client) return;
@@ -126,7 +128,7 @@ export function useScanProgressStream() {
 
         // Reconnect after 5 seconds
         setTimeout(() => {
-          if (isConnected) {
+          if (isClientInitialized) {
             connectToStream();
           }
         }, 5000);
@@ -141,5 +143,5 @@ export function useScanProgressStream() {
         eventSourceRef.current = null;
       }
     };
-  }, [isConnected, setProgress, setLogs, queryClient]);
+  }, [isClientInitialized, setProgress, setLogs, queryClient]);
 }

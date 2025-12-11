@@ -32,9 +32,11 @@ export function AlbumCard({
 }: AlbumCardProps) {
   const { isStarred, toggleStar } = useStarredAlbum(album.id, !!album.starred);
 
-  const coverArtUrl = album.coverArt
-    ? getClient()?.getCoverArtUrl(album.coverArt, 300)
-    : undefined;
+  // Use inline thumbnail if available, otherwise construct URL for fetching
+  const coverArtUrl =
+    album.coverArt && !album.coverArtData
+      ? getClient()?.getCoverArtUrl(album.coverArt, "medium")
+      : undefined;
 
   const handleStar = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -47,6 +49,7 @@ export function AlbumCard({
       {album.year && <span>{album.year} • </span>}
       <Link
         href={`/library/artists/details?id=${album.artistId}`}
+        prefetch={false}
         className="hover:underline hover:text-foreground"
         onClick={(e) => e.stopPropagation()}
       >
@@ -58,6 +61,7 @@ export function AlbumCard({
   return (
     <MediaCard
       coverArt={coverArtUrl}
+      coverArtData={album.coverArtData}
       title={album.name}
       subtitleContent={subtitleContent}
       href={`/library/albums/details?id=${album.id}`}
@@ -119,9 +123,11 @@ export function AlbumCardCompact({
 }: AlbumCardCompactProps) {
   const { isStarred, toggleStar } = useStarredAlbum(album.id, !!album.starred);
 
-  const coverArtUrl = album.coverArt
-    ? getClient()?.getCoverArtUrl(album.coverArt, 80)
-    : undefined;
+  // Use inline thumbnail if available, otherwise construct URL for fetching
+  const coverArtUrl =
+    album.coverArt && !album.coverArtData
+      ? getClient()?.getCoverArtUrl(album.coverArt, "small")
+      : undefined;
 
   const handleStar = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -165,11 +171,13 @@ export function AlbumCardCompact({
   return (
     <MediaRow
       coverArt={coverArtUrl}
+      coverArtData={album.coverArtData}
       title={album.name}
       subtitleContent={
         showArtist ? (
           <Link
             href={`/library/artists/details?id=${album.artistId}`}
+            prefetch={false}
             className="hover:underline hover:text-foreground"
             onClick={(e) => e.stopPropagation()}
           >

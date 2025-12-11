@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -165,6 +165,17 @@ export function QueuePanel() {
   const clearQueue = useSetAtom(clearQueueAtom);
   const queueDisplayRef = useRef<VirtualizedQueueDisplayHandle>(null);
 
+  // Auto-scroll to current song when queue panel opens
+  useEffect(() => {
+    if (isOpen && !isQueueLoading && queueState && queueState.totalCount > 0) {
+      // Use a small delay to ensure the virtualized list is mounted
+      const timer = setTimeout(() => {
+        queueDisplayRef.current?.scrollToNowPlaying("auto");
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, isQueueLoading, queueState]);
+
   const handleClearQueue = () => {
     const trackCount = queueState?.totalCount ?? 0;
     clearQueue();
@@ -237,6 +248,23 @@ export function QueueSidebar() {
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
   const queueDisplayRef = useRef<VirtualizedQueueDisplayHandle>(null);
+
+  // Auto-scroll to current song when queue sidebar opens
+  useEffect(() => {
+    if (
+      hydrated &&
+      isOpen &&
+      !isQueueLoading &&
+      queueState &&
+      queueState.totalCount > 0
+    ) {
+      // Use a small delay to ensure the virtualized list is mounted
+      const timer = setTimeout(() => {
+        queueDisplayRef.current?.scrollToNowPlaying("auto");
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [hydrated, isOpen, isQueueLoading, queueState]);
 
   const handleClearQueue = () => {
     const trackCount = queueState?.totalCount ?? 0;

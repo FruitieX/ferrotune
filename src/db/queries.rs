@@ -130,7 +130,7 @@ pub async fn create_music_folder(pool: &SqlitePool, name: &str, path: &str) -> s
 // Artist queries
 pub async fn get_artists(pool: &SqlitePool) -> sqlx::Result<Vec<Artist>> {
     sqlx::query_as::<_, Artist>(
-        "SELECT id, name, sort_name, album_count 
+        "SELECT id, name, sort_name, album_count, cover_art_hash 
          FROM artists 
          ORDER BY COALESCE(sort_name, name) COLLATE NOCASE",
     )
@@ -374,6 +374,7 @@ pub async fn get_playlist_songs_with_positions(
                 play_count: row.get("play_count"),
                 last_played: row.get("last_played"),
                 starred_at: None,
+                cover_art_hash: row.get("cover_art_hash"),
             };
             (position, song)
         })
@@ -590,6 +591,69 @@ pub async fn match_missing_entry(
     .await?;
 
     // Update playlist totals (duration may change)
+    update_playlist_totals(pool, playlist_id).await?;
+
+    Ok(())
+}
+
+/// Unmatch a previously matched entry - sets song_id back to NULL
+/// while preserving the missing_entry_data for re-matching later.
+/// Also restores missing_search_text for searching.
+pub async fn unmatch_entry(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    position: i32,
+) -> sqlx::Result<()> {
+    use crate::db::models::MissingEntryData;
+
+    // First get the missing_entry_data to rebuild search text
+    let (missing_json,): (Option<String>,) = sqlx::query_as(
+        "SELECT missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND position = ?",
+    )
+    .bind(playlist_id)
+    .bind(position)
+    .fetch_one(pool)
+    .await?;
+
+    // Build search text from the missing entry data
+    let search_text = missing_json
+        .as_ref()
+        .and_then(|json| serde_json::from_str::<MissingEntryData>(json).ok())
+        .map(|data| {
+            let mut parts = Vec::new();
+            if let Some(a) = &data.artist {
+                if !a.is_empty() {
+                    parts.push(a.as_str());
+                }
+            }
+            if let Some(a) = &data.album {
+                if !a.is_empty() {
+                    parts.push(a.as_str());
+                }
+            }
+            if let Some(t) = &data.title {
+                if !t.is_empty() {
+                    parts.push(t.as_str());
+                }
+            }
+            if parts.is_empty() {
+                data.raw.clone()
+            } else {
+                parts.join(" - ")
+            }
+        });
+
+    // Set song_id to NULL and restore missing_search_text
+    sqlx::query(
+        "UPDATE playlist_songs SET song_id = NULL, missing_search_text = ? WHERE playlist_id = ? AND position = ?",
+    )
+    .bind(search_text)
+    .bind(playlist_id)
+    .bind(position)
+    .execute(pool)
+    .await?;
+
+    // Update playlist totals
     update_playlist_totals(pool, playlist_id).await?;
 
     Ok(())

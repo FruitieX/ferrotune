@@ -1,6 +1,7 @@
 //! Playlist folder management endpoints for the Ferrotune Admin API.
 
 use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::AppState;
 use axum::{
     extract::{Path, State},
@@ -714,6 +715,106 @@ pub async fn match_missing_entry(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Request to unmatch a playlist entry (set back to missing)
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct UnmatchEntryRequest {
+    /// The position of the entry in the playlist
+    pub position: i32,
+}
+
+/// Unmatch a playlist entry - sets it back to missing state
+/// while preserving the original missing entry data for re-matching.
+pub async fn unmatch_entry(
+    State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
+    Path(playlist_id): Path<String>,
+    Json(request): Json<UnmatchEntryRequest>,
+) -> Result<StatusCode, ApiError> {
+    // Check playlist exists and belongs to user
+    let playlist: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
+            .bind(&playlist_id)
+            .bind(user.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::with_details(
+                        "Database error",
+                        e.to_string(),
+                    )),
+                )
+            })?;
+
+    if playlist.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(super::ErrorResponse::new("Playlist not found")),
+        ));
+    }
+
+    // Verify the entry exists at this position and has missing_entry_data
+    let entry: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND position = ?",
+    )
+    .bind(&playlist_id)
+    .bind(request.position)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    let Some((song_id, missing_data)) = entry else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(super::ErrorResponse::new("Entry not found at position")),
+        ));
+    };
+
+    // Can only unmatch entries that have missing_entry_data (imported entries)
+    if missing_data.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(super::ErrorResponse::new(
+                "Entry has no missing data - cannot unmatch native entries",
+            )),
+        ));
+    }
+
+    // Can only unmatch if currently matched
+    if song_id.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(super::ErrorResponse::new("Entry is already unmatched")),
+        ));
+    }
+
+    // Unmatch the entry
+    crate::db::queries::unmatch_entry(&state.pool, &playlist_id, request.position)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse::with_details(
+                    "Database error",
+                    e.to_string(),
+                )),
+            )
+        })?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Request to move a playlist entry to a new position
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1137,6 +1238,12 @@ pub struct GetPlaylistSongsParams {
     /// Filter text to match against song title, artist, album
     #[serde(default)]
     pub filter: Option<String>,
+    /// Filter by entry type: "song", "missing", or omit for both
+    #[serde(default)]
+    pub entry_type: Option<String>,
+    /// Include inline cover art thumbnails (small or medium)
+    #[serde(flatten)]
+    pub inline_images: InlineImagesParam,
 }
 
 /// A unified playlist entry - either a song or a missing entry
@@ -1212,7 +1319,7 @@ pub async fn get_playlist_songs(
     Path(playlist_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<GetPlaylistSongsParams>,
 ) -> Result<Json<PlaylistSongsResponse>, ApiError> {
-    use crate::api::subsonic::browse::song_to_response;
+    use crate::api::subsonic::browse::song_to_response_with_stats;
     use crate::db::models::MissingEntryData;
 
     // Get playlist metadata
@@ -1347,7 +1454,18 @@ pub async fn get_playlist_songs(
         })
         .collect();
 
-    // Apply filtering
+    // Apply entry type filter first
+    if let Some(ref entry_type_filter) = params.entry_type {
+        let filter_type = entry_type_filter.to_lowercase();
+        unified_entries.retain(|entry| {
+            matches!(
+                (&filter_type[..], entry),
+                ("song", EntryData::Song { .. }) | ("missing", EntryData::Missing { .. })
+            )
+        });
+    }
+
+    // Apply text filtering
     if has_filter {
         let query = filter_text.unwrap().to_lowercase();
         unified_entries.retain(|entry| match entry {
@@ -1457,11 +1575,27 @@ pub async fn get_playlist_songs(
     // Apply pagination
     let offset = params.offset.unwrap_or(0) as usize;
     let count = params.count.unwrap_or(50) as usize;
+    let inline_size = params.inline_images.get_size();
     let page_entries: Vec<_> = entries_with_song_idx
         .into_iter()
         .skip(offset)
         .take(count)
         .collect();
+
+    // Get inline thumbnails if requested
+    let thumbnails = if let Some(size) = inline_size {
+        // Collect (song_id, album_id) pairs for songs in this page
+        let song_thumbnail_data: Vec<(String, Option<String>)> = page_entries
+            .iter()
+            .filter_map(|(entry, _)| match entry {
+                EntryData::Song { song, .. } => Some((song.id.clone(), song.album_id.clone())),
+                EntryData::Missing { .. } => None,
+            })
+            .collect();
+        get_song_thumbnails_base64(&state.pool, &song_thumbnail_data, size).await
+    } else {
+        std::collections::HashMap::new()
+    };
 
     // Convert to response format
     let entries: Vec<PlaylistSongEntry> = page_entries
@@ -1471,19 +1605,30 @@ pub async fn get_playlist_songs(
                 position,
                 song,
                 missing_data,
-            } => PlaylistSongEntry {
-                position: position as i32,
-                entry_type: "song".to_string(),
-                song_index,
-                song: Some(song_to_response(song, None, None, None)),
-                missing: missing_data.map(|data| MissingEntryDataResponse {
-                    title: data.title,
-                    artist: data.artist,
-                    album: data.album,
-                    duration: data.duration,
-                    raw: data.raw,
-                }),
-            },
+            } => {
+                let cover_art_data = thumbnails.get(&song.id).cloned();
+                PlaylistSongEntry {
+                    position: position as i32,
+                    entry_type: "song".to_string(),
+                    song_index,
+                    song: Some(song_to_response_with_stats(
+                        song,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        cover_art_data,
+                    )),
+                    missing: missing_data.map(|data| MissingEntryDataResponse {
+                        title: data.title,
+                        artist: data.artist,
+                        album: data.album,
+                        duration: data.duration,
+                        raw: data.raw,
+                    }),
+                }
+            }
             EntryData::Missing { position, data } => PlaylistSongEntry {
                 position: position as i32,
                 entry_type: "missing".to_string(),

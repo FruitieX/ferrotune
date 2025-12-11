@@ -33,7 +33,7 @@ const eslintConfig = defineConfig([
               name: "react",
               importNames: ["useCallback", "useMemo", "memo"],
               message:
-                "React Compiler handles memoization automatically. Do not use useCallback, useMemo and memo.",
+                "React Compiler handles memoization automatically. Remove manual calls to useCallback, useMemo and React.memo.",
             },
           ],
         },

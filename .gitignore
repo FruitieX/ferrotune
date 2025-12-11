@@ -11,4 +11,8 @@
 # Generated TypeScript bindings (regenerate with cargo test)
 /client/src/lib/api/generated/
 
+# Playwright auth state
+/client/e2e/.auth/
+/client/e2e/.env.test
+
 /*TODO*.md

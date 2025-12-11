@@ -143,6 +143,9 @@ interface SongRowProps {
   // Refine match props (for auto-matched playlist entries)
   showRefineMatch?: boolean;
   onRefineMatch?: (song: Song, index: number) => void;
+  // Unmatch props (for reverting matched playlist entries)
+  showUnmatch?: boolean;
+  onUnmatch?: (song: Song, index: number) => void;
   /**
    * When true, this row is the currently playing track in the queue.
    * Use this for views with duplicate songs (like playlists) where we need
@@ -175,6 +178,8 @@ export function SongRow({
   onMoveToPosition,
   showRefineMatch = false,
   onRefineMatch,
+  showUnmatch = false,
+  onUnmatch,
   isCurrentQueuePosition,
   className,
 }: SongRowProps) {
@@ -196,9 +201,10 @@ export function SongRow({
   const isPlaying = isCurrentTrack && playbackState === "playing";
   const isExcludedFromShuffle = shuffleExcludes.has(song.id);
 
+  // Use inline thumbnail if available, otherwise construct URL for fetching
   const coverArtUrl =
-    showCover && song.coverArt
-      ? getClient()?.getCoverArtUrl(song.coverArt, 48)
+    showCover && song.coverArt && !song.coverArtData
+      ? getClient()?.getCoverArtUrl(song.coverArt, "small")
       : undefined;
 
   const handlePlay = () => {
@@ -256,6 +262,7 @@ export function SongRow({
       {showArtist && (
         <Link
           href={`/library/artists/details?id=${song.artistId}`}
+          prefetch={false}
           className="hover:underline hover:text-foreground shrink-0"
           onClick={(e) => e.stopPropagation()}
         >
@@ -266,6 +273,7 @@ export function SongRow({
       {showAlbum && (
         <Link
           href={`/library/albums/details?id=${song.albumId}`}
+          prefetch={false}
           className="hover:underline hover:text-foreground truncate"
           onClick={(e) => e.stopPropagation()}
         >
@@ -284,6 +292,7 @@ export function SongRow({
     >
       <MediaRow
         coverArt={showCover ? coverArtUrl : undefined}
+        coverArtData={showCover ? song.coverArtData : undefined}
         title={song.title}
         colorSeed={song.album ?? undefined}
         coverType="song"
@@ -322,6 +331,8 @@ export function SongRow({
                 moveToPositionLabel="Move to Position"
                 showRefineMatch={showRefineMatch}
                 onRefineMatch={onRefineMatch}
+                showUnmatch={showUnmatch}
+                onUnmatch={onUnmatch}
               />
             }
           />
@@ -383,6 +394,8 @@ export function SongRow({
             moveToPositionLabel="Move to Position"
             showRefineMatch={showRefineMatch}
             onRefineMatch={onRefineMatch}
+            showUnmatch={showUnmatch}
+            onUnmatch={onUnmatch}
           >
             {children}
           </SongContextMenu>
@@ -437,6 +450,9 @@ interface SongCardProps {
   // Refine match props (for auto-matched playlist entries)
   showRefineMatch?: boolean;
   onRefineMatch?: (song: Song, index: number) => void;
+  // Unmatch props (to revert a matched song back to missing)
+  showUnmatch?: boolean;
+  onUnmatch?: (song: Song, index: number) => void;
   /**
    * When true, this card is the currently playing track in the queue.
    * Use this for views with duplicate songs (like playlists) where we need
@@ -459,6 +475,8 @@ export function SongCard({
   onMoveToPosition,
   showRefineMatch,
   onRefineMatch,
+  showUnmatch,
+  onUnmatch,
   isCurrentQueuePosition,
   className,
 }: SongCardProps) {
@@ -478,9 +496,11 @@ export function SongCard({
       : currentSong?.id === song.id && playbackState !== "ended";
   const isExcludedFromShuffle = shuffleExcludes.has(song.id);
 
-  const coverArtUrl = song.coverArt
-    ? getClient()?.getCoverArtUrl(song.coverArt, 300)
-    : undefined;
+  // Use inline thumbnail if available, otherwise construct URL for fetching
+  const coverArtUrl =
+    song.coverArt && !song.coverArtData
+      ? getClient()?.getCoverArtUrl(song.coverArt, "medium")
+      : undefined;
 
   const handlePlay = () => {
     if (isCurrentTrack) {
@@ -527,6 +547,7 @@ export function SongCard({
     <>
       <Link
         href={`/library/artists/details?id=${song.artistId}`}
+        prefetch={false}
         className="hover:underline hover:text-foreground"
         onClick={(e) => e.stopPropagation()}
       >
@@ -554,6 +575,7 @@ export function SongCard({
   return (
     <MediaCard
       coverArt={coverArtUrl}
+      coverArtData={song.coverArtData}
       title={song.title}
       subtitleContent={subtitleContent}
       href={`/library/albums/details?id=${song.albumId}`}
@@ -576,6 +598,8 @@ export function SongCard({
           moveToPositionLabel="Move to Position"
           showRefineMatch={showRefineMatch}
           onRefineMatch={onRefineMatch}
+          showUnmatch={showUnmatch}
+          onUnmatch={onUnmatch}
         />
       }
       contextMenu={(children) => (
@@ -589,6 +613,8 @@ export function SongCard({
           moveToPositionLabel="Move to Position"
           showRefineMatch={showRefineMatch}
           onRefineMatch={onRefineMatch}
+          showUnmatch={showUnmatch}
+          onUnmatch={onUnmatch}
         >
           {children}
         </SongContextMenu>
@@ -615,13 +641,16 @@ export function SongRowCompact({
   isCurrentTrack,
   className,
 }: SongRowCompactProps) {
-  const coverArtUrl = song.coverArt
-    ? getClient()?.getCoverArtUrl(song.coverArt, 48)
-    : undefined;
+  // Use inline thumbnail if available, otherwise construct URL for fetching
+  const coverArtUrl =
+    song.coverArt && !song.coverArtData
+      ? getClient()?.getCoverArtUrl(song.coverArt, "small")
+      : undefined;
 
   return (
     <MediaRow
       coverArt={coverArtUrl}
+      coverArtData={song.coverArtData}
       title={song.title}
       subtitle={song.artist ?? undefined}
       colorSeed={song.album ?? undefined}

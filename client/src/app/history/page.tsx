@@ -62,16 +62,18 @@ export default function HistoryPage() {
       sortConfig.field,
       sortConfig.direction,
       debouncedFilter,
+      viewMode, // Include view mode for proper thumbnail size
     ],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getPlayHistory({
-        size: 500,
+        size: 50,
         sort: sortConfig.field !== "custom" ? sortConfig.field : undefined,
         sortDir:
           sortConfig.field !== "custom" ? sortConfig.direction : undefined,
         filter: debouncedFilter.trim() || undefined,
+        inlineImages: viewMode === "grid" ? "medium" : "small",
       });
       return response.playHistory;
     },

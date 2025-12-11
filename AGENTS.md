@@ -243,3 +243,7 @@ Read these when working on specific areas:
 - Only opensubsonic API endpoints need to support both JSON and XML responses. The ferrotune API is JSON-only. We should keep the opensubsonic API compatible with the spec as much as possible. If there's anything requiring out of spec behaviour, we should create a ferrotune-specific endpoint instead and implement the behaviour there.
 - We're using React Compiler, so we do not need to use React.memo or useMemo/useCallback anywhere.
 - Don't add linter ignores, instead fix the underlying issue.
+- After finishing your changes, run `moon run ci-all-lite` to ensure everything passes.
+- Moon runs dependencies of tasks automatically, so you can just run the high-level tasks like `moon run ci-all-lite` or `moon run :test` and moon will take care of running e.g. code generation, linting, type checking etc. as needed.
+- Run `moon query tasks` to get a list of moon tasks
+- You can run similarily named client and server tasks with e.g. `moon run :fmt` to format both client and server code.

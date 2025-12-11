@@ -126,6 +126,8 @@ export const startQueueAtom = atom(
       sourceId?: string;
       sourceName?: string;
       startIndex?: number;
+      /** ID of the song to start playing (for verification against index) */
+      startSongId?: string;
       shuffle?: boolean;
       /** Filters to apply when materializing the queue (for library/search sources) */
       filters?: Record<string, unknown>;
@@ -147,10 +149,12 @@ export const startQueueAtom = atom(
         sourceId: params.sourceId,
         sourceName: params.sourceName,
         startIndex: params.startIndex ?? 0,
+        startSongId: params.startSongId,
         shuffle: params.shuffle ?? false,
         filters: params.filters,
         sort: params.sort,
         songIds: params.songIds,
+        inlineImages: "small", // Always request small thumbnails for queue
       });
 
       set(serverQueueStateAtom, {
@@ -186,7 +190,7 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
   set(isRestoringQueueAtom, true);
 
   try {
-    const response = await client.getQueueCurrentWindow(20);
+    const response = await client.getQueueCurrentWindow(20, "small");
 
     set(serverQueueStateAtom, {
       totalCount: response.totalCount,
@@ -216,7 +220,10 @@ export const fetchQueueRangeAtom = atom(
     if (!client) return null;
 
     try {
-      const response = await client.getServerQueue(params);
+      const response = await client.getServerQueue({
+        ...params,
+        inlineImages: "small",
+      });
 
       // Merge the new window into existing state
       const currentWindow = get(queueWindowAtom);
@@ -283,7 +290,7 @@ export const goToNextAtom = atom(null, async (get, set) => {
     if (window) {
       const needsFetch = !window.songs.some((s) => s.position === nextIndex);
       if (needsFetch) {
-        const response = await client.getQueueCurrentWindow(20);
+        const response = await client.getQueueCurrentWindow(20, "small");
         set(queueWindowAtom, response.window);
       }
     }
@@ -328,7 +335,7 @@ export const goToPreviousAtom = atom(null, async (get, set) => {
     if (window) {
       const needsFetch = !window.songs.some((s) => s.position === prevIndex);
       if (needsFetch) {
-        const response = await client.getQueueCurrentWindow(20);
+        const response = await client.getQueueCurrentWindow(20, "small");
         set(queueWindowAtom, response.window);
       }
     }
@@ -357,7 +364,7 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
     set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
 
     // Fetch new window centered on the new position
-    const response = await client.getQueueCurrentWindow(20);
+    const response = await client.getQueueCurrentWindow(20, "small");
     set(queueWindowAtom, response.window);
   } catch (error) {
     console.error("Failed to play at index:", error);
@@ -389,7 +396,7 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
     });
 
     // Fetch new window since order may have changed
-    const queueResponse = await client.getQueueCurrentWindow(20);
+    const queueResponse = await client.getQueueCurrentWindow(20, "small");
     set(queueWindowAtom, queueResponse.window);
   } catch (error) {
     console.error("Failed to toggle shuffle:", error);
@@ -457,7 +464,7 @@ export const addToQueueAtom = atom(
       }
 
       // Refresh window
-      const queueResponse = await client.getQueueCurrentWindow(20);
+      const queueResponse = await client.getQueueCurrentWindow(20, "small");
       set(queueWindowAtom, queueResponse.window);
       return { success: true, addedCount: response.added_count ?? 0 };
     } catch (error) {
@@ -492,7 +499,7 @@ export const removeFromQueueAtom = atom(
       }
 
       // Refresh window
-      const queueResponse = await client.getQueueCurrentWindow(20);
+      const queueResponse = await client.getQueueCurrentWindow(20, "small");
       set(queueWindowAtom, queueResponse.window);
     } catch (error) {
       console.error("Failed to remove from queue:", error);
@@ -590,13 +597,13 @@ export const moveInQueueAtom = atom(
       }
 
       // Refresh window to get authoritative state
-      const queueResponse = await client.getQueueCurrentWindow(20);
+      const queueResponse = await client.getQueueCurrentWindow(20, "small");
       set(queueWindowAtom, queueResponse.window);
     } catch (error) {
       console.error("Failed to move in queue:", error);
       // On error, refetch to restore correct state
       try {
-        const queueResponse = await client.getQueueCurrentWindow(20);
+        const queueResponse = await client.getQueueCurrentWindow(20, "small");
         set(queueWindowAtom, queueResponse.window);
       } catch {
         // Ignore refetch errors
@@ -654,6 +661,7 @@ export const previewSongAtom = atom(null, async (get, set, song: Song) => {
       sourceName: `Preview: ${song.title}`,
       songIds: [song.id],
       startIndex: 0,
+      inlineImages: "small",
     });
 
     set(serverQueueStateAtom, {

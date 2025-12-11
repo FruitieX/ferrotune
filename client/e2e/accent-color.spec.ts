@@ -1,14 +1,14 @@
-import { test, expect, login } from "./fixtures";
+import { test, expect } from "./fixtures";
 
 test.describe("Accent Color Settings", () => {
-  test.beforeEach(async ({ page }) => {
-    await login(page);
-  });
-
-  test("can change accent color from presets", async ({ page }) => {
+  test("can change accent color from presets", async ({
+    authenticatedPage: page,
+  }) => {
     // Navigate to settings
     await page.goto("/settings");
-    await page.waitForSelector('[data-testid="settings-page"], h1:has-text("Settings")');
+    await page.waitForSelector(
+      '[data-testid="settings-page"], h1:has-text("Settings")',
+    );
 
     // Click on emerald color (button with title attribute)
     const emeraldButton = page.locator('button[title="Emerald"]');
@@ -16,10 +16,15 @@ test.describe("Accent Color Settings", () => {
     await emeraldButton.click();
 
     // Verify the accent has changed by checking the data-accent attribute on html
-    await expect(page.locator("html")).toHaveAttribute("data-accent", "emerald");
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-accent",
+      "emerald",
+    );
   });
 
-  test("can use custom color with hue slider", async ({ page }) => {
+  test("can use custom color with hue slider", async ({
+    authenticatedPage: page,
+  }) => {
     // Navigate to settings
     await page.goto("/settings");
     await page.waitForSelector('h1:has-text("Settings")');
@@ -36,7 +41,9 @@ test.describe("Accent Color Settings", () => {
     await expect(customColorPreview).toBeVisible();
   });
 
-  test("accent color persists after page reload", async ({ page }) => {
+  test("accent color persists after page reload", async ({
+    authenticatedPage: page,
+  }) => {
     // Navigate to settings
     await page.goto("/settings");
     await page.waitForSelector('h1:has-text("Settings")');
@@ -45,7 +52,7 @@ test.describe("Accent Color Settings", () => {
     const violetButton = page.locator('button[title="Violet"]');
     if (await violetButton.isVisible()) {
       await violetButton.click();
-      
+
       // Wait for the change to be applied
       await page.waitForTimeout(500);
 
@@ -54,11 +61,16 @@ test.describe("Accent Color Settings", () => {
       await page.waitForSelector('h1:has-text("Settings")');
 
       // Verify the accent is still violet
-      await expect(page.locator("html")).toHaveAttribute("data-accent", "violet");
+      await expect(page.locator("html")).toHaveAttribute(
+        "data-accent",
+        "violet",
+      );
     }
   });
 
-  test("theme switch between light and dark works", async ({ page }) => {
+  test("theme switch between light and dark works", async ({
+    authenticatedPage: page,
+  }) => {
     // Navigate to settings
     await page.goto("/settings");
     await page.waitForSelector('h1:has-text("Settings")');
@@ -78,20 +90,24 @@ test.describe("Accent Color Settings", () => {
     await expect(page.locator("html")).toHaveClass(/dark/);
   });
 
-  test("displays all 10 preset colors", async ({ page }) => {
+  test("displays all 10 preset colors", async ({ authenticatedPage: page }) => {
     // Navigate to settings
     await page.goto("/settings");
     await page.waitForSelector('h1:has-text("Settings")');
 
     // Find color buttons with titles (preset colors have title attributes)
-    const colorButtons = page.locator('button[title]:not([title="Use Custom"]):not([title="Active"])').filter({
-      has: page.locator('[style*="background"]'),
-    });
-    
+    const _colorButtons = page
+      .locator('button[title]:not([title="Use Custom"]):not([title="Active"])')
+      .filter({
+        has: page.locator('[style*="background"]'),
+      });
+
     // Count buttons that are color presets (round buttons in the accent color section)
-    const roundColorButtons = page.locator('.flex.flex-wrap.gap-2 button[title]');
+    const roundColorButtons = page.locator(
+      ".flex.flex-wrap.gap-2 button[title]",
+    );
     const count = await roundColorButtons.count();
-    
+
     expect(count).toBe(10);
   });
 });

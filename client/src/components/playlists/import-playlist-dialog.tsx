@@ -432,6 +432,7 @@ export function ImportPlaylistDialog({
                   return updated;
                 });
               }}
+              showMatchFilter
             />
           </>
         )}

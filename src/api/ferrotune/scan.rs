@@ -293,3 +293,9 @@ pub async fn full_scan_status(State(state): State<Arc<AppState>>) -> impl IntoRe
 
     Json(FullScanStatusResponse { progress, logs })
 }
+
+/// Get scan details (lists of affected files).
+pub async fn scan_details(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let details = state.scan_state.get_details().await;
+    Json(details)
+}

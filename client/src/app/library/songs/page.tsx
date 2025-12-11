@@ -1,7 +1,7 @@
 "use client";
 
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -59,17 +59,19 @@ export default function SongsPage() {
     queryKey: [
       "songs",
       "all",
+      debouncedFilter, // Include filter in query key
       sortConfig.field,
       sortConfig.direction,
       advancedFilters,
+      viewMode, // Include view mode for proper thumbnail size
     ],
     queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      // Use search with an empty-ish query to get all songs, paginated
+      // Use search with filter or wildcard to get all songs, paginated
       // Pass sort parameters to server for server-side sorting
       const response = await client.search3({
-        query: "*", // Wildcard to match all
+        query: debouncedFilter || "*", // Use filter or wildcard to match all
         songCount: PAGE_SIZE,
         songOffset: pageParam,
         artistCount: 0,
@@ -78,6 +80,8 @@ export default function SongsPage() {
         songSortDir: sortConfig.direction,
         // Pass advanced filters
         ...advancedFilters,
+        // Request small thumbnails for rows, medium for grid
+        inlineImages: viewMode === "grid" ? "medium" : "small",
       });
       const songs = response.searchResult3.song ?? [];
       const total = response.searchResult3.songTotal;
@@ -90,51 +94,15 @@ export default function SongsPage() {
     },
     getNextPageParam: (lastPage) => lastPage.nextOffset,
     initialPageParam: 0,
-    enabled: isReady && !debouncedFilter,
-    staleTime: 0,
-    refetchOnMount: "always",
-  });
-
-  // Search songs when filter is active (also with server-side sorting)
-  const { data: searchData, isLoading: isSearching } = useQuery({
-    queryKey: [
-      "songs",
-      "search",
-      debouncedFilter,
-      sortConfig.field,
-      sortConfig.direction,
-      advancedFilters,
-    ],
-    queryFn: async () => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      const response = await client.search3({
-        query: debouncedFilter,
-        songCount: 200,
-        artistCount: 0,
-        albumCount: 0,
-        songSort: sortConfig.field,
-        songSortDir: sortConfig.direction,
-        // Pass advanced filters
-        ...advancedFilters,
-      });
-      return response.searchResult3.song ?? [];
-    },
-    enabled: isReady && debouncedFilter.length >= 1,
+    enabled: isReady,
     staleTime: 0,
     refetchOnMount: "always",
   });
 
   // Flatten songs from all pages
-  const allSongs = songsData?.pages.flatMap((page) => page.songs) ?? [];
-  const totalSongs = songsData?.pages[0]?.total ?? allSongs.length;
-
-  // Use search results when filtering, otherwise use paginated list
-  // Sorting is now handled server-side, no need for client-side sorting
-  const displaySongs = debouncedFilter ? (searchData ?? []) : allSongs;
-
-  const displayCount = debouncedFilter ? displaySongs.length : totalSongs;
-  const isLoadingData = debouncedFilter ? isSearching : isLoading;
+  const displaySongs = songsData?.pages.flatMap((page) => page.songs) ?? [];
+  const totalSongs = songsData?.pages[0]?.total ?? displaySongs.length;
+  const isLoadingData = isLoading;
 
   // Build queue source with filters and sort for server-side materialization
   const queueSource = {
@@ -171,7 +139,7 @@ export default function SongsPage() {
     addSelectedToQueue,
     starSelected,
   } = useTrackSelection(displaySongs, {
-    totalCount: displayCount,
+    totalCount: totalSongs,
     searchParams: searchParamsForSelection,
   });
 
@@ -232,7 +200,7 @@ export default function SongsPage() {
         viewMode === "grid" ? (
           <VirtualizedGrid
             items={displaySongs}
-            totalCount={displayCount}
+            totalCount={totalSongs}
             renderItem={(song, index) => (
               <SongCard
                 song={song}
@@ -245,7 +213,7 @@ export default function SongsPage() {
             )}
             renderSkeleton={() => <SongCardSkeleton />}
             getItemKey={(song) => song.id}
-            hasNextPage={!debouncedFilter && (hasNextPage ?? false)}
+            hasNextPage={hasNextPage ?? false}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
             initialOffset={getInitialOffset()}
@@ -254,7 +222,7 @@ export default function SongsPage() {
         ) : (
           <VirtualizedList
             items={displaySongs}
-            totalCount={displayCount}
+            totalCount={totalSongs}
             renderItem={(song, index) => (
               <SongRow
                 song={song}
@@ -276,7 +244,7 @@ export default function SongsPage() {
             renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
             getItemKey={(song) => song.id}
             estimateItemHeight={56}
-            hasNextPage={!debouncedFilter && (hasNextPage ?? false)}
+            hasNextPage={hasNextPage ?? false}
             isFetchingNextPage={isFetchingNextPage}
             fetchNextPage={fetchNextPage}
             initialOffset={getInitialOffset()}

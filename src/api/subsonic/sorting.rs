@@ -183,6 +183,7 @@ mod tests {
             file_format: "mp3".to_string(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            cover_art_hash: None,
             play_count: Some(0),
             last_played: None,
             starred_at: None,

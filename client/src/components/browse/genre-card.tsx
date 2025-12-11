@@ -156,6 +156,7 @@ export function GenreCard({
 
         <Link
           href={`/library/genres/details?name=${encodeURIComponent(genre.value)}`}
+          prefetch={false}
           className="absolute inset-0 flex flex-col justify-end p-4"
           onClick={(e) => {
             if (isSelectionMode) {

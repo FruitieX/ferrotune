@@ -168,11 +168,37 @@ pub async fn scan_library_with_progress(
         let duplicate_count = detect_duplicates(pool, folder_id, scan_state.clone()).await?;
         if let Some(ref state) = scan_state {
             if duplicate_count > 0 {
-                state.add_duplicates(duplicate_count);
                 state
                     .log("WARN", format!("Found {} duplicate files", duplicate_count))
                     .await;
             }
+        }
+
+        // Cleanup orphaned thumbnails
+        if let Some(ref state) = scan_state {
+            state.log("INFO", "Cleaning up thumbnails...").await;
+        }
+
+        // Remove thumbnails that are no longer referenced by any song, album, or artist
+        let orphaned_thumbnails = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM cover_art_thumbnails 
+             WHERE hash NOT IN (SELECT DISTINCT cover_art_hash FROM songs WHERE cover_art_hash IS NOT NULL)
+             AND hash NOT IN (SELECT DISTINCT cover_art_hash FROM albums WHERE cover_art_hash IS NOT NULL)
+             AND hash NOT IN (SELECT DISTINCT cover_art_hash FROM artists WHERE cover_art_hash IS NOT NULL)"
+        )
+        .fetch_one(pool)
+        .await?;
+
+        if orphaned_thumbnails > 0 {
+            sqlx::query(
+                "DELETE FROM cover_art_thumbnails 
+                 WHERE hash NOT IN (SELECT DISTINCT cover_art_hash FROM songs WHERE cover_art_hash IS NOT NULL)
+                 AND hash NOT IN (SELECT DISTINCT cover_art_hash FROM albums WHERE cover_art_hash IS NOT NULL)
+                 AND hash NOT IN (SELECT DISTINCT cover_art_hash FROM artists WHERE cover_art_hash IS NOT NULL)"
+            )
+            .execute(pool)
+            .await?;
+            tracing::info!("Removed {} orphaned thumbnails", orphaned_thumbnails);
         }
     } else {
         // In dry-run mode, just report potential duplicates
@@ -385,13 +411,13 @@ async fn scan_folder_with_progress(
             if existing.is_none() {
                 tracing::info!("Would add: {}", relative_path);
                 if let Some(ref state) = scan_state {
-                    state.increment_added();
+                    state.track_added(&relative_path).await;
                 }
                 added += 1;
             } else {
                 tracing::info!("Would update: {}", relative_path);
                 if let Some(ref state) = scan_state {
-                    state.increment_updated();
+                    state.track_updated(&relative_path).await;
                 }
                 updated += 1;
             }
@@ -399,36 +425,38 @@ async fn scan_folder_with_progress(
         }
 
         // Extract metadata (pass file_mtime to avoid re-reading it)
-        match extract_metadata(path, file_mtime).await {
-            Ok(metadata) => match upsert_song(pool, metadata, relative_path, folder_id).await {
-                Ok(is_new) => {
-                    if is_new {
-                        added += 1;
-                        if let Some(ref state) = scan_state {
-                            state.increment_added();
-                        }
-                    } else {
-                        updated += 1;
-                        if let Some(ref state) = scan_state {
-                            state.increment_updated();
+        match extract_metadata(pool, path, file_mtime).await {
+            Ok(metadata) => {
+                match upsert_song(pool, metadata, relative_path.clone(), folder_id).await {
+                    Ok(is_new) => {
+                        if is_new {
+                            added += 1;
+                            if let Some(ref state) = scan_state {
+                                state.track_added(&relative_path).await;
+                            }
+                        } else {
+                            updated += 1;
+                            if let Some(ref state) = scan_state {
+                                state.track_updated(&relative_path).await;
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    tracing::error!("Failed to save song metadata: {}", e);
-                    if let Some(ref state) = scan_state {
-                        state.increment_errors();
-                        state
-                            .log("ERROR", format!("Failed to save metadata: {}", e))
-                            .await;
+                    Err(e) => {
+                        tracing::error!("Failed to save song metadata: {}", e);
+                        if let Some(ref state) = scan_state {
+                            state.track_error(&relative_path, &e.to_string()).await;
+                            state
+                                .log("ERROR", format!("Failed to save metadata: {}", e))
+                                .await;
+                        }
+                        errors += 1;
                     }
-                    errors += 1;
                 }
-            },
+            }
             Err(e) => {
                 tracing::debug!("Failed to extract metadata from {}: {}", path.display(), e);
                 if let Some(ref state) = scan_state {
-                    state.increment_errors();
+                    state.track_error(&relative_path, &e.to_string()).await;
                 }
                 errors += 1;
             }
@@ -446,10 +474,9 @@ async fn scan_folder_with_progress(
     }
 
     // Any files still in unseen_files no longer exist on disk - remove them
-    let removed = remove_missing_songs(pool, &unseen_files, dry_run).await?;
+    let removed = remove_missing_songs(pool, &unseen_files, dry_run, scan_state.clone()).await?;
 
     if let Some(ref state) = scan_state {
-        state.add_removed(removed as u64);
         state.set_current_file(None).await;
         state.broadcast().await;
     }
@@ -505,15 +532,22 @@ async fn remove_missing_songs(
     pool: &SqlitePool,
     missing_files: &std::collections::HashMap<String, String>,
     dry_run: bool,
+    scan_state: Option<Arc<crate::api::ScanState>>,
 ) -> Result<usize> {
     if missing_files.is_empty() {
         return Ok(0);
     }
 
     let count = missing_files.len();
+    let paths: Vec<String> = missing_files.keys().cloned().collect();
 
-    for file_path in missing_files.keys() {
+    for file_path in &paths {
         tracing::info!("Missing file: {}", file_path);
+    }
+
+    // Track removed files in scan state
+    if let Some(ref state) = scan_state {
+        state.track_removed(&paths).await;
     }
 
     if dry_run {
@@ -608,9 +642,14 @@ struct SongMetadata {
     file_format: String,
     file_mtime: Option<i64>,
     partial_hash: Option<String>,
+    cover_art_hash: Option<String>,
 }
 
-async fn extract_metadata(path: &Path, file_mtime: Option<i64>) -> Result<SongMetadata> {
+async fn extract_metadata(
+    pool: &SqlitePool,
+    path: &Path,
+    file_mtime: Option<i64>,
+) -> Result<SongMetadata> {
     let tagged_file = Probe::open(path)
         .map_err(Error::Lofty)?
         .read()
@@ -630,6 +669,21 @@ async fn extract_metadata(path: &Path, file_mtime: Option<i64>) -> Result<SongMe
 
     let duration = properties.duration().as_secs();
     let bitrate = properties.audio_bitrate();
+
+    // Extract cover art and generate thumbnails if needed
+    let cover_art_hash = {
+        let full_path = path.to_path_buf();
+        // Try to extract cover art (external first, then embedded)
+        // We use block_in_place or spawn_blocking if we needed heavy lifting,
+        // but here we just call async functions that do I/O
+        match crate::thumbnails::find_external_cover_art(&full_path).await {
+            Ok(data) => crate::thumbnails::ensure_cover_art(pool, &data).await.ok(),
+            Err(_) => match crate::thumbnails::extract_embedded_cover_art(&full_path).await {
+                Ok(data) => crate::thumbnails::ensure_cover_art(pool, &data).await.ok(),
+                Err(_) => None,
+            },
+        }
+    };
 
     // Compute partial hash for duplicate detection
     let partial_hash = match compute_partial_hash(path) {
@@ -727,6 +781,7 @@ async fn extract_metadata(path: &Path, file_mtime: Option<i64>) -> Result<SongMe
         file_format,
         file_mtime,
         partial_hash,
+        cover_art_hash,
     })
 }
 
@@ -758,6 +813,7 @@ async fn upsert_song(
                 album_artist_name,
                 metadata.year,
                 metadata.genre.as_deref(),
+                metadata.cover_art_hash.as_deref(), // Use first song's art as album art
             )
             .await?,
         )
@@ -779,7 +835,7 @@ async fn upsert_song(
                 title = ?, album_id = ?, artist_id = ?, track_number = ?, 
                 disc_number = ?, year = ?, genre = ?, duration = ?, 
                 bitrate = ?, file_size = ?, file_format = ?, music_folder_id = ?,
-                file_mtime = ?, partial_hash = ?, updated_at = datetime('now')
+                file_mtime = ?, partial_hash = ?, cover_art_hash = ?, updated_at = datetime('now')
              WHERE id = ?",
         )
         .bind(&metadata.title)
@@ -796,6 +852,7 @@ async fn upsert_song(
         .bind(folder_id)
         .bind(metadata.file_mtime)
         .bind(&metadata.partial_hash)
+        .bind(&metadata.cover_art_hash)
         .bind(&id)
         .execute(&mut *tx)
         .await?;
@@ -809,8 +866,8 @@ async fn upsert_song(
             "INSERT INTO songs (
                 id, title, album_id, artist_id, track_number, disc_number,
                 year, genre, duration, bitrate, file_path, file_size, 
-                file_format, music_folder_id, file_mtime, partial_hash, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+                file_format, music_folder_id, file_mtime, partial_hash, cover_art_hash, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
         )
         .bind(&song_id)
         .bind(&metadata.title)
@@ -828,6 +885,7 @@ async fn upsert_song(
         .bind(folder_id)
         .bind(metadata.file_mtime)
         .bind(&metadata.partial_hash)
+        .bind(&metadata.cover_art_hash)
         .execute(&mut *tx)
         .await?;
 
@@ -890,6 +948,9 @@ async fn get_or_create_artist(
 
         Ok(artist_id)
     }
+    // If this artist doesn't have a cover art set, but the song/album has one, update it
+    // Note: We're not passing cover art genericly to get_or_create_artist yet as it's typically song/album specific
+    // But we could implement a logic to pick the "best" cover art for the artist later
 }
 
 async fn get_or_create_album(
@@ -899,35 +960,48 @@ async fn get_or_create_album(
     _artist_name: &str,
     year: Option<i32>,
     genre: Option<&str>,
+    cover_art_hash: Option<&str>,
 ) -> Result<String> {
     // Try to find existing album by name and artist
-    let existing: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM albums WHERE name = ? COLLATE NOCASE AND artist_id = ?")
-            .bind(name)
-            .bind(artist_id)
-            .fetch_optional(&mut **tx)
-            .await?;
+    let existing: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT id, cover_art_hash FROM albums WHERE name = ? COLLATE NOCASE AND artist_id = ?",
+    )
+    .bind(name)
+    .bind(artist_id)
+    .fetch_optional(&mut **tx)
+    .await?;
 
-    if let Some((id,)) = existing {
-        Ok(id)
-    } else {
-        // Create new album
-        let album_id = format!("al-{}", Uuid::new_v4());
+    if let Some((id, existing_hash)) = existing {
+        // Update metadata if changed (e.g. year found in later tracks)
+        // Also set cover_art_hash if it was missing
+        if existing_hash.is_none() && cover_art_hash.is_some() {
+            sqlx::query("UPDATE albums SET cover_art_hash = ? WHERE id = ?")
+                .bind(cover_art_hash)
+                .bind(&id)
+                .execute(&mut **tx)
+                .await?;
+        }
 
-        sqlx::query(
-            "INSERT INTO albums (id, name, artist_id, year, genre, song_count, duration, created_at)
-             VALUES (?, ?, ?, ?, ?, 0, 0, datetime('now'))"
-        )
-        .bind(&album_id)
-        .bind(name)
-        .bind(artist_id)
-        .bind(year)
-        .bind(genre)
-        .execute(&mut **tx)
-        .await?;
-
-        Ok(album_id)
+        // Simple year update logic could go here
+        return Ok(id);
     }
+
+    // Create new album
+    let id = format!("al-{}", Uuid::new_v4());
+    sqlx::query(
+        "INSERT INTO albums (id, name, artist_id, year, genre, created_at, cover_art_hash) 
+         VALUES (?, ?, ?, ?, ?, datetime('now'), ?)",
+    )
+    .bind(&id)
+    .bind(name)
+    .bind(artist_id)
+    .bind(year)
+    .bind(genre)
+    .bind(cover_art_hash)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(id)
 }
 
 /// Detect duplicate files by finding partial hash collisions and computing full hashes.
@@ -1052,8 +1126,12 @@ async fn detect_duplicates(
                     &full_hash[..16] // First 16 chars for readability
                 );
 
+                // Collect paths for tracking
+                let mut duplicate_paths: Vec<String> = Vec::new();
+
                 for (song_id, file_path, file_size) in &songs_with_hash {
                     tracing::warn!("  - {} ({} bytes)", file_path, file_size);
+                    duplicate_paths.push(file_path.clone());
 
                     // Update the full_file_hash in database
                     sqlx::query("UPDATE songs SET full_file_hash = ? WHERE id = ?")
@@ -1061,6 +1139,11 @@ async fn detect_duplicates(
                         .bind(song_id)
                         .execute(pool)
                         .await?;
+                }
+
+                // Track duplicates in scan state
+                if let Some(ref state) = scan_state {
+                    state.track_duplicates(&duplicate_paths).await;
                 }
             }
             // If only one song has this full hash, it was a false positive from partial hash

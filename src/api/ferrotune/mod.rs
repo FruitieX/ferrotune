@@ -96,6 +96,7 @@ pub mod scan_state;
 mod server_config;
 mod setup;
 mod shuffle_exclude;
+mod songs;
 mod stats;
 mod tags;
 pub mod users;
@@ -125,6 +126,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/scan/progress", get(scan::scan_progress_stream))
         .route("/ferrotune/scan/logs", get(scan::scan_logs))
         .route("/ferrotune/scan/full", get(scan::full_scan_status))
+        .route("/ferrotune/scan/details", get(scan::scan_details))
         .route("/ferrotune/scan/cancel", post(scan::cancel_scan))
         .route("/ferrotune/duplicates", get(duplicates::get_duplicates))
         // Directory browsing endpoints
@@ -181,6 +183,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(playlists::match_missing_entry),
         )
         .route(
+            "/ferrotune/playlists/{id}/unmatch",
+            post(playlists::unmatch_entry),
+        )
+        .route(
             "/ferrotune/playlists/{id}/move-entry",
             post(playlists::move_playlist_entry),
         )
@@ -194,6 +200,13 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         // Song ID query endpoint (for bulk selection)
         .route("/ferrotune/songs/ids", get(media::get_song_ids))
+        // Song match list endpoint (for client-side matching)
+        .route(
+            "/ferrotune/songs/match-list",
+            get(songs::get_song_match_list),
+        )
+        // Server-side fuzzy matching endpoint
+        .route("/ferrotune/songs/match", post(songs::match_tracks))
         // Media management endpoints
         .route("/ferrotune/songs/{id}", delete(media::delete_song))
         // Tag management endpoints

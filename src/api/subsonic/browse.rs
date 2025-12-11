@@ -55,6 +55,9 @@ pub struct ArtistResponse {
     pub album_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    /// Base64-encoded JPEG thumbnail (Ferrotune extension, when inlineImages is requested)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art_data: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub starred: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -101,6 +104,7 @@ pub async fn get_artists(
             name: artist.name.clone(),
             album_count: Some(artist.album_count),
             cover_art: Some(artist.id),
+            cover_art_data: None,
             starred,
             user_rating,
         });
@@ -163,6 +167,9 @@ pub struct ArtistDetail {
     pub album_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    /// Base64-encoded JPEG thumbnail (Ferrotune extension, when inlineImages is requested)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art_data: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub starred: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -182,6 +189,9 @@ pub struct AlbumResponse {
     pub artist_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    /// Base64-encoded JPEG thumbnail (Ferrotune extension, when inlineImages is requested)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art_data: Option<String>,
     #[ts(type = "number")]
     pub song_count: i64,
     #[ts(type = "number")]
@@ -255,6 +265,7 @@ pub async fn get_artist(
             artist: album.artist_name.clone(),
             artist_id: album.artist_id.clone(),
             cover_art: Some(album.id.clone()),
+            cover_art_data: None,
             song_count: album.song_count,
             duration: album.duration,
             year: album.year,
@@ -287,6 +298,7 @@ pub async fn get_artist(
             name: artist.name,
             album_count: Some(artist.album_count),
             cover_art: Some(artist.id.clone()),
+            cover_art_data: None, // Detail endpoints don't use inline thumbnails
             starred: artist_starred_map.get(&artist.id).cloned(),
             user_rating: artist_ratings_map.get(&artist.id).copied(),
             album: album_responses,
@@ -382,6 +394,9 @@ pub struct AlbumDetail {
     pub artist_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    /// Base64-encoded JPEG thumbnail (Ferrotune extension, when inlineImages is requested)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art_data: Option<String>,
     #[ts(type = "number")]
     pub song_count: i64,
     #[ts(type = "number")]
@@ -420,6 +435,9 @@ pub struct SongResponse {
     pub genre: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    /// Base64-encoded JPEG thumbnail (Ferrotune extension, when inlineImages is requested)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art_data: Option<String>,
     #[ts(type = "number")]
     pub size: i64,
     pub content_type: String,
@@ -526,6 +544,7 @@ pub async fn get_album(
             artist: album.artist_name.clone(),
             artist_id: album.artist_id.clone(),
             cover_art: album_cover,
+            cover_art_data: None, // Detail endpoints don't use inline thumbnails
             song_count: album.song_count,
             duration: album.duration,
             year: album.year,
@@ -600,6 +619,7 @@ pub async fn get_song(
             user_rating,
             Some(play_stats),
             folder_path.as_deref(),
+            None,
         ),
     };
 
@@ -713,7 +733,7 @@ pub fn song_to_response(
     starred: Option<String>,
     user_rating: Option<i32>,
 ) -> SongResponse {
-    song_to_response_with_stats(song, album, starred, user_rating, None, None)
+    song_to_response_with_stats(song, album, starred, user_rating, None, None, None)
 }
 
 // Helper function to convert Song model to API response with optional play stats and folder path
@@ -724,6 +744,7 @@ pub fn song_to_response_with_stats(
     user_rating: Option<i32>,
     play_stats: Option<SongPlayStats>,
     folder_path: Option<&str>,
+    cover_art_data: Option<String>,
 ) -> SongResponse {
     let content_type = match song.file_format.as_str() {
         "mp3" => "audio/mpeg",
@@ -770,6 +791,7 @@ pub fn song_to_response_with_stats(
         year: song.year,
         genre: song.genre,
         cover_art: Some(cover_art),
+        cover_art_data,
         size: song.file_size,
         content_type: content_type.to_string(),
         suffix: song.file_format.clone(),

@@ -63,6 +63,10 @@ import type { PlaylistEntriesResponse } from "./generated/PlaylistEntriesRespons
 import type { BrowseFilesystemResponse } from "./generated/BrowseFilesystemResponse";
 import type { ValidatePathResponse } from "./generated/ValidatePathResponse";
 import type { PlaylistSongsResponse } from "./generated/PlaylistSongsResponse";
+import type { ScanDetails } from "./generated/ScanDetails";
+import type { SongMatchListResponse } from "./generated/SongMatchListResponse";
+import type { MatchTracksRequest } from "./generated/MatchTracksRequest";
+import type { MatchTracksResponse } from "./generated/MatchTracksResponse";
 
 // Ping response is empty
 type PingResponse = Record<string, never>;
@@ -205,7 +209,9 @@ export class SubsonicClient {
 
   // Paginated directory browsing (Ferrotune extension)
   async getDirectoryPaged(
-    params: Partial<GetDirectoryPagedParams> = {},
+    params: Partial<GetDirectoryPagedParams> & {
+      inlineImages?: "small" | "medium";
+    } = {},
   ): Promise<DirectoryPagedResponse> {
     const queryParams = new URLSearchParams();
     if (params.libraryId != null)
@@ -220,6 +226,8 @@ export class SubsonicClient {
       queryParams.set("foldersOnly", String(params.foldersOnly));
     if (params.filesOnly != null)
       queryParams.set("filesOnly", String(params.filesOnly));
+    if (params.inlineImages != null)
+      queryParams.set("inlineImages", params.inlineImages);
 
     const queryString = queryParams.toString();
     const endpoint = queryString
@@ -232,7 +240,9 @@ export class SubsonicClient {
   // AlbumListParams requires 'type', other fields are optional
   async getAlbumList2(
     params: Pick<AlbumListParams, "type"> &
-      Partial<Omit<AlbumListParams, "type">>,
+      Partial<Omit<AlbumListParams, "type">> & {
+        inlineImages?: "small" | "medium";
+      },
   ): Promise<AlbumListResponse> {
     return this.request<AlbumListResponse>("getAlbumList2", { ...params });
   }
@@ -479,6 +489,7 @@ export class SubsonicClient {
       sort?: string;
       sortDir?: string;
       filter?: string;
+      inlineImages?: "small" | "medium";
     } = {},
   ): Promise<PlayHistoryResponse> {
     return this.request<PlayHistoryResponse>("getPlayHistory", params);
@@ -489,8 +500,30 @@ export class SubsonicClient {
     return this.buildUrl("stream", { id, maxBitRate });
   }
 
-  getCoverArtUrl(id: string, size?: number): string {
-    return this.buildUrl("getCoverArt", { id, size });
+  /**
+   * Get cover art URL for a given ID
+   * @param id - The cover art ID (album, song, artist, or playlist)
+   * @param size - Size tier: "small" (for rows/lists), "medium" (for cards), or "large" (original)
+   *               For backwards compatibility, numeric sizes are also accepted and mapped to tiers
+   */
+  getCoverArtUrl(
+    id: string,
+    size?: "small" | "medium" | "large" | number,
+  ): string {
+    // Convert numeric sizes to tier names for efficiency
+    let sizeParam: string | undefined;
+    if (typeof size === "number") {
+      if (size <= 80) {
+        sizeParam = "small";
+      } else if (size <= 256) {
+        sizeParam = "medium";
+      } else {
+        sizeParam = "large";
+      }
+    } else {
+      sizeParam = size;
+    }
+    return this.buildUrl("getCoverArt", { id, size: sizeParam });
   }
 
   getDownloadUrl(id: string): string {
@@ -704,6 +737,20 @@ export class SubsonicClient {
   }
 
   /**
+   * Unmatch a playlist entry - sets it back to missing state.
+   * Only works for entries that have missing_entry_data (imported entries).
+   */
+  async unmatchEntry(playlistId: string, position: number): Promise<void> {
+    await this.adminRequest(
+      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/unmatch`,
+      {
+        method: "POST",
+        body: JSON.stringify({ position }),
+      },
+    );
+  }
+
+  /**
    * Move a playlist entry to a new position.
    * Works for both songs and missing entries.
    */
@@ -734,6 +781,8 @@ export class SubsonicClient {
       sort?: string;
       sortDir?: string;
       filter?: string;
+      entryType?: "song" | "missing";
+      inlineImages?: "small" | "medium";
     },
   ): Promise<PlaylistSongsResponse> {
     const params = new URLSearchParams();
@@ -744,6 +793,10 @@ export class SubsonicClient {
     if (options?.sort !== undefined) params.set("sort", options.sort);
     if (options?.sortDir !== undefined) params.set("sortDir", options.sortDir);
     if (options?.filter !== undefined) params.set("filter", options.filter);
+    if (options?.entryType !== undefined)
+      params.set("entryType", options.entryType);
+    if (options?.inlineImages !== undefined)
+      params.set("inlineImages", options.inlineImages);
     const query = params.toString();
     return this.adminRequest(
       `/ferrotune/playlists/${encodeURIComponent(playlistId)}/songs${query ? `?${query}` : ""}`,
@@ -780,10 +833,12 @@ export class SubsonicClient {
   async getPeriodReview(
     year?: number,
     month?: number,
+    inlineImages?: "small" | "medium",
   ): Promise<PeriodReviewResponse> {
     const params = new URLSearchParams();
     if (year !== undefined) params.set("year", year.toString());
     if (month !== undefined) params.set("month", month.toString());
+    if (inlineImages !== undefined) params.set("inlineImages", inlineImages);
     const query = params.toString();
     return this.adminRequest(
       `/ferrotune/listening/review${query ? `?${query}` : ""}`,
@@ -882,12 +937,16 @@ export class SubsonicClient {
     sourceId?: string;
     sourceName?: string;
     startIndex?: number;
+    /** ID of the song to start playing (for verification against index) */
+    startSongId?: string;
     shuffle?: boolean;
     repeatMode?: string;
     filters?: Record<string, unknown>;
     sort?: Record<string, unknown>;
     /** Explicit song IDs to use instead of materializing from source */
     songIds?: string[];
+    /** Request inline cover art thumbnails */
+    inlineImages?: "small" | "medium";
   }): Promise<StartQueueResponse> {
     return this.adminRequest("/ferrotune/queue/start", {
       method: "POST",
@@ -899,11 +958,17 @@ export class SubsonicClient {
    * Get the current queue state with optional pagination
    */
   async getServerQueue(
-    params: { offset?: number; limit?: number } = {},
+    params: {
+      offset?: number;
+      limit?: number;
+      inlineImages?: "small" | "medium";
+    } = {},
   ): Promise<GetQueueResponse> {
     const query = new URLSearchParams();
     if (params.offset !== undefined) query.set("offset", String(params.offset));
     if (params.limit !== undefined) query.set("limit", String(params.limit));
+    if (params.inlineImages !== undefined)
+      query.set("inlineImages", params.inlineImages);
     const queryStr = query.toString();
     return this.adminRequest(
       `/ferrotune/queue${queryStr ? `?${queryStr}` : ""}`,
@@ -913,9 +978,15 @@ export class SubsonicClient {
   /**
    * Get songs around the current position
    */
-  async getQueueCurrentWindow(radius: number = 20): Promise<GetQueueResponse> {
+  async getQueueCurrentWindow(
+    radius: number = 20,
+    inlineImages?: "small" | "medium",
+  ): Promise<GetQueueResponse> {
+    const params = new URLSearchParams();
+    params.set("radius", String(radius));
+    if (inlineImages !== undefined) params.set("inlineImages", inlineImages);
     return this.adminRequest(
-      `/ferrotune/queue/current-window?radius=${radius}`,
+      `/ferrotune/queue/current-window?${params.toString()}`,
     );
   }
 
@@ -1035,6 +1106,51 @@ export class SubsonicClient {
     return this.adminRequest("/ferrotune/scan/cancel", {
       method: "POST",
     });
+  }
+
+  /**
+   * Get scan details (lists of affected files)
+   */
+  async getScanDetails(): Promise<ScanDetails> {
+    return this.adminRequest("/ferrotune/scan/details");
+  }
+
+  /**
+   * Get all songs in a minimal format for client-side matching.
+   * This returns id, title, artist, album, and duration for each song.
+   * @deprecated Use matchTracks() for server-side matching instead
+   */
+  async getSongMatchList(libraryId?: number): Promise<SongMatchListResponse> {
+    const params = new URLSearchParams();
+    if (libraryId !== undefined) params.set("libraryId", libraryId.toString());
+    const query = params.toString();
+    return this.adminRequest(
+      `/ferrotune/songs/match-list${query ? `?${query}` : ""}`,
+    );
+  }
+
+  /**
+   * Match tracks against the library using server-side fuzzy matching.
+   * This is more accurate and performant than client-side matching with fuse.js.
+   *
+   * @param request The tracks to match and search options
+   * @param libraryId Optional library ID to filter by
+   * @returns Match results for each track
+   */
+  async matchTracks(
+    request: MatchTracksRequest,
+    libraryId?: number,
+  ): Promise<MatchTracksResponse> {
+    const params = new URLSearchParams();
+    if (libraryId !== undefined) params.set("libraryId", libraryId.toString());
+    const query = params.toString();
+    return this.adminRequest(
+      `/ferrotune/songs/match${query ? `?${query}` : ""}`,
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      },
+    );
   }
 
   // ==========================================
