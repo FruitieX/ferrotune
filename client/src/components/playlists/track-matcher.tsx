@@ -19,7 +19,6 @@ import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 import type { TrackToMatch } from "@/lib/api/generated/TrackToMatch";
 import { TrackSearchPanel } from "./track-search-panel";
-import { Separator } from "../ui/separator";
 
 // Parsed track info - can come from import or from missing entry data
 export interface ParsedTrackInfo {

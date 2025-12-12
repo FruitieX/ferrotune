@@ -120,10 +120,10 @@ pub async fn get_song_ids(
     let has_filters = !filter_conds.conditions.is_empty();
 
     // Build JOIN clauses based on filter requirements
-    let mut joins = String::from(
+    let mut joins = format!(
         "INNER JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id
-         LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id",
+         LEFT JOIN albums al ON s.album_id = al.id{}",
+        crate::db::queries::SCROBBLE_STATS_JOIN
     );
     if filter_conds.has_rating_filter {
         joins.push_str(&format!(

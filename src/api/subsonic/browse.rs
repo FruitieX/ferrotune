@@ -1,7 +1,7 @@
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
-use crate::db::models::{Album, Song};
+use crate::db::models::{Album, ItemType, Song};
 use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -73,8 +73,10 @@ pub async fn get_artists(
 
     // Get starred status and ratings for all artists
     let artist_ids: Vec<String> = artists.iter().map(|a| a.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, "artist", &artist_ids).await?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, "artist", &artist_ids).await?;
+    let starred_map =
+        get_starred_map(&state.pool, user.user_id, ItemType::Artist, &artist_ids).await?;
+    let ratings_map =
+        get_ratings_map(&state.pool, user.user_id, ItemType::Artist, &artist_ids).await?;
 
     // Group artists by first letter
     let mut grouped: HashMap<String, Vec<ArtistResponse>> = HashMap::new();
@@ -233,26 +235,30 @@ pub async fn get_artist(
 
     // Get starred status and ratings for albums
     let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, "album", &album_ids).await?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, "album", &album_ids).await?;
+    let starred_map =
+        get_starred_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
+    let ratings_map =
+        get_ratings_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
 
     // Get starred status and ratings for songs
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let song_starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
-    let song_ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
+    let song_starred_map =
+        get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+    let song_ratings_map =
+        get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
 
     // Get starred status and rating for the artist itself
     let artist_starred_map = get_starred_map(
         &state.pool,
         user.user_id,
-        "artist",
+        ItemType::Artist,
         std::slice::from_ref(&params.id),
     )
     .await?;
     let artist_ratings_map = get_ratings_map(
         &state.pool,
         user.user_id,
-        "artist",
+        ItemType::Artist,
         std::slice::from_ref(&params.id),
     )
     .await?;
@@ -504,21 +510,21 @@ pub async fn get_album(
 
     // Get starred status and ratings for songs
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
+    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
 
     // Get starred status and rating for the album itself
     let album_starred_map = get_starred_map(
         &state.pool,
         user.user_id,
-        "album",
+        ItemType::Album,
         std::slice::from_ref(&params.id),
     )
     .await?;
     let album_ratings_map = get_ratings_map(
         &state.pool,
         user.user_id,
-        "album",
+        ItemType::Album,
         std::slice::from_ref(&params.id),
     )
     .await?;
@@ -594,7 +600,7 @@ pub async fn get_song(
     let starred_map = get_starred_map(
         &state.pool,
         user.user_id,
-        "song",
+        ItemType::Song,
         std::slice::from_ref(&params.id),
     )
     .await?;
@@ -602,7 +608,7 @@ pub async fn get_song(
     let ratings_map = get_ratings_map(
         &state.pool,
         user.user_id,
-        "song",
+        ItemType::Song,
         std::slice::from_ref(&params.id),
     )
     .await?;
@@ -812,7 +818,7 @@ pub fn song_to_response_with_stats(
 pub async fn get_starred_map(
     pool: &sqlx::SqlitePool,
     user_id: i64,
-    item_type: &str,
+    item_type: crate::db::models::ItemType,
     item_ids: &[String],
 ) -> crate::error::Result<std::collections::HashMap<String, String>> {
     if item_ids.is_empty() {
@@ -828,7 +834,7 @@ pub async fn get_starred_map(
 
     let mut query_builder = sqlx::query_as::<_, (String, chrono::DateTime<chrono::Utc>)>(&query)
         .bind(user_id)
-        .bind(item_type);
+        .bind(item_type.as_str());
 
     for id in item_ids {
         query_builder = query_builder.bind(id);
@@ -847,7 +853,7 @@ pub async fn get_starred_map(
 pub async fn get_ratings_map(
     pool: &sqlx::SqlitePool,
     user_id: i64,
-    item_type: &str,
+    item_type: crate::db::models::ItemType,
     item_ids: &[String],
 ) -> crate::error::Result<std::collections::HashMap<String, i32>> {
     if item_ids.is_empty() {
@@ -863,7 +869,7 @@ pub async fn get_ratings_map(
 
     let mut query_builder = sqlx::query_as::<_, (String, i32)>(&query)
         .bind(user_id)
-        .bind(item_type);
+        .bind(item_type.as_str());
 
     for id in item_ids {
         query_builder = query_builder.bind(id);

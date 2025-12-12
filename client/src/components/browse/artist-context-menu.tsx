@@ -1,8 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import { useSetAtom } from "jotai";
-import { toast } from "sonner";
 import {
   Play,
   ListPlus,
@@ -30,125 +27,33 @@ import {
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
-import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
-import { useInvalidateFavorites } from "@/lib/store/starred";
-import { getClient } from "@/lib/api/client";
-import type { Artist, Song } from "@/lib/api/types";
+import { useArtistActions } from "@/lib/hooks/use-artist-actions";
+import { useStar } from "@/lib/hooks/use-star";
+import type { Artist } from "@/lib/api/types";
 
 interface ArtistContextMenuProps {
   artist: Artist;
   children: React.ReactNode;
 }
 
-// Helper function to fetch all songs from an artist
-async function fetchArtistSongs(artistId: string): Promise<Song[]> {
-  const client = getClient();
-  if (!client) return [];
-
-  try {
-    const artistData = await client.getArtist(artistId);
-    if (!artistData.artist.album?.length) return [];
-
-    // Get songs from all albums
-    const allSongs: Song[] = [];
-    for (const album of artistData.artist.album) {
-      const albumData = await client.getAlbum(album.id);
-      if (albumData.album.song) {
-        allSongs.push(...albumData.album.song);
-      }
-    }
-    return allSongs;
-  } catch (error) {
-    console.error("Failed to fetch artist songs:", error);
-    return [];
-  }
-}
-
 export function ArtistContextMenu({
   artist,
   children,
 }: ArtistContextMenuProps) {
-  const startQueue = useSetAtom(startQueueAtom);
-  const addToQueue = useSetAtom(addToQueueAtom);
-  const invalidateFavorites = useInvalidateFavorites();
-  const [isStarred, setIsStarred] = useState(!!artist.starred);
-  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [artistSongs, setArtistSongs] = useState<Song[] | null>(null);
-
-  const handlePlay = () => {
-    startQueue({
-      sourceType: "artist",
-      sourceId: artist.id,
-      sourceName: artist.name,
-      startIndex: 0,
-      shuffle: false,
-    });
-    toast.success(`Playing "${artist.name}"`);
-  };
-
-  const handleShuffle = () => {
-    startQueue({
-      sourceType: "artist",
-      sourceId: artist.id,
-      sourceName: artist.name,
-      startIndex: 0,
-      shuffle: true,
-    });
-    toast.success(`Shuffling "${artist.name}"`);
-  };
-
-  const handlePlayNext = async () => {
-    const songs = await fetchArtistSongs(artist.id);
-    if (songs.length > 0) {
-      addToQueue({ songIds: songs.map((s) => s.id), position: "next" });
-      toast.success(`Added "${artist.name}" songs to play next`);
-    } else {
-      toast.error("No songs found for this artist");
-    }
-  };
-
-  const handleAddToQueue = async () => {
-    const songs = await fetchArtistSongs(artist.id);
-    if (songs.length > 0) {
-      addToQueue({ songIds: songs.map((s) => s.id), position: "end" });
-      toast.success(`Added "${artist.name}" songs to queue`);
-    } else {
-      toast.error("No songs found for this artist");
-    }
-  };
-
-  const handleAddToPlaylist = async () => {
-    const songs = await fetchArtistSongs(artist.id);
-    if (songs.length > 0) {
-      setArtistSongs(songs);
-      setAddToPlaylistOpen(true);
-    } else {
-      toast.error("No songs found for this artist");
-    }
-  };
-
-  const handleStar = async () => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      if (isStarred) {
-        await client.unstar({ artistId: artist.id });
-        setIsStarred(false);
-        invalidateFavorites("artist");
-        toast.success(`Removed "${artist.name}" from favorites`);
-      } else {
-        await client.star({ artistId: artist.id });
-        setIsStarred(true);
-        invalidateFavorites("artist");
-        toast.success(`Added "${artist.name}" to favorites`);
-      }
-    } catch (error) {
-      toast.error("Failed to update favorites");
-      console.error(error);
-    }
-  };
+  const {
+    isStarred,
+    toggleStar,
+    handlePlay,
+    handleShuffle,
+    handlePlayNext,
+    handleAddToQueue,
+    handleAddToPlaylist,
+    addToPlaylistOpen,
+    setAddToPlaylistOpen,
+    artistSongs,
+    detailsOpen,
+    setDetailsOpen,
+  } = useArtistActions(artist);
 
   const menuItems = (
     <>
@@ -174,7 +79,7 @@ export function ArtistContextMenu({
         Add to Playlist
       </ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem onClick={handleStar}>
+      <ContextMenuItem onClick={toggleStar}>
         <Heart
           className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`}
         />
@@ -229,95 +134,24 @@ export function ArtistDropdownMenu({
   onShuffle,
   trigger,
 }: ArtistDropdownMenuProps) {
-  const startQueue = useSetAtom(startQueueAtom);
-  const addToQueue = useSetAtom(addToQueueAtom);
-  const invalidateFavorites = useInvalidateFavorites();
-  const [isStarred, setIsStarred] = useState(!!artist.starred);
-  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [artistSongs, setArtistSongs] = useState<Song[] | null>(null);
+  const {
+    isStarred,
+    toggleStar,
+    handlePlay: hookHandlePlay,
+    handleShuffle: hookHandleShuffle,
+    handlePlayNext,
+    handleAddToQueue,
+    handleAddToPlaylist,
+    addToPlaylistOpen,
+    setAddToPlaylistOpen,
+    artistSongs,
+    detailsOpen,
+    setDetailsOpen,
+  } = useArtistActions(artist);
 
-  const handlePlay = () => {
-    if (onPlay) {
-      onPlay();
-    } else {
-      startQueue({
-        sourceType: "artist",
-        sourceId: artist.id,
-        sourceName: artist.name,
-        startIndex: 0,
-        shuffle: false,
-      });
-      toast.success(`Playing "${artist.name}"`);
-    }
-  };
-
-  const handleShuffle = () => {
-    if (onShuffle) {
-      onShuffle();
-    } else {
-      startQueue({
-        sourceType: "artist",
-        sourceId: artist.id,
-        sourceName: artist.name,
-        startIndex: 0,
-        shuffle: true,
-      });
-      toast.success(`Shuffling "${artist.name}"`);
-    }
-  };
-
-  const handlePlayNext = async () => {
-    const songs = await fetchArtistSongs(artist.id);
-    if (songs.length > 0) {
-      addToQueue({ songIds: songs.map((s) => s.id), position: "next" });
-      toast.success(`Added "${artist.name}" songs to play next`);
-    } else {
-      toast.error("No songs found for this artist");
-    }
-  };
-
-  const handleAddToQueue = async () => {
-    const songs = await fetchArtistSongs(artist.id);
-    if (songs.length > 0) {
-      addToQueue({ songIds: songs.map((s) => s.id), position: "end" });
-      toast.success(`Added "${artist.name}" songs to queue`);
-    } else {
-      toast.error("No songs found for this artist");
-    }
-  };
-
-  const handleAddToPlaylist = async () => {
-    const songs = await fetchArtistSongs(artist.id);
-    if (songs.length > 0) {
-      setArtistSongs(songs);
-      setAddToPlaylistOpen(true);
-    } else {
-      toast.error("No songs found for this artist");
-    }
-  };
-
-  const handleStar = async () => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      if (isStarred) {
-        await client.unstar({ artistId: artist.id });
-        setIsStarred(false);
-        invalidateFavorites("artist");
-        toast.success(`Removed "${artist.name}" from favorites`);
-      } else {
-        await client.star({ artistId: artist.id });
-        setIsStarred(true);
-        invalidateFavorites("artist");
-        toast.success(`Added "${artist.name}" to favorites`);
-      }
-    } catch (error) {
-      toast.error("Failed to update favorites");
-      console.error(error);
-    }
-  };
+  // Use custom callbacks if provided, otherwise use hook's handlers
+  const handlePlay = onPlay ?? hookHandlePlay;
+  const handleShuffle = onShuffle ?? hookHandleShuffle;
 
   const defaultTrigger = (
     <Button
@@ -366,7 +200,7 @@ export function ArtistDropdownMenu({
             Add to Playlist
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handleStar}>
+          <DropdownMenuItem onClick={toggleStar}>
             <Heart
               className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`}
             />
@@ -396,35 +230,18 @@ export function ArtistDropdownMenu({
 }
 
 // Hook to manage artist star state (for use in pages where we need external control)
+// Re-exported for backward compatibility
 export function useArtistStar(
   initialStarred: boolean,
   artistId: string,
   artistName: string,
 ) {
-  const [isStarred, setIsStarred] = useState(initialStarred);
-  const invalidateFavorites = useInvalidateFavorites();
+  const { isStarred, toggleStar, setIsStarred } = useStar({
+    itemType: "artist",
+    itemId: artistId,
+    itemName: artistName,
+    initialStarred,
+  });
 
-  const handleStar = async () => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      if (isStarred) {
-        await client.unstar({ artistId });
-        setIsStarred(false);
-        invalidateFavorites("artist");
-        toast.success(`Removed "${artistName}" from favorites`);
-      } else {
-        await client.star({ artistId });
-        setIsStarred(true);
-        invalidateFavorites("artist");
-        toast.success(`Added "${artistName}" to favorites`);
-      }
-    } catch (error) {
-      toast.error("Failed to update favorites");
-      console.error(error);
-    }
-  };
-
-  return { isStarred, handleStar, setIsStarred };
+  return { isStarred, handleStar: toggleStar, setIsStarred };
 }

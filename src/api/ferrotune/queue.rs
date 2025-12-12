@@ -19,7 +19,7 @@ use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, Inline
 use crate::api::subsonic::search::{search_songs_for_queue, SearchParams};
 use crate::api::subsonic::sorting;
 use crate::api::AppState;
-use crate::db::models::{QueueSourceType, RepeatMode};
+use crate::db::models::{ItemType, QueueSourceType, RepeatMode};
 use crate::db::queries;
 use crate::error::{Error, Result};
 use axum::{
@@ -1358,8 +1358,8 @@ async fn build_queue_window_range(
 
     let window_song_ids: Vec<String> = window_entries.iter().map(|(e, _)| e.id.clone()).collect();
 
-    let starred_map = get_starred_map(pool, user_id, "song", &window_song_ids).await?;
-    let ratings_map = get_ratings_map(pool, user_id, "song", &window_song_ids).await?;
+    let starred_map = get_starred_map(pool, user_id, ItemType::Song, &window_song_ids).await?;
+    let ratings_map = get_ratings_map(pool, user_id, ItemType::Song, &window_song_ids).await?;
 
     // Get inline thumbnails if requested
     let thumbnails = if let Some(size) = inline_size {

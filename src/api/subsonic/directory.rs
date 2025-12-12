@@ -8,6 +8,7 @@ use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::browse::{get_ratings_map, get_starred_map};
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
+use crate::db::models::ItemType;
 use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -79,8 +80,10 @@ pub async fn get_indexes(
 
     // Get starred status for artists (directories map to artists)
     let dir_ids: Vec<String> = directories.iter().map(|d| d.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, "artist", &dir_ids).await?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, "artist", &dir_ids).await?;
+    let starred_map =
+        get_starred_map(&state.pool, user.user_id, ItemType::Artist, &dir_ids).await?;
+    let ratings_map =
+        get_ratings_map(&state.pool, user.user_id, ItemType::Artist, &dir_ids).await?;
 
     // Group directories by first letter
     let mut grouped: HashMap<String, Vec<DirectoryArtist>> = HashMap::new();
@@ -245,21 +248,23 @@ pub async fn get_music_directory(
 
         // Get starred and ratings for albums
         let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
-        let starred_map = get_starred_map(&state.pool, user.user_id, "album", &album_ids).await?;
-        let ratings_map = get_ratings_map(&state.pool, user.user_id, "album", &album_ids).await?;
+        let starred_map =
+            get_starred_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
+        let ratings_map =
+            get_ratings_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
 
         // Get starred for artist
         let artist_starred = get_starred_map(
             &state.pool,
             user.user_id,
-            "artist",
+            ItemType::Artist,
             std::slice::from_ref(id),
         )
         .await?;
         let artist_rating = get_ratings_map(
             &state.pool,
             user.user_id,
-            "artist",
+            ItemType::Artist,
             std::slice::from_ref(id),
         )
         .await?;
@@ -314,14 +319,26 @@ pub async fn get_music_directory(
 
         // Get starred and ratings for songs
         let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-        let starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
-        let ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
+        let starred_map =
+            get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+        let ratings_map =
+            get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
 
         // Get starred for album
-        let album_starred =
-            get_starred_map(&state.pool, user.user_id, "album", std::slice::from_ref(id)).await?;
-        let album_rating =
-            get_ratings_map(&state.pool, user.user_id, "album", std::slice::from_ref(id)).await?;
+        let album_starred = get_starred_map(
+            &state.pool,
+            user.user_id,
+            ItemType::Album,
+            std::slice::from_ref(id),
+        )
+        .await?;
+        let album_rating = get_ratings_map(
+            &state.pool,
+            user.user_id,
+            ItemType::Album,
+            std::slice::from_ref(id),
+        )
+        .await?;
 
         let children: Vec<DirectoryChild> = songs
             .iter()
@@ -410,8 +427,8 @@ async fn get_directory_by_path(
 
     // Get starred and ratings for songs
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
+    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
 
     let mut children: Vec<DirectoryChild> = Vec::new();
 

@@ -100,7 +100,6 @@ pub async fn start_scan(
 
     // Clone what we need for the async task
     let pool = state.pool.clone();
-    let config = state.config.clone();
     let scan_state = state.scan_state.clone();
     let full = request.full;
     let folder_id = request.folder_id;
@@ -112,7 +111,6 @@ pub async fn start_scan(
 
         match crate::scanner::scan_library_with_progress(
             &pool,
-            &config,
             full,
             folder_id,
             dry_run,

@@ -1,5 +1,5 @@
 use crate::api::ScanState;
-use crate::config::Config;
+
 use crate::error::{Error, Result};
 use async_walkdir::WalkDir;
 use futures_lite::StreamExt;
@@ -73,12 +73,11 @@ fn compute_full_hash(path: &Path) -> Result<String> {
 
 pub async fn scan_library(
     pool: &SqlitePool,
-    config: &Config,
     full: bool,
     folder_id: Option<i64>,
     dry_run: bool,
 ) -> Result<()> {
-    scan_library_with_progress(pool, config, full, folder_id, dry_run, None).await
+    scan_library_with_progress(pool, full, folder_id, dry_run, None).await
 }
 
 /// Scan the music library with optional progress tracking.
@@ -87,7 +86,6 @@ pub async fn scan_library(
 /// If `scan_state` is provided, progress will be broadcast via the shared state.
 pub async fn scan_library_with_progress(
     pool: &SqlitePool,
-    config: &Config,
     full: bool,
     folder_id: Option<i64>,
     dry_run: bool,
@@ -119,7 +117,6 @@ pub async fn scan_library_with_progress(
         tracing::info!("Scanning folder: {} ({})", folder.name, folder.path);
         let folder_result = scan_folder_with_progress(
             pool,
-            config,
             folder.id,
             &folder.path,
             full,
@@ -222,18 +219,16 @@ async fn get_music_folder(pool: &SqlitePool, id: i64) -> Result<crate::db::model
 #[allow(dead_code)]
 async fn scan_folder(
     pool: &SqlitePool,
-    config: &Config,
     folder_id: i64,
     folder_path: &str,
     full: bool,
     dry_run: bool,
 ) -> Result<()> {
-    scan_folder_with_progress(pool, config, folder_id, folder_path, full, dry_run, None).await
+    scan_folder_with_progress(pool, folder_id, folder_path, full, dry_run, None).await
 }
 
 async fn scan_folder_with_progress(
     pool: &SqlitePool,
-    _config: &Config,
     folder_id: i64,
     folder_path: &str,
     full: bool,

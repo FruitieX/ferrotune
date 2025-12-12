@@ -61,6 +61,92 @@ pub fn to_xml_string<T: Serialize>(value: &T) -> Result<String, quick_xml::se::S
     Ok(xml)
 }
 
+// ============================================================================
+// XML Response Macro
+// ============================================================================
+
+/// Macro to generate XML response wrapper types with standard Subsonic headers.
+///
+/// This eliminates duplication of the 6 standard header fields across all response types.
+///
+/// Usage:
+/// ```
+/// xml_response!(XmlArtistsResponse, "artists", XmlArtistsInner, artists);
+/// ```
+/// Generates a struct with the standard headers plus the data field.
+macro_rules! xml_response {
+    // Standard response with a data field
+    ($name:ident, $xml_field:literal, $data_type:ty, $data_field:ident) => {
+        #[derive(Serialize)]
+        #[serde(rename = "subsonic-response")]
+        pub struct $name {
+            #[serde(rename = "@xmlns")]
+            pub xmlns: &'static str,
+            #[serde(rename = "@status")]
+            pub status: String,
+            #[serde(rename = "@version")]
+            pub version: String,
+            #[serde(rename = "@type")]
+            pub response_type: String,
+            #[serde(rename = "@serverVersion")]
+            pub server_version: String,
+            #[serde(rename = "@openSubsonic")]
+            pub open_subsonic: bool,
+            #[serde(rename = $xml_field)]
+            pub $data_field: $data_type,
+        }
+
+        impl $name {
+            pub fn ok($data_field: $data_type) -> Self {
+                Self {
+                    xmlns: "http://subsonic.org/restapi",
+                    status: "ok".to_string(),
+                    version: "1.16.1".to_string(),
+                    response_type: "ferrotune".to_string(),
+                    server_version: env!("CARGO_PKG_VERSION").to_string(),
+                    open_subsonic: true,
+                    $data_field,
+                }
+            }
+        }
+    };
+
+    // Response where XML field name matches Rust field name (no rename needed)
+    ($name:ident, $data_type:ty, $data_field:ident) => {
+        #[derive(Serialize)]
+        #[serde(rename = "subsonic-response")]
+        pub struct $name {
+            #[serde(rename = "@xmlns")]
+            pub xmlns: &'static str,
+            #[serde(rename = "@status")]
+            pub status: String,
+            #[serde(rename = "@version")]
+            pub version: String,
+            #[serde(rename = "@type")]
+            pub response_type: String,
+            #[serde(rename = "@serverVersion")]
+            pub server_version: String,
+            #[serde(rename = "@openSubsonic")]
+            pub open_subsonic: bool,
+            pub $data_field: $data_type,
+        }
+
+        impl $name {
+            pub fn ok($data_field: $data_type) -> Self {
+                Self {
+                    xmlns: "http://subsonic.org/restapi",
+                    status: "ok".to_string(),
+                    version: "1.16.1".to_string(),
+                    response_type: "ferrotune".to_string(),
+                    server_version: env!("CARGO_PKG_VERSION").to_string(),
+                    open_subsonic: true,
+                    $data_field,
+                }
+            }
+        }
+    };
+}
+
 /// Empty XML response (no data field, just the wrapper attributes)
 #[derive(Serialize)]
 #[serde(rename = "subsonic-response")]
@@ -92,38 +178,8 @@ impl XmlEmptyResponse {
     }
 }
 
-/// License response
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlLicenseResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    pub license: XmlLicenseInner,
-}
-
-impl XmlLicenseResponse {
-    pub fn ok(license: XmlLicenseInner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            license,
-        }
-    }
-}
+// License response
+xml_response!(XmlLicenseResponse, XmlLicenseInner, license);
 
 #[derive(Serialize)]
 pub struct XmlLicenseInner {
@@ -135,39 +191,13 @@ pub struct XmlLicenseInner {
     pub license_expires: String,
 }
 
-/// Music folders response
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlMusicFoldersResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    #[serde(rename = "musicFolders")]
-    pub music_folders: XmlMusicFoldersInner,
-}
-
-impl XmlMusicFoldersResponse {
-    pub fn ok(music_folders: XmlMusicFoldersInner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            music_folders,
-        }
-    }
-}
+// Music folders response
+xml_response!(
+    XmlMusicFoldersResponse,
+    "musicFolders",
+    XmlMusicFoldersInner,
+    music_folders
+);
 
 #[derive(Serialize)]
 pub struct XmlMusicFoldersInner {
@@ -183,39 +213,13 @@ pub struct XmlMusicFolder {
     pub name: String,
 }
 
-/// OpenSubsonic extensions response
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlOpenSubsonicExtensionsResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    #[serde(rename = "openSubsonicExtensions")]
-    pub extensions: Vec<XmlExtension>,
-}
-
-impl XmlOpenSubsonicExtensionsResponse {
-    pub fn ok(extensions: Vec<XmlExtension>) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            extensions,
-        }
-    }
-}
+// OpenSubsonic extensions response
+xml_response!(
+    XmlOpenSubsonicExtensionsResponse,
+    "openSubsonicExtensions",
+    Vec<XmlExtension>,
+    extensions
+);
 
 /// Error response
 #[derive(Serialize)]
@@ -267,38 +271,8 @@ pub struct XmlExtension {
     pub versions: String,
 }
 
-/// Artists response (getArtists)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlArtistsResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    pub artists: XmlArtistsInner,
-}
-
-impl XmlArtistsResponse {
-    pub fn ok(artists: XmlArtistsInner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            artists,
-        }
-    }
-}
+// Artists response (getArtists)
+xml_response!(XmlArtistsResponse, XmlArtistsInner, artists);
 
 #[derive(Serialize)]
 pub struct XmlArtistsInner {
@@ -332,38 +306,8 @@ pub struct XmlArtist {
     pub user_rating: Option<i32>,
 }
 
-/// Artist detail response (getArtist)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlArtistWithAlbumsResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    pub artist: XmlArtistDetail,
-}
-
-impl XmlArtistWithAlbumsResponse {
-    pub fn ok(artist: XmlArtistDetail) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            artist,
-        }
-    }
-}
+// Artist detail response (getArtist)
+xml_response!(XmlArtistWithAlbumsResponse, XmlArtistDetail, artist);
 
 #[derive(Serialize)]
 pub struct XmlArtistDetail {
@@ -383,39 +327,13 @@ pub struct XmlArtistDetail {
     pub album: Vec<XmlAlbum>,
 }
 
-/// Artist info response (getArtistInfo2)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlArtistInfo2Response {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    #[serde(rename = "artistInfo2")]
-    pub artist_info2: XmlArtistInfo2,
-}
-
-impl XmlArtistInfo2Response {
-    pub fn ok(artist_info2: XmlArtistInfo2) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            artist_info2,
-        }
-    }
-}
+// Artist info response (getArtistInfo2)
+xml_response!(
+    XmlArtistInfo2Response,
+    "artistInfo2",
+    XmlArtistInfo2,
+    artist_info2
+);
 
 #[derive(Serialize)]
 pub struct XmlArtistInfo2 {
@@ -439,38 +357,8 @@ pub struct XmlArtistInfo2 {
     pub similar_artist: Vec<XmlArtist>,
 }
 
-/// Album response (getAlbum)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlAlbumDetailResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    pub album: XmlAlbumDetail,
-}
-
-impl XmlAlbumDetailResponse {
-    pub fn ok(album: XmlAlbumDetail) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            album,
-        }
-    }
-}
+// Album response (getAlbum)
+xml_response!(XmlAlbumDetailResponse, XmlAlbumDetail, album);
 
 #[derive(Serialize)]
 pub struct XmlAlbum {
@@ -530,38 +418,8 @@ pub struct XmlAlbumDetail {
     pub song: Vec<XmlSong>,
 }
 
-/// Song response (getSong)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlSongDetailResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    pub song: XmlSong,
-}
-
-impl XmlSongDetailResponse {
-    pub fn ok(song: XmlSong) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            song,
-        }
-    }
-}
+// Song response (getSong)
+xml_response!(XmlSongDetailResponse, XmlSong, song);
 
 #[derive(Serialize)]
 pub struct XmlSong {
@@ -616,38 +474,8 @@ pub struct XmlSong {
     pub last_played: Option<String>,
 }
 
-/// Genres response (getGenres)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlGenresResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    pub genres: XmlGenresInner,
-}
-
-impl XmlGenresResponse {
-    pub fn ok(genres: XmlGenresInner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            genres,
-        }
-    }
-}
+// Genres response (getGenres)
+xml_response!(XmlGenresResponse, XmlGenresInner, genres);
 
 #[derive(Serialize)]
 pub struct XmlGenresInner {
@@ -665,39 +493,13 @@ pub struct XmlGenre {
     pub name: String,
 }
 
-/// Album list response (getAlbumList2)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlAlbumList2Response {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    #[serde(rename = "albumList2")]
-    pub album_list2: XmlAlbumList2Inner,
-}
-
-impl XmlAlbumList2Response {
-    pub fn ok(album_list2: XmlAlbumList2Inner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            album_list2,
-        }
-    }
-}
+// Album list response (getAlbumList2)
+xml_response!(
+    XmlAlbumList2Response,
+    "albumList2",
+    XmlAlbumList2Inner,
+    album_list2
+);
 
 #[derive(Serialize)]
 pub struct XmlAlbumList2Inner {
@@ -705,39 +507,13 @@ pub struct XmlAlbumList2Inner {
     pub album: Vec<XmlAlbum>,
 }
 
-/// Random songs response (getRandomSongs)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlRandomSongsResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    #[serde(rename = "randomSongs")]
-    pub random_songs: XmlRandomSongsInner,
-}
-
-impl XmlRandomSongsResponse {
-    pub fn ok(random_songs: XmlRandomSongsInner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            random_songs,
-        }
-    }
-}
+// Random songs response (getRandomSongs)
+xml_response!(
+    XmlRandomSongsResponse,
+    "randomSongs",
+    XmlRandomSongsInner,
+    random_songs
+);
 
 #[derive(Serialize)]
 pub struct XmlRandomSongsInner {
@@ -745,39 +521,13 @@ pub struct XmlRandomSongsInner {
     pub song: Vec<XmlSong>,
 }
 
-/// Songs by genre response (getSongsByGenre)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlSongsByGenreResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    #[serde(rename = "songsByGenre")]
-    pub songs_by_genre: XmlSongsByGenreInner,
-}
-
-impl XmlSongsByGenreResponse {
-    pub fn ok(songs_by_genre: XmlSongsByGenreInner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            songs_by_genre,
-        }
-    }
-}
+// Songs by genre response (getSongsByGenre)
+xml_response!(
+    XmlSongsByGenreResponse,
+    "songsByGenre",
+    XmlSongsByGenreInner,
+    songs_by_genre
+);
 
 #[derive(Serialize)]
 pub struct XmlSongsByGenreInner {
@@ -785,71 +535,11 @@ pub struct XmlSongsByGenreInner {
     pub song: Vec<XmlSong>,
 }
 
-/// Starred response (getStarred)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlStarredResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    pub starred: XmlStarredInner,
-}
+// Starred response (getStarred)
+xml_response!(XmlStarredResponse, XmlStarredInner, starred);
 
-impl XmlStarredResponse {
-    pub fn ok(starred: XmlStarredInner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            starred,
-        }
-    }
-}
-
-/// Starred2 response (getStarred2)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlStarred2Response {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    pub starred2: XmlStarredInner,
-}
-
-impl XmlStarred2Response {
-    pub fn ok(starred2: XmlStarredInner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            starred2,
-        }
-    }
-}
+// Starred2 response (getStarred2)
+xml_response!(XmlStarred2Response, XmlStarredInner, starred2);
 
 #[derive(Serialize)]
 pub struct XmlStarredInner {
@@ -861,39 +551,13 @@ pub struct XmlStarredInner {
     pub song: Vec<XmlSong>,
 }
 
-/// Search3 response (search3)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlSearchResult3Response {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    #[serde(rename = "searchResult3")]
-    pub search_result3: XmlSearchResult3Inner,
-}
-
-impl XmlSearchResult3Response {
-    pub fn ok(search_result3: XmlSearchResult3Inner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            search_result3,
-        }
-    }
-}
+// Search3 response (search3)
+xml_response!(
+    XmlSearchResult3Response,
+    "searchResult3",
+    XmlSearchResult3Inner,
+    search_result3
+);
 
 #[derive(Serialize)]
 pub struct XmlSearchResult3Inner {
@@ -914,38 +578,8 @@ pub struct XmlSearchResult3Inner {
     pub song_total: Option<i64>,
 }
 
-/// Playlists response (getPlaylists)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlPlaylistsResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    pub playlists: XmlPlaylistsInner,
-}
-
-impl XmlPlaylistsResponse {
-    pub fn ok(playlists: XmlPlaylistsInner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            playlists,
-        }
-    }
-}
+// Playlists response (getPlaylists)
+xml_response!(XmlPlaylistsResponse, XmlPlaylistsInner, playlists);
 
 #[derive(Serialize)]
 pub struct XmlPlaylistsInner {
@@ -977,38 +611,8 @@ pub struct XmlPlaylist {
     pub cover_art: Option<String>,
 }
 
-/// Playlist detail response (getPlaylist)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlPlaylistWithSongsResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    pub playlist: XmlPlaylistDetail,
-}
-
-impl XmlPlaylistWithSongsResponse {
-    pub fn ok(playlist: XmlPlaylistDetail) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            playlist,
-        }
-    }
-}
+// Playlist detail response (getPlaylist)
+xml_response!(XmlPlaylistWithSongsResponse, XmlPlaylistDetail, playlist);
 
 #[derive(Serialize)]
 pub struct XmlPlaylistDetail {
@@ -1036,39 +640,13 @@ pub struct XmlPlaylistDetail {
     pub entry: Vec<XmlSong>,
 }
 
-/// Play queue response (getPlayQueue)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlPlayQueueResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    #[serde(rename = "playQueue")]
-    pub play_queue: XmlPlayQueueInner,
-}
-
-impl XmlPlayQueueResponse {
-    pub fn ok(play_queue: XmlPlayQueueInner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            play_queue,
-        }
-    }
-}
+// Play queue response (getPlayQueue)
+xml_response!(
+    XmlPlayQueueResponse,
+    "playQueue",
+    XmlPlayQueueInner,
+    play_queue
+);
 
 #[derive(Serialize)]
 pub struct XmlPlayQueueInner {
@@ -1478,39 +1056,13 @@ impl ToXml for PlayQueueResponse {
 
 // --- Play History XML types (Ferrotune extension) ---
 
-/// Play history response (getPlayHistory)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlPlayHistoryResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    #[serde(rename = "playHistory")]
-    pub play_history: XmlPlayHistoryInner,
-}
-
-impl XmlPlayHistoryResponse {
-    pub fn ok(play_history: XmlPlayHistoryInner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            play_history,
-        }
-    }
-}
+// Play history response (getPlayHistory)
+xml_response!(
+    XmlPlayHistoryResponse,
+    "playHistory",
+    XmlPlayHistoryInner,
+    play_history
+);
 
 #[derive(Serialize)]
 pub struct XmlPlayHistoryInner {
@@ -1618,38 +1170,8 @@ impl ToXml for PlayHistoryResponse {
 
 // --- Directory browsing XML types (getIndexes, getMusicDirectory) ---
 
-/// Indexes response (getIndexes)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlIndexesResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    pub indexes: XmlIndexesInner,
-}
-
-impl XmlIndexesResponse {
-    pub fn ok(indexes: XmlIndexesInner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            indexes,
-        }
-    }
-}
+// Indexes response (getIndexes)
+xml_response!(XmlIndexesResponse, XmlIndexesInner, indexes);
 
 #[derive(Serialize)]
 pub struct XmlIndexesInner {
@@ -1685,38 +1207,8 @@ pub struct XmlDirectoryArtist {
     pub user_rating: Option<i32>,
 }
 
-/// Directory response (getMusicDirectory)
-#[derive(Serialize)]
-#[serde(rename = "subsonic-response")]
-pub struct XmlDirectoryResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: &'static str,
-    #[serde(rename = "@status")]
-    pub status: String,
-    #[serde(rename = "@version")]
-    pub version: String,
-    #[serde(rename = "@type")]
-    pub response_type: String,
-    #[serde(rename = "@serverVersion")]
-    pub server_version: String,
-    #[serde(rename = "@openSubsonic")]
-    pub open_subsonic: bool,
-    pub directory: XmlDirectoryInner,
-}
-
-impl XmlDirectoryResponse {
-    pub fn ok(directory: XmlDirectoryInner) -> Self {
-        Self {
-            xmlns: "http://subsonic.org/restapi",
-            status: "ok".to_string(),
-            version: "1.16.1".to_string(),
-            response_type: "ferrotune".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            open_subsonic: true,
-            directory,
-        }
-    }
-}
+// Directory response (getMusicDirectory)
+xml_response!(XmlDirectoryResponse, XmlDirectoryInner, directory);
 
 #[derive(Serialize)]
 pub struct XmlDirectoryInner {

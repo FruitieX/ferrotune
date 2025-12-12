@@ -168,7 +168,7 @@ async fn main() -> Result<()> {
             } else {
                 tracing::info!("Starting music library scan...");
             }
-            scanner::scan_library(&pool, &config, full, folder, dry_run).await?;
+            scanner::scan_library(&pool, full, folder, dry_run).await?;
             tracing::info!("Scan completed successfully");
             return Ok(());
         }

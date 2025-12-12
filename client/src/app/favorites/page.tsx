@@ -64,6 +64,7 @@ import { DetailHeader } from "@/components/shared/detail-header";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
 import { MediaListToolbar } from "@/components/shared/media-list-toolbar";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
+import { EmptyState } from "@/components/shared/empty-state";
 import { formatCount, formatTotalDuration } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import type { Album, Artist, Song } from "@/lib/api/types";
@@ -691,11 +692,13 @@ export default function FavoritesPage() {
               )
             ) : (
               <EmptyState
-                message={
+                icon={Heart}
+                title={
                   debouncedSongSearch
                     ? "No songs match your search"
                     : "No liked songs yet"
                 }
+                description="Start liking songs to build your collection"
               />
             )}
           </div>
@@ -762,11 +765,13 @@ export default function FavoritesPage() {
               )
             ) : (
               <EmptyState
-                message={
+                icon={Heart}
+                title={
                   debouncedAlbumSearch
                     ? "No albums match your search"
                     : "No liked albums yet"
                 }
+                description="Start liking albums to build your collection"
               />
             )}
           </div>
@@ -830,11 +835,13 @@ export default function FavoritesPage() {
               )
             ) : (
               <EmptyState
-                message={
+                icon={Heart}
+                title={
                   debouncedArtistSearch
                     ? "No artists match your search"
                     : "No liked artists yet"
                 }
+                description="Start liking artists to build your collection"
               />
             )}
           </div>
@@ -892,20 +899,6 @@ export default function FavoritesPage() {
 
       {/* Spacer for player bar */}
       <div className="h-24" />
-    </div>
-  );
-}
-
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center mb-4">
-        <Heart className="w-10 h-10 text-muted-foreground" />
-      </div>
-      <p className="text-muted-foreground">{message}</p>
-      <p className="text-sm text-muted-foreground mt-2">
-        Start liking songs to build your collection
-      </p>
     </div>
   );
 }

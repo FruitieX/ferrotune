@@ -1,8 +1,9 @@
 import type { Playlist } from "@/lib/api/types";
+import { createSortFunction } from "./create-sort-function";
 
 /**
  * Filter an array of playlists by the specified query string.
- * Searches in playlist name and comment.
+ * Searches in playlist name, comment, and owner.
  */
 export function filterPlaylists(
   playlists: Playlist[],
@@ -24,46 +25,14 @@ export function filterPlaylists(
 /**
  * Sort an array of playlists by the specified field and direction.
  */
-export function sortPlaylists(
-  playlists: Playlist[],
-  field: string,
-  direction: "asc" | "desc",
-): Playlist[] {
-  const sorted = [...playlists].sort((a, b) => {
-    let aVal: string | number = "";
-    let bVal: string | number = "";
-
-    switch (field) {
-      case "name":
-        aVal = a.name?.toLowerCase() ?? "";
-        bVal = b.name?.toLowerCase() ?? "";
-        break;
-      case "songCount":
-        aVal = a.songCount ?? 0;
-        bVal = b.songCount ?? 0;
-        break;
-      case "duration":
-        aVal = a.duration ?? 0;
-        bVal = b.duration ?? 0;
-        break;
-      case "dateAdded":
-      case "created":
-        aVal = a.created ?? "";
-        bVal = b.created ?? "";
-        break;
-      case "changed":
-        aVal = a.changed ?? a.created ?? "";
-        bVal = b.changed ?? b.created ?? "";
-        break;
-      default:
-        aVal = a.name?.toLowerCase() ?? "";
-        bVal = b.name?.toLowerCase() ?? "";
-    }
-
-    if (aVal < bVal) return -1;
-    if (aVal > bVal) return 1;
-    return 0;
-  });
-
-  return direction === "desc" ? sorted.reverse() : sorted;
-}
+export const sortPlaylists = createSortFunction<Playlist>({
+  extractors: {
+    name: (p) => p.name?.toLowerCase() ?? "",
+    songCount: (p) => p.songCount ?? 0,
+    duration: (p) => p.duration ?? 0,
+    dateAdded: (p) => p.created ?? "",
+    created: (p) => p.created ?? "",
+    changed: (p) => p.changed ?? p.created ?? "",
+  },
+  defaultField: "name",
+});

@@ -4,6 +4,7 @@ use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
 use crate::api::AppState;
 use crate::api::QsQuery;
 use crate::api::{first_string_or_none, string_or_seq};
+use crate::db::models::ItemType;
 use crate::error::Result;
 use axum::extract::State;
 use chrono::Utc;
@@ -148,8 +149,8 @@ pub async fn get_play_queue(
 
     // Get starred status and ratings for songs
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
+    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
 
     let song_responses: Vec<crate::api::subsonic::browse::SongResponse> = songs
         .iter()

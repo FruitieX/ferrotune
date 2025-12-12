@@ -7,6 +7,7 @@ use crate::api::subsonic::browse::{
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
+use crate::db::models::ItemType;
 use crate::error::Result;
 use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
@@ -127,8 +128,8 @@ pub async fn get_play_history(
 
     // Get starred status and ratings for all songs in the result
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
+    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
 
     // Get inline thumbnails if requested
     let thumbnails = if let Some(size) = inline_size {

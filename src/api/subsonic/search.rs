@@ -5,6 +5,7 @@ use crate::api::subsonic::browse::{
 };
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
+use crate::db::models::ItemType;
 use crate::error::Result;
 use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
@@ -395,9 +396,9 @@ pub async fn search3(
     // Get starred status and ratings for artists
     let artist_ids: Vec<String> = artists.iter().map(|a| a.id.clone()).collect();
     let artist_starred_map =
-        get_starred_map(&state.pool, user.user_id, "artist", &artist_ids).await?;
+        get_starred_map(&state.pool, user.user_id, ItemType::Artist, &artist_ids).await?;
     let artist_ratings_map =
-        get_ratings_map(&state.pool, user.user_id, "artist", &artist_ids).await?;
+        get_ratings_map(&state.pool, user.user_id, ItemType::Artist, &artist_ids).await?;
 
     // Get inline thumbnails for artists if requested
     let artist_thumbnails = if let Some(size) = inline_size {
@@ -504,8 +505,10 @@ pub async fn search3(
 
     // Get starred status and ratings for albums
     let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
-    let album_starred_map = get_starred_map(&state.pool, user.user_id, "album", &album_ids).await?;
-    let album_ratings_map = get_ratings_map(&state.pool, user.user_id, "album", &album_ids).await?;
+    let album_starred_map =
+        get_starred_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
+    let album_ratings_map =
+        get_ratings_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
 
     // Get inline thumbnails for albums if requested
     let album_thumbnails = if let Some(size) = inline_size {
@@ -547,10 +550,10 @@ pub async fn search3(
 
     // Build JOIN clauses based on filter requirements
     // Always include play_count and last_played for the response
-    let mut joins = String::from(
+    let mut joins = format!(
         "INNER JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id
-         LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id",
+         LEFT JOIN albums al ON s.album_id = al.id{}",
+        crate::db::queries::SCROBBLE_STATS_JOIN
     );
     if filter_conds.has_rating_filter {
         joins.push_str(&format!(
@@ -633,8 +636,10 @@ pub async fn search3(
 
     // Get starred status and ratings for songs
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let song_starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
-    let song_ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
+    let song_starred_map =
+        get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+    let song_ratings_map =
+        get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
 
     // Get inline thumbnails for songs if requested (uses album thumbnails)
     let song_thumbnail_data: Vec<(String, Option<String>)> = songs
@@ -715,10 +720,10 @@ pub async fn search_songs_for_queue(
     let has_filters = !filter_conds.conditions.is_empty();
 
     // Build JOIN clauses based on filter requirements
-    let mut joins = String::from(
+    let mut joins = format!(
         "INNER JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id
-         LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id",
+         LEFT JOIN albums al ON s.album_id = al.id{}",
+        crate::db::queries::SCROBBLE_STATS_JOIN
     );
     if filter_conds.has_rating_filter {
         joins.push_str(&format!(

@@ -28,6 +28,7 @@ import {
   VirtualizedList,
 } from "@/components/shared/virtualized-grid";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
+import { EmptyState } from "@/components/shared/empty-state";
 
 const PAGE_SIZE = 50;
 
@@ -258,7 +259,8 @@ export default function SongsPage() {
         )
       ) : (
         <EmptyState
-          message={
+          icon={Music}
+          title={
             debouncedFilter
               ? "No songs match your filter"
               : "No songs in your library"
@@ -279,18 +281,6 @@ export default function SongsPage() {
         getSelectedSongs={getSelectedSongs}
         selectedIds={selectedIds}
       />
-    </div>
-  );
-}
-
-// Empty state component
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center mb-4">
-        <Music className="w-10 h-10 text-muted-foreground" />
-      </div>
-      <p className="text-muted-foreground">{message}</p>
     </div>
   );
 }

@@ -1,93 +1,33 @@
 import type { Album, Artist } from "@/lib/api/types";
+import { createSortFunction } from "./create-sort-function";
 
 /**
  * Sort an array of albums by the specified field and direction.
  */
-export function sortAlbums(
-  albums: Album[],
-  field: string,
-  direction: "asc" | "desc",
-): Album[] {
-  // "custom" means preserve original order (no sorting)
-  if (field === "custom") {
-    return direction === "desc" ? [...albums].reverse() : albums;
-  }
-
-  const sorted = [...albums].sort((a, b) => {
-    let aVal: string | number = "";
-    let bVal: string | number = "";
-
-    switch (field) {
-      case "name":
-        aVal = a.name?.toLowerCase() ?? "";
-        bVal = b.name?.toLowerCase() ?? "";
-        break;
-      case "artist":
-        aVal = a.artist?.toLowerCase() ?? "";
-        bVal = b.artist?.toLowerCase() ?? "";
-        break;
-      case "year":
-        aVal = a.year ?? 0;
-        bVal = b.year ?? 0;
-        break;
-      case "dateAdded":
-        aVal = a.created ?? "";
-        bVal = b.created ?? "";
-        break;
-      default:
-        aVal = a.name?.toLowerCase() ?? "";
-        bVal = b.name?.toLowerCase() ?? "";
-    }
-
-    if (aVal < bVal) return -1;
-    if (aVal > bVal) return 1;
-    return 0;
-  });
-
-  return direction === "desc" ? sorted.reverse() : sorted;
-}
+export const sortAlbums = createSortFunction<Album>({
+  extractors: {
+    name: (a) => a.name?.toLowerCase() ?? "",
+    artist: (a) => a.artist?.toLowerCase() ?? "",
+    year: (a) => a.year ?? 0,
+    dateAdded: (a) => a.created ?? "",
+  },
+  defaultField: "name",
+});
 
 /**
  * Sort an array of artists by the specified field and direction.
  */
-export function sortArtists(
-  artists: Artist[],
-  field: string,
-  direction: "asc" | "desc",
-): Artist[] {
-  // "custom" means preserve original order (no sorting)
-  if (field === "custom") {
-    return direction === "desc" ? [...artists].reverse() : artists;
-  }
-
-  const sorted = [...artists].sort((a, b) => {
-    let aVal: string | number = "";
-    let bVal: string | number = "";
-
-    switch (field) {
-      case "name":
-        aVal = a.name?.toLowerCase() ?? "";
-        bVal = b.name?.toLowerCase() ?? "";
-        break;
-      case "albumCount":
-        aVal = a.albumCount ?? 0;
-        bVal = b.albumCount ?? 0;
-        break;
-      default:
-        aVal = a.name?.toLowerCase() ?? "";
-        bVal = b.name?.toLowerCase() ?? "";
-    }
-
-    if (aVal < bVal) return -1;
-    if (aVal > bVal) return 1;
-    return 0;
-  });
-
-  return direction === "desc" ? sorted.reverse() : sorted;
-}
+export const sortArtists = createSortFunction<Artist>({
+  extractors: {
+    name: (a) => a.name?.toLowerCase() ?? "",
+    albumCount: (a) => a.albumCount ?? 0,
+  },
+  defaultField: "name",
+});
 
 /**
  * Generic sort function for media (albums or artists).
+ * Determines type by checking for Album-specific property.
  */
 export function sortMedia<T extends Album | Artist>(
   items: T[],

@@ -6,6 +6,38 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 // ============================================================================
+// Song Query Constants
+// ============================================================================
+// These constants eliminate duplication across the many song query functions.
+
+/// Base song query with artist and album joins (for simple lookups)
+pub const SONG_BASE_QUERY: &str = r#"
+    SELECT s.*, ar.name as artist_name, al.name as album_name
+    FROM songs s
+    INNER JOIN artists ar ON s.artist_id = ar.id
+    LEFT JOIN albums al ON s.album_id = al.id
+"#;
+
+/// Song query with scrobble statistics (play count, last played)
+pub const SONG_BASE_QUERY_WITH_SCROBBLES: &str = r#"
+    SELECT s.*, ar.name as artist_name, al.name as album_name,
+           pc.play_count, pc.last_played, NULL as starred_at
+    FROM songs s
+    INNER JOIN artists ar ON s.artist_id = ar.id
+    LEFT JOIN albums al ON s.album_id = al.id
+    LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
+               FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+"#;
+
+/// Standalone scrobble statistics JOIN clause for composing with custom queries.
+/// Use this when building dynamic queries that need play count and last played info.
+/// Expects the songs table to be aliased as `s`.
+pub const SCROBBLE_STATS_JOIN: &str = r#"
+    LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
+               FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+"#;
+
+// ============================================================================
 // User queries
 // ============================================================================
 
@@ -173,20 +205,14 @@ pub async fn get_album_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option
 
 // Song queries
 pub async fn get_songs_by_album(pool: &SqlitePool, album_id: &str) -> sqlx::Result<Vec<Song>> {
-    sqlx::query_as::<_, Song>(
-        "SELECT s.*, ar.name as artist_name, al.name as album_name,
-                pc.play_count, pc.last_played, NULL as starred_at
-         FROM songs s
-         INNER JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id
-         LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
-                    FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
-         WHERE s.album_id = ? 
-         ORDER BY s.disc_number, s.track_number, s.title",
-    )
-    .bind(album_id)
-    .fetch_all(pool)
-    .await
+    let query = format!(
+        "{} WHERE s.album_id = ? ORDER BY s.disc_number, s.track_number, s.title",
+        SONG_BASE_QUERY_WITH_SCROBBLES
+    );
+    sqlx::query_as::<_, Song>(&query)
+        .bind(album_id)
+        .fetch_all(pool)
+        .await
 }
 
 /// Get all songs by a specific artist
@@ -194,8 +220,7 @@ pub async fn get_songs_by_album(pool: &SqlitePool, album_id: &str) -> sqlx::Resu
 /// 1. Songs from albums by this artist (album artist)
 /// 2. Songs where the track artist matches (for compilations/features)
 pub async fn get_songs_by_artist(pool: &SqlitePool, artist_id: &str) -> sqlx::Result<Vec<Song>> {
-    sqlx::query_as::<_, Song>(
-        "SELECT DISTINCT s.*, ar.name as artist_name, al.name as album_name,
+    let query = "SELECT DISTINCT s.*, ar.name as artist_name, al.name as album_name,
                 pc.play_count, pc.last_played, NULL as starred_at
          FROM songs s
          INNER JOIN artists ar ON s.artist_id = ar.id
@@ -203,25 +228,20 @@ pub async fn get_songs_by_artist(pool: &SqlitePool, artist_id: &str) -> sqlx::Re
          LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
                     FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
          WHERE s.artist_id = ? OR al.artist_id = ?
-         ORDER BY s.album_id, s.disc_number, s.track_number, s.title",
-    )
-    .bind(artist_id)
-    .bind(artist_id)
-    .fetch_all(pool)
-    .await
+         ORDER BY s.album_id, s.disc_number, s.track_number, s.title";
+    sqlx::query_as::<_, Song>(query)
+        .bind(artist_id)
+        .bind(artist_id)
+        .fetch_all(pool)
+        .await
 }
 
 pub async fn get_song_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<Song>> {
-    sqlx::query_as::<_, Song>(
-        "SELECT s.*, ar.name as artist_name, al.name as album_name 
-         FROM songs s
-         INNER JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id
-         WHERE s.id = ?",
-    )
-    .bind(id)
-    .fetch_optional(pool)
-    .await
+    let query = format!("{} WHERE s.id = ?", SONG_BASE_QUERY);
+    sqlx::query_as::<_, Song>(&query)
+        .bind(id)
+        .fetch_optional(pool)
+        .await
 }
 
 /// Get songs by a list of IDs, maintaining the order of the input IDs
@@ -235,11 +255,8 @@ pub async fn get_songs_by_ids(pool: &SqlitePool, ids: &[String]) -> sqlx::Result
     let placeholder_str = placeholders.join(", ");
 
     let query = format!(
-        "SELECT s.*, ar.name as artist_name, al.name as album_name 
-         FROM songs s
-         INNER JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id
-         WHERE s.id IN ({})",
+        "{} WHERE s.id IN ({})",
+        SONG_BASE_QUERY.trim(),
         placeholder_str
     );
 

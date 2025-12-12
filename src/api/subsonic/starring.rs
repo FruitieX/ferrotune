@@ -6,6 +6,7 @@ use crate::api::subsonic::query::first_i32;
 use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
 use crate::api::AppState;
 use crate::api::QsQuery;
+use crate::db::models::ItemType;
 use crate::error::Result;
 use axum::extract::State;
 use chrono::Utc;
@@ -227,7 +228,7 @@ async fn fetch_starred_content(
 
     // Get ratings for starred artists
     let artist_ids: Vec<String> = starred_artists.iter().map(|(id, _)| id.clone()).collect();
-    let artist_ratings = get_ratings_map(pool, user_id, "artist", &artist_ids).await?;
+    let artist_ratings = get_ratings_map(pool, user_id, ItemType::Artist, &artist_ids).await?;
 
     let mut artist_responses = Vec::new();
     for (id, starred_at) in starred_artists {
@@ -254,7 +255,7 @@ async fn fetch_starred_content(
 
     // Get ratings for starred albums
     let album_ids: Vec<String> = starred_albums.iter().map(|(id, _)| id.clone()).collect();
-    let album_ratings = get_ratings_map(pool, user_id, "album", &album_ids).await?;
+    let album_ratings = get_ratings_map(pool, user_id, ItemType::Album, &album_ids).await?;
 
     let mut album_responses = Vec::new();
     for (id, starred_at) in starred_albums {
@@ -308,7 +309,7 @@ async fn fetch_starred_content(
 
     // Get ratings for starred songs
     let song_ids: Vec<String> = starred_songs.iter().map(|s| s.id.clone()).collect();
-    let song_ratings = get_ratings_map(pool, user_id, "song", &song_ids).await?;
+    let song_ratings = get_ratings_map(pool, user_id, ItemType::Song, &song_ids).await?;
 
     use crate::api::subsonic::browse::{song_to_response_with_stats, SongPlayStats};
     let mut song_responses = Vec::new();

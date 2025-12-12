@@ -26,6 +26,10 @@ use serde::Deserialize;
 use std::io::Cursor;
 use std::sync::Arc;
 
+/// Cache-Control header for cover art responses (30 days)
+/// Cover art is content-addressable (hash-based), so aggressive caching is safe.
+const COVER_ART_CACHE_HEADER: &str = "public, max-age=2592000";
+
 #[derive(Deserialize)]
 pub struct CoverArtParams {
     id: String,
@@ -110,7 +114,7 @@ pub async fn get_cover_art(
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
         .header(header::CONTENT_LENGTH, image_data.len())
-        .header(header::CACHE_CONTROL, "public, max-age=2592000") // 30 days
+        .header(header::CACHE_CONTROL, COVER_ART_CACHE_HEADER)
         .body(Body::from(image_data))
         .unwrap())
 }

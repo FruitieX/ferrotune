@@ -5,6 +5,7 @@ use crate::api::subsonic::browse::{
 use crate::api::subsonic::inline_thumbnails::{get_album_thumbnails_base64, InlineImagesParam};
 use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
 use crate::api::AppState;
+use crate::db::models::ItemType;
 use crate::error::Result;
 use axum::extract::{Query, State};
 use chrono::Utc;
@@ -276,8 +277,10 @@ pub async fn get_album_list2(
 
     // Get starred status and ratings for albums
     let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, "album", &album_ids).await?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, "album", &album_ids).await?;
+    let starred_map =
+        get_starred_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
+    let ratings_map =
+        get_ratings_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
 
     // Get inline thumbnails if requested
     let thumbnails = if let Some(size) = inline_size {
@@ -375,8 +378,8 @@ pub async fn get_random_songs(
 
     // Get starred status and ratings for songs
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
+    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
 
     let mut song_responses = Vec::new();
 
@@ -472,8 +475,8 @@ pub async fn get_songs_by_genre(
 
     // Get starred status and ratings for songs
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, "song", &song_ids).await?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, "song", &song_ids).await?;
+    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
 
     let mut song_responses = Vec::new();
 

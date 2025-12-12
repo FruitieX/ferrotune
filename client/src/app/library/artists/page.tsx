@@ -29,6 +29,7 @@ import {
   VirtualizedList,
 } from "@/components/shared/virtualized-grid";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
+import { EmptyState } from "@/components/shared/empty-state";
 import type { Song } from "@/lib/api/types";
 
 const PAGE_SIZE = 50;
@@ -298,7 +299,8 @@ export default function ArtistsPage() {
         )
       ) : (
         <EmptyState
-          message={
+          icon={User}
+          title={
             debouncedFilter || hasActiveFilters
               ? "No artists match your filters"
               : "No artists in your library"
@@ -320,18 +322,6 @@ export default function ArtistsPage() {
         onSelectAll={selectAll}
         getSelectedItems={getSelectedItems}
       />
-    </div>
-  );
-}
-
-// Empty state component
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center mb-4">
-        <User className="w-10 h-10 text-muted-foreground" />
-      </div>
-      <p className="text-muted-foreground">{message}</p>
     </div>
   );
 }

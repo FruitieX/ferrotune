@@ -1,8 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { useAtom, useSetAtom } from "jotai";
-import { toast } from "sonner";
+import Link from "next/link";
 import {
   Play,
   ListPlus,
@@ -44,20 +42,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
-import {
-  startQueueAtom,
-  addToQueueAtom,
-  type QueueSourceType,
-} from "@/lib/store/server-queue";
-import { useStarred } from "@/lib/store/starred";
-import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
-import { getClient } from "@/lib/api/client";
+import { useSongActions, type QueueSource } from "@/lib/hooks/use-song-actions";
 import type { Song } from "@/lib/api/types";
-import Link from "next/link";
 
 // Global function to dismiss any open context menu by simulating an escape key press
 function dismissContextMenu() {
-  // Dispatch Escape key to close any open context menu
   document.dispatchEvent(
     new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
   );
@@ -67,39 +56,19 @@ interface SongContextMenuProps {
   song: Song;
   children: React.ReactNode;
   queueSongs?: Song[];
-  /** The index of this song in the queue/list (for views with duplicate songs) */
   songIndex?: number;
-  /** Source info for the queue when playing from a collection */
-  queueSource?: {
-    type: string;
-    id?: string | null;
-    name?: string | null;
-    filters?: Record<string, unknown>;
-    sort?: { field: string; direction: string };
-  };
-  /** Hide Play, Play Next, Add to Queue options (for queue items) */
+  queueSource?: QueueSource;
   hideQueueActions?: boolean;
-  /** Show "Remove from Queue" option */
   showRemoveFromQueue?: boolean;
-  /** Callback for removing from queue */
   onRemoveFromQueue?: () => void;
-  /** Show "Remove from Playlist" option */
   showRemoveFromPlaylist?: boolean;
-  /** Callback for removing from playlist */
   onRemoveFromPlaylist?: (songId: string) => void;
-  /** Show "Move to Position" option */
   showMoveToPosition?: boolean;
-  /** Callback for move to position */
   onMoveToPosition?: (song: Song, index: number) => void;
-  /** Label for move to position action */
   moveToPositionLabel?: string;
-  /** Show "Refine Match" option (for songs that were auto-matched from playlist imports) */
   showRefineMatch?: boolean;
-  /** Callback for refine match */
   onRefineMatch?: (song: Song, index: number) => void;
-  /** Show "Unmatch Song" option (for reverting auto-matched songs back to missing entries) */
   showUnmatch?: boolean;
-  /** Callback for unmatch */
   onUnmatch?: (song: Song, index: number) => void;
 }
 
@@ -122,115 +91,22 @@ export function SongContextMenu({
   showUnmatch = false,
   onUnmatch,
 }: SongContextMenuProps) {
-  const startQueue = useSetAtom(startQueueAtom);
-  const addToQueue = useSetAtom(addToQueueAtom);
-  const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
-  const [shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
-  const [currentRating, setCurrentRating] = useState(song.userRating ?? 0);
-  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
-
-  const isExcludedFromShuffle = shuffleExcludes.has(song.id);
-
-  const handleToggleShuffleExclude = async () => {
-    const client = getClient();
-    if (!client) return;
-
-    const newExcluded = !isExcludedFromShuffle;
-    try {
-      await client.setShuffleExclude(song.id, newExcluded);
-      setShuffleExcludes((prev: Set<string>) => {
-        const next = new Set(prev);
-        if (newExcluded) {
-          next.add(song.id);
-        } else {
-          next.delete(song.id);
-        }
-        return next;
-      });
-      toast.success(
-        newExcluded
-          ? `"${song.title}" excluded from shuffle`
-          : `"${song.title}" included in shuffle`,
-      );
-    } catch (error) {
-      toast.error("Failed to update shuffle setting");
-      console.error(error);
-    }
-  };
-
-  const handlePlay = () => {
-    if (queueSource?.type && queueSource.type !== "other") {
-      // Use server-side queue materialization for known sources
-      // Prefer songIndex if provided (handles duplicate songs), otherwise find by ID
-      const index =
-        songIndex ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
-      startQueue({
-        sourceType: queueSource.type as QueueSourceType,
-        sourceId: queueSource.id ?? undefined,
-        sourceName: queueSource.name ?? undefined,
-        startIndex: index >= 0 ? index : 0,
-        startSongId: song.id,
-        filters: queueSource.filters,
-        sort: queueSource.sort,
-      });
-    } else if (queueSongs && queueSongs.length > 0) {
-      // Fallback to explicit song IDs for custom lists
-      // Prefer songIndex if provided, otherwise find by ID
-      const index = songIndex ?? queueSongs.findIndex((s) => s.id === song.id);
-      startQueue({
-        sourceType: (queueSource?.type as QueueSourceType) || "other",
-        sourceName: queueSource?.name ?? undefined,
-        startIndex: index >= 0 ? index : 0,
-        startSongId: song.id,
-        songIds: queueSongs.map((s) => s.id),
-      });
-    } else {
-      // Single song
-      startQueue({
-        sourceType: "other",
-        startIndex: 0,
-        startSongId: song.id,
-        songIds: [song.id],
-      });
-    }
-  };
-
-  const handlePlayNext = () => {
-    addToQueue({ songIds: [song.id], position: "next" });
-    toast.success(`Added "${song.title}" to play next`);
-  };
-
-  const handleAddToQueue = () => {
-    addToQueue({ songIds: [song.id], position: "end" });
-    toast.success(`Added "${song.title}" to queue`);
-  };
-
-  const handleRate = async (rating: number) => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      await client.setRating(song.id, rating);
-      setCurrentRating(rating);
-      toast.success(
-        rating > 0
-          ? `Rated "${song.title}" ${rating} stars`
-          : `Removed rating from "${song.title}"`,
-      );
-    } catch (error) {
-      toast.error("Failed to set rating");
-      console.error(error);
-    }
-  };
-
-  const handleDownload = () => {
-    const client = getClient();
-    if (!client) return;
-
-    const downloadUrl = client.getDownloadUrl(song.id);
-    window.open(downloadUrl, "_blank");
-  };
+  const {
+    isStarred,
+    toggleStar,
+    isExcludedFromShuffle,
+    handleToggleShuffleExclude,
+    currentRating,
+    handleRate,
+    handlePlay,
+    handlePlayNext,
+    handleAddToQueue,
+    handleDownload,
+    addToPlaylistOpen,
+    setAddToPlaylistOpen,
+    detailsOpen,
+    setDetailsOpen,
+  } = useSongActions({ song, queueSongs, songIndex, queueSource });
 
   const menuItems = (
     <>
@@ -396,39 +272,20 @@ export function SongContextMenu({
 interface SongDropdownMenuProps {
   song: Song;
   queueSongs?: Song[];
-  /** The index of this song in the queue/list (for views with duplicate songs) */
   songIndex?: number;
-  queueSource?: {
-    type: string;
-    id?: string | null;
-    name?: string | null;
-    filters?: Record<string, unknown>;
-    sort?: { field: string; direction: string };
-  };
+  queueSource?: QueueSource;
   trigger?: React.ReactNode;
-  /** Hide Play, Play Next, Add to Queue options (for queue items) */
   hideQueueActions?: boolean;
-  /** Show "Remove from Queue" option */
   showRemoveFromQueue?: boolean;
-  /** Callback for removing from queue */
   onRemoveFromQueue?: () => void;
-  /** Show "Remove from Playlist" option */
   showRemoveFromPlaylist?: boolean;
-  /** Callback for removing from playlist */
   onRemoveFromPlaylist?: (songId: string) => void;
-  /** Show "Move to Position" option */
   showMoveToPosition?: boolean;
-  /** Callback for move to position */
   onMoveToPosition?: (song: Song, index: number) => void;
-  /** Label for move to position action */
   moveToPositionLabel?: string;
-  /** Show "Refine Match" option (for songs that were auto-matched from playlist imports) */
   showRefineMatch?: boolean;
-  /** Callback for refine match */
   onRefineMatch?: (song: Song, index: number) => void;
-  /** Show "Unmatch" option (to revert a matched song back to missing) */
   showUnmatch?: boolean;
-  /** Callback for unmatch */
   onUnmatch?: (song: Song, index: number) => void;
 }
 
@@ -451,113 +308,22 @@ export function SongDropdownMenu({
   showUnmatch = false,
   onUnmatch,
 }: SongDropdownMenuProps) {
-  const startQueue = useSetAtom(startQueueAtom);
-  const addToQueue = useSetAtom(addToQueueAtom);
-  const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
-  const [shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
-  const [currentRating, setCurrentRating] = useState(song.userRating ?? 0);
-  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
-
-  const isExcludedFromShuffle = shuffleExcludes.has(song.id);
-
-  const handleToggleShuffleExclude = async () => {
-    const client = getClient();
-    if (!client) return;
-
-    const newExcluded = !isExcludedFromShuffle;
-    try {
-      await client.setShuffleExclude(song.id, newExcluded);
-      setShuffleExcludes((prev: Set<string>) => {
-        const next = new Set(prev);
-        if (newExcluded) {
-          next.add(song.id);
-        } else {
-          next.delete(song.id);
-        }
-        return next;
-      });
-      toast.success(
-        newExcluded
-          ? `"${song.title}" excluded from shuffle`
-          : `"${song.title}" included in shuffle`,
-      );
-    } catch (error) {
-      toast.error("Failed to update shuffle setting");
-      console.error(error);
-    }
-  };
-
-  const handlePlay = () => {
-    if (queueSource?.type && queueSource.type !== "other") {
-      // Use server-side queue materialization for known sources
-      // Prefer songIndex if provided (handles duplicate songs), otherwise find by ID
-      const index =
-        songIndex ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
-      startQueue({
-        sourceType: queueSource.type as QueueSourceType,
-        sourceId: queueSource.id ?? undefined,
-        sourceName: queueSource.name ?? undefined,
-        startIndex: index >= 0 ? index : 0,
-        startSongId: song.id,
-        filters: queueSource.filters,
-        sort: queueSource.sort,
-      });
-    } else if (queueSongs && queueSongs.length > 0) {
-      // Prefer songIndex if provided, otherwise find by ID
-      const index = songIndex ?? queueSongs.findIndex((s) => s.id === song.id);
-      startQueue({
-        sourceType: (queueSource?.type as QueueSourceType) || "other",
-        sourceName: queueSource?.name ?? undefined,
-        songIds: queueSongs.map((s) => s.id),
-        startIndex: index >= 0 ? index : 0,
-        startSongId: song.id,
-      });
-    } else {
-      startQueue({
-        sourceType: "other",
-        songIds: [song.id],
-        startIndex: 0,
-        startSongId: song.id,
-      });
-    }
-  };
-
-  const handlePlayNext = () => {
-    addToQueue({ songIds: [song.id], position: "next" });
-    toast.success(`Added "${song.title}" to play next`);
-  };
-
-  const handleAddToQueue = () => {
-    addToQueue({ songIds: [song.id], position: "end" });
-    toast.success(`Added "${song.title}" to queue`);
-  };
-
-  const handleRate = async (rating: number) => {
-    const client = getClient();
-    if (!client) return;
-
-    try {
-      await client.setRating(song.id, rating);
-      setCurrentRating(rating);
-      toast.success(
-        rating > 0
-          ? `Rated "${song.title}" ${rating} stars`
-          : `Removed rating from "${song.title}"`,
-      );
-    } catch (error) {
-      toast.error("Failed to set rating");
-      console.error(error);
-    }
-  };
-
-  const handleDownload = () => {
-    const client = getClient();
-    if (!client) return;
-
-    const downloadUrl = client.getDownloadUrl(song.id);
-    window.open(downloadUrl, "_blank");
-  };
+  const {
+    isStarred,
+    toggleStar,
+    isExcludedFromShuffle,
+    handleToggleShuffleExclude,
+    currentRating,
+    handleRate,
+    handlePlay,
+    handlePlayNext,
+    handleAddToQueue,
+    handleDownload,
+    addToPlaylistOpen,
+    setAddToPlaylistOpen,
+    detailsOpen,
+    setDetailsOpen,
+  } = useSongActions({ song, queueSongs, songIndex, queueSource });
 
   const defaultTrigger = (
     <Button
@@ -574,7 +340,6 @@ export function SongDropdownMenu({
     </Button>
   );
 
-  // Dismiss any open context menu when dropdown opens
   const handleDropdownOpenChange = (open: boolean) => {
     if (open) {
       dismissContextMenu();

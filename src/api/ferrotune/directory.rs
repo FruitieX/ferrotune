@@ -7,6 +7,7 @@ use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::browse::{get_ratings_map, get_starred_map};
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::AppState;
+use crate::db::models::ItemType;
 use axum::extract::{Query, State};
 use axum::response::Json;
 use serde::{Deserialize, Serialize};
@@ -504,8 +505,8 @@ async fn get_directory_contents_for_library(
 
     // Get starred status and ratings for songs
     let song_ids: Vec<String> = direct_songs.iter().map(|s| s.0.clone()).collect();
-    let starred_map = get_starred_map(pool, user_id, "song", &song_ids).await?;
-    let ratings_map = get_ratings_map(pool, user_id, "song", &song_ids).await?;
+    let starred_map = get_starred_map(pool, user_id, ItemType::Song, &song_ids).await?;
+    let ratings_map = get_ratings_map(pool, user_id, ItemType::Song, &song_ids).await?;
 
     // Get inline thumbnails if requested
     let thumbnails = if let Some(size) = inline_size {

@@ -169,6 +169,34 @@ pub struct Starred {
     pub starred_at: DateTime<Utc>,
 }
 
+/// Item type for starred/ratings - provides type safety instead of string literals
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ItemType {
+    Song,
+    Album,
+    Artist,
+}
+
+impl ItemType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ItemType::Song => "song",
+            ItemType::Album => "album",
+            ItemType::Artist => "artist",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "song" => Some(ItemType::Song),
+            "album" => Some(ItemType::Album),
+            "artist" => Some(ItemType::Artist),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Playlist {
     pub id: String,

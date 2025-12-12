@@ -342,12 +342,6 @@ impl ScanState {
         *self.total.write().await = Some(total);
     }
 
-    /// Add to the total count (for multi-folder scans).
-    pub async fn add_to_total(&self, count: u64) {
-        let mut total = self.total.write().await;
-        *total = Some(total.unwrap_or(0) + count);
-    }
-
     /// Set the current folder being scanned.
     pub async fn set_current_folder(&self, folder: Option<String>) {
         *self.current_folder.write().await = folder;

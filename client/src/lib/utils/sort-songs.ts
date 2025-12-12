@@ -1,58 +1,18 @@
 import type { Song } from "@/lib/api/types";
+import { createSortFunction } from "./create-sort-function";
 
 /**
  * Sort an array of songs by the specified field and direction.
- * This function is excluded from React Compiler optimization to avoid
- * hook-related issues when called inside useMemo or other hooks.
+ * Uses server-side sorting configuration.
  */
-export function sortSongs(
-  songs: Song[],
-  field: string,
-  direction: "asc" | "desc",
-): Song[] {
-  // "custom" means preserve original order (no sorting)
-  if (field === "custom") {
-    return direction === "desc" ? [...songs].reverse() : songs;
-  }
-
-  const sorted = [...songs].sort((a, b) => {
-    let aVal: string | number = "";
-    let bVal: string | number = "";
-
-    switch (field) {
-      case "name":
-        aVal = a.title?.toLowerCase() ?? "";
-        bVal = b.title?.toLowerCase() ?? "";
-        break;
-      case "artist":
-        aVal = a.artist?.toLowerCase() ?? "";
-        bVal = b.artist?.toLowerCase() ?? "";
-        break;
-      case "year":
-        aVal = a.year ?? 0;
-        bVal = b.year ?? 0;
-        break;
-      case "dateAdded":
-        aVal = a.created ?? "";
-        bVal = b.created ?? "";
-        break;
-      case "playCount":
-        aVal = a.playCount ?? 0;
-        bVal = b.playCount ?? 0;
-        break;
-      case "duration":
-        aVal = a.duration ?? 0;
-        bVal = b.duration ?? 0;
-        break;
-      default:
-        aVal = a.title?.toLowerCase() ?? "";
-        bVal = b.title?.toLowerCase() ?? "";
-    }
-
-    if (aVal < bVal) return -1;
-    if (aVal > bVal) return 1;
-    return 0;
-  });
-
-  return direction === "desc" ? sorted.reverse() : sorted;
-}
+export const sortSongs = createSortFunction<Song>({
+  extractors: {
+    name: (s) => s.title?.toLowerCase() ?? "",
+    artist: (s) => s.artist?.toLowerCase() ?? "",
+    year: (s) => s.year ?? 0,
+    dateAdded: (s) => s.created ?? "",
+    playCount: (s) => s.playCount ?? 0,
+    duration: (s) => s.duration ?? 0,
+  },
+  defaultField: "name",
+});
