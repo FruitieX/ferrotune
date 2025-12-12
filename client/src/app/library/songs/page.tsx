@@ -43,12 +43,17 @@ export default function SongsPage() {
   const debouncedFilter = useDebounce(filter, 300);
   const startQueue = useSetAtom(startQueueAtom);
 
-  // Virtualized scroll restoration
-  const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
+  // Virtualized scroll restoration - pass viewMode to store separate positions per view
+  const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration(
+    "main-scroll-container",
+    viewMode,
+  );
 
   // Fetch all songs using search with wildcard (when no filter)
   // Server-side sorting is applied via songSort and songSortDir parameters
   // Advanced filters are passed to the API
+  // Note: We request "medium" thumbnails for both views to prevent refetching when toggling view mode.
+  // The list view will downscale the larger thumbnails.
   const {
     data: songsData,
     isLoading,
@@ -63,7 +68,7 @@ export default function SongsPage() {
       sortConfig.field,
       sortConfig.direction,
       advancedFilters,
-      viewMode, // Include view mode for proper thumbnail size
+      // Note: viewMode removed from query key to prevent refetching when toggling views
     ],
     queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
@@ -80,8 +85,8 @@ export default function SongsPage() {
         songSortDir: sortConfig.direction,
         // Pass advanced filters
         ...advancedFilters,
-        // Request small thumbnails for rows, medium for grid
-        inlineImages: viewMode === "grid" ? "medium" : "small",
+        // Request medium thumbnails for both views (prevents refetch on view toggle)
+        inlineImages: "medium",
       });
       const songs = response.searchResult3.song ?? [];
       const total = response.searchResult3.songTotal;

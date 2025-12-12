@@ -1,6 +1,8 @@
 use crate::api::ScanState;
 use crate::config::Config;
 use crate::error::{Error, Result};
+use async_walkdir::WalkDir;
+use futures_lite::StreamExt;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::probe::Probe;
 use lofty::tag::Accessor;
@@ -9,7 +11,6 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use uuid::Uuid;
-use walkdir::WalkDir;
 
 /// Size threshold for partial hashing. Files smaller than this use the entire file.
 const PARTIAL_HASH_CHUNK_SIZE: u64 = 64 * 1024; // 64KB
@@ -286,37 +287,74 @@ async fn scan_folder_with_progress(
 
     // Count total files first for progress tracking (if scan_state provided)
     if let Some(ref state) = scan_state {
+        // Log that we're starting to enumerate files
+        state
+            .log(
+                "INFO",
+                format!("Enumerating audio files in {}...", base_path.display()),
+            )
+            .await;
+        state
+            .set_current_folder(Some(base_path.display().to_string()))
+            .await;
+        state.broadcast().await;
+
         let mut total_count = 0u64;
-        for entry in WalkDir::new(&base_path)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
+        let mut entries = WalkDir::new(&base_path);
+        while let Some(entry) = entries.next().await {
+            // Check for cancellation during enumeration
+            if state.is_cancelled() {
+                state.log("WARN", "Scan cancelled by user").await;
+                return Err(Error::InvalidRequest("Scan cancelled".to_string()));
+            }
+
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
             let path = entry.path();
-            if !path.is_file() {
+
+            // Skip directories - check file_type() for async_walkdir
+            let file_type = match entry.file_type().await {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+            if !file_type.is_file() {
                 continue;
             }
+
             if let Some(ext) = path.extension() {
                 if supported_extensions.contains(&ext.to_string_lossy().to_lowercase().as_str()) {
                     total_count += 1;
+                    // Broadcast progress every 200 files
+                    if total_count.is_multiple_of(200) {
+                        state.set_total(total_count).await;
+                        state
+                            .log(
+                                "INFO",
+                                format!(
+                                    "Enumerating audio files... ({} found so far)",
+                                    total_count
+                                ),
+                            )
+                            .await;
+                        state.broadcast().await;
+                    }
                 }
             }
         }
-        // Add to total instead of setting (for multi-folder scans)
-        state.add_to_total(total_count).await;
+        state.set_total(total_count).await;
         state
             .log(
                 "INFO",
                 format!("Found {} audio files in this folder", total_count),
             )
             .await;
+        state.broadcast().await;
     }
 
-    for entry in WalkDir::new(&base_path)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    let mut entries = WalkDir::new(&base_path);
+    while let Some(entry) = entries.next().await {
         // Check for cancellation
         if let Some(ref state) = scan_state {
             if state.is_cancelled() {
@@ -325,10 +363,18 @@ async fn scan_folder_with_progress(
             }
         }
 
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
         let path = entry.path();
 
-        // Skip directories
-        if !path.is_file() {
+        // Skip directories - check file_type() for async_walkdir
+        let file_type = match entry.file_type().await {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+        if !file_type.is_file() {
             continue;
         }
 
@@ -363,7 +409,7 @@ async fn scan_folder_with_progress(
         // Get relative path from base
         let relative_path = path
             .strip_prefix(&base_path)
-            .unwrap_or(path)
+            .unwrap_or(&path)
             .to_string_lossy()
             .to_string();
 
@@ -371,7 +417,7 @@ async fn scan_folder_with_progress(
         let existing_id = unseen_files.remove(&relative_path);
 
         // Get file modification time (used for incremental scanning)
-        let file_mtime = std::fs::metadata(path)
+        let file_mtime = std::fs::metadata(&path)
             .ok()
             .and_then(|meta| meta.modified().ok())
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -425,7 +471,7 @@ async fn scan_folder_with_progress(
         }
 
         // Extract metadata (pass file_mtime to avoid re-reading it)
-        match extract_metadata(pool, path, file_mtime).await {
+        match extract_metadata(pool, &path, file_mtime).await {
             Ok(metadata) => {
                 match upsert_song(pool, metadata, relative_path.clone(), folder_id).await {
                     Ok(is_new) => {

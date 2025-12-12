@@ -427,46 +427,46 @@ export function ScanDialog() {
                   </div>
                 )}
 
-                {/* Stats - clickable when finished */}
+                {/* Stats - clickable during and after scan */}
                 <div className="grid grid-cols-5 gap-2 text-center">
                   <StatBox
                     count={progress.added}
                     label="Added"
                     colorClass="text-green-600"
                     onClick={() => handleStatClick("added")}
-                    disabled={isScanning || isLoadingDetails}
+                    disabled={isLoadingDetails}
                   />
                   <StatBox
                     count={progress.updated}
                     label="Updated"
                     colorClass="text-blue-600"
                     onClick={() => handleStatClick("updated")}
-                    disabled={isScanning || isLoadingDetails}
+                    disabled={isLoadingDetails}
                   />
                   <StatBox
                     count={progress.removed}
                     label="Removed"
                     colorClass="text-orange-600"
                     onClick={() => handleStatClick("removed")}
-                    disabled={isScanning || isLoadingDetails}
+                    disabled={isLoadingDetails}
                   />
                   <StatBox
                     count={progress.duplicates}
                     label="Duplicates"
                     colorClass="text-yellow-600"
                     onClick={() => handleStatClick("duplicates")}
-                    disabled={isScanning || isLoadingDetails}
+                    disabled={isLoadingDetails}
                   />
                   <StatBox
                     count={progress.errors}
                     label="Errors"
                     colorClass="text-red-600"
                     onClick={() => handleStatClick("errors")}
-                    disabled={isScanning || isLoadingDetails}
+                    disabled={isLoadingDetails}
                   />
                 </div>
 
-                {isFinished && !hasError && (
+                {(isScanning || isFinished) && (
                   <p className="text-xs text-muted-foreground text-center">
                     Click on a stat to view details
                   </p>

@@ -12,6 +12,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -69,26 +79,47 @@ export function ImportPlaylistDialog({
     useAlbum: false,
   });
   const [includeMissing, setIncludeMissing] = useState(true);
+  const [confirmCloseDialogOpen, setConfirmCloseDialogOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const { matchTracks, cancel: cancelMatching } = useTrackMatcher();
 
-  // Reset state when dialog closes
-  const handleOpenChange = (open: boolean) => {
-    if (!open) {
-      cancelMatching();
-      setStep("upload");
-      setPlaylistName("");
-      setParsedTracks([]);
-      setMatchedTracks([]);
-      setMatchingProgress(0);
-      setIsMatching(false);
-      setOriginalFormat("m3u");
-      setOriginalHeaderLine(undefined);
-      setSearchOptions({ useTitle: true, useArtist: true, useAlbum: false });
-      setIncludeMissing(true);
+  // Check if there are unsaved changes
+  const hasUnsavedChanges = step === "preview" && matchedTracks.length > 0;
+
+  // Reset state when dialog closes (internal helper)
+  const resetAndClose = () => {
+    cancelMatching();
+    setStep("upload");
+    setPlaylistName("");
+    setParsedTracks([]);
+    setMatchedTracks([]);
+    setMatchingProgress(0);
+    setIsMatching(false);
+    setOriginalFormat("m3u");
+    setOriginalHeaderLine(undefined);
+    setSearchOptions({ useTitle: true, useArtist: true, useAlbum: false });
+    setIncludeMissing(true);
+    setConfirmCloseDialogOpen(false);
+    onOpenChange(false);
+  };
+
+  // Handle close request with confirmation if needed
+  const handleCloseRequest = () => {
+    if (hasUnsavedChanges) {
+      setConfirmCloseDialogOpen(true);
+    } else {
+      resetAndClose();
     }
-    onOpenChange(open);
+  };
+
+  // Handle dialog open/close change (only called by Dialog)
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen) {
+      handleCloseRequest();
+    } else {
+      onOpenChange(newOpen);
+    }
   };
 
   // Match tracks against library
@@ -223,7 +254,7 @@ export function ImportPlaylistDialog({
         );
       }
       await queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      handleOpenChange(false);
+      resetAndClose();
     },
     onError: (error) => {
       toast.error(
@@ -299,194 +330,229 @@ export function ImportPlaylistDialog({
   const unmatchedCount = matchedTracks.filter((t) => !t.match).length;
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Upload className="w-5 h-5" />
-            Import Playlist
-          </DialogTitle>
-          <DialogDescription>
-            Import a playlist from M3U, PLS, or CSV file. Tracks will be matched
-            against your library.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          className="w-[95vw] max-w-[1200px] h-[90vh] max-h-[90vh] flex flex-col"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => {
+            e.preventDefault();
+            handleCloseRequest();
+          }}
+        >
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5" />
+              Import Playlist
+            </DialogTitle>
+            <DialogDescription>
+              Import a playlist from M3U, PLS, or CSV file. Tracks will be
+              matched against your library.
+            </DialogDescription>
+          </DialogHeader>
 
-        {step === "upload" && (
-          <>
-            <div
-              className={cn(
-                "border-2 border-dashed rounded-lg p-8 text-center transition-colors",
-                isDragging
-                  ? "border-primary bg-primary/10"
-                  : "border-muted-foreground/25",
-              )}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".m3u,.m3u8,.pls,.csv,.txt"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFileSelect(file);
-                }}
-              />
-              <FileMusic className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-              <p className="text-lg font-medium mb-1">
-                Drop your playlist file here
-              </p>
-              <p className="text-sm text-muted-foreground mb-4">
-                Supports M3U, M3U8, PLS, and CSV formats
-              </p>
-              <Button
-                variant="outline"
-                onClick={() => fileInputRef.current?.click()}
+          {step === "upload" && (
+            <>
+              <div
+                className={cn(
+                  "border-2 border-dashed rounded-lg p-8 text-center transition-colors",
+                  isDragging
+                    ? "border-primary bg-primary/10"
+                    : "border-muted-foreground/25",
+                )}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
               >
-                Browse Files
-              </Button>
-            </div>
-
-            {/* Search options */}
-            <div className="mt-4">
-              <SearchOptionsControl
-                options={searchOptions}
-                onChange={setSearchOptions}
-              />
-            </div>
-          </>
-        )}
-
-        {step === "matching" && (
-          <MatchingProgress
-            tracksCount={parsedTracks.length}
-            progress={matchingProgress}
-          />
-        )}
-
-        {step === "preview" && (
-          <>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="import-name">Playlist Name</Label>
-                <Input
-                  id="import-name"
-                  value={playlistName}
-                  onChange={(e) => setPlaylistName(e.target.value)}
-                  placeholder="My Imported Playlist"
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".m3u,.m3u8,.pls,.csv,.txt"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileSelect(file);
+                  }}
                 />
+                <FileMusic className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                <p className="text-lg font-medium mb-1">
+                  Drop your playlist file here
+                </p>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Supports M3U, M3U8, PLS, and CSV formats
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  Browse Files
+                </Button>
               </div>
 
-              {/* Search options - can be changed after file selection */}
-              <SearchOptionsControl
-                options={searchOptions}
-                onChange={setSearchOptions}
-                onRematch={() => doMatchTracks(parsedTracks)}
-                isMatching={isMatching}
-                showRematch
-              />
-
-              {/* Match summary */}
-              <MatchSummary
-                matchedCount={matchedCount}
-                unmatchedCount={unmatchedCount}
-              />
-
-              {/* Include missing entries option */}
-              {unmatchedCount > 0 && (
-                <div className="flex items-center space-x-2 pt-2">
-                  <Checkbox
-                    id="include-missing"
-                    checked={includeMissing}
-                    onCheckedChange={(checked) =>
-                      setIncludeMissing(checked === true)
-                    }
-                  />
-                  <label
-                    htmlFor="include-missing"
-                    className="text-sm font-medium leading-none cursor-pointer"
-                  >
-                    Include missing entries in playlist
-                  </label>
-                  <span className="text-xs text-muted-foreground">
-                    (you can match them later from playlist details)
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Track list */}
-            <TabbedTrackList
-              tracks={matchedTracks}
-              onUpdateMatch={(index, match, score) => {
-                setMatchedTracks((prev) => {
-                  const updated = [...prev];
-                  updated[index] = {
-                    ...updated[index],
-                    match,
-                    matchScore: score,
-                  };
-                  return updated;
-                });
-              }}
-              showMatchFilter
-            />
-          </>
-        )}
-
-        {step === "importing" && (
-          <div className="py-8 text-center">
-            <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-primary" />
-            <p className="text-lg font-medium">Creating playlist...</p>
-          </div>
-        )}
-
-        <DialogFooter className="shrink-0">
-          {step === "preview" && unmatchedCount > 0 && (
-            <Button
-              variant="outline"
-              className="mr-auto"
-              onClick={downloadUnmatched}
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Download Unmatched
-            </Button>
+              {/* Search options */}
+              <div className="mt-4">
+                <SearchOptionsControl
+                  options={searchOptions}
+                  onChange={setSearchOptions}
+                />
+              </div>
+            </>
           )}
 
-          <Button variant="outline" onClick={() => handleOpenChange(false)}>
-            Cancel
-          </Button>
+          {step === "matching" && (
+            <MatchingProgress
+              tracksCount={parsedTracks.length}
+              progress={matchingProgress}
+            />
+          )}
 
           {step === "preview" && (
-            <Button
-              onClick={() => {
-                setStep("importing");
-                createPlaylist.mutate();
-              }}
-              disabled={
-                !playlistName.trim() ||
-                (matchedCount === 0 &&
-                  (!includeMissing || unmatchedCount === 0)) ||
-                createPlaylist.isPending
-              }
-            >
-              {createPlaylist.isPending ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Creating...
-                </>
-              ) : includeMissing && unmatchedCount > 0 ? (
-                <>Import {matchedCount + unmatchedCount} Entries</>
-              ) : (
-                <>Import {matchedCount} Tracks</>
-              )}
-            </Button>
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <div className="grid gap-4 py-4 shrink-0">
+                <div className="grid gap-2">
+                  <Label htmlFor="import-name">Playlist Name</Label>
+                  <Input
+                    id="import-name"
+                    value={playlistName}
+                    onChange={(e) => setPlaylistName(e.target.value)}
+                    placeholder="My Imported Playlist"
+                  />
+                </div>
+
+                {/* Search options - can be changed after file selection */}
+                <SearchOptionsControl
+                  options={searchOptions}
+                  onChange={setSearchOptions}
+                  onRematch={() => doMatchTracks(parsedTracks)}
+                  isMatching={isMatching}
+                  showRematch
+                />
+
+                {/* Match summary */}
+                <MatchSummary
+                  matchedCount={matchedCount}
+                  unmatchedCount={unmatchedCount}
+                />
+
+                {/* Include missing entries option */}
+                {unmatchedCount > 0 && (
+                  <div className="flex items-center space-x-2 pt-2">
+                    <Checkbox
+                      id="include-missing"
+                      checked={includeMissing}
+                      onCheckedChange={(checked) =>
+                        setIncludeMissing(checked === true)
+                      }
+                    />
+                    <label
+                      htmlFor="include-missing"
+                      className="text-sm font-medium leading-none cursor-pointer"
+                    >
+                      Include missing entries in playlist
+                    </label>
+                    <span className="text-xs text-muted-foreground">
+                      (you can match them later from playlist details)
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Track list */}
+              <TabbedTrackList
+                tracks={matchedTracks}
+                onUpdateMatch={(index, match, score) => {
+                  setMatchedTracks((prev) => {
+                    const updated = [...prev];
+                    updated[index] = {
+                      ...updated[index],
+                      match,
+                      matchScore: score,
+                    };
+                    return updated;
+                  });
+                }}
+                showMatchFilter
+              />
+            </div>
           )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+
+          {step === "importing" && (
+            <div className="py-8 text-center">
+              <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-primary" />
+              <p className="text-lg font-medium">Creating playlist...</p>
+            </div>
+          )}
+
+          <DialogFooter className="shrink-0">
+            {step === "preview" && unmatchedCount > 0 && (
+              <Button
+                variant="outline"
+                className="mr-auto"
+                onClick={downloadUnmatched}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download Unmatched
+              </Button>
+            )}
+
+            <Button variant="outline" onClick={handleCloseRequest}>
+              Cancel
+            </Button>
+
+            {step === "preview" && (
+              <Button
+                onClick={() => {
+                  setStep("importing");
+                  createPlaylist.mutate();
+                }}
+                disabled={
+                  !playlistName.trim() ||
+                  (matchedCount === 0 &&
+                    (!includeMissing || unmatchedCount === 0)) ||
+                  createPlaylist.isPending
+                }
+              >
+                {createPlaylist.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Creating...
+                  </>
+                ) : includeMissing && unmatchedCount > 0 ? (
+                  <>Import {matchedCount + unmatchedCount} Entries</>
+                ) : (
+                  <>Import {matchedCount} Tracks</>
+                )}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmation dialog for closing with unsaved changes */}
+      <AlertDialog
+        open={confirmCloseDialogOpen}
+        onOpenChange={setConfirmCloseDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have matched {matchedCount} tracks that haven&apos;t been
+              imported yet. Are you sure you want to close and discard your
+              progress?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Continue Editing</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={resetAndClose}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+            >
+              Discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

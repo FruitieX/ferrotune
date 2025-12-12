@@ -135,6 +135,11 @@ function PlaylistDetailContent() {
     position: number;
     missing: MissingEntryDataResponse;
   } | null>(null);
+  const [unmatchDialogOpen, setUnmatchDialogOpen] = useState(false);
+  const [pendingUnmatch, setPendingUnmatch] = useState<{
+    songTitle: string;
+    position: number;
+  } | null>(null);
   const [filter, setFilter] = useState("");
   // Track selected missing entry IDs separately (format: "missing-{position}")
   const [selectedMissingIds, setSelectedMissingIds] = useState<Set<string>>(
@@ -429,16 +434,34 @@ function PlaylistDetailContent() {
   };
 
   // Handler for unmatch (revert a matched song back to missing)
-  const handleUnmatch = async (song: Song, index: number) => {
+  // Shows confirmation dialog instead of immediate action
+  const handleUnmatch = (song: Song, index: number) => {
+    setPendingUnmatch({
+      songTitle: song.title,
+      position: index,
+    });
+    setUnmatchDialogOpen(true);
+  };
+
+  // Confirm unmatch action
+  const confirmUnmatch = async () => {
+    if (!pendingUnmatch) return;
+
     const client = getClient();
     if (!client || !playlistId) return;
 
     try {
-      await client.unmatchEntry(playlistId, index);
-      queryClient.invalidateQueries({ queryKey: ["playlist-entries"] });
+      await client.unmatchEntry(playlistId, pendingUnmatch.position);
+      await queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlistId],
+      });
+      toast.success("Song unmatched");
     } catch (error) {
       console.error("Failed to unmatch entry:", error);
+      toast.error("Failed to unmatch entry");
     }
+    setUnmatchDialogOpen(false);
+    setPendingUnmatch(null);
   };
 
   const handleMoveItem = async (newPosition: number) => {
@@ -1247,6 +1270,31 @@ function PlaylistDetailContent() {
           missing={refineMatchItem.missing}
         />
       )}
+
+      {/* Unmatch confirmation dialog */}
+      <AlertDialog
+        open={unmatchDialogOpen}
+        onOpenChange={(open) => {
+          setUnmatchDialogOpen(open);
+          if (!open) setPendingUnmatch(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unmatch song?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will revert &quot;{pendingUnmatch?.songTitle}&quot; back to a
+              missing entry. You can re-match it later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmUnmatch}>
+              Unmatch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

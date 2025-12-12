@@ -39,9 +39,6 @@ symphonia-adapter-libopus = "0.2"
 # Async streams
 futures = "0.3"
 async-stream = "0.3"
-
-# File system
-walkdir = "2.5"
 ignore = "0.4"
 
 # Image processing
@@ -89,6 +86,8 @@ rayon = "1.10"
 # Static file embedding (optional, enabled with embedded-ui feature)
 rust-embed = { version = "8", features = ["mime-guess", "include-exclude"], optional = true }
 mime_guess = { version = "2", optional = true }
+async-walkdir = "2.1.0"
+futures-lite = "2.6.1"
 
 # Testing
 [dev-dependencies]

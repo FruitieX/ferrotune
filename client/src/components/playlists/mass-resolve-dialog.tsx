@@ -13,6 +13,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { getClient } from "@/lib/api/client";
 import type { PlaylistSongEntry } from "@/lib/api/generated/PlaylistSongEntry";
 import {
@@ -71,6 +81,14 @@ export function MassResolveDialog({
     useArtist: true,
     useAlbum: false,
   });
+  const [confirmCloseDialogOpen, setConfirmCloseDialogOpen] = useState(false);
+
+  // Count statistics (used in multiple places)
+  const matchedCount = matchedTracks.filter((t) => t.match).length;
+  const unmatchedCount = matchedTracks.filter((t) => !t.match).length;
+
+  // Check if there are unsaved matches
+  const hasUnsavedChanges = step === "preview" && matchedCount > 0;
 
   // Fetch all missing entries when dialog opens
   useEffect(() => {
@@ -126,17 +144,34 @@ export function MassResolveDialog({
     fetchMissingEntries();
   }, [open, playlistId, filter, sortField, sortDir]);
 
-  // Reset state when dialog closes
+  // Reset state and close dialog (internal helper)
+  const resetAndClose = () => {
+    cancelMatching();
+    setStep("loading");
+    setMissingEntries([]);
+    setLoadError(null);
+    setMatchedTracks([]);
+    setMatchingProgress(0);
+    setConfirmCloseDialogOpen(false);
+    onOpenChange(false);
+  };
+
+  // Handle close request with confirmation if needed
+  const handleCloseRequest = () => {
+    if (hasUnsavedChanges) {
+      setConfirmCloseDialogOpen(true);
+    } else {
+      resetAndClose();
+    }
+  };
+
+  // Handle dialog open/close change (only called by Dialog)
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
-      cancelMatching();
-      setStep("loading");
-      setMissingEntries([]);
-      setLoadError(null);
-      setMatchedTracks([]);
-      setMatchingProgress(0);
+      handleCloseRequest();
+    } else {
+      onOpenChange(newOpen);
     }
-    onOpenChange(newOpen);
   };
 
   // Start matching process
@@ -226,158 +261,191 @@ export function MassResolveDialog({
         );
       }
 
-      handleOpenChange(false);
+      resetAndClose();
     },
     onError: () => {
       toast.error("Failed to save matches");
     },
   });
 
-  // Count statistics
-  const matchedCount = matchedTracks.filter((t) => t.match).length;
-  const unmatchedCount = matchedTracks.filter((t) => !t.match).length;
-
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[900px] max-h-[80vh] flex flex-col overflow-hidden">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Wand2 className="w-5 h-5" />
-            Resolve Missing Entries
-          </DialogTitle>
-          <DialogDescription>
-            Search and match missing playlist entries to songs in your library.
-            {missingEntries.length > 0 && (
-              <span className="block mt-1">
-                {missingEntries.length} missing{" "}
-                {missingEntries.length === 1 ? "entry" : "entries"} to resolve
-                {filter && (
-                  <span className="text-muted-foreground">
-                    {" "}
-                    (filtered by &quot;{filter}&quot;)
-                  </span>
-                )}
-              </span>
-            )}
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          className="w-[95vw] max-w-[1200px] h-[90vh] max-h-[90vh] flex flex-col overflow-hidden"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => {
+            e.preventDefault();
+            handleCloseRequest();
+          }}
+        >
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Wand2 className="w-5 h-5" />
+              Resolve Missing Entries
+            </DialogTitle>
+            <DialogDescription>
+              Search and match missing playlist entries to songs in your
+              library.
+              {missingEntries.length > 0 && (
+                <span className="block mt-1">
+                  {missingEntries.length} missing{" "}
+                  {missingEntries.length === 1 ? "entry" : "entries"} to resolve
+                  {filter && (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      (filtered by &quot;{filter}&quot;)
+                    </span>
+                  )}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
 
-        {step === "loading" && (
-          <div className="py-8 text-center">
-            <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-primary" />
-            <p className="text-lg font-medium">Loading missing entries...</p>
-          </div>
-        )}
+          {step === "loading" && (
+            <div className="py-8 text-center">
+              <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-primary" />
+              <p className="text-lg font-medium">Loading missing entries...</p>
+            </div>
+          )}
 
-        {loadError && (
-          <div className="py-4 text-center">
-            <AlertCircle className="w-12 h-12 mx-auto mb-4 text-destructive" />
-            <p className="text-lg font-medium text-destructive">
-              Failed to load entries
-            </p>
-            <p className="text-sm text-muted-foreground mt-1">{loadError}</p>
-          </div>
-        )}
+          {loadError && (
+            <div className="py-4 text-center">
+              <AlertCircle className="w-12 h-12 mx-auto mb-4 text-destructive" />
+              <p className="text-lg font-medium text-destructive">
+                Failed to load entries
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">{loadError}</p>
+            </div>
+          )}
 
-        {step === "options" && (
-          <div className="py-4 space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Configure search options and click &quot;Start Matching&quot; to
-              automatically find matches for missing entries in your library.
-            </p>
-            <SearchOptionsControl
-              options={searchOptions}
-              onChange={setSearchOptions}
-            />
-          </div>
-        )}
-
-        {step === "matching" && (
-          <MatchingProgress
-            tracksCount={missingEntries.length}
-            progress={matchingProgress}
-          />
-        )}
-
-        {step === "preview" && (
-          <>
-            <div className="grid gap-4 py-4">
-              {/* Search options - can be changed after matching */}
+          {step === "options" && (
+            <div className="py-4 space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Configure search options and click &quot;Start Matching&quot; to
+                automatically find matches for missing entries in your library.
+              </p>
               <SearchOptionsControl
                 options={searchOptions}
                 onChange={setSearchOptions}
-                onRematch={doMatchTracks}
-                isMatching={false}
-                showRematch
-              />
-
-              {/* Match summary */}
-              <MatchSummary
-                matchedCount={matchedCount}
-                unmatchedCount={unmatchedCount}
               />
             </div>
+          )}
 
-            {/* Track list with tabs */}
-            <TabbedTrackList
-              tracks={matchedTracks}
-              onUpdateMatch={(index, match, score) => {
-                setMatchedTracks((prev) => {
-                  const updated = [...prev];
-                  updated[index] = {
-                    ...updated[index],
-                    match,
-                    matchScore: score,
-                  };
-                  return updated;
-                });
-              }}
-              showMatchFilter
+          {step === "matching" && (
+            <MatchingProgress
+              tracksCount={missingEntries.length}
+              progress={matchingProgress}
             />
-          </>
-        )}
-
-        {step === "saving" && (
-          <div className="py-8 text-center">
-            <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-primary" />
-            <p className="text-lg font-medium">Saving matches...</p>
-          </div>
-        )}
-
-        <DialogFooter className="shrink-0">
-          <Button variant="outline" onClick={() => handleOpenChange(false)}>
-            Cancel
-          </Button>
-
-          {step === "options" && (
-            <Button
-              onClick={doMatchTracks}
-              disabled={missingEntries.length === 0}
-            >
-              Start Matching
-            </Button>
           )}
 
           {step === "preview" && (
-            <Button
-              onClick={() => {
-                setStep("saving");
-                saveMatches.mutate();
-              }}
-              disabled={matchedCount === 0 || saveMatches.isPending}
-            >
-              {saveMatches.isPending ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                `Save ${matchedCount} ${matchedCount === 1 ? "Match" : "Matches"}`
-              )}
-            </Button>
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <div className="grid gap-4 py-4 shrink-0">
+                {/* Search options - can be changed after matching */}
+                <SearchOptionsControl
+                  options={searchOptions}
+                  onChange={setSearchOptions}
+                  onRematch={doMatchTracks}
+                  isMatching={false}
+                  showRematch
+                />
+
+                {/* Match summary */}
+                <MatchSummary
+                  matchedCount={matchedCount}
+                  unmatchedCount={unmatchedCount}
+                />
+              </div>
+
+              {/* Track list with tabs */}
+              <TabbedTrackList
+                tracks={matchedTracks}
+                onUpdateMatch={(index, match, score) => {
+                  setMatchedTracks((prev) => {
+                    const updated = [...prev];
+                    updated[index] = {
+                      ...updated[index],
+                      match,
+                      matchScore: score,
+                    };
+                    return updated;
+                  });
+                }}
+                showMatchFilter
+              />
+            </div>
           )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+
+          {step === "saving" && (
+            <div className="py-8 text-center">
+              <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-primary" />
+              <p className="text-lg font-medium">Saving matches...</p>
+            </div>
+          )}
+
+          <DialogFooter className="shrink-0">
+            <Button variant="outline" onClick={handleCloseRequest}>
+              Cancel
+            </Button>
+
+            {step === "options" && (
+              <Button
+                onClick={doMatchTracks}
+                disabled={missingEntries.length === 0}
+              >
+                Start Matching
+              </Button>
+            )}
+
+            {step === "preview" && (
+              <Button
+                onClick={() => {
+                  setStep("saving");
+                  saveMatches.mutate();
+                }}
+                disabled={matchedCount === 0 || saveMatches.isPending}
+              >
+                {saveMatches.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  `Save ${matchedCount} ${matchedCount === 1 ? "Match" : "Matches"}`
+                )}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmation dialog for closing with unsaved matches */}
+      <AlertDialog
+        open={confirmCloseDialogOpen}
+        onOpenChange={setConfirmCloseDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard matches?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have matched {matchedCount}{" "}
+              {matchedCount === 1 ? "entry" : "entries"} that{" "}
+              {matchedCount === 1 ? "hasn't" : "haven't"} been saved yet. Are
+              you sure you want to close and discard your progress?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Continue Editing</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={resetAndClose}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+            >
+              Discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

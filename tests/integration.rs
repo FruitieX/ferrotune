@@ -469,7 +469,16 @@ fn test_multi_folder_rescan_preserves_other_folders() {
     }
 
     // Create two separate music directories with different files
-    let temp_dir = std::env::temp_dir().join("ferrotune_multi_folder_test");
+    // Use process ID and timestamp to ensure unique directory even in parallel runs
+    let unique_id = format!(
+        "{}_{:?}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let temp_dir = std::env::temp_dir().join(format!("ferrotune_multi_folder_test_{}", unique_id));
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).unwrap();
     }

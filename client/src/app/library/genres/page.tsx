@@ -36,8 +36,11 @@ export default function GenresPage() {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
 
-  // Virtualized scroll restoration
-  const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
+  // Virtualized scroll restoration - pass viewMode to store separate positions per view
+  const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration(
+    "main-scroll-container",
+    viewMode,
+  );
 
   // Fetch genres
   const { data: genresData, isLoading } = useQuery({

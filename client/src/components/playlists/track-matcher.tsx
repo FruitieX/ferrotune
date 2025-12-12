@@ -19,6 +19,7 @@ import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 import type { TrackToMatch } from "@/lib/api/generated/TrackToMatch";
 import { TrackSearchPanel } from "./track-search-panel";
+import { Separator } from "../ui/separator";
 
 // Parsed track info - can come from import or from missing entry data
 export interface ParsedTrackInfo {
@@ -242,7 +243,7 @@ export function TrackList({
   }
 
   return (
-    <ScrollArea className="h-[300px] rounded-md border">
+    <ScrollArea className="flex-1 min-h-0 rounded-md border">
       <div className="p-2">
         {tracks.map((track, index) => (
           <TrackRow
@@ -310,12 +311,12 @@ export function TrackRow({
         )}
       </div>
 
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 text-sm min-w-0">
         <div className="font-medium truncate">
           {track.parsed.title || track.parsed.raw || "Unknown"}
         </div>
         {(track.parsed.artist || track.parsed.album) && (
-          <div className="text-sm text-muted-foreground truncate">
+          <div className="text-muted-foreground text-xs truncate">
             {track.parsed.artist}
             {track.parsed.artist && track.parsed.album && " • "}
             {track.parsed.album}
@@ -329,14 +330,17 @@ export function TrackRow({
       </div>
 
       {track.match && (
-        <div className="text-right text-sm truncate max-w-[200px]">
-          <div className="font-medium truncate">{track.match.title}</div>
-          <div className="text-muted-foreground text-xs truncate">
-            {track.match.artist}
-            {track.match.artist && track.match.album && " • "}
-            {track.match.album}
+        <>
+          <div className="text-muted-foreground shrink-0 px-2">{"->"}</div>
+          <div className="text-right text-sm truncate flex-1">
+            <div className="font-medium truncate">{track.match.title}</div>
+            <div className="text-muted-foreground text-xs truncate">
+              {track.match.artist}
+              {track.match.artist && track.match.album && " • "}
+              {track.match.album}
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {!track.locked && (
@@ -488,10 +492,10 @@ export function TabbedTrackList({
         </div>
       )}
 
-      <Tabs defaultValue={defaultTab} className="flex-1 min-h-0">
+      <Tabs defaultValue={defaultTab} className="flex-1 min-h-0 flex flex-col">
         <TabsList
           className={cn(
-            "grid w-full",
+            "grid w-full shrink-0",
             showLockedTab && lockedTracks.length > 0
               ? "grid-cols-4"
               : "grid-cols-3",
@@ -511,7 +515,10 @@ export function TabbedTrackList({
           )}
         </TabsList>
 
-        <TabsContent value="all" className="flex-1 mt-2">
+        <TabsContent
+          value="all"
+          className="flex-1 min-h-0 mt-2 flex flex-col data-[state=inactive]:hidden"
+        >
           <TrackList
             tracks={editableTracks}
             onUpdateMatch={(idx, match, score) =>
@@ -520,7 +527,10 @@ export function TabbedTrackList({
             showPosition={showPosition}
           />
         </TabsContent>
-        <TabsContent value="matched" className="flex-1 mt-2">
+        <TabsContent
+          value="matched"
+          className="flex-1 min-h-0 mt-2 flex flex-col data-[state=inactive]:hidden"
+        >
           <TrackList
             tracks={matchedTracks}
             onUpdateMatch={(idx, match, score) =>
@@ -529,7 +539,10 @@ export function TabbedTrackList({
             showPosition={showPosition}
           />
         </TabsContent>
-        <TabsContent value="unmatched" className="flex-1 mt-2">
+        <TabsContent
+          value="unmatched"
+          className="flex-1 min-h-0 mt-2 flex flex-col data-[state=inactive]:hidden"
+        >
           <TrackList
             tracks={unmatchedTracks}
             onUpdateMatch={(idx, match, score) =>
@@ -543,7 +556,10 @@ export function TabbedTrackList({
           />
         </TabsContent>
         {showLockedTab && lockedTracks.length > 0 && (
-          <TabsContent value="locked" className="flex-1 mt-2">
+          <TabsContent
+            value="locked"
+            className="flex-1 min-h-0 mt-2 flex flex-col data-[state=inactive]:hidden"
+          >
             <TrackList
               tracks={lockedTracks}
               onUpdateMatch={() => {}} // No-op for locked tracks

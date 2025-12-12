@@ -8,11 +8,12 @@
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
-/// Counter for generating unique test instance IDs
-static TEST_INSTANCE_COUNTER: AtomicU16 = AtomicU16::new(0);
+/// Counter for generating unique test instance IDs.
+/// Combined with process ID to ensure uniqueness across parallel test processes.
+static TEST_INSTANCE_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// A test server instance that manages a ferrotune process.
 pub struct TestServer {
@@ -64,12 +65,17 @@ impl TestServer {
     pub fn with_config(config: TestServerConfig) -> Result<Self, TestServerError> {
         let instance_id = TEST_INSTANCE_COUNTER.fetch_add(1, Ordering::SeqCst);
 
-        // Find available ports for both APIs
-        let port = find_available_port()?;
-        let admin_port = find_available_port()?;
+        // Use process ID and instance counter to guarantee unique temp directories
+        // even when tests run in parallel across multiple processes
+        let pid = std::process::id();
 
-        // Create temporary directory structure
-        let temp_dir = std::env::temp_dir().join(format!("ferrotune_test_{}", instance_id));
+        // Reserve ports by keeping the listeners alive until after writing config
+        // This prevents the race condition where another test grabs the same port
+        let (listener, port) = reserve_port()?;
+        let (admin_listener, admin_port) = reserve_port()?;
+
+        // Create temporary directory structure with process ID to avoid collisions
+        let temp_dir = std::env::temp_dir().join(format!("ferrotune_test_{}_{}", pid, instance_id));
         if temp_dir.exists() {
             std::fs::remove_dir_all(&temp_dir)?;
         }
@@ -129,6 +135,11 @@ impl TestServer {
             admin_password,
             base_url,
         };
+
+        // Drop the listeners just before starting the server to minimize the race window
+        // The server will bind to these ports immediately after
+        drop(listener);
+        drop(admin_listener);
 
         server.start()?;
 
@@ -282,8 +293,10 @@ impl Drop for TestServer {
     }
 }
 
-/// Find an available TCP port.
-fn find_available_port() -> Result<u16, TestServerError> {
+/// Find an available TCP port and return the listener to keep it reserved.
+/// The caller must drop the listener just before starting the server that will use the port.
+/// This minimizes the race window where another process could grab the same port.
+fn reserve_port() -> Result<(TcpListener, u16), TestServerError> {
     // Bind to port 0 to get an OS-assigned available port
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|e| TestServerError::PortAllocation(e.to_string()))?;
@@ -291,9 +304,8 @@ fn find_available_port() -> Result<u16, TestServerError> {
         .local_addr()
         .map_err(|e| TestServerError::PortAllocation(e.to_string()))?
         .port();
-    // Drop listener to release the port
-    drop(listener);
-    Ok(port)
+    // Return the listener so it stays bound until caller is ready to use the port
+    Ok((listener, port))
 }
 
 /// Find the ferrotune binary.

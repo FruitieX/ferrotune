@@ -3,7 +3,8 @@
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 
-// Store scroll positions by route key
+// Store scroll positions by route key + view mode
+// Key format: "pathname:viewMode" where viewMode can be a string identifier
 const scrollPositions = new Map<string, number>();
 
 interface UseVirtualizedScrollRestorationResult {
@@ -27,9 +28,14 @@ interface UseVirtualizedScrollRestorationResult {
  * to @tanstack/react-virtual's useVirtualizer, which positions the virtual
  * list correctly before any content is rendered.
  *
+ * @param containerId - ID of the scroll container element
+ * @param viewMode - Optional view mode identifier (e.g., "grid" or "list").
+ *                   When provided, scroll positions are stored separately per view mode,
+ *                   preventing incorrect restoration when switching between different layouts.
+ *
  * Usage:
  * ```tsx
- * const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
+ * const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration("main-scroll-container", viewMode);
  *
  * const virtualizer = useVirtualizer({
  *   count: items.length,
@@ -42,9 +48,11 @@ interface UseVirtualizedScrollRestorationResult {
  */
 export function useVirtualizedScrollRestoration(
   containerId: string = "main-scroll-container",
+  viewMode?: string,
 ): UseVirtualizedScrollRestorationResult {
   const pathname = usePathname();
-  const routeKey = pathname;
+  // Include viewMode in key to store separate positions for different views
+  const routeKey = viewMode ? `${pathname}:${viewMode}` : pathname;
   const lastSavedOffsetRef = useRef<number>(0);
 
   // Get the initial offset for the virtualizer

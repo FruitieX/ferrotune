@@ -220,6 +220,7 @@ export function SongRow({
         sourceId: queueSource.id ?? undefined,
         sourceName: queueSource.name ?? undefined,
         startIndex: songIndex >= 0 ? songIndex : 0,
+        startSongId: song.id,
         filters: queueSource.filters,
         sort: queueSource.sort,
       });
@@ -231,6 +232,7 @@ export function SongRow({
         sourceName: queueSource?.name ?? undefined,
         songIds: queueSongs.map((s) => s.id),
         startIndex: songIndex >= 0 ? songIndex : 0,
+        startSongId: song.id,
       });
     } else {
       // Single song
@@ -238,6 +240,7 @@ export function SongRow({
         sourceType: "other",
         songIds: [song.id],
         startIndex: 0,
+        startSongId: song.id,
       });
     }
   };
@@ -515,6 +518,7 @@ export function SongCard({
         sourceId: queueSource.id ?? undefined,
         sourceName: queueSource.name ?? undefined,
         startIndex: songIndex >= 0 ? songIndex : 0,
+        startSongId: song.id,
         filters: queueSource.filters,
         sort: queueSource.sort,
       });
@@ -526,6 +530,7 @@ export function SongCard({
         sourceName: queueSource?.name ?? undefined,
         songIds: queueSongs.map((s) => s.id),
         startIndex: songIndex >= 0 ? songIndex : 0,
+        startSongId: song.id,
       });
     } else {
       // Single song
@@ -533,6 +538,7 @@ export function SongCard({
         sourceType: "other",
         songIds: [song.id],
         startIndex: 0,
+        startSongId: song.id,
       });
     }
   };

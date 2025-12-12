@@ -46,10 +46,14 @@ export default function AlbumsPage() {
   const addToQueue = useSetAtom(addToQueueAtom);
   const invalidateFavorites = useInvalidateFavorites();
 
-  // Virtualized scroll restoration
-  const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
+  // Virtualized scroll restoration - pass viewMode to store separate positions per view
+  const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration(
+    "main-scroll-container",
+    viewMode,
+  );
 
   // Fetch albums using search3 with filters and sorting
+  // Note: We request "medium" thumbnails for both views to prevent refetching when toggling view mode.
   const {
     data: albumsData,
     isLoading,
@@ -64,7 +68,7 @@ export default function AlbumsPage() {
       sortConfig.field,
       sortConfig.direction,
       advancedFilters,
-      viewMode, // Include viewMode because inline image size depends on it
+      // Note: viewMode removed from query key to prevent refetching when toggling views
     ],
     queryFn: async ({ pageParam = 0 }) => {
       const client = getClient();
@@ -84,8 +88,8 @@ export default function AlbumsPage() {
         minRating: advancedFilters.minRating,
         maxRating: advancedFilters.maxRating,
         starredOnly: advancedFilters.starredOnly,
-        // Request inline thumbnails - medium for cards, small for list rows
-        inlineImages: viewMode === "grid" ? "medium" : "small",
+        // Request medium thumbnails for both views (prevents refetch on view toggle)
+        inlineImages: "medium",
       });
       const albums = response.searchResult3.album ?? [];
       const total = response.searchResult3.albumTotal;
