@@ -41,6 +41,7 @@ export function useScanProgressStream() {
           total: status.total,
           added: status.added,
           updated: status.updated,
+          unchanged: status.unchanged,
           removed: status.removed,
           errors: status.errors,
           duplicates: status.duplicates,

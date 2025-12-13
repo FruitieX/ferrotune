@@ -14,6 +14,7 @@ import {
   Edit,
   Trash2,
   Copy,
+  Minus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
@@ -40,7 +41,13 @@ import { cn } from "@/lib/utils";
 import type { ScanDetails } from "@/lib/api/generated/ScanDetails";
 import type { ScanDetailEntry } from "@/lib/api/generated/ScanDetailEntry";
 
-type StatCategory = "added" | "updated" | "removed" | "duplicates" | "errors";
+type StatCategory =
+  | "added"
+  | "updated"
+  | "unchanged"
+  | "removed"
+  | "duplicates"
+  | "errors";
 
 interface StatDetailDialogProps {
   open: boolean;
@@ -78,6 +85,12 @@ function StatDetailDialog({
       icon: <Edit className="w-5 h-5 text-blue-600" />,
       items: details.updated,
     },
+    unchanged: {
+      title: "Unchanged Files",
+      color: "text-muted-foreground",
+      icon: <Minus className="w-5 h-5 text-muted-foreground" />,
+      items: details.unchanged,
+    },
     removed: {
       title: "Removed Files",
       color: "text-orange-600",
@@ -102,7 +115,7 @@ function StatDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[70vh] flex flex-col">
+      <DialogContent className="max-w-2xl max-h-[70vh] flex flex-col min-h-0 overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {config.icon}
@@ -120,29 +133,31 @@ function StatDetailDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {config.items.length > 0 ? (
-          <ScrollArea className="flex-1 rounded-md border">
-            <div className="p-2 space-y-1">
-              {config.items.map((item, index) => (
-                <div
-                  key={index}
-                  className="p-2 rounded-md hover:bg-muted/50 font-mono text-xs"
-                >
-                  <div className="truncate">{item.path}</div>
-                  {item.error && (
-                    <div className="text-red-500 mt-1 text-[10px]">
-                      {item.error}
-                    </div>
-                  )}
-                </div>
-              ))}
+        <div className="flex-1 min-h-0 overflow-y-scroll">
+          {config.items.length > 0 ? (
+            <ScrollArea className="h-full rounded-md border">
+              <div className="p-2 space-y-1">
+                {config.items.map((item, index) => (
+                  <div
+                    key={index}
+                    className="p-2 rounded-md hover:bg-muted/50 font-mono text-xs"
+                  >
+                    <div className="truncate">{item.path}</div>
+                    {item.error && (
+                      <div className="text-red-500 mt-1 text-[10px]">
+                        {item.error}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          ) : (
+            <div className="py-8 text-center text-muted-foreground">
+              No files in this category
             </div>
-          </ScrollArea>
-        ) : (
-          <div className="py-8 text-center text-muted-foreground">
-            No files in this category
-          </div>
-        )}
+          )}
+        </div>
 
         <div className="flex justify-end pt-4 border-t">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -428,7 +443,7 @@ export function ScanDialog() {
                 )}
 
                 {/* Stats - clickable during and after scan */}
-                <div className="grid grid-cols-5 gap-2 text-center">
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
                   <StatBox
                     count={progress.added}
                     label="Added"
@@ -441,6 +456,13 @@ export function ScanDialog() {
                     label="Updated"
                     colorClass="text-blue-600"
                     onClick={() => handleStatClick("updated")}
+                    disabled={isLoadingDetails}
+                  />
+                  <StatBox
+                    count={progress.unchanged}
+                    label="Unchanged"
+                    colorClass="text-muted-foreground"
+                    onClick={() => handleStatClick("unchanged")}
                     disabled={isLoadingDetails}
                   />
                   <StatBox

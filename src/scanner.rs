@@ -238,9 +238,50 @@ async fn scan_folder_with_progress(
     let base_path = PathBuf::from(folder_path);
     let supported_extensions = ["mp3", "flac", "ogg", "opus", "m4a", "mp4", "aac", "wav"];
 
+    // Safety check: verify the directory exists and is readable before proceeding.
+    // This prevents accidentally removing all songs from the database if the music
+    // volume is not mounted or the path is otherwise inaccessible.
+    if !base_path.exists() {
+        let error_msg = format!(
+            "Music folder '{}' does not exist. Is the volume mounted?",
+            folder_path
+        );
+        tracing::error!("{}", error_msg);
+        if let Some(ref state) = scan_state {
+            state.log("ERROR", &error_msg).await;
+        }
+        return Err(Error::InvalidRequest(error_msg));
+    }
+
+    if !base_path.is_dir() {
+        let error_msg = format!("Music folder path '{}' is not a directory", folder_path);
+        tracing::error!("{}", error_msg);
+        if let Some(ref state) = scan_state {
+            state.log("ERROR", &error_msg).await;
+        }
+        return Err(Error::InvalidRequest(error_msg));
+    }
+
+    // Try to read the directory to verify we have permission
+    match std::fs::read_dir(&base_path) {
+        Ok(_) => {}
+        Err(e) => {
+            let error_msg = format!(
+                "Cannot read music folder '{}': {}. Check permissions or volume mount.",
+                folder_path, e
+            );
+            tracing::error!("{}", error_msg);
+            if let Some(ref state) = scan_state {
+                state.log("ERROR", &error_msg).await;
+            }
+            return Err(Error::InvalidRequest(error_msg));
+        }
+    }
+
     let mut scanned = 0;
     let mut added = 0;
     let mut updated = 0;
+    let mut unchanged = 0;
     let mut errors = 0;
 
     // Load all existing file paths for this folder from database.
@@ -321,8 +362,8 @@ async fn scan_folder_with_progress(
             if let Some(ext) = path.extension() {
                 if supported_extensions.contains(&ext.to_string_lossy().to_lowercase().as_str()) {
                     total_count += 1;
-                    // Broadcast progress every 200 files
-                    if total_count.is_multiple_of(200) {
+                    // Broadcast progress every 500 files
+                    if total_count.is_multiple_of(500) {
                         state.set_total(total_count).await;
                         state
                             .log(
@@ -433,14 +474,30 @@ async fn scan_folder_with_progress(
             if let Some((_, stored_mtime)) = &existing {
                 // Skip if file hasn't been modified since last scan
                 if file_mtime.is_some() && stored_mtime == &file_mtime {
-                    if scanned % 100 == 0 {
+                    unchanged += 1;
+                    if let Some(ref state) = scan_state {
+                        state.track_unchanged(&relative_path).await;
+                    }
+                    if scanned % 500 == 0 {
                         tracing::info!(
-                            "Progress: {} files scanned, {} added, {} updated, {} errors",
+                            "Progress: {} files scanned, {} added, {} updated, {} unchanged, {} errors",
                             scanned,
                             added,
                             updated,
+                            unchanged,
                             errors
                         );
+                        if let Some(ref state) = scan_state {
+                            state
+                                .log(
+                                    "INFO",
+                                    format!(
+                                        "Progress: {} files scanned, {} added, {} updated, {} unchanged, {} errors",
+                                        scanned, added, updated, unchanged, errors
+                                    ),
+                                )
+                                .await;
+                        }
                     }
                     continue;
                 }
@@ -503,14 +560,26 @@ async fn scan_folder_with_progress(
             }
         }
 
-        if scanned % 100 == 0 {
+        if scanned % 500 == 0 {
             tracing::info!(
-                "Progress: {} files scanned, {} added, {} updated, {} errors",
+                "Progress: {} files scanned, {} added, {} updated, {} unchanged, {} errors",
                 scanned,
                 added,
                 updated,
+                unchanged,
                 errors
             );
+            if let Some(ref state) = scan_state {
+                state
+                    .log(
+                        "INFO",
+                        format!(
+                            "Progress: {} files scanned, {} added, {} updated, {} unchanged, {} errors",
+                            scanned, added, updated, unchanged, errors
+                        ),
+                    )
+                    .await;
+            }
         }
     }
 
@@ -524,10 +593,11 @@ async fn scan_folder_with_progress(
 
     if !dry_run {
         tracing::info!(
-            "Scan complete: {} files scanned, {} added, {} updated, {} removed, {} errors",
+            "Scan complete: {} files scanned, {} added, {} updated, {} unchanged, {} removed, {} errors",
             scanned,
             added,
             updated,
+            unchanged,
             removed,
             errors
         );
@@ -536,18 +606,19 @@ async fn scan_folder_with_progress(
                 .log(
                     "INFO",
                     format!(
-                        "Scan complete: {} files scanned, {} added, {} updated, {} removed, {} errors",
-                        scanned, added, updated, removed, errors
+                        "Scan complete: {} files scanned, {} added, {} updated, {} unchanged, {} removed, {} errors",
+                        scanned, added, updated, unchanged, removed, errors
                     ),
                 )
                 .await;
         }
     } else {
         tracing::info!(
-            "Dry-run complete: {} files scanned, {} would be added, {} would be updated, {} would be removed, {} errors",
+            "Dry-run complete: {} files scanned, {} would be added, {} would be updated, {} unchanged, {} would be removed, {} errors",
             scanned,
             added,
             updated,
+            unchanged,
             removed,
             errors
         );
@@ -556,8 +627,8 @@ async fn scan_folder_with_progress(
                 .log(
                     "INFO",
                     format!(
-                        "Dry-run complete: {} files scanned, {} would be added, {} would be updated, {} would be removed, {} errors",
-                        scanned, added, updated, removed, errors
+                        "Dry-run complete: {} files scanned, {} would be added, {} would be updated, {} unchanged, {} would be removed, {} errors",
+                        scanned, added, updated, unchanged, removed, errors
                     ),
                 )
                 .await;

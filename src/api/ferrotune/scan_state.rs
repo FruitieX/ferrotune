@@ -37,6 +37,8 @@ pub struct ScanDetails {
     pub added: Vec<ScanDetailEntry>,
     /// Files that were updated
     pub updated: Vec<ScanDetailEntry>,
+    /// Files that were unchanged (scanned but not needing updates)
+    pub unchanged: Vec<ScanDetailEntry>,
     /// Files that were removed
     pub removed: Vec<ScanDetailEntry>,
     /// Duplicate files found
@@ -64,6 +66,9 @@ pub struct ScanProgressUpdate {
     /// Number of files updated
     #[ts(type = "number")]
     pub updated: u64,
+    /// Number of files unchanged (scanned but no update needed)
+    #[ts(type = "number")]
+    pub unchanged: u64,
     /// Number of files removed (orphans)
     #[ts(type = "number")]
     pub removed: u64,
@@ -93,6 +98,7 @@ impl Default for ScanProgressUpdate {
             total: None,
             added: 0,
             updated: 0,
+            unchanged: 0,
             removed: 0,
             errors: 0,
             duplicates: 0,
@@ -114,6 +120,7 @@ pub struct ScanState {
     scanned: AtomicU64,
     added: AtomicU64,
     updated: AtomicU64,
+    unchanged: AtomicU64,
     removed: AtomicU64,
     errors: AtomicU64,
     duplicates: AtomicU64,
@@ -143,6 +150,7 @@ impl ScanState {
             scanned: AtomicU64::new(0),
             added: AtomicU64::new(0),
             updated: AtomicU64::new(0),
+            unchanged: AtomicU64::new(0),
             removed: AtomicU64::new(0),
             errors: AtomicU64::new(0),
             duplicates: AtomicU64::new(0),
@@ -177,6 +185,7 @@ impl ScanState {
             total: *self.total.read().await,
             added: self.added.load(Ordering::Relaxed),
             updated: self.updated.load(Ordering::Relaxed),
+            unchanged: self.unchanged.load(Ordering::Relaxed),
             removed: self.removed.load(Ordering::Relaxed),
             errors: self.errors.load(Ordering::Relaxed),
             duplicates: self.duplicates.load(Ordering::Relaxed),
@@ -218,6 +227,7 @@ impl ScanState {
         self.scanned.store(0, Ordering::Relaxed);
         self.added.store(0, Ordering::Relaxed);
         self.updated.store(0, Ordering::Relaxed);
+        self.unchanged.store(0, Ordering::Relaxed);
         self.removed.store(0, Ordering::Relaxed);
         self.errors.store(0, Ordering::Relaxed);
         self.duplicates.store(0, Ordering::Relaxed);
@@ -260,6 +270,15 @@ impl ScanState {
     pub async fn track_updated(&self, path: &str) {
         self.updated.fetch_add(1, Ordering::Relaxed);
         self.details.write().await.updated.push(ScanDetailEntry {
+            path: path.to_string(),
+            error: None,
+        });
+    }
+
+    /// Increment the unchanged counter and track the file.
+    pub async fn track_unchanged(&self, path: &str) {
+        self.unchanged.fetch_add(1, Ordering::Relaxed);
+        self.details.write().await.unchanged.push(ScanDetailEntry {
             path: path.to_string(),
             error: None,
         });
