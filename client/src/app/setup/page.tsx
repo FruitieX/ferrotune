@@ -32,6 +32,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   serverConnectionAtom,
   connectionStatusAtom,
   isConnectedAtom,
@@ -711,25 +717,39 @@ export default function SetupPage() {
                     >
                       Back
                     </Button>
-                    <Button
-                      className="flex-1"
-                      onClick={() => createFoldersMutation.mutate()}
-                      disabled={
-                        folders.length === 0 || createFoldersMutation.isPending
-                      }
-                    >
-                      {createFoldersMutation.isPending ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Adding...
-                        </>
-                      ) : (
-                        <>
-                          Continue
-                          <ArrowRight className="w-4 h-4 ml-2" />
-                        </>
-                      )}
-                    </Button>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="flex-1">
+                            <Button
+                              className="w-full"
+                              onClick={() => createFoldersMutation.mutate()}
+                              disabled={
+                                folders.length === 0 ||
+                                createFoldersMutation.isPending
+                              }
+                            >
+                              {createFoldersMutation.isPending ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  Adding...
+                                </>
+                              ) : (
+                                <>
+                                  Continue
+                                  <ArrowRight className="w-4 h-4 ml-2" />
+                                </>
+                              )}
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        {folders.length === 0 && (
+                          <TooltipContent>
+                            <p>Add at least one music folder to continue</p>
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                 </CardContent>
               </Card>

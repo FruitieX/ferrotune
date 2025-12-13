@@ -258,13 +258,6 @@ export function ScanDialog() {
     }
   }, [progress?.finished, progress?.error]);
 
-  // Clear details when starting a new scan
-  useEffect(() => {
-    if (progress?.scanning) {
-      setScanDetails(null);
-    }
-  }, [progress?.scanning]);
-
   const handleStartScan = async () => {
     const client = getClient();
     if (!client) {
@@ -273,6 +266,8 @@ export function ScanDialog() {
     }
 
     setIsStarting(true);
+    // Clear cached details when starting a new scan
+    setScanDetails(null);
     try {
       const response = await client.startScan({
         full: fullScan,
@@ -311,13 +306,7 @@ export function ScanDialog() {
   };
 
   const handleStatClick = async (category: StatCategory) => {
-    // If we already have details, just open the dialog
-    if (scanDetails) {
-      setDetailCategory(category);
-      return;
-    }
-
-    // Otherwise, fetch details first
+    // Always fetch fresh details from the server to get the latest state
     setIsLoadingDetails(true);
     const client = getClient();
     if (!client) {
@@ -556,10 +545,15 @@ export function ScanDialog() {
               </Button>
             )}
             {isScanning ? (
-              <Button variant="destructive" onClick={handleCancelScan}>
-                <X className="w-4 h-4 mr-2" />
-                Cancel Scan
-              </Button>
+              <>
+                <Button variant="outline" onClick={() => setOpen(false)}>
+                  Close
+                </Button>
+                <Button variant="destructive" onClick={handleCancelScan}>
+                  <X className="w-4 h-4 mr-2" />
+                  Cancel Scan
+                </Button>
+              </>
             ) : isFinished ? (
               <Button
                 onClick={() => {

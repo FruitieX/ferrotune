@@ -362,9 +362,9 @@ async fn scan_folder_with_progress(
             if let Some(ext) = path.extension() {
                 if supported_extensions.contains(&ext.to_string_lossy().to_lowercase().as_str()) {
                     total_count += 1;
-                    // Broadcast progress every 500 files
-                    if total_count.is_multiple_of(500) {
-                        state.set_total(total_count).await;
+                    // Broadcast progress every 100 files
+                    if total_count.is_multiple_of(100) {
+                        state.add_to_total(100).await;
                         state
                             .log(
                                 "INFO",
@@ -379,7 +379,11 @@ async fn scan_folder_with_progress(
                 }
             }
         }
-        state.set_total(total_count).await;
+        // Add any remaining count that wasn't added during the loop
+        let remainder = total_count % 100;
+        if remainder > 0 {
+            state.add_to_total(remainder).await;
+        }
         state
             .log(
                 "INFO",
@@ -478,7 +482,7 @@ async fn scan_folder_with_progress(
                     if let Some(ref state) = scan_state {
                         state.track_unchanged(&relative_path).await;
                     }
-                    if scanned % 500 == 0 {
+                    if scanned % 100 == 0 {
                         tracing::info!(
                             "Progress: {} files scanned, {} added, {} updated, {} unchanged, {} errors",
                             scanned,
@@ -560,7 +564,7 @@ async fn scan_folder_with_progress(
             }
         }
 
-        if scanned % 500 == 0 {
+        if scanned % 100 == 0 {
             tracing::info!(
                 "Progress: {} files scanned, {} added, {} updated, {} unchanged, {} errors",
                 scanned,

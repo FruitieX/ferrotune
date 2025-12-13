@@ -448,8 +448,23 @@ export function MusicLibraries() {
       return client.deleteMusicFolder(id);
     },
     onSuccess: () => {
+      // Invalidate all queries that might have data from the deleted folder
       queryClient.invalidateQueries({ queryKey: ["adminMusicFolders"] });
       queryClient.invalidateQueries({ queryKey: ["serverStats"] });
+      // Library data
+      queryClient.invalidateQueries({ queryKey: ["albums"] });
+      queryClient.invalidateQueries({ queryKey: ["artists"] });
+      queryClient.invalidateQueries({ queryKey: ["songs"] });
+      queryClient.invalidateQueries({ queryKey: ["genres"] });
+      queryClient.invalidateQueries({ queryKey: ["starred"] });
+      // Playlists may now have missing entries
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistDetail"] });
+      // Home page data (random albums, recently added, etc.)
+      queryClient.invalidateQueries({ queryKey: ["randomAlbums"] });
+      queryClient.invalidateQueries({ queryKey: ["recentAlbums"] });
+      queryClient.invalidateQueries({ queryKey: ["frequentAlbums"] });
+      queryClient.invalidateQueries({ queryKey: ["randomSongs"] });
       toast.success("Music folder deleted");
     },
     onError: (error: Error) => {

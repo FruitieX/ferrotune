@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Folder,
@@ -51,6 +51,15 @@ export function DirectoryBrowser({
   // Track the highlighted (but not yet confirmed) directory in the browser
   const [highlightedPath, setHighlightedPath] = useState<string | null>(null);
 
+  // Debounce value for path validation (300ms delay)
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedValue(value);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [value]);
+
   // Fetch directory contents
   const {
     data: browserData,
@@ -68,17 +77,20 @@ export function DirectoryBrowser({
     retry: false,
   });
 
-  // Validate the current path
+  // Validate the current path (debounced)
   const { data: validationResult, isLoading: isValidating } = useQuery({
-    queryKey: ["validatePath", value],
+    queryKey: ["validatePath", debouncedValue],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      return client.validatePath(value);
+      return client.validatePath(debouncedValue);
     },
-    enabled: !!value && value.length > 0,
+    enabled: !!debouncedValue && debouncedValue.length > 0,
     retry: false,
   });
+
+  // Show loading indicator while debouncing or validating
+  const isDebouncing = value !== debouncedValue;
 
   // Navigate to a directory in the browser
   const navigateTo = (path: string) => {
@@ -124,7 +136,7 @@ export function DirectoryBrowser({
           {/* Validation indicator */}
           {value && (
             <div className="absolute right-3 top-1/2 -translate-y-1/2">
-              {isValidating ? (
+              {isDebouncing || isValidating ? (
                 <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
               ) : validationResult?.valid ? (
                 <Check className="w-4 h-4 text-green-500" />
