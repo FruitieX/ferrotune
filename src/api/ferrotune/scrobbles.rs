@@ -25,20 +25,15 @@ pub struct ImportScrobbleEntry {
 }
 
 /// Import mode - whether to append to or replace existing scrobbles.
-#[derive(Debug, Deserialize, TS, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Deserialize, TS, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub enum ImportMode {
     /// Add to existing play counts
+    #[default]
     Append,
     /// Replace existing play counts for the affected songs
     Replace,
-}
-
-impl Default for ImportMode {
-    fn default() -> Self {
-        ImportMode::Append
-    }
 }
 
 /// Request body for importing scrobbles.

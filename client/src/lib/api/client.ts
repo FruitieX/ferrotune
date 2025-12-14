@@ -859,9 +859,7 @@ export class SubsonicClient {
     });
   }
 
-  async getPlayCounts(
-    songIds: string[],
-  ): Promise<GetPlayCountsResponse> {
+  async getPlayCounts(songIds: string[]): Promise<GetPlayCountsResponse> {
     return this.adminRequest("/ferrotune/scrobbles/counts", {
       method: "POST",
       body: JSON.stringify({ songIds } as GetPlayCountsRequest),

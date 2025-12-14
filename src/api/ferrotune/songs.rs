@@ -14,6 +14,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
+use strsim::normalized_levenshtein;
 use ts_rs::TS;
 
 type ApiError = (StatusCode, Json<super::ErrorResponse>);
@@ -289,6 +290,8 @@ pub async fn match_tracks(
                 }
                 all
             },
+            core_title: extract_core_title(&song.title),
+            full_title: song.title.to_lowercase(),
         })
         .collect();
 
@@ -317,6 +320,10 @@ struct TokenizedSong<'a> {
     artist_tokens: HashSet<String>,
     album_tokens: Option<HashSet<String>>,
     all_tokens: HashSet<String>,
+    /// Core title for primary matching (stripped of suffixes like "Original Mix")
+    core_title: String,
+    /// Full title normalized to lowercase for secondary similarity check
+    full_title: String,
 }
 
 /// Tokenize a string into normalized words.
@@ -363,7 +370,54 @@ fn weighted_token_score(query_tokens: &HashSet<String>, song_tokens: &HashSet<St
     0.7 * query_coverage + 0.3 * song_coverage
 }
 
+/// Extract the "core" title by stripping common suffixes in parentheses/brackets.
+/// This helps with matching tracks like "Sunset (Original Mix)" to "Sunset".
+///
+/// Examples:
+///   "Sunset (Original Mix)" -> "sunset"
+///   "Dancing (feat. Someone)" -> "dancing"
+///   "Midnight (From \"Movie Title\")" -> "midnight"
+///   "Dreaming - Remix" -> "dreaming"
+///   "[bonus] something" -> "[bonus] something" (no stripping if title starts with bracket)
+fn extract_core_title(title: &str) -> String {
+    // Find first occurrence of ( or [ and take everything before it
+    let core = title.split(&['(', '['][..]).next().unwrap_or(title).trim();
+
+    // If the result is empty (title started with [ or (), use the full title
+    // This prevents titles like "[bonus] song" from having empty core
+    if core.is_empty() {
+        return title.to_lowercase();
+    }
+
+    // Also handle " - " suffix patterns (e.g., "Song - Remix")
+    let core = core.split(" - ").next().unwrap_or(core).trim();
+
+    // If still empty after splitting on " - ", use original
+    if core.is_empty() {
+        return title.to_lowercase();
+    }
+
+    core.to_lowercase()
+}
+
+/// Calculate similarity between two core titles using normalized Levenshtein distance.
+/// Returns 0.0-1.0 where 1.0 is exact match.
+fn core_title_similarity(a: &str, b: &str) -> f64 {
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    normalized_levenshtein(a, b)
+}
+
 /// Match a single track against the tokenized song library.
+///
+/// Uses a hybrid approach:
+/// 1. Core title similarity (Levenshtein distance on stripped title) as a gate
+/// 2. Token-based scoring for fine-grained ranking
+///
+/// This prevents false positives where suffix tokens like "Original Mix" match wrong songs.
+/// E.g., prevents "Sunset (Original Mix)" from matching "Thunder (Original Mix)"
+/// instead of "Sunset".
 fn match_single_track(
     track: &TrackToMatch,
     songs: &[TokenizedSong],
@@ -376,6 +430,18 @@ fn match_single_track(
     let mut title_tokens = HashSet::new();
     let mut artist_tokens = HashSet::new();
     let mut album_tokens = HashSet::new();
+
+    // Extract core title and full title for matching
+    let query_core_title = if use_title {
+        track.title.as_ref().map(|t| extract_core_title(t))
+    } else {
+        None
+    };
+    let query_full_title = if use_title {
+        track.title.as_ref().map(|t| t.to_lowercase())
+    } else {
+        None
+    };
 
     if use_title {
         if let Some(title) = &track.title {
@@ -419,7 +485,57 @@ fn match_single_track(
     let mut best_match: Option<(&SongMatchEntry, f64)> = None;
 
     for tokenized in songs {
-        // Calculate field-specific scores with weights
+        // CORE TITLE GATE: If using title matching, check core similarity first
+        // This prevents "Sunset (Original Mix)" from matching "Thunder (Original Mix)"
+        // just because they share "Original Mix" tokens
+        let core_sim = if let Some(ref query_core) = query_core_title {
+            if !query_core.is_empty() && !tokenized.core_title.is_empty() {
+                let sim = core_title_similarity(query_core, &tokenized.core_title);
+                // Reject candidates where core titles are too different
+                // Threshold of 0.5 allows for typos but rejects completely different titles
+                if sim < 0.5 {
+                    continue; // Skip this candidate entirely
+                }
+                sim
+            } else {
+                // If either core is empty, fall back to full title token matching
+                // Don't give a free pass - use token similarity instead
+                let title_sim = weighted_token_score(&title_tokens, &tokenized.title_tokens);
+                if title_sim < 0.3 {
+                    continue; // Title tokens don't match well enough
+                }
+                title_sim
+            }
+        } else {
+            1.0 // Not using title matching, skip core check
+        };
+
+        // ARTIST GATE: If using artist matching and artist tokens are provided,
+        // require some artist overlap to prevent title-only matches with wrong artists
+        // E.g., "Tears" by JK Soul shouldn't match "Tears" by FM-84
+        if use_artist && !artist_tokens.is_empty() {
+            let artist_sim = weighted_token_score(&artist_tokens, &tokenized.artist_tokens);
+            // Require at least some artist token overlap (30% threshold)
+            // This allows for variations like "feat." additions but rejects completely different artists
+            if artist_sim < 0.3 {
+                continue; // Artist doesn't match well enough
+            }
+        }
+
+        // ALBUM GATE: If using album matching and album tokens are provided,
+        // require some album overlap to prevent matches with wrong albums
+        if use_album && !album_tokens.is_empty() {
+            if let Some(song_album_tokens) = &tokenized.album_tokens {
+                let album_sim = weighted_token_score(&album_tokens, song_album_tokens);
+                // Require at least some album token overlap (30% threshold)
+                if album_sim < 0.3 {
+                    continue; // Album doesn't match well enough
+                }
+            }
+            // If song has no album, don't reject it - album metadata may be incomplete
+        }
+
+        // Calculate field-specific token scores with weights
         let mut score = 0.0;
         let mut weight_sum = 0.0;
 
@@ -448,10 +564,24 @@ fn match_single_track(
 
         // If we had structured fields, use weighted field scores
         // Otherwise, fall back to overall Jaccard similarity
-        let final_score = if weight_sum > 0.0 {
+        let token_score = if weight_sum > 0.0 {
             score / weight_sum
         } else {
             jaccard_similarity(&query_tokens, &tokenized.all_tokens)
+        };
+
+        // Combine core similarity, full title similarity, and token score
+        // - Core similarity (40%): matches essential song identity
+        // - Full title similarity (30%): catches remix/version differences
+        // - Token score (30%): field-specific weighted matching
+        let combined_score = if let Some(ref query_full) = query_full_title {
+            let full_title_sim = normalized_levenshtein(query_full, &tokenized.full_title);
+            0.4 * core_sim + 0.3 * full_title_sim + 0.3 * token_score
+        } else if query_core_title.is_some() {
+            // No full title but have core - use original formula
+            0.6 * core_sim + 0.4 * token_score
+        } else {
+            token_score
         };
 
         // Duration bonus: if durations match within 5 seconds, add bonus
@@ -471,7 +601,7 @@ fn match_single_track(
                 0.0
             };
 
-        let total_score = (final_score + duration_bonus).min(1.0);
+        let total_score = (combined_score + duration_bonus).min(1.0);
 
         if total_score > best_match.map(|(_, s)| s).unwrap_or(0.0) {
             best_match = Some((tokenized.song, total_score));

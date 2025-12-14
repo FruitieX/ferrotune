@@ -828,6 +828,8 @@ export function useTrackMatcher() {
                 duration: result.song.duration ?? null,
               },
               matchScore: result.score,
+              // Auto-select only if match confidence is 90% or higher
+              selected: result.score >= 0.9,
             });
           } else {
             results.push({

@@ -9,6 +9,7 @@ import {
   AlertCircle,
   FileSpreadsheet,
   ArrowUpDown,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -74,6 +75,8 @@ interface ParsedCsvRow {
 interface PlayCountTrack extends MatchableTrack {
   importPlayCount: number;
   existingPlayCount?: number;
+  // Index into csvRows for original line export
+  csvRowIndex: number;
 }
 
 type SortOption = "playCount" | "title" | "artist" | "previewTotal";
@@ -152,6 +155,7 @@ export function ImportPlayCountsDialog({
 
   const [step, setStep] = useState<ImportStep>("upload");
   const [csvRows, setCsvRows] = useState<ParsedCsvRow[]>([]);
+  const [csvHeaderLine, setCsvHeaderLine] = useState<string>("");
   const [parseError, setParseError] = useState<string | null>(null);
   const [matchedTracks, setMatchedTracks] = useState<PlayCountTrack[]>([]);
   const [matchingProgress, setMatchingProgress] = useState(0);
@@ -187,6 +191,12 @@ export function ImportPlayCountsDialog({
     reader.onload = (event) => {
       const text = event.target?.result as string;
       try {
+        // Store the original header line for export
+        const lines = text.trim().split(/\r?\n/);
+        if (lines.length > 0) {
+          setCsvHeaderLine(lines[0]);
+        }
+
         const rows = parseCSV(text);
         if (rows.length === 0) {
           setParseError("No valid rows found in CSV");
@@ -195,7 +205,9 @@ export function ImportPlayCountsDialog({
         setCsvRows(rows);
         setParseError(null);
       } catch (err) {
-        setParseError(err instanceof Error ? err.message : "Failed to parse CSV");
+        setParseError(
+          err instanceof Error ? err.message : "Failed to parse CSV",
+        );
       }
     };
     reader.readAsText(file);
@@ -244,8 +256,9 @@ export function ImportPlayCountsDialog({
         ...track,
         importPlayCount: csvRows[index].playCount,
         existingPlayCount: track.match
-          ? existingCounts[track.match.id] ?? 0
+          ? (existingCounts[track.match.id] ?? 0)
           : undefined,
+        csvRowIndex: index,
       }));
 
       setMatchedTracks(tracksWithCounts);
@@ -332,6 +345,7 @@ export function ImportPlayCountsDialog({
     cancelMatching();
     setStep("upload");
     setCsvRows([]);
+    setCsvHeaderLine("");
     setParseError(null);
     setMatchedTracks([]);
     setMatchingProgress(0);
@@ -359,6 +373,34 @@ export function ImportPlayCountsDialog({
     } else {
       onOpenChange(newOpen);
     }
+  };
+
+  // Download unmatched tracks in the same CSV format
+  const downloadUnmatched = () => {
+    const unmatchedTracks = matchedTracks.filter((t) => !t.match);
+    if (unmatchedTracks.length === 0) return;
+
+    // Build CSV with header and original lines
+    const lines: string[] = [];
+    if (csvHeaderLine) {
+      lines.push(csvHeaderLine);
+    }
+    for (const track of unmatchedTracks) {
+      // Get the original row from csvRows using the stored index
+      const row = csvRows[track.csvRowIndex];
+      if (row) {
+        lines.push(row.raw);
+      }
+    }
+
+    const content = lines.join("\n") + "\n";
+    const blob = new Blob([content], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "unmatched_play_counts.csv";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -474,7 +516,9 @@ export function ImportPlayCountsDialog({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="playCount">Import Count</SelectItem>
+                          <SelectItem value="playCount">
+                            Import Count
+                          </SelectItem>
                           <SelectItem value="previewTotal">
                             Preview Total
                           </SelectItem>
@@ -529,7 +573,10 @@ export function ImportPlayCountsDialog({
                         ...updated[originalIndex],
                         match,
                         matchScore: score,
-                        selected: match ? true : updated[originalIndex].selected,
+                        // Auto-select only if match confidence is 90% or higher
+                        selected: match
+                          ? score >= 0.9
+                          : updated[originalIndex].selected,
                       };
                       return updated;
                     });
@@ -602,6 +649,17 @@ export function ImportPlayCountsDialog({
           )}
 
           <DialogFooter className="shrink-0">
+            {step === "preview" && unmatchedCount > 0 && (
+              <Button
+                variant="outline"
+                className="mr-auto"
+                onClick={downloadUnmatched}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download Unmatched
+              </Button>
+            )}
+
             <Button variant="outline" onClick={handleCloseRequest}>
               Cancel
             </Button>
@@ -630,7 +688,10 @@ export function ImportPlayCountsDialog({
       </Dialog>
 
       {/* Replace mode confirmation */}
-      <AlertDialog open={confirmReplaceOpen} onOpenChange={setConfirmReplaceOpen}>
+      <AlertDialog
+        open={confirmReplaceOpen}
+        onOpenChange={setConfirmReplaceOpen}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Replace existing play counts?</AlertDialogTitle>

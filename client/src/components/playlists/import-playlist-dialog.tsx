@@ -470,8 +470,8 @@ export function ImportPlaylistDialog({
                       ...updated[index],
                       match,
                       matchScore: score,
-                      // Auto-select when manually matched
-                      selected: match ? true : updated[index].selected,
+                      // Auto-select only if match confidence is 90% or higher
+                      selected: match ? score >= 0.9 : updated[index].selected,
                     };
                     return updated;
                   });
