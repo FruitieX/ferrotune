@@ -93,6 +93,7 @@ mod preferences;
 mod queue;
 mod scan;
 pub mod scan_state;
+mod scrobbles;
 mod server_config;
 mod setup;
 mod shuffle_exclude;
@@ -236,6 +237,15 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/ferrotune/listening/review",
             get(listening::get_period_review),
+        )
+        // Scrobbles import endpoints
+        .route(
+            "/ferrotune/scrobbles/import",
+            post(scrobbles::import_scrobbles),
+        )
+        .route(
+            "/ferrotune/scrobbles/counts",
+            post(scrobbles::get_play_counts),
         )
         // Waveform generation endpoint (streaming only)
         .route(

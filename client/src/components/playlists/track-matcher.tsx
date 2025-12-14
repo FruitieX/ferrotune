@@ -233,6 +233,8 @@ interface TrackListProps {
   showPosition?: boolean;
   /** Show checkboxes for matched tracks */
   showCheckboxes?: boolean;
+  /** Render additional info for each track (e.g., play counts) */
+  renderTrackExtra?: (track: MatchableTrack) => React.ReactNode;
 }
 
 export function TrackList({
@@ -242,6 +244,7 @@ export function TrackList({
   onToggleAllSelection,
   showPosition,
   showCheckboxes = false,
+  renderTrackExtra,
 }: TrackListProps) {
   if (tracks.length === 0) {
     return (
@@ -309,6 +312,7 @@ export function TrackList({
               onToggleSelection={onToggleSelection}
               showPosition={showPosition}
               showCheckbox={showCheckboxes}
+              renderTrackExtra={renderTrackExtra}
             />
           ))}
         </div>
@@ -328,6 +332,8 @@ interface TrackRowProps {
   onToggleSelection?: (index: number, selected: boolean) => void;
   showPosition?: boolean;
   showCheckbox?: boolean;
+  /** Render additional info for each track (e.g., play counts) */
+  renderTrackExtra?: (track: MatchableTrack) => React.ReactNode;
 }
 
 export function TrackRow({
@@ -337,6 +343,7 @@ export function TrackRow({
   onToggleSelection,
   showPosition,
   showCheckbox = false,
+  renderTrackExtra,
 }: TrackRowProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   // Default to selected if not explicitly set
@@ -408,12 +415,31 @@ export function TrackRow({
             {track.parsed.album}
           </div>
         )}
-        {track.matchScore > 0 && track.matchScore < 1 && (
-          <Badge variant="outline" className="text-xs mt-1">
+        {track.matchScore > 0 && (
+          <Badge
+            variant="outline"
+            className={cn(
+              "text-xs mt-1",
+              track.matchScore >= 0.9
+                ? "border-green-500 text-green-600 bg-green-50 dark:bg-green-950/30"
+                : track.matchScore >= 0.8
+                  ? "border-yellow-500 text-yellow-600 bg-yellow-50 dark:bg-yellow-950/30"
+                  : track.matchScore >= 0.7
+                    ? "border-orange-500 text-orange-600 bg-orange-50 dark:bg-orange-950/30"
+                    : "border-red-500 text-red-600 bg-red-50 dark:bg-red-950/30",
+            )}
+          >
             {Math.round(track.matchScore * 100)}% match
           </Badge>
         )}
       </div>
+
+      {/* Extra info (e.g., play counts) */}
+      {renderTrackExtra && (
+        <div className="shrink-0 text-right text-sm text-muted-foreground">
+          {renderTrackExtra(track)}
+        </div>
+      )}
 
       {track.match && (
         <>
@@ -497,6 +523,8 @@ interface TabbedTrackListProps {
   showMatchFilter?: boolean;
   /** Show checkboxes for matched tracks */
   showCheckboxes?: boolean;
+  /** Render additional info for each track (e.g., play counts) */
+  renderTrackExtra?: (track: MatchableTrack) => React.ReactNode;
 }
 
 export function TabbedTrackList({
@@ -508,6 +536,7 @@ export function TabbedTrackList({
   showLockedTab = false,
   showMatchFilter = false,
   showCheckboxes = false,
+  renderTrackExtra,
 }: TabbedTrackListProps) {
   const [maxMatchPercent, setMaxMatchPercent] = useState<number | null>(null);
 
@@ -519,16 +548,16 @@ export function TabbedTrackList({
   const matchedTracks = editableTracks.filter((t) => {
     if (!t.match) return false;
     if (maxMatchPercent !== null) {
-      return Math.round(t.matchScore * 100) <= maxMatchPercent;
+      return Math.round(t.matchScore * 100) < maxMatchPercent;
     }
     return true;
   });
 
   const unmatchedTracks = editableTracks.filter((t) => !t.match);
 
-  // Count tracks below different thresholds for the filter UI
-  const lowConfidenceCount = editableTracks.filter(
-    (t) => t.match && t.matchScore < 0.8,
+  // Count tracks below 100% for the filter UI
+  const belowPerfectCount = editableTracks.filter(
+    (t) => t.match && t.matchScore < 1,
   ).length;
 
   // Helper to find original index when updating a filtered list
@@ -545,7 +574,7 @@ export function TabbedTrackList({
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       {/* Match percentage filter */}
-      {showMatchFilter && lowConfidenceCount > 0 && (
+      {showMatchFilter && belowPerfectCount > 0 && (
         <div className="mb-3 flex items-center gap-3 text-sm">
           <span className="text-muted-foreground">Filter by confidence:</span>
           <div className="flex gap-1">
@@ -558,12 +587,28 @@ export function TabbedTrackList({
               All
             </Button>
             <Button
+              variant={maxMatchPercent === 100 ? "default" : "outline"}
+              size="sm"
+              className="h-7 px-2"
+              onClick={() => setMaxMatchPercent(100)}
+            >
+              {"<"}100%
+            </Button>
+            <Button
+              variant={maxMatchPercent === 90 ? "default" : "outline"}
+              size="sm"
+              className="h-7 px-2"
+              onClick={() => setMaxMatchPercent(90)}
+            >
+              {"<"}90%
+            </Button>
+            <Button
               variant={maxMatchPercent === 80 ? "default" : "outline"}
               size="sm"
               className="h-7 px-2"
               onClick={() => setMaxMatchPercent(80)}
             >
-              ≤80%
+              {"<"}80%
             </Button>
             <Button
               variant={maxMatchPercent === 70 ? "default" : "outline"}
@@ -571,7 +616,7 @@ export function TabbedTrackList({
               className="h-7 px-2"
               onClick={() => setMaxMatchPercent(70)}
             >
-              ≤70%
+              {"<"}70%
             </Button>
             <Button
               variant={maxMatchPercent === 60 ? "default" : "outline"}
@@ -579,7 +624,7 @@ export function TabbedTrackList({
               className="h-7 px-2"
               onClick={() => setMaxMatchPercent(60)}
             >
-              ≤60%
+              {"<"}60%
             </Button>
           </div>
           {maxMatchPercent !== null && (
@@ -638,6 +683,7 @@ export function TabbedTrackList({
             }
             showPosition={showPosition}
             showCheckboxes={showCheckboxes}
+            renderTrackExtra={renderTrackExtra}
           />
         </TabsContent>
         <TabsContent
@@ -665,6 +711,7 @@ export function TabbedTrackList({
             }
             showPosition={showPosition}
             showCheckboxes={showCheckboxes}
+            renderTrackExtra={renderTrackExtra}
           />
         </TabsContent>
         <TabsContent
@@ -681,6 +728,7 @@ export function TabbedTrackList({
               )
             }
             showPosition={showPosition}
+            renderTrackExtra={renderTrackExtra}
           />
         </TabsContent>
         {showLockedTab && lockedTracks.length > 0 && (
@@ -692,6 +740,7 @@ export function TabbedTrackList({
               tracks={lockedTracks}
               onUpdateMatch={() => {}} // No-op for locked tracks
               showPosition={showPosition}
+              renderTrackExtra={renderTrackExtra}
             />
           </TabsContent>
         )}

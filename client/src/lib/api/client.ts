@@ -67,6 +67,10 @@ import type { ScanDetails } from "./generated/ScanDetails";
 import type { SongMatchListResponse } from "./generated/SongMatchListResponse";
 import type { MatchTracksRequest } from "./generated/MatchTracksRequest";
 import type { MatchTracksResponse } from "./generated/MatchTracksResponse";
+import type { ImportScrobblesRequest } from "./generated/ImportScrobblesRequest";
+import type { ImportScrobblesResponse } from "./generated/ImportScrobblesResponse";
+import type { GetPlayCountsRequest } from "./generated/GetPlayCountsRequest";
+import type { GetPlayCountsResponse } from "./generated/GetPlayCountsResponse";
 
 // Ping response is empty
 type PingResponse = Record<string, never>;
@@ -843,6 +847,25 @@ export class SubsonicClient {
     return this.adminRequest(
       `/ferrotune/listening/review${query ? `?${query}` : ""}`,
     );
+  }
+
+  // Scrobbles import (Admin API)
+  async importScrobbles(
+    request: ImportScrobblesRequest,
+  ): Promise<ImportScrobblesResponse> {
+    return this.adminRequest("/ferrotune/scrobbles/import", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getPlayCounts(
+    songIds: string[],
+  ): Promise<GetPlayCountsResponse> {
+    return this.adminRequest("/ferrotune/scrobbles/counts", {
+      method: "POST",
+      body: JSON.stringify({ songIds } as GetPlayCountsRequest),
+    });
   }
 
   // Streaming waveform URL (Admin API - returns URL for SSE endpoint)

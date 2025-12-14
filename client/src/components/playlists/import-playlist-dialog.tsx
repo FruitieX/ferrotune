@@ -76,7 +76,7 @@ export function ImportPlaylistDialog({
   const [searchOptions, setSearchOptions] = useState<SearchOptions>({
     useTitle: true,
     useArtist: true,
-    useAlbum: false,
+    useAlbum: true,
   });
   const [includeMissing, setIncludeMissing] = useState(true);
   const [confirmCloseDialogOpen, setConfirmCloseDialogOpen] = useState(false);

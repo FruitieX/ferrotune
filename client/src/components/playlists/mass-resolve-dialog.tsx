@@ -79,7 +79,7 @@ export function MassResolveDialog({
   const [searchOptions, setSearchOptions] = useState<SearchOptions>({
     useTitle: true,
     useArtist: true,
-    useAlbum: false,
+    useAlbum: true,
   });
   const [confirmCloseDialogOpen, setConfirmCloseDialogOpen] = useState(false);
 

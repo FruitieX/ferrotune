@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
@@ -12,6 +13,7 @@ import {
   Clock,
   ExternalLink,
   TrendingUp,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -43,6 +45,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { formatListeningTime } from "@/lib/utils/format";
+import { ImportPlayCountsDialog } from "@/components/stats/import-play-counts-dialog";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -53,6 +56,9 @@ export default function ProfilePage() {
   const { user, isLoading: userLoading } = useCurrentUser();
   const [, setConnection] = useAtom(serverConnectionAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
+
+  // Import dialog state
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   // Fetch listening stats
   const { data: listeningStats, isLoading: listeningStatsLoading } = useQuery({
@@ -229,7 +235,7 @@ export default function ProfilePage() {
         >
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <div>
+              <div className="flex-1">
                 <CardTitle className="flex items-center gap-2">
                   <Headphones className="w-5 h-5" />
                   Listening Activity
@@ -238,6 +244,15 @@ export default function ProfilePage() {
                   Your music listening statistics
                 </CardDescription>
               </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-2"
+                onClick={() => setImportDialogOpen(true)}
+              >
+                <Upload className="w-4 h-4" />
+                Import
+              </Button>
               <Link href="/review">
                 <Button
                   size="sm"
@@ -335,6 +350,12 @@ export default function ProfilePage() {
         {/* Sign Out */}
         {signOutCard}
       </div>
+
+      {/* Import Play Counts Dialog */}
+      <ImportPlayCountsDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+      />
     </div>
   );
 }

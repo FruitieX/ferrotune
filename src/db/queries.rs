@@ -25,7 +25,7 @@ pub const SONG_BASE_QUERY_WITH_SCROBBLES: &str = r#"
     FROM songs s
     INNER JOIN artists ar ON s.artist_id = ar.id
     LEFT JOIN albums al ON s.album_id = al.id
-    LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
+    LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played 
                FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
 "#;
 
@@ -33,7 +33,7 @@ pub const SONG_BASE_QUERY_WITH_SCROBBLES: &str = r#"
 /// Use this when building dynamic queries that need play count and last played info.
 /// Expects the songs table to be aliased as `s`.
 pub const SCROBBLE_STATS_JOIN: &str = r#"
-    LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
+    LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played 
                FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
 "#;
 
