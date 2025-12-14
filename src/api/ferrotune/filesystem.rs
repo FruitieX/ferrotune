@@ -262,7 +262,7 @@ fn build_breadcrumbs(path: &std::path::Path) -> Vec<BreadcrumbEntry> {
 fn browse_roots() -> Result<BrowseFilesystemResponse> {
     let mut directories = Vec::new();
 
-    // On Unix systems, start with common directories
+    // On Unix systems, just return the root directory
     #[cfg(unix)]
     {
         // Root directory
@@ -272,30 +272,6 @@ fn browse_roots() -> Result<BrowseFilesystemResponse> {
                 path: "/".to_string(),
                 readable: std::fs::read_dir("/").is_ok(),
             });
-        }
-
-        // Home directory
-        if let Ok(home) = std::env::var("HOME") {
-            let home_path = std::path::Path::new(&home);
-            if home_path.is_dir() {
-                directories.push(DirectoryEntry {
-                    name: "Home".to_string(),
-                    path: home.clone(),
-                    readable: std::fs::read_dir(&home).is_ok(),
-                });
-            }
-        }
-
-        // Common media directories
-        for dir in &["/mnt", "/media", "/home", "/srv", "/data"] {
-            let path = std::path::Path::new(dir);
-            if path.is_dir() && !directories.iter().any(|d| d.path == *dir) {
-                directories.push(DirectoryEntry {
-                    name: dir.trim_start_matches('/').to_string(),
-                    path: dir.to_string(),
-                    readable: std::fs::read_dir(dir).is_ok(),
-                });
-            }
         }
     }
 

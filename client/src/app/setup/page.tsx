@@ -41,6 +41,7 @@ import {
   serverConnectionAtom,
   connectionStatusAtom,
   isConnectedAtom,
+  isClientInitializedAtom,
 } from "@/lib/store/auth";
 import {
   scanDialogOpenAtom,
@@ -63,6 +64,7 @@ export default function SetupPage() {
   const queryClient = useQueryClient();
   const setConnection = useSetAtom(serverConnectionAtom);
   const setConnectionStatus = useSetAtom(connectionStatusAtom);
+  const setClientInitialized = useSetAtom(isClientInitializedAtom);
   const isConnected = useAtomValue(isConnectedAtom);
 
   const [step, setStep] = useState<SetupStep>("welcome");
@@ -74,9 +76,6 @@ export default function SetupPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Folder management state
-  const [folders, setFolders] = useState<
-    Array<{ name: string; path: string; tempId: string; validated?: boolean }>
-  >([]);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderPath, setNewFolderPath] = useState("");
   const [folderValidationError, setFolderValidationError] = useState<
@@ -134,6 +133,20 @@ export default function SetupPage() {
     }
   }, [setupStatus, setupCompleted, isConnected, step, router]);
 
+  // Fetch existing music folders when connected
+  const { data: existingFolders } = useQuery({
+    queryKey: ["adminMusicFolders"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.getAdminMusicFolders();
+    },
+    enabled: step === "folders" && isConnected,
+  });
+
+  // Derived: get the list of folders from server
+  const folders = existingFolders?.musicFolders ?? [];
+
   // Connect with credentials
   const handleConnect = async () => {
     setIsConnecting(true);
@@ -155,6 +168,7 @@ export default function SetupPage() {
       };
 
       const client = initializeClient(connection);
+      setClientInitialized(true);
       setConnectionStatus("connecting");
       await client.ping();
 
@@ -201,7 +215,41 @@ export default function SetupPage() {
     },
   });
 
-  // Add folder with validation
+  // Create folder mutation - immediately creates folder on server
+  const createFolderMutation = useMutation({
+    mutationFn: async ({ name, path }: { name: string; path: string }) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.createMusicFolder(name, path);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["adminMusicFolders"] });
+      toast.success("Music folder added");
+      setNewFolderName("");
+      setNewFolderPath("");
+    },
+    onError: (err: Error) => {
+      setFolderValidationError(err.message);
+    },
+  });
+
+  // Delete folder mutation
+  const deleteFolderMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.deleteMusicFolder(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["adminMusicFolders"] });
+      toast.success("Music folder removed");
+    },
+    onError: (err: Error) => {
+      toast.error(`Failed to remove folder: ${err.message}`);
+    },
+  });
+
+  // Add folder with validation - immediately POSTs to server
   const handleAddFolder = async () => {
     if (!newFolderName.trim() || !newFolderPath.trim()) return;
 
@@ -224,21 +272,15 @@ export default function SetupPage() {
 
       // Check if path is already in the list
       if (folders.some((f) => f.path === newFolderPath.trim())) {
-        setFolderValidationError("This folder is already in the list");
+        setFolderValidationError("This folder is already added");
         return;
       }
 
-      setFolders([
-        ...folders,
-        {
-          name: newFolderName.trim(),
-          path: newFolderPath.trim(),
-          tempId: Math.random().toString(36).substring(7),
-          validated: true,
-        },
-      ]);
-      setNewFolderName("");
-      setNewFolderPath("");
+      // Create the folder on the server immediately
+      createFolderMutation.mutate({
+        name: newFolderName.trim(),
+        path: newFolderPath.trim(),
+      });
     } catch (err) {
       setFolderValidationError(
         err instanceof Error ? err.message : "Failed to validate path",
@@ -248,17 +290,14 @@ export default function SetupPage() {
     }
   };
 
-  // Remove folder
-  const handleRemoveFolder = (tempId: string) => {
-    setFolders(folders.filter((f) => f.tempId !== tempId));
+  // Remove folder - deletes from server
+  const handleRemoveFolder = (folderId: number) => {
+    deleteFolderMutation.mutate(folderId);
   };
 
-  // Create folders mutation
-  const createFoldersMutation = useMutation({
+  // Continue mutation - just updates password if needed and moves to scan
+  const continueMutation = useMutation({
     mutationFn: async () => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-
       // Update password if changed
       if (newPassword.trim() && newPassword !== password) {
         await updatePasswordMutation.mutateAsync(newPassword);
@@ -273,21 +312,14 @@ export default function SetupPage() {
         };
         setConnection(connection);
         initializeClient(connection);
+        setClientInitialized(true);
       }
-
-      // Create all folders
-      for (const folder of folders) {
-        await client.createMusicFolder(folder.name, folder.path);
-      }
-      return folders.length;
     },
-    onSuccess: (count) => {
-      queryClient.invalidateQueries({ queryKey: ["adminMusicFolders"] });
-      toast.success(`Added ${count} music folder${count !== 1 ? "s" : ""}`);
+    onSuccess: () => {
       setStep("scan");
     },
     onError: (err: Error) => {
-      toast.error(`Failed to add folders: ${err.message}`);
+      toast.error(`Failed to update password: ${err.message}`);
     },
   });
 
@@ -636,7 +668,7 @@ export default function SetupPage() {
                     <div className="space-y-2">
                       {folders.map((folder) => (
                         <div
-                          key={folder.tempId}
+                          key={folder.id}
                           className="flex items-center gap-2 p-3 rounded-lg bg-muted"
                         >
                           <FolderOpen className="w-4 h-4 text-primary" />
@@ -652,7 +684,8 @@ export default function SetupPage() {
                             variant="ghost"
                             size="icon"
                             className="shrink-0"
-                            onClick={() => handleRemoveFolder(folder.tempId)}
+                            onClick={() => handleRemoveFolder(folder.id)}
+                            disabled={deleteFolderMutation.isPending}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -713,7 +746,7 @@ export default function SetupPage() {
                     <Button
                       variant="outline"
                       onClick={() => setStep("credentials")}
-                      disabled={createFoldersMutation.isPending}
+                      disabled={continueMutation.isPending}
                     >
                       Back
                     </Button>
@@ -723,16 +756,16 @@ export default function SetupPage() {
                           <span className="flex-1">
                             <Button
                               className="w-full"
-                              onClick={() => createFoldersMutation.mutate()}
+                              onClick={() => continueMutation.mutate()}
                               disabled={
                                 folders.length === 0 ||
-                                createFoldersMutation.isPending
+                                continueMutation.isPending
                               }
                             >
-                              {createFoldersMutation.isPending ? (
+                              {continueMutation.isPending ? (
                                 <>
                                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                  Adding...
+                                  Saving...
                                 </>
                               ) : (
                                 <>

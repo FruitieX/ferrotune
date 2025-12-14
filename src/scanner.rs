@@ -84,6 +84,12 @@ pub async fn scan_library(
 ///
 /// This is the main entry point for async scanning with progress updates.
 /// If `scan_state` is provided, progress will be broadcast via the shared state.
+///
+/// The scan proceeds in two phases:
+/// 1. **Enumeration Phase**: Walk all folders and collect file paths. This ensures
+///    the total count is known before scanning starts.
+/// 2. **Scanning Phase**: Process the collected files, extracting metadata and
+///    updating the database.
 pub async fn scan_library_with_progress(
     pool: &SqlitePool,
     full: bool,
@@ -91,6 +97,8 @@ pub async fn scan_library_with_progress(
     dry_run: bool,
     scan_state: Option<Arc<ScanState>>,
 ) -> Result<()> {
+    let supported_extensions = ["mp3", "flac", "ogg", "opus", "m4a", "mp4", "aac", "wav"];
+
     // Get music folders from database (database is the source of truth)
     let folders = if let Some(id) = folder_id {
         vec![get_music_folder(pool, id).await?]
@@ -98,7 +106,19 @@ pub async fn scan_library_with_progress(
         crate::db::queries::get_music_folders(pool).await?
     };
 
-    for folder in folders {
+    // ==========================================
+    // PHASE 1: Enumerate all files from all folders
+    // ==========================================
+    if let Some(ref state) = scan_state {
+        state.log("INFO", "Starting enumeration phase...").await;
+        state.broadcast().await;
+    }
+    tracing::info!("Starting enumeration phase for {} folders", folders.len());
+
+    // Collect all files to scan: (folder_id, base_path, absolute_path)
+    let mut files_to_scan: Vec<(i64, PathBuf, PathBuf)> = Vec::new();
+
+    for folder in &folders {
         // Check for cancellation
         if let Some(ref state) = scan_state {
             if state.is_cancelled() {
@@ -109,16 +129,193 @@ pub async fn scan_library_with_progress(
             state
                 .log(
                     "INFO",
-                    format!("Scanning folder: {} ({})", folder.name, folder.path),
+                    format!("Enumerating folder: {} ({})", folder.name, folder.path),
                 )
                 .await;
+            state.broadcast().await;
         }
 
-        tracing::info!("Scanning folder: {} ({})", folder.name, folder.path);
-        let folder_result = scan_folder_with_progress(
+        let base_path = PathBuf::from(&folder.path);
+
+        // Safety check: verify the directory exists and is readable
+        if !base_path.exists() {
+            let error_msg = format!(
+                "Music folder '{}' does not exist. Is the volume mounted?",
+                folder.path
+            );
+            tracing::error!("{}", error_msg);
+            if let Some(ref state) = scan_state {
+                state.log("ERROR", &error_msg).await;
+            }
+            // Update folder with error
+            if !dry_run {
+                let _ = crate::api::ferrotune::music_folders::update_folder_scan_error(
+                    pool, folder.id, &error_msg,
+                )
+                .await;
+            }
+            continue; // Skip this folder but continue with others
+        }
+
+        if !base_path.is_dir() {
+            let error_msg = format!("Music folder path '{}' is not a directory", folder.path);
+            tracing::error!("{}", error_msg);
+            if let Some(ref state) = scan_state {
+                state.log("ERROR", &error_msg).await;
+            }
+            if !dry_run {
+                let _ = crate::api::ferrotune::music_folders::update_folder_scan_error(
+                    pool, folder.id, &error_msg,
+                )
+                .await;
+            }
+            continue;
+        }
+
+        // Try to read the directory to verify we have permission
+        if std::fs::read_dir(&base_path).is_err() {
+            let error_msg = format!(
+                "Cannot read music folder '{}'. Check permissions or volume mount.",
+                folder.path
+            );
+            tracing::error!("{}", error_msg);
+            if let Some(ref state) = scan_state {
+                state.log("ERROR", &error_msg).await;
+            }
+            if !dry_run {
+                let _ = crate::api::ferrotune::music_folders::update_folder_scan_error(
+                    pool, folder.id, &error_msg,
+                )
+                .await;
+            }
+            continue;
+        }
+
+        // Walk the directory and collect file paths
+        let mut folder_file_count = 0u64;
+        let mut entries = WalkDir::new(&base_path);
+        while let Some(entry) = entries.next().await {
+            // Check for cancellation during enumeration
+            if let Some(ref state) = scan_state {
+                if state.is_cancelled() {
+                    state.log("WARN", "Scan cancelled by user").await;
+                    return Err(Error::InvalidRequest("Scan cancelled".to_string()));
+                }
+            }
+
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            let path = entry.path();
+
+            // Skip directories
+            let file_type = match entry.file_type().await {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+            if !file_type.is_file() {
+                continue;
+            }
+
+            if let Some(ext) = path.extension() {
+                if supported_extensions.contains(&ext.to_string_lossy().to_lowercase().as_str()) {
+                    files_to_scan.push((folder.id, base_path.clone(), path));
+                    folder_file_count += 1;
+
+                    // Broadcast progress every 100 files
+                    if let Some(ref state) = scan_state {
+                        if folder_file_count.is_multiple_of(100) {
+                            state.add_to_total(100).await;
+                            state
+                                .log(
+                                    "INFO",
+                                    format!(
+                                        "Enumerating folder: {}... ({} found)",
+                                        folder.name, folder_file_count
+                                    ),
+                                )
+                                .await;
+                            state.broadcast().await;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add remaining count for this folder
+        if let Some(ref state) = scan_state {
+            let remainder = folder_file_count % 100;
+            if remainder > 0 {
+                state.add_to_total(remainder).await;
+            }
+            state
+                .log(
+                    "INFO",
+                    format!("Found {} audio files in {}", folder_file_count, folder.name),
+                )
+                .await;
+            state.broadcast().await;
+        }
+        tracing::info!(
+            "Enumerated {} files in folder: {}",
+            folder_file_count,
+            folder.name
+        );
+    }
+
+    let total_files = files_to_scan.len();
+    if let Some(ref state) = scan_state {
+        state
+            .log(
+                "INFO",
+                format!("Enumeration complete. {} total files to scan.", total_files),
+            )
+            .await;
+        state.broadcast().await;
+    }
+    tracing::info!("Enumeration complete: {} total files", total_files);
+
+    // ==========================================
+    // PHASE 2: Scan the collected files
+    // ==========================================
+    if let Some(ref state) = scan_state {
+        state.log("INFO", "Starting scan phase...").await;
+        state.broadcast().await;
+    }
+
+    // Group files by folder for efficient processing
+    let mut files_by_folder: std::collections::HashMap<i64, Vec<(PathBuf, PathBuf)>> =
+        std::collections::HashMap::new();
+    for (folder_id, base_path, file_path) in files_to_scan {
+        files_by_folder
+            .entry(folder_id)
+            .or_default()
+            .push((base_path, file_path));
+    }
+
+    // Process each folder
+    for folder in &folders {
+        let Some(files) = files_by_folder.get(&folder.id) else {
+            continue; // No files for this folder (maybe it errored during enumeration)
+        };
+
+        if let Some(ref state) = scan_state {
+            state.set_current_folder(Some(folder.name.clone())).await;
+            state
+                .log(
+                    "INFO",
+                    format!("Scanning folder: {} ({} files)", folder.name, files.len()),
+                )
+                .await;
+            state.broadcast().await;
+        }
+
+        let folder_result = scan_folder_files(
             pool,
             folder.id,
             &folder.path,
+            files,
             full,
             dry_run,
             scan_state.clone(),
@@ -216,67 +413,21 @@ async fn get_music_folder(pool: &SqlitePool, id: i64) -> Result<crate::db::model
     .ok_or_else(|| Error::NotFound(format!("Music folder with id {} not found", id)))
 }
 
-#[allow(dead_code)]
-async fn scan_folder(
+/// Scan a folder using pre-collected file paths.
+///
+/// This function is called by scan_library_with_progress after the enumeration phase
+/// has collected all file paths. The files parameter contains tuples of (base_path, file_path)
+/// where file_path is the absolute path to the file.
+async fn scan_folder_files(
     pool: &SqlitePool,
     folder_id: i64,
     folder_path: &str,
-    full: bool,
-    dry_run: bool,
-) -> Result<()> {
-    scan_folder_with_progress(pool, folder_id, folder_path, full, dry_run, None).await
-}
-
-async fn scan_folder_with_progress(
-    pool: &SqlitePool,
-    folder_id: i64,
-    folder_path: &str,
+    files: &[(PathBuf, PathBuf)],
     full: bool,
     dry_run: bool,
     scan_state: Option<Arc<ScanState>>,
 ) -> Result<()> {
     let base_path = PathBuf::from(folder_path);
-    let supported_extensions = ["mp3", "flac", "ogg", "opus", "m4a", "mp4", "aac", "wav"];
-
-    // Safety check: verify the directory exists and is readable before proceeding.
-    // This prevents accidentally removing all songs from the database if the music
-    // volume is not mounted or the path is otherwise inaccessible.
-    if !base_path.exists() {
-        let error_msg = format!(
-            "Music folder '{}' does not exist. Is the volume mounted?",
-            folder_path
-        );
-        tracing::error!("{}", error_msg);
-        if let Some(ref state) = scan_state {
-            state.log("ERROR", &error_msg).await;
-        }
-        return Err(Error::InvalidRequest(error_msg));
-    }
-
-    if !base_path.is_dir() {
-        let error_msg = format!("Music folder path '{}' is not a directory", folder_path);
-        tracing::error!("{}", error_msg);
-        if let Some(ref state) = scan_state {
-            state.log("ERROR", &error_msg).await;
-        }
-        return Err(Error::InvalidRequest(error_msg));
-    }
-
-    // Try to read the directory to verify we have permission
-    match std::fs::read_dir(&base_path) {
-        Ok(_) => {}
-        Err(e) => {
-            let error_msg = format!(
-                "Cannot read music folder '{}': {}. Check permissions or volume mount.",
-                folder_path, e
-            );
-            tracing::error!("{}", error_msg);
-            if let Some(ref state) = scan_state {
-                state.log("ERROR", &error_msg).await;
-            }
-            return Err(Error::InvalidRequest(error_msg));
-        }
-    }
 
     let mut scanned = 0;
     let mut added = 0;
@@ -286,7 +437,6 @@ async fn scan_folder_with_progress(
 
     // Load all existing file paths for this folder from database.
     // We'll track which ones we see during the scan - any remaining are missing files.
-    // This is much faster than checking exists() for each file, especially on network drives.
     tracing::info!("Loading existing songs from database...");
     if let Some(ref state) = scan_state {
         state
@@ -306,125 +456,31 @@ async fn scan_folder_with_progress(
         .collect();
 
     tracing::info!(
-        "Found {} existing songs, scanning filesystem...",
-        unseen_files.len()
+        "Found {} existing songs, processing {} files...",
+        unseen_files.len(),
+        files.len()
     );
     if let Some(ref state) = scan_state {
         state
             .log(
                 "INFO",
                 format!(
-                    "Found {} existing songs, scanning filesystem...",
-                    unseen_files.len()
+                    "Found {} existing songs, processing {} files...",
+                    unseen_files.len(),
+                    files.len()
                 ),
             )
             .await;
     }
 
-    // Count total files first for progress tracking (if scan_state provided)
-    if let Some(ref state) = scan_state {
-        // Log that we're starting to enumerate files
-        state
-            .log(
-                "INFO",
-                format!("Enumerating audio files in {}...", base_path.display()),
-            )
-            .await;
-        state
-            .set_current_folder(Some(base_path.display().to_string()))
-            .await;
-        state.broadcast().await;
-
-        let mut total_count = 0u64;
-        let mut entries = WalkDir::new(&base_path);
-        while let Some(entry) = entries.next().await {
-            // Check for cancellation during enumeration
-            if state.is_cancelled() {
-                state.log("WARN", "Scan cancelled by user").await;
-                return Err(Error::InvalidRequest("Scan cancelled".to_string()));
-            }
-
-            let entry = match entry {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
-            let path = entry.path();
-
-            // Skip directories - check file_type() for async_walkdir
-            let file_type = match entry.file_type().await {
-                Ok(ft) => ft,
-                Err(_) => continue,
-            };
-            if !file_type.is_file() {
-                continue;
-            }
-
-            if let Some(ext) = path.extension() {
-                if supported_extensions.contains(&ext.to_string_lossy().to_lowercase().as_str()) {
-                    total_count += 1;
-                    // Broadcast progress every 100 files
-                    if total_count.is_multiple_of(100) {
-                        state.add_to_total(100).await;
-                        state
-                            .log(
-                                "INFO",
-                                format!(
-                                    "Enumerating audio files... ({} found so far)",
-                                    total_count
-                                ),
-                            )
-                            .await;
-                        state.broadcast().await;
-                    }
-                }
-            }
-        }
-        // Add any remaining count that wasn't added during the loop
-        let remainder = total_count % 100;
-        if remainder > 0 {
-            state.add_to_total(remainder).await;
-        }
-        state
-            .log(
-                "INFO",
-                format!("Found {} audio files in this folder", total_count),
-            )
-            .await;
-        state.broadcast().await;
-    }
-
-    let mut entries = WalkDir::new(&base_path);
-    while let Some(entry) = entries.next().await {
+    // Process each file from the pre-collected list
+    for (_, path) in files {
         // Check for cancellation
         if let Some(ref state) = scan_state {
             if state.is_cancelled() {
                 state.log("WARN", "Scan cancelled by user").await;
                 return Err(Error::InvalidRequest("Scan cancelled".to_string()));
             }
-        }
-
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        let path = entry.path();
-
-        // Skip directories - check file_type() for async_walkdir
-        let file_type = match entry.file_type().await {
-            Ok(ft) => ft,
-            Err(_) => continue,
-        };
-        if !file_type.is_file() {
-            continue;
-        }
-
-        // Check if file has supported extension
-        if let Some(ext) = path.extension() {
-            if !supported_extensions.contains(&ext.to_string_lossy().to_lowercase().as_str()) {
-                continue;
-            }
-        } else {
-            continue;
         }
 
         scanned += 1;
@@ -449,7 +505,7 @@ async fn scan_folder_with_progress(
         // Get relative path from base
         let relative_path = path
             .strip_prefix(&base_path)
-            .unwrap_or(&path)
+            .unwrap_or(path)
             .to_string_lossy()
             .to_string();
 
@@ -457,7 +513,7 @@ async fn scan_folder_with_progress(
         let existing_id = unseen_files.remove(&relative_path);
 
         // Get file modification time (used for incremental scanning)
-        let file_mtime = std::fs::metadata(&path)
+        let file_mtime = std::fs::metadata(path)
             .ok()
             .and_then(|meta| meta.modified().ok())
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -527,7 +583,7 @@ async fn scan_folder_with_progress(
         }
 
         // Extract metadata (pass file_mtime to avoid re-reading it)
-        match extract_metadata(pool, &path, file_mtime).await {
+        match extract_metadata(pool, path, file_mtime).await {
             Ok(metadata) => {
                 match upsert_song(pool, metadata, relative_path.clone(), folder_id).await {
                     Ok(is_new) => {
@@ -602,7 +658,7 @@ async fn scan_folder_with_progress(
 
     if !dry_run {
         tracing::info!(
-            "Scan complete: {} files scanned, {} added, {} updated, {} unchanged, {} removed, {} errors",
+            "Folder scan complete: {} files scanned, {} added, {} updated, {} unchanged, {} removed, {} errors",
             scanned,
             added,
             updated,
@@ -615,7 +671,7 @@ async fn scan_folder_with_progress(
                 .log(
                     "INFO",
                     format!(
-                        "Scan complete: {} files scanned, {} added, {} updated, {} unchanged, {} removed, {} errors",
+                        "Folder scan complete: {} files scanned, {} added, {} updated, {} unchanged, {} removed, {} errors",
                         scanned, added, updated, unchanged, removed, errors
                     ),
                 )
