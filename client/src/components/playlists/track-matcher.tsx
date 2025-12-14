@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { toast } from "sonner";
 import { Check, X, AlertCircle, Music, Loader2, RefreshCw } from "lucide-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Popover,
   PopoverContent,
@@ -11,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,10 @@ import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 import type { TrackToMatch } from "@/lib/api/generated/TrackToMatch";
 import { TrackSearchPanel } from "./track-search-panel";
+
+// Virtualization constants
+const TRACK_ROW_HEIGHT = 80; // Height of each track row in pixels
+const TRACK_ROW_OVERSCAN = 5; // Extra items to render above/below viewport
 
 // Parsed track info - can come from import or from missing entry data
 export interface ParsedTrackInfo {
@@ -246,6 +250,15 @@ export function TrackList({
   showCheckboxes = false,
   renderTrackExtra,
 }: TrackListProps) {
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualizer({
+    count: tracks.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => TRACK_ROW_HEIGHT,
+    overscan: TRACK_ROW_OVERSCAN,
+  });
+
   if (tracks.length === 0) {
     return (
       <div className="flex items-center justify-center py-8 text-muted-foreground">
@@ -301,22 +314,34 @@ export function TrackList({
           <div className="shrink-0 w-7" />
         </div>
       )}
-      <ScrollArea className="flex-1 min-h-0">
-        <div className="p-2">
-          {tracks.map((track, index) => (
-            <TrackRow
-              key={index}
-              track={track}
-              index={index}
-              onUpdateMatch={onUpdateMatch}
-              onToggleSelection={onToggleSelection}
-              showPosition={showPosition}
-              showCheckbox={showCheckboxes}
-              renderTrackExtra={renderTrackExtra}
-            />
+      {/* Virtualized list */}
+      <div ref={parentRef} className="flex-1 min-h-0 overflow-auto">
+        <div
+          className="relative"
+          style={{ height: virtualizer.getTotalSize() }}
+        >
+          {virtualizer.getVirtualItems().map((virtualItem) => (
+            <div
+              key={virtualItem.key}
+              className="absolute left-0 right-0 px-2"
+              style={{
+                height: virtualItem.size,
+                transform: `translateY(${virtualItem.start}px)`,
+              }}
+            >
+              <TrackRow
+                track={tracks[virtualItem.index]}
+                index={virtualItem.index}
+                onUpdateMatch={onUpdateMatch}
+                onToggleSelection={onToggleSelection}
+                showPosition={showPosition}
+                showCheckbox={showCheckboxes}
+                renderTrackExtra={renderTrackExtra}
+              />
+            </div>
           ))}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }
@@ -366,6 +391,7 @@ export function TrackRow({
         track.locked && "opacity-60",
         track.match ? "hover:bg-accent/50" : "bg-orange-500/10",
       )}
+      style={{ minHeight: TRACK_ROW_HEIGHT - 4 }} // Fixed height for virtualization (minus padding)
     >
       {/* Checkbox for matched tracks */}
       {showCheckbox && track.match && !track.locked && (
