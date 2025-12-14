@@ -191,18 +191,50 @@ cd client && npm install && npm run build && cd ..
 cargo build --release --features embedded-ui
 ```
 
+## Dev Container / GitHub Codespaces
+
+The project includes a dev container configuration for consistent development environments.
+
+### VS Code / Cursor
+
+1. Install the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+2. Open the project folder
+3. Click "Reopen in Container" when prompted (or run `Dev Containers: Reopen in Container` from the command palette)
+
+### GitHub Codespaces
+
+Click the "Code" button on GitHub and select "Open with Codespaces" to launch a cloud development environment.
+
+### Mounting Your Music Library
+
+Edit `.devcontainer/devcontainer.json` to mount your music library:
+
+```jsonc
+"mounts": [
+  "source=ferrotune-devdata,target=/data,type=volume",
+  "source=/path/to/your/music,target=/music,type=bind,readonly"
+],
+```
+
+### Available Services
+
+| Port | Service | Description |
+|------|---------|-------------|
+| 4040 | Ferrotune API | Backend server (`moon run dev`) |
+| 3000 | Next.js Client | Frontend dev server (`moon run client:dev`) |
+
+### Database Persistence
+
+The dev container uses a named Docker volume (`ferrotune-devdata`) for the SQLite database. Your data persists across container rebuilds. The database is stored at `/workspaces/ferrotune/.data`.
+
 ## Development
 
 ```bash
-# Start backend dev server
-cargo run -- serve
+# Start backend + frontend dev servers
+moon run :dev
 
-# Start frontend dev server (in another terminal)
-cd client && npm run dev
-
-# Run tests
-cargo test
-cd client && npm run test
+# Run CI checks
+moon run ci-all-lite
 ```
 
 ## License

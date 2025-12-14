@@ -1,0 +1,66 @@
+{
+	"name": "Ferrotune Dev",
+	"image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+	"features": {
+		"ghcr.io/devcontainers/features/nix:1": {
+			"packages": "direnv git",
+			"extraConfig": "experimental-features = nix-command flakes"
+		}
+	},
+	// Configure direnv hook manually since the feature is unstable
+	"postCreateCommand": "grep -q 'direnv hook bash' ~/.bashrc || echo 'eval \"$(direnv hook bash)\"' >> ~/.bashrc && direnv allow && sudo chown -R vscode:vscode /data",
+	// Port forwarding
+	"forwardPorts": [
+		4040,
+		3000
+	],
+	"portsAttributes": {
+		"4040": {
+			"label": "Ferrotune API",
+			"onAutoForward": "notify"
+		},
+		"3000": {
+			"label": "Next.js Client",
+			"onAutoForward": "notify"
+		}
+	},
+	// Example: Mount your music library (uncomment and customize)
+	"mounts": [
+		// Named volume for database persistence across rebuilds
+		"source=ferrotune-devdata,target=/data,type=volume",
+		// Bind mount for local music library
+		"source=/mnt/m,target=/music,type=bind,readonly"
+	],
+	"containerEnv": {
+		"FERROTUNE_DATA_DIR": "/data"
+	},
+	// Ensure environment is loaded on attach
+	"postAttachCommand": "direnv reload",
+	// VS Code specific settings
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"jnoortheen.nix-ide",
+				"mkhl.direnv",
+				"rust-lang.rust-analyzer",
+				"tamasfe.even-better-toml",
+				"esbenp.prettier-vscode",
+				"dbaeumer.vscode-eslint"
+			],
+			"settings": {
+				"terminal.integrated.defaultProfile.linux": "bash",
+				"nix.enableLanguageServer": true,
+				"editor.formatOnSave": true
+			}
+		}
+	},
+	// GitHub Codespaces specific settings
+	"hostRequirements": {
+		"cpus": 4,
+		"memory": "8gb",
+		"storage": "32gb"
+	},
+	// Run as non-root user
+	"remoteUser": "vscode",
+	"workspaceFolder": "/workspaces/ferrotune"
+}
