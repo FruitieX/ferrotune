@@ -480,7 +480,7 @@ async fn scan_folder_with_progress(
                 if file_mtime.is_some() && stored_mtime == &file_mtime {
                     unchanged += 1;
                     if let Some(ref state) = scan_state {
-                        state.track_unchanged(&relative_path).await;
+                        state.track_unchanged(&path.to_string_lossy()).await;
                     }
                     if scanned % 100 == 0 {
                         tracing::info!(
@@ -513,13 +513,13 @@ async fn scan_folder_with_progress(
             if existing.is_none() {
                 tracing::info!("Would add: {}", relative_path);
                 if let Some(ref state) = scan_state {
-                    state.track_added(&relative_path).await;
+                    state.track_added(&path.to_string_lossy()).await;
                 }
                 added += 1;
             } else {
                 tracing::info!("Would update: {}", relative_path);
                 if let Some(ref state) = scan_state {
-                    state.track_updated(&relative_path).await;
+                    state.track_updated(&path.to_string_lossy()).await;
                 }
                 updated += 1;
             }
@@ -534,19 +534,21 @@ async fn scan_folder_with_progress(
                         if is_new {
                             added += 1;
                             if let Some(ref state) = scan_state {
-                                state.track_added(&relative_path).await;
+                                state.track_added(&path.to_string_lossy()).await;
                             }
                         } else {
                             updated += 1;
                             if let Some(ref state) = scan_state {
-                                state.track_updated(&relative_path).await;
+                                state.track_updated(&path.to_string_lossy()).await;
                             }
                         }
                     }
                     Err(e) => {
                         tracing::error!("Failed to save song metadata: {}", e);
                         if let Some(ref state) = scan_state {
-                            state.track_error(&relative_path, &e.to_string()).await;
+                            state
+                                .track_error(&path.to_string_lossy(), &e.to_string())
+                                .await;
                             state
                                 .log("ERROR", format!("Failed to save metadata: {}", e))
                                 .await;
@@ -558,7 +560,9 @@ async fn scan_folder_with_progress(
             Err(e) => {
                 tracing::debug!("Failed to extract metadata from {}: {}", path.display(), e);
                 if let Some(ref state) = scan_state {
-                    state.track_error(&relative_path, &e.to_string()).await;
+                    state
+                        .track_error(&path.to_string_lossy(), &e.to_string())
+                        .await;
                 }
                 errors += 1;
             }
@@ -588,7 +592,8 @@ async fn scan_folder_with_progress(
     }
 
     // Any files still in unseen_files no longer exist on disk - remove them
-    let removed = remove_missing_songs(pool, &unseen_files, dry_run, scan_state.clone()).await?;
+    let removed =
+        remove_missing_songs(pool, &unseen_files, &base_path, dry_run, scan_state.clone()).await?;
 
     if let Some(ref state) = scan_state {
         state.set_current_file(None).await;
@@ -647,6 +652,7 @@ async fn scan_folder_with_progress(
 async fn remove_missing_songs(
     pool: &SqlitePool,
     missing_files: &std::collections::HashMap<String, String>,
+    base_path: &Path,
     dry_run: bool,
     scan_state: Option<Arc<crate::api::ScanState>>,
 ) -> Result<usize> {
@@ -655,15 +661,19 @@ async fn remove_missing_songs(
     }
 
     let count = missing_files.len();
-    let paths: Vec<String> = missing_files.keys().cloned().collect();
+    let relative_paths: Vec<String> = missing_files.keys().cloned().collect();
 
-    for file_path in &paths {
+    for file_path in &relative_paths {
         tracing::info!("Missing file: {}", file_path);
     }
 
-    // Track removed files in scan state
+    // Track removed files in scan state (using full paths for display)
     if let Some(ref state) = scan_state {
-        state.track_removed(&paths).await;
+        let full_paths: Vec<String> = relative_paths
+            .iter()
+            .map(|p| base_path.join(p).to_string_lossy().to_string())
+            .collect();
+        state.track_removed(&full_paths).await;
     }
 
     if dry_run {
