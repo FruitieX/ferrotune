@@ -192,10 +192,13 @@ export function ImportPlaylistDialog({
             raw: buildSearchText(t.parsed),
           };
 
-          if (t.match) {
+          // Only apply match if track has a match AND is selected (selected defaults to true)
+          const isSelected = t.selected !== false;
+          if (t.match && isSelected) {
             // Include missing data even for matched tracks so they can be refined later
             return { songId: t.match.id, missing: missingData };
           } else {
+            // Unmatched or deselected tracks become missing entries
             return {
               songId: null,
               missing: missingData,
@@ -215,9 +218,9 @@ export function ImportPlaylistDialog({
         };
       }
 
-      // Standard import - only matched tracks
+      // Standard import - only matched AND selected tracks
       const matchedSongIds = matchedTracks
-        .filter((t) => t.match)
+        .filter((t) => t.match && t.selected !== false)
         .map((t) => t.match!.id);
 
       if (matchedSongIds.length === 0) {
@@ -467,11 +470,34 @@ export function ImportPlaylistDialog({
                       ...updated[index],
                       match,
                       matchScore: score,
+                      // Auto-select when manually matched
+                      selected: match ? true : updated[index].selected,
                     };
                     return updated;
                   });
                 }}
+                onToggleSelection={(index, selected) => {
+                  setMatchedTracks((prev) => {
+                    const updated = [...prev];
+                    updated[index] = { ...updated[index], selected };
+                    return updated;
+                  });
+                }}
+                onToggleAllSelection={(trackList, selected) => {
+                  setMatchedTracks((prev) => {
+                    // Get the indices of tracks in the trackList
+                    const indicesToUpdate = new Set(
+                      trackList
+                        .filter((t) => t.match && !t.locked)
+                        .map((t) => prev.indexOf(t)),
+                    );
+                    return prev.map((track, idx) =>
+                      indicesToUpdate.has(idx) ? { ...track, selected } : track,
+                    );
+                  });
+                }}
                 showMatchFilter
+                showCheckboxes
               />
             </div>
           )}

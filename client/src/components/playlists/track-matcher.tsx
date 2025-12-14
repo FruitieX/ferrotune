@@ -49,6 +49,8 @@ export interface MatchableTrack {
   position?: number;
   // Original position in source data (for saving)
   originalPosition?: number;
+  // Whether this matched track should be saved with its match (defaults to true when matched)
+  selected?: boolean;
 }
 
 export interface SearchOptions {
@@ -224,13 +226,22 @@ interface TrackListProps {
     match: MatchedSongInfo | null,
     score: number,
   ) => void;
+  /** Toggle selection for a track */
+  onToggleSelection?: (index: number, selected: boolean) => void;
+  /** Toggle selection for all tracks in the list */
+  onToggleAllSelection?: (selected: boolean) => void;
   showPosition?: boolean;
+  /** Show checkboxes for matched tracks */
+  showCheckboxes?: boolean;
 }
 
 export function TrackList({
   tracks,
   onUpdateMatch,
+  onToggleSelection,
+  onToggleAllSelection,
   showPosition,
+  showCheckboxes = false,
 }: TrackListProps) {
   if (tracks.length === 0) {
     return (
@@ -241,20 +252,68 @@ export function TrackList({
     );
   }
 
+  // Count matched and selected tracks for header checkbox state
+  const matchedTracks = tracks.filter((t) => t.match && !t.locked);
+  const selectedCount = matchedTracks.filter(
+    (t) => t.selected !== false,
+  ).length;
+  const allSelected =
+    matchedTracks.length > 0 && selectedCount === matchedTracks.length;
+  const someSelected =
+    selectedCount > 0 && selectedCount < matchedTracks.length;
+
   return (
-    <ScrollArea className="flex-1 min-h-0 rounded-md border">
-      <div className="p-2">
-        {tracks.map((track, index) => (
-          <TrackRow
-            key={index}
-            track={track}
-            index={index}
-            onUpdateMatch={onUpdateMatch}
-            showPosition={showPosition}
-          />
-        ))}
-      </div>
-    </ScrollArea>
+    <div className="flex-1 min-h-0 flex flex-col rounded-md border">
+      {/* Header row */}
+      {showCheckboxes && matchedTracks.length > 0 && (
+        <div className="flex items-center gap-3 p-2 border-b bg-muted/30 text-xs font-medium text-muted-foreground shrink-0">
+          {/* Checkbox column */}
+          <div className="shrink-0 w-6 flex items-center justify-center">
+            <Checkbox
+              checked={allSelected}
+              ref={(ref) => {
+                if (ref) {
+                  // Set indeterminate state when some but not all are selected
+                  (ref as unknown as HTMLInputElement).indeterminate =
+                    someSelected;
+                }
+              }}
+              onCheckedChange={(checked) => {
+                onToggleAllSelection?.(checked === true);
+              }}
+              aria-label={allSelected ? "Deselect all" : "Select all"}
+            />
+          </div>
+          {/* Position number column */}
+          {showPosition && <div className="shrink-0 w-6" />}
+          {/* Status icon column */}
+          <div className="shrink-0 w-4" />
+          {/* Source track column */}
+          <div className="flex-1 min-w-0">Source Track</div>
+          {/* Arrow column */}
+          <div className="shrink-0 w-6" />
+          {/* Matched track column */}
+          <div className="flex-1 min-w-0 text-right">Matched To</div>
+          {/* Action button column */}
+          <div className="shrink-0 w-7" />
+        </div>
+      )}
+      <ScrollArea className="flex-1 min-h-0">
+        <div className="p-2">
+          {tracks.map((track, index) => (
+            <TrackRow
+              key={index}
+              track={track}
+              index={index}
+              onUpdateMatch={onUpdateMatch}
+              onToggleSelection={onToggleSelection}
+              showPosition={showPosition}
+              showCheckbox={showCheckboxes}
+            />
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
   );
 }
 
@@ -266,16 +325,22 @@ interface TrackRowProps {
     match: MatchedSongInfo | null,
     score: number,
   ) => void;
+  onToggleSelection?: (index: number, selected: boolean) => void;
   showPosition?: boolean;
+  showCheckbox?: boolean;
 }
 
 export function TrackRow({
   track,
   index,
   onUpdateMatch,
+  onToggleSelection,
   showPosition,
+  showCheckbox = false,
 }: TrackRowProps) {
   const [searchOpen, setSearchOpen] = useState(false);
+  // Default to selected if not explicitly set
+  const isSelected = track.selected !== false;
 
   const handleConfirm = (song: Song) => {
     onUpdateMatch(index, song, 1); // Manual selection = 100% match
@@ -295,6 +360,23 @@ export function TrackRow({
         track.match ? "hover:bg-accent/50" : "bg-orange-500/10",
       )}
     >
+      {/* Checkbox for matched tracks */}
+      {showCheckbox && track.match && !track.locked && (
+        <div className="shrink-0 w-6 flex items-center justify-center">
+          <Checkbox
+            checked={isSelected}
+            onCheckedChange={(checked) => {
+              onToggleSelection?.(index, checked === true);
+            }}
+            aria-label={isSelected ? "Deselect track" : "Select track"}
+          />
+        </div>
+      )}
+      {/* Spacer for non-matched tracks when checkboxes are shown */}
+      {showCheckbox && (!track.match || track.locked) && (
+        <div className="shrink-0 w-6" />
+      )}
+
       {/* Position number */}
       {showPosition && track.position !== undefined && (
         <div className="shrink-0 w-6 text-center text-xs text-muted-foreground tabular-nums">
@@ -304,7 +386,12 @@ export function TrackRow({
 
       <div className="shrink-0">
         {track.match ? (
-          <Check className="w-4 h-4 text-green-500" />
+          <Check
+            className={cn(
+              "w-4 h-4",
+              isSelected ? "text-green-500" : "text-muted-foreground",
+            )}
+          />
         ) : (
           <X className="w-4 h-4 text-orange-500" />
         )}
@@ -397,18 +484,30 @@ interface TabbedTrackListProps {
     match: MatchedSongInfo | null,
     score: number,
   ) => void;
+  /** Toggle selection for a track (uses original index) */
+  onToggleSelection?: (originalIndex: number, selected: boolean) => void;
+  /** Toggle selection for all tracks in a specific list */
+  onToggleAllSelection?: (
+    trackList: MatchableTrack[],
+    selected: boolean,
+  ) => void;
   showPosition?: boolean;
   showLockedTab?: boolean;
   /** Show filter by match percentage control */
   showMatchFilter?: boolean;
+  /** Show checkboxes for matched tracks */
+  showCheckboxes?: boolean;
 }
 
 export function TabbedTrackList({
   tracks,
   onUpdateMatch,
+  onToggleSelection,
+  onToggleAllSelection,
   showPosition,
   showLockedTab = false,
   showMatchFilter = false,
+  showCheckboxes = false,
 }: TabbedTrackListProps) {
   const [maxMatchPercent, setMaxMatchPercent] = useState<number | null>(null);
 
@@ -523,7 +622,22 @@ export function TabbedTrackList({
             onUpdateMatch={(idx, match, score) =>
               onUpdateMatch(getOriginalIndex(editableTracks, idx), match, score)
             }
+            onToggleSelection={
+              onToggleSelection
+                ? (idx, selected) =>
+                    onToggleSelection(
+                      getOriginalIndex(editableTracks, idx),
+                      selected,
+                    )
+                : undefined
+            }
+            onToggleAllSelection={
+              onToggleAllSelection
+                ? (selected) => onToggleAllSelection(editableTracks, selected)
+                : undefined
+            }
             showPosition={showPosition}
+            showCheckboxes={showCheckboxes}
           />
         </TabsContent>
         <TabsContent
@@ -535,7 +649,22 @@ export function TabbedTrackList({
             onUpdateMatch={(idx, match, score) =>
               onUpdateMatch(getOriginalIndex(matchedTracks, idx), match, score)
             }
+            onToggleSelection={
+              onToggleSelection
+                ? (idx, selected) =>
+                    onToggleSelection(
+                      getOriginalIndex(matchedTracks, idx),
+                      selected,
+                    )
+                : undefined
+            }
+            onToggleAllSelection={
+              onToggleAllSelection
+                ? (selected) => onToggleAllSelection(matchedTracks, selected)
+                : undefined
+            }
             showPosition={showPosition}
+            showCheckboxes={showCheckboxes}
           />
         </TabsContent>
         <TabsContent

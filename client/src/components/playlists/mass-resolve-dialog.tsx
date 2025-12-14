@@ -85,10 +85,13 @@ export function MassResolveDialog({
 
   // Count statistics (used in multiple places)
   const matchedCount = matchedTracks.filter((t) => t.match).length;
+  const selectedMatchedCount = matchedTracks.filter(
+    (t) => t.match && t.selected !== false,
+  ).length;
   const unmatchedCount = matchedTracks.filter((t) => !t.match).length;
 
   // Check if there are unsaved matches
-  const hasUnsavedChanges = step === "preview" && matchedCount > 0;
+  const hasUnsavedChanges = step === "preview" && selectedMatchedCount > 0;
 
   // Fetch all missing entries when dialog opens
   useEffect(() => {
@@ -219,9 +222,10 @@ export function MassResolveDialog({
       const client = getClient();
       if (!client) throw new Error("Not connected");
 
-      // Get matched entries with their original positions
+      // Get matched entries with their original positions (only selected ones)
       const newMatches = matchedTracks.filter(
-        (t) => t.match && t.originalPosition !== undefined,
+        (t) =>
+          t.match && t.originalPosition !== undefined && t.selected !== false,
       );
 
       let successCount = 0;
@@ -368,11 +372,34 @@ export function MassResolveDialog({
                       ...updated[index],
                       match,
                       matchScore: score,
+                      // Auto-select when manually matched
+                      selected: match ? true : updated[index].selected,
                     };
                     return updated;
                   });
                 }}
+                onToggleSelection={(index, selected) => {
+                  setMatchedTracks((prev) => {
+                    const updated = [...prev];
+                    updated[index] = { ...updated[index], selected };
+                    return updated;
+                  });
+                }}
+                onToggleAllSelection={(trackList, selected) => {
+                  setMatchedTracks((prev) => {
+                    // Get the indices of tracks in the trackList
+                    const indicesToUpdate = new Set(
+                      trackList
+                        .filter((t) => t.match && !t.locked)
+                        .map((t) => prev.indexOf(t)),
+                    );
+                    return prev.map((track, idx) =>
+                      indicesToUpdate.has(idx) ? { ...track, selected } : track,
+                    );
+                  });
+                }}
                 showMatchFilter
+                showCheckboxes
               />
             </div>
           )}
@@ -404,7 +431,7 @@ export function MassResolveDialog({
                   setStep("saving");
                   saveMatches.mutate();
                 }}
-                disabled={matchedCount === 0 || saveMatches.isPending}
+                disabled={selectedMatchedCount === 0 || saveMatches.isPending}
               >
                 {saveMatches.isPending ? (
                   <>
@@ -412,7 +439,7 @@ export function MassResolveDialog({
                     Saving...
                   </>
                 ) : (
-                  `Save ${matchedCount} ${matchedCount === 1 ? "Match" : "Matches"}`
+                  `Save ${selectedMatchedCount} ${selectedMatchedCount === 1 ? "Match" : "Matches"}`
                 )}
               </Button>
             )}
@@ -429,10 +456,10 @@ export function MassResolveDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>Discard matches?</AlertDialogTitle>
             <AlertDialogDescription>
-              You have matched {matchedCount}{" "}
-              {matchedCount === 1 ? "entry" : "entries"} that{" "}
-              {matchedCount === 1 ? "hasn't" : "haven't"} been saved yet. Are
-              you sure you want to close and discard your progress?
+              You have matched {selectedMatchedCount}{" "}
+              {selectedMatchedCount === 1 ? "entry" : "entries"} that{" "}
+              {selectedMatchedCount === 1 ? "hasn't" : "haven't"} been saved
+              yet. Are you sure you want to close and discard your progress?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

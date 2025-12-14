@@ -608,7 +608,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   // Redraw on visual changes or container resize
   useEffect(() => {
     drawRef.current();
-  }, [containerWidth]);
+  }, [containerWidth, primaryColor, isDarkMode]);
 
   // Event handlers
   const getPercentFromEvent = (clientX: number) => {
