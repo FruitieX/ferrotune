@@ -496,10 +496,8 @@ async fn scan_folder_files(
                         .to_string(),
                 ))
                 .await;
-            // Broadcast every 50 files to avoid too many updates
-            if scanned % 50 == 0 {
-                state.broadcast().await;
-            }
+            // Throttled broadcast (sends at most every 200ms)
+            state.broadcast_throttled().await;
         }
 
         // Get relative path from base

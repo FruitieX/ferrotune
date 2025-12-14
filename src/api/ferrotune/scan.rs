@@ -125,10 +125,17 @@ pub async fn start_scan(
                 scan_state.complete().await;
             }
             Err(e) => {
-                let error_msg = format!("Scan failed: {}", e);
-                tracing::error!("{}", error_msg);
-                scan_state.log("ERROR", &error_msg).await;
-                scan_state.fail(error_msg).await;
+                let error_msg = e.to_string();
+                // Check if this was a user-initiated cancellation
+                if error_msg.contains("Scan cancelled") {
+                    // Cancellation is not an error - complete normally
+                    scan_state.complete().await;
+                } else {
+                    let error_msg = format!("Scan failed: {}", e);
+                    tracing::error!("{}", error_msg);
+                    scan_state.log("ERROR", &error_msg).await;
+                    scan_state.fail(error_msg).await;
+                }
             }
         }
     });
@@ -281,15 +288,13 @@ pub async fn scan_logs(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 pub struct FullScanStatusResponse {
     #[serde(flatten)]
     pub progress: ScanProgressUpdate,
-    pub logs: Vec<super::scan_state::ScanLogEntry>,
 }
 
 /// Get full scan status including progress and logs.
 pub async fn full_scan_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let progress = state.scan_state.get_progress().await;
-    let logs = state.scan_state.get_logs().await;
 
-    Json(FullScanStatusResponse { progress, logs })
+    Json(FullScanStatusResponse { progress })
 }
 
 /// Get scan details (lists of affected files).

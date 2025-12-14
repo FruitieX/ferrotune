@@ -50,6 +50,7 @@ export function useScanProgressStream() {
           mode: status.mode,
           finished: status.finished,
           error: status.error,
+          logs: status.logs,
         });
         setLogs(status.logs);
 
@@ -70,6 +71,31 @@ export function useScanProgressStream() {
         try {
           const update: ScanProgressUpdate = JSON.parse(event.data);
           setProgress(update);
+
+          // Handle logs from SSE updates
+          // After first update, logs come incrementally so we append
+          // The first update from SSE contains all logs (not incremental)
+          // so we check if we already have logs before appending
+          if (update.logs && update.logs.length > 0) {
+            setLogs((prev) => {
+              // Check if these logs would be duplicates (first SSE message has all logs)
+              if (prev.length > 0 && update.logs.length > 0) {
+                // Check if the first new log is already in our list (duplicate)
+                const lastPrevTimestamp = prev[prev.length - 1]?.timestamp;
+                const firstNewTimestamp = update.logs[0]?.timestamp;
+                if (
+                  lastPrevTimestamp &&
+                  firstNewTimestamp &&
+                  firstNewTimestamp <= lastPrevTimestamp
+                ) {
+                  // These are duplicate/old logs, replace entirely
+                  return update.logs;
+                }
+              }
+              // Append new logs
+              return [...prev, ...update.logs];
+            });
+          }
 
           // Track if we were scanning
           if (update.scanning && !update.finished) {
@@ -108,14 +134,6 @@ export function useScanProgressStream() {
             queryClient.invalidateQueries({ queryKey: ["playlists"] });
 
             wasScanning.current = false;
-          }
-
-          // Fetch logs periodically when scanning
-          if (update.scanning || update.finished) {
-            client
-              .getScanLogs()
-              .then((res) => setLogs(res.logs))
-              .catch(() => {});
           }
         } catch {
           // Ignore parse errors (keep-alive messages)

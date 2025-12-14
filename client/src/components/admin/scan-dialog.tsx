@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   RefreshCw,
   X,
@@ -41,6 +42,11 @@ import { cn } from "@/lib/utils";
 import type { ScanDetails } from "@/lib/api/generated/ScanDetails";
 import type { ScanDetailEntry } from "@/lib/api/generated/ScanDetailEntry";
 
+// Virtualization constants
+const ITEM_HEIGHT = 44; // Height of each file row in pixels (with error: 60)
+const ITEM_WITH_ERROR_HEIGHT = 60;
+const OVERSCAN = 10; // Extra items to render above/below viewport
+
 type StatCategory =
   | "added"
   | "updated"
@@ -62,56 +68,28 @@ function StatDetailDialog({
   category,
   details,
 }: StatDetailDialogProps) {
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const items =
+    category && details ? getItemsForCategory(category, details) : [];
+  const hasErrors = category === "errors";
+
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: (index) => {
+      // Use taller height for error items since they have error text
+      if (hasErrors && items[index]?.error) {
+        return ITEM_WITH_ERROR_HEIGHT;
+      }
+      return ITEM_HEIGHT;
+    },
+    overscan: OVERSCAN,
+  });
+
   if (!category || !details) return null;
 
-  const categoryConfig: Record<
-    StatCategory,
-    {
-      title: string;
-      color: string;
-      icon: React.ReactNode;
-      items: ScanDetailEntry[];
-    }
-  > = {
-    added: {
-      title: "Added Files",
-      color: "text-green-600",
-      icon: <Plus className="w-5 h-5 text-green-600" />,
-      items: details.added,
-    },
-    updated: {
-      title: "Updated Files",
-      color: "text-blue-600",
-      icon: <Edit className="w-5 h-5 text-blue-600" />,
-      items: details.updated,
-    },
-    unchanged: {
-      title: "Unchanged Files",
-      color: "text-muted-foreground",
-      icon: <Minus className="w-5 h-5 text-muted-foreground" />,
-      items: details.unchanged,
-    },
-    removed: {
-      title: "Removed Files",
-      color: "text-orange-600",
-      icon: <Trash2 className="w-5 h-5 text-orange-600" />,
-      items: details.removed,
-    },
-    duplicates: {
-      title: "Duplicate Files",
-      color: "text-yellow-600",
-      icon: <Copy className="w-5 h-5 text-yellow-600" />,
-      items: details.duplicates,
-    },
-    errors: {
-      title: "Error Files",
-      color: "text-red-600",
-      icon: <AlertCircle className="w-5 h-5 text-red-600" />,
-      items: details.errors,
-    },
-  };
-
-  const config = categoryConfig[category];
+  const config = getCategoryConfig(category);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -121,7 +99,7 @@ function StatDetailDialog({
             {config.icon}
             <span className={config.color}>{config.title}</span>
             <span className="text-muted-foreground font-normal">
-              ({config.items.length})
+              ({items.length.toLocaleString()})
             </span>
           </DialogTitle>
           <DialogDescription>
@@ -133,25 +111,41 @@ function StatDetailDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 min-h-0 overflow-y-scroll">
-          {config.items.length > 0 ? (
-            <ScrollArea className="h-full rounded-md border">
-              <div className="p-2 space-y-1">
-                {config.items.map((item, index) => (
-                  <div
-                    key={index}
-                    className="p-2 rounded-md hover:bg-muted/50 font-mono text-xs"
-                  >
-                    <div className="truncate">{item.path}</div>
-                    {item.error && (
-                      <div className="text-red-500 mt-1 text-[10px]">
-                        {item.error}
+        <div className="flex-1 min-h-0">
+          {items.length > 0 ? (
+            <div
+              ref={parentRef}
+              className="h-full overflow-auto rounded-md border"
+              style={{ maxHeight: "calc(70vh - 180px)" }}
+            >
+              <div
+                className="relative w-full"
+                style={{ height: virtualizer.getTotalSize() }}
+              >
+                {virtualizer.getVirtualItems().map((virtualItem) => {
+                  const item = items[virtualItem.index];
+                  return (
+                    <div
+                      key={virtualItem.index}
+                      className="absolute left-0 right-0 px-2"
+                      style={{
+                        height: virtualItem.size,
+                        transform: `translateY(${virtualItem.start}px)`,
+                      }}
+                    >
+                      <div className="p-2 rounded-md hover:bg-muted/50 font-mono text-xs h-full">
+                        <div className="truncate">{item.path}</div>
+                        {item.error && (
+                          <div className="text-red-500 mt-1 text-[10px] truncate">
+                            {item.error}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
-            </ScrollArea>
+            </div>
           ) : (
             <div className="py-8 text-center text-muted-foreground">
               No files in this category
@@ -167,6 +161,65 @@ function StatDetailDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function getItemsForCategory(
+  category: StatCategory,
+  details: ScanDetails,
+): ScanDetailEntry[] {
+  switch (category) {
+    case "added":
+      return details.added;
+    case "updated":
+      return details.updated;
+    case "unchanged":
+      return details.unchanged;
+    case "removed":
+      return details.removed;
+    case "duplicates":
+      return details.duplicates;
+    case "errors":
+      return details.errors;
+  }
+}
+
+function getCategoryConfig(category: StatCategory) {
+  const configs: Record<
+    StatCategory,
+    { title: string; color: string; icon: React.ReactNode }
+  > = {
+    added: {
+      title: "Added Files",
+      color: "text-green-600",
+      icon: <Plus className="w-5 h-5 text-green-600" />,
+    },
+    updated: {
+      title: "Updated Files",
+      color: "text-blue-600",
+      icon: <Edit className="w-5 h-5 text-blue-600" />,
+    },
+    unchanged: {
+      title: "Unchanged Files",
+      color: "text-muted-foreground",
+      icon: <Minus className="w-5 h-5 text-muted-foreground" />,
+    },
+    removed: {
+      title: "Removed Files",
+      color: "text-orange-600",
+      icon: <Trash2 className="w-5 h-5 text-orange-600" />,
+    },
+    duplicates: {
+      title: "Duplicate Files",
+      color: "text-yellow-600",
+      icon: <Copy className="w-5 h-5 text-yellow-600" />,
+    },
+    errors: {
+      title: "Error Files",
+      color: "text-red-600",
+      icon: <AlertCircle className="w-5 h-5 text-red-600" />,
+    },
+  };
+  return configs[category];
 }
 
 interface StatBoxProps {

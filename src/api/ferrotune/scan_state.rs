@@ -3,8 +3,12 @@
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, RwLock};
 use ts_rs::TS;
+
+/// Minimum interval between throttled broadcasts
+const BROADCAST_INTERVAL: Duration = Duration::from_millis(200);
 
 /// A log entry from the scan process.
 #[derive(Clone, Debug, Serialize, TS)]
@@ -88,6 +92,8 @@ pub struct ScanProgressUpdate {
     pub finished: bool,
     /// Error message if scan failed
     pub error: Option<String>,
+    /// Recent log entries (included in SSE updates)
+    pub logs: Vec<ScanLogEntry>,
 }
 
 impl Default for ScanProgressUpdate {
@@ -107,6 +113,7 @@ impl Default for ScanProgressUpdate {
             mode: "incremental".to_string(),
             finished: false,
             error: None,
+            logs: Vec::new(),
         }
     }
 }
@@ -137,6 +144,10 @@ pub struct ScanState {
     tx: broadcast::Sender<ScanProgressUpdate>,
     /// Recent log entries (limited buffer)
     logs: RwLock<Vec<ScanLogEntry>>,
+    /// Index of last log entry sent in a broadcast (for incremental updates)
+    last_broadcast_log_index: RwLock<usize>,
+    /// Timestamp of last broadcast (for throttling)
+    last_broadcast_at: RwLock<Option<Instant>>,
     /// Detailed lists of affected files
     details: RwLock<ScanDetails>,
 }
@@ -163,6 +174,8 @@ impl ScanState {
             cancelled: AtomicBool::new(false),
             tx,
             logs: RwLock::new(Vec::new()),
+            last_broadcast_log_index: RwLock::new(0),
+            last_broadcast_at: RwLock::new(None),
             details: RwLock::new(ScanDetails::default()),
         }
     }
@@ -177,8 +190,21 @@ impl ScanState {
         self.cancelled.load(Ordering::Relaxed)
     }
 
-    /// Get the current progress.
+    /// Get the current progress with all logs.
     pub async fn get_progress(&self) -> ScanProgressUpdate {
+        self.get_progress_with_logs(false).await
+    }
+
+    /// Get the current progress, optionally with only new logs since last broadcast.
+    async fn get_progress_with_logs(&self, incremental_logs: bool) -> ScanProgressUpdate {
+        let logs = if incremental_logs {
+            let all_logs = self.logs.read().await;
+            let last_index = *self.last_broadcast_log_index.read().await;
+            all_logs[last_index..].to_vec()
+        } else {
+            self.logs.read().await.clone()
+        };
+
         ScanProgressUpdate {
             scanning: self.scanning.load(Ordering::Relaxed),
             scanned: self.scanned.load(Ordering::Relaxed),
@@ -194,6 +220,7 @@ impl ScanState {
             mode: self.mode.read().await.clone(),
             finished: self.finished.load(Ordering::Relaxed),
             error: self.error.read().await.clone(),
+            logs,
         }
     }
 
@@ -243,6 +270,8 @@ impl ScanState {
 
         // Clear logs on new scan
         self.logs.write().await.clear();
+        *self.last_broadcast_log_index.write().await = 0;
+        *self.last_broadcast_at.write().await = None;
 
         // Clear details on new scan
         *self.details.write().await = ScanDetails::default();
@@ -380,7 +409,30 @@ impl ScanState {
 
     /// Broadcast the current progress to all subscribers.
     pub async fn broadcast(&self) {
-        let _ = self.tx.send(self.get_progress().await);
+        // Send incremental logs and update tracking
+        let progress = self.get_progress_with_logs(true).await;
+        *self.last_broadcast_log_index.write().await = self.logs.read().await.len();
+        *self.last_broadcast_at.write().await = Some(Instant::now());
+        let _ = self.tx.send(progress);
+    }
+
+    /// Broadcast if enough time has passed since the last broadcast.
+    /// Returns true if a broadcast was sent.
+    pub async fn broadcast_throttled(&self) -> bool {
+        let should_broadcast = {
+            let last = self.last_broadcast_at.read().await;
+            match *last {
+                None => true,
+                Some(instant) => instant.elapsed() >= BROADCAST_INTERVAL,
+            }
+        };
+
+        if should_broadcast {
+            self.broadcast().await;
+            true
+        } else {
+            false
+        }
     }
 
     /// Add a log entry.
