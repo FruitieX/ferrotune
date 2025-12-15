@@ -25,10 +25,12 @@ interface VirtualizedGridProps<T> {
   };
   /** Extra items to render outside viewport for smoother scrolling */
   overscan?: number;
-  /** Infinite scroll support */
+  /** Infinite scroll support (sequential pagination) */
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
   fetchNextPage?: () => void;
+  /** Sparse pagination support (random-access pagination) */
+  ensureRange?: (startIndex: number, endIndex: number) => void;
   /** Initial scroll offset for scroll restoration */
   initialOffset?: number;
   /** Callback when scroll position changes */
@@ -54,6 +56,7 @@ export function VirtualizedGrid<T>({
   hasNextPage = false,
   isFetchingNextPage = false,
   fetchNextPage,
+  ensureRange,
   initialOffset = 0,
   onScrollChange,
   autoScrollMargin = false,
@@ -155,9 +158,23 @@ export function VirtualizedGrid<T>({
   // Ref to track last fetch to prevent duplicate calls
   const lastFetchedRowRef = useRef<number>(-1);
 
-  // Fetch more when approaching the end of loaded data
+  // Sparse pagination: request loading of visible item range
   useEffect(() => {
-    if (!fetchNextPage || !hasNextPage || isFetchingNextPage) return;
+    if (!ensureRange) return;
+
+    const firstVirtualRow = virtualRows[0];
+    const lastVirtualRow = virtualRows[virtualRows.length - 1];
+    if (!firstVirtualRow || !lastVirtualRow) return;
+
+    const startIndex = firstVirtualRow.index * columnCount;
+    const endIndex = (lastVirtualRow.index + 1) * columnCount - 1;
+    ensureRange(startIndex, endIndex);
+  }, [ensureRange, virtualRows, columnCount]);
+
+  // Sequential pagination: fetch more when approaching the end of loaded data
+  useEffect(() => {
+    if (!fetchNextPage || !hasNextPage || isFetchingNextPage || ensureRange)
+      return;
 
     const lastVirtualRow = virtualRows[virtualRows.length - 1];
     if (!lastVirtualRow) return;
@@ -169,7 +186,14 @@ export function VirtualizedGrid<T>({
       lastFetchedRowRef.current = loadedRows;
       fetchNextPage();
     }
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage, virtualRows, loadedRows]);
+  }, [
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    virtualRows,
+    loadedRows,
+    ensureRange,
+  ]);
 
   // Reset fetch ref when data changes (allows fetching more after new data arrives)
   useEffect(() => {
@@ -193,8 +217,6 @@ export function VirtualizedGrid<T>({
         {virtualRows.map((virtualRow) => {
           const rowIndex = virtualRow.index;
           const startIndex = rowIndex * columnCount;
-          const rowItems = items.slice(startIndex, startIndex + columnCount);
-          const isLoadedRow = startIndex < items.length;
 
           return (
             <div
@@ -217,30 +239,29 @@ export function VirtualizedGrid<T>({
                   columnGap: `${gap}px`,
                 }}
               >
-                {isLoadedRow ? (
-                  <>
-                    {rowItems.map((item, colIndex) => {
-                      const globalIndex = startIndex + colIndex;
-                      return (
-                        <div key={getItemKey(item, globalIndex)}>
-                          {renderItem(item, globalIndex)}
-                        </div>
-                      );
-                    })}
-                    {/* Fill empty cells in partially filled rows */}
-                    {rowItems.length < columnCount &&
-                      Array.from({ length: columnCount - rowItems.length }).map(
-                        (_, i) => <div key={`empty-${rowIndex}-${i}`} />,
-                      )}
-                  </>
-                ) : renderSkeleton ? (
-                  // Render skeleton placeholders for unloaded rows
-                  Array.from({ length: columnCount }).map((_, i) => (
-                    <div key={`skeleton-${rowIndex}-${i}`}>
-                      {renderSkeleton(startIndex + i)}
+                {Array.from({ length: columnCount }).map((_, colIndex) => {
+                  const globalIndex = startIndex + colIndex;
+                  const item = items[globalIndex];
+                  // Check if item is loaded (handles both sparse and sequential pagination)
+                  const isLoaded = item !== undefined;
+                  // Don't render cells beyond total count
+                  if (globalIndex >= effectiveTotalCount) {
+                    return <div key={`empty-${rowIndex}-${colIndex}`} />;
+                  }
+                  return (
+                    <div
+                      key={
+                        isLoaded
+                          ? getItemKey(item, globalIndex)
+                          : `skeleton-${rowIndex}-${colIndex}`
+                      }
+                    >
+                      {isLoaded
+                        ? renderItem(item, globalIndex)
+                        : renderSkeleton?.(globalIndex)}
                     </div>
-                  ))
-                ) : null}
+                  );
+                })}
               </div>
             </div>
           );
@@ -262,10 +283,12 @@ interface VirtualizedListProps<T> {
   estimateItemHeight?: number;
   className?: string;
   overscan?: number;
-  /** Infinite scroll support */
+  /** Infinite scroll support (sequential pagination) */
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
   fetchNextPage?: () => void;
+  /** Sparse pagination support (random-access pagination) */
+  ensureRange?: (startIndex: number, endIndex: number) => void;
   /** Initial scroll offset for scroll restoration */
   initialOffset?: number;
   /** Callback when scroll position changes */
@@ -289,6 +312,7 @@ export function VirtualizedList<T>({
   hasNextPage = false,
   isFetchingNextPage = false,
   fetchNextPage,
+  ensureRange,
   initialOffset = 0,
   onScrollChange,
   autoScrollMargin = false,
@@ -358,9 +382,21 @@ export function VirtualizedList<T>({
   // Ref to track last fetch to prevent duplicate calls
   const lastFetchedIndexRef = useRef<number>(-1);
 
-  // Fetch more when approaching the end of loaded data
+  // Sparse pagination: request loading of visible item range
   useEffect(() => {
-    if (!fetchNextPage || !hasNextPage || isFetchingNextPage) return;
+    if (!ensureRange) return;
+
+    const firstVirtualItem = virtualItems[0];
+    const lastVirtualItem = virtualItems[virtualItems.length - 1];
+    if (!firstVirtualItem || !lastVirtualItem) return;
+
+    ensureRange(firstVirtualItem.index, lastVirtualItem.index);
+  }, [ensureRange, virtualItems]);
+
+  // Sequential pagination: fetch more when approaching the end of loaded data
+  useEffect(() => {
+    if (!fetchNextPage || !hasNextPage || isFetchingNextPage || ensureRange)
+      return;
 
     const lastVirtualItem = virtualItems[virtualItems.length - 1];
     if (!lastVirtualItem) return;
@@ -377,6 +413,7 @@ export function VirtualizedList<T>({
     isFetchingNextPage,
     virtualItems,
     items.length,
+    ensureRange,
   ]);
 
   // Reset fetch ref when data changes (allows fetching more after new data arrives)
@@ -400,7 +437,9 @@ export function VirtualizedList<T>({
       >
         {virtualItems.map((virtualItem) => {
           const item = items[virtualItem.index];
-          const isLoaded = virtualItem.index < items.length;
+          // For sparse pagination, item exists but may be undefined
+          // For sequential pagination, check if index is within loaded range
+          const isLoaded = item !== undefined;
 
           return (
             <div

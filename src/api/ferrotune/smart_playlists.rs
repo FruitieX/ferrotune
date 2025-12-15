@@ -566,7 +566,7 @@ async fn materialize_smart_playlist_songs(
 
     // Build ORDER BY clause
     let order_by = match sort_field {
-        Some("title") => "s.title",
+        Some("title") | Some("name") => "s.title",
         Some("artist") => "ar.name",
         Some("album") => "al.name",
         Some("year") => "s.year",
@@ -796,10 +796,14 @@ async fn materialize_smart_playlist_songs_filtered(
 
 /// Public helper to get songs from a smart playlist by ID.
 /// Used by queue materialization to support smartPlaylist source type.
+/// Accepts optional sort_field_override and sort_direction_override to allow
+/// the client to override the playlist's default sort when playing.
 pub async fn get_smart_playlist_songs_by_id(
     pool: &sqlx::SqlitePool,
     playlist_id: &str,
     user_id: i64,
+    sort_field_override: Option<&str>,
+    sort_direction_override: Option<&str>,
 ) -> Result<Vec<crate::db::models::Song>> {
     // Fetch the smart playlist
     let playlist: SmartPlaylist =
@@ -814,13 +818,17 @@ pub async fn get_smart_playlist_songs_by_id(
     let rules: SmartPlaylistRulesApi = serde_json::from_str(&playlist.rules_json)
         .map_err(|e| Error::Internal(format!("Failed to parse rules: {}", e)))?;
 
+    // Use client overrides if provided, otherwise fall back to playlist defaults
+    let sort_field = sort_field_override.or(playlist.sort_field.as_deref());
+    let sort_direction = sort_direction_override.or(playlist.sort_direction.as_deref());
+
     // Materialize songs (no pagination - get all for queue)
     materialize_smart_playlist_songs(
         pool,
         &rules,
         user_id,
-        playlist.sort_field.as_deref(),
-        playlist.sort_direction.as_deref(),
+        sort_field,
+        sort_direction,
         playlist.max_songs,
         None, // No pagination offset
         None, // No pagination limit

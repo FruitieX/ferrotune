@@ -2,20 +2,13 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   useInfiniteQuery,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import {
-  Sparkles,
-  Pencil,
-  Trash2,
-  MoreHorizontal,
-  ChevronRight,
-  Home,
-} from "lucide-react";
+import { Sparkles, Pencil, Trash2, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
@@ -25,13 +18,19 @@ import {
   playlistSortAtom,
   playlistColumnVisibilityAtom,
 } from "@/lib/store/ui";
-import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
+import {
+  startQueueAtom,
+  addToQueueAtom,
+  serverQueueStateAtom,
+  toggleShuffleAtom,
+} from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -61,8 +60,11 @@ import {
 } from "@/components/browse/song-row";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { SmartPlaylistDialog } from "@/components/playlists/smart-playlist-dialog";
+import {
+  PlaylistBreadcrumb,
+  getPlaylistDisplayName,
+} from "@/components/shared/playlist-breadcrumb";
 import { formatTotalDuration } from "@/lib/utils/format";
-import { parsePlaylistPath } from "@/lib/utils/playlist-folders";
 import type { Song } from "@/lib/api/types";
 
 const PAGE_SIZE = 50;
@@ -75,6 +77,8 @@ function SmartPlaylistPageContent() {
   const { isReady } = useAuth({ redirectToLogin: true });
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
+  const toggleShuffle = useSetAtom(toggleShuffleAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
 
   // UI state
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -149,39 +153,59 @@ function SmartPlaylistPageContent() {
   // Get metadata from first page
   const firstPage = playlistData?.pages[0];
 
-  // Build breadcrumb items from playlist name (which includes folder path)
+  // Get the playlist name
   const playlistName = firstPage?.name ?? smartPlaylist?.name;
-  const breadcrumbItems = (() => {
-    const items: { label: string; path: string }[] = [
-      { label: "Playlists", path: "" },
-    ];
-    if (!playlistName) return items;
 
-    const parts = playlistName.split("/");
-    if (parts.length <= 1) return items;
+  // Get display name using shared utility
+  const displayName = getPlaylistDisplayName(playlistName);
 
-    let currentPath = "";
-    for (let i = 0; i < parts.length - 1; i++) {
-      currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
-      items.push({ label: parts[i], path: currentPath });
-    }
+  // Determine if this smart playlist is the current queue source
+  const isSmartPlaylistInQueue =
+    queueState?.source?.type === "smartPlaylist" &&
+    queueState?.source?.id === id;
 
-    return items;
-  })();
+  // Check if a song at a given position is the currently playing track
+  // When shuffled, return undefined to let SongRow fall back to song ID matching
+  // This ensures the correct track is highlighted even when shuffle reorders the queue
+  const getIsCurrentQueuePosition = (index: number): boolean | undefined => {
+    if (!queueState || !isSmartPlaylistInQueue) return undefined;
 
-  // Get display name
-  const displayName =
-    parsePlaylistPath(playlistName ?? "").displayName ||
-    playlistName ||
-    "Loading...";
+    // When queue is shuffled, positions don't match - fall back to song ID
+    if (queueState.isShuffled) return undefined;
 
-  // Navigate to a folder
-  const navigateToFolder = (path: string) => {
-    if (path === "") {
-      router.push("/playlists");
-    } else {
-      router.push(`/playlists?folder=${encodeURIComponent(path)}`);
-    }
+    // Check if the current view's filter/sort matches what was used to create the queue
+    // If they don't match, the display order differs from the queue order
+    const queueFilters = queueState.source?.filters;
+    const queueSort = queueState.source?.sort;
+
+    // Compare filters
+    const currentFilter = debouncedFilter || undefined;
+    const queueFilter = queueFilters?.filter as string | undefined;
+    const filtersMatch = currentFilter === queueFilter;
+
+    // Compare sort (only if not in custom order)
+    const currentSort =
+      sortConfig.field !== "custom"
+        ? { field: sortConfig.field, direction: sortConfig.direction }
+        : undefined;
+    const sortMatch =
+      (currentSort === undefined &&
+        (queueSort === undefined || queueSort === null)) ||
+      (currentSort !== undefined &&
+        queueSort !== undefined &&
+        queueSort !== null &&
+        currentSort.field === queueSort.field &&
+        currentSort.direction === queueSort.direction);
+
+    // If filter/sort don't match, display order differs from queue order
+    if (!filtersMatch || !sortMatch) return undefined;
+
+    // Check if position matches (only reliable when not shuffled)
+    const positionMatches = queueState.currentIndex === index;
+    if (positionMatches) return true;
+
+    // Position doesn't match - this is not the current track
+    return false;
   };
 
   // Track selection
@@ -197,10 +221,23 @@ function SmartPlaylistPageContent() {
 
   const handlePlay = () => {
     if (songs.length === 0 || !id) return;
+    // If currently shuffled, turn off shuffle first so playback starts from first track
+    if (queueState?.isShuffled) {
+      toggleShuffle();
+    }
     startQueue({
       sourceType: "smartPlaylist",
       sourceId: id,
       sourceName: firstPage?.name,
+      // Pass filter and sort options so server materializes with same order as displayed
+      filters: debouncedFilter ? { filter: debouncedFilter } : undefined,
+      sort:
+        sortConfig.field !== "custom"
+          ? {
+              field: sortConfig.field,
+              direction: sortConfig.direction,
+            }
+          : undefined,
     });
   };
 
@@ -211,6 +248,15 @@ function SmartPlaylistPageContent() {
       sourceId: id,
       sourceName: firstPage?.name,
       shuffle: true,
+      // Pass filter and sort options
+      filters: debouncedFilter ? { filter: debouncedFilter } : undefined,
+      sort:
+        sortConfig.field !== "custom"
+          ? {
+              field: sortConfig.field,
+              direction: sortConfig.direction,
+            }
+          : undefined,
     });
   };
 
@@ -305,9 +351,9 @@ function SmartPlaylistPageContent() {
   return (
     <div className="min-h-screen">
       <DetailHeader
-        icon={Sparkles}
-        iconClassName="bg-linear-to-br from-purple-500 to-purple-800"
-        gradientColor="rgba(168,85,247,0.2)"
+        showBackButton
+        coverType="smartPlaylist"
+        colorSeed={`smart-${id}`}
         label="Smart Playlist"
         title={displayName}
         subtitle={
@@ -319,57 +365,12 @@ function SmartPlaylistPageContent() {
       />
 
       {/* Breadcrumb navigation (only if playlist is in a folder) */}
-      {breadcrumbItems.length > 1 && (
-        <div className="relative z-20 px-4 lg:px-6 py-2 flex items-center gap-1 text-sm text-muted-foreground border-b border-border bg-background/80 backdrop-blur-sm">
-          {breadcrumbItems.map((item, index) => (
-            <div key={item.path} className="flex items-center">
-              {index > 0 && <ChevronRight className="w-4 h-4 mx-1" />}
-              <button
-                onClick={() => navigateToFolder(item.path)}
-                className="hover:text-foreground transition-colors px-1 py-0.5 rounded hover:bg-accent"
-              >
-                {index === 0 ? <Home className="w-4 h-4" /> : item.label}
-              </button>
-            </div>
-          ))}
-          <ChevronRight className="w-4 h-4 mx-1" />
-          <span className="font-medium text-foreground">{displayName}</span>
-        </div>
-      )}
+      <PlaylistBreadcrumb playlistName={playlistName} />
 
       <ActionBar
         onPlayAll={handlePlay}
         onShuffle={handleShuffle}
         disablePlay={songs.length === 0}
-        actions={
-          <>
-            <Button
-              variant="ghost"
-              size="lg"
-              className="rounded-full gap-2"
-              onClick={() => setEditDialogOpen(true)}
-            >
-              <Pencil className="w-5 h-5" />
-              Edit Rules
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full">
-                  <MoreHorizontal className="w-5 h-5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  className="text-destructive"
-                  onClick={() => setDeleteDialogOpen(true)}
-                >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Delete Smart Playlist
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        }
         toolbar={
           <SongListToolbar
             filter={filter}
@@ -384,7 +385,29 @@ function SmartPlaylistPageContent() {
             showCustomSort={true}
           />
         }
-      />
+      >
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <MoreHorizontal className="w-5 h-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
+              <Pencil className="w-4 h-4 mr-2" />
+              Edit Playlist
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive"
+              onClick={() => setDeleteDialogOpen(true)}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete Smart Playlist
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </ActionBar>
 
       {/* Bulk Actions Bar */}
       {hasSelection && (
@@ -430,10 +453,21 @@ function SmartPlaylistPageContent() {
                     type: "smartPlaylist",
                     id: id!,
                     name: firstPage?.name ?? "Smart Playlist",
+                    filters: debouncedFilter
+                      ? { filter: debouncedFilter }
+                      : undefined,
+                    sort:
+                      sortConfig.field !== "custom"
+                        ? {
+                            field: sortConfig.field,
+                            direction: sortConfig.direction,
+                          }
+                        : undefined,
                   }}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
                   onSelect={handleSelect}
+                  isCurrentQueuePosition={getIsCurrentQueuePosition(index)}
                 />
               )}
               renderSkeleton={() => <SongCardSkeleton />}
@@ -465,10 +499,21 @@ function SmartPlaylistPageContent() {
                       type: "smartPlaylist",
                       id: id!,
                       name: firstPage?.name ?? "Smart Playlist",
+                      filters: debouncedFilter
+                        ? { filter: debouncedFilter }
+                        : undefined,
+                      sort:
+                        sortConfig.field !== "custom"
+                          ? {
+                              field: sortConfig.field,
+                              direction: sortConfig.direction,
+                            }
+                          : undefined,
                     }}
                     isSelected={isSelected(song.id)}
                     isSelectionMode={hasSelection}
                     onSelect={handleSelect}
+                    isCurrentQueuePosition={getIsCurrentQueuePosition(index)}
                     showAlbum={columnVisibility.album}
                     showArtist={columnVisibility.artist}
                     showDuration={columnVisibility.duration}

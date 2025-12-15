@@ -1,13 +1,13 @@
 "use client";
 
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useInfiniteQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
+import { useSparsePagination } from "@/lib/hooks/use-sparse-pagination";
 import {
   albumViewModeAtom,
   libraryFilterAtom,
@@ -17,6 +17,7 @@ import {
 } from "@/lib/store/ui";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
+import type { Song } from "@/lib/api/types";
 import {
   SongRow,
   SongRowSkeleton,
@@ -51,64 +52,48 @@ export default function SongsPage() {
     viewMode,
   );
 
-  // Fetch all songs using search with wildcard (when no filter)
+  // Fetch songs using sparse pagination for random-access scrolling
   // Server-side sorting is applied via songSort and songSortDir parameters
   // Advanced filters are passed to the API
   // Note: We request "medium" thumbnails for both views to prevent refetching when toggling view mode.
-  // The list view will downscale the larger thumbnails.
   const {
-    data: songsData,
+    items: displaySongs,
+    totalCount: totalSongs,
     isLoading,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useInfiniteQuery({
+    isFetching: _isFetching,
+    ensureRange,
+  } = useSparsePagination<Song>({
     queryKey: [
       "songs",
       "all",
-      debouncedFilter, // Include filter in query key
+      debouncedFilter,
       sortConfig.field,
       sortConfig.direction,
       advancedFilters,
-      // Note: viewMode removed from query key to prevent refetching when toggling views
     ],
-    queryFn: async ({ pageParam = 0 }) => {
+    pageSize: PAGE_SIZE,
+    fetchPage: async (offset) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      // Use search with filter or wildcard to get all songs, paginated
-      // Pass sort parameters to server for server-side sorting
       const response = await client.search3({
-        query: debouncedFilter || "*", // Use filter or wildcard to match all
+        query: debouncedFilter || "*",
         songCount: PAGE_SIZE,
-        songOffset: pageParam,
+        songOffset: offset,
         artistCount: 0,
         albumCount: 0,
         songSort: sortConfig.field,
         songSortDir: sortConfig.direction,
-        // Pass advanced filters
         ...advancedFilters,
-        // Request medium thumbnails for both views (prevents refetch on view toggle)
         inlineImages: "medium",
       });
       const songs = response.searchResult3.song ?? [];
-      const total = response.searchResult3.songTotal;
-      return {
-        songs,
-        total,
-        nextOffset:
-          songs.length === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
-      };
+      const total = response.searchResult3.songTotal ?? songs.length;
+      return { items: songs, total };
     },
-    getNextPageParam: (lastPage) => lastPage.nextOffset,
-    initialPageParam: 0,
     enabled: isReady,
     staleTime: 0,
-    refetchOnMount: "always",
   });
 
-  // Flatten songs from all pages
-  const displaySongs = songsData?.pages.flatMap((page) => page.songs) ?? [];
-  const totalSongs = songsData?.pages[0]?.total ?? displaySongs.length;
   const isLoadingData = isLoading;
 
   // Build queue source with filters and sort for server-side materialization
@@ -203,7 +188,7 @@ export default function SongsPage() {
             ))}
           </div>
         )
-      ) : displaySongs.length > 0 ? (
+      ) : displaySongs.length > 0 || totalSongs > 0 ? (
         viewMode === "grid" ? (
           <VirtualizedGrid
             items={displaySongs}
@@ -220,9 +205,7 @@ export default function SongsPage() {
             )}
             renderSkeleton={() => <SongCardSkeleton />}
             getItemKey={(song) => song.id}
-            hasNextPage={hasNextPage ?? false}
-            isFetchingNextPage={isFetchingNextPage}
-            fetchNextPage={fetchNextPage}
+            ensureRange={ensureRange}
             initialOffset={getInitialOffset()}
             onScrollChange={saveOffset}
           />
@@ -258,9 +241,7 @@ export default function SongsPage() {
               renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
               getItemKey={(song) => song.id}
               estimateItemHeight={56}
-              hasNextPage={hasNextPage ?? false}
-              isFetchingNextPage={isFetchingNextPage}
-              fetchNextPage={fetchNextPage}
+              ensureRange={ensureRange}
               initialOffset={getInitialOffset()}
               onScrollChange={saveOffset}
             />

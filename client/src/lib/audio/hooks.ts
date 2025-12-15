@@ -62,6 +62,10 @@ const LISTENING_UPDATE_INTERVAL_MS = 60000; // Update every 60 seconds
  * can go to sleep after downloading is complete. The actual buffering behavior
  * is browser-dependent and may be throttled based on network conditions and
  * available memory.
+ *
+ * The audio element is attached to the DOM for better browser compatibility,
+ * especially on mobile devices where non-DOM audio elements may be handled
+ * differently.
  */
 export function getGlobalAudio(): HTMLAudioElement | null {
   if (typeof window === "undefined") {
@@ -69,10 +73,15 @@ export function getGlobalAudio(): HTMLAudioElement | null {
   }
 
   if (!globalAudio) {
-    globalAudio = new Audio();
+    globalAudio = document.createElement("audio");
     // Buffer the entire track if possible - helps with battery life on mobile
     // as the modem can sleep when there's no network activity
     globalAudio.preload = "auto";
+    // Attach to DOM for better browser compatibility
+    // Hidden from screen readers and invisible
+    globalAudio.setAttribute("aria-hidden", "true");
+    globalAudio.style.display = "none";
+    document.body.appendChild(globalAudio);
   }
   return globalAudio;
 }

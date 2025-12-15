@@ -295,7 +295,7 @@ export function SmartPlaylistContextMenu({
       </ContextMenuSub>
       <ContextMenuItem onClick={() => setEditDialogOpen(true)}>
         <Pencil className="w-4 h-4 mr-2" />
-        Edit Rules
+        Edit Playlist
       </ContextMenuItem>
       <ContextMenuItem
         onClick={() => setDeleteDialogOpen(true)}
@@ -605,7 +605,7 @@ export function SmartPlaylistDropdownMenu({
           </DropdownMenuSub>
           <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
             <Pencil className="w-4 h-4 mr-2" />
-            Edit Rules
+            Edit Playlist
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => setDeleteDialogOpen(true)}

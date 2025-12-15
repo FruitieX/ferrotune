@@ -1,7 +1,6 @@
 "use client";
 
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useInfiniteQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -9,6 +8,7 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useItemSelection } from "@/lib/hooks/use-track-selection";
+import { useSparsePagination } from "@/lib/hooks/use-sparse-pagination";
 import {
   albumViewModeAtom,
   libraryFilterAtom,
@@ -19,6 +19,7 @@ import {
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { useInvalidateFavorites } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
+import type { Album, Song } from "@/lib/api/types";
 import {
   AlbumCard,
   AlbumCardSkeleton,
@@ -32,7 +33,6 @@ import {
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { AlbumListHeader } from "@/components/shared/song-list-header";
 import { EmptyState } from "@/components/shared/empty-state";
-import type { Song } from "@/lib/api/types";
 
 const PAGE_SIZE = 50;
 
@@ -56,64 +56,51 @@ export default function AlbumsPage() {
     viewMode,
   );
 
-  // Fetch albums using search3 with filters and sorting
+  // Fetch albums using sparse pagination for random-access scrolling
   // Note: We request "medium" thumbnails for both views to prevent refetching when toggling view mode.
   const {
-    data: albumsData,
+    items: displayAlbums,
+    totalCount: totalAlbums,
     isLoading,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useInfiniteQuery({
+    isFetching: _isFetching,
+    ensureRange,
+  } = useSparsePagination<Album>({
     queryKey: [
       "albums",
       "all",
-      debouncedFilter, // Include filter in query key
+      debouncedFilter,
       sortConfig.field,
       sortConfig.direction,
       advancedFilters,
-      // Note: viewMode removed from query key to prevent refetching when toggling views
     ],
-    queryFn: async ({ pageParam = 0 }) => {
+    pageSize: PAGE_SIZE,
+    fetchPage: async (offset) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.search3({
-        query: debouncedFilter || "*", // Use filter or wildcard to match all
+        query: debouncedFilter || "*",
         albumCount: PAGE_SIZE,
-        albumOffset: pageParam,
+        albumOffset: offset,
         artistCount: 0,
         songCount: 0,
         albumSort: sortConfig.field,
         albumSortDir: sortConfig.direction,
-        // Pass advanced filters (only album-applicable ones)
         minYear: advancedFilters.minYear,
         maxYear: advancedFilters.maxYear,
         genre: advancedFilters.genre,
         minRating: advancedFilters.minRating,
         maxRating: advancedFilters.maxRating,
         starredOnly: advancedFilters.starredOnly,
-        // Request medium thumbnails for both views (prevents refetch on view toggle)
         inlineImages: "medium",
       });
       const albums = response.searchResult3.album ?? [];
-      const total = response.searchResult3.albumTotal;
-      return {
-        albums,
-        total,
-        nextOffset:
-          albums.length === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
-      };
+      const total = response.searchResult3.albumTotal ?? albums.length;
+      return { items: albums, total };
     },
-    getNextPageParam: (lastPage) => lastPage.nextOffset,
-    initialPageParam: 0,
     enabled: isReady,
     staleTime: 0,
-    refetchOnMount: "always",
   });
 
-  // Flatten albums from all pages
-  const displayAlbums = albumsData?.pages.flatMap((page) => page.albums) ?? [];
-  const totalAlbums = albumsData?.pages[0]?.total ?? displayAlbums.length;
   const isLoadingData = isLoading;
 
   // Album selection
@@ -260,7 +247,7 @@ export default function AlbumsPage() {
             ))}
           </div>
         )
-      ) : displayAlbums.length > 0 ? (
+      ) : displayAlbums.length > 0 || totalAlbums > 0 ? (
         viewMode === "grid" ? (
           <VirtualizedGrid
             items={displayAlbums}
@@ -276,9 +263,7 @@ export default function AlbumsPage() {
             )}
             renderSkeleton={() => <AlbumCardSkeleton />}
             getItemKey={(album) => album.id}
-            hasNextPage={hasNextPage ?? false}
-            isFetchingNextPage={isFetchingNextPage}
-            fetchNextPage={fetchNextPage}
+            ensureRange={ensureRange}
             initialOffset={getInitialOffset()}
             onScrollChange={saveOffset}
           />
@@ -305,9 +290,7 @@ export default function AlbumsPage() {
               renderSkeleton={() => <MediaRowSkeleton showIndex />}
               getItemKey={(album) => album.id}
               estimateItemHeight={56}
-              hasNextPage={hasNextPage ?? false}
-              isFetchingNextPage={isFetchingNextPage}
-              fetchNextPage={fetchNextPage}
+              ensureRange={ensureRange}
               initialOffset={getInitialOffset()}
               onScrollChange={saveOffset}
             />

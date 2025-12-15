@@ -148,6 +148,14 @@ pub struct QueueSourceInfo {
     pub id: Option<String>,
     /// Source display name
     pub name: Option<String>,
+    /// Filters applied when the queue was created (JSON object)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "Record<string, unknown> | null")]
+    pub filters: Option<serde_json::Value>,
+    /// Sort configuration applied when the queue was created (JSON object with field/direction)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "{ field: string; direction: string } | null")]
+    pub sort: Option<serde_json::Value>,
 }
 
 /// Query parameters for paginated queue fetch
@@ -392,13 +400,25 @@ pub async fn start_queue(
         }
     }
 
-    // Handle shuffle - only shuffle tracks after the starting position
+    // Handle shuffle - when starting shuffled playback without a specific song selected,
+    // pick a random starting position for a true shuffle experience
     let (is_shuffled, shuffle_seed, shuffle_indices, current_index) = if request.shuffle {
         let seed = rand::random::<u64>() as i64;
-        let indices = generate_shuffle_indices(total_count, start_index, seed as u64);
+
+        // If no specific song was requested (start_song_id is None) and start_index is 0,
+        // the user pressed "Shuffle" to start from a random position
+        let effective_start =
+            if request.start_song_id.is_none() && start_index == 0 && total_count > 0 {
+                use rand::Rng;
+                rand::thread_rng().gen_range(0..total_count)
+            } else {
+                start_index
+            };
+
+        let indices = generate_shuffle_indices(total_count, effective_start, seed as u64);
         let indices_json = serde_json::to_string(&indices).unwrap_or_default();
-        // Keep current position at start_index - shuffle only affects upcoming tracks
-        (true, Some(seed), Some(indices_json), start_index as i64)
+        // Start playback at effective_start position
+        (true, Some(seed), Some(indices_json), effective_start as i64)
     } else {
         (false, None, None, start_index as i64)
     };
@@ -503,6 +523,14 @@ pub async fn get_queue(
                 source_type: queue.source_type.clone(),
                 id: queue.source_id.clone(),
                 name: queue.source_name.clone(),
+                filters: queue
+                    .filters_json
+                    .as_ref()
+                    .and_then(|s| serde_json::from_str(s).ok()),
+                sort: queue
+                    .sort_json
+                    .as_ref()
+                    .and_then(|s| serde_json::from_str(s).ok()),
             },
             window,
         }),
@@ -550,6 +578,14 @@ pub async fn get_current_window(
                 source_type: queue.source_type.clone(),
                 id: queue.source_id.clone(),
                 name: queue.source_name.clone(),
+                filters: queue
+                    .filters_json
+                    .as_ref()
+                    .and_then(|s| serde_json::from_str(s).ok()),
+                sort: queue
+                    .sort_json
+                    .as_ref()
+                    .and_then(|s| serde_json::from_str(s).ok()),
             },
             window,
         }),
@@ -1079,8 +1115,16 @@ async fn materialize_queue_songs(
         QueueSourceType::SmartPlaylist => {
             let playlist_id = source_id
                 .ok_or_else(|| Error::InvalidRequest("Smart playlist ID required".to_string()))?;
-            // Smart playlists have their own sorting/filtering built into the rules
-            get_smart_playlist_songs_by_id(pool, playlist_id, user_id).await
+            // Smart playlists have their own sorting/filtering built into the rules,
+            // but we allow the client to override sort when playing
+            get_smart_playlist_songs_by_id(
+                pool,
+                playlist_id,
+                user_id,
+                sort_field.as_deref(),
+                sort_dir.as_deref(),
+            )
+            .await
         }
         QueueSourceType::Genre => {
             // Genre uses search_songs_for_queue with genre filter for consistency with search3 API

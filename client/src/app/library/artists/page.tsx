@@ -1,7 +1,6 @@
 "use client";
 
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useInfiniteQuery } from "@tanstack/react-query";
 import { User } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -9,6 +8,7 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useItemSelection } from "@/lib/hooks/use-track-selection";
+import { useSparsePagination } from "@/lib/hooks/use-sparse-pagination";
 import {
   albumViewModeAtom,
   libraryFilterAtom,
@@ -19,6 +19,7 @@ import {
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { useInvalidateFavorites } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
+import type { Artist, Song } from "@/lib/api/types";
 import {
   ArtistCard,
   ArtistCardSkeleton,
@@ -32,7 +33,6 @@ import {
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { ArtistListHeader } from "@/components/shared/song-list-header";
 import { EmptyState } from "@/components/shared/empty-state";
-import type { Song } from "@/lib/api/types";
 
 const PAGE_SIZE = 50;
 
@@ -53,14 +53,14 @@ export default function ArtistsPage() {
   // Virtualized scroll restoration
   const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration();
 
-  // Fetch artists using search3 with filters and infinite scroll
+  // Fetch artists using sparse pagination for random-access scrolling
   const {
-    data: artistsData,
+    items: rawArtists,
+    totalCount: totalArtists,
     isLoading,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useInfiniteQuery({
+    isFetching: _isFetching,
+    ensureRange,
+  } = useSparsePagination<Artist>({
     queryKey: [
       "artists",
       "all",
@@ -68,43 +68,30 @@ export default function ArtistsPage() {
       advancedFilters,
       viewMode, // Include viewMode because inline image size depends on it
     ],
-    queryFn: async ({ pageParam = 0 }) => {
+    pageSize: PAGE_SIZE,
+    fetchPage: async (offset) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.search3({
-        query: debouncedFilter || "*", // Wildcard to match all when no filter
+        query: debouncedFilter || "*",
         artistCount: PAGE_SIZE,
-        artistOffset: pageParam,
+        artistOffset: offset,
         albumCount: 0,
         songCount: 0,
         starredOnly: advancedFilters.starredOnly,
         minRating: advancedFilters.minRating,
         maxRating: advancedFilters.maxRating,
-        // Request inline thumbnails - medium for cards, small for list rows
         inlineImages: viewMode === "grid" ? "medium" : "small",
       });
       const artists = response.searchResult3.artist ?? [];
-      const total = response.searchResult3.artistTotal;
-      return {
-        artists,
-        total,
-        nextOffset:
-          artists.length === PAGE_SIZE ? pageParam + PAGE_SIZE : undefined,
-      };
+      const total = response.searchResult3.artistTotal ?? artists.length;
+      return { items: artists, total };
     },
-    getNextPageParam: (lastPage) => lastPage.nextOffset,
-    initialPageParam: 0,
     enabled: isReady,
     staleTime: 0,
-    refetchOnMount: "always",
   });
 
-  // Flatten artists from all pages, filter out artists with 0 albums
-  const displayArtists =
-    artistsData?.pages
-      .flatMap((page) => page.artists)
-      .filter((a) => (a.albumCount ?? 0) > 0) ?? [];
-  const totalArtists = artistsData?.pages[0]?.total ?? displayArtists.length;
+  const displayArtists = rawArtists;
   const isLoadingData = isLoading;
 
   // Artist selection
@@ -252,7 +239,7 @@ export default function ArtistsPage() {
             ))}
           </div>
         )
-      ) : displayArtists.length > 0 ? (
+      ) : displayArtists.length > 0 || totalArtists > 0 ? (
         viewMode === "grid" ? (
           <VirtualizedGrid
             items={displayArtists}
@@ -268,9 +255,7 @@ export default function ArtistsPage() {
             )}
             renderSkeleton={() => <ArtistCardSkeleton />}
             getItemKey={(artist) => artist.id}
-            hasNextPage={hasNextPage ?? false}
-            isFetchingNextPage={isFetchingNextPage}
-            fetchNextPage={fetchNextPage}
+            ensureRange={ensureRange}
             initialOffset={getInitialOffset()}
             onScrollChange={saveOffset}
           />
@@ -296,9 +281,7 @@ export default function ArtistsPage() {
               )}
               getItemKey={(artist) => artist.id}
               estimateItemHeight={56}
-              hasNextPage={hasNextPage ?? false}
-              isFetchingNextPage={isFetchingNextPage}
-              fetchNextPage={fetchNextPage}
+              ensureRange={ensureRange}
               initialOffset={getInitialOffset()}
               onScrollChange={saveOffset}
             />

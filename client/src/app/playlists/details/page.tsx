@@ -14,8 +14,6 @@ import {
   Pencil,
   Trash2,
   ListMusic,
-  ChevronRight,
-  Home,
   AlertCircle,
   RefreshCw,
 } from "lucide-react";
@@ -79,6 +77,10 @@ import {
 } from "@/components/playlists/missing-entry-row";
 import { RefineMatchDialog } from "@/components/playlists/refine-match-dialog";
 import { MassResolveDialog } from "@/components/playlists/mass-resolve-dialog";
+import {
+  PlaylistBreadcrumb,
+  getPlaylistDisplayName,
+} from "@/components/shared/playlist-breadcrumb";
 import {
   formatCount,
   formatDate,
@@ -519,8 +521,47 @@ function PlaylistDetailContent() {
       queueState.source?.id === playlistId;
 
     if (isPlaylistQueue) {
-      // songIndex from server maps directly to queue index
-      return queueState.currentIndex === songIndex;
+      // When queue is shuffled, positions don't match the display order
+      // Fall back to song ID matching in SongRow
+      if (queueState.isShuffled) return undefined;
+
+      // Check if the current view's filter/sort matches what was used to create the queue
+      // If they don't match, the display order differs from the queue order
+      const queueFilters = queueState.source?.filters;
+      const queueSort = queueState.source?.sort;
+
+      // Compare filters (normalize undefined vs empty object)
+      const currentFilter = debouncedFilter.trim() || undefined;
+      const queueFilter = queueFilters?.filter as string | undefined;
+      const filtersMatch = currentFilter === queueFilter;
+
+      // Compare sort (only if not in custom order)
+      const currentSort =
+        sortConfig.field !== "custom"
+          ? { field: sortConfig.field, direction: sortConfig.direction }
+          : undefined;
+      const sortMatch =
+        (currentSort === undefined &&
+          (queueSort === undefined || queueSort === null)) ||
+        (currentSort !== undefined &&
+          queueSort !== undefined &&
+          queueSort !== null &&
+          currentSort.field === queueSort.field &&
+          currentSort.direction === queueSort.direction);
+
+      // If filter/sort don't match, display order differs from queue order
+      // Fall back to song ID matching
+      if (!filtersMatch || !sortMatch) return undefined;
+
+      // Check if position matches
+      const positionMatches = queueState.currentIndex === songIndex;
+      if (positionMatches) {
+        // Position matches - this is the current track
+        return true;
+      }
+      // Position doesn't match - this is not the current track
+      // Since we've verified filter/sort match, we can be confident about this
+      return false;
     }
 
     // For other sources, we can't reliably determine position
@@ -533,44 +574,8 @@ function PlaylistDetailContent() {
     queueState?.source?.type === "playlist" &&
     queueState?.source?.id === playlistId;
 
-  // Build breadcrumb items from playlist name (which includes folder path)
-  const breadcrumbItems = (() => {
-    const items: { label: string; path: string }[] = [
-      { label: "Playlists", path: "" },
-    ];
-    if (!playlist?.name) return items;
-
-    // Playlist names include the full path like "Folder/SubFolder/PlaylistName"
-    const parts = playlist.name.split("/");
-
-    // If there's only one part, there's no folder, just the playlist name
-    if (parts.length <= 1) return items;
-
-    // Build folder breadcrumbs (all parts except the last, which is the playlist name)
-    let currentPath = "";
-    for (let i = 0; i < parts.length - 1; i++) {
-      currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
-      items.push({ label: parts[i], path: currentPath });
-    }
-
-    return items;
-  })();
-
-  // Get the display name (last part of the path)
-  const displayName = (() => {
-    if (!playlist?.name) return "Playlist";
-    const parts = playlist.name.split("/");
-    return parts[parts.length - 1];
-  })();
-
-  // Navigate to a folder
-  const navigateToFolder = (path: string) => {
-    if (path === "") {
-      router.push("/playlists");
-    } else {
-      router.push(`/playlists?folder=${encodeURIComponent(path)}`);
-    }
-  };
+  // Get the display name (last part of the path) using shared utility
+  const displayName = getPlaylistDisplayName(playlist?.name);
 
   // Clear missing entries selection
   const clearMissingSelection = () => {
@@ -902,23 +907,8 @@ function PlaylistDetailContent() {
       />
 
       {/* Breadcrumb navigation (only if playlist is in a folder) */}
-      {breadcrumbItems.length > 1 && (
-        <div className="relative z-20 px-4 lg:px-6 py-2 flex items-center gap-1 text-sm text-muted-foreground border-b border-border bg-background/80 backdrop-blur-sm">
-          {breadcrumbItems.map((item, index) => (
-            <div key={item.path} className="flex items-center">
-              {index > 0 && <ChevronRight className="w-4 h-4 mx-1" />}
-              <button
-                onClick={() => navigateToFolder(item.path)}
-                className="hover:text-foreground transition-colors px-1 py-0.5 rounded hover:bg-accent"
-              >
-                {index === 0 ? <Home className="w-4 h-4" /> : item.label}
-              </button>
-            </div>
-          ))}
-          <ChevronRight className="w-4 h-4 mx-1" />
-          <span className="font-medium text-foreground">{displayName}</span>
-        </div>
-      )}
+      {/* Breadcrumb navigation (only if playlist is in a folder) */}
+      <PlaylistBreadcrumb playlistName={playlist?.name} />
 
       {/* Action bar */}
       <ActionBar

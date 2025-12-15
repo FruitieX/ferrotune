@@ -97,6 +97,8 @@ export function useSparsePagination<T>({
       setPages(new Map());
       setTotalCount(initialTotalCount ?? 0);
       fetchingPages.current.clear();
+      // Reset pendingRange so initial page load effect will trigger
+      setPendingRange(null);
     }
   }, [queryKey, initialTotalCount]);
 

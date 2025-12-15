@@ -836,7 +836,7 @@ function PlaylistFolderTree({
                   )}
                   style={{ paddingLeft: `${depth * 12 + 8}px` }}
                 >
-                  <Sparkles className="w-4 h-4 shrink-0 text-purple-400" />
+                  <Sparkles className="w-4 h-4 shrink-0 text-muted-foreground" />
                   <span className="truncate text-sm">{item.name}</span>
                 </Button>
               </Link>

@@ -158,7 +158,7 @@ export function SmartPlaylistDialog({
             value: "",
           },
         ]);
-        setSortField("");
+        setSortField("random");
         setSortDirection("asc");
         setMaxSongs("");
       }
