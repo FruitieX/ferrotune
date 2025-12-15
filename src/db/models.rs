@@ -157,6 +157,7 @@ pub struct MusicFolder {
     pub name: String,
     pub path: String,
     pub enabled: bool,
+    pub watch_enabled: bool,
     pub last_scanned_at: Option<DateTime<Utc>>,
     pub scan_error: Option<String>,
 }
@@ -245,6 +246,57 @@ pub struct MissingEntryData {
     pub raw: String,
 }
 
+// ============================================================================
+// Smart Playlists
+// ============================================================================
+
+/// Smart playlist - a dynamic playlist based on filter rules
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct SmartPlaylist {
+    pub id: String,
+    pub name: String,
+    pub comment: Option<String>,
+    pub owner_id: i64,
+    pub is_public: bool,
+    /// JSON-encoded filter rules
+    pub rules_json: String,
+    /// Sort field: 'playCount', 'lastPlayed', 'dateAdded', 'title', 'year', 'random', etc.
+    pub sort_field: Option<String>,
+    /// Sort direction: 'asc' or 'desc'
+    pub sort_direction: Option<String>,
+    /// Optional limit on number of songs
+    pub max_songs: Option<i64>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Filter rules for a smart playlist
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmartPlaylistRules {
+    /// List of conditions to filter by
+    pub conditions: Vec<SmartPlaylistCondition>,
+    /// Logic for combining conditions: "and" or "or"
+    #[serde(default = "default_logic")]
+    pub logic: String,
+}
+
+fn default_logic() -> String {
+    "and".to_string()
+}
+
+/// A single filter condition
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmartPlaylistCondition {
+    /// Field to filter on: 'year', 'genre', 'playCount', 'lastPlayed', 'dateAdded', 'starred', 'artist', 'album', etc.
+    pub field: String,
+    /// Comparison operator: 'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains', 'within'
+    pub operator: String,
+    /// Value to compare against (type depends on field/operator)
+    pub value: serde_json::Value,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Scrobble {
     pub id: i64,
@@ -273,6 +325,7 @@ pub enum QueueSourceType {
     Album,
     Artist,
     Playlist,
+    SmartPlaylist,
     Genre,
     Search,
     Favorites,
@@ -297,6 +350,7 @@ impl QueueSourceType {
             QueueSourceType::History => "history",
             QueueSourceType::Directory => "directory",
             QueueSourceType::DirectoryFlat => "directoryFlat",
+            QueueSourceType::SmartPlaylist => "smartPlaylist",
             QueueSourceType::Other => "other",
         }
     }
@@ -307,6 +361,7 @@ impl QueueSourceType {
             "album" => QueueSourceType::Album,
             "artist" => QueueSourceType::Artist,
             "playlist" => QueueSourceType::Playlist,
+            "smartPlaylist" => QueueSourceType::SmartPlaylist,
             "genre" => QueueSourceType::Genre,
             "search" => QueueSourceType::Search,
             "favorites" => QueueSourceType::Favorites,

@@ -5,6 +5,7 @@ mod error;
 mod password;
 mod scanner;
 mod thumbnails;
+mod watcher;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -269,10 +270,16 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
     // Create shared app state
     let scan_state = api::create_scan_state();
     let state = Arc::new(api::AppState {
-        pool,
+        pool: pool.clone(),
         config: config.clone(),
-        scan_state,
+        scan_state: scan_state.clone(),
     });
+
+    // Start the file watcher for directories with watch_enabled=true
+    let library_watcher = Arc::new(watcher::LibraryWatcher::new(pool, scan_state));
+    if let Err(e) = library_watcher.start().await {
+        tracing::warn!("Failed to start file watcher: {}", e);
+    }
 
     // CORS layer - must be applied first (added last) to handle preflight requests
     // before the router rejects OPTIONS method

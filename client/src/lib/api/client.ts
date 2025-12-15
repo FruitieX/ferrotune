@@ -71,6 +71,12 @@ import type { ImportScrobblesRequest } from "./generated/ImportScrobblesRequest"
 import type { ImportScrobblesResponse } from "./generated/ImportScrobblesResponse";
 import type { GetPlayCountsRequest } from "./generated/GetPlayCountsRequest";
 import type { GetPlayCountsResponse } from "./generated/GetPlayCountsResponse";
+import type { SmartPlaylistsResponse } from "./generated/SmartPlaylistsResponse";
+import type { SmartPlaylistInfo } from "./generated/SmartPlaylistInfo";
+import type { SmartPlaylistSongsResponse } from "./generated/SmartPlaylistSongsResponse";
+import type { CreateSmartPlaylistRequest } from "./generated/CreateSmartPlaylistRequest";
+import type { CreateSmartPlaylistResponse } from "./generated/CreateSmartPlaylistResponse";
+import type { UpdateSmartPlaylistRequest } from "./generated/UpdateSmartPlaylistRequest";
 
 // Ping response is empty
 type PingResponse = Record<string, never>;
@@ -1198,19 +1204,20 @@ export class SubsonicClient {
   async createMusicFolder(
     name: string,
     path: string,
+    watchEnabled: boolean = false,
   ): Promise<CreateMusicFolderResponse> {
     return this.adminRequest("/ferrotune/music-folders", {
       method: "POST",
-      body: JSON.stringify({ name, path }),
+      body: JSON.stringify({ name, path, watchEnabled }),
     });
   }
 
   /**
-   * Update a music folder (name and/or enabled status)
+   * Update a music folder (name, enabled status, or watch enabled)
    */
   async updateMusicFolder(
     id: number,
-    updates: { name?: string; enabled?: boolean },
+    updates: { name?: string; enabled?: boolean; watchEnabled?: boolean },
   ): Promise<void> {
     await this.adminRequest(`/ferrotune/music-folders/${id}`, {
       method: "PATCH",
@@ -1408,6 +1415,96 @@ export class SubsonicClient {
       method: "PUT",
       body: JSON.stringify(request),
     });
+  }
+
+  // ==========================================
+  // Smart Playlists (Admin API)
+  // ==========================================
+
+  /**
+   * Get all smart playlists for the current user
+   */
+  async getSmartPlaylists(): Promise<SmartPlaylistsResponse> {
+    return this.adminRequest("/ferrotune/smart-playlists");
+  }
+
+  /**
+   * Get a single smart playlist by ID
+   */
+  async getSmartPlaylist(id: string): Promise<SmartPlaylistInfo> {
+    return this.adminRequest(
+      `/ferrotune/smart-playlists/${encodeURIComponent(id)}`,
+    );
+  }
+
+  /**
+   * Create a new smart playlist
+   */
+  async createSmartPlaylist(
+    request: CreateSmartPlaylistRequest,
+  ): Promise<CreateSmartPlaylistResponse> {
+    return this.adminRequest("/ferrotune/smart-playlists", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * Update a smart playlist
+   */
+  async updateSmartPlaylist(
+    id: string,
+    request: UpdateSmartPlaylistRequest,
+  ): Promise<void> {
+    await this.adminRequest(
+      `/ferrotune/smart-playlists/${encodeURIComponent(id)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(request),
+      },
+    );
+  }
+
+  /**
+   * Delete a smart playlist
+   */
+  async deleteSmartPlaylist(id: string): Promise<void> {
+    await this.adminRequest(
+      `/ferrotune/smart-playlists/${encodeURIComponent(id)}`,
+      {
+        method: "DELETE",
+      },
+    );
+  }
+
+  /**
+   * Get materialized songs from a smart playlist
+   */
+  async getSmartPlaylistSongs(
+    id: string,
+    options?: {
+      offset?: number;
+      count?: number;
+      inlineImages?: "small" | "medium";
+      filter?: string;
+      sortField?: string;
+      sortDirection?: "asc" | "desc";
+    },
+  ): Promise<SmartPlaylistSongsResponse> {
+    const params = new URLSearchParams();
+    if (options?.offset !== undefined)
+      params.set("offset", String(options.offset));
+    if (options?.count !== undefined)
+      params.set("count", String(options.count));
+    if (options?.inlineImages) params.set("inlineImages", options.inlineImages);
+    if (options?.filter) params.set("filter", options.filter);
+    if (options?.sortField) params.set("sortField", options.sortField);
+    if (options?.sortDirection)
+      params.set("sortDirection", options.sortDirection);
+    const queryStr = params.toString();
+    return this.adminRequest(
+      `/ferrotune/smart-playlists/${encodeURIComponent(id)}/songs${queryStr ? `?${queryStr}` : ""}`,
+    );
   }
 }
 

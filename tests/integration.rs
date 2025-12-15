@@ -520,7 +520,7 @@ path = "{}"
     server.scan_library().expect("Initial scan failed");
 
     // Count songs via API
-    let response = reqwest::blocking::get(&server.api_url("getRandomSongs?size=1000"))
+    let response = reqwest::blocking::get(server.api_url("getRandomSongs?size=1000"))
         .expect("Failed to get songs");
     let initial_count = response.text().unwrap().matches("<song ").count();
 
@@ -531,7 +531,7 @@ path = "{}"
     server.scan_library().expect("Full rescan failed");
 
     // Count songs again
-    let response = reqwest::blocking::get(&server.api_url("getRandomSongs?size=1000"))
+    let response = reqwest::blocking::get(server.api_url("getRandomSongs?size=1000"))
         .expect("Failed to get songs after rescan");
     let final_count = response.text().unwrap().matches("<song ").count();
 

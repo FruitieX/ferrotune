@@ -97,6 +97,7 @@ mod scrobbles;
 mod server_config;
 mod setup;
 mod shuffle_exclude;
+mod smart_playlists;
 mod songs;
 mod stats;
 mod tags;
@@ -314,6 +315,21 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(server_config::get_server_config).put(server_config::update_server_config),
         )
         .route("/ferrotune/config/all", get(server_config::get_all_config))
+        // Smart playlist endpoints
+        .route(
+            "/ferrotune/smart-playlists",
+            get(smart_playlists::list_smart_playlists).post(smart_playlists::create_smart_playlist),
+        )
+        .route(
+            "/ferrotune/smart-playlists/{id}",
+            get(smart_playlists::get_smart_playlist)
+                .put(smart_playlists::update_smart_playlist)
+                .delete(smart_playlists::delete_smart_playlist),
+        )
+        .route(
+            "/ferrotune/smart-playlists/{id}/songs",
+            get(smart_playlists::get_smart_playlist_songs),
+        )
         .with_state(state)
 }
 

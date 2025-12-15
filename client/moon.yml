@@ -322,3 +322,12 @@ tasks:
     deps:
       - "ci-lite"
       - "test-e2e"
+
+  pre-ci:
+    deps:
+      - "fmt"
+      - "lint"
+      - "typecheck"
+      - "build"
+    options:
+      runInCI: false

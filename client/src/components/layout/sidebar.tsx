@@ -24,6 +24,7 @@ import {
   User,
   Music,
   Tag,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useHydrated } from "@/lib/hooks/use-hydrated";
@@ -51,8 +52,10 @@ import { ScanDialog } from "@/components/admin/scan-dialog";
 import {
   organizePlaylistsIntoFolders,
   getPlaylistDisplayName,
+  parsePlaylistPath,
   type PlaylistFolder,
 } from "@/lib/utils/playlist-folders";
+import type { Playlist } from "@/lib/api/types";
 
 const discoverItems = [
   { href: "/", icon: Home, label: "Home" },
@@ -95,9 +98,21 @@ export function Sidebar() {
     enabled: isConnected,
   });
 
+  // Fetch smart playlists
+  const { data: smartPlaylists } = useQuery({
+    queryKey: ["smartPlaylists"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getSmartPlaylists();
+      return response.smartPlaylists ?? [];
+    },
+    enabled: isConnected,
+  });
+
   // Organize playlists into folder structure
   const playlistTree = playlists
-    ? organizePlaylistsIntoFolders(playlists)
+    ? organizePlaylistsIntoFolders(playlists, smartPlaylists)
     : null;
 
   const toggleFolder = (path: string) => {
@@ -503,6 +518,7 @@ export function Sidebar() {
                             />
                           </Suspense>
                         ) : null}
+                        {/* Smart Playlists - integrated with regular playlists */}
                       </div>
                     </CollapsibleContent>
                   </Collapsible>
@@ -758,34 +774,81 @@ function PlaylistFolderTree({
         );
       })}
 
-      {/* Playlists in this folder */}
-      {folder.playlists.map((playlist) => {
-        const isActive =
-          pathname === `/playlists/details` &&
-          searchParams.get("id") === playlist.id;
-        const displayName = getPlaylistDisplayName(playlist);
+      {/* Playlists in this folder (regular and smart combined) */}
+      {[
+        ...folder.playlists.map((p) => ({
+          type: "regular" as const,
+          id: p.id,
+          name: getPlaylistDisplayName(p),
+          data: p,
+        })),
+        ...folder.smartPlaylists.map((sp) => ({
+          type: "smart" as const,
+          id: sp.id,
+          name: parsePlaylistPath(sp.name).displayName || sp.name,
+          data: sp,
+        })),
+      ]
+        .sort((a, b) =>
+          a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
+        )
+        .map((item) => {
+          if (item.type === "regular") {
+            const playlist = item.data as Playlist;
+            const isActive =
+              pathname === `/playlists/details` &&
+              searchParams.get("id") === playlist.id;
 
-        return (
-          <Link key={playlist.id} href={`/playlists/details?id=${playlist.id}`}>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn(
-                "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
-                isActive && "bg-sidebar-accent text-sidebar-primary",
-              )}
-              style={{ paddingLeft: `${depth * 12 + 8}px` }}
-            >
-              <ListMusic className="w-4 h-4 shrink-0 text-muted-foreground" />
-              <span className="truncate text-sm">{displayName}</span>
-            </Button>
-          </Link>
-        );
-      })}
+            return (
+              <Link
+                key={playlist.id}
+                href={`/playlists/details?id=${playlist.id}`}
+              >
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
+                    isActive && "bg-sidebar-accent text-sidebar-primary",
+                  )}
+                  style={{ paddingLeft: `${depth * 12 + 8}px` }}
+                >
+                  <ListMusic className="w-4 h-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-sm">{item.name}</span>
+                </Button>
+              </Link>
+            );
+          } else {
+            // Smart Playlist
+            const sp = item.data as { id: string; name: string };
+            const isActive =
+              pathname === "/playlists/smart" &&
+              searchParams.get("id") === sp.id;
+
+            return (
+              <Link key={sp.id} href={`/playlists/smart?id=${sp.id}`}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
+                    isActive && "bg-sidebar-accent text-sidebar-primary",
+                  )}
+                  style={{ paddingLeft: `${depth * 12 + 8}px` }}
+                >
+                  <Sparkles className="w-4 h-4 shrink-0 text-purple-400" />
+                  <span className="truncate text-sm">{item.name}</span>
+                </Button>
+              </Link>
+            );
+          }
+        })}
     </>
   );
 }
 
+// Wrapper component that uses useSearchParams - isolated in its own Suspense boundary
+// This prevents the entire Sidebar from suspending during SSR
 // Wrapper component that uses useSearchParams - isolated in its own Suspense boundary
 // This prevents the entire Sidebar from suspending during SSR
 interface PlaylistFolderTreeWithSearchParamsProps {
@@ -816,3 +879,5 @@ function PlaylistFolderTreeWithSearchParams({
     />
   );
 }
+
+// Smart playlists list component with search params

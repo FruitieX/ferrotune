@@ -42,7 +42,13 @@ interface MediaRowProps {
   /** Cover art color seed for placeholder */
   colorSeed?: string;
   /** Cover art type for placeholder icon */
-  coverType?: "album" | "artist" | "song" | "playlist" | "genre";
+  coverType?:
+    | "album"
+    | "artist"
+    | "song"
+    | "playlist"
+    | "smartPlaylist"
+    | "genre";
   /** Whether this row is currently active/selected */
   isActive?: boolean;
   /** Whether this row is currently playing (shows pause icon) */
@@ -288,6 +294,9 @@ interface RowActionsProps {
  * Button order: Dropdown → Custom children → Star (heart on right)
  * Note: Play button is now on cover art overlay, not in actions.
  * The star button is always visible when starred, otherwise shows on hover.
+ *
+ * On mobile, all action buttons are hidden to save space.
+ * Users can long-press on items to access context menus instead.
  */
 export function RowActions({
   onStar,
@@ -295,8 +304,10 @@ export function RowActions({
   dropdownMenu,
   children,
 }: RowActionsProps) {
+  // On mobile, hide all action buttons - use long press for context menu instead
+  // Using CSS media query class for SSR compatibility instead of useIsMobile hook
   return (
-    <div className="flex items-center gap-1 shrink-0">
+    <div className="hidden lg:flex items-center gap-1 shrink-0">
       {/* Actions that only show on hover */}
       <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
         {dropdownMenu}

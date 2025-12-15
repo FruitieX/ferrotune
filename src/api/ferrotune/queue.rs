@@ -11,6 +11,7 @@
 //! the server materializes and stores the queue. Shuffle indices are generated
 //! and stored server-side for consistent behavior across sessions.
 
+use crate::api::ferrotune::smart_playlists::get_smart_playlist_songs_by_id;
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::browse::{
     get_ratings_map, get_starred_map, song_to_response_with_stats, SongResponse,
@@ -1074,6 +1075,12 @@ async fn materialize_queue_songs(
                 sort_field.as_deref(),
                 sort_dir.as_deref(),
             ))
+        }
+        QueueSourceType::SmartPlaylist => {
+            let playlist_id = source_id
+                .ok_or_else(|| Error::InvalidRequest("Smart playlist ID required".to_string()))?;
+            // Smart playlists have their own sorting/filtering built into the rules
+            get_smart_playlist_songs_by_id(pool, playlist_id, user_id).await
         }
         QueueSourceType::Genre => {
             // Genre uses search_songs_for_queue with genre filter for consistency with search3 API

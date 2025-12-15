@@ -78,6 +78,7 @@ export default function SetupPage() {
   // Folder management state
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderPath, setNewFolderPath] = useState("");
+  const [newFolderWatchEnabled, setNewFolderWatchEnabled] = useState(false);
   const [folderValidationError, setFolderValidationError] = useState<
     string | null
   >(null);
@@ -217,16 +218,25 @@ export default function SetupPage() {
 
   // Create folder mutation - immediately creates folder on server
   const createFolderMutation = useMutation({
-    mutationFn: async ({ name, path }: { name: string; path: string }) => {
+    mutationFn: async ({
+      name,
+      path,
+      watchEnabled,
+    }: {
+      name: string;
+      path: string;
+      watchEnabled: boolean;
+    }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      return client.createMusicFolder(name, path);
+      return client.createMusicFolder(name, path, watchEnabled);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["adminMusicFolders"] });
       toast.success("Music folder added");
       setNewFolderName("");
       setNewFolderPath("");
+      setNewFolderWatchEnabled(false);
     },
     onError: (err: Error) => {
       setFolderValidationError(err.message);
@@ -280,6 +290,7 @@ export default function SetupPage() {
       createFolderMutation.mutate({
         name: newFolderName.trim(),
         path: newFolderPath.trim(),
+        watchEnabled: newFolderWatchEnabled,
       });
     } catch (err) {
       setFolderValidationError(
@@ -717,6 +728,24 @@ export default function SetupPage() {
                         disabled={isValidatingFolder}
                         error={folderValidationError}
                       />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="watchEnabled"
+                        checked={newFolderWatchEnabled}
+                        onChange={(e) =>
+                          setNewFolderWatchEnabled(e.target.checked)
+                        }
+                        disabled={isValidatingFolder}
+                        className="h-4 w-4 rounded border-border"
+                      />
+                      <Label
+                        htmlFor="watchEnabled"
+                        className="font-normal text-sm"
+                      >
+                        Enable auto-scan (watch for file changes)
+                      </Label>
                     </div>
                     <Button
                       variant="outline"

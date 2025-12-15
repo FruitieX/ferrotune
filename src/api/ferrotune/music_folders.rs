@@ -36,6 +36,7 @@ pub struct MusicFolderInfo {
     pub name: String,
     pub path: String,
     pub enabled: bool,
+    pub watch_enabled: bool,
     #[ts(type = "string | null")]
     pub last_scanned_at: Option<DateTime<Utc>>,
     pub scan_error: Option<String>,
@@ -67,6 +68,8 @@ pub struct MusicFolderStats {
 pub struct CreateMusicFolderRequest {
     pub name: String,
     pub path: String,
+    #[serde(default)]
+    pub watch_enabled: bool,
 }
 
 /// Request to update a music folder.
@@ -76,6 +79,7 @@ pub struct CreateMusicFolderRequest {
 pub struct UpdateMusicFolderRequest {
     pub name: Option<String>,
     pub enabled: Option<bool>,
+    pub watch_enabled: Option<bool>,
 }
 
 /// Response after creating a music folder.
@@ -148,11 +152,14 @@ pub async fn create_music_folder(
     }
 
     // Create the folder
-    let result = sqlx::query("INSERT INTO music_folders (name, path, enabled) VALUES (?, ?, 1)")
-        .bind(&request.name)
-        .bind(&request.path)
-        .execute(&state.pool)
-        .await?;
+    let result = sqlx::query(
+        "INSERT INTO music_folders (name, path, enabled, watch_enabled) VALUES (?, ?, 1, ?)",
+    )
+    .bind(&request.name)
+    .bind(&request.path)
+    .bind(request.watch_enabled)
+    .execute(&state.pool)
+    .await?;
 
     let id = result.last_insert_rowid();
 
@@ -184,7 +191,7 @@ pub async fn update_music_folder(
 ) -> Result<impl IntoResponse> {
     // Check if folder exists
     let existing: Option<MusicFolder> =
-        sqlx::query_as("SELECT id, name, path, enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?")
+        sqlx::query_as("SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?")
             .bind(id)
             .fetch_optional(&state.pool)
             .await?;
@@ -204,6 +211,14 @@ pub async fn update_music_folder(
     if let Some(enabled) = request.enabled {
         updates.push("enabled = ?");
         values.push(if enabled {
+            "1".to_string()
+        } else {
+            "0".to_string()
+        });
+    }
+    if let Some(watch_enabled) = request.watch_enabled {
+        updates.push("watch_enabled = ?");
+        values.push(if watch_enabled {
             "1".to_string()
         } else {
             "0".to_string()
@@ -559,7 +574,7 @@ pub async fn get_music_folder_stats(
 /// Helper: Get all music folders with their stats
 async fn get_all_music_folders_with_stats(state: &AppState) -> Result<Vec<MusicFolderInfo>> {
     let folders: Vec<MusicFolder> = sqlx::query_as(
-        "SELECT id, name, path, enabled, last_scanned_at, scan_error FROM music_folders ORDER BY id"
+        "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders ORDER BY id"
     )
     .fetch_all(&state.pool)
     .await?;
@@ -572,6 +587,7 @@ async fn get_all_music_folders_with_stats(state: &AppState) -> Result<Vec<MusicF
             name: folder.name,
             path: folder.path,
             enabled: folder.enabled,
+            watch_enabled: folder.watch_enabled,
             last_scanned_at: folder.last_scanned_at,
             scan_error: folder.scan_error,
             stats,
@@ -584,7 +600,7 @@ async fn get_all_music_folders_with_stats(state: &AppState) -> Result<Vec<MusicF
 /// Helper: Get a single music folder with stats
 async fn get_music_folder_with_stats(state: &AppState, id: i64) -> Result<Option<MusicFolderInfo>> {
     let folder: Option<MusicFolder> = sqlx::query_as(
-        "SELECT id, name, path, enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?"
+        "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?"
     )
     .bind(id)
     .fetch_optional(&state.pool)
@@ -598,6 +614,7 @@ async fn get_music_folder_with_stats(state: &AppState, id: i64) -> Result<Option
                 name: folder.name,
                 path: folder.path,
                 enabled: folder.enabled,
+                watch_enabled: folder.watch_enabled,
                 last_scanned_at: folder.last_scanned_at,
                 scan_error: folder.scan_error,
                 stats,

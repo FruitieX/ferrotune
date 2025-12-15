@@ -80,6 +80,117 @@ pub async fn scan_library(
     scan_library_with_progress(pool, full, folder_id, dry_run, None).await
 }
 
+/// Scan specific files rather than walking entire directories.
+///
+/// This is optimized for the file watcher use case where we know exactly
+/// which files have changed. Skips directory enumeration and only processes
+/// the provided file paths.
+pub async fn scan_specific_files(
+    pool: &SqlitePool,
+    folder_id: i64,
+    file_paths: Vec<PathBuf>,
+) -> Result<()> {
+    if file_paths.is_empty() {
+        return Ok(());
+    }
+
+    // Get the folder info
+    let folder = get_music_folder(pool, folder_id).await?;
+    let base_path = PathBuf::from(&folder.path);
+
+    tracing::info!(
+        "Scanning {} specific file(s) in folder {}",
+        file_paths.len(),
+        folder.name
+    );
+
+    let supported_extensions = ["mp3", "flac", "ogg", "opus", "m4a", "mp4", "aac", "wav"];
+    let mut added = 0;
+    let mut updated = 0;
+    let mut removed = 0;
+    let mut errors = 0;
+
+    for path in file_paths {
+        // Check if file extension is supported
+        let is_audio = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| supported_extensions.contains(&ext.to_lowercase().as_str()))
+            .unwrap_or(false);
+
+        if !is_audio {
+            continue;
+        }
+
+        // Get relative path from base
+        let relative_path = path
+            .strip_prefix(&base_path)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .to_string();
+
+        if path.exists() {
+            // File exists or was modified - extract and upsert
+            let file_mtime = std::fs::metadata(&path)
+                .ok()
+                .and_then(|meta| meta.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64);
+
+            match extract_metadata(pool, &path, file_mtime).await {
+                Ok(metadata) => {
+                    match upsert_song(pool, metadata, relative_path.clone(), folder_id).await {
+                        Ok(is_new) => {
+                            if is_new {
+                                added += 1;
+                                tracing::info!("Added: {}", relative_path);
+                            } else {
+                                updated += 1;
+                                tracing::debug!("Updated: {}", relative_path);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to save song metadata for {}: {}",
+                                relative_path,
+                                e
+                            );
+                            errors += 1;
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("Failed to extract metadata from {}: {}", path.display(), e);
+                    errors += 1;
+                }
+            }
+        } else {
+            // File was deleted - remove from database
+            let result =
+                sqlx::query("DELETE FROM songs WHERE file_path = ? AND music_folder_id = ?")
+                    .bind(&relative_path)
+                    .bind(folder_id)
+                    .execute(pool)
+                    .await?;
+
+            if result.rows_affected() > 0 {
+                removed += 1;
+                tracing::info!("Removed: {}", relative_path);
+            }
+        }
+    }
+
+    tracing::info!(
+        "Specific file scan complete: {} added, {} updated, {} removed, {} errors",
+        added,
+        updated,
+        removed,
+        errors
+    );
+
+    Ok(())
+}
+
 /// Scan the music library with optional progress tracking.
 ///
 /// This is the main entry point for async scanning with progress updates.

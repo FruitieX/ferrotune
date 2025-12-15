@@ -353,3 +353,13 @@ tasks:
     deps:
       - 'ci'
       - 'client:ci'
+
+  pre-ci:
+    deps:
+      - 'fmt'
+      - 'lint'
+      - 'test'
+      - 'test-integration'
+      - 'client:pre-ci'
+    options:
+      runInCI: false

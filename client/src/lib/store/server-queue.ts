@@ -25,6 +25,7 @@ export type QueueSourceType =
   | "album"
   | "artist"
   | "playlist"
+  | "smartPlaylist"
   | "genre"
   | "search"
   | "favorites"
@@ -425,6 +426,7 @@ export const setRepeatModeAtom = atom(
 );
 
 // Add songs to queue - returns { success, addedCount } for better messaging
+// If no queue exists, starts a new queue with the songs
 export const addToQueueAtom = atom(
   null,
   async (
@@ -440,9 +442,36 @@ export const addToQueueAtom = atom(
     const client = getClient();
     if (!client) return { success: false, addedCount: 0 };
 
+    const state = get(serverQueueStateAtom);
+    const hasQueue = state !== null && state.totalCount > 0;
+
     set(isQueueOperationPendingAtom, true);
 
     try {
+      // If no queue exists, start a new queue instead of adding
+      if (!hasQueue && params.songIds && params.songIds.length > 0) {
+        const response = await client.startQueue({
+          sourceType: "songs",
+          songIds: params.songIds,
+          startIndex: 0,
+          shuffle: false,
+          inlineImages: "small",
+        });
+
+        set(serverQueueStateAtom, {
+          totalCount: response.totalCount,
+          currentIndex: response.currentIndex,
+          positionMs: 0,
+          isShuffled: response.isShuffled,
+          repeatMode: response.repeatMode as RepeatMode,
+          source: { type: "songs", id: null, name: null },
+        });
+        set(queueWindowAtom, response.window);
+        set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
+        return { success: true, addedCount: params.songIds.length };
+      }
+
+      // Queue exists, add to it
       const response = await client.addToServerQueue({
         songIds: params.songIds ?? [],
         position: params.position,
@@ -451,7 +480,6 @@ export const addToQueueAtom = atom(
       });
 
       // Update total count
-      const state = get(serverQueueStateAtom);
       if (
         state &&
         response.total_count !== undefined &&

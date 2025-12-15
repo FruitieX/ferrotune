@@ -10,6 +10,7 @@ import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
 import { useDocumentTitle } from "@/lib/hooks/use-document-title";
 import { usePreferencesSync } from "@/lib/hooks/use-preferences-sync";
 import { useClearSelectionOnNavigate } from "@/lib/hooks/use-clear-selection-on-navigate";
+import { useBackButtonClose } from "@/lib/hooks/use-back-button-close";
 import { useScanProgressStream } from "@/lib/hooks/use-scan-progress-stream";
 import { DynamicFavicon } from "@/components/dynamic-favicon";
 import {
@@ -36,6 +37,7 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   useDocumentTitle();
   usePreferencesSync(); // Load and sync user preferences from server
   useScanProgressStream(); // Monitor scan progress in background
+  useBackButtonClose(); // Handle Android back button to close menus
   return <>{children}</>;
 }
 

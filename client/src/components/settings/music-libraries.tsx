@@ -18,6 +18,7 @@ import {
   Users,
   HardDrive,
   RefreshCw,
+  FolderSync,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
@@ -92,6 +93,7 @@ interface MusicFolderCardProps {
   folder: MusicFolderInfo;
   onScan: (id: number) => void;
   onToggleEnabled: (id: number, enabled: boolean) => void;
+  onToggleWatchEnabled: (id: number, watchEnabled: boolean) => void;
   onDelete: (id: number) => void;
   isScanning: boolean;
 }
@@ -100,6 +102,7 @@ function MusicFolderCard({
   folder,
   onScan,
   onToggleEnabled,
+  onToggleWatchEnabled,
   onDelete,
   isScanning,
 }: MusicFolderCardProps) {
@@ -132,6 +135,12 @@ function MusicFolderCard({
               {!folder.enabled && (
                 <Badge variant="secondary" className="shrink-0">
                   Disabled
+                </Badge>
+              )}
+              {folder.watchEnabled && folder.enabled && (
+                <Badge variant="outline" className="shrink-0 gap-1">
+                  <FolderSync className="w-3 h-3" />
+                  Auto-scan
                 </Badge>
               )}
             </div>
@@ -200,6 +209,15 @@ function MusicFolderCard({
                   Enable
                 </>
               )}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() =>
+                onToggleWatchEnabled(folder.id, !folder.watchEnabled)
+              }
+              disabled={!folder.enabled}
+            >
+              <FolderSync className="w-4 h-4 mr-2" />
+              {folder.watchEnabled ? "Disable Auto-scan" : "Enable Auto-scan"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -284,7 +302,7 @@ function MusicFolderCard({
 interface AddFolderDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (name: string, path: string) => void;
+  onSubmit: (name: string, path: string, watchEnabled: boolean) => void;
   isLoading: boolean;
 }
 
@@ -296,11 +314,12 @@ function AddFolderDialog({
 }: AddFolderDialogProps) {
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
+  const [watchEnabled, setWatchEnabled] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim() && path.trim()) {
-      onSubmit(name.trim(), path.trim());
+      onSubmit(name.trim(), path.trim(), watchEnabled);
     }
   };
 
@@ -309,6 +328,7 @@ function AddFolderDialog({
     if (!newOpen) {
       setName("");
       setPath("");
+      setWatchEnabled(false);
     }
     onOpenChange(newOpen);
   };
@@ -346,6 +366,19 @@ function AddFolderDialog({
               <p className="text-xs text-muted-foreground">
                 The absolute path to the music directory on the server
               </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="watchEnabled"
+                checked={watchEnabled}
+                onChange={(e) => setWatchEnabled(e.target.checked)}
+                disabled={isLoading}
+                className="h-4 w-4 rounded border-border"
+              />
+              <Label htmlFor="watchEnabled" className="font-normal">
+                Enable auto-scan (watch for file changes)
+              </Label>
             </div>
           </div>
           <DialogFooter>
@@ -404,10 +437,18 @@ export function MusicLibraries() {
 
   // Create mutation
   const createMutation = useMutation({
-    mutationFn: async ({ name, path }: { name: string; path: string }) => {
+    mutationFn: async ({
+      name,
+      path,
+      watchEnabled,
+    }: {
+      name: string;
+      path: string;
+      watchEnabled: boolean;
+    }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      return client.createMusicFolder(name, path);
+      return client.createMusicFolder(name, path, watchEnabled);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["adminMusicFolders"] });
@@ -426,7 +467,7 @@ export function MusicLibraries() {
       updates,
     }: {
       id: number;
-      updates: { name?: string; enabled?: boolean };
+      updates: { name?: string; enabled?: boolean; watchEnabled?: boolean };
     }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
@@ -485,12 +526,21 @@ export function MusicLibraries() {
     toast.success(enabled ? "Folder enabled" : "Folder disabled");
   };
 
+  const handleToggleWatchEnabled = (id: number, watchEnabled: boolean) => {
+    updateMutation.mutate({ id, updates: { watchEnabled } });
+    toast.success(watchEnabled ? "Auto-scan enabled" : "Auto-scan disabled");
+  };
+
   const handleDelete = (id: number) => {
     deleteMutation.mutate(id);
   };
 
-  const handleAddFolder = (name: string, path: string) => {
-    createMutation.mutate({ name, path });
+  const handleAddFolder = (
+    name: string,
+    path: string,
+    watchEnabled: boolean,
+  ) => {
+    createMutation.mutate({ name, path, watchEnabled });
   };
 
   const folders = data?.musicFolders ?? [];
@@ -541,6 +591,7 @@ export function MusicLibraries() {
                 folder={folder}
                 onScan={handleScan}
                 onToggleEnabled={handleToggleEnabled}
+                onToggleWatchEnabled={handleToggleWatchEnabled}
                 onDelete={handleDelete}
                 isScanning={isScanning}
               />

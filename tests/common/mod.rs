@@ -348,6 +348,7 @@ pub fn fixtures_dir() -> PathBuf {
 }
 
 /// Generate a test configuration file.
+#[allow(clippy::too_many_arguments)]
 fn generate_config(
     port: u16,
     admin_port: u16,

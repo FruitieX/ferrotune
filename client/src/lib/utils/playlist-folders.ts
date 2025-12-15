@@ -1,9 +1,10 @@
-import type { Playlist } from "@/lib/api/types";
+import type { Playlist, SmartPlaylist } from "@/lib/api/types";
 
 export interface PlaylistFolder {
   name: string;
   path: string;
   playlists: Playlist[];
+  smartPlaylists: SmartPlaylist[];
   subfolders: PlaylistFolder[];
 }
 
@@ -83,20 +84,30 @@ export function buildPlaylistPath(
  */
 export function organizePlaylistsIntoFolders(
   playlists: Playlist[],
+  smartPlaylists: SmartPlaylist[] = [],
 ): PlaylistFolder {
   const root: PlaylistFolder = {
     name: "root",
     path: "",
     playlists: [],
+    smartPlaylists: [],
     subfolders: [],
   };
 
   // Guard against undefined/null input
   if (!playlists || !Array.isArray(playlists)) {
-    return root;
+    // Even if playlists is missing, we might have smart playlists
+    if (!smartPlaylists || !Array.isArray(smartPlaylists)) {
+      return root;
+    }
   }
 
-  for (const playlist of playlists) {
+  const safePlaylists = Array.isArray(playlists) ? playlists : [];
+  const safeSmartPlaylists = Array.isArray(smartPlaylists)
+    ? smartPlaylists
+    : [];
+
+  for (const playlist of safePlaylists) {
     const {
       displayName: _displayName,
       folderPath,
@@ -121,6 +132,7 @@ export function organizePlaylistsIntoFolders(
           name: folderName,
           path: currentPath,
           playlists: [],
+          smartPlaylists: [],
           subfolders: [],
         };
         currentFolder.subfolders.push(subfolder);
@@ -142,6 +154,43 @@ export function organizePlaylistsIntoFolders(
     } as Playlist & { _displayName?: string });
   }
 
+  // Process smart playlists
+  for (const playlist of safeSmartPlaylists) {
+    const { displayName: _displayName, folderPath } = parsePlaylistPath(
+      playlist.name,
+    );
+
+    let currentFolder = root;
+    let currentPath = "";
+
+    // Navigate/create folder path
+    for (const folderName of folderPath) {
+      currentPath = currentPath
+        ? `${currentPath}${FOLDER_SEPARATOR}${folderName}`
+        : folderName;
+
+      let subfolder = currentFolder.subfolders.find(
+        (f) => f.name === folderName,
+      );
+
+      if (!subfolder) {
+        subfolder = {
+          name: folderName,
+          path: currentPath,
+          playlists: [],
+          smartPlaylists: [],
+          subfolders: [],
+        };
+        currentFolder.subfolders.push(subfolder);
+      }
+
+      currentFolder = subfolder;
+    }
+
+    // Add smart playlist to the final folder
+    currentFolder.smartPlaylists.push(playlist);
+  }
+
   // Sort folders and playlists alphabetically
   sortFolderContents(root);
 
@@ -150,7 +199,14 @@ export function organizePlaylistsIntoFolders(
 
 function sortFolderContents(folder: PlaylistFolder): void {
   folder.subfolders.sort((a, b) => a.name.localeCompare(b.name));
+
   folder.playlists.sort((a, b) => {
+    const aName = parsePlaylistPath(a.name).displayName;
+    const bName = parsePlaylistPath(b.name).displayName;
+    return aName.localeCompare(bName);
+  });
+
+  folder.smartPlaylists.sort((a, b) => {
     const aName = parsePlaylistPath(a.name).displayName;
     const bName = parsePlaylistPath(b.name).displayName;
     return aName.localeCompare(bName);

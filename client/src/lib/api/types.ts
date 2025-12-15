@@ -37,6 +37,10 @@ export type { GenreResponse as Genre } from "./generated";
 export type { PlaylistResponse } from "./generated";
 export type { PlaylistResponse as Playlist } from "./generated";
 
+// Smart playlist entity
+export type { SmartPlaylistsResponse } from "./generated";
+export type { SmartPlaylistInfo as SmartPlaylist } from "./generated";
+
 // Music folder entity
 export type { MusicFolderResponse } from "./generated";
 export type { MusicFolderResponse as MusicFolder } from "./generated";

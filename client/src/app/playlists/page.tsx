@@ -25,6 +25,8 @@ import {
   FolderPlus,
   ChevronRight,
   Home,
+  Sparkles,
+  Check,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -40,6 +42,12 @@ import {
 } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
@@ -53,11 +61,16 @@ import { MediaCard, MediaCardSkeleton } from "@/components/shared/media-card";
 import { MediaRow, MediaRowSkeleton } from "@/components/shared/media-row";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { CreatePlaylistDialog } from "@/components/playlists/create-playlist-dialog";
+import { SmartPlaylistDialog } from "@/components/playlists/smart-playlist-dialog";
 import { ImportPlaylistDialog } from "@/components/playlists/import-playlist-dialog";
 import {
   PlaylistContextMenu,
   PlaylistDropdownMenu,
 } from "@/components/playlists/playlist-context-menu";
+import {
+  SmartPlaylistContextMenu,
+  SmartPlaylistDropdownMenu,
+} from "@/components/playlists/smart-playlist-context-menu";
 import {
   FolderContextMenu,
   FolderDropdownMenu,
@@ -72,10 +85,12 @@ import { filterPlaylists, sortPlaylists } from "@/lib/utils/sort-playlists";
 import {
   organizePlaylistsIntoFolders,
   getPlaylistDisplayName,
+  parsePlaylistPath,
   type PlaylistFolder,
 } from "@/lib/utils/playlist-folders";
 import { cn } from "@/lib/utils";
 import type { Playlist } from "@/lib/api/types";
+import type { SmartPlaylistInfo } from "@/lib/api/generated/SmartPlaylistInfo";
 
 function PlaylistsPageContent() {
   const { isReady, isLoading: authLoading } = useAuth({
@@ -87,6 +102,7 @@ function PlaylistsPageContent() {
   const queryClient = useQueryClient();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
+  const [smartPlaylistDialogOpen, setSmartPlaylistDialogOpen] = useState(false);
   const [createInFolderPath, setCreateInFolderPath] = useState<string>("");
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [activeDragPlaylist, setActiveDragPlaylist] = useState<Playlist | null>(
@@ -129,6 +145,18 @@ function PlaylistsPageContent() {
       if (!client) throw new Error("Not connected");
       const response = await client.getPlaylists();
       return response.playlists.playlist ?? [];
+    },
+    enabled: isReady,
+  });
+
+  // Fetch smart playlists
+  const { data: smartPlaylists } = useQuery({
+    queryKey: ["smartPlaylists"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getSmartPlaylists();
+      return response.smartPlaylists ?? [];
     },
     enabled: isReady,
   });
@@ -223,7 +251,7 @@ function PlaylistsPageContent() {
 
   // Organize playlists into folder tree
   const playlistTree = playlists
-    ? organizePlaylistsIntoFolders(playlists)
+    ? organizePlaylistsIntoFolders(playlists, smartPlaylists)
     : null;
 
   // Get current folder from path
@@ -242,8 +270,12 @@ function PlaylistsPageContent() {
 
   // Get items in current folder (folders and playlists combined for display)
   const folderItems = currentFolder
-    ? { folders: currentFolder.subfolders, playlists: currentFolder.playlists }
-    : { folders: [], playlists: [] };
+    ? {
+        folders: currentFolder.subfolders,
+        playlists: currentFolder.playlists,
+        smartPlaylists: currentFolder.smartPlaylists,
+      }
+    : { folders: [], playlists: [], smartPlaylists: [] };
 
   // Filter and sort playlists in current folder
   const displayPlaylists = (() => {
@@ -273,6 +305,39 @@ function PlaylistsPageContent() {
     );
   })();
 
+  // Filter smart playlists
+  const displaySmartPlaylists: SmartPlaylistInfo[] = (() => {
+    if (!folderItems.smartPlaylists) return [];
+    if (!debouncedFilter.trim()) return folderItems.smartPlaylists;
+    const query = debouncedFilter.toLowerCase();
+    return folderItems.smartPlaylists.filter((sp) =>
+      sp.name.toLowerCase().includes(query),
+    );
+  })();
+
+  // Play smart playlist handler
+  const handlePlaySmartPlaylist = async (id: string) => {
+    const sp = displaySmartPlaylists.find((s) => s.id === id);
+    if (!sp) return;
+    const client = getClient();
+    if (!client) return;
+    try {
+      const response = await client.getSmartPlaylistSongs(id);
+      if (response.songs.length === 0) {
+        toast.info("Smart playlist has no matching songs");
+        return;
+      }
+      startQueue({
+        sourceType: "other",
+        sourceName: `Smart: ${sp.name}`,
+        songIds: response.songs.map((s) => s.id),
+      });
+    } catch (error) {
+      toast.error("Failed to play smart playlist");
+      console.error(error);
+    }
+  };
+
   // Calculate totals
   const totalDuration = displayPlaylists.reduce(
     (acc, p) => acc + (p.duration ?? 0),
@@ -281,12 +346,12 @@ function PlaylistsPageContent() {
 
   // Playlist selection
   const {
-    selectedCount,
-    hasSelection,
-    isSelected,
-    handleSelect,
-    clearSelection,
-    selectAll,
+    selectedCount: playlistSelectedCount,
+    hasSelection: hasPlaylistSelection,
+    isSelected: isPlaylistSelected,
+    handleSelect: handlePlaylistSelect,
+    clearSelection: clearPlaylistSelection,
+    selectAll: selectAllPlaylists,
     getSelectedPlaylists,
     playSelectedNow,
     shuffleSelected,
@@ -294,6 +359,64 @@ function PlaylistsPageContent() {
     deleteSelected,
     mergeSelected,
   } = usePlaylistSelection(displayPlaylists);
+
+  // Folder selection (using paths as IDs)
+  const [selectedFolderPaths, setSelectedFolderPaths] = useState<Set<string>>(
+    new Set(),
+  );
+
+  const isFolderSelected = (folderPath: string) =>
+    selectedFolderPaths.has(folderPath);
+
+  const handleFolderSelect = (folderPath: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedFolderPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderPath)) {
+        next.delete(folderPath);
+      } else {
+        next.add(folderPath);
+      }
+      return next;
+    });
+  };
+
+  // Smart playlist selection
+  const [selectedSmartPlaylistIds, setSelectedSmartPlaylistIds] = useState<
+    Set<string>
+  >(new Set());
+
+  const isSmartPlaylistSelected = (id: string) =>
+    selectedSmartPlaylistIds.has(id);
+
+  const handleSmartPlaylistSelect = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedSmartPlaylistIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  // Unified selection state
+  const hasSelection =
+    hasPlaylistSelection ||
+    selectedFolderPaths.size > 0 ||
+    selectedSmartPlaylistIds.size > 0;
+  const selectedCount =
+    playlistSelectedCount +
+    selectedFolderPaths.size +
+    selectedSmartPlaylistIds.size;
+
+  const clearSelection = () => {
+    clearPlaylistSelection();
+    setSelectedFolderPaths(new Set());
+    setSelectedSmartPlaylistIds(new Set());
+  };
 
   // Navigation helpers
   const navigateToFolder = (folderPath: string) => {
@@ -423,35 +546,40 @@ function PlaylistsPageContent() {
           onShuffle={shuffleSelected}
           disablePlay={displayPlaylists.length === 0}
           actions={
-            <>
-              <Button
-                variant="ghost"
-                size="lg"
-                className="rounded-full gap-2"
-                onClick={() => setImportDialogOpen(true)}
-              >
-                <Upload className="w-5 h-5" />
-                Import
-              </Button>
-              <Button
-                variant="ghost"
-                size="lg"
-                className="rounded-full gap-2"
-                onClick={() => setCreateFolderDialogOpen(true)}
-              >
-                <FolderPlus className="w-5 h-5" />
-                Folder
-              </Button>
-              <Button
-                variant="ghost"
-                size="lg"
-                className="rounded-full gap-2"
-                onClick={() => setCreateDialogOpen(true)}
-              >
-                <Plus className="w-5 h-5" />
-                Playlist
-              </Button>
-            </>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="lg"
+                  className="rounded-full gap-2"
+                >
+                  <Plus className="w-5 h-5" />
+                  New
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setCreateDialogOpen(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Playlist
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setSmartPlaylistDialogOpen(true)}
+                >
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Smart Playlist
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setCreateFolderDialogOpen(true)}
+                >
+                  <FolderPlus className="w-4 h-4 mr-2" />
+                  Folder
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setImportDialogOpen(true)}>
+                  <Upload className="w-4 h-4 mr-2" />
+                  Import Playlist
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           }
           toolbar={
             <PlaylistsListToolbar
@@ -484,18 +612,30 @@ function PlaylistsPageContent() {
                 ))}
               </div>
             )
-          ) : displayFolders.length > 0 || displayPlaylists.length > 0 ? (
+          ) : displayFolders.length > 0 ||
+            displayPlaylists.length > 0 ||
+            displaySmartPlaylists.length > 0 ? (
             viewMode === "grid" ? (
               <VirtualizedGrid
                 items={[
+                  // Folders first
                   ...displayFolders.map((f) => ({
                     type: "folder" as const,
                     data: f,
                   })),
-                  ...displayPlaylists.map((p) => ({
-                    type: "playlist" as const,
-                    data: p,
-                  })),
+                  // Then playlists and smart playlists sorted alphabetically together
+                  ...[
+                    ...displayPlaylists.map((p) => ({
+                      type: "playlist" as const,
+                      data: p,
+                      sortName: p.name.toLowerCase(),
+                    })),
+                    ...displaySmartPlaylists.map((sp) => ({
+                      type: "smartPlaylist" as const,
+                      data: sp,
+                      sortName: sp.name.toLowerCase(),
+                    })),
+                  ].sort((a, b) => a.sortName.localeCompare(b.sortName)),
                 ]}
                 renderItem={(item) =>
                   item.type === "folder" ? (
@@ -506,12 +646,17 @@ function PlaylistsPageContent() {
                       onCreateSubfolder={handleCreateSubfolder}
                       onCreatePlaylist={handleCreatePlaylistInFolder}
                     />
+                  ) : item.type === "smartPlaylist" ? (
+                    <SmartPlaylistGridCard
+                      smartPlaylist={item.data}
+                      onPlay={() => handlePlaySmartPlaylist(item.data.id)}
+                    />
                   ) : (
                     <DraggablePlaylistGridCard
                       playlist={item.data}
-                      isSelected={isSelected(item.data.id)}
+                      isSelected={isPlaylistSelected(item.data.id)}
                       isSelectionMode={hasSelection}
-                      onSelect={(e) => handleSelect(item.data.id, e)}
+                      onSelect={(e) => handlePlaylistSelect(item.data.id, e)}
                       onPlay={() => handlePlayPlaylist(item.data.id)}
                     />
                   )
@@ -520,20 +665,32 @@ function PlaylistsPageContent() {
                 getItemKey={(item) =>
                   item.type === "folder"
                     ? `folder-${item.data.path}`
-                    : item.data.id
+                    : item.type === "smartPlaylist"
+                      ? `smart-${item.data.id}`
+                      : item.data.id
                 }
               />
             ) : (
               <VirtualizedList
                 items={[
+                  // Folders first
                   ...displayFolders.map((f) => ({
                     type: "folder" as const,
                     data: f,
                   })),
-                  ...displayPlaylists.map((p) => ({
-                    type: "playlist" as const,
-                    data: p,
-                  })),
+                  // Then playlists and smart playlists sorted alphabetically together
+                  ...[
+                    ...displayPlaylists.map((p) => ({
+                      type: "playlist" as const,
+                      data: p,
+                      sortName: p.name.toLowerCase(),
+                    })),
+                    ...displaySmartPlaylists.map((sp) => ({
+                      type: "smartPlaylist" as const,
+                      data: sp,
+                      sortName: sp.name.toLowerCase(),
+                    })),
+                  ].sort((a, b) => a.sortName.localeCompare(b.sortName)),
                 ]}
                 renderItem={(item, index) =>
                   item.type === "folder" ? (
@@ -544,14 +701,28 @@ function PlaylistsPageContent() {
                       onNavigate={navigateToFolder}
                       onCreateSubfolder={handleCreateSubfolder}
                       onCreatePlaylist={handleCreatePlaylistInFolder}
+                      isSelected={isFolderSelected(item.data.path)}
+                      isSelectionMode={hasSelection}
+                      onSelect={(e) => handleFolderSelect(item.data.path, e)}
+                    />
+                  ) : item.type === "smartPlaylist" ? (
+                    <SmartPlaylistListRow
+                      smartPlaylist={item.data}
+                      index={index}
+                      onPlay={() => handlePlaySmartPlaylist(item.data.id)}
+                      isSelected={isSmartPlaylistSelected(item.data.id)}
+                      isSelectionMode={hasSelection}
+                      onSelect={(e) =>
+                        handleSmartPlaylistSelect(item.data.id, e)
+                      }
                     />
                   ) : (
                     <DraggablePlaylistListRow
                       playlist={item.data}
                       index={index}
-                      isSelected={isSelected(item.data.id)}
+                      isSelected={isPlaylistSelected(item.data.id)}
                       isSelectionMode={hasSelection}
-                      onSelect={(e) => handleSelect(item.data.id, e)}
+                      onSelect={(e) => handlePlaylistSelect(item.data.id, e)}
                       onPlay={() => handlePlayPlaylist(item.data.id)}
                       columnVisibility={columnVisibility}
                     />
@@ -561,7 +732,9 @@ function PlaylistsPageContent() {
                 getItemKey={(item) =>
                   item.type === "folder"
                     ? `folder-${item.data.path}`
-                    : item.data.id
+                    : item.type === "smartPlaylist"
+                      ? `smart-${item.data.id}`
+                      : item.data.id
                 }
                 estimateItemHeight={56}
               />
@@ -595,7 +768,7 @@ function PlaylistsPageContent() {
           onShuffle={shuffleSelected}
           onPlayNext={() => addSelectedToQueue("next")}
           onAddToQueue={() => addSelectedToQueue("last")}
-          onSelectAll={selectAll}
+          onSelectAll={selectAllPlaylists}
           getSelectedItems={getSelectedPlaylists}
           onDelete={deleteSelected}
           onMerge={mergeSelected}
@@ -626,6 +799,13 @@ function PlaylistsPageContent() {
         <ImportPlaylistDialog
           open={importDialogOpen}
           onOpenChange={setImportDialogOpen}
+          folderPath={currentPath}
+        />
+
+        {/* Smart Playlist Dialog */}
+        <SmartPlaylistDialog
+          open={smartPlaylistDialogOpen}
+          onOpenChange={setSmartPlaylistDialogOpen}
           folderPath={currentPath}
         />
 
@@ -758,6 +938,9 @@ interface DroppableFolderListRowProps {
   onNavigate: (path: string) => void;
   onCreateSubfolder: (parentPath: string) => void;
   onCreatePlaylist: (folderPath: string) => void;
+  isSelected?: boolean;
+  isSelectionMode?: boolean;
+  onSelect?: (e: React.MouseEvent) => void;
 }
 
 function DroppableFolderListRow({
@@ -766,11 +949,24 @@ function DroppableFolderListRow({
   onNavigate,
   onCreateSubfolder,
   onCreatePlaylist,
+  isSelected,
+  isSelectionMode,
+  onSelect,
 }: DroppableFolderListRowProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: `folder-${folder.path}`,
   });
   const playlistCount = countPlaylistsInFolder(folder);
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (isSelectionMode && onSelect) {
+      e.preventDefault();
+      e.stopPropagation();
+      onSelect(e);
+    } else {
+      onNavigate(folder.path);
+    }
+  };
 
   return (
     <FolderContextMenu
@@ -780,15 +976,36 @@ function DroppableFolderListRow({
     >
       <div
         ref={setNodeRef}
-        onClick={() => onNavigate(folder.path)}
+        onClick={handleClick}
         className={cn(
-          "w-full flex items-center gap-4 py-2 px-2 rounded-md hover:bg-accent/50 transition-colors group cursor-pointer",
+          "w-full flex items-center gap-4 py-2 px-4 pr-6 rounded-md hover:bg-accent/50 transition-colors group cursor-pointer",
           isOver && "bg-emerald-500/20 ring-2 ring-emerald-500",
+          isSelected && "bg-primary/10",
         )}
       >
-        <span className="w-8 text-center text-sm text-muted-foreground tabular-nums">
-          {index + 1}
-        </span>
+        {/* Index or selection checkbox */}
+        <div className="w-8 flex items-center justify-center">
+          {isSelectionMode ? (
+            <div
+              className={cn(
+                "w-4 h-4 rounded border-2 flex items-center justify-center transition-colors",
+                isSelected
+                  ? "bg-primary border-primary text-primary-foreground"
+                  : "border-muted-foreground/50 hover:border-primary",
+              )}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect?.(e);
+              }}
+            >
+              {isSelected && <Check className="w-3 h-3" />}
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground tabular-nums">
+              {index + 1}
+            </span>
+          )}
+        </div>
         <div
           className={cn(
             "w-10 h-10 rounded bg-linear-to-br from-amber-500/20 to-amber-700/20 flex items-center justify-center shrink-0",
@@ -803,9 +1020,10 @@ function DroppableFolderListRow({
           />
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="font-medium truncate">{folder.name}</h3>
-          <p className="text-sm text-muted-foreground truncate">
-            {formatCount(folder.subfolders.length, "folder")} •{" "}
+          <h3 className="text-sm font-medium truncate">{folder.name}</h3>
+          <p className="text-xs text-muted-foreground truncate">
+            {folder.subfolders.length > 0 &&
+              `${formatCount(folder.subfolders.length, "folder")} • `}
             {formatCount(playlistCount, "playlist")}
           </p>
         </div>
@@ -921,6 +1139,18 @@ function DraggablePlaylistListRow({
     ? getClient()?.getCoverArtUrl(playlist.coverArt, 80)
     : undefined;
 
+  // Build subtitle with comment and stats
+  const stats = [
+    columnVisibility.songCount && `${playlist.songCount} songs`,
+    columnVisibility.duration && formatDuration(playlist.duration),
+    columnVisibility.owner && playlist.owner && `by ${playlist.owner}`,
+    columnVisibility.created && `Created ${formatDate(playlist.created)}`,
+  ].filter(Boolean);
+
+  const subtitle = [playlist.comment, stats.join(" • ")]
+    .filter(Boolean)
+    .join(" • ");
+
   return (
     <div
       ref={setNodeRef}
@@ -931,7 +1161,7 @@ function DraggablePlaylistListRow({
       <MediaRow
         coverArt={coverArtUrl}
         title={getPlaylistDisplayName(playlist)}
-        subtitle={playlist.comment ?? undefined}
+        subtitle={subtitle || undefined}
         href={`/playlists/details?id=${playlist.id}`}
         coverType="playlist"
         colorSeed={playlist.name}
@@ -941,28 +1171,6 @@ function DraggablePlaylistListRow({
         onSelect={onSelect}
         onPlay={onPlay}
         actions={<PlaylistDropdownMenu playlist={playlist} inline />}
-        rightContent={
-          <div className="flex items-center gap-6 text-sm text-muted-foreground">
-            {columnVisibility.songCount && (
-              <span className="w-16 text-right tabular-nums">
-                {playlist.songCount} songs
-              </span>
-            )}
-            {columnVisibility.duration && (
-              <span className="w-16 text-right tabular-nums">
-                {formatDuration(playlist.duration)}
-              </span>
-            )}
-            {columnVisibility.owner && playlist.owner && (
-              <span className="w-24 truncate">{playlist.owner}</span>
-            )}
-            {columnVisibility.created && (
-              <span className="w-24 text-right">
-                {formatDate(playlist.created)}
-              </span>
-            )}
-          </div>
-        }
         contextMenu={(children) => (
           <PlaylistContextMenu playlist={playlist}>
             {children}
@@ -970,6 +1178,80 @@ function DraggablePlaylistListRow({
         )}
       />
     </div>
+  );
+}
+
+// Smart playlist grid card
+interface SmartPlaylistGridCardProps {
+  smartPlaylist: SmartPlaylistInfo;
+  onPlay?: () => void;
+}
+
+function SmartPlaylistGridCard({
+  smartPlaylist,
+  onPlay,
+}: SmartPlaylistGridCardProps) {
+  return (
+    <SmartPlaylistContextMenu smartPlaylist={smartPlaylist}>
+      <div className="group relative">
+        <MediaCard
+          title={
+            parsePlaylistPath(smartPlaylist.name).displayName ||
+            smartPlaylist.name
+          }
+          subtitle={`${smartPlaylist.songCount} songs`}
+          href={`/playlists/smart?id=${encodeURIComponent(smartPlaylist.id)}`}
+          coverType="smartPlaylist"
+          colorSeed={`smart-${smartPlaylist.id}`}
+          onPlay={onPlay}
+        />
+        <SmartPlaylistDropdownMenu smartPlaylist={smartPlaylist} />
+      </div>
+    </SmartPlaylistContextMenu>
+  );
+}
+
+// Smart playlist list row
+interface SmartPlaylistListRowProps {
+  smartPlaylist: SmartPlaylistInfo;
+  index: number;
+  onPlay?: () => void;
+  isSelected?: boolean;
+  isSelectionMode?: boolean;
+  onSelect?: (e: React.MouseEvent) => void;
+}
+
+function SmartPlaylistListRow({
+  smartPlaylist,
+  index,
+  onPlay,
+  isSelected,
+  isSelectionMode,
+  onSelect,
+}: SmartPlaylistListRowProps) {
+  return (
+    <SmartPlaylistContextMenu smartPlaylist={smartPlaylist}>
+      <div className="group relative">
+        <MediaRow
+          index={index}
+          title={
+            parsePlaylistPath(smartPlaylist.name).displayName ||
+            smartPlaylist.name
+          }
+          subtitle={`${smartPlaylist.songCount} songs`}
+          href={`/playlists/smart?id=${encodeURIComponent(smartPlaylist.id)}`}
+          coverType="smartPlaylist"
+          colorSeed={`smart-${smartPlaylist.id}`}
+          onPlay={onPlay}
+          isSelected={isSelected}
+          isSelectionMode={isSelectionMode}
+          onSelect={onSelect}
+        />
+        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+          <SmartPlaylistDropdownMenu smartPlaylist={smartPlaylist} inline />
+        </div>
+      </div>
+    </SmartPlaylistContextMenu>
   );
 }
 

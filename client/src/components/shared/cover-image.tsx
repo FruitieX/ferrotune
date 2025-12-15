@@ -3,7 +3,15 @@
 import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
-import { Music, User, Disc, ListMusic, Tag, Folder } from "lucide-react";
+import {
+  Music,
+  User,
+  Disc,
+  ListMusic,
+  Tag,
+  Folder,
+  Sparkles,
+} from "lucide-react";
 
 interface CoverImageProps {
   src?: string | null;
@@ -12,7 +20,14 @@ interface CoverImageProps {
   alt: string;
   /** String to use for generating placeholder color (e.g. album name for albums, artist name for artists) */
   colorSeed?: string;
-  type?: "album" | "artist" | "song" | "playlist" | "genre" | "folder";
+  type?:
+    | "album"
+    | "artist"
+    | "song"
+    | "playlist"
+    | "smartPlaylist"
+    | "genre"
+    | "folder";
   size?: "sm" | "md" | "lg" | "xl" | "full";
   className?: string;
   priority?: boolean;
@@ -77,13 +92,15 @@ export function CoverImage({
       ? User
       : type === "playlist"
         ? ListMusic
-        : type === "song"
-          ? Music
-          : type === "genre"
-            ? Tag
-            : type === "folder"
-              ? Folder
-              : Disc;
+        : type === "smartPlaylist"
+          ? Sparkles
+          : type === "song"
+            ? Music
+            : type === "genre"
+              ? Tag
+              : type === "folder"
+                ? Folder
+                : Disc;
   const isRound = type === "artist";
 
   // Reset state when src or inlineData changes (React-recommended pattern for adjusting state when props change)
