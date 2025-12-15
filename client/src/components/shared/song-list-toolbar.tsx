@@ -9,6 +9,7 @@ import {
   Columns,
   Grid,
   List,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -115,6 +116,13 @@ export function SongListToolbar({
   advancedFilterOptions,
 }: SongListToolbarProps) {
   const handleSort = (field: SortField) => {
+    // For "custom" sort (playlist order), don't toggle direction - always use ascending
+    // as it represents the natural playlist order
+    if (field === "custom") {
+      onSortChange({ field, direction: "asc" });
+      return;
+    }
+
     if (sortConfig.field === field) {
       onSortChange({
         field,
@@ -188,9 +196,12 @@ export function SongListToolbar({
                     className="flex items-center justify-between"
                   >
                     <span>{option.label}</span>
-                    {sortConfig.field === option.value && (
-                      <SortIcon className="w-4 h-4 text-primary" />
-                    )}
+                    {sortConfig.field === option.value &&
+                      (option.value === "custom" ? (
+                        <Check className="w-4 h-4 text-primary" />
+                      ) : (
+                        <SortIcon className="w-4 h-4 text-primary" />
+                      ))}
                   </DropdownMenuItem>
                 ))}
             </DropdownMenuContent>

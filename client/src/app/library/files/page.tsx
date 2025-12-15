@@ -51,6 +51,7 @@ import {
 import { CoverImage } from "@/components/shared/cover-image";
 import { VirtualizedList } from "@/components/shared/virtualized-grid";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
+import { FilesListHeader } from "@/components/shared/song-list-header";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { formatDuration, formatBytes } from "@/lib/utils/format";
 import type { DirectoryChildPaged } from "@/lib/api/generated/DirectoryChildPaged";
@@ -746,48 +747,53 @@ function DirectoryContents({
   };
 
   return (
-    <VirtualizedList
-      items={items}
-      totalCount={totalCount}
-      getItemKey={(item) => item.id}
-      estimateItemHeight={56}
-      hasNextPage={hasNextPage}
-      isFetchingNextPage={isFetchingNextPage}
-      fetchNextPage={fetchNextPage}
-      renderItem={(item) => {
-        const isSelected = selectedIds.has(item.id);
-        const song = item.isDir ? null : directoryChildToSong(item);
-        const songIndex = song ? songs.findIndex((s) => s.id === song.id) : -1;
+    <>
+      <FilesListHeader columnVisibility={visibleColumns} />
+      <VirtualizedList
+        items={items}
+        totalCount={totalCount}
+        getItemKey={(item) => item.id}
+        estimateItemHeight={56}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        fetchNextPage={fetchNextPage}
+        renderItem={(item) => {
+          const isSelected = selectedIds.has(item.id);
+          const song = item.isDir ? null : directoryChildToSong(item);
+          const songIndex = song
+            ? songs.findIndex((s) => s.id === song.id)
+            : -1;
 
-        return item.isDir ? (
-          <DirectoryRow
-            item={item}
-            coverUrl={getCoverUrl(item.coverArt, item.coverArtData)}
-            coverArtData={item.coverArtData}
-            isSelected={isSelected}
-            onSelect={onSelect}
-            onPlay={() => onPlayDirectory(item.path ?? "")}
-            onAddToQueue={(position) =>
-              onAddDirectoryToQueue(item.path ?? "", position)
-            }
-            visibleColumns={visibleColumns}
-            libraryId={libraryId}
-          />
-        ) : (
-          <FileRow
-            item={item}
-            coverUrl={getCoverUrl(item.coverArt, item.coverArtData)}
-            coverArtData={item.coverArtData}
-            isSelected={isSelected}
-            onSelect={onSelect}
-            onPlay={() => onPlaySong(song!, songIndex)}
-            onAddToQueue={onAddToQueue}
-            visibleColumns={visibleColumns}
-          />
-        );
-      }}
-      renderSkeleton={() => <FileRowSkeleton />}
-    />
+          return item.isDir ? (
+            <DirectoryRow
+              item={item}
+              coverUrl={getCoverUrl(item.coverArt, item.coverArtData)}
+              coverArtData={item.coverArtData}
+              isSelected={isSelected}
+              onSelect={onSelect}
+              onPlay={() => onPlayDirectory(item.path ?? "")}
+              onAddToQueue={(position) =>
+                onAddDirectoryToQueue(item.path ?? "", position)
+              }
+              visibleColumns={visibleColumns}
+              libraryId={libraryId}
+            />
+          ) : (
+            <FileRow
+              item={item}
+              coverUrl={getCoverUrl(item.coverArt, item.coverArtData)}
+              coverArtData={item.coverArtData}
+              isSelected={isSelected}
+              onSelect={onSelect}
+              onPlay={() => onPlaySong(song!, songIndex)}
+              onAddToQueue={onAddToQueue}
+              visibleColumns={visibleColumns}
+            />
+          );
+        }}
+        renderSkeleton={() => <FileRowSkeleton />}
+      />
+    </>
   );
 }
 

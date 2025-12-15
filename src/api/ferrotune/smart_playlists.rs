@@ -428,15 +428,18 @@ pub async fn get_smart_playlist_songs(
 
     // Determine sort field and direction
     // Use params if provided, else use playlist's defined sort (for "custom" sort option)
+    let is_custom_sort = params.sort_field.as_deref().is_none_or(|s| s == "custom");
     let sort_field = params
         .sort_field
         .as_deref()
         .filter(|s| *s != "custom") // "custom" means use playlist's sort
         .or(playlist.sort_field.as_deref());
-    let sort_direction = params
-        .sort_direction
-        .as_deref()
-        .or(playlist.sort_direction.as_deref());
+    // When using custom sort, also use the playlist's sort direction
+    let sort_direction = if is_custom_sort {
+        playlist.sort_direction.as_deref()
+    } else {
+        params.sort_direction.as_deref()
+    };
 
     // Get total count (with filter applied)
     let total_count =

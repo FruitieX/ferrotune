@@ -8,7 +8,14 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Sparkles, Pencil, Trash2, MoreHorizontal } from "lucide-react";
+import {
+  Sparkles,
+  Pencil,
+  Trash2,
+  MoreHorizontal,
+  ChevronRight,
+  Home,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
@@ -41,6 +48,7 @@ import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import { EmptyState } from "@/components/shared/empty-state";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import { SongListHeader } from "@/components/shared/song-list-header";
 import {
   VirtualizedGrid,
   VirtualizedList,
@@ -140,6 +148,41 @@ function SmartPlaylistPageContent() {
 
   // Get metadata from first page
   const firstPage = playlistData?.pages[0];
+
+  // Build breadcrumb items from playlist name (which includes folder path)
+  const playlistName = firstPage?.name ?? smartPlaylist?.name;
+  const breadcrumbItems = (() => {
+    const items: { label: string; path: string }[] = [
+      { label: "Playlists", path: "" },
+    ];
+    if (!playlistName) return items;
+
+    const parts = playlistName.split("/");
+    if (parts.length <= 1) return items;
+
+    let currentPath = "";
+    for (let i = 0; i < parts.length - 1; i++) {
+      currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+      items.push({ label: parts[i], path: currentPath });
+    }
+
+    return items;
+  })();
+
+  // Get display name
+  const displayName =
+    parsePlaylistPath(playlistName ?? "").displayName ||
+    playlistName ||
+    "Loading...";
+
+  // Navigate to a folder
+  const navigateToFolder = (path: string) => {
+    if (path === "") {
+      router.push("/playlists");
+    } else {
+      router.push(`/playlists?folder=${encodeURIComponent(path)}`);
+    }
+  };
 
   // Track selection
   const {
@@ -266,11 +309,7 @@ function SmartPlaylistPageContent() {
         iconClassName="bg-linear-to-br from-purple-500 to-purple-800"
         gradientColor="rgba(168,85,247,0.2)"
         label="Smart Playlist"
-        title={
-          firstPage?.name
-            ? parsePlaylistPath(firstPage.name).displayName || firstPage.name
-            : "Loading..."
-        }
+        title={displayName}
         subtitle={
           !isLoading &&
           firstPage &&
@@ -278,6 +317,25 @@ function SmartPlaylistPageContent() {
         }
         isLoading={isLoading}
       />
+
+      {/* Breadcrumb navigation (only if playlist is in a folder) */}
+      {breadcrumbItems.length > 1 && (
+        <div className="relative z-20 px-4 lg:px-6 py-2 flex items-center gap-1 text-sm text-muted-foreground border-b border-border bg-background/80 backdrop-blur-sm">
+          {breadcrumbItems.map((item, index) => (
+            <div key={item.path} className="flex items-center">
+              {index > 0 && <ChevronRight className="w-4 h-4 mx-1" />}
+              <button
+                onClick={() => navigateToFolder(item.path)}
+                className="hover:text-foreground transition-colors px-1 py-0.5 rounded hover:bg-accent"
+              >
+                {index === 0 ? <Home className="w-4 h-4" /> : item.label}
+              </button>
+            </div>
+          ))}
+          <ChevronRight className="w-4 h-4 mx-1" />
+          <span className="font-medium text-foreground">{displayName}</span>
+        </div>
+      )}
 
       <ActionBar
         onPlayAll={handlePlay}
@@ -385,40 +443,49 @@ function SmartPlaylistPageContent() {
               fetchNextPage={fetchNextPage}
             />
           ) : (
-            <VirtualizedList
-              items={songs}
-              totalCount={
-                firstPage?.totalCount ? Number(firstPage.totalCount) : undefined
-              }
-              renderItem={(song: Song, index: number) => (
-                <SongRow
-                  song={song}
-                  index={index}
-                  showCover
-                  queueSource={{
-                    type: "smartPlaylist",
-                    id: id!,
-                    name: firstPage?.name ?? "Smart Playlist",
-                  }}
-                  isSelected={isSelected(song.id)}
-                  isSelectionMode={hasSelection}
-                  onSelect={handleSelect}
-                  showAlbum={columnVisibility.album}
-                  showArtist={columnVisibility.artist}
-                  showDuration={columnVisibility.duration}
-                  showPlayCount={columnVisibility.playCount}
-                  showYear={columnVisibility.year}
-                  showDateAdded={columnVisibility.dateAdded}
-                  showLastPlayed={columnVisibility.lastPlayed}
-                />
-              )}
-              renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
-              getItemKey={(song: Song) => song.id}
-              estimateItemHeight={56}
-              hasNextPage={hasNextPage ?? false}
-              isFetchingNextPage={isFetchingNextPage}
-              fetchNextPage={fetchNextPage}
-            />
+            <>
+              <SongListHeader
+                columnVisibility={columnVisibility}
+                showIndex
+                showCover
+              />
+              <VirtualizedList
+                items={songs}
+                totalCount={
+                  firstPage?.totalCount
+                    ? Number(firstPage.totalCount)
+                    : undefined
+                }
+                renderItem={(song: Song, index: number) => (
+                  <SongRow
+                    song={song}
+                    index={index}
+                    showCover
+                    queueSource={{
+                      type: "smartPlaylist",
+                      id: id!,
+                      name: firstPage?.name ?? "Smart Playlist",
+                    }}
+                    isSelected={isSelected(song.id)}
+                    isSelectionMode={hasSelection}
+                    onSelect={handleSelect}
+                    showAlbum={columnVisibility.album}
+                    showArtist={columnVisibility.artist}
+                    showDuration={columnVisibility.duration}
+                    showPlayCount={columnVisibility.playCount}
+                    showYear={columnVisibility.year}
+                    showDateAdded={columnVisibility.dateAdded}
+                    showLastPlayed={columnVisibility.lastPlayed}
+                  />
+                )}
+                renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+                getItemKey={(song: Song) => song.id}
+                estimateItemHeight={56}
+                hasNextPage={hasNextPage ?? false}
+                isFetchingNextPage={isFetchingNextPage}
+                fetchNextPage={fetchNextPage}
+              />
+            </>
           )
         ) : debouncedFilter ? (
           <EmptyState

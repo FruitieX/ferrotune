@@ -28,6 +28,7 @@ import {
   VirtualizedList,
 } from "@/components/shared/virtualized-grid";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
+import { SongListHeader } from "@/components/shared/song-list-header";
 import { EmptyState } from "@/components/shared/empty-state";
 
 const PAGE_SIZE = 50;
@@ -226,36 +227,44 @@ export default function SongsPage() {
             onScrollChange={saveOffset}
           />
         ) : (
-          <VirtualizedList
-            items={displaySongs}
-            totalCount={totalSongs}
-            renderItem={(song, index) => (
-              <SongRow
-                song={song}
-                index={index}
-                showCover
-                showArtist={columnVisibility.artist}
-                showAlbum={columnVisibility.album}
-                showDuration={columnVisibility.duration}
-                showPlayCount={columnVisibility.playCount}
-                showYear={columnVisibility.year}
-                showDateAdded={columnVisibility.dateAdded}
-                showLastPlayed={columnVisibility.lastPlayed}
-                queueSource={queueSource}
-                isSelected={isSelected(song.id)}
-                isSelectionMode={hasSelection}
-                onSelect={handleSelect}
-              />
-            )}
-            renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
-            getItemKey={(song) => song.id}
-            estimateItemHeight={56}
-            hasNextPage={hasNextPage ?? false}
-            isFetchingNextPage={isFetchingNextPage}
-            fetchNextPage={fetchNextPage}
-            initialOffset={getInitialOffset()}
-            onScrollChange={saveOffset}
-          />
+          <>
+            <SongListHeader
+              columnVisibility={columnVisibility}
+              showIndex
+              showCover
+              stickyTop="120px"
+            />
+            <VirtualizedList
+              items={displaySongs}
+              totalCount={totalSongs}
+              renderItem={(song, index) => (
+                <SongRow
+                  song={song}
+                  index={index}
+                  showCover
+                  showArtist={columnVisibility.artist}
+                  showAlbum={columnVisibility.album}
+                  showDuration={columnVisibility.duration}
+                  showPlayCount={columnVisibility.playCount}
+                  showYear={columnVisibility.year}
+                  showDateAdded={columnVisibility.dateAdded}
+                  showLastPlayed={columnVisibility.lastPlayed}
+                  queueSource={queueSource}
+                  isSelected={isSelected(song.id)}
+                  isSelectionMode={hasSelection}
+                  onSelect={handleSelect}
+                />
+              )}
+              renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+              getItemKey={(song) => song.id}
+              estimateItemHeight={56}
+              hasNextPage={hasNextPage ?? false}
+              isFetchingNextPage={isFetchingNextPage}
+              fetchNextPage={fetchNextPage}
+              initialOffset={getInitialOffset()}
+              onScrollChange={saveOffset}
+            />
+          </>
         )
       ) : (
         <EmptyState

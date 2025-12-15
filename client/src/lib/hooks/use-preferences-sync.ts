@@ -4,7 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getClient } from "@/lib/api/client";
-import { serverConnectionAtom } from "@/lib/store/auth";
+import {
+  serverConnectionAtom,
+  isClientInitializedAtom,
+} from "@/lib/store/auth";
 import {
   accentColorAtom,
   customAccentHueAtom,
@@ -37,6 +40,7 @@ const CUSTOM_COLOR_DEBOUNCE_MS = 500;
 export function usePreferencesSync() {
   const queryClient = useQueryClient();
   const connection = useAtomValue(serverConnectionAtom);
+  const isClientInitialized = useAtomValue(isClientInitializedAtom);
   const [accentColor, setAccentColor] = useAtom(accentColorAtom);
   const [customHue, setCustomHue] = useAtom(customAccentHueAtom);
   const [customLightness, setCustomLightness] = useAtom(
@@ -51,14 +55,16 @@ export function usePreferencesSync() {
   // Track if we've already loaded preferences for this session - use state so it can be read during render
   const [hasLoadedFromServer, setHasLoadedFromServer] = useState(false);
 
-  // Load server preferences (including generic preferences) when connected
+  // Load server preferences (including generic preferences) when client is initialized
+  // We check isClientInitialized (not just connection) because the client singleton
+  // is only set after useAuth calls initializeClient()
   useEffect(() => {
-    if (connection && !hasLoadedFromServer) {
+    if (isClientInitialized && !hasLoadedFromServer) {
       loadServerPreferences(() => {
         setServerPreferencesLoaded(true);
       });
     }
-  }, [connection, hasLoadedFromServer, setServerPreferencesLoaded]);
+  }, [isClientInitialized, hasLoadedFromServer, setServerPreferencesLoaded]);
 
   // Query to fetch preferences from server
   const { data: serverPreferences, isSuccess } = useQuery<PreferencesResponse>({
@@ -68,7 +74,7 @@ export function usePreferencesSync() {
       if (!client) throw new Error("Not connected");
       return client.getPreferences();
     },
-    enabled: !!connection && !hasLoadedFromServer,
+    enabled: isClientInitialized && !hasLoadedFromServer,
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 30 * 60 * 1000, // 30 minutes
     retry: 1,

@@ -62,6 +62,7 @@ import {
 } from "@/components/shared/virtualized-grid";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import { SongListHeader } from "@/components/shared/song-list-header";
 import { MediaListToolbar } from "@/components/shared/media-list-toolbar";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -665,30 +666,39 @@ export default function FavoritesPage() {
                   getItemKey={(song) => song.id}
                 />
               ) : (
-                <VirtualizedList
-                  items={displaySongs}
-                  renderItem={(song, index) => (
-                    <SongRow
-                      song={song}
-                      index={index}
-                      showCover
-                      showAlbum={columnVisibility.album}
-                      showArtist={columnVisibility.artist}
-                      showDuration={columnVisibility.duration}
-                      showPlayCount={columnVisibility.playCount}
-                      showYear={columnVisibility.year}
-                      showDateAdded={columnVisibility.dateAdded}
-                      showLastPlayed={columnVisibility.lastPlayed}
-                      queueSource={favoritesQueueSource}
-                      isSelected={songSelection.isSelected(song.id)}
-                      isSelectionMode={songSelection.hasSelection}
-                      onSelect={songSelection.handleSelect}
-                    />
-                  )}
-                  renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
-                  getItemKey={(song) => song.id}
-                  estimateItemHeight={56}
-                />
+                <>
+                  <SongListHeader
+                    columnVisibility={columnVisibility}
+                    showIndex
+                    showCover
+                  />
+                  <VirtualizedList
+                    items={displaySongs}
+                    renderItem={(song, index) => (
+                      <SongRow
+                        song={song}
+                        index={index}
+                        showCover
+                        showAlbum={columnVisibility.album}
+                        showArtist={columnVisibility.artist}
+                        showDuration={columnVisibility.duration}
+                        showPlayCount={columnVisibility.playCount}
+                        showYear={columnVisibility.year}
+                        showDateAdded={columnVisibility.dateAdded}
+                        showLastPlayed={columnVisibility.lastPlayed}
+                        queueSource={favoritesQueueSource}
+                        isSelected={songSelection.isSelected(song.id)}
+                        isSelectionMode={songSelection.hasSelection}
+                        onSelect={songSelection.handleSelect}
+                      />
+                    )}
+                    renderSkeleton={() => (
+                      <SongRowSkeleton showCover showIndex />
+                    )}
+                    getItemKey={(song) => song.id}
+                    estimateItemHeight={56}
+                  />
+                </>
               )
             ) : (
               <EmptyState

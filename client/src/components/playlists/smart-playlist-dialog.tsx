@@ -228,6 +228,10 @@ export function SmartPlaylistDialog({
       queryClient.invalidateQueries({
         queryKey: ["smartPlaylist", editPlaylist?.id],
       });
+      // Also invalidate the songs query so the list refreshes
+      queryClient.invalidateQueries({
+        queryKey: ["smartPlaylistSongs", editPlaylist?.id],
+      });
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       onOpenChange(false);
     },

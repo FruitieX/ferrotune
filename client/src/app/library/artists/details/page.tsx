@@ -36,6 +36,7 @@ import { DetailHeader } from "@/components/shared/detail-header";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { ActionBar } from "@/components/shared/action-bar";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import { SongListHeader } from "@/components/shared/song-list-header";
 import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
 import { formatCount } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
@@ -355,31 +356,38 @@ function ArtistDetailContent() {
                 autoScrollMargin
               />
             ) : (
-              <VirtualizedList
-                items={displaySongs}
-                renderItem={(song, index) => (
-                  <SongRow
-                    song={song}
-                    index={index}
-                    showCover
-                    showArtist={columnVisibility.artist}
-                    showAlbum={columnVisibility.album}
-                    showDuration={columnVisibility.duration}
-                    showPlayCount={columnVisibility.playCount}
-                    showYear={columnVisibility.year}
-                    showDateAdded={columnVisibility.dateAdded}
-                    showLastPlayed={columnVisibility.lastPlayed}
-                    queueSource={artistQueueSource}
-                    isSelected={selection.isSelected(song.id)}
-                    isSelectionMode={selection.hasSelection}
-                    onSelect={selection.handleSelect}
-                  />
-                )}
-                renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
-                getItemKey={(song) => song.id}
-                estimateItemHeight={56}
-                autoScrollMargin
-              />
+              <>
+                <SongListHeader
+                  columnVisibility={columnVisibility}
+                  showIndex
+                  showCover
+                />
+                <VirtualizedList
+                  items={displaySongs}
+                  renderItem={(song, index) => (
+                    <SongRow
+                      song={song}
+                      index={index}
+                      showCover
+                      showArtist={columnVisibility.artist}
+                      showAlbum={columnVisibility.album}
+                      showDuration={columnVisibility.duration}
+                      showPlayCount={columnVisibility.playCount}
+                      showYear={columnVisibility.year}
+                      showDateAdded={columnVisibility.dateAdded}
+                      showLastPlayed={columnVisibility.lastPlayed}
+                      queueSource={artistQueueSource}
+                      isSelected={selection.isSelected(song.id)}
+                      isSelectionMode={selection.hasSelection}
+                      onSelect={selection.handleSelect}
+                    />
+                  )}
+                  renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+                  getItemKey={(song) => song.id}
+                  estimateItemHeight={56}
+                  autoScrollMargin
+                />
+              </>
             )}
           </div>
         ) : debouncedFilter.trim() ? (

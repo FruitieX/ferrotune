@@ -42,6 +42,7 @@ import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import { SongListHeader } from "@/components/shared/song-list-header";
 import {
   VirtualizedGrid,
   VirtualizedList,
@@ -381,30 +382,37 @@ function AlbumDetailContent() {
               getItemKey={(song) => song.id}
             />
           ) : (
-            <VirtualizedList
-              items={displaySongs}
-              renderItem={(song, index) => (
-                <SongRow
-                  song={song}
-                  index={index}
-                  showCover
-                  showArtist={columnVisibility.artist}
-                  showAlbum={columnVisibility.album}
-                  showDuration={columnVisibility.duration}
-                  showPlayCount={columnVisibility.playCount}
-                  showYear={columnVisibility.year}
-                  showDateAdded={columnVisibility.dateAdded}
-                  showLastPlayed={columnVisibility.lastPlayed}
-                  queueSource={albumQueueSource}
-                  isSelected={selection.isSelected(song.id)}
-                  isSelectionMode={selection.hasSelection}
-                  onSelect={selection.handleSelect}
-                />
-              )}
-              renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
-              getItemKey={(song) => song.id}
-              estimateItemHeight={56}
-            />
+            <>
+              <SongListHeader
+                columnVisibility={columnVisibility}
+                showIndex
+                showCover
+              />
+              <VirtualizedList
+                items={displaySongs}
+                renderItem={(song, index) => (
+                  <SongRow
+                    song={song}
+                    index={index}
+                    showCover
+                    showArtist={columnVisibility.artist}
+                    showAlbum={columnVisibility.album}
+                    showDuration={columnVisibility.duration}
+                    showPlayCount={columnVisibility.playCount}
+                    showYear={columnVisibility.year}
+                    showDateAdded={columnVisibility.dateAdded}
+                    showLastPlayed={columnVisibility.lastPlayed}
+                    queueSource={albumQueueSource}
+                    isSelected={selection.isSelected(song.id)}
+                    isSelectionMode={selection.hasSelection}
+                    onSelect={selection.handleSelect}
+                  />
+                )}
+                renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+                getItemKey={(song) => song.id}
+                estimateItemHeight={56}
+              />
+            </>
           )
         ) : debouncedFilter.trim() ? (
           <EmptyFilterState message="No songs match your filter" />

@@ -204,6 +204,21 @@ export const favoritesArtistColumnVisibilityAtom =
     albumCount: true,
   });
 
+// Library album column visibility (for albums list view)
+export const libraryAlbumColumnVisibilityAtom =
+  atomWithServerStorage<AlbumColumnVisibility>("library-album-columns", {
+    artist: true,
+    year: true,
+    songCount: true,
+    duration: false,
+  });
+
+// Library artist column visibility (for artists list view)
+export const libraryArtistColumnVisibilityAtom =
+  atomWithServerStorage<ArtistColumnVisibility>("library-artist-columns", {
+    albumCount: true,
+  });
+
 // Album details view settings (for album songs list)
 export const albumDetailViewModeAtom = atomWithServerStorage<ViewMode>(
   "album-detail-view",

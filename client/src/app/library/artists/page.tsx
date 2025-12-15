@@ -14,6 +14,7 @@ import {
   libraryFilterAtom,
   advancedFiltersAtom,
   hasActiveFiltersAtom,
+  libraryArtistColumnVisibilityAtom,
 } from "@/lib/store/ui";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { useInvalidateFavorites } from "@/lib/store/starred";
@@ -29,6 +30,7 @@ import {
   VirtualizedList,
 } from "@/components/shared/virtualized-grid";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
+import { ArtistListHeader } from "@/components/shared/song-list-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import type { Song } from "@/lib/api/types";
 
@@ -45,6 +47,7 @@ export default function ArtistsPage() {
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
+  const columnVisibility = useAtomValue(libraryArtistColumnVisibilityAtom);
   const invalidateFavorites = useInvalidateFavorites();
 
   // Virtualized scroll restoration
@@ -272,30 +275,34 @@ export default function ArtistsPage() {
             onScrollChange={saveOffset}
           />
         ) : (
-          <VirtualizedList
-            items={displayArtists}
-            totalCount={totalArtists}
-            renderItem={(artist, index) => (
-              <ArtistCardCompact
-                artist={artist}
-                index={index}
-                onPlay={handlePlayArtist}
-                isSelected={isSelected(artist.id)}
-                isSelectionMode={hasSelection}
-                onSelect={handleSelect}
-              />
-            )}
-            renderSkeleton={() => (
-              <MediaRowSkeleton coverShape="circle" showIndex />
-            )}
-            getItemKey={(artist) => artist.id}
-            estimateItemHeight={56}
-            hasNextPage={hasNextPage ?? false}
-            isFetchingNextPage={isFetchingNextPage}
-            fetchNextPage={fetchNextPage}
-            initialOffset={getInitialOffset()}
-            onScrollChange={saveOffset}
-          />
+          <>
+            <ArtistListHeader columnVisibility={columnVisibility} showIndex />
+            <VirtualizedList
+              items={displayArtists}
+              totalCount={totalArtists}
+              renderItem={(artist, index) => (
+                <ArtistCardCompact
+                  artist={artist}
+                  index={index}
+                  onPlay={handlePlayArtist}
+                  isSelected={isSelected(artist.id)}
+                  isSelectionMode={hasSelection}
+                  onSelect={handleSelect}
+                  showAlbumCount={columnVisibility.albumCount}
+                />
+              )}
+              renderSkeleton={() => (
+                <MediaRowSkeleton coverShape="circle" showIndex />
+              )}
+              getItemKey={(artist) => artist.id}
+              estimateItemHeight={56}
+              hasNextPage={hasNextPage ?? false}
+              isFetchingNextPage={isFetchingNextPage}
+              fetchNextPage={fetchNextPage}
+              initialOffset={getInitialOffset()}
+              onScrollChange={saveOffset}
+            />
+          </>
         )
       ) : (
         <EmptyState

@@ -59,6 +59,7 @@ import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
 import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import { SongListHeader } from "@/components/shared/song-list-header";
 import {
   VirtualizedGrid,
   VirtualizedList,
@@ -1044,74 +1045,84 @@ function PlaylistDetailContent() {
               fetchNextPage={fetchNextPage}
             />
           ) : (
-            <VirtualizedList
-              items={displayItems}
-              totalCount={filteredCount}
-              renderItem={(item, _index) => {
-                if (item.type === "missing" && item.entry.missing) {
-                  const missingId = `missing-${item.position}`;
+            <>
+              <SongListHeader
+                columnVisibility={columnVisibility}
+                showIndex
+                showCover
+              />
+              <VirtualizedList
+                items={displayItems}
+                totalCount={filteredCount}
+                renderItem={(item, _index) => {
+                  if (item.type === "missing" && item.entry.missing) {
+                    const missingId = `missing-${item.position}`;
+                    return (
+                      <MissingEntryRow
+                        playlistId={playlistId!}
+                        position={item.position}
+                        missing={item.entry.missing}
+                        isSelected={isMissingSelected(missingId)}
+                        isSelectionMode={totalSelectedCount > 0}
+                        onSelect={handleMissingSelect}
+                        onRemove={handleRemoveMissingEntry}
+                        showMoveToPosition={sortConfig.field === "custom"}
+                        onMoveToPosition={handleMissingMoveToPosition}
+                      />
+                    );
+                  }
+                  // Song item
+                  const songItem = item as Extract<
+                    typeof item,
+                    { type: "song" }
+                  >;
                   return (
-                    <MissingEntryRow
-                      playlistId={playlistId!}
-                      position={item.position}
-                      missing={item.entry.missing}
-                      isSelected={isMissingSelected(missingId)}
+                    <SongRow
+                      song={songItem.song}
+                      index={songItem.position}
+                      showCover
+                      showArtist={columnVisibility.artist}
+                      showAlbum={columnVisibility.album}
+                      showDuration={columnVisibility.duration}
+                      showPlayCount={columnVisibility.playCount}
+                      showYear={columnVisibility.year}
+                      showDateAdded={columnVisibility.dateAdded}
+                      showLastPlayed={columnVisibility.lastPlayed}
+                      queueSource={playlistQueueSource}
+                      isSelected={isSelected(songItem.song.id)}
                       isSelectionMode={totalSelectedCount > 0}
-                      onSelect={handleMissingSelect}
-                      onRemove={handleRemoveMissingEntry}
+                      onSelect={handleSongSelect}
+                      showRemoveFromPlaylist
+                      onRemoveFromPlaylist={handleRemoveSingleSong}
+                      isCurrentQueuePosition={
+                        isPlaylistInQueue
+                          ? isCurrentQueuePosition(
+                              songItem.songIndex,
+                              songItem.song.id,
+                            )
+                          : undefined
+                      }
                       showMoveToPosition={sortConfig.field === "custom"}
-                      onMoveToPosition={handleMissingMoveToPosition}
+                      onMoveToPosition={handleSongMoveToPosition}
+                      showRefineMatch={!!songItem.missing}
+                      onRefineMatch={handleRefineMatch}
+                      showUnmatch={!!songItem.missing}
+                      onUnmatch={handleUnmatch}
                     />
                   );
+                }}
+                renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+                getItemKey={(item, _index) =>
+                  item.type === "song"
+                    ? `${item.position}-${item.song.id}`
+                    : `missing-${item.position}`
                 }
-                // Song item
-                const songItem = item as Extract<typeof item, { type: "song" }>;
-                return (
-                  <SongRow
-                    song={songItem.song}
-                    index={songItem.position}
-                    showCover
-                    showArtist={columnVisibility.artist}
-                    showAlbum={columnVisibility.album}
-                    showDuration={columnVisibility.duration}
-                    showPlayCount={columnVisibility.playCount}
-                    showYear={columnVisibility.year}
-                    showDateAdded={columnVisibility.dateAdded}
-                    showLastPlayed={columnVisibility.lastPlayed}
-                    queueSource={playlistQueueSource}
-                    isSelected={isSelected(songItem.song.id)}
-                    isSelectionMode={totalSelectedCount > 0}
-                    onSelect={handleSongSelect}
-                    showRemoveFromPlaylist
-                    onRemoveFromPlaylist={handleRemoveSingleSong}
-                    isCurrentQueuePosition={
-                      isPlaylistInQueue
-                        ? isCurrentQueuePosition(
-                            songItem.songIndex,
-                            songItem.song.id,
-                          )
-                        : undefined
-                    }
-                    showMoveToPosition={sortConfig.field === "custom"}
-                    onMoveToPosition={handleSongMoveToPosition}
-                    showRefineMatch={!!songItem.missing}
-                    onRefineMatch={handleRefineMatch}
-                    showUnmatch={!!songItem.missing}
-                    onUnmatch={handleUnmatch}
-                  />
-                );
-              }}
-              renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
-              getItemKey={(item, _index) =>
-                item.type === "song"
-                  ? `${item.position}-${item.song.id}`
-                  : `missing-${item.position}`
-              }
-              estimateItemHeight={56}
-              hasNextPage={hasNextPage ?? false}
-              isFetchingNextPage={isFetchingNextPage}
-              fetchNextPage={fetchNextPage}
-            />
+                estimateItemHeight={56}
+                hasNextPage={hasNextPage ?? false}
+                isFetchingNextPage={isFetchingNextPage}
+                fetchNextPage={fetchNextPage}
+              />
+            </>
           )
         ) : totalEntries > 0 ? (
           <EmptyFilterState message="No songs match your filter" />

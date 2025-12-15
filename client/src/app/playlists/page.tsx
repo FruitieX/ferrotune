@@ -1020,7 +1020,9 @@ function DroppableFolderListRow({
           />
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-medium truncate">{folder.name}</h3>
+          <h3 className="text-sm font-medium truncate hover:underline">
+            {folder.name}
+          </h3>
           <p className="text-xs text-muted-foreground truncate">
             {folder.subfolders.length > 0 &&
               `${formatCount(folder.subfolders.length, "folder")} • `}
@@ -1033,7 +1035,6 @@ function DroppableFolderListRow({
           onCreateSubfolder={onCreateSubfolder}
           onCreatePlaylist={onCreatePlaylist}
         />
-        <ChevronRight className="w-5 h-5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
     </FolderContextMenu>
   );

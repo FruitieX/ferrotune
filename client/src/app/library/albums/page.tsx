@@ -14,6 +14,7 @@ import {
   libraryFilterAtom,
   librarySortAtom,
   advancedFiltersAtom,
+  libraryAlbumColumnVisibilityAtom,
 } from "@/lib/store/ui";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { useInvalidateFavorites } from "@/lib/store/starred";
@@ -29,6 +30,7 @@ import {
   VirtualizedList,
 } from "@/components/shared/virtualized-grid";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
+import { AlbumListHeader } from "@/components/shared/song-list-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import type { Song } from "@/lib/api/types";
 
@@ -42,6 +44,7 @@ export default function AlbumsPage() {
   const filter = useAtomValue(libraryFilterAtom);
   const sortConfig = useAtomValue(librarySortAtom);
   const advancedFilters = useAtomValue(advancedFiltersAtom);
+  const columnVisibility = useAtomValue(libraryAlbumColumnVisibilityAtom);
   const debouncedFilter = useDebounce(filter, 300);
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -280,28 +283,35 @@ export default function AlbumsPage() {
             onScrollChange={saveOffset}
           />
         ) : (
-          <VirtualizedList
-            items={displayAlbums}
-            totalCount={totalAlbums}
-            renderItem={(album, index) => (
-              <AlbumCardCompact
-                album={album}
-                index={index}
-                onPlay={handlePlayAlbum}
-                isSelected={isSelected(album.id)}
-                isSelectionMode={hasSelection}
-                onSelect={handleSelect}
-              />
-            )}
-            renderSkeleton={() => <MediaRowSkeleton showIndex />}
-            getItemKey={(album) => album.id}
-            estimateItemHeight={56}
-            hasNextPage={hasNextPage ?? false}
-            isFetchingNextPage={isFetchingNextPage}
-            fetchNextPage={fetchNextPage}
-            initialOffset={getInitialOffset()}
-            onScrollChange={saveOffset}
-          />
+          <>
+            <AlbumListHeader columnVisibility={columnVisibility} showIndex />
+            <VirtualizedList
+              items={displayAlbums}
+              totalCount={totalAlbums}
+              renderItem={(album, index) => (
+                <AlbumCardCompact
+                  album={album}
+                  index={index}
+                  onPlay={handlePlayAlbum}
+                  isSelected={isSelected(album.id)}
+                  isSelectionMode={hasSelection}
+                  onSelect={handleSelect}
+                  showArtist={columnVisibility.artist}
+                  showYear={columnVisibility.year}
+                  showSongCount={columnVisibility.songCount}
+                  showDuration={columnVisibility.duration}
+                />
+              )}
+              renderSkeleton={() => <MediaRowSkeleton showIndex />}
+              getItemKey={(album) => album.id}
+              estimateItemHeight={56}
+              hasNextPage={hasNextPage ?? false}
+              isFetchingNextPage={isFetchingNextPage}
+              fetchNextPage={fetchNextPage}
+              initialOffset={getInitialOffset()}
+              onScrollChange={saveOffset}
+            />
+          </>
         )
       ) : (
         <EmptyState
