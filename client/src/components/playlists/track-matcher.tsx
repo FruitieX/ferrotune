@@ -375,7 +375,9 @@ export function TrackRow({
   const isSelected = track.selected !== false;
 
   const handleConfirm = (song: Song) => {
-    onUpdateMatch(index, song, 1); // Manual selection = 100% match
+    // Preserve the original match score when manually re-matching
+    // This prevents the track from disappearing when confidence filters are enabled
+    onUpdateMatch(index, song, track.matchScore || 1);
     setSearchOpen(false);
   };
 
