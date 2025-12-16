@@ -58,27 +58,30 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Compute backend URL for setup check
-  const backendUrl =
-    serverUrl.trim() ||
-    (process.env.NODE_ENV === "development"
+  // Compute stable backend URL for setup check - doesn't depend on user input
+  // to avoid re-fetching on every keystroke in the server URL field
+  const setupCheckUrl =
+    process.env.NODE_ENV === "development"
       ? "http://localhost:4040"
       : typeof window !== "undefined"
         ? window.location.origin
-        : "");
+        : "";
 
   // Check setup status - redirect to setup if not complete
   const { data: setupStatus, isLoading: setupLoading } = useQuery({
-    queryKey: ["setupStatus", backendUrl],
+    queryKey: ["setupStatus", setupCheckUrl],
     queryFn: async () => {
       try {
         // Add timeout to prevent hanging when server is unreachable
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-        const response = await fetch(`${backendUrl}/ferrotune/setup/status`, {
-          signal: controller.signal,
-        });
+        const response = await fetch(
+          `${setupCheckUrl}/ferrotune/setup/status`,
+          {
+            signal: controller.signal,
+          },
+        );
         clearTimeout(timeoutId);
 
         if (!response.ok) {

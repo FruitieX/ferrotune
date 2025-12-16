@@ -43,7 +43,7 @@ import type { ScanDetails } from "@/lib/api/generated/ScanDetails";
 import type { ScanDetailEntry } from "@/lib/api/generated/ScanDetailEntry";
 
 // Virtualization constants
-const ITEM_HEIGHT = 44; // Height of each file row in pixels (with error: 60)
+const ITEM_HEIGHT = 30; // Height of each file row in pixels (with error: 60)
 const ITEM_WITH_ERROR_HEIGHT = 60;
 const OVERSCAN = 10; // Extra items to render above/below viewport
 
@@ -68,7 +68,10 @@ function StatDetailDialog({
   category,
   details,
 }: StatDetailDialogProps) {
-  const parentRef = useRef<HTMLDivElement>(null);
+  // Use state instead of ref to trigger re-render when element mounts
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
+    null,
+  );
 
   const items =
     category && details ? getItemsForCategory(category, details) : [];
@@ -76,7 +79,7 @@ function StatDetailDialog({
 
   const virtualizer = useVirtualizer({
     count: items.length,
-    getScrollElement: () => parentRef.current,
+    getScrollElement: () => scrollElement,
     estimateSize: (index) => {
       // Use taller height for error items since they have error text
       if (hasErrors && items[index]?.error) {
@@ -85,6 +88,8 @@ function StatDetailDialog({
       return ITEM_HEIGHT;
     },
     overscan: OVERSCAN,
+    // Only enable when scroll element is ready
+    enabled: scrollElement !== null,
   });
 
   if (!category || !details) return null;
@@ -93,7 +98,7 @@ function StatDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[70vh] flex flex-col min-h-0 overflow-hidden">
+      <DialogContent className="max-w-6xl max-h-[70vh] flex flex-col min-h-0 overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {config.icon}
@@ -114,9 +119,9 @@ function StatDetailDialog({
         <div className="flex-1 min-h-0">
           {items.length > 0 ? (
             <div
-              ref={parentRef}
-              className="h-full overflow-auto rounded-md border"
-              style={{ maxHeight: "calc(70vh - 180px)" }}
+              ref={setScrollElement}
+              className="overflow-auto rounded-md border"
+              style={{ height: "calc(70vh - 180px)" }}
             >
               <div
                 className="relative w-full"
@@ -133,7 +138,7 @@ function StatDetailDialog({
                         transform: `translateY(${virtualItem.start}px)`,
                       }}
                     >
-                      <div className="p-2 rounded-md hover:bg-muted/50 font-mono text-xs h-full">
+                      <div className="p-2 rounded-md hover:bg-muted/50 font-mono text-xs h-full flex items-center">
                         <div className="truncate">{item.path}</div>
                         {item.error && (
                           <div className="text-red-500 mt-1 text-[10px] truncate">
