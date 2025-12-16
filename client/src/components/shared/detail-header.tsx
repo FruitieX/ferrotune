@@ -22,7 +22,13 @@ interface DetailHeaderProps {
   icon?: LucideIcon;
   iconClassName?: string;
   /** Cover type for placeholder - artist, album, playlist, smartPlaylist */
-  coverType?: "album" | "artist" | "song" | "playlist" | "smartPlaylist" | "genre";
+  coverType?:
+    | "album"
+    | "artist"
+    | "song"
+    | "playlist"
+    | "smartPlaylist"
+    | "genre";
   /** Whether to use circular shape (for artists) */
   circular?: boolean;
   /** Cover size - defaults to 48 (w-48 = 192px) */

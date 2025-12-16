@@ -383,6 +383,7 @@ function SmartPlaylistPageContent() {
             viewMode={viewMode}
             onViewModeChange={setViewMode}
             showCustomSort={true}
+            showAddedToPlaylist={true}
           />
         }
       >

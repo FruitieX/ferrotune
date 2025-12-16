@@ -127,6 +127,8 @@ interface SongRowProps {
   showPlayCount?: boolean;
   showYear?: boolean;
   showDateAdded?: boolean;
+  /** Override the date shown in "Date Added" column (e.g., for playlist entry dates) */
+  dateAddedOverride?: string | null;
   showLastPlayed?: boolean;
   queueSongs?: Song[]; // All songs in current context for queue (fallback for explicit song lists)
   queueSource?: QueueSource; // Source info for server-side queue materialization
@@ -166,6 +168,7 @@ export function SongRow({
   showPlayCount = false,
   showYear = false,
   showDateAdded = false,
+  dateAddedOverride,
   showLastPlayed = false,
   queueSongs,
   queueSource,
@@ -372,9 +375,9 @@ export function SongRow({
                 {song.lastPlayed ? formatDate(song.lastPlayed) : "Never"}
               </span>
             )}
-            {showDateAdded && song.created && (
+            {showDateAdded && (song.created || dateAddedOverride) && (
               <span className="hidden lg:inline w-24 text-right">
-                {formatDate(song.created)}
+                {formatDate(dateAddedOverride ?? song.created ?? "")}
               </span>
             )}
             {showDuration && (

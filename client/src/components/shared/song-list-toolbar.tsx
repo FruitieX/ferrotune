@@ -44,6 +44,7 @@ const sortOptions: { value: SortField; label: string }[] = [
   { value: "artist", label: "Artist" },
   { value: "year", label: "Year" },
   { value: "dateAdded", label: "Date Added" },
+  { value: "addedToPlaylist", label: "Added to Playlist" },
   { value: "playCount", label: "Play Count" },
   { value: "lastPlayed", label: "Last Played" },
   { value: "duration", label: "Duration" },
@@ -85,6 +86,8 @@ interface SongListToolbarProps {
   showAdvancedFilters?: boolean;
   /** Show the "Custom" sort option (for playlist reordering) */
   showCustomSort?: boolean;
+  /** Show the "Added to Playlist" sort option (for playlist views) */
+  showAddedToPlaylist?: boolean;
 
   // Advanced filter options
   advancedFilterOptions?: {
@@ -113,6 +116,7 @@ export function SongListToolbar({
   showViewMode = true,
   showAdvancedFilters = false,
   showCustomSort = false,
+  showAddedToPlaylist = false,
   advancedFilterOptions,
 }: SongListToolbarProps) {
   const handleSort = (field: SortField) => {
@@ -188,7 +192,11 @@ export function SongListToolbar({
               <DropdownMenuLabel>Sort by</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {sortOptions
-                .filter((option) => showCustomSort || option.value !== "custom")
+                .filter(
+                  (option) =>
+                    (showCustomSort || option.value !== "custom") &&
+                    (showAddedToPlaylist || option.value !== "addedToPlaylist"),
+                )
                 .map((option) => (
                   <DropdownMenuItem
                     key={option.value}

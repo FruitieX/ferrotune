@@ -46,6 +46,7 @@ export type SortField =
   | "artist"
   | "year"
   | "dateAdded"
+  | "addedToPlaylist"
   | "playCount"
   | "lastPlayed"
   | "duration"

@@ -101,6 +101,7 @@ type DisplayItem =
       position: number;
       songIndex?: number;
       missing?: MissingEntryDataResponse | null;
+      addedToPlaylist?: string | null;
     }
   | { type: "missing"; entry: PlaylistSongEntry; position: number };
 
@@ -223,6 +224,7 @@ function PlaylistDetailContent() {
         position: entry.position,
         songIndex: entry.songIndex ?? undefined,
         missing: entry.missing,
+        addedToPlaylist: entry.addedToPlaylist,
       };
     } else {
       return {
@@ -927,6 +929,7 @@ function PlaylistDetailContent() {
             viewMode={viewMode}
             onViewModeChange={setViewMode}
             showCustomSort
+            showAddedToPlaylist
           />
         }
       >
@@ -1077,6 +1080,7 @@ function PlaylistDetailContent() {
                       showPlayCount={columnVisibility.playCount}
                       showYear={columnVisibility.year}
                       showDateAdded={columnVisibility.dateAdded}
+                      dateAddedOverride={songItem.addedToPlaylist}
                       showLastPlayed={columnVisibility.lastPlayed}
                       queueSource={playlistQueueSource}
                       isSelected={isSelected(songItem.song.id)}

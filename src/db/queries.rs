@@ -505,7 +505,7 @@ pub async fn add_songs_to_playlist(
     let mut position = max_pos.0 + 1;
 
     for song_id in song_ids {
-        sqlx::query("INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES (?, ?, ?)")
+        sqlx::query("INSERT INTO playlist_songs (playlist_id, song_id, position, added_at) VALUES (?, ?, ?, datetime('now'))")
             .bind(playlist_id)
             .bind(song_id)
             .bind(position)
@@ -555,7 +555,7 @@ pub async fn add_entries_to_playlist(
             .map(|data| serde_json::to_string(data).unwrap_or_default());
 
         sqlx::query(
-            "INSERT INTO playlist_songs (playlist_id, song_id, position, missing_entry_data, missing_search_text) VALUES (?, ?, ?, ?, ?)"
+            "INSERT INTO playlist_songs (playlist_id, song_id, position, missing_entry_data, missing_search_text, added_at) VALUES (?, ?, ?, ?, ?, datetime('now'))"
         )
             .bind(playlist_id)
             .bind(&entry.song_id)

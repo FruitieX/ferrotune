@@ -47,25 +47,53 @@ export function formatTotalDuration(totalSeconds: number): string {
 }
 
 /**
- * Format a date string to relative time or formatted date
+ * Format a date string to relative time (e.g., "Just now", "5 minutes ago", "3 days ago")
+ *
+ * Handles clock drift by showing "Just now" for:
+ * - Times in the future (up to any amount)
+ * - Times within 1 minute of now
  */
-export function formatDate(dateString: string): string {
+export function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
+
+  // Handle future times or times within 1 minute (60 seconds tolerance for clock drift)
+  if (diffMs < 60 * 1000) {
+    return "Just now";
+  }
+
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const diffMonths = Math.floor(diffDays / 30);
+  const diffYears = Math.floor(diffDays / 365);
 
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays} days ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
+  if (diffMinutes < 60) {
+    return diffMinutes === 1 ? "1 minute ago" : `${diffMinutes} minutes ago`;
+  }
 
-  return date.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  if (diffHours < 24) {
+    return diffHours === 1 ? "1 hour ago" : `${diffHours} hours ago`;
+  }
+
+  if (diffDays < 30) {
+    return diffDays === 1 ? "1 day ago" : `${diffDays} days ago`;
+  }
+
+  if (diffMonths < 12) {
+    return diffMonths === 1 ? "1 month ago" : `${diffMonths} months ago`;
+  }
+
+  return diffYears === 1 ? "1 year ago" : `${diffYears} years ago`;
+}
+
+/**
+ * Format a date string to relative time or formatted date
+ * @deprecated Use formatRelativeTime instead for consistent relative time formatting
+ */
+export function formatDate(dateString: string): string {
+  return formatRelativeTime(dateString);
 }
 
 /**

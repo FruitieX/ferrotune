@@ -503,9 +503,9 @@ pub async fn reorder_playlist_songs(
         ));
     }
 
-    // Verify all provided song IDs are in the playlist
-    let existing_song_ids: Vec<String> = sqlx::query_scalar(
-        "SELECT song_id FROM playlist_songs WHERE playlist_id = ? ORDER BY position",
+    // Verify all provided song IDs are in the playlist and get their added_at timestamps
+    let existing_entries: Vec<(String, String)> = sqlx::query_as(
+        "SELECT song_id, strftime('%Y-%m-%dT%H:%M:%SZ', added_at) FROM playlist_songs WHERE playlist_id = ? ORDER BY position",
     )
     .bind(&playlist_id)
     .fetch_all(&state.pool)
@@ -520,8 +520,17 @@ pub async fn reorder_playlist_songs(
         )
     })?;
 
+    // Create a map from song_id to added_at for preserving timestamps
+    let added_at_map: std::collections::HashMap<String, String> = existing_entries
+        .iter()
+        .map(|(sid, added)| (sid.clone(), added.clone()))
+        .collect();
+
     // Check that the reorder request contains the same songs
-    let mut existing_sorted = existing_song_ids.clone();
+    let mut existing_sorted: Vec<String> = existing_entries
+        .iter()
+        .map(|(sid, _)| sid.clone())
+        .collect();
     let mut requested_sorted = request.song_ids.clone();
     existing_sorted.sort();
     requested_sorted.sort();
@@ -562,12 +571,14 @@ pub async fn reorder_playlist_songs(
             )
         })?;
 
-    // Re-insert songs in the new order
+    // Re-insert songs in the new order with preserved added_at timestamps
     for (position, song_id) in request.song_ids.iter().enumerate() {
-        sqlx::query("INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES (?, ?, ?)")
+        let added_at = added_at_map.get(song_id).cloned().unwrap_or_default();
+        sqlx::query("INSERT INTO playlist_songs (playlist_id, song_id, position, added_at) VALUES (?, ?, ?, ?)")
             .bind(&playlist_id)
             .bind(song_id)
             .bind(position as i64)
+            .bind(&added_at)
             .execute(&mut *tx)
             .await
             .map_err(|e| {
@@ -1255,6 +1266,9 @@ pub struct PlaylistSongEntry {
     pub position: i32,
     /// Type of entry: "song" or "missing"
     pub entry_type: String,
+    /// When the entry was added to the playlist (ISO 8601 format)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub added_to_playlist: Option<String>,
     /// Index among songs only (excluding missing entries) in the current filtered/sorted view.
     /// This maps directly to the queue index when playing from this playlist.
     /// Only present for song entries, not for missing entries.
@@ -1351,10 +1365,10 @@ pub async fn get_playlist_songs(
         ));
     }
 
-    // Get all playlist entries (positions, song_ids, missing data)
+    // Get all playlist entries (positions, song_ids, missing data, added_at)
     #[allow(clippy::type_complexity)]
-    let entries_raw: Vec<(i64, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT position, song_id, missing_entry_data, missing_search_text 
+    let entries_raw: Vec<(i64, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT position, song_id, missing_entry_data, missing_search_text, strftime('%Y-%m-%dT%H:%M:%SZ', added_at) as added_at
          FROM playlist_songs 
          WHERE playlist_id = ? 
          ORDER BY position",
@@ -1376,18 +1390,18 @@ pub async fn get_playlist_songs(
     let total_entries = entries_raw.len() as i64;
     let matched_count = entries_raw
         .iter()
-        .filter(|(_, sid, _, _)| sid.is_some())
+        .filter(|(_, sid, _, _, _)| sid.is_some())
         .count() as i64;
     // Only count as "missing" if there's no song_id (truly unmatched entries)
     let missing_count = entries_raw
         .iter()
-        .filter(|(_, sid, md, _)| sid.is_none() && md.is_some())
+        .filter(|(_, sid, md, _, _)| sid.is_none() && md.is_some())
         .count() as i64;
 
     // Get all song IDs that are not null
     let song_ids: Vec<String> = entries_raw
         .iter()
-        .filter_map(|(_, sid, _, _)| sid.clone())
+        .filter_map(|(_, sid, _, _, _)| sid.clone())
         .collect();
 
     // Fetch all songs at once
@@ -1426,32 +1440,41 @@ pub async fn get_playlist_songs(
             position: i64,
             song: crate::db::models::Song,
             missing_data: Option<MissingEntryData>,
+            added_at: Option<String>,
         },
         Missing {
             position: i64,
             data: MissingEntryData,
+            added_at: Option<String>,
         },
     }
 
     let mut unified_entries: Vec<EntryData> = entries_raw
         .into_iter()
-        .filter_map(|(position, song_id, missing_json, _missing_search_text)| {
-            // Parse missing data if present
-            let missing_data = missing_json
-                .as_ref()
-                .and_then(|json| serde_json::from_str::<MissingEntryData>(json).ok());
+        .filter_map(
+            |(position, song_id, missing_json, _missing_search_text, added_at)| {
+                // Parse missing data if present
+                let missing_data = missing_json
+                    .as_ref()
+                    .and_then(|json| serde_json::from_str::<MissingEntryData>(json).ok());
 
-            if let Some(sid) = song_id {
-                // Matched song - include the missing_data so UI can show "Refine Match" option
-                song_map.get(&sid).map(|song| EntryData::Song {
-                    position,
-                    song: song.clone(),
-                    missing_data,
-                })
-            } else {
-                missing_data.map(|data| EntryData::Missing { position, data })
-            }
-        })
+                if let Some(sid) = song_id {
+                    // Matched song - include the missing_data so UI can show "Refine Match" option
+                    song_map.get(&sid).map(|song| EntryData::Song {
+                        position,
+                        song: song.clone(),
+                        missing_data,
+                        added_at: added_at.clone(),
+                    })
+                } else {
+                    missing_data.map(|data| EntryData::Missing {
+                        position,
+                        data,
+                        added_at,
+                    })
+                }
+            },
+        )
         .collect();
 
     // Apply entry type filter first
@@ -1510,10 +1533,21 @@ pub async fn get_playlist_songs(
         // specific fields. They are only shown in "custom" (playlist order) mode.
         unified_entries.retain(|entry| matches!(entry, EntryData::Song { .. }));
 
-        // Sort songs
+        // Sort songs - need to capture added_at from the entry since it's not on the Song model
         unified_entries.sort_by(|a, b| {
-            let (song_a, song_b) = match (a, b) {
-                (EntryData::Song { song: sa, .. }, EntryData::Song { song: sb, .. }) => (sa, sb),
+            let (song_a, added_at_a, song_b, added_at_b) = match (a, b) {
+                (
+                    EntryData::Song {
+                        song: sa,
+                        added_at: aa,
+                        ..
+                    },
+                    EntryData::Song {
+                        song: sb,
+                        added_at: ab,
+                        ..
+                    },
+                ) => (sa, aa, sb, ab),
                 _ => unreachable!(), // We filtered out missing entries above
             };
 
@@ -1533,6 +1567,7 @@ pub async fn get_playlist_songs(
                 }
                 "year" => song_a.year.unwrap_or(0).cmp(&song_b.year.unwrap_or(0)),
                 "dateAdded" | "created" => song_a.created_at.cmp(&song_b.created_at),
+                "addedToPlaylist" => added_at_a.cmp(added_at_b),
                 "playCount" => song_a
                     .play_count
                     .unwrap_or(0)
@@ -1605,11 +1640,13 @@ pub async fn get_playlist_songs(
                 position,
                 song,
                 missing_data,
+                added_at,
             } => {
                 let cover_art_data = thumbnails.get(&song.id).cloned();
                 PlaylistSongEntry {
                     position: position as i32,
                     entry_type: "song".to_string(),
+                    added_to_playlist: added_at,
                     song_index,
                     song: Some(song_to_response_with_stats(
                         song,
@@ -1629,9 +1666,14 @@ pub async fn get_playlist_songs(
                     }),
                 }
             }
-            EntryData::Missing { position, data } => PlaylistSongEntry {
+            EntryData::Missing {
+                position,
+                data,
+                added_at,
+            } => PlaylistSongEntry {
                 position: position as i32,
                 entry_type: "missing".to_string(),
+                added_to_playlist: added_at,
                 song_index: None,
                 song: None,
                 missing: Some(MissingEntryDataResponse {
