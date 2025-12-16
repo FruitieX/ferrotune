@@ -505,10 +505,12 @@ pub async fn add_songs_to_playlist(
     let mut position = max_pos.0 + 1;
 
     for song_id in song_ids {
-        sqlx::query("INSERT INTO playlist_songs (playlist_id, song_id, position, added_at) VALUES (?, ?, ?, datetime('now'))")
+        let entry_id = Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO playlist_songs (playlist_id, song_id, position, added_at, entry_id) VALUES (?, ?, ?, datetime('now'), ?)")
             .bind(playlist_id)
             .bind(song_id)
             .bind(position)
+            .bind(&entry_id)
             .execute(pool)
             .await?;
         position += 1;
@@ -554,14 +556,16 @@ pub async fn add_entries_to_playlist(
             .as_ref()
             .map(|data| serde_json::to_string(data).unwrap_or_default());
 
+        let entry_id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO playlist_songs (playlist_id, song_id, position, missing_entry_data, missing_search_text, added_at) VALUES (?, ?, ?, ?, ?, datetime('now'))"
+            "INSERT INTO playlist_songs (playlist_id, song_id, position, missing_entry_data, missing_search_text, added_at, entry_id) VALUES (?, ?, ?, ?, ?, datetime('now'), ?)"
         )
             .bind(playlist_id)
             .bind(&entry.song_id)
             .bind(position)
             .bind(&missing_json)
             .bind(&entry.missing_search_text)
+            .bind(&entry_id)
             .execute(pool)
             .await?;
         position += 1;
@@ -579,7 +583,7 @@ pub async fn get_playlist_entries(
     playlist_id: &str,
 ) -> sqlx::Result<Vec<PlaylistSong>> {
     sqlx::query_as::<_, PlaylistSong>(
-        "SELECT playlist_id, song_id, position, missing_entry_data 
+        "SELECT playlist_id, song_id, position, missing_entry_data, entry_id 
          FROM playlist_songs 
          WHERE playlist_id = ? 
          ORDER BY position",
@@ -674,6 +678,135 @@ pub async fn unmatch_entry(
     update_playlist_totals(pool, playlist_id).await?;
 
     Ok(())
+}
+
+/// Update a missing entry to link it to a matched song, using entry_id for identification
+pub async fn match_missing_entry_by_id(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    entry_id: &str,
+    song_id: &str,
+) -> sqlx::Result<bool> {
+    // Set song_id but preserve missing_entry_data so we can re-match if needed
+    // Only clear missing_search_text since we no longer need to search for it
+    let result = sqlx::query(
+        "UPDATE playlist_songs SET song_id = ?, missing_search_text = NULL WHERE playlist_id = ? AND entry_id = ?"
+    )
+    .bind(song_id)
+    .bind(playlist_id)
+    .bind(entry_id)
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Ok(false);
+    }
+
+    // Update playlist totals (duration may change)
+    update_playlist_totals(pool, playlist_id).await?;
+
+    Ok(true)
+}
+
+/// Batch match multiple missing entries to songs
+/// Returns the number of successfully matched entries
+pub async fn batch_match_entries(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    matches: &[(String, String)], // Vec of (entry_id, song_id)
+) -> sqlx::Result<usize> {
+    if matches.is_empty() {
+        return Ok(0);
+    }
+
+    let mut success_count = 0;
+
+    for (entry_id, song_id) in matches {
+        let result = sqlx::query(
+            "UPDATE playlist_songs SET song_id = ?, missing_search_text = NULL WHERE playlist_id = ? AND entry_id = ?"
+        )
+        .bind(song_id)
+        .bind(playlist_id)
+        .bind(entry_id)
+        .execute(pool)
+        .await?;
+
+        if result.rows_affected() > 0 {
+            success_count += 1;
+        }
+    }
+
+    // Update playlist totals once at the end
+    update_playlist_totals(pool, playlist_id).await?;
+
+    Ok(success_count)
+}
+
+/// Unmatch a previously matched entry by entry_id - sets song_id back to NULL
+/// while preserving the missing_entry_data for re-matching later.
+/// Also restores missing_search_text for searching.
+pub async fn unmatch_entry_by_id(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    entry_id: &str,
+) -> sqlx::Result<bool> {
+    use crate::db::models::MissingEntryData;
+
+    // First get the missing_entry_data to rebuild search text
+    let result: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
+    )
+    .bind(playlist_id)
+    .bind(entry_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some((missing_json,)) = result else {
+        return Ok(false);
+    };
+
+    // Build search text from the missing entry data
+    let search_text = missing_json
+        .as_ref()
+        .and_then(|json| serde_json::from_str::<MissingEntryData>(json).ok())
+        .map(|data| {
+            let mut parts = Vec::new();
+            if let Some(a) = &data.artist {
+                if !a.is_empty() {
+                    parts.push(a.as_str());
+                }
+            }
+            if let Some(a) = &data.album {
+                if !a.is_empty() {
+                    parts.push(a.as_str());
+                }
+            }
+            if let Some(t) = &data.title {
+                if !t.is_empty() {
+                    parts.push(t.as_str());
+                }
+            }
+            if parts.is_empty() {
+                data.raw.clone()
+            } else {
+                parts.join(" - ")
+            }
+        });
+
+    // Set song_id to NULL and restore missing_search_text
+    sqlx::query(
+        "UPDATE playlist_songs SET song_id = NULL, missing_search_text = ? WHERE playlist_id = ? AND entry_id = ?",
+    )
+    .bind(search_text)
+    .bind(playlist_id)
+    .bind(entry_id)
+    .execute(pool)
+    .await?;
+
+    // Update playlist totals
+    update_playlist_totals(pool, playlist_id).await?;
+
+    Ok(true)
 }
 
 /// Remove songs from playlist by position indices

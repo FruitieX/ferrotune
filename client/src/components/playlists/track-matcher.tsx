@@ -51,8 +51,10 @@ export interface MatchableTrack {
   locked?: boolean;
   // Position in playlist (for display)
   position?: number;
-  // Original position in source data (for saving)
+  // Original position in source data (for saving) - deprecated, use entryId
   originalPosition?: number;
+  // Unique entry ID for the playlist entry (stable across reordering)
+  entryId?: string;
   // Whether this matched track should be saved with its match (defaults to true when matched)
   selected?: boolean;
 }

@@ -503,9 +503,9 @@ pub async fn reorder_playlist_songs(
         ));
     }
 
-    // Verify all provided song IDs are in the playlist and get their added_at timestamps
-    let existing_entries: Vec<(String, String)> = sqlx::query_as(
-        "SELECT song_id, strftime('%Y-%m-%dT%H:%M:%SZ', added_at) FROM playlist_songs WHERE playlist_id = ? ORDER BY position",
+    // Verify all provided song IDs are in the playlist and get their added_at timestamps and entry_ids
+    let existing_entries: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT song_id, strftime('%Y-%m-%dT%H:%M:%SZ', added_at), entry_id FROM playlist_songs WHERE playlist_id = ? ORDER BY position",
     )
     .bind(&playlist_id)
     .fetch_all(&state.pool)
@@ -520,16 +520,17 @@ pub async fn reorder_playlist_songs(
         )
     })?;
 
-    // Create a map from song_id to added_at for preserving timestamps
-    let added_at_map: std::collections::HashMap<String, String> = existing_entries
-        .iter()
-        .map(|(sid, added)| (sid.clone(), added.clone()))
-        .collect();
+    // Create a map from song_id to (added_at, entry_id) for preserving timestamps and entry_ids
+    let entry_data_map: std::collections::HashMap<String, (String, Option<String>)> =
+        existing_entries
+            .iter()
+            .map(|(sid, added, entry_id)| (sid.clone(), (added.clone(), entry_id.clone())))
+            .collect();
 
     // Check that the reorder request contains the same songs
     let mut existing_sorted: Vec<String> = existing_entries
         .iter()
-        .map(|(sid, _)| sid.clone())
+        .map(|(sid, _, _)| sid.clone())
         .collect();
     let mut requested_sorted = request.song_ids.clone();
     existing_sorted.sort();
@@ -571,14 +572,17 @@ pub async fn reorder_playlist_songs(
             )
         })?;
 
-    // Re-insert songs in the new order with preserved added_at timestamps
+    // Re-insert songs in the new order with preserved added_at timestamps and entry_ids
     for (position, song_id) in request.song_ids.iter().enumerate() {
-        let added_at = added_at_map.get(song_id).cloned().unwrap_or_default();
-        sqlx::query("INSERT INTO playlist_songs (playlist_id, song_id, position, added_at) VALUES (?, ?, ?, ?)")
+        let (added_at, entry_id) = entry_data_map.get(song_id).cloned().unwrap_or_default();
+        // Generate new entry_id if missing (legacy entries)
+        let entry_id = entry_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        sqlx::query("INSERT INTO playlist_songs (playlist_id, song_id, position, added_at, entry_id) VALUES (?, ?, ?, ?, ?)")
             .bind(&playlist_id)
             .bind(song_id)
             .bind(position as i64)
             .bind(&added_at)
+            .bind(&entry_id)
             .execute(&mut *tx)
             .await
             .map_err(|e| {
@@ -610,8 +614,8 @@ pub async fn reorder_playlist_songs(
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct MatchMissingEntryRequest {
-    /// The position of the missing entry in the playlist
-    pub position: i32,
+    /// The entry_id of the playlist entry
+    pub entry_id: String,
     /// The song ID to match the entry to
     pub song_id: String,
 }
@@ -647,12 +651,12 @@ pub async fn match_missing_entry(
         ));
     }
 
-    // Verify the entry exists at this position and is missing
+    // Verify the entry exists with this entry_id and has missing_entry_data
     let entry: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND position = ?"
+        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?"
     )
     .bind(&playlist_id)
-    .bind(request.position)
+    .bind(&request.entry_id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|e| {
@@ -668,7 +672,7 @@ pub async fn match_missing_entry(
     let Some((_song_id, missing_data)) = entry else {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Entry not found at position")),
+            Json(super::ErrorResponse::new("Entry not found")),
         ));
     };
 
@@ -705,11 +709,11 @@ pub async fn match_missing_entry(
         ));
     }
 
-    // Update the entry to link to the song
-    crate::db::queries::match_missing_entry(
+    // Update the entry to link to the song using entry_id
+    let matched = crate::db::queries::match_missing_entry_by_id(
         &state.pool,
         &playlist_id,
-        request.position,
+        &request.entry_id,
         &request.song_id,
     )
     .await
@@ -723,6 +727,13 @@ pub async fn match_missing_entry(
         )
     })?;
 
+    if !matched {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(super::ErrorResponse::new("Entry not found")),
+        ));
+    }
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -731,8 +742,8 @@ pub async fn match_missing_entry(
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct UnmatchEntryRequest {
-    /// The position of the entry in the playlist
-    pub position: i32,
+    /// The entry_id of the playlist entry
+    pub entry_id: String,
 }
 
 /// Unmatch a playlist entry - sets it back to missing state
@@ -767,12 +778,12 @@ pub async fn unmatch_entry(
         ));
     }
 
-    // Verify the entry exists at this position and has missing_entry_data
+    // Verify the entry exists with this entry_id and has missing_entry_data
     let entry: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND position = ?",
+        "SELECT song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
     )
     .bind(&playlist_id)
-    .bind(request.position)
+    .bind(&request.entry_id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|e| {
@@ -788,7 +799,7 @@ pub async fn unmatch_entry(
     let Some((song_id, missing_data)) = entry else {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Entry not found at position")),
+            Json(super::ErrorResponse::new("Entry not found")),
         ));
     };
 
@@ -810,28 +821,127 @@ pub async fn unmatch_entry(
         ));
     }
 
-    // Unmatch the entry
-    crate::db::queries::unmatch_entry(&state.pool, &playlist_id, request.position)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details(
-                    "Database error",
-                    e.to_string(),
-                )),
-            )
-        })?;
+    // Unmatch the entry using entry_id
+    let unmatched =
+        crate::db::queries::unmatch_entry_by_id(&state.pool, &playlist_id, &request.entry_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::with_details(
+                        "Database error",
+                        e.to_string(),
+                    )),
+                )
+            })?;
+
+    if !unmatched {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(super::ErrorResponse::new("Entry not found")),
+        ));
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Request to move a playlist entry to a new position
-#[derive(Debug, Deserialize)]
+/// A single entry to match in a batch request
+#[derive(Debug, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct BatchMatchEntry {
+    /// The entry_id of the playlist entry
+    pub entry_id: String,
+    /// The song ID to match the entry to
+    pub song_id: String,
+}
+
+/// Request to match multiple missing playlist entries to songs
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct BatchMatchEntriesRequest {
+    /// List of entries to match
+    pub entries: Vec<BatchMatchEntry>,
+}
+
+/// Response from batch matching entries
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct BatchMatchEntriesResponse {
+    /// Number of successfully matched entries
+    pub matched_count: i32,
+    /// Number of entries that failed to match
+    pub failed_count: i32,
+}
+
+/// Batch match multiple missing entries in a playlist to songs
+pub async fn batch_match_entries(
+    State(state): State<Arc<AppState>>,
+    user: AuthenticatedUser,
+    Path(playlist_id): Path<String>,
+    Json(request): Json<BatchMatchEntriesRequest>,
+) -> Result<Json<BatchMatchEntriesResponse>, ApiError> {
+    // Check playlist exists and belongs to user
+    let playlist: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
+            .bind(&playlist_id)
+            .bind(user.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::with_details(
+                        "Database error",
+                        e.to_string(),
+                    )),
+                )
+            })?;
+
+    if playlist.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(super::ErrorResponse::new("Playlist not found")),
+        ));
+    }
+
+    // Convert to the format the query function expects
+    let matches: Vec<(String, String)> = request
+        .entries
+        .into_iter()
+        .map(|e| (e.entry_id, e.song_id))
+        .collect();
+
+    // Update the entries
+    let success_count =
+        crate::db::queries::batch_match_entries(&state.pool, &playlist_id, &matches)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(super::ErrorResponse::with_details(
+                        "Database error",
+                        e.to_string(),
+                    )),
+                )
+            })?;
+
+    let total = matches.len() as i32;
+    Ok(Json(BatchMatchEntriesResponse {
+        matched_count: success_count as i32,
+        failed_count: total - success_count as i32,
+    }))
+}
+
+/// Request to move a playlist entry to a new position
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct MovePlaylistEntryRequest {
-    /// Current position of the entry (0-indexed)
-    pub from_position: i32,
+    /// The entry_id of the playlist entry to move
+    pub entry_id: String,
     /// New position to move to (0-indexed)
     pub to_position: i32,
 }
@@ -843,12 +953,7 @@ pub async fn move_playlist_entry(
     Path(playlist_id): Path<String>,
     Json(request): Json<MovePlaylistEntryRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let from_pos = request.from_position as i64;
     let to_pos = request.to_position as i64;
-
-    if from_pos == to_pos {
-        return Ok(StatusCode::NO_CONTENT);
-    }
 
     // Check playlist exists and belongs to user
     let playlist: Option<(String,)> =
@@ -874,7 +979,36 @@ pub async fn move_playlist_entry(
         ));
     }
 
-    // Get count of entries to validate positions
+    // Look up the current position of the entry by entry_id
+    let from_pos_result: Option<(i64,)> = sqlx::query_as(
+        "SELECT position FROM playlist_songs WHERE playlist_id = ? AND entry_id = ?",
+    )
+    .bind(&playlist_id)
+    .bind(&request.entry_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    let Some((from_pos,)) = from_pos_result else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(super::ErrorResponse::new("Entry not found")),
+        ));
+    };
+
+    if from_pos == to_pos {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    // Get count of entries to validate to_position
     let count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = ?")
             .bind(&playlist_id)
@@ -890,7 +1024,7 @@ pub async fn move_playlist_entry(
                 )
             })?;
 
-    if from_pos < 0 || from_pos >= count || to_pos < 0 || to_pos >= count {
+    if to_pos < 0 || to_pos >= count {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(super::ErrorResponse::new("Invalid position")),
@@ -1262,6 +1396,8 @@ pub struct GetPlaylistSongsParams {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlaylistSongEntry {
+    /// Unique identifier for this playlist entry (stable across reordering)
+    pub entry_id: String,
     /// Position in the playlist (0-indexed, from original playlist order)
     pub position: i32,
     /// Type of entry: "song" or "missing"
@@ -1365,10 +1501,10 @@ pub async fn get_playlist_songs(
         ));
     }
 
-    // Get all playlist entries (positions, song_ids, missing data, added_at)
+    // Get all playlist entries (positions, song_ids, missing data, added_at, entry_id)
     #[allow(clippy::type_complexity)]
-    let entries_raw: Vec<(i64, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT position, song_id, missing_entry_data, missing_search_text, strftime('%Y-%m-%dT%H:%M:%SZ', added_at) as added_at
+    let entries_raw: Vec<(i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT position, song_id, missing_entry_data, missing_search_text, strftime('%Y-%m-%dT%H:%M:%SZ', added_at) as added_at, entry_id
          FROM playlist_songs 
          WHERE playlist_id = ? 
          ORDER BY position",
@@ -1390,18 +1526,18 @@ pub async fn get_playlist_songs(
     let total_entries = entries_raw.len() as i64;
     let matched_count = entries_raw
         .iter()
-        .filter(|(_, sid, _, _, _)| sid.is_some())
+        .filter(|(_, sid, _, _, _, _)| sid.is_some())
         .count() as i64;
     // Only count as "missing" if there's no song_id (truly unmatched entries)
     let missing_count = entries_raw
         .iter()
-        .filter(|(_, sid, md, _, _)| sid.is_none() && md.is_some())
+        .filter(|(_, sid, md, _, _, _)| sid.is_none() && md.is_some())
         .count() as i64;
 
     // Get all song IDs that are not null
     let song_ids: Vec<String> = entries_raw
         .iter()
-        .filter_map(|(_, sid, _, _, _)| sid.clone())
+        .filter_map(|(_, sid, _, _, _, _)| sid.clone())
         .collect();
 
     // Fetch all songs at once
@@ -1441,22 +1577,27 @@ pub async fn get_playlist_songs(
             song: crate::db::models::Song,
             missing_data: Option<MissingEntryData>,
             added_at: Option<String>,
+            entry_id: String,
         },
         Missing {
             position: i64,
             data: MissingEntryData,
             added_at: Option<String>,
+            entry_id: String,
         },
     }
 
     let mut unified_entries: Vec<EntryData> = entries_raw
         .into_iter()
         .filter_map(
-            |(position, song_id, missing_json, _missing_search_text, added_at)| {
+            |(position, song_id, missing_json, _missing_search_text, added_at, entry_id)| {
                 // Parse missing data if present
                 let missing_data = missing_json
                     .as_ref()
                     .and_then(|json| serde_json::from_str::<MissingEntryData>(json).ok());
+
+                // Generate a fallback entry_id if missing (for legacy entries)
+                let entry_id = entry_id.unwrap_or_else(|| format!("legacy-{}", position));
 
                 if let Some(sid) = song_id {
                     // Matched song - include the missing_data so UI can show "Refine Match" option
@@ -1465,12 +1606,14 @@ pub async fn get_playlist_songs(
                         song: song.clone(),
                         missing_data,
                         added_at: added_at.clone(),
+                        entry_id: entry_id.clone(),
                     })
                 } else {
                     missing_data.map(|data| EntryData::Missing {
                         position,
                         data,
                         added_at,
+                        entry_id,
                     })
                 }
             },
@@ -1641,9 +1784,11 @@ pub async fn get_playlist_songs(
                 song,
                 missing_data,
                 added_at,
+                entry_id,
             } => {
                 let cover_art_data = thumbnails.get(&song.id).cloned();
                 PlaylistSongEntry {
+                    entry_id,
                     position: position as i32,
                     entry_type: "song".to_string(),
                     added_to_playlist: added_at,
@@ -1670,7 +1815,9 @@ pub async fn get_playlist_songs(
                 position,
                 data,
                 added_at,
+                entry_id,
             } => PlaylistSongEntry {
+                entry_id,
                 position: position as i32,
                 entry_type: "missing".to_string(),
                 added_to_playlist: added_at,

@@ -51,6 +51,7 @@ type ResolveStep = "loading" | "options" | "matching" | "preview" | "saving";
 
 interface MissingEntry {
   position: number;
+  entryId: string;
   missing: {
     title: string | null;
     artist: string | null;
@@ -124,6 +125,7 @@ export function MassResolveDialog({
         const missing: MissingEntry[] = response.entries.map(
           (entry: PlaylistSongEntry) => ({
             position: entry.position,
+            entryId: entry.entryId,
             missing: {
               title: entry.missing?.title ?? null,
               artist: entry.missing?.artist ?? null,
@@ -200,11 +202,12 @@ export function MassResolveDialog({
     );
 
     if (result) {
-      // Add matched/unmatched entries from missing entries with their original positions
+      // Add matched/unmatched entries from missing entries with their original positions and entryIds
       const tracksWithPositions: MatchableTrack[] = result.map(
         (track, index) => ({
           ...track,
           originalPosition: missingEntries[index].position,
+          entryId: missingEntries[index].entryId,
         }),
       );
 
@@ -216,39 +219,29 @@ export function MassResolveDialog({
     }
   };
 
-  // Save matches mutation
+  // Save matches mutation - uses batch API for efficiency
   const saveMatches = useMutation({
     mutationFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
 
-      // Get matched entries with their original positions (only selected ones)
+      // Get matched entries with their entryIds (only selected ones)
       const newMatches = matchedTracks.filter(
-        (t) =>
-          t.match && t.originalPosition !== undefined && t.selected !== false,
+        (t) => t.match && t.entryId !== undefined && t.selected !== false,
       );
 
-      let successCount = 0;
-      let failCount = 0;
+      // Build the batch request
+      const entries = newMatches.map((entry) => ({
+        entryId: entry.entryId!,
+        songId: entry.match!.id,
+      }));
 
-      for (const entry of newMatches) {
-        try {
-          await client.matchMissingEntry(
-            playlistId,
-            entry.originalPosition!,
-            entry.match!.id,
-          );
-          successCount++;
-        } catch (error) {
-          console.error(
-            `Failed to match entry at position ${entry.originalPosition}:`,
-            error,
-          );
-          failCount++;
-        }
-      }
-
-      return { successCount, failCount };
+      // Use batch API for efficient matching
+      const result = await client.batchMatchEntries(playlistId, entries);
+      return {
+        successCount: result.matchedCount,
+        failCount: result.failedCount,
+      };
     },
     onSuccess: async ({ successCount, failCount }) => {
       await queryClient.invalidateQueries({

@@ -99,11 +99,17 @@ type DisplayItem =
       type: "song";
       song: Song;
       position: number;
+      entryId: string;
       songIndex?: number;
       missing?: MissingEntryDataResponse | null;
       addedToPlaylist?: string | null;
     }
-  | { type: "missing"; entry: PlaylistSongEntry; position: number };
+  | {
+      type: "missing";
+      entry: PlaylistSongEntry;
+      position: number;
+      entryId: string;
+    };
 
 function PlaylistDetailContent() {
   const router = useRouter();
@@ -125,6 +131,7 @@ function PlaylistDetailContent() {
   const [pendingSingleRemove, setPendingSingleRemove] = useState<{
     songId: string;
     songTitle: string;
+    entryId: string;
     position: number;
   } | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -132,20 +139,23 @@ function PlaylistDetailContent() {
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveDialogItem, setMoveDialogItem] = useState<{
     name: string;
+    entryId: string;
     position: number;
   } | null>(null);
   const [refineMatchDialogOpen, setRefineMatchDialogOpen] = useState(false);
   const [refineMatchItem, setRefineMatchItem] = useState<{
+    entryId: string;
     position: number;
     missing: MissingEntryDataResponse;
   } | null>(null);
   const [unmatchDialogOpen, setUnmatchDialogOpen] = useState(false);
   const [pendingUnmatch, setPendingUnmatch] = useState<{
     songTitle: string;
+    entryId: string;
     position: number;
   } | null>(null);
   const [filter, setFilter] = useState("");
-  // Track selected missing entry IDs separately (format: "missing-{position}")
+  // Track selected missing entry IDs separately (format: "missing-{entryId}")
   const [selectedMissingIds, setSelectedMissingIds] = useState<Set<string>>(
     new Set(),
   );
@@ -222,6 +232,7 @@ function PlaylistDetailContent() {
         type: "song" as const,
         song: entry.song as Song,
         position: entry.position,
+        entryId: entry.entryId,
         songIndex: entry.songIndex ?? undefined,
         missing: entry.missing,
         addedToPlaylist: entry.addedToPlaylist,
@@ -231,6 +242,7 @@ function PlaylistDetailContent() {
         type: "missing" as const,
         entry,
         position: entry.position,
+        entryId: entry.entryId,
       };
     }
   });
@@ -372,6 +384,7 @@ function PlaylistDetailContent() {
     setPendingSingleRemove({
       songId,
       songTitle: item.song.title,
+      entryId: item.entryId,
       position: item.position,
     });
     setRemoveSingleSongDialogOpen(true);
@@ -389,14 +402,18 @@ function PlaylistDetailContent() {
     setPendingSingleRemove(null);
   };
 
-  // Helper to remove a missing entry by position (no undo since we can't add it back)
-  const handleRemoveMissingEntry = async (position: number) => {
+  // Helper to remove a missing entry by entryId (no undo since we can't add it back)
+  // Note: OpenSubsonic API uses position-based indices, so we look up the position
+  const handleRemoveMissingEntry = async (entryId: string) => {
+    const item = displayItems.find((i) => i.entryId === entryId);
+    if (!item) return;
+
     const client = getClient();
     if (!client) return;
     try {
       await client.updatePlaylist({
         playlistId: playlistId!,
-        songIndexToRemove: [position],
+        songIndexToRemove: [item.position],
       });
       queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
@@ -408,19 +425,36 @@ function PlaylistDetailContent() {
   };
 
   // Handle move to position for playlists (works for both songs and missing entries)
-  const handleMoveToPosition = (item: { name: string; position: number }) => {
+  const handleMoveToPosition = (item: {
+    name: string;
+    entryId: string;
+    position: number;
+  }) => {
     setMoveDialogItem(item);
     setMoveDialogOpen(true);
   };
 
   // Wrapper for song move to position (adapts Song to the generic interface)
   const handleSongMoveToPosition = (song: Song, currentIndex: number) => {
-    handleMoveToPosition({ name: song.title, position: currentIndex });
+    const item = displayItems.find(
+      (i) =>
+        i.type === "song" &&
+        i.song.id === song.id &&
+        i.position === currentIndex,
+    );
+    if (!item) return;
+    handleMoveToPosition({
+      name: song.title,
+      entryId: item.entryId,
+      position: currentIndex,
+    });
   };
 
   // Handler for missing entry move to position
-  const handleMissingMoveToPosition = (name: string, position: number) => {
-    handleMoveToPosition({ name, position });
+  const handleMissingMoveToPosition = (name: string, entryId: string) => {
+    const item = displayItems.find((i) => i.entryId === entryId);
+    if (!item) return;
+    handleMoveToPosition({ name, entryId, position: item.position });
   };
 
   // Handler for refine match (for songs that have associated missing data)
@@ -432,6 +466,7 @@ function PlaylistDetailContent() {
     if (!item || item.type !== "song" || !item.missing) return;
 
     setRefineMatchItem({
+      entryId: item.entryId,
       position: index,
       missing: item.missing,
     });
@@ -441,8 +476,13 @@ function PlaylistDetailContent() {
   // Handler for unmatch (revert a matched song back to missing)
   // Shows confirmation dialog instead of immediate action
   const handleUnmatch = (song: Song, index: number) => {
+    const item = displayItems.find(
+      (i) => i.type === "song" && i.song.id === song.id && i.position === index,
+    );
+    if (!item) return;
     setPendingUnmatch({
       songTitle: song.title,
+      entryId: item.entryId,
       position: index,
     });
     setUnmatchDialogOpen(true);
@@ -456,7 +496,7 @@ function PlaylistDetailContent() {
     if (!client || !playlistId) return;
 
     try {
-      await client.unmatchEntry(playlistId, pendingUnmatch.position);
+      await client.unmatchEntry(playlistId, pendingUnmatch.entryId);
       await queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
       });
@@ -472,7 +512,7 @@ function PlaylistDetailContent() {
   const handleMoveItem = async (newPosition: number) => {
     if (!moveDialogItem) return;
 
-    const { position: oldPosition } = moveDialogItem;
+    const { entryId, position: oldPosition } = moveDialogItem;
     if (oldPosition === newPosition) return;
 
     // Use the server-side move endpoint
@@ -480,7 +520,7 @@ function PlaylistDetailContent() {
     if (!client) return;
 
     try {
-      await client.movePlaylistEntry(playlistId!, oldPosition, newPosition);
+      await client.movePlaylistEntry(playlistId!, entryId, newPosition);
       queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
       });
@@ -985,10 +1025,11 @@ function PlaylistDetailContent() {
               totalCount={filteredCount}
               renderItem={(item, _index) => {
                 if (item.type === "missing" && item.entry.missing) {
-                  const missingId = `missing-${item.position}`;
+                  const missingId = `missing-${item.entryId}`;
                   return (
                     <MissingEntryCard
                       playlistId={playlistId!}
+                      entryId={item.entryId}
                       position={item.position}
                       missing={item.entry.missing}
                       isSelected={isMissingSelected(missingId)}
@@ -1049,10 +1090,11 @@ function PlaylistDetailContent() {
                 totalCount={filteredCount}
                 renderItem={(item, _index) => {
                   if (item.type === "missing" && item.entry.missing) {
-                    const missingId = `missing-${item.position}`;
+                    const missingId = `missing-${item.entryId}`;
                     return (
                       <MissingEntryRow
                         playlistId={playlistId!}
+                        entryId={item.entryId}
                         position={item.position}
                         missing={item.entry.missing}
                         isSelected={isMissingSelected(missingId)}
@@ -1271,6 +1313,7 @@ function PlaylistDetailContent() {
           open={refineMatchDialogOpen}
           onOpenChange={setRefineMatchDialogOpen}
           playlistId={playlistId}
+          entryId={refineMatchItem.entryId}
           position={refineMatchItem.position}
           missing={refineMatchItem.missing}
         />

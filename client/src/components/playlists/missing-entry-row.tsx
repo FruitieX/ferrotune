@@ -38,18 +38,20 @@ import type { MissingEntryDataResponse } from "@/lib/api/generated/MissingEntryD
 
 interface MissingEntryRowProps {
   playlistId: string;
+  entryId: string;
   position: number;
   missing: MissingEntryDataResponse;
   isSelected?: boolean;
   isSelectionMode?: boolean;
   onSelect?: (id: string, selected: boolean, event?: React.MouseEvent) => void;
-  onRemove?: (position: number) => void;
+  onRemove?: (entryId: string) => void;
   showMoveToPosition?: boolean;
-  onMoveToPosition?: (name: string, position: number) => void;
+  onMoveToPosition?: (name: string, entryId: string) => void;
 }
 
 export function MissingEntryRow({
   playlistId,
+  entryId,
   position,
   missing,
   isSelected,
@@ -63,14 +65,14 @@ export function MissingEntryRow({
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
 
   // Unique ID for this entry (used for selection)
-  const entryId = `missing-${position}`;
+  const selectionId = `missing-${entryId}`;
 
   const handleRemoveClick = () => {
     setRemoveDialogOpen(true);
   };
 
   const handleConfirmRemove = () => {
-    onRemove?.(position);
+    onRemove?.(entryId);
     setRemoveDialogOpen(false);
   };
 
@@ -79,7 +81,7 @@ export function MissingEntryRow({
   const rowContent = (
     <div
       className={cn(
-        "group flex items-center gap-4 px-4 pr-6 py-2 rounded-md transition-colors cursor-pointer",
+        "group flex items-center gap-4 px-4 pr-6 h-[54px] rounded-md transition-colors cursor-pointer",
         "bg-orange-500/5 hover:bg-orange-500/10",
         "border-l-2 border-orange-500/50",
         isSelected && "ring-2 ring-primary bg-primary/20",
@@ -92,7 +94,7 @@ export function MissingEntryRow({
           if (onSelect) {
             e.preventDefault();
             e.stopPropagation();
-            onSelect(entryId, !isSelected, e);
+            onSelect(selectionId, !isSelected, e);
           }
         }}
       >
@@ -171,7 +173,7 @@ export function MissingEntryRow({
                 onClick={() =>
                   onMoveToPosition(
                     missing.title || missing.raw || "Unknown Track",
-                    position,
+                    entryId,
                   )
                 }
               >
@@ -217,7 +219,7 @@ export function MissingEntryRow({
               onClick={() =>
                 onMoveToPosition(
                   missing.title || missing.raw || "Unknown Track",
-                  position,
+                  entryId,
                 )
               }
             >
@@ -242,6 +244,7 @@ export function MissingEntryRow({
         open={refineDialogOpen}
         onOpenChange={setRefineDialogOpen}
         playlistId={playlistId}
+        entryId={entryId}
         position={position}
         missing={missing}
         idPrefix="row-"
@@ -290,18 +293,20 @@ export function MissingEntryRowSkeleton() {
  */
 interface MissingEntryCardProps {
   playlistId: string;
+  entryId: string;
   position: number;
   missing: MissingEntryDataResponse;
   isSelected?: boolean;
   isSelectionMode?: boolean;
   onSelect?: (id: string, selected: boolean, event?: React.MouseEvent) => void;
-  onRemove?: (position: number) => void;
+  onRemove?: (entryId: string) => void;
   showMoveToPosition?: boolean;
-  onMoveToPosition?: (name: string, position: number) => void;
+  onMoveToPosition?: (name: string, entryId: string) => void;
 }
 
 export function MissingEntryCard({
   playlistId,
+  entryId,
   position,
   missing,
   isSelected,
@@ -314,14 +319,14 @@ export function MissingEntryCard({
   const [refineDialogOpen, setRefineDialogOpen] = useState(false);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
 
-  const entryId = `missing-${position}`;
+  const selectionId = `missing-${entryId}`;
 
   const handleRemoveClick = () => {
     setRemoveDialogOpen(true);
   };
 
   const handleConfirmRemove = () => {
-    onRemove?.(position);
+    onRemove?.(entryId);
     setRemoveDialogOpen(false);
   };
 
@@ -361,7 +366,7 @@ export function MissingEntryCard({
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                onSelect(entryId, !isSelected, e);
+                onSelect(selectionId, !isSelected, e);
               }}
             >
               {isSelected && <AlertCircle className="w-4 h-4" />}
@@ -398,7 +403,7 @@ export function MissingEntryCard({
                     e.stopPropagation();
                     onMoveToPosition(
                       missing.title || missing.raw || "Unknown Track",
-                      position,
+                      entryId,
                     );
                   }}
                 >
@@ -466,7 +471,7 @@ export function MissingEntryCard({
               onClick={() =>
                 onMoveToPosition(
                   missing.title || missing.raw || "Unknown Track",
-                  position,
+                  entryId,
                 )
               }
             >
@@ -491,6 +496,7 @@ export function MissingEntryCard({
         open={refineDialogOpen}
         onOpenChange={setRefineDialogOpen}
         playlistId={playlistId}
+        entryId={entryId}
         position={position}
         missing={missing}
         idPrefix="card-"

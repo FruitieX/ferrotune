@@ -17,6 +17,7 @@ export interface FindMatchDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   playlistId: string;
+  entryId: string;
   position: number;
   missing: MissingEntryDataResponse;
   /** Unique ID prefix for form element IDs to avoid conflicts */
@@ -27,6 +28,7 @@ export function FindMatchDialog({
   open,
   onOpenChange,
   playlistId,
+  entryId,
   position,
   missing,
   idPrefix = "",
@@ -38,7 +40,7 @@ export function FindMatchDialog({
     mutationFn: async (songId: string) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      await client.matchMissingEntry(playlistId, position, songId);
+      await client.matchMissingEntry(playlistId, entryId, songId);
     },
     onSuccess: () => {
       toast.success("Entry matched successfully");

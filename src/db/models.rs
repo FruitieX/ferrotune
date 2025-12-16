@@ -229,6 +229,8 @@ pub struct PlaylistSong {
     pub song_id: Option<String>,
     pub position: i64,
     pub missing_entry_data: Option<String>,
+    /// Unique identifier for this playlist entry (stable across reordering)
+    pub entry_id: Option<String>,
 }
 
 /// Data for a playlist entry that couldn't be matched to a library song

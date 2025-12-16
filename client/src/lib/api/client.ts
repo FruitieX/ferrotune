@@ -734,14 +734,14 @@ export class SubsonicClient {
 
   async matchMissingEntry(
     playlistId: string,
-    position: number,
+    entryId: string,
     songId: string,
   ): Promise<void> {
     await this.adminRequest(
       `/ferrotune/playlists/${encodeURIComponent(playlistId)}/match-missing`,
       {
         method: "POST",
-        body: JSON.stringify({ position, songId }),
+        body: JSON.stringify({ entryId, songId }),
       },
     );
   }
@@ -750,12 +750,29 @@ export class SubsonicClient {
    * Unmatch a playlist entry - sets it back to missing state.
    * Only works for entries that have missing_entry_data (imported entries).
    */
-  async unmatchEntry(playlistId: string, position: number): Promise<void> {
+  async unmatchEntry(playlistId: string, entryId: string): Promise<void> {
     await this.adminRequest(
       `/ferrotune/playlists/${encodeURIComponent(playlistId)}/unmatch`,
       {
         method: "POST",
-        body: JSON.stringify({ position }),
+        body: JSON.stringify({ entryId }),
+      },
+    );
+  }
+
+  /**
+   * Batch match multiple missing playlist entries to songs in a single request.
+   * Uses entry_id for stable identification of entries.
+   */
+  async batchMatchEntries(
+    playlistId: string,
+    entries: Array<{ entryId: string; songId: string }>,
+  ): Promise<{ matchedCount: number; failedCount: number }> {
+    return this.adminRequest(
+      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/batch-match`,
+      {
+        method: "POST",
+        body: JSON.stringify({ entries }),
       },
     );
   }
@@ -766,14 +783,14 @@ export class SubsonicClient {
    */
   async movePlaylistEntry(
     playlistId: string,
-    fromPosition: number,
+    entryId: string,
     toPosition: number,
   ): Promise<void> {
     await this.adminRequest(
       `/ferrotune/playlists/${encodeURIComponent(playlistId)}/move-entry`,
       {
         method: "POST",
-        body: JSON.stringify({ fromPosition, toPosition }),
+        body: JSON.stringify({ entryId, toPosition }),
       },
     );
   }

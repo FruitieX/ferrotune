@@ -189,6 +189,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(playlists::unmatch_entry),
         )
         .route(
+            "/ferrotune/playlists/{id}/batch-match",
+            post(playlists::batch_match_entries),
+        )
+        .route(
             "/ferrotune/playlists/{id}/move-entry",
             post(playlists::move_playlist_entry),
         )
