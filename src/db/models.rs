@@ -83,6 +83,67 @@ pub struct Song {
     pub starred_at: Option<DateTime<Utc>>,
 }
 
+/// Song with its music library enabled status
+/// Used for playlist display where we want to show metadata even for songs from disabled libraries
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct SongWithLibraryStatus {
+    pub id: String,
+    pub title: String,
+    pub album_id: Option<String>,
+    pub album_name: Option<String>,
+    pub artist_id: String,
+    pub artist_name: String,
+    pub track_number: Option<i32>,
+    pub disc_number: i32,
+    pub year: Option<i32>,
+    pub genre: Option<String>,
+    pub duration: i64,
+    pub bitrate: Option<i32>,
+    pub file_path: String,
+    pub file_size: i64,
+    pub file_format: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub cover_art_hash: Option<String>,
+    /// Whether the music library this song belongs to is enabled
+    pub library_enabled: bool,
+    #[sqlx(default)]
+    pub play_count: Option<i64>,
+    #[sqlx(default)]
+    pub last_played: Option<DateTime<Utc>>,
+    #[sqlx(default)]
+    pub starred_at: Option<DateTime<Utc>>,
+}
+
+impl SongWithLibraryStatus {
+    /// Converts to a Song, discarding the library_enabled flag
+    pub fn into_song(self) -> Song {
+        Song {
+            id: self.id,
+            title: self.title,
+            album_id: self.album_id,
+            album_name: self.album_name,
+            artist_id: self.artist_id,
+            artist_name: self.artist_name,
+            track_number: self.track_number,
+            disc_number: self.disc_number,
+            year: self.year,
+            genre: self.genre,
+            duration: self.duration,
+            bitrate: self.bitrate,
+            file_path: self.file_path,
+            file_size: self.file_size,
+            file_format: self.file_format,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            cover_art_hash: self.cover_art_hash,
+            play_count: self.play_count,
+            last_played: self.last_played,
+            starred_at: self.starred_at,
+        }
+    }
+}
+
 /// Song with its music folder path for full filesystem path construction
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SongWithFolder {

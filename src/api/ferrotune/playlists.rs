@@ -1540,9 +1540,9 @@ pub async fn get_playlist_songs(
         .filter_map(|(_, sid, _, _, _, _)| sid.clone())
         .collect();
 
-    // Fetch all songs at once
+    // Fetch all songs at once with their library enabled status
     let songs = if !song_ids.is_empty() {
-        crate::db::queries::get_songs_by_ids(&state.pool, &song_ids)
+        crate::db::queries::get_songs_by_ids_with_library_status(&state.pool, &song_ids)
             .await
             .map_err(|e| {
                 (
@@ -1557,8 +1557,8 @@ pub async fn get_playlist_songs(
         vec![]
     };
 
-    // Create a lookup map from song_id -> Song
-    let song_map: std::collections::HashMap<String, crate::db::models::Song> =
+    // Create a lookup map from song_id -> SongWithLibraryStatus
+    let song_map: std::collections::HashMap<String, crate::db::models::SongWithLibraryStatus> =
         songs.into_iter().map(|s| (s.id.clone(), s)).collect();
 
     // Determine sort mode
@@ -1585,6 +1585,22 @@ pub async fn get_playlist_songs(
             added_at: Option<String>,
             entry_id: String,
         },
+        /// A song from a disabled library - we have full song data but it can't be played
+        DisabledLibrary {
+            position: i64,
+            song: crate::db::models::Song,
+            missing_data: Option<MissingEntryData>,
+            added_at: Option<String>,
+            entry_id: String,
+        },
+        /// A song that has a song_id but the song is truly not found (deleted from DB)
+        NotFound {
+            position: i64,
+            song_id: String,
+            missing_data: Option<MissingEntryData>,
+            added_at: Option<String>,
+            entry_id: String,
+        },
     }
 
     let mut unified_entries: Vec<EntryData> = entries_raw
@@ -1600,14 +1616,38 @@ pub async fn get_playlist_songs(
                 let entry_id = entry_id.unwrap_or_else(|| format!("legacy-{}", position));
 
                 if let Some(sid) = song_id {
-                    // Matched song - include the missing_data so UI can show "Refine Match" option
-                    song_map.get(&sid).map(|song| EntryData::Song {
-                        position,
-                        song: song.clone(),
-                        missing_data,
-                        added_at: added_at.clone(),
-                        entry_id: entry_id.clone(),
-                    })
+                    // Try to find the song in the map
+                    if let Some(song_with_status) = song_map.get(&sid) {
+                        let song = song_with_status.clone().into_song();
+                        if song_with_status.library_enabled {
+                            // Song from enabled library - playable
+                            Some(EntryData::Song {
+                                position,
+                                song,
+                                missing_data,
+                                added_at: added_at.clone(),
+                                entry_id,
+                            })
+                        } else {
+                            // Song from disabled library - show metadata but not playable
+                            Some(EntryData::DisabledLibrary {
+                                position,
+                                song,
+                                missing_data,
+                                added_at: added_at.clone(),
+                                entry_id,
+                            })
+                        }
+                    } else {
+                        // Song ID exists but song not found in DB at all (truly deleted)
+                        Some(EntryData::NotFound {
+                            position,
+                            song_id: sid,
+                            missing_data,
+                            added_at,
+                            entry_id,
+                        })
+                    }
                 } else {
                     missing_data.map(|data| EntryData::Missing {
                         position,
@@ -1626,7 +1666,13 @@ pub async fn get_playlist_songs(
         unified_entries.retain(|entry| {
             matches!(
                 (&filter_type[..], entry),
-                ("song", EntryData::Song { .. }) | ("missing", EntryData::Missing { .. })
+                ("song", EntryData::Song { .. }) 
+                | ("song", EntryData::DisabledLibrary { .. })  // DisabledLibrary has song data
+                | ("missing", EntryData::Missing { .. })
+                | ("missing", EntryData::NotFound { .. })  // notFound entries are treated as missing for filtering
+                | ("missing", EntryData::DisabledLibrary { .. })  // DisabledLibrary can also be treated as "missing" when looking for unavailable
+                | ("notfound", EntryData::NotFound { .. })
+                | ("notfound", EntryData::DisabledLibrary { .. })
             )
         });
     }
@@ -1666,13 +1712,53 @@ pub async fn get_playlist_songs(
                         .contains(&query)
                     || data.raw.to_lowercase().contains(&query)
             }
+            EntryData::NotFound {
+                missing_data,
+                song_id,
+                ..
+            } => {
+                // Filter notFound entries by missing data if available, or by song_id
+                if let Some(data) = missing_data {
+                    data.title
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(&query)
+                        || data
+                            .artist
+                            .as_deref()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(&query)
+                        || data
+                            .album
+                            .as_deref()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(&query)
+                        || data.raw.to_lowercase().contains(&query)
+                } else {
+                    song_id.to_lowercase().contains(&query)
+                }
+            }
+            EntryData::DisabledLibrary { song, .. } => {
+                // Filter disabled library songs by their actual metadata
+                song.title.to_lowercase().contains(&query)
+                    || song.artist_name.to_lowercase().contains(&query)
+                    || song
+                        .album_name
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(&query)
+            }
         });
     }
 
     // Apply sorting
     if !is_custom_sort {
-        // When sorting by a specific field, we need to decide how to handle missing entries.
-        // Missing entries don't have sortable metadata, so we exclude them when sorting by
+        // When sorting by a specific field, we need to decide how to handle missing/disabled entries.
+        // Missing/NotFound/DisabledLibrary entries are excluded when sorting by
         // specific fields. They are only shown in "custom" (playlist order) mode.
         unified_entries.retain(|entry| matches!(entry, EntryData::Song { .. }));
 
@@ -1744,7 +1830,9 @@ pub async fn get_playlist_songs(
                     song_idx += 1;
                     Some(current)
                 }
-                EntryData::Missing { .. } => None,
+                EntryData::Missing { .. }
+                | EntryData::NotFound { .. }
+                | EntryData::DisabledLibrary { .. } => None,
             };
             (entry, idx)
         })
@@ -1766,8 +1854,10 @@ pub async fn get_playlist_songs(
         let song_thumbnail_data: Vec<(String, Option<String>)> = page_entries
             .iter()
             .filter_map(|(entry, _)| match entry {
-                EntryData::Song { song, .. } => Some((song.id.clone(), song.album_id.clone())),
-                EntryData::Missing { .. } => None,
+                EntryData::Song { song, .. } | EntryData::DisabledLibrary { song, .. } => {
+                    Some((song.id.clone(), song.album_id.clone()))
+                }
+                EntryData::Missing { .. } | EntryData::NotFound { .. } => None,
             })
             .collect();
         get_song_thumbnails_base64(&state.pool, &song_thumbnail_data, size).await
@@ -1831,6 +1921,64 @@ pub async fn get_playlist_songs(
                     raw: data.raw,
                 }),
             },
+            EntryData::NotFound {
+                position,
+                song_id: _,
+                missing_data,
+                added_at,
+                entry_id,
+            } => {
+                // NotFound entries are songs that were deleted from the database entirely
+                PlaylistSongEntry {
+                    entry_id,
+                    position: position as i32,
+                    entry_type: "notFound".to_string(),
+                    added_to_playlist: added_at,
+                    song_index: None,
+                    song: None,
+                    missing: missing_data.map(|data| MissingEntryDataResponse {
+                        title: data.title,
+                        artist: data.artist,
+                        album: data.album,
+                        duration: data.duration,
+                        raw: data.raw,
+                    }),
+                }
+            }
+            EntryData::DisabledLibrary {
+                position,
+                song,
+                missing_data,
+                added_at,
+                entry_id,
+            } => {
+                // DisabledLibrary entries have full song data but library is disabled
+                // We return the song data so the UI can show title/artist/album
+                let cover_art_data = thumbnails.get(&song.id).cloned();
+                PlaylistSongEntry {
+                    entry_id,
+                    position: position as i32,
+                    entry_type: "notFound".to_string(), // UI treats as not found but has song data
+                    added_to_playlist: added_at,
+                    song_index: None,
+                    song: Some(song_to_response_with_stats(
+                        song,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        cover_art_data,
+                    )),
+                    missing: missing_data.map(|data| MissingEntryDataResponse {
+                        title: data.title,
+                        artist: data.artist,
+                        album: data.album,
+                        duration: data.duration,
+                        raw: data.raw,
+                    }),
+                }
+            }
         })
         .collect();
 

@@ -40,7 +40,10 @@ interface MissingEntryRowProps {
   playlistId: string;
   entryId: string;
   position: number;
-  missing: MissingEntryDataResponse;
+  missing?: MissingEntryDataResponse | null;
+  /** Song data for disabled library entries (has full song info but not playable) */
+  song?: { title: string; artist: string; album?: string | null } | null;
+  entryType?: "missing" | "notFound";
   isSelected?: boolean;
   isSelectionMode?: boolean;
   onSelect?: (id: string, selected: boolean, event?: React.MouseEvent) => void;
@@ -54,6 +57,8 @@ export function MissingEntryRow({
   entryId,
   position,
   missing,
+  song,
+  entryType = "missing",
   isSelected,
   isSelectionMode,
   onSelect,
@@ -66,6 +71,33 @@ export function MissingEntryRow({
 
   // Unique ID for this entry (used for selection)
   const selectionId = `missing-${entryId}`;
+
+  // Use song data if available (disabled library), otherwise use missing data, then defaults
+  const displayTitle =
+    song?.title ||
+    missing?.title ||
+    (entryType === "notFound" ? "Unavailable Track" : "Unknown Track");
+  const displayArtist =
+    song?.artist ||
+    missing?.artist ||
+    (entryType === "notFound" ? "Library disabled" : "Unknown Artist");
+  const displayAlbum = song?.album || missing?.album;
+  const displayName =
+    song?.title || missing?.title || missing?.raw || displayTitle;
+
+  // Generate effective missing data for refine match dialog
+  // Use actual missing data if available, otherwise generate from song data
+  const effectiveMissing =
+    missing ||
+    (song
+      ? {
+          title: song.title,
+          artist: song.artist,
+          album: song.album ?? null,
+          duration: null,
+          raw: `${song.artist} - ${song.title}`,
+        }
+      : null);
 
   const handleRemoveClick = () => {
     setRemoveDialogOpen(true);
@@ -141,11 +173,11 @@ export function MissingEntryRow({
       {/* Entry info */}
       <div className="flex-1 min-w-0 overflow-hidden">
         <div className="font-medium truncate text-orange-500">
-          {missing.title || "Unknown Track"}
+          {displayTitle}
         </div>
         <div className="text-sm text-muted-foreground truncate">
-          {missing.artist || "Unknown Artist"}
-          {missing.album && <> • {missing.album}</>}
+          {displayArtist}
+          {displayAlbum && <> • {displayAlbum}</>}
         </div>
       </div>
 
@@ -170,12 +202,7 @@ export function MissingEntryRow({
             </DropdownMenuItem>
             {showMoveToPosition && onMoveToPosition && (
               <DropdownMenuItem
-                onClick={() =>
-                  onMoveToPosition(
-                    missing.title || missing.raw || "Unknown Track",
-                    entryId,
-                  )
-                }
+                onClick={() => onMoveToPosition(displayName, entryId)}
               >
                 <ArrowRightLeft className="w-4 h-4 mr-2" />
                 Move to Position
@@ -216,12 +243,7 @@ export function MissingEntryRow({
           </ContextMenuItem>
           {showMoveToPosition && onMoveToPosition && (
             <ContextMenuItem
-              onClick={() =>
-                onMoveToPosition(
-                  missing.title || missing.raw || "Unknown Track",
-                  entryId,
-                )
-              }
+              onClick={() => onMoveToPosition(displayName, entryId)}
             >
               <ArrowRightLeft className="w-4 h-4 mr-2" />
               Move to Position
@@ -239,16 +261,18 @@ export function MissingEntryRow({
         </ContextMenuContent>
       </ContextMenu>
 
-      {/* Refine Match Dialog */}
-      <FindMatchDialog
-        open={refineDialogOpen}
-        onOpenChange={setRefineDialogOpen}
-        playlistId={playlistId}
-        entryId={entryId}
-        position={position}
-        missing={missing}
-        idPrefix="row-"
-      />
+      {/* Refine Match Dialog - show if we have missing data or song data */}
+      {effectiveMissing && (
+        <FindMatchDialog
+          open={refineDialogOpen}
+          onOpenChange={setRefineDialogOpen}
+          playlistId={playlistId}
+          entryId={entryId}
+          position={position}
+          missing={effectiveMissing}
+          idPrefix="row-"
+        />
+      )}
 
       {/* Remove Confirmation Dialog */}
       <AlertDialog open={removeDialogOpen} onOpenChange={setRemoveDialogOpen}>
@@ -257,8 +281,8 @@ export function MissingEntryRow({
             <AlertDialogTitle>Remove missing entry?</AlertDialogTitle>
             <AlertDialogDescription>
               This will remove &quot;
-              {missing.title || missing.raw || "Unknown Track"}&quot; from the
-              playlist. This action cannot be undone.
+              {displayName}&quot; from the playlist. This action cannot be
+              undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -295,7 +319,10 @@ interface MissingEntryCardProps {
   playlistId: string;
   entryId: string;
   position: number;
-  missing: MissingEntryDataResponse;
+  missing?: MissingEntryDataResponse | null;
+  /** Song data for disabled library entries (has full song info but not playable) */
+  song?: { title: string; artist: string; album?: string | null } | null;
+  entryType?: "missing" | "notFound";
   isSelected?: boolean;
   isSelectionMode?: boolean;
   onSelect?: (id: string, selected: boolean, event?: React.MouseEvent) => void;
@@ -309,6 +336,8 @@ export function MissingEntryCard({
   entryId,
   position,
   missing,
+  song,
+  entryType = "missing",
   isSelected,
   isSelectionMode,
   onSelect,
@@ -320,6 +349,32 @@ export function MissingEntryCard({
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
 
   const selectionId = `missing-${entryId}`;
+
+  // Use song data if available (disabled library), otherwise use missing data, then defaults
+  const displayTitle =
+    song?.title ||
+    missing?.title ||
+    (entryType === "notFound" ? "Unavailable Track" : "Unknown Track");
+  const displayArtist =
+    song?.artist ||
+    missing?.artist ||
+    (entryType === "notFound" ? "Library disabled" : "Unknown Artist");
+  const displayName =
+    song?.title || missing?.title || missing?.raw || displayTitle;
+
+  // Generate effective missing data for refine match dialog
+  // Use actual missing data if available, otherwise generate from song data
+  const effectiveMissing =
+    missing ||
+    (song
+      ? {
+          title: song.title,
+          artist: song.artist,
+          album: song.album ?? null,
+          duration: null,
+          raw: `${song.artist} - ${song.title}`,
+        }
+      : null);
 
   const handleRemoveClick = () => {
     setRemoveDialogOpen(true);
@@ -401,10 +456,7 @@ export function MissingEntryCard({
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();
-                    onMoveToPosition(
-                      missing.title || missing.raw || "Unknown Track",
-                      entryId,
-                    );
+                    onMoveToPosition(displayName, entryId);
                   }}
                 >
                   <ArrowRightLeft className="w-4 h-4 mr-2" />
@@ -441,10 +493,10 @@ export function MissingEntryCard({
       {/* Text content */}
       <div className="space-y-1 min-w-0">
         <h3 className="font-medium text-sm truncate text-orange-500">
-          {missing.title || "Unknown Track"}
+          {displayTitle}
         </h3>
         <p className="text-sm text-muted-foreground truncate">
-          {missing.artist || "Unknown Artist"}
+          {displayArtist}
         </p>
         <div className="flex items-center gap-1 text-xs text-orange-500 bg-orange-500/20 px-2 py-0.5 rounded w-fit">
           <AlertCircle className="w-3 h-3" />
@@ -468,12 +520,7 @@ export function MissingEntryCard({
           </ContextMenuItem>
           {showMoveToPosition && onMoveToPosition && (
             <ContextMenuItem
-              onClick={() =>
-                onMoveToPosition(
-                  missing.title || missing.raw || "Unknown Track",
-                  entryId,
-                )
-              }
+              onClick={() => onMoveToPosition(displayName, entryId)}
             >
               <ArrowRightLeft className="w-4 h-4 mr-2" />
               Move to Position
@@ -491,16 +538,18 @@ export function MissingEntryCard({
         </ContextMenuContent>
       </ContextMenu>
 
-      {/* Refine Match Dialog */}
-      <FindMatchDialog
-        open={refineDialogOpen}
-        onOpenChange={setRefineDialogOpen}
-        playlistId={playlistId}
-        entryId={entryId}
-        position={position}
-        missing={missing}
-        idPrefix="card-"
-      />
+      {/* Refine Match Dialog - show if we have missing data or song data */}
+      {effectiveMissing && (
+        <FindMatchDialog
+          open={refineDialogOpen}
+          onOpenChange={setRefineDialogOpen}
+          playlistId={playlistId}
+          entryId={entryId}
+          position={position}
+          missing={effectiveMissing}
+          idPrefix="card-"
+        />
+      )}
 
       {/* Remove Confirmation Dialog */}
       <AlertDialog open={removeDialogOpen} onOpenChange={setRemoveDialogOpen}>
@@ -509,8 +558,8 @@ export function MissingEntryCard({
             <AlertDialogTitle>Remove missing entry?</AlertDialogTitle>
             <AlertDialogDescription>
               This will remove &quot;
-              {missing.title || missing.raw || "Unknown Track"}&quot; from the
-              playlist. This action cannot be undone.
+              {displayName}&quot; from the playlist. This action cannot be
+              undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

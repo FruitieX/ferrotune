@@ -337,14 +337,14 @@ pub async fn search3(
     if let Some(max_rating) = params.max_rating {
         artist_filter_conds.push(format!("COALESCE(r.rating, 0) <= {}", max_rating));
     }
-    let has_artist_filters = !artist_filter_conds.is_empty();
+
+    // Filter artists to only include those with songs from enabled music folders
+    let artist_enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id WHERE s_check.artist_id = a.id AND mf_check.enabled = 1)";
 
     let (artists, artist_total): (Vec<crate::db::models::Artist>, Option<i64>) = if is_wildcard {
-        let where_clause = if has_artist_filters {
-            format!("WHERE {}", artist_filter_conds.join(" AND "))
-        } else {
-            String::new()
-        };
+        let mut all_conditions = vec![artist_enabled_condition.to_string()];
+        all_conditions.extend(artist_filter_conds.clone());
+        let where_clause = format!("WHERE {}", all_conditions.join(" AND "));
 
         let query = format!(
             "SELECT a.* FROM artists a {artist_joins} {where_clause} ORDER BY a.name COLLATE NOCASE LIMIT ? OFFSET ?"
@@ -360,7 +360,10 @@ pub async fn search3(
 
         (artists, Some(total.0))
     } else if let Some(ref fts_q) = fts_query {
-        let mut where_conditions = vec!["artists_fts MATCH ?".to_string()];
+        let mut where_conditions = vec![
+            artist_enabled_condition.to_string(),
+            "artists_fts MATCH ?".to_string(),
+        ];
         where_conditions.extend(artist_filter_conds.clone());
         let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
 
@@ -424,7 +427,6 @@ pub async fn search3(
     // Search albums using FTS5 with filtering support
     // ========================================================================
     let album_filter_conds = build_album_filter_conditions(&params);
-    let has_album_filters = !album_filter_conds.is_empty();
     let album_has_rating_filter = params.min_rating.is_some() || params.max_rating.is_some();
     let album_has_starred_filter = params.starred_only.unwrap_or(false);
 
@@ -443,12 +445,13 @@ pub async fn search3(
         ));
     }
 
+    // Filter albums to only include those with songs from enabled music folders
+    let album_enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id WHERE s_check.album_id = a.id AND mf_check.enabled = 1)";
+
     let (albums, album_total): (Vec<crate::db::models::Album>, Option<i64>) = if is_wildcard {
-        let where_clause = if has_album_filters {
-            format!("WHERE {}", album_filter_conds.join(" AND "))
-        } else {
-            String::new()
-        };
+        let mut all_conditions = vec![album_enabled_condition.to_string()];
+        all_conditions.extend(album_filter_conds.clone());
+        let where_clause = format!("WHERE {}", all_conditions.join(" AND "));
 
         let album_query = format!(
             "SELECT a.*, ar.name as artist_name 
@@ -469,7 +472,10 @@ pub async fn search3(
 
         (albums, Some(total.0))
     } else if let Some(ref fts_q) = fts_query {
-        let mut where_conditions = vec!["albums_fts MATCH ?".to_string()];
+        let mut where_conditions = vec![
+            album_enabled_condition.to_string(),
+            "albums_fts MATCH ?".to_string(),
+        ];
         where_conditions.extend(album_filter_conds.clone());
         let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
 
@@ -546,13 +552,16 @@ pub async fn search3(
     // Search songs using FTS5 with filtering support
     // ========================================================================
     let filter_conds = build_song_filter_conditions(&params, user.user_id);
-    let has_filters = !filter_conds.conditions.is_empty();
+
+    // Filter to only include songs from enabled music folders
+    let enabled_folder_condition = "mf.enabled = 1".to_string();
 
     // Build JOIN clauses based on filter requirements
     // Always include play_count and last_played for the response
     let mut joins = format!(
         "INNER JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id{}",
+         LEFT JOIN albums al ON s.album_id = al.id
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id{}",
         crate::db::queries::SCROBBLE_STATS_JOIN
     );
     if filter_conds.has_rating_filter {
@@ -569,12 +578,10 @@ pub async fn search3(
     }
 
     let (songs, song_total): (Vec<crate::db::models::Song>, Option<i64>) = if is_wildcard {
-        // Build WHERE clause for filters
-        let where_clause = if has_filters {
-            format!("WHERE {}", filter_conds.conditions.join(" AND "))
-        } else {
-            String::new()
-        };
+        // Build WHERE clause for filters - always include enabled folder check
+        let mut all_conditions = vec![enabled_folder_condition.clone()];
+        all_conditions.extend(filter_conds.conditions.clone());
+        let where_clause = format!("WHERE {}", all_conditions.join(" AND "));
 
         let query = format!(
             "SELECT s.*, ar.name as artist_name, al.name as album_name, pc.play_count, pc.last_played, NULL as starred_at
@@ -597,8 +604,11 @@ pub async fn search3(
 
         (songs, Some(total.0))
     } else if let Some(ref fts_q) = fts_query {
-        // Build WHERE clause combining FTS and filters
-        let mut where_conditions = vec!["songs_fts MATCH ?".to_string()];
+        // Build WHERE clause combining FTS and filters - always include enabled folder check
+        let mut where_conditions = vec![
+            enabled_folder_condition.clone(),
+            "songs_fts MATCH ?".to_string(),
+        ];
         where_conditions.extend(filter_conds.conditions.clone());
         let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
 
@@ -717,12 +727,15 @@ pub async fn search_songs_for_queue(
     };
 
     let filter_conds = build_song_filter_conditions(params, user_id);
-    let has_filters = !filter_conds.conditions.is_empty();
+
+    // Filter to only include songs from enabled music folders
+    let enabled_folder_condition = "mf.enabled = 1".to_string();
 
     // Build JOIN clauses based on filter requirements
     let mut joins = format!(
         "INNER JOIN artists ar ON s.artist_id = ar.id
-         LEFT JOIN albums al ON s.album_id = al.id{}",
+         LEFT JOIN albums al ON s.album_id = al.id
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id{}",
         crate::db::queries::SCROBBLE_STATS_JOIN
     );
     if filter_conds.has_rating_filter {
@@ -739,12 +752,10 @@ pub async fn search_songs_for_queue(
     }
 
     let songs: Vec<crate::db::models::Song> = if is_wildcard {
-        // Build WHERE clause for filters
-        let where_clause = if has_filters {
-            format!("WHERE {}", filter_conds.conditions.join(" AND "))
-        } else {
-            String::new()
-        };
+        // Build WHERE clause for filters - always include enabled folder check
+        let mut all_conditions = vec![enabled_folder_condition.clone()];
+        all_conditions.extend(filter_conds.conditions.clone());
+        let where_clause = format!("WHERE {}", all_conditions.join(" AND "));
 
         let query_str = format!(
             "SELECT s.*, ar.name as artist_name, al.name as album_name, pc.play_count, pc.last_played, NULL as starred_at
@@ -756,8 +767,11 @@ pub async fn search_songs_for_queue(
 
         sqlx::query_as(&query_str).fetch_all(pool).await?
     } else if let Some(ref fts_q) = fts_query {
-        // Build WHERE clause combining FTS and filters
-        let mut where_conditions = vec!["songs_fts MATCH ?".to_string()];
+        // Build WHERE clause combining FTS and filters - always include enabled folder check
+        let mut where_conditions = vec![
+            enabled_folder_condition.clone(),
+            "songs_fts MATCH ?".to_string(),
+        ];
         where_conditions.extend(filter_conds.conditions.clone());
         let where_clause = format!("WHERE {}", where_conditions.join(" AND "));
 

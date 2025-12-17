@@ -577,7 +577,19 @@ export class SubsonicClient {
       return undefined as T;
     }
 
-    return response.json() as Promise<T>;
+    // Handle 200 OK with empty body (some endpoints return just status code)
+    const contentLength = response.headers.get("content-length");
+    if (contentLength === "0") {
+      return undefined as T;
+    }
+
+    // Try to parse as JSON, but handle empty responses gracefully
+    const text = await response.text();
+    if (!text) {
+      return undefined as T;
+    }
+
+    return JSON.parse(text) as T;
   }
 
   async deleteSongFromDatabase(

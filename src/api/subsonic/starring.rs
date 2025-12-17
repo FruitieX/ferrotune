@@ -282,7 +282,7 @@ async fn fetch_starred_content(
         }
     }
 
-    // Get starred songs with play counts via join
+    // Get starred songs with play counts via join, filtered by enabled music folders
     let starred_songs: Vec<crate::db::models::Song> = sqlx::query_as(
         r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
                   s.track_number, s.disc_number, s.year, s.genre, s.duration,
@@ -295,12 +295,13 @@ async fn fetch_starred_content(
            INNER JOIN songs s ON st.item_id = s.id
            INNER JOIN artists ar ON s.artist_id = ar.id
            LEFT JOIN albums al ON s.album_id = al.id
+           INNER JOIN music_folders mf ON s.music_folder_id = mf.id
            LEFT JOIN (
                SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played
                FROM scrobbles WHERE submission = 1
                GROUP BY song_id
            ) pc ON s.id = pc.song_id
-           WHERE st.user_id = ? AND st.item_type = 'song'
+           WHERE st.user_id = ? AND st.item_type = 'song' AND mf.enabled = 1
            ORDER BY st.starred_at DESC"#
     )
     .bind(user_id)

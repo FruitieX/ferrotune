@@ -98,7 +98,7 @@ function StatDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[70vh] flex flex-col min-h-0 overflow-hidden">
+      <DialogContent className="max-w-7xl flex flex-col min-h-0 overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {config.icon}
@@ -138,7 +138,7 @@ function StatDetailDialog({
                         transform: `translateY(${virtualItem.start}px)`,
                       }}
                     >
-                      <div className="p-2 rounded-md hover:bg-muted/50 font-mono text-xs h-full flex items-center">
+                      <div className="p-2 rounded-md hover:bg-muted/50 font-mono text-xs h-full flex flex-col justify-center">
                         <div className="truncate">{item.path}</div>
                         {item.error && (
                           <div className="text-red-500 mt-1 text-[10px] truncate">
@@ -401,7 +401,7 @@ export function ScanDialog() {
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+        <DialogContent className="max-w-6xl flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <RefreshCw
@@ -568,7 +568,7 @@ export function ScanDialog() {
                 {logs.length > 0 && (
                   <div className="space-y-2">
                     <p className="text-sm font-medium">Logs</p>
-                    <ScrollArea className="h-40 rounded-md border bg-muted/20">
+                    <ScrollArea className="h-80 rounded-md border bg-muted/20">
                       <div className="p-2 space-y-1 font-mono text-xs">
                         {logs.map((log, index) => (
                           <div

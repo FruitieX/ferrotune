@@ -525,20 +525,25 @@ async fn count_matching_songs(
 ) -> Result<i64> {
     let where_clause = build_where_clause(rules, user_id)?;
 
+    // Always filter by enabled music folders
+    let enabled_filter = "mf.enabled = 1";
+    let combined_where = if where_clause.is_empty() {
+        format!("WHERE {}", enabled_filter)
+    } else {
+        format!("WHERE {} AND {}", enabled_filter, where_clause)
+    };
+
     let query = format!(
         "SELECT COUNT(*) FROM songs s
          LEFT JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
          LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
          {}",
-        if where_clause.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", where_clause)
-        }
+        combined_where
     );
 
     let (count,): (i64,) = sqlx::query_as(&query)
@@ -563,6 +568,14 @@ async fn materialize_smart_playlist_songs(
     limit: Option<i64>,
 ) -> Result<Vec<crate::db::models::Song>> {
     let where_clause = build_where_clause(rules, user_id)?;
+
+    // Always filter by enabled music folders
+    let enabled_filter = "mf.enabled = 1";
+    let combined_where = if where_clause.is_empty() {
+        format!("WHERE {}", enabled_filter)
+    } else {
+        format!("WHERE {} AND {}", enabled_filter, where_clause)
+    };
 
     // Build ORDER BY clause
     let order_by = match sort_field {
@@ -613,6 +626,7 @@ async fn materialize_smart_playlist_songs(
          FROM songs s
          LEFT JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
          LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
@@ -620,14 +634,7 @@ async fn materialize_smart_playlist_songs(
          {}
          ORDER BY {} {}
          {}",
-        if where_clause.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", where_clause)
-        },
-        order_by,
-        direction,
-        limit_offset_clause
+        combined_where, order_by, direction, limit_offset_clause
     );
 
     let songs: Vec<crate::db::models::Song> = sqlx::query_as(&query)
@@ -663,21 +670,28 @@ async fn count_matching_songs_filtered(
         String::new()
     };
 
+    // Always filter by enabled music folders
+    let enabled_filter = "mf.enabled = 1";
+    let combined_where = if where_clause.is_empty() {
+        format!("WHERE {}{}", enabled_filter, filter_clause)
+    } else {
+        format!(
+            "WHERE {} AND {}{}",
+            enabled_filter, where_clause, filter_clause
+        )
+    };
+
     let query = format!(
         "SELECT COUNT(*) FROM songs s
          LEFT JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
          LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
-         {}{}",
-        if where_clause.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", where_clause)
-        },
-        filter_clause
+         {}",
+        combined_where
     );
 
     let (count,): (i64,) = sqlx::query_as(&query)
@@ -717,6 +731,17 @@ async fn materialize_smart_playlist_songs_filtered(
         }
     } else {
         String::new()
+    };
+
+    // Always filter by enabled music folders
+    let enabled_filter = "mf.enabled = 1";
+    let combined_where = if where_clause.is_empty() {
+        format!("WHERE {}{}", enabled_filter, filter_clause)
+    } else {
+        format!(
+            "WHERE {} AND {}{}",
+            enabled_filter, where_clause, filter_clause
+        )
     };
 
     // Build ORDER BY clause
@@ -767,22 +792,15 @@ async fn materialize_smart_playlist_songs_filtered(
          FROM songs s
          LEFT JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
          LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
          LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
-         {}{}
+         {}
          ORDER BY {} {}
          {}",
-        if where_clause.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", where_clause)
-        },
-        filter_clause,
-        order_by,
-        direction,
-        limit_offset_clause
+        combined_where, order_by, direction, limit_offset_clause
     );
 
     let songs: Vec<crate::db::models::Song> = sqlx::query_as(&query)

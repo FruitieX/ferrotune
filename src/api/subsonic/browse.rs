@@ -666,13 +666,14 @@ pub async fn get_genres(
 ) -> crate::error::Result<FormatResponse<GenresResponse>> {
     let genres: Vec<(String, i64, i64)> = sqlx::query_as(
         "SELECT 
-            genre,
-            COUNT(DISTINCT id) as song_count,
-            COUNT(DISTINCT album_id) as album_count
-         FROM songs 
-         WHERE genre IS NOT NULL 
-         GROUP BY genre 
-         ORDER BY genre",
+            s.genre,
+            COUNT(DISTINCT s.id) as song_count,
+            COUNT(DISTINCT s.album_id) as album_count
+         FROM songs s
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         WHERE s.genre IS NOT NULL AND mf.enabled = 1
+         GROUP BY s.genre 
+         ORDER BY s.genre",
     )
     .fetch_all(&state.pool)
     .await?;

@@ -83,6 +83,7 @@ pub async fn get_album_list2(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
                  ORDER BY RANDOM() 
                  LIMIT ? OFFSET ?"
             )
@@ -96,6 +97,7 @@ pub async fn get_album_list2(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
                  ORDER BY a.created_at DESC 
                  LIMIT ? OFFSET ?"
             )
@@ -110,6 +112,7 @@ pub async fn get_album_list2(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
                  ORDER BY a.name 
                  LIMIT ? OFFSET ?"
             )
@@ -124,6 +127,7 @@ pub async fn get_album_list2(
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
                  LEFT JOIN scrobbles sc ON sc.song_id IN (SELECT id FROM songs WHERE album_id = a.id)
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
                  GROUP BY a.id 
                  ORDER BY COUNT(sc.id) DESC 
                  LIMIT ? OFFSET ?"
@@ -139,7 +143,9 @@ pub async fn get_album_list2(
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
                  INNER JOIN songs s ON s.album_id = a.id 
+                 INNER JOIN music_folders mf ON s.music_folder_id = mf.id
                  INNER JOIN scrobbles sc ON sc.song_id = s.id 
+                 WHERE mf.enabled = 1
                  ORDER BY sc.played_at DESC 
                  LIMIT ? OFFSET ?"
             )
@@ -154,6 +160,7 @@ pub async fn get_album_list2(
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
                  INNER JOIN starred st ON st.item_id = a.id AND st.item_type = 'album' 
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
                  ORDER BY st.starred_at DESC 
                  LIMIT ? OFFSET ?"
             )
@@ -167,6 +174,7 @@ pub async fn get_album_list2(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
                  ORDER BY a.name COLLATE NOCASE 
                  LIMIT ? OFFSET ?"
             )
@@ -180,6 +188,7 @@ pub async fn get_album_list2(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
                  ORDER BY ar.name COLLATE NOCASE, a.name COLLATE NOCASE 
                  LIMIT ? OFFSET ?"
             )
@@ -193,7 +202,8 @@ pub async fn get_album_list2(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
-                 WHERE (? IS NULL OR a.year >= ?) AND (? IS NULL OR a.year <= ?)
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
+                   AND (? IS NULL OR a.year >= ?) AND (? IS NULL OR a.year <= ?)
                  ORDER BY a.year DESC, a.name 
                  LIMIT ? OFFSET ?"
             )
@@ -213,6 +223,7 @@ pub async fn get_album_list2(
                      FROM albums a 
                      INNER JOIN artists ar ON a.artist_id = ar.id 
                      WHERE a.genre = ? 
+                       AND EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
                      ORDER BY a.name 
                      LIMIT ? OFFSET ?"
                 )
@@ -234,14 +245,18 @@ pub async fn get_album_list2(
         | AlbumListType::Newest
         | AlbumListType::Highest
         | AlbumListType::Frequent => {
-            let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM albums")
+            let count: (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM albums a WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)"
+            )
                 .fetch_one(&state.pool)
                 .await?;
             Some(count.0)
         }
         AlbumListType::Starred => {
             let count: (i64,) = sqlx::query_as(
-                "SELECT COUNT(*) FROM starred WHERE item_type = 'album' AND user_id = ?",
+                "SELECT COUNT(*) FROM starred st INNER JOIN albums a ON st.item_id = a.id 
+                 WHERE st.item_type = 'album' AND st.user_id = ?
+                   AND EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)",
             )
             .bind(user.user_id)
             .fetch_one(&state.pool)
@@ -250,7 +265,9 @@ pub async fn get_album_list2(
         }
         AlbumListType::ByGenre => {
             if let Some(ref genre) = params.genre {
-                let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM albums WHERE genre = ?")
+                let count: (i64,) = sqlx::query_as(
+                    "SELECT COUNT(*) FROM albums a WHERE a.genre = ? AND EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)"
+                )
                     .bind(genre)
                     .fetch_one(&state.pool)
                     .await?;
@@ -261,8 +278,9 @@ pub async fn get_album_list2(
         }
         AlbumListType::ByYear => {
             let count: (i64,) = sqlx::query_as(
-                "SELECT COUNT(*) FROM albums 
-                 WHERE (? IS NULL OR year >= ?) AND (? IS NULL OR year <= ?)",
+                "SELECT COUNT(*) FROM albums a
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
+                   AND (? IS NULL OR a.year >= ?) AND (? IS NULL OR a.year <= ?)",
             )
             .bind(params.from_year)
             .bind(params.from_year)
@@ -360,7 +378,9 @@ pub async fn get_random_songs(
          FROM songs s 
          INNER JOIN artists ar ON s.artist_id = ar.id 
          LEFT JOIN albums al ON s.album_id = al.id
-         WHERE (? IS NULL OR s.genre = ?)
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         WHERE mf.enabled = 1
+           AND (? IS NULL OR s.genre = ?)
            AND (? IS NULL OR s.year >= ?)
            AND (? IS NULL OR s.year <= ?)
          ORDER BY RANDOM() 
@@ -455,7 +475,8 @@ pub async fn get_songs_by_genre(
          FROM songs s 
          INNER JOIN artists ar ON s.artist_id = ar.id 
          LEFT JOIN albums al ON s.album_id = al.id
-         WHERE s.genre = ?
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         WHERE s.genre = ? AND mf.enabled = 1
          ORDER BY s.title COLLATE NOCASE
          LIMIT ? OFFSET ?",
     )

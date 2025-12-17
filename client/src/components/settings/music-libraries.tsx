@@ -473,8 +473,38 @@ export function MusicLibraries() {
       if (!client) throw new Error("Not connected");
       return client.updateMusicFolder(id, updates);
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["adminMusicFolders"] });
+
+      // When enabled status changes, many queries might return different data
+      if (variables.updates.enabled !== undefined) {
+        // Stats will show different counts
+        queryClient.invalidateQueries({ queryKey: ["serverStats"] });
+        // Library data may include/exclude artists/albums/songs from this folder
+        queryClient.invalidateQueries({ queryKey: ["albums"] });
+        queryClient.invalidateQueries({ queryKey: ["album"] });
+        queryClient.invalidateQueries({ queryKey: ["artists"] });
+        queryClient.invalidateQueries({ queryKey: ["artist"] });
+        queryClient.invalidateQueries({ queryKey: ["songs"] });
+        queryClient.invalidateQueries({ queryKey: ["genres"] });
+        queryClient.invalidateQueries({ queryKey: ["starred"] });
+        // Playlists may now have not-found entries
+        queryClient.invalidateQueries({ queryKey: ["playlists"] });
+        queryClient.invalidateQueries({ queryKey: ["playlistDetail"] });
+        queryClient.invalidateQueries({ queryKey: ["playlistSongs"] });
+        // Smart playlists filter by enabled folders
+        queryClient.invalidateQueries({ queryKey: ["smartPlaylists"] });
+        queryClient.invalidateQueries({ queryKey: ["smartPlaylistSongs"] });
+        // Home page data (random albums, recently added, etc.)
+        queryClient.invalidateQueries({ queryKey: ["randomAlbums"] });
+        queryClient.invalidateQueries({ queryKey: ["recentAlbums"] });
+        queryClient.invalidateQueries({ queryKey: ["frequentAlbums"] });
+        queryClient.invalidateQueries({ queryKey: ["randomSongs"] });
+        // Search results
+        queryClient.invalidateQueries({ queryKey: ["search"] });
+        // Music folder list (for folder selector in various views)
+        queryClient.invalidateQueries({ queryKey: ["musicFolders"] });
+      }
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to update music folder");

@@ -534,7 +534,8 @@ async fn get_top_level_directories(
             SELECT DISTINCT a.id, a.name
             FROM artists a
             INNER JOIN songs s ON s.artist_id = a.id
-            WHERE s.music_folder_id = ?
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            WHERE s.music_folder_id = ? AND mf.enabled = 1
             ORDER BY a.sort_name COLLATE NOCASE, a.name COLLATE NOCASE
             "#,
         )
@@ -544,9 +545,12 @@ async fn get_top_level_directories(
     } else {
         sqlx::query_as(
             r#"
-            SELECT id, name
-            FROM artists
-            ORDER BY sort_name COLLATE NOCASE, name COLLATE NOCASE
+            SELECT DISTINCT a.id, a.name
+            FROM artists a
+            INNER JOIN songs s ON s.artist_id = a.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            WHERE mf.enabled = 1
+            ORDER BY a.sort_name COLLATE NOCASE, a.name COLLATE NOCASE
             "#,
         )
         .fetch_all(pool)
@@ -572,14 +576,15 @@ async fn get_directory_contents(
         format!("{}/", path)
     };
 
-    // Get all songs that start with this path prefix
+    // Get all songs that start with this path prefix from enabled music folders
     let songs: Vec<crate::db::models::Song> = sqlx::query_as(
         r#"
         SELECT s.*, a.name as artist_name, al.name as album_name
         FROM songs s
         LEFT JOIN artists a ON s.artist_id = a.id
         LEFT JOIN albums al ON s.album_id = al.id
-        WHERE s.file_path LIKE ? || '%'
+        INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+        WHERE s.file_path LIKE ? || '%' AND mf.enabled = 1
         ORDER BY s.file_path
         "#,
     )

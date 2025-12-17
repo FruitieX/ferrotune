@@ -1024,14 +1024,28 @@ function PlaylistDetailContent() {
               items={displayItems}
               totalCount={filteredCount}
               renderItem={(item, _index) => {
-                if (item.type === "missing" && item.entry.missing) {
+                if (item.type === "missing") {
                   const missingId = `missing-${item.entryId}`;
+                  // If the entry has song data (from disabled library), extract it
+                  const songData = item.entry.song
+                    ? {
+                        title: item.entry.song.title,
+                        artist: item.entry.song.artist,
+                        album: item.entry.song.album,
+                      }
+                    : null;
                   return (
                     <MissingEntryCard
                       playlistId={playlistId!}
                       entryId={item.entryId}
                       position={item.position}
                       missing={item.entry.missing}
+                      song={songData}
+                      entryType={
+                        item.entry.entryType === "notFound"
+                          ? "notFound"
+                          : "missing"
+                      }
                       isSelected={isMissingSelected(missingId)}
                       isSelectionMode={totalSelectedCount > 0}
                       onSelect={handleMissingSelect}
@@ -1089,14 +1103,28 @@ function PlaylistDetailContent() {
                 items={displayItems}
                 totalCount={filteredCount}
                 renderItem={(item, _index) => {
-                  if (item.type === "missing" && item.entry.missing) {
+                  if (item.type === "missing") {
                     const missingId = `missing-${item.entryId}`;
+                    // If the entry has song data (from disabled library), extract it
+                    const songData = item.entry.song
+                      ? {
+                          title: item.entry.song.title,
+                          artist: item.entry.song.artist,
+                          album: item.entry.song.album,
+                        }
+                      : null;
                     return (
                       <MissingEntryRow
                         playlistId={playlistId!}
                         entryId={item.entryId}
                         position={item.position}
                         missing={item.entry.missing}
+                        song={songData}
+                        entryType={
+                          item.entry.entryType === "notFound"
+                            ? "notFound"
+                            : "missing"
+                        }
                         isSelected={isMissingSelected(missingId)}
                         isSelectionMode={totalSelectedCount > 0}
                         onSelect={handleMissingSelect}

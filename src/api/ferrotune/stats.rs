@@ -40,39 +40,64 @@ pub struct StatsResponse {
 }
 
 /// GET /ferrotune/stats - Get server statistics
+/// Only includes content from enabled music folders.
 pub async fn get_stats(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<StatsResponse>> {
-    // Get counts for various entities
-    let (song_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM songs")
-        .fetch_one(&state.pool)
-        .await?;
+    // Get song count from enabled folders
+    let (song_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM songs s
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         WHERE mf.enabled = 1",
+    )
+    .fetch_one(&state.pool)
+    .await?;
 
-    let (album_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM albums")
-        .fetch_one(&state.pool)
-        .await?;
+    // Get album count (albums with at least one song in enabled folder)
+    let (album_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(DISTINCT a.id) FROM albums a
+         INNER JOIN songs s ON s.album_id = a.id
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         WHERE mf.enabled = 1",
+    )
+    .fetch_one(&state.pool)
+    .await?;
 
-    let (artist_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM artists")
-        .fetch_one(&state.pool)
-        .await?;
+    // Get artist count (artists with at least one song in enabled folder)
+    let (artist_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(DISTINCT ar.id) FROM artists ar
+         INNER JOIN songs s ON s.artist_id = ar.id
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         WHERE mf.enabled = 1",
+    )
+    .fetch_one(&state.pool)
+    .await?;
 
-    let (genre_count,): (i64,) =
-        sqlx::query_as("SELECT COUNT(DISTINCT genre) FROM songs WHERE genre IS NOT NULL")
-            .fetch_one(&state.pool)
-            .await?;
+    // Get genre count (distinct genres from songs in enabled folders)
+    let (genre_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(DISTINCT s.genre) FROM songs s
+             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+             WHERE s.genre IS NOT NULL AND mf.enabled = 1",
+    )
+    .fetch_one(&state.pool)
+    .await?;
 
     let (playlist_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM playlists")
         .fetch_one(&state.pool)
         .await?;
 
-    // Get total duration and size
-    let (total_duration, total_size): (Option<i64>, Option<i64>) =
-        sqlx::query_as("SELECT SUM(duration), SUM(file_size) FROM songs")
-            .fetch_one(&state.pool)
-            .await?;
+    // Get total duration and size from enabled folders
+    let (total_duration, total_size): (Option<i64>, Option<i64>) = sqlx::query_as(
+        "SELECT SUM(s.duration), SUM(s.file_size) FROM songs s
+             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+             WHERE mf.enabled = 1",
+    )
+    .fetch_one(&state.pool)
+    .await?;
 
-    // Get total plays for this user
+    // Get total plays for this user (scrobbles are not filtered by enabled folders,
+    // as they represent historical data)
     let (total_plays,): (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM scrobbles WHERE user_id = ? AND submission = 1")
             .bind(user.user_id)

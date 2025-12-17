@@ -74,6 +74,7 @@ pub async fn get_song_match_list(
     Query(params): Query<GetSongMatchListParams>,
 ) -> Result<Json<SongMatchListResponse>, ApiError> {
     // Build query based on whether we're filtering by library
+    // Always filter by enabled music folders
     let songs: Vec<SongMatchEntry> = if let Some(music_folder_id) = params.library_id {
         sqlx::query_as::<_, SongMatchEntry>(
             r#"
@@ -86,7 +87,8 @@ pub async fn get_song_match_list(
             FROM songs s
             JOIN artists ar ON s.artist_id = ar.id
             LEFT JOIN albums al ON s.album_id = al.id
-            WHERE s.music_folder_id = ?
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            WHERE s.music_folder_id = ? AND mf.enabled = 1
             ORDER BY ar.name, al.name, s.disc_number, s.track_number, s.title
             "#,
         )
@@ -114,6 +116,8 @@ pub async fn get_song_match_list(
             FROM songs s
             JOIN artists ar ON s.artist_id = ar.id
             LEFT JOIN albums al ON s.album_id = al.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            WHERE mf.enabled = 1
             ORDER BY ar.name, al.name, s.disc_number, s.track_number, s.title
             "#,
         )
@@ -228,7 +232,7 @@ pub async fn match_tracks(
     Query(params): Query<MatchTracksParams>,
     Json(request): Json<MatchTracksRequest>,
 ) -> Result<Json<MatchTracksResponse>, (StatusCode, Json<super::ErrorResponse>)> {
-    // Fetch all songs from the library
+    // Fetch all songs from enabled music folders
     let songs: Vec<SongMatchEntry> = if let Some(music_folder_id) = params.library_id {
         sqlx::query_as::<_, SongMatchEntry>(
             r#"
@@ -241,7 +245,8 @@ pub async fn match_tracks(
             FROM songs s
             JOIN artists ar ON s.artist_id = ar.id
             LEFT JOIN albums al ON s.album_id = al.id
-            WHERE s.music_folder_id = ?
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            WHERE s.music_folder_id = ? AND mf.enabled = 1
             "#,
         )
         .bind(music_folder_id)
@@ -259,6 +264,8 @@ pub async fn match_tracks(
             FROM songs s
             JOIN artists ar ON s.artist_id = ar.id
             LEFT JOIN albums al ON s.album_id = al.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            WHERE mf.enabled = 1
             "#,
         )
         .fetch_all(&state.pool)

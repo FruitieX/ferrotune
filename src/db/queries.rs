@@ -164,6 +164,11 @@ pub async fn get_artists(pool: &SqlitePool) -> sqlx::Result<Vec<Artist>> {
     sqlx::query_as::<_, Artist>(
         "SELECT id, name, sort_name, album_count, cover_art_hash 
          FROM artists 
+         WHERE EXISTS (
+             SELECT 1 FROM songs s 
+             INNER JOIN music_folders mf ON s.music_folder_id = mf.id 
+             WHERE s.artist_id = artists.id AND mf.enabled = 1
+         )
          ORDER BY COALESCE(sort_name, name) COLLATE NOCASE",
     )
     .fetch_all(pool)
@@ -184,6 +189,11 @@ pub async fn get_albums_by_artist(pool: &SqlitePool, artist_id: &str) -> sqlx::R
          FROM albums a 
          INNER JOIN artists ar ON a.artist_id = ar.id 
          WHERE a.artist_id = ? 
+           AND EXISTS (
+               SELECT 1 FROM songs s 
+               INNER JOIN music_folders mf ON s.music_folder_id = mf.id 
+               WHERE s.album_id = a.id AND mf.enabled = 1
+           )
          ORDER BY a.year, a.name",
     )
     .bind(artist_id)
@@ -245,6 +255,7 @@ pub async fn get_song_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<
 }
 
 /// Get songs by a list of IDs, maintaining the order of the input IDs
+/// Only returns songs from enabled music folders.
 pub async fn get_songs_by_ids(pool: &SqlitePool, ids: &[String]) -> sqlx::Result<Vec<Song>> {
     if ids.is_empty() {
         return Ok(vec![]);
@@ -254,8 +265,11 @@ pub async fn get_songs_by_ids(pool: &SqlitePool, ids: &[String]) -> sqlx::Result
     let placeholders: Vec<&str> = ids.iter().map(|_| "?").collect();
     let placeholder_str = placeholders.join(", ");
 
+    // Filter by enabled music folders
     let query = format!(
-        "{} WHERE s.id IN ({})",
+        "{} 
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         WHERE s.id IN ({}) AND mf.enabled = 1",
         SONG_BASE_QUERY.trim(),
         placeholder_str
     );
@@ -273,6 +287,49 @@ pub async fn get_songs_by_ids(pool: &SqlitePool, ids: &[String]) -> sqlx::Result
         songs.into_iter().map(|s| (s.id.clone(), s)).collect();
 
     // Return songs in the order of the input IDs
+    Ok(ids
+        .iter()
+        .filter_map(|id| song_map.get(id).cloned())
+        .collect())
+}
+
+/// Get songs by a list of IDs with their library enabled status.
+/// Returns songs from ALL music folders (including disabled ones).
+/// The `library_enabled` flag indicates whether the song can be played.
+pub async fn get_songs_by_ids_with_library_status(
+    pool: &SqlitePool,
+    ids: &[String],
+) -> sqlx::Result<Vec<SongWithLibraryStatus>> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Build the placeholder string for the IN clause
+    let placeholders: Vec<&str> = ids.iter().map(|_| "?").collect();
+    let placeholder_str = placeholders.join(", ");
+
+    // Include library_enabled status from music_folders
+    let query = format!(
+        "SELECT s.*, ar.name as artist_name, al.name as album_name, mf.enabled as library_enabled
+         FROM songs s
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         WHERE s.id IN ({})",
+        placeholder_str
+    );
+
+    let mut query_builder = sqlx::query_as::<_, SongWithLibraryStatus>(&query);
+    for id in ids {
+        query_builder = query_builder.bind(id);
+    }
+
+    let songs: Vec<SongWithLibraryStatus> = query_builder.fetch_all(pool).await?;
+
+    // Reorder songs to match the input ID order
+    let song_map: std::collections::HashMap<String, SongWithLibraryStatus> =
+        songs.into_iter().map(|s| (s.id.clone(), s)).collect();
+
     Ok(ids
         .iter()
         .filter_map(|id| song_map.get(id).cloned())
