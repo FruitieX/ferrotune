@@ -339,7 +339,7 @@ export function TrackSearchPanel({
 
       {searchResults.length > 0 && (
         <div
-          className="h-[200px] max-w-full rounded border overflow-y-auto overflow-x-hidden"
+          className="h-[320px] max-w-full rounded border overflow-y-auto overflow-x-hidden"
           onWheel={(e) => e.stopPropagation()}
         >
           <div className="p-1">

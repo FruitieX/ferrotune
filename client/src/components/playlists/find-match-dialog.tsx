@@ -62,7 +62,7 @@ export function FindMatchDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] overflow-hidden">
+      <DialogContent className="sm:max-w-[800px] overflow-hidden">
         <DialogHeader>
           <DialogTitle>Find matching track</DialogTitle>
         </DialogHeader>
