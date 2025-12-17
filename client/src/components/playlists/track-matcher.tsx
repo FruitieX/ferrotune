@@ -576,7 +576,7 @@ export function TabbedTrackList({
   showPosition,
   showLockedTab = false,
   showMatchFilter = false,
-  showQuickFilter = false,
+  showQuickFilter = true,
   showCheckboxes = false,
   renderTrackExtra,
 }: TabbedTrackListProps) {
