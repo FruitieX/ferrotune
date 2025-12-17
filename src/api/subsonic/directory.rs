@@ -520,20 +520,22 @@ struct SubDirectory {
     cover_art: Option<String>,
 }
 
-/// Get all top-level directories (artist folders) from the songs table.
-/// This extracts the first path component from each song's file_path.
+/// Get all top-level directories (artist folders) from the albums table.
+/// This returns ALBUM artists only (artists with albums), not track artists.
+/// This matches the typical filesystem structure where folders represent album artists.
 async fn get_top_level_directories(
     pool: &sqlx::SqlitePool,
     music_folder_id: Option<i64>,
 ) -> crate::error::Result<Vec<TopLevelDirectory>> {
-    // We use artists as the top level, since that's what we have indexed
-    // This provides compatibility with getArtists while also being filesystem-aware
+    // We use album artists as the top level, since that's what maps to directories
+    // Track-only artists (e.g., featured artists, collabs) are excluded
     let artists: Vec<(String, String)> = if let Some(folder_id) = music_folder_id {
         sqlx::query_as(
             r#"
             SELECT DISTINCT a.id, a.name
             FROM artists a
-            INNER JOIN songs s ON s.artist_id = a.id
+            INNER JOIN albums al ON al.artist_id = a.id
+            INNER JOIN songs s ON s.album_id = al.id
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
             WHERE s.music_folder_id = ? AND mf.enabled = 1
             ORDER BY a.sort_name COLLATE NOCASE, a.name COLLATE NOCASE
@@ -547,7 +549,8 @@ async fn get_top_level_directories(
             r#"
             SELECT DISTINCT a.id, a.name
             FROM artists a
-            INNER JOIN songs s ON s.artist_id = a.id
+            INNER JOIN albums al ON al.artist_id = a.id
+            INNER JOIN songs s ON s.album_id = al.id
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
             WHERE mf.enabled = 1
             ORDER BY a.sort_name COLLATE NOCASE, a.name COLLATE NOCASE

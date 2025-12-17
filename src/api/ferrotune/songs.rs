@@ -3,7 +3,7 @@
 //! This module provides endpoints for fetching song data optimized for
 //! matching operations, including server-side fuzzy matching.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use axum::{
     extract::{Query, State},
@@ -70,7 +70,7 @@ pub struct GetSongMatchListParams {
 /// GET /ferrotune/songs/match-list
 pub async fn get_song_match_list(
     State(state): State<Arc<AppState>>,
-    _user: AuthenticatedUser,
+    _user: FerrotuneAuthenticatedUser,
     Query(params): Query<GetSongMatchListParams>,
 ) -> Result<Json<SongMatchListResponse>, ApiError> {
     // Build query based on whether we're filtering by library
@@ -228,7 +228,7 @@ pub struct MatchTracksParams {
 /// POST /ferrotune/songs/match
 pub async fn match_tracks(
     State(state): State<Arc<AppState>>,
-    _user: AuthenticatedUser,
+    _user: FerrotuneAuthenticatedUser,
     Query(params): Query<MatchTracksParams>,
     Json(request): Json<MatchTracksRequest>,
 ) -> Result<Json<MatchTracksResponse>, (StatusCode, Json<super::ErrorResponse>)> {

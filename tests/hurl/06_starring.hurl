@@ -460,23 +460,24 @@ jsonpath "$.subsonic-response.album.userRating" not exists
 # RATINGS - ERROR CASES
 # ============================================================================
 
-# Test: setRating with invalid rating (> 5) should fail
+# Test: setRating with invalid rating (> 5) should fail - error code 10 = bad request
 GET {{base_url}}/rest/setRating?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&id={{star_song_id}}&rating=6
-HTTP 400
+HTTP 200
 [Asserts]
 jsonpath "$.subsonic-response.status" == "failed"
-jsonpath "$.subsonic-response.error.code" exists
+jsonpath "$.subsonic-response.error.code" == 10
 
-# Test: setRating without id should fail
+# Test: setRating without id should fail - error code 10 = bad request
 GET {{base_url}}/rest/setRating?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&rating=5
-HTTP 400
+HTTP 200
 [Asserts]
 jsonpath "$.subsonic-response.status" == "failed"
-jsonpath "$.subsonic-response.error.code" exists
+jsonpath "$.subsonic-response.error.code" == 10
 
-# Test: setRating without rating should fail
+# Test: setRating without rating should fail - error code 10 = bad request
 GET {{base_url}}/rest/setRating?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&id={{star_song_id}}
-HTTP 400
+HTTP 200
 [Asserts]
 jsonpath "$.subsonic-response.status" == "failed"
-jsonpath "$.subsonic-response.error.code" exists
+jsonpath "$.subsonic-response.error.code" == 10
+

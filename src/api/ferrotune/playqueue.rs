@@ -4,7 +4,7 @@
 //! that uses JSON body instead of query parameters for better scalability with
 //! large queues.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::error::Result;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
@@ -39,7 +39,7 @@ pub struct SavePlayQueueResponse {
 /// Note: This endpoint uses the new server-side queue schema but maintains
 /// compatibility with the legacy API format.
 pub async fn save_play_queue(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<SavePlayQueueRequest>,
 ) -> Result<impl IntoResponse> {
@@ -91,7 +91,7 @@ pub async fn save_play_queue(
     .bind(user.user_id)
     .bind(current_index)
     .bind(request.position.unwrap_or(0))
-    .bind(&user.client)
+    .bind("ferrotune")
     .execute(&mut *tx)
     .await?;
 

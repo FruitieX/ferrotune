@@ -1,6 +1,6 @@
 //! Server statistics endpoint for the Ferrotune Admin API.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::error::Result;
 use axum::{extract::State, Json};
@@ -42,7 +42,7 @@ pub struct StatsResponse {
 /// GET /ferrotune/stats - Get server statistics
 /// Only includes content from enabled music folders.
 pub async fn get_stats(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<StatsResponse>> {
     // Get song count from enabled folders

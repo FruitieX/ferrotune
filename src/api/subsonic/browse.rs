@@ -289,11 +289,21 @@ pub async fn get_artist(
     let song_responses: Vec<SongResponse> = songs
         .iter()
         .map(|song| {
-            song_to_response(
+            // Use play stats from the Song model (populated by get_songs_by_artist)
+            let play_stats = SongPlayStats {
+                play_count: song.play_count,
+                last_played: song
+                    .last_played
+                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+            };
+            song_to_response_with_stats(
                 song.clone(),
                 None, // We don't have album info here, but song has album_id
                 song_starred_map.get(&song.id).cloned(),
                 song_ratings_map.get(&song.id).copied(),
+                Some(play_stats),
+                None,
+                None,
             )
         })
         .collect();
@@ -532,11 +542,21 @@ pub async fn get_album(
     let song_responses: Vec<SongResponse> = songs
         .iter()
         .map(|song| {
-            song_to_response(
+            // Use play stats from the Song model (populated by get_songs_by_album)
+            let play_stats = SongPlayStats {
+                play_count: song.play_count,
+                last_played: song
+                    .last_played
+                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+            };
+            song_to_response_with_stats(
                 song.clone(),
                 Some(&album),
                 starred_map.get(&song.id).cloned(),
                 ratings_map.get(&song.id).copied(),
+                Some(play_stats),
+                None,
+                None,
             )
         })
         .collect();

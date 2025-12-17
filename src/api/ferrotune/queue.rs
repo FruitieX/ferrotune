@@ -12,7 +12,7 @@
 //! and stored server-side for consistent behavior across sessions.
 
 use crate::api::ferrotune::smart_playlists::get_smart_playlist_songs_by_id;
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::browse::{
     get_ratings_map, get_starred_map, song_to_response_with_stats, SongResponse,
 };
@@ -276,7 +276,7 @@ pub struct QueueSuccessResponse {
 /// reproduce the song list. The `source_id` field is used as the search query
 /// for search-type sources.
 pub async fn start_queue(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<StartQueueRequest>,
 ) -> Result<impl IntoResponse> {
@@ -449,7 +449,7 @@ pub async fn start_queue(
         repeat_mode,
         filters_json.as_deref(),
         sort_json.as_deref(),
-        &user.client,
+        "ferrotune",
     )
     .await?;
 
@@ -483,7 +483,7 @@ pub async fn start_queue(
 
 /// GET /ferrotune/queue - Get the current queue with pagination
 pub async fn get_queue(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<QueuePaginationParams>,
 ) -> Result<impl IntoResponse> {
@@ -539,7 +539,7 @@ pub async fn get_queue(
 
 /// GET /ferrotune/queue/current-window - Get songs around current position
 pub async fn get_current_window(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<CurrentWindowParams>,
 ) -> Result<impl IntoResponse> {
@@ -594,7 +594,7 @@ pub async fn get_current_window(
 
 /// POST /ferrotune/queue/add - Add songs to the queue
 pub async fn add_to_queue(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<AddToQueueRequest>,
 ) -> Result<impl IntoResponse> {
@@ -705,7 +705,7 @@ pub async fn add_to_queue(
 
 /// DELETE /ferrotune/queue/{position} - Remove a song from the queue
 pub async fn remove_from_queue(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(position): Path<usize>,
 ) -> Result<impl IntoResponse> {
@@ -799,7 +799,7 @@ pub async fn remove_from_queue(
 
 /// POST /ferrotune/queue/move - Move a song to a new position
 pub async fn move_in_queue(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<MoveInQueueRequest>,
 ) -> Result<impl IntoResponse> {
@@ -904,7 +904,7 @@ pub async fn move_in_queue(
 
 /// POST /ferrotune/queue/shuffle - Toggle shuffle mode
 pub async fn toggle_shuffle(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<ShuffleRequest>,
 ) -> Result<impl IntoResponse> {
@@ -968,7 +968,7 @@ pub async fn toggle_shuffle(
 
 /// POST /ferrotune/queue/position - Update current position
 pub async fn update_position(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<UpdatePositionRequest>,
 ) -> Result<impl IntoResponse> {
@@ -1016,7 +1016,7 @@ pub async fn update_position(
 
 /// POST /ferrotune/queue/repeat - Update repeat mode
 pub async fn update_repeat_mode(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<RepeatModeRequest>,
 ) -> Result<impl IntoResponse> {
@@ -1038,7 +1038,7 @@ pub async fn update_repeat_mode(
 
 /// DELETE /ferrotune/queue - Clear the entire queue
 pub async fn clear_queue(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> Result<impl IntoResponse> {
     queries::clear_queue(&state.pool, user.user_id).await?;

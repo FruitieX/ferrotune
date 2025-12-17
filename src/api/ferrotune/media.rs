@@ -1,6 +1,6 @@
 //! Media management endpoints for the Admin API.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::search::{
     build_fts_query, build_song_filter_conditions, get_song_order_clause, SearchParams,
 };
@@ -38,7 +38,7 @@ pub struct DeleteSongResponse {
 /// Note: This does NOT delete the actual file from disk. On the next scan,
 /// the song will be re-added to the database unless the file is also removed.
 pub async fn delete_song(
-    _user: AuthenticatedUser,
+    _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
@@ -102,7 +102,7 @@ pub struct SongIdsResponse {
 /// but only returns the IDs, which is useful for bulk operations like
 /// "select all matching songs".
 pub async fn get_song_ids(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<SearchParams>,
 ) -> impl IntoResponse {

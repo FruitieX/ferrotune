@@ -7,7 +7,7 @@
 //! - Manage library access (which music folders a user can see)
 //! - Manage API keys
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::User;
 use crate::error::{Error, Result};
@@ -156,7 +156,7 @@ pub struct ApiKeysResponse {
 // Helper: Check admin permission
 // ============================================================================
 
-fn require_admin(user: &AuthenticatedUser) -> Result<()> {
+fn require_admin(user: &FerrotuneAuthenticatedUser) -> Result<()> {
     if !user.is_admin {
         return Err(Error::Auth("Admin privileges required".to_string()));
     }
@@ -169,7 +169,7 @@ fn require_admin(user: &AuthenticatedUser) -> Result<()> {
 
 /// GET /ferrotune/users/me - Get current user info (any authenticated user)
 pub async fn get_current_user(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<UserInfo>> {
     // Fetch the full user record from database to get all fields
@@ -192,7 +192,7 @@ pub async fn get_current_user(
 
 /// GET /ferrotune/users - List all users (admin only)
 pub async fn list_users(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<UsersResponse>> {
     require_admin(&user)?;
@@ -219,7 +219,7 @@ pub async fn list_users(
 
 /// GET /ferrotune/users/{id} - Get a specific user (admin only)
 pub async fn get_user(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<Json<UserInfo>> {
@@ -245,7 +245,7 @@ pub async fn get_user(
 
 /// POST /ferrotune/users - Create a new user (admin only)
 pub async fn create_user(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreateUserRequest>,
 ) -> Result<impl IntoResponse> {
@@ -333,7 +333,7 @@ pub async fn create_user(
 
 /// PATCH /ferrotune/users/{id} - Update a user (admin only)
 pub async fn update_user(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(request): Json<UpdateUserRequest>,
@@ -461,7 +461,7 @@ pub async fn update_user(
 
 /// DELETE /ferrotune/users/{id} - Delete a user (admin only)
 pub async fn delete_user(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse> {
@@ -497,7 +497,7 @@ pub async fn delete_user(
 
 /// GET /ferrotune/users/{id}/library-access - Get user's library access
 pub async fn get_library_access(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<Json<LibraryAccessResponse>> {
@@ -522,7 +522,7 @@ pub async fn get_library_access(
 
 /// PUT /ferrotune/users/{id}/library-access - Set user's library access
 pub async fn set_library_access(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(request): Json<SetLibraryAccessRequest>,
@@ -565,7 +565,7 @@ pub async fn set_library_access(
 
 /// GET /ferrotune/users/{id}/api-keys - List user's API keys (admin or self)
 pub async fn list_api_keys(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<Json<ApiKeysResponse>> {
@@ -607,7 +607,7 @@ pub async fn list_api_keys(
 
 /// POST /ferrotune/users/{id}/api-keys - Create a new API key (admin or self)
 pub async fn create_api_key(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(request): Json<CreateApiKeyRequest>,
@@ -649,7 +649,7 @@ pub async fn create_api_key(
 
 /// DELETE /ferrotune/users/{id}/api-keys/{name} - Delete an API key (admin or self)
 pub async fn delete_api_key(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path((id, name)): Path<(i64, String)>,
 ) -> Result<impl IntoResponse> {

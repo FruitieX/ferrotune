@@ -7,7 +7,7 @@
 //! audio files into memory. For a 2-hour mix, memory usage is ~O(resolution)
 //! instead of O(file_duration * sample_rate).
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::error::{Error, Result};
 use axum::{
@@ -71,7 +71,7 @@ pub struct WaveformChunk {
 /// Returns chunks of waveform data as audio is decoded, allowing the client
 /// to progressively render the waveform.
 pub async fn get_waveform_stream(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(song_id): Path<String>,
     Query(params): Query<WaveformQuery>,

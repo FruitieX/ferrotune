@@ -3,7 +3,7 @@
 //! Smart playlists are dynamic playlists that automatically include songs
 //! matching specified filter rules. Songs are materialized at query time.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::SmartPlaylist;
 use crate::error::{Error, Result};
@@ -169,7 +169,7 @@ fn default_page_size() -> i64 {
 
 /// GET /ferrotune/smart-playlists - List all smart playlists for the user
 pub async fn list_smart_playlists(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<SmartPlaylistsResponse>> {
     let playlists: Vec<SmartPlaylist> = sqlx::query_as(
@@ -215,7 +215,7 @@ pub async fn list_smart_playlists(
 
 /// GET /ferrotune/smart-playlists/{id} - Get a single smart playlist
 pub async fn get_smart_playlist(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<SmartPlaylistInfo>> {
@@ -259,7 +259,7 @@ pub async fn get_smart_playlist(
 
 /// POST /ferrotune/smart-playlists - Create a new smart playlist
 pub async fn create_smart_playlist(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreateSmartPlaylistRequest>,
 ) -> Result<impl IntoResponse> {
@@ -294,7 +294,7 @@ pub async fn create_smart_playlist(
 
 /// PUT /ferrotune/smart-playlists/{id} - Update a smart playlist
 pub async fn update_smart_playlist(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(request): Json<UpdateSmartPlaylistRequest>,
@@ -382,7 +382,7 @@ pub async fn update_smart_playlist(
 
 /// DELETE /ferrotune/smart-playlists/{id} - Delete a smart playlist
 pub async fn delete_smart_playlist(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse> {
@@ -404,7 +404,7 @@ pub async fn delete_smart_playlist(
 
 /// GET /ferrotune/smart-playlists/{id}/songs - Get materialized songs from a smart playlist
 pub async fn get_smart_playlist_songs(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Query(params): Query<SmartPlaylistSongsParams>,

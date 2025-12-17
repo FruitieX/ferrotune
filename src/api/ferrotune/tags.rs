@@ -3,7 +3,7 @@
 //! Provides endpoints to read and write audio file tags/metadata.
 //! Writing tags requires `readonly_tags = false` in config.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::queries;
 use axum::{
@@ -334,7 +334,7 @@ async fn get_song_file_path(
 ///
 /// Get all tags from a song file. Works even when editing is disabled (read-only mode).
 pub async fn get_tags(
-    _user: AuthenticatedUser,
+    _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
@@ -405,7 +405,7 @@ pub async fn get_tags(
 ///
 /// Update tags in a song file. Requires `readonly_tags = false` in config.
 pub async fn update_tags(
-    _user: AuthenticatedUser,
+    _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(request): Json<UpdateTagsRequest>,

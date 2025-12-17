@@ -1,6 +1,6 @@
 //! User preferences API endpoints.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::queries;
 use axum::{
@@ -61,7 +61,7 @@ pub struct GetPreferenceResponse {
 
 /// Get user preferences
 pub async fn get_preferences(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     match queries::get_user_preferences(&state.pool, user.user_id).await {
@@ -103,7 +103,7 @@ pub async fn get_preferences(
 
 /// Update user preferences (accent color)
 pub async fn update_preferences(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<UpdatePreferencesRequest>,
 ) -> impl IntoResponse {
@@ -208,7 +208,7 @@ pub async fn update_preferences(
 
 /// Get a single preference by key
 pub async fn get_preference(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(key): Path<String>,
 ) -> impl IntoResponse {
@@ -234,7 +234,7 @@ pub async fn get_preference(
 
 /// Set a single preference by key
 pub async fn set_preference(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(key): Path<String>,
     Json(request): Json<SetPreferenceRequest>,
@@ -293,7 +293,7 @@ pub async fn set_preference(
 
 /// Delete a single preference by key
 pub async fn delete_preference(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(key): Path<String>,
 ) -> impl IntoResponse {

@@ -4,7 +4,7 @@
 //! stored in the database. This allows configuring the server via the admin UI
 //! without requiring a config file.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -101,7 +101,7 @@ fn parse_json<T: serde::de::DeserializeOwned>(value: Option<String>, default: T)
 
 /// Get server configuration
 pub async fn get_server_config(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<ServerConfigResponse>, ConfigError> {
     // Only admin users can view server config
@@ -144,7 +144,7 @@ pub async fn get_server_config(
 
 /// Update server configuration
 pub async fn update_server_config(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<UpdateServerConfigRequest>,
 ) -> Result<Json<ServerConfigResponse>, ConfigError> {
@@ -197,7 +197,7 @@ pub async fn update_server_config(
 
 /// Get all configuration as key-value pairs (for debugging/export)
 pub async fn get_all_config(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<HashMap<String, serde_json::Value>>, ConfigError> {
     // Only admin users can view config

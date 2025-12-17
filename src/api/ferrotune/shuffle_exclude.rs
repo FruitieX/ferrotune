@@ -2,7 +2,7 @@
 //!
 //! Allows users to mark songs as excluded from shuffle playback.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use axum::{
     extract::{Path, State},
@@ -61,7 +61,7 @@ pub struct BulkShuffleExcludeResponse {
 ///
 /// GET /ferrotune/songs/:id/shuffle-exclude
 pub async fn get_shuffle_exclude(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(song_id): Path<String>,
 ) -> impl IntoResponse {
@@ -83,7 +83,7 @@ pub async fn get_shuffle_exclude(
 ///
 /// PUT /ferrotune/songs/:id/shuffle-exclude
 pub async fn set_shuffle_exclude(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(song_id): Path<String>,
     Json(body): Json<SetShuffleExcludeRequest>,
@@ -142,7 +142,7 @@ pub async fn set_shuffle_exclude(
 ///
 /// GET /ferrotune/shuffle-excludes
 pub async fn get_all_shuffle_excludes(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     let result: Result<Vec<(String,)>, _> =
@@ -171,7 +171,7 @@ pub async fn get_all_shuffle_excludes(
 ///
 /// POST /ferrotune/shuffle-excludes/bulk
 pub async fn bulk_set_shuffle_excludes(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(body): Json<BulkSetShuffleExcludeRequest>,
 ) -> impl IntoResponse {

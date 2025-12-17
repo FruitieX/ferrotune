@@ -2,7 +2,7 @@
 //!
 //! Provides endpoints for importing play counts from external sources.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use axum::{
     extract::State,
@@ -68,7 +68,7 @@ pub struct ImportScrobblesResponse {
 /// Accepts a list of song IDs with play counts and creates scrobble records.
 /// If mode is "replace", existing scrobbles for the affected songs are deleted first.
 pub async fn import_scrobbles(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<ImportScrobblesRequest>,
 ) -> impl IntoResponse {
@@ -227,7 +227,7 @@ pub struct GetPlayCountsResponse {
 ///
 /// Used by import dialog to show existing counts for preview.
 pub async fn get_play_counts(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<GetPlayCountsRequest>,
 ) -> impl IntoResponse {

@@ -1,6 +1,6 @@
 //! Playlist folder management endpoints for the Ferrotune Admin API.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::AppState;
 use axum::{
@@ -51,7 +51,7 @@ pub struct PlaylistFoldersResponse {
 /// Get all playlist folders and playlists for the current user.
 pub async fn get_playlist_folders(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
 ) -> Result<Json<PlaylistFoldersResponse>, ApiError> {
     // Get folders
     let folders: Vec<PlaylistFolderResponse> = sqlx::query_as(
@@ -112,7 +112,7 @@ pub struct CreateFolderRequest {
 /// Create a new playlist folder.
 pub async fn create_playlist_folder(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Json(request): Json<CreateFolderRequest>,
 ) -> Result<Json<PlaylistFolderResponse>, ApiError> {
     let id = Uuid::new_v4().to_string();
@@ -225,7 +225,7 @@ pub struct UpdateFolderRequest {
 /// Update a playlist folder.
 pub async fn update_playlist_folder(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Path(folder_id): Path<String>,
     Json(request): Json<UpdateFolderRequest>,
 ) -> Result<Json<PlaylistFolderResponse>, ApiError> {
@@ -351,7 +351,7 @@ pub async fn update_playlist_folder(
 /// Delete a playlist folder.
 pub async fn delete_playlist_folder(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Path(folder_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     // Check folder exists and belongs to user
@@ -392,7 +392,7 @@ pub struct MovePlaylistRequest {
 /// Move a playlist to a folder.
 pub async fn move_playlist(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     Json(request): Json<MovePlaylistRequest>,
 ) -> Result<StatusCode, ApiError> {
@@ -475,7 +475,7 @@ pub struct ReorderPlaylistRequest {
 /// Reorder songs in a playlist.
 pub async fn reorder_playlist_songs(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     Json(request): Json<ReorderPlaylistRequest>,
 ) -> Result<StatusCode, ApiError> {
@@ -623,7 +623,7 @@ pub struct MatchMissingEntryRequest {
 /// Match a missing entry in a playlist to an existing song
 pub async fn match_missing_entry(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     Json(request): Json<MatchMissingEntryRequest>,
 ) -> Result<StatusCode, ApiError> {
@@ -750,7 +750,7 @@ pub struct UnmatchEntryRequest {
 /// while preserving the original missing entry data for re-matching.
 pub async fn unmatch_entry(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     Json(request): Json<UnmatchEntryRequest>,
 ) -> Result<StatusCode, ApiError> {
@@ -879,7 +879,7 @@ pub struct BatchMatchEntriesResponse {
 /// Batch match multiple missing entries in a playlist to songs
 pub async fn batch_match_entries(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     Json(request): Json<BatchMatchEntriesRequest>,
 ) -> Result<Json<BatchMatchEntriesResponse>, ApiError> {
@@ -949,7 +949,7 @@ pub struct MovePlaylistEntryRequest {
 /// Move a playlist entry to a new position
 pub async fn move_playlist_entry(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     Json(request): Json<MovePlaylistEntryRequest>,
 ) -> Result<StatusCode, ApiError> {
@@ -1190,7 +1190,7 @@ pub struct ImportPlaylistResponse {
 /// Import a playlist with support for missing entries
 pub async fn import_playlist(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Json(request): Json<ImportPlaylistRequest>,
 ) -> Result<Json<ImportPlaylistResponse>, ApiError> {
     use crate::db::models::MissingEntryData;
@@ -1465,7 +1465,7 @@ pub struct PlaylistSongsResponse {
 /// for queue materialization to correctly map display indices to playback indices.
 pub async fn get_playlist_songs(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<GetPlaylistSongsParams>,
 ) -> Result<Json<PlaylistSongsResponse>, ApiError> {
@@ -2019,7 +2019,7 @@ pub async fn get_playlist_songs(
 #[allow(dead_code)]
 pub async fn get_playlist_entries(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
 ) -> Result<Json<PlaylistEntriesResponse>, ApiError> {
     use crate::db::models::MissingEntryData;

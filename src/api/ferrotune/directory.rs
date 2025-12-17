@@ -3,7 +3,7 @@
 //! This provides an enhanced directory browser with pagination, sorting,
 //! filtering, and folder size information.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::browse::{get_ratings_map, get_starred_map};
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::AppState;
@@ -43,7 +43,7 @@ pub struct LibraryInfo {
 
 /// Get libraries accessible to the current user
 pub async fn get_libraries(
-    _user: AuthenticatedUser,
+    _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> crate::error::Result<Json<LibrariesResponse>> {
     // Get all enabled music folders
@@ -210,7 +210,7 @@ pub struct DirectoryChildPaged {
 
 /// Get paginated directory contents with sorting and filtering
 pub async fn get_directory_paged(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<GetDirectoryPagedParams>,
 ) -> crate::error::Result<Json<DirectoryPagedResponse>> {

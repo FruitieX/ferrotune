@@ -103,9 +103,10 @@ Content-Type: application/json
   ],
   "mode": "append"
 }
-HTTP 400
+HTTP 200
 [Asserts]
-jsonpath "$.error" exists
+jsonpath "$.subsonic-response.status" == "failed"
+jsonpath "$.subsonic-response.error.code" == 10
 
 # Test: Import with multiple songs
 POST {{base_url}}/ferrotune/scrobbles/import

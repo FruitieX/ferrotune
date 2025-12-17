@@ -1,7 +1,7 @@
 //! OpenSubsonic-compatible API handlers.
 //!
 //! This module implements the OpenSubsonic API specification for compatibility
-//! with existing Subsonic/Navidrome/etc music player clients.
+//! with existing Subsonic music player clients.
 
 pub mod auth;
 pub mod browse;

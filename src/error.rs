@@ -12,6 +12,52 @@ use crate::api::subsonic::xml::{self, ResponseFormat, XmlError, XmlErrorResponse
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Result type for Ferrotune Admin API endpoints.
+/// Unlike Result<T, Error> which returns HTTP 200 per Subsonic spec,
+/// this returns proper HTTP status codes for REST API responses.
+pub type FerrotuneApiResult<T> = std::result::Result<T, FerrotuneApiError>;
+
+/// Error wrapper for Ferrotune Admin API that uses proper HTTP status codes.
+/// The inner Error type is used for error details, but IntoResponse
+/// returns proper HTTP status codes instead of HTTP 200.
+pub struct FerrotuneApiError(pub Error);
+
+impl From<Error> for FerrotuneApiError {
+    fn from(e: Error) -> Self {
+        FerrotuneApiError(e)
+    }
+}
+
+impl From<sqlx::Error> for FerrotuneApiError {
+    fn from(e: sqlx::Error) -> Self {
+        FerrotuneApiError(Error::Database(e))
+    }
+}
+
+impl From<std::io::Error> for FerrotuneApiError {
+    fn from(e: std::io::Error) -> Self {
+        FerrotuneApiError(Error::Io(e))
+    }
+}
+
+/// Extension trait to convert Result<T, Error> to FerrotuneApiResult<T>
+/// This allows using `result.api_err()` to convert errors.
+pub trait ResultExt<T> {
+    /// Convert this Result into a FerrotuneApiResult
+    fn api_err(self) -> FerrotuneApiResult<T>;
+}
+
+impl<T> ResultExt<T> for Result<T> {
+    fn api_err(self) -> FerrotuneApiResult<T> {
+        self.map_err(FerrotuneApiError::from)
+    }
+}
+
+/// Helper to quickly wrap an Error into FerrotuneApiError
+pub fn api_err<T>(error: Error) -> FerrotuneApiResult<T> {
+    Err(FerrotuneApiError(error))
+}
+
 /// Error with associated response format
 pub struct FormatError {
     pub error: Error,
@@ -99,70 +145,85 @@ struct SubsonicErrorResponse {
 }
 
 impl Error {
-    fn to_code_and_message(&self) -> (StatusCode, u32, String) {
+    /// Get the Subsonic error code and message for this error.
+    /// Note: Per the Subsonic API specification, errors are returned with HTTP 200
+    /// and the error details in the response body.
+    fn to_subsonic_error(&self) -> (u32, String) {
         match self {
-            Error::Auth(msg) => (StatusCode::UNAUTHORIZED, 40, msg.clone()),
+            Error::Auth(msg) => (40, msg.clone()),
             Error::TokenAuthNotSupported => (
-                StatusCode::UNAUTHORIZED,
                 41,
                 "Token authentication not supported for this user".to_string(),
             ),
             Error::AuthMechanismNotSupported => (
-                StatusCode::UNAUTHORIZED,
                 42,
                 "Provided authentication mechanism not supported".to_string(),
             ),
             Error::ConflictingAuthParams => (
-                StatusCode::BAD_REQUEST,
                 43,
                 "Multiple conflicting authentication mechanisms provided".to_string(),
             ),
-            Error::InvalidApiKey => (StatusCode::UNAUTHORIZED, 44, "Invalid API key".to_string()),
-            Error::NotFound(msg) => (StatusCode::NOT_FOUND, 70, msg.clone()),
-            Error::Forbidden(msg) => (StatusCode::FORBIDDEN, 50, msg.clone()),
-            Error::InvalidRequest(msg) => (StatusCode::BAD_REQUEST, 10, msg.clone()),
-            Error::Database(ref e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                0,
-                format!("Database error: {}", e),
-            ),
-            Error::Io(ref e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                0,
-                format!("IO error: {}", e),
-            ),
-            Error::Image(ref e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                0,
-                format!("Image error: {}", e),
-            ),
-            Error::Lofty(ref e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                0,
-                format!("Metadata error: {}", e),
-            ),
-            Error::Config(ref e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                0,
-                format!("Configuration error: {}", e),
-            ),
-            Error::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, 0, msg.clone()),
-            Error::Migration(ref msg) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                0,
-                format!("Migration error: {}", msg),
-            ),
+            Error::InvalidApiKey => (44, "Invalid API key".to_string()),
+            Error::NotFound(msg) => (70, msg.clone()),
+            Error::Forbidden(msg) => (50, msg.clone()),
+            Error::InvalidRequest(msg) => (10, msg.clone()),
+            Error::Database(ref e) => (0, format!("Database error: {}", e)),
+            Error::Io(ref e) => (0, format!("IO error: {}", e)),
+            Error::Image(ref e) => (0, format!("Image error: {}", e)),
+            Error::Lofty(ref e) => (0, format!("Metadata error: {}", e)),
+            Error::Config(ref e) => (0, format!("Configuration error: {}", e)),
+            Error::Internal(msg) => (0, msg.clone()),
+            Error::Migration(ref msg) => (0, format!("Migration error: {}", msg)),
         }
+    }
+
+    /// Get the HTTP status code for this error (for REST APIs like Ferrotune Admin API).
+    pub fn to_http_status(&self) -> StatusCode {
+        match self {
+            Error::Auth(_)
+            | Error::TokenAuthNotSupported
+            | Error::AuthMechanismNotSupported
+            | Error::InvalidApiKey => StatusCode::UNAUTHORIZED,
+            Error::ConflictingAuthParams | Error::InvalidRequest(_) => StatusCode::BAD_REQUEST,
+            Error::NotFound(_) => StatusCode::NOT_FOUND,
+            Error::Forbidden(_) => StatusCode::FORBIDDEN,
+            Error::Database(_)
+            | Error::Io(_)
+            | Error::Image(_)
+            | Error::Lofty(_)
+            | Error::Config(_)
+            | Error::Internal(_)
+            | Error::Migration(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+/// Simple JSON error response for Ferrotune Admin API
+#[derive(Serialize)]
+struct FerrotuneErrorResponse {
+    error: String,
+}
+
+impl IntoResponse for FerrotuneApiError {
+    fn into_response(self) -> Response {
+        tracing::warn!(error = %self.0, "Ferrotune API error response");
+
+        let status = self.0.to_http_status();
+        let message = self.0.to_string();
+
+        (status, Json(FerrotuneErrorResponse { error: message })).into_response()
     }
 }
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
+        // Per the Subsonic API specification, errors are returned with HTTP 200
+        // and the error details in the response body.
         // Default to JSON when format is unknown (Error doesn't carry format info)
         // Use FormatError for format-aware error responses
         tracing::warn!(error = %self, "API error response");
 
-        let (status, code, message) = self.to_code_and_message();
+        let (code, message) = self.to_subsonic_error();
 
         let error_response = SubsonicResponse {
             subsonic_response: SubsonicErrorResponse {
@@ -175,15 +236,18 @@ impl IntoResponse for Error {
             },
         };
 
-        (status, Json(error_response)).into_response()
+        // Always return HTTP 200 per Subsonic spec
+        (StatusCode::OK, Json(error_response)).into_response()
     }
 }
 
 impl IntoResponse for FormatError {
     fn into_response(self) -> Response {
+        // Per the Subsonic API specification, errors are returned with HTTP 200
+        // and the error details in the response body.
         tracing::warn!(error = %self.error, format = ?self.format, "API error response");
 
-        let (status, code, message) = self.error.to_code_and_message();
+        let (code, message) = self.error.to_subsonic_error();
 
         match self.format {
             ResponseFormat::Json | ResponseFormat::Jsonp => {
@@ -197,13 +261,15 @@ impl IntoResponse for FormatError {
                         error: SubsonicError { code, message },
                     },
                 };
-                (status, Json(error_response)).into_response()
+                // Always return HTTP 200 per Subsonic spec
+                (StatusCode::OK, Json(error_response)).into_response()
             }
             ResponseFormat::Xml => {
                 let xml_response = XmlErrorResponse::failed(XmlError { code, message });
                 match xml::to_xml_string(&xml_response) {
                     Ok(xml_str) => (
-                        status,
+                        // Always return HTTP 200 per Subsonic spec
+                        StatusCode::OK,
                         [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
                         xml_str,
                     )

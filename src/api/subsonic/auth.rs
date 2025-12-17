@@ -1,7 +1,7 @@
 use crate::api::subsonic::xml::ResponseFormat;
 use crate::api::CommonParams;
 use crate::db::queries;
-use crate::error::{Error, Result};
+use crate::error::{Error, FerrotuneApiError, Result};
 use crate::password;
 use axum::{
     extract::FromRequestParts,
@@ -11,12 +11,33 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use sqlx::SqlitePool;
 use std::sync::Arc;
 
+/// Authenticated user for OpenSubsonic API endpoints.
+/// Auth failures return HTTP 200 with error in body per Subsonic spec.
 pub struct AuthenticatedUser {
     pub user_id: i64,
     pub username: String,
     pub is_admin: bool,
     pub format: ResponseFormat,
     pub client: String,
+}
+
+/// Authenticated user for Ferrotune Admin API endpoints.
+/// Auth failures return proper HTTP status codes (e.g., 401 for unauthorized).
+/// This is a simple wrapper around AuthenticatedUser with different error handling.
+pub struct FerrotuneAuthenticatedUser {
+    pub user_id: i64,
+    pub username: String,
+    pub is_admin: bool,
+}
+
+impl From<AuthenticatedUser> for FerrotuneAuthenticatedUser {
+    fn from(user: AuthenticatedUser) -> Self {
+        FerrotuneAuthenticatedUser {
+            user_id: user.user_id,
+            username: user.username,
+            is_admin: user.is_admin,
+        }
+    }
 }
 
 /// Extractor for just the response format (no auth required)
@@ -87,7 +108,22 @@ impl FromRequestParts<Arc<crate::api::AppState>> for AuthenticatedUser {
     }
 }
 
-/// Try to authenticate using HTTP Basic Auth header.
+/// FerrotuneAuthenticatedUser extractor for the Ferrotune Admin API.
+/// This reuses the same authentication logic but returns FerrotuneApiError
+/// which translates to proper HTTP status codes (e.g., 401 for auth failures).
+impl FromRequestParts<Arc<crate::api::AppState>> for FerrotuneAuthenticatedUser {
+    type Rejection = FerrotuneApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<crate::api::AppState>,
+    ) -> std::result::Result<Self, FerrotuneApiError> {
+        // Reuse the AuthenticatedUser extraction logic
+        let user = AuthenticatedUser::from_request_parts(parts, state).await?;
+        Ok(user.into())
+    }
+}
+
 async fn try_basic_auth(parts: &Parts, pool: &SqlitePool) -> Result<Option<AuthenticatedUser>> {
     let auth_header = match parts.headers.get(AUTHORIZATION) {
         Some(h) => h,

@@ -3,7 +3,7 @@
 //! This module provides endpoints for browsing the server's file system to help
 //! users select music folder paths during setup.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::error::{Error, Result};
 use axum::extract::Query;
 use axum::response::Json;
@@ -91,7 +91,7 @@ pub struct ValidatePathResponse {
 /// select music folder paths during setup. It only shows directories,
 /// not files, and requires admin authentication.
 pub async fn browse_filesystem(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Query(params): Query<BrowseFilesystemParams>,
 ) -> Result<Json<BrowseFilesystemResponse>> {
     // Only allow admins to browse the filesystem
@@ -180,7 +180,7 @@ pub async fn browse_filesystem(
 ///
 /// Checks if a path exists, is a directory, and is readable.
 pub async fn validate_path(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Query(params): Query<ValidatePathParams>,
 ) -> Result<Json<ValidatePathResponse>> {
     // Only allow admins to validate paths

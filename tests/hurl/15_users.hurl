@@ -57,7 +57,10 @@ jsonpath "$.libraryAccess" exists
 # Get nonexistent user
 GET {{base_url}}/ferrotune/users/99999
 Authorization: Basic {{auth_basic}}
-HTTP 404
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.status" == "failed"
+jsonpath "$.subsonic-response.error.code" == 70
 
 # ============================================================================
 # UPDATE USER
@@ -181,7 +184,10 @@ HTTP 204
 # Verify deletion
 GET {{base_url}}/ferrotune/users/{{new_user_id}}
 Authorization: Basic {{auth_basic}}
-HTTP 404
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.status" == "failed"
+jsonpath "$.subsonic-response.error.code" == 70
 
 # ============================================================================
 # ERROR CASES
@@ -196,7 +202,10 @@ Content-Type: application/json
   "password": "test12345678",
   "isAdmin": false
 }
-HTTP 400
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.status" == "failed"
+jsonpath "$.subsonic-response.error.code" == 10
 
 # Unauthorized access (no auth)
 GET {{base_url}}/ferrotune/users

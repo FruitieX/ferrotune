@@ -78,13 +78,13 @@ HTTP 200
 header "Content-Type" matches "audio/.*"
 bytes count > 1000
 
-# Test: stream - invalid song ID - server returns 404 Not Found
-GET {{base_url}}/rest/stream?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&id=invalid-id&f=xml
-HTTP 404
-
-# Test: stream - invalid song ID (JSON) - server returns 404 Not Found
+# Test: stream - invalid song ID (JSON) - error code 70 = not found
 GET {{base_url}}/rest/stream?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&id=invalid-id&f=json
-HTTP 404
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.status" == "failed"
+jsonpath "$.subsonic-response.error.code" == 70
+
 
 # ============================================================================
 # DOWNLOAD
@@ -114,10 +114,10 @@ HTTP 200
 [Asserts]
 header "Content-Type" matches "image/.*"
 
-# Test: getCoverArt - invalid ID - server returns 404 Not Found
-GET {{base_url}}/rest/getCoverArt?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&id=invalid-cover-id&f=xml
-HTTP 404
-
-# Test: getCoverArt - invalid ID (JSON) - server returns 404 Not Found
+# Test: getCoverArt - invalid ID (JSON) - error code 70 = not found
 GET {{base_url}}/rest/getCoverArt?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&id=invalid-cover-id&f=json
-HTTP 404
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.status" == "failed"
+jsonpath "$.subsonic-response.error.code" == 70
+

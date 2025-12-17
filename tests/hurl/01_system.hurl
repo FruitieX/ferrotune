@@ -5,9 +5,13 @@
 # PING
 # ============================================================================
 
-# Test: Ping without authentication should fail with auth error
-GET {{base_url}}/rest/ping?v=1.16.1&c=hurl-test
-HTTP 401
+# Test: Ping without authentication should return error in response body (per Subsonic spec, HTTP 200)
+GET {{base_url}}/rest/ping?v=1.16.1&c=hurl-test&f=json
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.status" == "failed"
+jsonpath "$.subsonic-response.error.code" == 40
+
 
 # Test: Ping with valid authentication (XML - default)
 GET {{base_url}}/rest/ping?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test

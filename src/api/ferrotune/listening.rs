@@ -1,6 +1,6 @@
 //! Listening statistics endpoints for tracking user listening time.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::inline_thumbnails::{
     get_album_thumbnails_base64, get_artist_thumbnails_base64, get_song_thumbnails_base64,
     InlineImagesParam,
@@ -77,7 +77,7 @@ pub struct ListeningStatsResponse {
 /// If session_id is provided, updates an existing session.
 /// Otherwise, creates a new session and returns its ID.
 pub async fn log_listening(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<LogListeningRequest>,
 ) -> impl IntoResponse {
@@ -175,7 +175,7 @@ pub async fn log_listening(
 ///
 /// GET /ferrotune/listening/stats
 pub async fn get_listening_stats(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     // Helper to get stats for a date filter
@@ -340,7 +340,7 @@ pub struct PeriodReviewQuery {
 
 /// Get period review (year in review or month in review)
 pub async fn get_period_review(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(query): Query<PeriodReviewQuery>,
 ) -> impl IntoResponse {

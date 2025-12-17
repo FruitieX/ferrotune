@@ -76,13 +76,13 @@ jsonpath "$.subsonic-response.artist.album[0].songCount" >= 1
 first_album_id: jsonpath "$.subsonic-response.artist.album[0].id"
 first_album_name: jsonpath "$.subsonic-response.artist.album[0].name"
 
-# Test: getArtist - invalid ID (XML) - server returns 404 Not Found
-GET {{base_url}}/rest/getArtist?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=xml&id=nonexistent-id
-HTTP 404
-
-# Test: getArtist - invalid ID (JSON) - server returns 404 Not Found
+# Test: getArtist - invalid ID (JSON) - error code 70 = not found
 GET {{base_url}}/rest/getArtist?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&id=nonexistent-id
-HTTP 404
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.status" == "failed"
+jsonpath "$.subsonic-response.error.code" == 70
+
 
 # ============================================================================
 # GET ALBUM
@@ -269,10 +269,10 @@ jsonpath "$.subsonic-response.directory.child[0].id" exists
 jsonpath "$.subsonic-response.directory.child[0].title" exists
 jsonpath "$.subsonic-response.directory.child[0].isDir" exists
 
-# Test: getMusicDirectory - invalid ID (XML) - server returns 404 Not Found
-GET {{base_url}}/rest/getMusicDirectory?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=xml&id=nonexistent-folder-id
-HTTP 404
-
-# Test: getMusicDirectory - invalid ID (JSON) - server returns 404 Not Found
+# Test: getMusicDirectory - invalid ID (JSON) - error code 70 = not found
 GET {{base_url}}/rest/getMusicDirectory?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&id=nonexistent-folder-id
-HTTP 404
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.status" == "failed"
+jsonpath "$.subsonic-response.error.code" == 70
+

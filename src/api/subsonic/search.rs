@@ -296,14 +296,20 @@ pub async fn search3(
         get_album_order_clause(params.album_sort.as_ref(), params.album_sort_dir.as_ref());
 
     // Check for wildcard query
-    let is_wildcard = params.query.is_empty() || params.query == "*";
+    // Note: Symfonium sends query="" (literal quotes) which we should treat as a wildcard
+    let trimmed_query = params.query.trim_matches('"');
+    let is_wildcard = trimmed_query.is_empty() || trimmed_query == "*";
 
     // Build FTS query with prefix wildcards
     let fts_query = if !is_wildcard {
-        build_fts_query(&params.query)
+        build_fts_query(trimmed_query)
     } else {
         None
     };
+
+    // If the FTS query is None after processing (e.g., query had only non-alphanumeric chars),
+    // treat this as a wildcard search as well
+    let is_wildcard = is_wildcard || fts_query.is_none();
 
     // ========================================================================
     // Search artists using FTS5 with filtering support
@@ -717,14 +723,19 @@ pub async fn search_songs_for_queue(
         get_song_order_clause(params.song_sort.as_ref(), params.song_sort_dir.as_ref());
 
     // Check for wildcard query
-    let is_wildcard = query.is_empty() || query == "*";
+    // Note: Handle query="" (literal quotes) same as empty string
+    let trimmed_query = query.trim_matches('"');
+    let is_wildcard = trimmed_query.is_empty() || trimmed_query == "*";
 
     // Build FTS query with prefix wildcards
     let fts_query = if !is_wildcard {
-        build_fts_query(query)
+        build_fts_query(trimmed_query)
     } else {
         None
     };
+
+    // If the FTS query is None after processing, treat as wildcard
+    let is_wildcard = is_wildcard || fts_query.is_none();
 
     let filter_conds = build_song_filter_conditions(params, user_id);
 
