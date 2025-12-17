@@ -221,11 +221,18 @@ export function MissingEntryRow({
         </DropdownMenu>
       </div>
 
-      {/* Missing badge */}
-      <div className="hidden sm:flex shrink-0 items-center gap-1 text-xs text-orange-500 bg-orange-500/20 px-2 py-1 rounded">
+      {/* Missing badge - clickable to open match dialog */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setRefineDialogOpen(true);
+        }}
+        className="hidden sm:flex shrink-0 items-center gap-1 text-xs text-orange-500 bg-orange-500/20 hover:bg-orange-500/30 px-2 py-1 rounded transition-colors cursor-pointer"
+      >
         <AlertCircle className="w-3 h-3" />
         Not Found
-      </div>
+      </button>
     </div>
   );
 
@@ -498,7 +505,7 @@ export function MissingEntryCard({
         <p className="text-sm text-muted-foreground truncate">
           {displayArtist}
         </p>
-        <div className="flex items-center gap-1 text-xs text-orange-500 bg-orange-500/20 px-2 py-0.5 rounded w-fit">
+        <div className="flex items-center gap-1 text-xs text-orange-500 bg-orange-500/20 group-hover:bg-orange-500/30 px-2 py-0.5 rounded w-fit transition-colors">
           <AlertCircle className="w-3 h-3" />
           Not Found
         </div>

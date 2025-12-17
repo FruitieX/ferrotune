@@ -21,7 +21,12 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { CoverImage } from "@/components/shared/cover-image";
-import { fullscreenPlayerOpenAtom, queuePanelOpenAtom } from "@/lib/store/ui";
+import { WaveformProgressBar } from "@/components/player/waveform-progress-bar";
+import {
+  fullscreenPlayerOpenAtom,
+  queuePanelOpenAtom,
+  progressBarStyleAtom,
+} from "@/lib/store/ui";
 import {
   currentSongAtom,
   serverQueueStateAtom,
@@ -30,6 +35,7 @@ import {
 import {
   playbackStateAtom,
   currentTimeAtom,
+  durationAtom,
   volumeAtom,
   repeatModeAtom,
   isMutedAtom,
@@ -39,6 +45,7 @@ import { useAudioEngine } from "@/lib/audio/hooks";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import { SongDropdownMenu } from "@/components/browse/song-context-menu";
+import { useIsDesktop } from "@/lib/hooks/use-media-query";
 
 export function FullscreenPlayer() {
   const [isOpen, setIsOpen] = useAtom(fullscreenPlayerOpenAtom);
@@ -51,6 +58,9 @@ export function FullscreenPlayer() {
   const queueState = useAtomValue(serverQueueStateAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
+  const progressBarStyle = useAtomValue(progressBarStyleAtom);
+  const audioDuration = useAtomValue(durationAtom);
+  const isDesktop = useIsDesktop();
 
   const { togglePlayPause, seek, next, previous } = useAudioEngine();
   const { isStarred, toggleStar } = useStarred(
@@ -60,7 +70,7 @@ export function FullscreenPlayer() {
   const [localProgress, setLocalProgress] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
 
-  const duration = currentTrack?.duration ?? 0;
+  const duration = currentTrack?.duration ?? audioDuration ?? 0;
   const progress = isDragging ? localProgress : currentTime;
 
   // Get cover art URL
@@ -85,8 +95,14 @@ export function FullscreenPlayer() {
   };
 
   const openQueue = () => {
-    setIsOpen(false);
-    setTimeout(() => setQueuePanelOpen(true), 200);
+    // On mobile, open queue drawer directly without closing fullscreen
+    // On desktop, close fullscreen and open sidebar
+    if (isDesktop) {
+      setIsOpen(false);
+      setTimeout(() => setQueuePanelOpen(true), 200);
+    } else {
+      setQueuePanelOpen(true);
+    }
   };
 
   const isEnded = playbackState === "ended";
@@ -120,7 +136,7 @@ export function FullscreenPlayer() {
           <div className="absolute inset-0 backdrop-blur-3xl bg-background/70" />
 
           {/* Content */}
-          <div className="relative z-10 flex flex-col h-full max-w-lg mx-auto w-full px-6 py-4">
+          <div className="relative z-10 flex flex-col h-full max-w-lg xl:max-w-3xl mx-auto w-full px-6 py-4">
             {/* Header */}
             <div className="flex items-center justify-between">
               <Button
@@ -144,12 +160,12 @@ export function FullscreenPlayer() {
             </div>
 
             {/* Album Art */}
-            <div className="flex-1 flex items-center justify-center py-8">
+            <div className="flex-1 flex items-center justify-center py-4 xl:py-8 min-h-0 overflow-hidden">
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ delay: 0.1 }}
-                className="w-full max-w-[300px] aspect-square"
+                className="w-full max-w-[min(80vh,500px)] xl:max-w-[min(60vh,600px)] aspect-square"
               >
                 <CoverImage
                   src={coverArtUrl}
@@ -157,7 +173,7 @@ export function FullscreenPlayer() {
                   colorSeed={currentTrack.album ?? undefined}
                   type="song"
                   size="full"
-                  className="rounded-lg shadow-2xl"
+                  className="rounded-lg shadow-2xl w-full h-full object-cover"
                   priority
                 />
               </motion.div>
@@ -200,15 +216,22 @@ export function FullscreenPlayer() {
               transition={{ delay: 0.3 }}
               className="space-y-2 mb-6"
             >
-              <Slider
-                value={[isEnded ? 0 : progress]}
-                max={duration}
-                step={1}
-                onValueChange={handleProgressChange}
-                onValueCommit={handleProgressCommit}
-                className="w-full cursor-pointer"
-                disabled={isEnded}
-              />
+              {/* Progress bar - waveform or simple based on preference */}
+              <div className="relative h-4">
+                {progressBarStyle === "waveform" ? (
+                  <WaveformProgressBar className="absolute inset-x-0 top-1/2" />
+                ) : (
+                  <Slider
+                    value={[isEnded ? 0 : progress]}
+                    max={duration}
+                    step={1}
+                    onValueChange={handleProgressChange}
+                    onValueCommit={handleProgressCommit}
+                    className="w-full cursor-pointer absolute inset-x-0 top-1/2 -translate-y-1/2"
+                    disabled={isEnded}
+                  />
+                )}
+              </div>
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span className="tabular-nums">
                   {formatDuration(isEnded ? 0 : Math.floor(progress))}

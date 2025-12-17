@@ -44,6 +44,7 @@ export function useScanProgressStream() {
           unchanged: status.unchanged,
           removed: status.removed,
           errors: status.errors,
+          renamed: status.renamed,
           duplicates: status.duplicates,
           currentFolder: status.currentFolder,
           currentFile: status.currentFile,

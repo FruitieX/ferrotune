@@ -45,6 +45,8 @@ pub struct ScanDetails {
     pub unchanged: Vec<ScanDetailEntry>,
     /// Files that were removed
     pub removed: Vec<ScanDetailEntry>,
+    /// Files that were renamed (path changed but same content)
+    pub renamed: Vec<ScanDetailEntry>,
     /// Duplicate files found
     pub duplicates: Vec<ScanDetailEntry>,
     /// Files with errors
@@ -79,6 +81,9 @@ pub struct ScanProgressUpdate {
     /// Number of errors encountered
     #[ts(type = "number")]
     pub errors: u64,
+    /// Number of files renamed (path changed but same content)
+    #[ts(type = "number")]
+    pub renamed: u64,
     /// Number of duplicate files detected
     #[ts(type = "number")]
     pub duplicates: u64,
@@ -107,6 +112,7 @@ impl Default for ScanProgressUpdate {
             unchanged: 0,
             removed: 0,
             errors: 0,
+            renamed: 0,
             duplicates: 0,
             current_folder: None,
             current_file: None,
@@ -130,6 +136,7 @@ pub struct ScanState {
     unchanged: AtomicU64,
     removed: AtomicU64,
     errors: AtomicU64,
+    renamed: AtomicU64,
     duplicates: AtomicU64,
     total: RwLock<Option<u64>>,
     /// String fields (require locks)
@@ -164,6 +171,7 @@ impl ScanState {
             unchanged: AtomicU64::new(0),
             removed: AtomicU64::new(0),
             errors: AtomicU64::new(0),
+            renamed: AtomicU64::new(0),
             duplicates: AtomicU64::new(0),
             total: RwLock::new(None),
             current_folder: RwLock::new(None),
@@ -214,6 +222,7 @@ impl ScanState {
             unchanged: self.unchanged.load(Ordering::Relaxed),
             removed: self.removed.load(Ordering::Relaxed),
             errors: self.errors.load(Ordering::Relaxed),
+            renamed: self.renamed.load(Ordering::Relaxed),
             duplicates: self.duplicates.load(Ordering::Relaxed),
             current_folder: self.current_folder.read().await.clone(),
             current_file: self.current_file.read().await.clone(),
@@ -257,6 +266,7 @@ impl ScanState {
         self.unchanged.store(0, Ordering::Relaxed);
         self.removed.store(0, Ordering::Relaxed);
         self.errors.store(0, Ordering::Relaxed);
+        self.renamed.store(0, Ordering::Relaxed);
         self.duplicates.store(0, Ordering::Relaxed);
         self.finished.store(false, Ordering::Relaxed);
         self.cancelled.store(false, Ordering::Relaxed);
@@ -342,6 +352,16 @@ impl ScanState {
                 error: None,
             });
         }
+    }
+
+    /// Track a renamed file (path changed but same content hash).
+    /// The path should be formatted as "old_path -> new_path" for display.
+    pub async fn track_renamed(&self, old_path: &str, new_path: &str) {
+        self.renamed.fetch_add(1, Ordering::Relaxed);
+        self.details.write().await.renamed.push(ScanDetailEntry {
+            path: format!("{} -> {}", old_path, new_path),
+            error: None,
+        });
     }
 
     /// Add to the removed counter (without tracking - for backwards compatibility).

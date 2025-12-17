@@ -814,6 +814,12 @@ async fn scan_folder_files(
 
 /// Remove songs from database that no longer exist on disk.
 /// Takes a map of file_path -> song_id for files that were not seen during scan.
+///
+/// This function also detects renamed files by comparing partial_hash values.
+/// If a "missing" file has the same hash as a "new" file, it's treated as a rename:
+/// - The old entry's file_path is updated to the new path
+/// - The new entry (created during scanning) is deleted
+/// - This preserves play counts, starred status, and other metadata
 async fn remove_missing_songs(
     pool: &SqlitePool,
     missing_files: &std::collections::HashMap<String, String>,
@@ -825,8 +831,112 @@ async fn remove_missing_songs(
         return Ok(0);
     }
 
-    let count = missing_files.len();
-    let relative_paths: Vec<String> = missing_files.keys().cloned().collect();
+    // Collect IDs and paths for missing files
+    let missing_ids: Vec<&String> = missing_files.values().collect();
+
+    // Get partial hashes for missing files
+    let missing_hashes: Vec<(String, String, Option<String>)> = {
+        let mut hashes = Vec::new();
+        for id in &missing_ids {
+            if let Ok(Some(row)) = sqlx::query_as::<_, (String, String, Option<String>)>(
+                "SELECT id, file_path, partial_hash FROM songs WHERE id = ?",
+            )
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+            {
+                hashes.push(row);
+            }
+        }
+        hashes
+    };
+
+    // Track which files are renames vs truly removed
+    let mut renamed_ids: Vec<String> = Vec::new();
+    let mut renamed_count = 0;
+
+    // For each missing file with a hash, check if there's a newly added file with the same hash
+    for (missing_id, old_path, hash_opt) in &missing_hashes {
+        if let Some(hash) = hash_opt {
+            // Look for a different song with the same partial_hash in this folder
+            // that has a different file_path (i.e., a newly added file)
+            let potential_rename: Option<(String, String)> = sqlx::query_as(
+                "SELECT id, file_path FROM songs 
+                 WHERE partial_hash = ? AND id != ? AND music_folder_id = (
+                     SELECT music_folder_id FROM songs WHERE id = ?
+                 )",
+            )
+            .bind(hash)
+            .bind(missing_id)
+            .bind(missing_id)
+            .fetch_optional(pool)
+            .await?;
+
+            if let Some((new_id, new_path)) = potential_rename {
+                // Found a rename! Update the old entry with the new path and delete the new entry
+                if dry_run {
+                    let full_old_path = base_path.join(old_path).to_string_lossy().to_string();
+                    let full_new_path = base_path.join(&new_path).to_string_lossy().to_string();
+                    tracing::info!(
+                        "Would detect rename: {} -> {}",
+                        full_old_path,
+                        full_new_path
+                    );
+                    if let Some(ref state) = scan_state {
+                        state.track_renamed(&full_old_path, &full_new_path).await;
+                    }
+                } else {
+                    // Start a transaction for the rename
+                    let mut tx = pool.begin().await?;
+
+                    // Copy the new file_path and mtime to the old entry
+                    sqlx::query(
+                        "UPDATE songs SET 
+                            file_path = ?,
+                            file_mtime = (SELECT file_mtime FROM songs WHERE id = ?),
+                            updated_at = datetime('now')
+                         WHERE id = ?",
+                    )
+                    .bind(&new_path)
+                    .bind(&new_id)
+                    .bind(missing_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                    // Delete the newly created entry (duplicated by the scan)
+                    sqlx::query("DELETE FROM songs WHERE id = ?")
+                        .bind(&new_id)
+                        .execute(&mut *tx)
+                        .await?;
+
+                    tx.commit().await?;
+
+                    let full_old_path = base_path.join(old_path).to_string_lossy().to_string();
+                    let full_new_path = base_path.join(&new_path).to_string_lossy().to_string();
+                    tracing::info!("Detected rename: {} -> {}", full_old_path, full_new_path);
+                    if let Some(ref state) = scan_state {
+                        state.track_renamed(&full_old_path, &full_new_path).await;
+                    }
+                }
+                renamed_ids.push(missing_id.clone());
+                renamed_count += 1;
+            }
+        }
+    }
+
+    // Filter out renamed files from the removal list
+    let truly_missing: std::collections::HashMap<String, String> = missing_files
+        .iter()
+        .filter(|(_, id)| !renamed_ids.contains(id))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    if truly_missing.is_empty() {
+        return Ok(renamed_count);
+    }
+
+    let count = truly_missing.len();
+    let relative_paths: Vec<String> = truly_missing.keys().cloned().collect();
 
     for file_path in &relative_paths {
         tracing::info!("Missing file: {}", file_path);
@@ -846,13 +956,13 @@ async fn remove_missing_songs(
             "Dry-run: would remove {} missing files from database",
             count
         );
-        return Ok(count);
+        return Ok(count + renamed_count);
     }
 
     // Delete missing songs in a transaction
     let mut tx = pool.begin().await?;
 
-    for id in missing_files.values() {
+    for id in truly_missing.values() {
         sqlx::query("DELETE FROM songs WHERE id = ?")
             .bind(id)
             .execute(&mut *tx)
@@ -912,9 +1022,13 @@ async fn remove_missing_songs(
 
     tx.commit().await?;
 
-    tracing::info!("Removed {} missing files from database", count);
+    tracing::info!(
+        "Removed {} missing files from database, {} renamed",
+        count,
+        renamed_count
+    );
 
-    Ok(count)
+    Ok(count + renamed_count)
 }
 
 #[derive(Debug)]

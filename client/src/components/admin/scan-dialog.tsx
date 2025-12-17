@@ -16,6 +16,7 @@ import {
   Trash2,
   Copy,
   Minus,
+  ArrowRightLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
@@ -52,6 +53,7 @@ type StatCategory =
   | "updated"
   | "unchanged"
   | "removed"
+  | "renamed"
   | "duplicates"
   | "errors";
 
@@ -181,6 +183,8 @@ function getItemsForCategory(
       return details.unchanged;
     case "removed":
       return details.removed;
+    case "renamed":
+      return details.renamed;
     case "duplicates":
       return details.duplicates;
     case "errors":
@@ -212,6 +216,11 @@ function getCategoryConfig(category: StatCategory) {
       title: "Removed Files",
       color: "text-orange-600",
       icon: <Trash2 className="w-5 h-5 text-orange-600" />,
+    },
+    renamed: {
+      title: "Renamed Files",
+      color: "text-purple-600",
+      icon: <ArrowRightLeft className="w-5 h-5 text-purple-600" />,
     },
     duplicates: {
       title: "Duplicate Files",
@@ -490,7 +499,7 @@ export function ScanDialog() {
                 )}
 
                 {/* Stats - clickable during and after scan */}
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 text-center">
                   <StatBox
                     count={progress.added}
                     label="Added"
@@ -517,6 +526,13 @@ export function ScanDialog() {
                     label="Removed"
                     colorClass="text-orange-600"
                     onClick={() => handleStatClick("removed")}
+                    disabled={isLoadingDetails}
+                  />
+                  <StatBox
+                    count={progress.renamed}
+                    label="Renamed"
+                    colorClass="text-purple-600"
+                    onClick={() => handleStatClick("renamed")}
                     disabled={isLoadingDetails}
                   />
                   <StatBox

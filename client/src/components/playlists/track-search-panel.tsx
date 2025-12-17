@@ -102,7 +102,7 @@ export function TrackSearchPanel({
 
       const response = await client.search3({
         query: query.trim(),
-        songCount: 20,
+        songCount: 100,
       });
       setSearchResults(response.searchResult3?.song ?? []);
     } catch (error) {

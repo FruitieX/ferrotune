@@ -2,7 +2,15 @@
 
 import { useState, useRef } from "react";
 import { toast } from "sonner";
-import { Check, X, AlertCircle, Music, Loader2, RefreshCw } from "lucide-react";
+import {
+  Check,
+  X,
+  AlertCircle,
+  Music,
+  Loader2,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Popover,
@@ -12,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -551,6 +560,8 @@ interface TabbedTrackListProps {
   showLockedTab?: boolean;
   /** Show filter by match percentage control */
   showMatchFilter?: boolean;
+  /** Show quick text filter for searching tracks */
+  showQuickFilter?: boolean;
   /** Show checkboxes for matched tracks */
   showCheckboxes?: boolean;
   /** Render additional info for each track (e.g., play counts) */
@@ -565,25 +576,54 @@ export function TabbedTrackList({
   showPosition,
   showLockedTab = false,
   showMatchFilter = false,
+  showQuickFilter = false,
   showCheckboxes = false,
   renderTrackExtra,
 }: TabbedTrackListProps) {
   const [maxMatchPercent, setMaxMatchPercent] = useState<number | null>(null);
+  const [quickFilter, setQuickFilter] = useState("");
 
   // Separate tracks
   const editableTracks = tracks.filter((t) => !t.locked);
   const lockedTracks = tracks.filter((t) => t.locked);
 
-  // Apply match percentage filter to matched tracks
+  // Helper to check if a track matches the quick filter
+  const matchesQuickFilter = (track: MatchableTrack): boolean => {
+    if (!quickFilter.trim()) return true;
+    const query = quickFilter.toLowerCase();
+    const parsed = track.parsed;
+    const match = track.match;
+
+    // Check parsed fields
+    if (parsed.title?.toLowerCase().includes(query)) return true;
+    if (parsed.artist?.toLowerCase().includes(query)) return true;
+    if (parsed.album?.toLowerCase().includes(query)) return true;
+    if (parsed.raw?.toLowerCase().includes(query)) return true;
+
+    // Check matched song fields
+    if (match?.title?.toLowerCase().includes(query)) return true;
+    if (match?.artist?.toLowerCase().includes(query)) return true;
+    if (match?.album?.toLowerCase().includes(query)) return true;
+
+    return false;
+  };
+
+  // Apply quick filter and match percentage filter to matched tracks
   const matchedTracks = editableTracks.filter((t) => {
     if (!t.match) return false;
     if (maxMatchPercent !== null) {
-      return Math.round(t.matchScore * 100) < maxMatchPercent;
+      if (Math.round(t.matchScore * 100) >= maxMatchPercent) return false;
     }
-    return true;
+    return matchesQuickFilter(t);
   });
 
-  const unmatchedTracks = editableTracks.filter((t) => !t.match);
+  // Apply quick filter to unmatched tracks
+  const unmatchedTracks = editableTracks.filter(
+    (t) => !t.match && matchesQuickFilter(t),
+  );
+
+  // Apply quick filter for all tab
+  const filteredEditableTracks = editableTracks.filter(matchesQuickFilter);
 
   // Count tracks below 100% for the filter UI
   const belowPerfectCount = editableTracks.filter(
@@ -665,6 +705,35 @@ export function TabbedTrackList({
         </div>
       )}
 
+      {/* Quick filter */}
+      {showQuickFilter && (
+        <div className="mb-3 flex items-center gap-2">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              value={quickFilter}
+              onChange={(e) => setQuickFilter(e.target.value)}
+              placeholder="Filter tracks..."
+              className="h-8 pl-8 pr-8"
+            />
+            {quickFilter && (
+              <button
+                type="button"
+                onClick={() => setQuickFilter("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          {quickFilter && (
+            <span className="text-sm text-muted-foreground">
+              {filteredEditableTracks.length} of {editableTracks.length} tracks
+            </span>
+          )}
+        </div>
+      )}
+
       <Tabs defaultValue={defaultTab} className="flex-1 min-h-0 flex flex-col">
         <TabsList
           className={cn(
@@ -674,7 +743,13 @@ export function TabbedTrackList({
               : "grid-cols-3",
           )}
         >
-          <TabsTrigger value="all">All ({editableTracks.length})</TabsTrigger>
+          <TabsTrigger value="all">
+            All (
+            {quickFilter
+              ? filteredEditableTracks.length
+              : editableTracks.length}
+            )
+          </TabsTrigger>
           <TabsTrigger value="matched">
             Matched ({matchedTracks.length})
           </TabsTrigger>
@@ -693,22 +768,27 @@ export function TabbedTrackList({
           className="flex-1 min-h-0 mt-2 flex flex-col data-[state=inactive]:hidden"
         >
           <TrackList
-            tracks={editableTracks}
+            tracks={filteredEditableTracks}
             onUpdateMatch={(idx, match, score) =>
-              onUpdateMatch(getOriginalIndex(editableTracks, idx), match, score)
+              onUpdateMatch(
+                getOriginalIndex(filteredEditableTracks, idx),
+                match,
+                score,
+              )
             }
             onToggleSelection={
               onToggleSelection
                 ? (idx, selected) =>
                     onToggleSelection(
-                      getOriginalIndex(editableTracks, idx),
+                      getOriginalIndex(filteredEditableTracks, idx),
                       selected,
                     )
                 : undefined
             }
             onToggleAllSelection={
               onToggleAllSelection
-                ? (selected) => onToggleAllSelection(editableTracks, selected)
+                ? (selected) =>
+                    onToggleAllSelection(filteredEditableTracks, selected)
                 : undefined
             }
             showPosition={showPosition}
