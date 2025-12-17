@@ -33,57 +33,98 @@ use std::sync::Arc;
 /// Create the OpenSubsonic API router.
 ///
 /// All routes are prefixed with `/rest/` to match the Subsonic API specification.
+/// Routes are registered both with and without the `.view` suffix for compatibility
+/// with different client implementations (some clients like Symfonium use `.view`).
 pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         // System endpoints
         .route("/rest/ping", get(system::ping))
+        .route("/rest/ping.view", get(system::ping))
         .route("/rest/getLicense", get(system::get_license))
+        .route("/rest/getLicense.view", get(system::get_license))
         .route(
             "/rest/getOpenSubsonicExtensions",
             get(system::get_opensubsonic_extensions),
         )
+        .route(
+            "/rest/getOpenSubsonicExtensions.view",
+            get(system::get_opensubsonic_extensions),
+        )
         .route("/rest/getMusicFolders", get(system::get_music_folders))
+        .route("/rest/getMusicFolders.view", get(system::get_music_folders))
         // Browse endpoints
         .route("/rest/getArtists", get(browse::get_artists))
+        .route("/rest/getArtists.view", get(browse::get_artists))
         .route("/rest/getArtist", get(browse::get_artist))
+        .route("/rest/getArtist.view", get(browse::get_artist))
         .route("/rest/getArtistInfo2", get(browse::get_artist_info2))
+        .route("/rest/getArtistInfo2.view", get(browse::get_artist_info2))
         .route("/rest/getAlbum", get(browse::get_album))
+        .route("/rest/getAlbum.view", get(browse::get_album))
         .route("/rest/getSong", get(browse::get_song))
+        .route("/rest/getSong.view", get(browse::get_song))
         .route("/rest/getGenres", get(browse::get_genres))
+        .route("/rest/getGenres.view", get(browse::get_genres))
         // Directory browsing endpoints
         .route("/rest/getIndexes", get(directory::get_indexes))
+        .route("/rest/getIndexes.view", get(directory::get_indexes))
         .route(
             "/rest/getMusicDirectory",
             get(directory::get_music_directory),
         )
+        .route(
+            "/rest/getMusicDirectory.view",
+            get(directory::get_music_directory),
+        )
         // Media endpoints
         .route("/rest/stream", get(stream::stream))
+        .route("/rest/stream.view", get(stream::stream))
         .route("/rest/download", get(stream::download))
+        .route("/rest/download.view", get(stream::download))
         .route("/rest/getCoverArt", get(coverart::get_cover_art))
+        .route("/rest/getCoverArt.view", get(coverart::get_cover_art))
         // Annotation/starring endpoints
         .route("/rest/star", get(starring::star))
+        .route("/rest/star.view", get(starring::star))
         .route("/rest/unstar", get(starring::unstar))
+        .route("/rest/unstar.view", get(starring::unstar))
         .route("/rest/setRating", get(starring::set_rating))
+        .route("/rest/setRating.view", get(starring::set_rating))
         .route("/rest/getStarred", get(starring::get_starred))
+        .route("/rest/getStarred.view", get(starring::get_starred))
         .route("/rest/getStarred2", get(starring::get_starred2))
+        .route("/rest/getStarred2.view", get(starring::get_starred2))
         .route("/rest/scrobble", get(lists::scrobble))
+        .route("/rest/scrobble.view", get(lists::scrobble))
         // Play queue endpoints
         .route("/rest/savePlayQueue", get(playqueue::save_play_queue))
+        .route("/rest/savePlayQueue.view", get(playqueue::save_play_queue))
         .route("/rest/getPlayQueue", get(playqueue::get_play_queue))
+        .route("/rest/getPlayQueue.view", get(playqueue::get_play_queue))
         // List endpoints
         .route("/rest/getAlbumList2", get(lists::get_album_list2))
+        .route("/rest/getAlbumList2.view", get(lists::get_album_list2))
         .route("/rest/getRandomSongs", get(lists::get_random_songs))
+        .route("/rest/getRandomSongs.view", get(lists::get_random_songs))
         .route("/rest/getSongsByGenre", get(lists::get_songs_by_genre))
+        .route("/rest/getSongsByGenre.view", get(lists::get_songs_by_genre))
         // History endpoints (Ferrotune extensions)
         .route("/rest/getPlayHistory", get(history::get_play_history))
+        .route("/rest/getPlayHistory.view", get(history::get_play_history))
         // Search endpoints
         .route("/rest/search3", get(search::search3))
+        .route("/rest/search3.view", get(search::search3))
         // Playlist endpoints
         .route("/rest/getPlaylists", get(playlists::get_playlists))
+        .route("/rest/getPlaylists.view", get(playlists::get_playlists))
         .route("/rest/getPlaylist", get(playlists::get_playlist))
+        .route("/rest/getPlaylist.view", get(playlists::get_playlist))
         .route("/rest/createPlaylist", get(playlists::create_playlist))
+        .route("/rest/createPlaylist.view", get(playlists::create_playlist))
         .route("/rest/updatePlaylist", get(playlists::update_playlist))
+        .route("/rest/updatePlaylist.view", get(playlists::update_playlist))
         .route("/rest/deletePlaylist", get(playlists::delete_playlist))
+        .route("/rest/deletePlaylist.view", get(playlists::delete_playlist))
         .with_state(state)
 }
 
