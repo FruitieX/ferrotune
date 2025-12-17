@@ -32,6 +32,8 @@ tasks:
     command: 'cargo check'
     inputs:
       - '@group(sources)'
+    options:
+      mutex: 'cargo'
   
   build:
     command: 'cargo build'
@@ -39,6 +41,8 @@ tasks:
       - '@group(sources)'
     outputs:
       - 'target/debug/ferrotune'
+    options:
+      mutex: 'cargo'
 
   build-release:
     command: 'cargo build --release'
@@ -46,6 +50,8 @@ tasks:
       - '@group(sources)'
     outputs:
       - 'target/release/ferrotune'
+    options:
+      mutex: 'cargo'
 
   build-release-musl:
     command: 'cargo build --release --features embedded-ui --target x86_64-unknown-linux-musl'
@@ -80,6 +86,8 @@ tasks:
       - '@group(tests)'
     deps:
       - 'build'
+    options:
+      mutex: 'cargo'
 
   test-unit:
     command: 'cargo test --lib'
@@ -87,6 +95,8 @@ tasks:
       - '@group(sources)'
     deps:
       - 'build'
+    options:
+      mutex: 'cargo'
 
   # ============================================================================
   # FIXTURE GENERATION
@@ -119,6 +129,7 @@ tasks:
     options:
       # Integration tests take longer
       timeout: 300
+      mutex: 'cargo'
 
   test-integration-full:
     command: 'cargo test --test integration -- --ignored'
@@ -132,6 +143,7 @@ tasks:
       - 'generate-fixtures'
     options:
       timeout: 600
+      mutex: 'cargo'
 
   # ============================================================================
   # INDIVIDUAL HURL TEST SCRIPTS
@@ -264,6 +276,8 @@ tasks:
     command: 'cargo clippy -- -D warnings'
     inputs:
       - '@group(sources)'
+    options:
+      mutex: 'cargo'
 
   fmt:
     command: 'cargo fmt'
@@ -271,11 +285,14 @@ tasks:
       - '@group(sources)'
     options:
       runInCI: false
+      mutex: 'cargo'
 
   fmt-check:
     command: 'cargo fmt -- --check'
     inputs:
       - '@group(sources)'
+    options:
+      mutex: 'cargo'
 
   # ============================================================================
   # UTILITIES
