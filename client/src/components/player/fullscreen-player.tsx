@@ -16,7 +16,7 @@ import {
   ListMusic,
   Heart,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -45,7 +45,6 @@ import { useAudioEngine } from "@/lib/audio/hooks";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import { SongDropdownMenu } from "@/components/browse/song-context-menu";
-import { useIsDesktop } from "@/lib/hooks/use-media-query";
 
 export function FullscreenPlayer() {
   const [isOpen, setIsOpen] = useAtom(fullscreenPlayerOpenAtom);
@@ -60,7 +59,7 @@ export function FullscreenPlayer() {
   const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
   const progressBarStyle = useAtomValue(progressBarStyleAtom);
   const audioDuration = useAtomValue(durationAtom);
-  const isDesktop = useIsDesktop();
+  const volumeContainerRef = useRef<HTMLDivElement>(null);
 
   const { togglePlayPause, seek, next, previous } = useAudioEngine();
   const { isStarred, toggleStar } = useStarred(
@@ -72,6 +71,13 @@ export function FullscreenPlayer() {
 
   const duration = currentTrack?.duration ?? audioDuration ?? 0;
   const progress = isDragging ? localProgress : currentTime;
+
+  // Close queue panel when fullscreen opens to avoid showing it on top unexpectedly
+  useEffect(() => {
+    if (isOpen) {
+      setQueuePanelOpen(false);
+    }
+  }, [isOpen, setQueuePanelOpen]);
 
   // Get cover art URL
   const coverArtUrl = currentTrack?.coverArt
@@ -94,15 +100,29 @@ export function FullscreenPlayer() {
     setRepeatMode(modes[(currentIndex + 1) % modes.length]);
   };
 
+  // Handle scroll wheel to adjust volume using native event listener with passive: false
+  useEffect(() => {
+    const container = volumeContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      // Scroll up = increase volume, scroll down = decrease
+      // Use small step (5%) for fine control
+      const delta = e.deltaY < 0 ? 0.05 : -0.05;
+      const newVolume = Math.max(0, Math.min(1, volume + delta));
+      setVolume(newVolume);
+      if (newVolume > 0) setIsMuted(false);
+    };
+
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheel);
+  }, [volume, setVolume, setIsMuted]);
+
   const openQueue = () => {
-    // On mobile, open queue drawer directly without closing fullscreen
-    // On desktop, close fullscreen and open sidebar
-    if (isDesktop) {
-      setIsOpen(false);
-      setTimeout(() => setQueuePanelOpen(true), 200);
-    } else {
-      setQueuePanelOpen(true);
-    }
+    // Open queue drawer directly without closing fullscreen
+    // On desktop in fullscreen mode, we show the mobile drawer as an exception
+    setQueuePanelOpen(true);
   };
 
   const isEnded = playbackState === "ended";
@@ -136,7 +156,7 @@ export function FullscreenPlayer() {
           <div className="absolute inset-0 backdrop-blur-3xl bg-background/70" />
 
           {/* Content */}
-          <div className="relative z-10 flex flex-col h-full max-w-lg xl:max-w-3xl mx-auto w-full px-6 py-4">
+          <div className="relative z-10 flex flex-col h-full max-w-lg xl:max-w-6xl mx-auto w-full px-6 py-4">
             {/* Header */}
             <div className="flex items-center justify-between">
               <Button
@@ -165,7 +185,7 @@ export function FullscreenPlayer() {
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ delay: 0.1 }}
-                className="w-full max-w-[min(80vh,500px)] xl:max-w-[min(60vh,600px)] aspect-square"
+                className="w-full max-w-[min(80vh,500px)] xl:max-w-[min(60vh,800px)] aspect-square"
               >
                 <CoverImage
                   src={coverArtUrl}
@@ -316,7 +336,10 @@ export function FullscreenPlayer() {
               className="flex items-center justify-between pb-4"
             >
               {/* Volume */}
-              <div className="flex items-center gap-2 w-32">
+              <div
+                ref={volumeContainerRef}
+                className="flex items-center gap-2 w-32"
+              >
                 <Button
                   variant="ghost"
                   size="icon"

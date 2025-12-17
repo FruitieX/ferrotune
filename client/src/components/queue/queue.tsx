@@ -20,7 +20,7 @@ import {
   ListStart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { queuePanelOpenAtom } from "@/lib/store/ui";
+import { queuePanelOpenAtom, fullscreenPlayerOpenAtom } from "@/lib/store/ui";
 import {
   serverQueueStateAtom,
   isQueueLoadingAtom,
@@ -160,6 +160,7 @@ function QueueSourceDisplay({ variant }: { variant: "mobile" | "desktop" }) {
 export function QueuePanel() {
   const isDesktop = useIsDesktop();
   const [isOpen, setIsOpen] = useAtom(queuePanelOpenAtom);
+  const isFullscreen = useAtomValue(fullscreenPlayerOpenAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
@@ -187,7 +188,8 @@ export function QueuePanel() {
   };
 
   // Don't render the Sheet on desktop - use QueueSidebar instead
-  if (isDesktop) {
+  // Exception: When in fullscreen mode, we need the sheet since the sidebar is hidden behind
+  if (isDesktop && !isFullscreen) {
     return null;
   }
 
