@@ -928,7 +928,8 @@ function PlaylistDetailContent() {
                   <span>•</span>
                   <Badge
                     variant="secondary"
-                    className="bg-orange-500/20 text-orange-500 h-5"
+                    className="bg-orange-500/20 text-orange-500 h-5 cursor-pointer hover:bg-orange-500/30 transition-colors"
+                    onClick={() => setMassResolveDialogOpen(true)}
                   >
                     <AlertCircle className="w-3 h-3 mr-1" />
                     {missingEntryCount} not found

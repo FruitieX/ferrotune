@@ -921,8 +921,9 @@ function DroppableFolderGridCard({
         <div className="w-full">
           <h3 className="font-medium truncate">{folder.name}</h3>
           <p className="text-sm text-muted-foreground truncate">
-            {formatCount(folder.subfolders.length, "folder")} •{" "}
-            {formatCount(playlistCount, "playlist")}
+            {folder.subfolders.length > 0 &&
+              `${formatCount(folder.subfolders.length, "folder")} • `}
+            {playlistCount > 0 ? formatCount(playlistCount, "playlist") : "Empty"}
           </p>
         </div>
       </div>
@@ -1026,7 +1027,7 @@ function DroppableFolderListRow({
           <p className="text-xs text-muted-foreground truncate">
             {folder.subfolders.length > 0 &&
               `${formatCount(folder.subfolders.length, "folder")} • `}
-            {formatCount(playlistCount, "playlist")}
+            {playlistCount > 0 ? formatCount(playlistCount, "playlist") : "Empty"}
           </p>
         </div>
         <FolderDropdownMenu

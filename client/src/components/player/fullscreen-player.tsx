@@ -79,6 +79,21 @@ export function FullscreenPlayer() {
     }
   }, [isOpen, setQueuePanelOpen]);
 
+  // Handle Escape key to close fullscreen
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setIsOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, setIsOpen]);
+
   // Get cover art URL
   const coverArtUrl = currentTrack?.coverArt
     ? getClient()?.getCoverArtUrl(currentTrack.coverArt, 500)

@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 import type { TrackToMatch } from "@/lib/api/generated/TrackToMatch";
@@ -389,6 +390,10 @@ export function TrackRow({
     // Preserve the original match score when manually re-matching
     // This prevents the track from disappearing when confidence filters are enabled
     onUpdateMatch(index, song, track.matchScore || 1);
+    // Auto-select the track when manually matching
+    if (onToggleSelection) {
+      onToggleSelection(index, true);
+    }
     setSearchOpen(false);
   };
 
@@ -447,11 +452,14 @@ export function TrackRow({
         <div className="font-medium truncate">
           {track.parsed.title || track.parsed.raw || "Unknown"}
         </div>
-        {(track.parsed.artist || track.parsed.album) && (
+        {(track.parsed.artist || track.parsed.album || track.parsed.duration) && (
           <div className="text-muted-foreground text-xs truncate">
             {track.parsed.artist}
             {track.parsed.artist && track.parsed.album && " • "}
             {track.parsed.album}
+            {track.parsed.duration && track.parsed.duration > 0 && (
+              <span className="ml-1">({formatDuration(track.parsed.duration)})</span>
+            )}
           </div>
         )}
         {track.matchScore > 0 && (

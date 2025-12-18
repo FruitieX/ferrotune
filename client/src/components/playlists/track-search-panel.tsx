@@ -376,9 +376,9 @@ export function TrackSearchPanel({
         </div>
       )}
 
-      {/* Preview controls for selected song */}
-      {selectedSong && (
-        <div className="pt-2 border-t space-y-2">
+      {/* Preview controls for selected song - always reserve space to prevent jumping */}
+      <div className="pt-2 border-t min-h-[52px]">
+        {selectedSong && (
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
@@ -434,8 +434,8 @@ export function TrackSearchPanel({
               {confirmLabel}
             </Button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {searchResults.length === 0 && searchQuery && !isSearching && (
         <div className="text-sm text-muted-foreground text-center py-4">
