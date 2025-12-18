@@ -187,7 +187,7 @@ export function SmartPlaylistDialog({
         rules: { conditions: apiConditions, logic },
         sortField: sortField === "random" ? null : sortField,
         sortDirection: sortDirection || null,
-        maxSongs: maxSongs ? parseInt(maxSongs, 10) : undefined,
+        maxSongs: maxSongs ? parseInt(maxSongs, 10) : null,
       });
     },
     onSuccess: () => {

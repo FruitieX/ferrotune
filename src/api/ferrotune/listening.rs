@@ -254,7 +254,9 @@ pub async fn get_listening_stats(
 pub struct TopArtist {
     pub artist_id: String,
     pub artist_name: String,
+    #[ts(type = "number")]
     pub play_count: i64,
+    #[ts(type = "number")]
     pub total_duration_secs: i64,
     pub cover_art: Option<String>,
     /// Base64-encoded cover art thumbnail data (only present if inlineImages requested)
@@ -270,7 +272,9 @@ pub struct TopAlbum {
     pub album_id: String,
     pub album_name: String,
     pub artist_name: Option<String>,
+    #[ts(type = "number")]
     pub play_count: i64,
+    #[ts(type = "number")]
     pub total_duration_secs: i64,
     pub cover_art: Option<String>,
     /// Base64-encoded cover art thumbnail data (only present if inlineImages requested)
@@ -287,7 +291,9 @@ pub struct TopTrack {
     pub track_title: String,
     pub artist_name: Option<String>,
     pub album_name: Option<String>,
+    #[ts(type = "number")]
     pub play_count: i64,
+    #[ts(type = "number")]
     pub total_duration_secs: i64,
     pub cover_art: Option<String>,
     /// Base64-encoded cover art thumbnail data (only present if inlineImages requested)
@@ -302,10 +308,15 @@ pub struct TopTrack {
 pub struct PeriodReview {
     pub year: i32,
     pub month: Option<i32>,
+    #[ts(type = "number")]
     pub total_listening_secs: i64,
+    #[ts(type = "number")]
     pub total_play_count: i64,
+    #[ts(type = "number")]
     pub unique_tracks: i64,
+    #[ts(type = "number")]
     pub unique_albums: i64,
+    #[ts(type = "number")]
     pub unique_artists: i64,
     pub top_artists: Vec<TopArtist>,
     pub top_albums: Vec<TopAlbum>,

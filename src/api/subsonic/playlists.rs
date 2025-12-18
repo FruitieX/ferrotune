@@ -130,9 +130,9 @@ pub struct PlaylistDetailResponse {
     pub cover_art: Option<String>,
     /// Total songs after filtering (before pagination)
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
+    #[ts(type = "number | undefined")]
     pub song_total: Option<i64>,
-    pub entry: Vec<crate::api::subsonic::browse::SongResponse>,
+    pub entry: Vec<crate::api::common::models::SongResponse>,
 }
 
 /// Convert a database Playlist to a PlaylistResponse
@@ -167,8 +167,8 @@ fn playlist_to_response(playlist: &Playlist, owner_name: &str) -> PlaylistRespon
 /// Convert a Song to SongResponse with defaults for playlist context
 fn song_to_playlist_response(
     song: &crate::db::models::Song,
-) -> crate::api::subsonic::browse::SongResponse {
-    crate::api::subsonic::browse::song_to_response(song.clone(), None, None, None)
+) -> crate::api::common::models::SongResponse {
+    crate::api::common::browse::song_to_response(song.clone(), None, None, None)
 }
 
 /// GET /rest/getPlaylists - Get all playlists
@@ -200,7 +200,7 @@ pub async fn get_playlist(
     user: AuthenticatedUser,
     axum::extract::Query(params): axum::extract::Query<PlaylistParams>,
 ) -> Result<FormatResponse<PlaylistWithSongsResponse>> {
-    use super::sorting::filter_and_sort_songs;
+    use crate::api::common::sorting::filter_and_sort_songs;
 
     let id = params
         .id
@@ -245,7 +245,7 @@ pub async fn get_playlist(
         songs
     };
 
-    let song_responses: Vec<crate::api::subsonic::browse::SongResponse> =
+    let song_responses: Vec<crate::api::common::models::SongResponse> =
         songs.iter().map(song_to_playlist_response).collect();
 
     // Use playlist ID as cover art reference
@@ -359,7 +359,7 @@ async fn get_playlist_response(
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let song_responses: Vec<crate::api::subsonic::browse::SongResponse> =
+    let song_responses: Vec<crate::api::common::models::SongResponse> =
         songs.iter().map(song_to_playlist_response).collect();
 
     let cover_art = if playlist.song_count > 0 {

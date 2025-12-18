@@ -17,8 +17,10 @@ pub struct DuplicateGroup {
     /// The full content hash shared by all files in this group.
     pub hash: String,
     /// Number of duplicate files.
+    #[ts(type = "number")]
     pub count: i64,
     /// Total size of duplicates (count - 1) * file_size (wasted space).
+    #[ts(type = "number")]
     pub wasted_bytes: i64,
     /// The duplicate files.
     pub files: Vec<DuplicateFile>,
@@ -34,6 +36,7 @@ pub struct DuplicateFile {
     /// File path relative to music folder.
     pub file_path: String,
     /// File size in bytes.
+    #[ts(type = "number")]
     pub file_size: i64,
     /// Song title.
     pub title: String,
@@ -53,8 +56,10 @@ pub struct DuplicatesResponse {
     /// Total number of duplicate groups.
     pub group_count: usize,
     /// Total number of duplicate files.
+    #[ts(type = "number")]
     pub total_duplicates: i64,
     /// Total wasted space in bytes.
+    #[ts(type = "number")]
     pub total_wasted_bytes: i64,
     /// The duplicate groups.
     pub groups: Vec<DuplicateGroup>,

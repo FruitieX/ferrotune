@@ -36,7 +36,7 @@ pub struct SongMatchEntry {
     pub album: Option<String>,
     /// Duration in seconds
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
+    #[ts(type = "number | undefined")]
     pub duration: Option<i64>,
 }
 

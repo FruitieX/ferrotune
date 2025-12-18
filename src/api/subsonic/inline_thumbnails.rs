@@ -132,7 +132,7 @@ pub async fn get_artist_thumbnails_base64(
     let placeholders: Vec<&str> = artist_ids.iter().map(|_| "?").collect();
     let query = format!(
         r#"
-        SELECT a.id, t.{column}
+        SELECT ar.id, t.{column}
         FROM artists ar
         LEFT JOIN albums a ON a.artist_id = ar.id AND a.cover_art_hash IS NOT NULL
         LEFT JOIN cover_art_thumbnails t ON (ar.cover_art_hash = t.hash OR a.cover_art_hash = t.hash)

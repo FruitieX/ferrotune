@@ -4,15 +4,13 @@
 //! All sorting should be done server-side to ensure queue materialization
 //! uses the same order as the displayed list.
 
-// Sorting types and functions prepared for future use
-#![allow(dead_code)]
-
 use crate::db::models::Song;
 use serde::Deserialize;
 
 /// Sort configuration passed from client
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct SortParams {
     /// Sort field: name, artist, album, year, dateAdded, playCount, duration, custom
     #[serde(default)]
@@ -25,6 +23,7 @@ pub struct SortParams {
 /// Filter configuration passed from client
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct FilterParams {
     /// Text filter to match against title, artist, album
     #[serde(default)]
@@ -34,6 +33,7 @@ pub struct FilterParams {
 /// Combined sort and filter params
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct SortFilterParams {
     /// Sort field: name, artist, album, year, dateAdded, playCount, duration, custom
     #[serde(default)]
@@ -125,6 +125,7 @@ pub fn filter_and_sort_songs(
 }
 
 /// Sort songs using SortFilterParams struct
+#[allow(dead_code)]
 pub fn apply_sort_filter(songs: Vec<Song>, params: &SortFilterParams) -> Vec<Song> {
     filter_and_sort_songs(
         songs,
@@ -154,6 +155,7 @@ pub fn parse_sort_from_json(sort: Option<&serde_json::Value>) -> (Option<String>
 }
 
 /// Sort songs using JSON sort configuration (for queue materialization)
+#[allow(dead_code)]
 pub fn sort_songs_from_json(songs: Vec<Song>, sort: Option<&serde_json::Value>) -> Vec<Song> {
     let (field, direction) = parse_sort_from_json(sort);
     sort_songs(songs, field.as_deref(), direction.as_deref())

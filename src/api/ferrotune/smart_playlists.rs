@@ -93,7 +93,7 @@ pub struct CreateSmartPlaylistRequest {
     pub rules: SmartPlaylistRulesApi,
     pub sort_field: Option<String>,
     pub sort_direction: Option<String>,
-    #[ts(type = "number | undefined")]
+    #[ts(type = "number | null")]
     pub max_songs: Option<i64>,
 }
 
@@ -130,11 +130,13 @@ pub struct SmartPlaylistSongsResponse {
     pub id: String,
     pub name: String,
     /// Total matching songs (before limit)
+    #[ts(type = "number")]
     pub total_count: i64,
     /// Offset of the current page
+    #[ts(type = "number")]
     pub offset: i64,
     /// Songs (potentially limited by max_songs and pagination)
-    pub songs: Vec<crate::api::subsonic::browse::SongResponse>,
+    pub songs: Vec<crate::api::common::models::SongResponse>,
 }
 
 /// Query parameters for smart playlist songs
@@ -409,7 +411,7 @@ pub async fn get_smart_playlist_songs(
     Path(id): Path<String>,
     Query(params): Query<SmartPlaylistSongsParams>,
 ) -> Result<Json<SmartPlaylistSongsResponse>> {
-    use crate::api::subsonic::browse::song_to_response_with_stats;
+    use crate::api::common::browse::song_to_response_with_stats;
     use crate::api::subsonic::inline_thumbnails::get_song_thumbnails_base64;
     use crate::thumbnails::ThumbnailSize;
 
@@ -486,7 +488,7 @@ pub async fn get_smart_playlist_songs(
                 .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
             let cover_art_data = thumbnails.get(&s.id).cloned();
             // Construct play stats from Song model fields
-            let play_stats = crate::api::subsonic::browse::SongPlayStats {
+            let play_stats = crate::api::common::models::SongPlayStats {
                 play_count: s.play_count,
                 last_played: s
                     .last_played

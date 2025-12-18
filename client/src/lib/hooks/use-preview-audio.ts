@@ -51,7 +51,7 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
       audioRef.current.volume = mainVolume;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Only sync on mount
-  }, []); // Only on mount
+  }, []);
 
   // Create audio element on mount
   useEffect(() => {

@@ -3,6 +3,7 @@
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::AppState;
+use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -13,8 +14,6 @@ use std::sync::Arc;
 use ts_rs::TS;
 use uuid::Uuid;
 
-type ApiError = (StatusCode, Json<super::ErrorResponse>);
-
 /// A playlist folder in the response.
 #[derive(Debug, Serialize, sqlx::FromRow, TS)]
 #[serde(rename_all = "camelCase")]
@@ -23,6 +22,7 @@ pub struct PlaylistFolderResponse {
     pub id: String,
     pub name: String,
     pub parent_id: Option<String>,
+    #[ts(type = "number")]
     pub position: i64,
     pub created_at: String,
 }
@@ -35,7 +35,9 @@ pub struct PlaylistInFolder {
     pub id: String,
     pub name: String,
     pub folder_id: Option<String>,
+    #[ts(type = "number")]
     pub position: i64,
+    #[ts(type = "number")]
     pub song_count: i64,
 }
 
@@ -48,11 +50,10 @@ pub struct PlaylistFoldersResponse {
     pub playlists: Vec<PlaylistInFolder>,
 }
 
-/// Get all playlist folders and playlists for the current user.
 pub async fn get_playlist_folders(
     State(state): State<Arc<AppState>>,
     user: FerrotuneAuthenticatedUser,
-) -> Result<Json<PlaylistFoldersResponse>, ApiError> {
+) -> FerrotuneApiResult<Json<PlaylistFoldersResponse>> {
     // Get folders
     let folders: Vec<PlaylistFolderResponse> = sqlx::query_as(
         r#"
@@ -65,16 +66,7 @@ pub async fn get_playlist_folders(
     )
     .bind(user.user_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .await?;
 
     // Get playlists with folder info
     let playlists: Vec<PlaylistInFolder> = sqlx::query_as(
@@ -87,16 +79,7 @@ pub async fn get_playlist_folders(
     )
     .bind(user.user_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .await?;
 
     Ok(Json(PlaylistFoldersResponse { folders, playlists }))
 }
@@ -114,7 +97,7 @@ pub async fn create_playlist_folder(
     State(state): State<Arc<AppState>>,
     user: FerrotuneAuthenticatedUser,
     Json(request): Json<CreateFolderRequest>,
-) -> Result<Json<PlaylistFolderResponse>, ApiError> {
+) -> FerrotuneApiResult<Json<PlaylistFolderResponse>> {
     let id = Uuid::new_v4().to_string();
 
     // Validate parent if provided
@@ -124,22 +107,10 @@ pub async fn create_playlist_folder(
                 .bind(parent_id)
                 .bind(user.user_id)
                 .fetch_optional(&state.pool)
-                .await
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(super::ErrorResponse::with_details(
-                            "Database error",
-                            e.to_string(),
-                        )),
-                    )
-                })?;
+                .await?;
 
         if parent_exists.is_none() {
-            return Err((
-                StatusCode::NOT_FOUND,
-                Json(super::ErrorResponse::new("Parent folder not found")),
-            ));
+            return Err(Error::NotFound("Parent folder not found".to_string()).into());
         }
     }
 
@@ -155,16 +126,7 @@ pub async fn create_playlist_folder(
     .bind(&request.parent_id)
     .bind(&request.parent_id)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .await?;
 
     sqlx::query(
         r#"
@@ -178,16 +140,7 @@ pub async fn create_playlist_folder(
     .bind(user.user_id)
     .bind(next_position)
     .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .await?;
 
     // Fetch the created folder
     let folder: PlaylistFolderResponse = sqlx::query_as(
@@ -200,16 +153,7 @@ pub async fn create_playlist_folder(
     )
     .bind(&id)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .await?;
 
     Ok(Json(folder))
 }
@@ -228,29 +172,17 @@ pub async fn update_playlist_folder(
     user: FerrotuneAuthenticatedUser,
     Path(folder_id): Path<String>,
     Json(request): Json<UpdateFolderRequest>,
-) -> Result<Json<PlaylistFolderResponse>, ApiError> {
+) -> FerrotuneApiResult<Json<PlaylistFolderResponse>> {
     // Check folder exists and belongs to user
     let folder: Option<(String,)> =
         sqlx::query_as("SELECT id FROM playlist_folders WHERE id = ? AND owner_id = ?")
             .bind(&folder_id)
             .bind(user.user_id)
             .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
 
     if folder.is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Folder not found")),
-        ));
+        return Err(Error::NotFound("Folder not found".to_string()).into());
     }
 
     // Update name if provided
@@ -259,16 +191,7 @@ pub async fn update_playlist_folder(
             .bind(name)
             .bind(&folder_id)
             .execute(&state.pool)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
     }
 
     // Update parent if provided
@@ -277,10 +200,9 @@ pub async fn update_playlist_folder(
         if let Some(ref parent_id) = new_parent {
             // Check it's not trying to move to itself
             if parent_id == &folder_id {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(super::ErrorResponse::new("Cannot move folder into itself")),
-                ));
+                return Err(
+                    Error::InvalidRequest("Cannot move folder into itself".to_string()).into(),
+                );
             }
 
             let parent_exists: Option<(i32,)> =
@@ -288,22 +210,10 @@ pub async fn update_playlist_folder(
                     .bind(parent_id)
                     .bind(user.user_id)
                     .fetch_optional(&state.pool)
-                    .await
-                    .map_err(|e| {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(super::ErrorResponse::with_details(
-                                "Database error",
-                                e.to_string(),
-                            )),
-                        )
-                    })?;
+                    .await?;
 
             if parent_exists.is_none() {
-                return Err((
-                    StatusCode::NOT_FOUND,
-                    Json(super::ErrorResponse::new("Parent folder not found")),
-                ));
+                return Err(Error::NotFound("Parent folder not found".to_string()).into());
             }
         }
 
@@ -311,16 +221,7 @@ pub async fn update_playlist_folder(
             .bind(&new_parent)
             .bind(&folder_id)
             .execute(&state.pool)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
     }
 
     // Fetch the updated folder
@@ -334,16 +235,7 @@ pub async fn update_playlist_folder(
     )
     .bind(&folder_id)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .await?;
 
     Ok(Json(folder))
 }
@@ -353,28 +245,16 @@ pub async fn delete_playlist_folder(
     State(state): State<Arc<AppState>>,
     user: FerrotuneAuthenticatedUser,
     Path(folder_id): Path<String>,
-) -> Result<StatusCode, ApiError> {
+) -> FerrotuneApiResult<StatusCode> {
     // Check folder exists and belongs to user
     let result = sqlx::query("DELETE FROM playlist_folders WHERE id = ? AND owner_id = ?")
         .bind(&folder_id)
         .bind(user.user_id)
         .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details(
-                    "Database error",
-                    e.to_string(),
-                )),
-            )
-        })?;
+        .await?;
 
     if result.rows_affected() == 0 {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Folder not found")),
-        ));
+        return Err(Error::NotFound("Folder not found".to_string()).into());
     }
 
     // Playlists in this folder will have their folder_id set to NULL due to ON DELETE SET NULL
@@ -395,29 +275,17 @@ pub async fn move_playlist(
     user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     Json(request): Json<MovePlaylistRequest>,
-) -> Result<StatusCode, ApiError> {
+) -> FerrotuneApiResult<StatusCode> {
     // Check playlist exists and belongs to user
     let playlist: Option<(String,)> =
         sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
             .bind(&playlist_id)
             .bind(user.user_id)
             .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
 
     if playlist.is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Playlist not found")),
-        ));
+        return Err(Error::NotFound("Playlist not found".to_string()).into());
     }
 
     // Validate folder if provided
@@ -427,22 +295,10 @@ pub async fn move_playlist(
                 .bind(folder_id)
                 .bind(user.user_id)
                 .fetch_optional(&state.pool)
-                .await
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(super::ErrorResponse::with_details(
-                            "Database error",
-                            e.to_string(),
-                        )),
-                    )
-                })?;
+                .await?;
 
         if folder_exists.is_none() {
-            return Err((
-                StatusCode::NOT_FOUND,
-                Json(super::ErrorResponse::new("Folder not found")),
-            ));
+            return Err(Error::NotFound("Folder not found".to_string()).into());
         }
     }
 
@@ -450,16 +306,7 @@ pub async fn move_playlist(
         .bind(&request.folder_id)
         .bind(&playlist_id)
         .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details(
-                    "Database error",
-                    e.to_string(),
-                )),
-            )
-        })?;
+        .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -478,29 +325,17 @@ pub async fn reorder_playlist_songs(
     user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     Json(request): Json<ReorderPlaylistRequest>,
-) -> Result<StatusCode, ApiError> {
+) -> FerrotuneApiResult<StatusCode> {
     // Check playlist exists and belongs to user
     let playlist: Option<(String,)> =
         sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
             .bind(&playlist_id)
             .bind(user.user_id)
             .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
 
     if playlist.is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Playlist not found")),
-        ));
+        return Err(Error::NotFound("Playlist not found".to_string()).into());
     }
 
     // Verify all provided song IDs are in the playlist and get their added_at timestamps and entry_ids
@@ -509,16 +344,7 @@ pub async fn reorder_playlist_songs(
     )
     .bind(&playlist_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .await?;
 
     // Create a map from song_id to (added_at, entry_id) for preserving timestamps and entry_ids
     let entry_data_map: std::collections::HashMap<String, (String, Option<String>)> =
@@ -537,46 +363,27 @@ pub async fn reorder_playlist_songs(
     requested_sorted.sort();
 
     if existing_sorted != requested_sorted {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(super::ErrorResponse::new(
-                "Song IDs must match existing playlist songs",
-            )),
-        ));
+        return Err(Error::InvalidRequest(
+            "Song IDs must match existing playlist songs".to_string(),
+        )
+        .into());
     }
 
     // Update positions in a transaction
     // We need to delete all songs and re-insert them to avoid UNIQUE constraint violations
-    let mut tx = state.pool.begin().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    let mut tx = state.pool.begin().await?;
 
     // Delete all songs from the playlist
     sqlx::query("DELETE FROM playlist_songs WHERE playlist_id = ?")
         .bind(&playlist_id)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details(
-                    "Database error",
-                    e.to_string(),
-                )),
-            )
-        })?;
+        .await?;
 
     // Re-insert songs in the new order with preserved added_at timestamps and entry_ids
     for (position, song_id) in request.song_ids.iter().enumerate() {
         let (added_at, entry_id) = entry_data_map.get(song_id).cloned().unwrap_or_default();
         // Generate new entry_id if missing (legacy entries)
-        let entry_id = entry_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let entry_id = entry_id.unwrap_or_else(|| Uuid::new_v4().to_string());
         sqlx::query("INSERT INTO playlist_songs (playlist_id, song_id, position, added_at, entry_id) VALUES (?, ?, ?, ?, ?)")
             .bind(&playlist_id)
             .bind(song_id)
@@ -584,27 +391,10 @@ pub async fn reorder_playlist_songs(
             .bind(&added_at)
             .bind(&entry_id)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
     }
 
-    tx.commit().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    tx.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -626,29 +416,17 @@ pub async fn match_missing_entry(
     user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     Json(request): Json<MatchMissingEntryRequest>,
-) -> Result<StatusCode, ApiError> {
+) -> FerrotuneApiResult<StatusCode> {
     // Check playlist exists and belongs to user
     let playlist: Option<(String,)> =
         sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
             .bind(&playlist_id)
             .bind(user.user_id)
             .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
 
     if playlist.is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Playlist not found")),
-        ));
+        return Err(Error::NotFound("Playlist not found".to_string()).into());
     }
 
     // Verify the entry exists with this entry_id and has missing_entry_data
@@ -658,55 +436,26 @@ pub async fn match_missing_entry(
     .bind(&playlist_id)
     .bind(&request.entry_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .await?;
 
     let Some((_song_id, missing_data)) = entry else {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Entry not found")),
-        ));
+        return Err(Error::NotFound("Entry not found".to_string()).into());
     };
 
     // Only allow matching if this entry has missing_entry_data (either unmatched or previously matched)
     // This allows re-matching songs that were incorrectly matched
     if missing_data.is_none() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(super::ErrorResponse::new(
-                "Entry has no missing data to match",
-            )),
-        ));
+        return Err(Error::InvalidRequest("Entry has no missing data to match".to_string()).into());
     }
 
     // Verify the song exists
     let song_exists: Option<(String,)> = sqlx::query_as("SELECT id FROM songs WHERE id = ?")
         .bind(&request.song_id)
         .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details(
-                    "Database error",
-                    e.to_string(),
-                )),
-            )
-        })?;
+        .await?;
 
     if song_exists.is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Song not found")),
-        ));
+        return Err(Error::NotFound("Song not found".to_string()).into());
     }
 
     // Update the entry to link to the song using entry_id
@@ -716,22 +465,10 @@ pub async fn match_missing_entry(
         &request.entry_id,
         &request.song_id,
     )
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .await?;
 
     if !matched {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Entry not found")),
-        ));
+        return Err(Error::NotFound("Entry not found".to_string()).into());
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -753,29 +490,17 @@ pub async fn unmatch_entry(
     user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     Json(request): Json<UnmatchEntryRequest>,
-) -> Result<StatusCode, ApiError> {
+) -> FerrotuneApiResult<StatusCode> {
     // Check playlist exists and belongs to user
     let playlist: Option<(String,)> =
         sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
             .bind(&playlist_id)
             .bind(user.user_id)
             .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
 
     if playlist.is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Playlist not found")),
-        ));
+        return Err(Error::NotFound("Playlist not found".to_string()).into());
     }
 
     // Verify the entry exists with this entry_id and has missing_entry_data
@@ -785,61 +510,32 @@ pub async fn unmatch_entry(
     .bind(&playlist_id)
     .bind(&request.entry_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .await?;
 
     let Some((song_id, missing_data)) = entry else {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Entry not found")),
-        ));
+        return Err(Error::NotFound("Entry not found".to_string()).into());
     };
 
     // Can only unmatch entries that have missing_entry_data (imported entries)
     if missing_data.is_none() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(super::ErrorResponse::new(
-                "Entry has no missing data - cannot unmatch native entries",
-            )),
-        ));
+        return Err(Error::InvalidRequest(
+            "Entry has no missing data - cannot unmatch native entries".to_string(),
+        )
+        .into());
     }
 
     // Can only unmatch if currently matched
     if song_id.is_none() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(super::ErrorResponse::new("Entry is already unmatched")),
-        ));
+        return Err(Error::InvalidRequest("Entry is already unmatched".to_string()).into());
     }
 
     // Unmatch the entry using entry_id
     let unmatched =
         crate::db::queries::unmatch_entry_by_id(&state.pool, &playlist_id, &request.entry_id)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
 
     if !unmatched {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Entry not found")),
-        ));
+        return Err(Error::NotFound("Entry not found".to_string()).into());
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -882,29 +578,17 @@ pub async fn batch_match_entries(
     user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     Json(request): Json<BatchMatchEntriesRequest>,
-) -> Result<Json<BatchMatchEntriesResponse>, ApiError> {
+) -> FerrotuneApiResult<Json<BatchMatchEntriesResponse>> {
     // Check playlist exists and belongs to user
     let playlist: Option<(String,)> =
         sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
             .bind(&playlist_id)
             .bind(user.user_id)
             .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
 
     if playlist.is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Playlist not found")),
-        ));
+        return Err(Error::NotFound("Playlist not found".to_string()).into());
     }
 
     // Convert to the format the query function expects
@@ -916,17 +600,7 @@ pub async fn batch_match_entries(
 
     // Update the entries
     let success_count =
-        crate::db::queries::batch_match_entries(&state.pool, &playlist_id, &matches)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+        crate::db::queries::batch_match_entries(&state.pool, &playlist_id, &matches).await?;
 
     let total = matches.len() as i32;
     Ok(Json(BatchMatchEntriesResponse {
@@ -952,7 +626,7 @@ pub async fn move_playlist_entry(
     user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     Json(request): Json<MovePlaylistEntryRequest>,
-) -> Result<StatusCode, ApiError> {
+) -> FerrotuneApiResult<StatusCode> {
     let to_pos = request.to_position as i64;
 
     // Check playlist exists and belongs to user
@@ -961,22 +635,10 @@ pub async fn move_playlist_entry(
             .bind(&playlist_id)
             .bind(user.user_id)
             .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
 
     if playlist.is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Playlist not found")),
-        ));
+        return Err(Error::NotFound("Playlist not found".to_string()).into());
     }
 
     // Look up the current position of the entry by entry_id
@@ -986,22 +648,10 @@ pub async fn move_playlist_entry(
     .bind(&playlist_id)
     .bind(&request.entry_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .await?;
 
     let Some((from_pos,)) = from_pos_result else {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Entry not found")),
-        ));
+        return Err(Error::NotFound("Entry not found".to_string()).into());
     };
 
     if from_pos == to_pos {
@@ -1013,50 +663,21 @@ pub async fn move_playlist_entry(
         sqlx::query_scalar("SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = ?")
             .bind(&playlist_id)
             .fetch_one(&state.pool)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
 
     if to_pos < 0 || to_pos >= count {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(super::ErrorResponse::new("Invalid position")),
-        ));
+        return Err(Error::InvalidRequest("Invalid position".to_string()).into());
     }
 
     // Move the entry in a transaction
-    let mut tx = state.pool.begin().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    let mut tx = state.pool.begin().await?;
 
     // Temporarily move the item to a negative position to avoid conflicts
     sqlx::query("UPDATE playlist_songs SET position = -1 WHERE playlist_id = ? AND position = ?")
         .bind(&playlist_id)
         .bind(from_pos)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details(
-                    "Database error",
-                    e.to_string(),
-                )),
-            )
-        })?;
+        .await?;
 
     // Shift positions of entries between from and to
     // We shift one row at a time to avoid UNIQUE constraint violations
@@ -1070,16 +691,7 @@ pub async fn move_playlist_entry(
             .bind(&playlist_id)
             .bind(pos)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
         }
     } else {
         // Moving up: shift entries down one at a time, starting from the highest position
@@ -1091,16 +703,7 @@ pub async fn move_playlist_entry(
             .bind(&playlist_id)
             .bind(pos)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
         }
     }
 
@@ -1109,26 +712,9 @@ pub async fn move_playlist_entry(
         .bind(to_pos)
         .bind(&playlist_id)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details(
-                    "Database error",
-                    e.to_string(),
-                )),
-            )
-        })?;
+        .await?;
 
-    tx.commit().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    tx.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1192,7 +778,7 @@ pub async fn import_playlist(
     State(state): State<Arc<AppState>>,
     user: FerrotuneAuthenticatedUser,
     Json(request): Json<ImportPlaylistRequest>,
-) -> Result<Json<ImportPlaylistResponse>, ApiError> {
+) -> FerrotuneApiResult<Json<ImportPlaylistResponse>> {
     use crate::db::models::MissingEntryData;
     use crate::db::queries::{add_entries_to_playlist, create_playlist, PlaylistEntry};
 
@@ -1238,16 +824,7 @@ pub async fn import_playlist(
         request.comment.as_deref(),
         false,
     )
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Failed to create playlist",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .await?;
 
     // Convert import entries to playlist entries
     let mut matched_count = 0i32;
@@ -1301,17 +878,7 @@ pub async fn import_playlist(
         .collect();
 
     // Add entries to the playlist
-    add_entries_to_playlist(&state.pool, &playlist_id, &entries)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details(
-                    "Failed to add entries to playlist",
-                    e.to_string(),
-                )),
-            )
-        })?;
+    add_entries_to_playlist(&state.pool, &playlist_id, &entries).await?;
 
     Ok(Json(ImportPlaylistResponse {
         playlist_id,
@@ -1412,7 +979,7 @@ pub struct PlaylistSongEntry {
     pub song_index: Option<i32>,
     /// Song data (only present if entry_type is "song")
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub song: Option<crate::api::subsonic::browse::SongResponse>,
+    pub song: Option<crate::api::common::models::SongResponse>,
     /// Missing entry data (only present if entry_type is "missing")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub missing: Option<MissingEntryDataResponse>,
@@ -1468,37 +1035,20 @@ pub async fn get_playlist_songs(
     user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<GetPlaylistSongsParams>,
-) -> Result<Json<PlaylistSongsResponse>, ApiError> {
-    use crate::api::subsonic::browse::song_to_response_with_stats;
+) -> FerrotuneApiResult<Json<PlaylistSongsResponse>> {
+    use crate::api::common::browse::song_to_response_with_stats;
     use crate::db::models::MissingEntryData;
 
     // Get playlist metadata
+    // Get playlist metadata
     let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details(
-                    "Database error",
-                    e.to_string(),
-                )),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(super::ErrorResponse::new("Playlist not found")),
-            )
-        })?;
+        .await?
+        .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
     // Check access: user must own playlist or it must be public
+    // Check access: user must own playlist or it must be public
     if playlist.owner_id != user.user_id && !playlist.is_public {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(super::ErrorResponse::new(
-                "Not authorized to access this playlist",
-            )),
-        ));
+        return Err(Error::Forbidden("Not authorized to access this playlist".to_string()).into());
     }
 
     // Get all playlist entries (positions, song_ids, missing data, added_at, entry_id)
@@ -1510,17 +1060,9 @@ pub async fn get_playlist_songs(
          ORDER BY position",
     )
     .bind(&playlist_id)
+    .bind(&playlist_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .await?;
 
     // Count totals
     let total_entries = entries_raw.len() as i64;
@@ -1542,17 +1084,7 @@ pub async fn get_playlist_songs(
 
     // Fetch all songs at once with their library enabled status
     let songs = if !song_ids.is_empty() {
-        crate::db::queries::get_songs_by_ids_with_library_status(&state.pool, &song_ids)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?
+        crate::db::queries::get_songs_by_ids_with_library_status(&state.pool, &song_ids).await?
     } else {
         vec![]
     };
@@ -2021,7 +1553,7 @@ pub async fn get_playlist_entries(
     State(state): State<Arc<AppState>>,
     user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
-) -> Result<Json<PlaylistEntriesResponse>, ApiError> {
+) -> FerrotuneApiResult<Json<PlaylistEntriesResponse>> {
     use crate::db::models::MissingEntryData;
 
     // Check playlist exists and belongs to user
@@ -2029,32 +1561,15 @@ pub async fn get_playlist_entries(
         sqlx::query_as("SELECT id, owner_id, is_public FROM playlists WHERE id = ?")
             .bind(&playlist_id)
             .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::with_details(
-                        "Database error",
-                        e.to_string(),
-                    )),
-                )
-            })?;
+            .await?;
 
     let Some((_, owner_id, is_public)) = playlist else {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Playlist not found")),
-        ));
+        return Err(Error::NotFound("Playlist not found".to_string()).into());
     };
 
     // Check access
     if owner_id != user.user_id && !is_public {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(super::ErrorResponse::new(
-                "Not authorized to access this playlist",
-            )),
-        ));
+        return Err(Error::Forbidden("Not authorized to access this playlist".to_string()).into());
     }
 
     // Get all entries (both matched and missing)
@@ -2063,16 +1578,7 @@ pub async fn get_playlist_entries(
     )
     .bind(&playlist_id)
     .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .await?;
 
     let mut matched_count = 0i32;
     let mut missing_count = 0i32;
@@ -2120,4 +1626,261 @@ pub async fn get_playlist_entries(
         missing: missing_count,
         entries,
     }))
+}
+
+/// Request to update a playlist's metadata.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct UpdatePlaylistRequest {
+    pub name: Option<String>,
+    pub comment: Option<String>,
+    pub public: Option<bool>,
+}
+
+/// Update a playlist's metadata.
+pub async fn update_playlist(
+    State(state): State<Arc<AppState>>,
+    user: FerrotuneAuthenticatedUser,
+    Path(playlist_id): Path<String>,
+    Json(request): Json<UpdatePlaylistRequest>,
+) -> FerrotuneApiResult<Json<PlaylistSongsResponse>> {
+    // Check playlist exists and belongs to user
+    let playlist: Option<(String, i64)> =
+        sqlx::query_as("SELECT id, owner_id FROM playlists WHERE id = ?")
+            .bind(&playlist_id)
+            .fetch_optional(&state.pool)
+            .await?;
+
+    let Some((_, owner_id)) = playlist else {
+        return Err(Error::NotFound("Playlist not found".to_string()).into());
+    };
+
+    if owner_id != user.user_id {
+        return Err(Error::Forbidden("Not authorized to update this playlist".to_string()).into());
+    }
+
+    // Update fields
+    let mut query = "UPDATE playlists SET updated_at = CURRENT_TIMESTAMP".to_string();
+    let mut has_changes = false;
+
+    if request.name.is_some() {
+        query.push_str(", name = ?");
+        has_changes = true;
+    }
+    if request.comment.is_some() {
+        query.push_str(", comment = ?");
+        has_changes = true;
+    }
+    if request.public.is_some() {
+        query.push_str(", is_public = ?");
+        has_changes = true;
+    }
+
+    query.push_str(" WHERE id = ?");
+
+    if has_changes {
+        let mut q = sqlx::query(&query);
+
+        if let Some(ref name) = request.name {
+            q = q.bind(name);
+        }
+        if let Some(ref comment) = request.comment {
+            q = q.bind(comment);
+        }
+        if let Some(public) = request.public {
+            q = q.bind(public);
+        }
+
+        q = q.bind(&playlist_id);
+
+        q.execute(&state.pool).await?;
+    }
+
+    // Query the updated playlist and return it.
+    let updated_playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
+
+    Ok(Json(PlaylistSongsResponse {
+        id: updated_playlist.id.clone(),
+        name: updated_playlist.name,
+        comment: updated_playlist.comment,
+        owner: user.username.clone(),
+        public: updated_playlist.is_public,
+        total_entries: updated_playlist.song_count,
+        matched_count: 0, // Approximate/not calculated here
+        missing_count: 0, // Approximate/not calculated here
+        duration: updated_playlist.duration,
+        filtered_count: 0,
+        created: updated_playlist
+            .created_at
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string(),
+        changed: updated_playlist
+            .updated_at
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string(),
+        cover_art: if updated_playlist.song_count > 0 {
+            Some(updated_playlist.id.clone())
+        } else {
+            None
+        },
+        entries: vec![], // Return empty entries to signal only metadata update
+    }))
+}
+
+/// Delete a playlist.
+pub async fn delete_playlist(
+    State(state): State<Arc<AppState>>,
+    user: FerrotuneAuthenticatedUser,
+    Path(playlist_id): Path<String>,
+) -> FerrotuneApiResult<StatusCode> {
+    // Check playlist exists and belongs to user
+    let playlist: Option<(String, i64)> =
+        sqlx::query_as("SELECT id, owner_id FROM playlists WHERE id = ?")
+            .bind(&playlist_id)
+            .fetch_optional(&state.pool)
+            .await?;
+
+    let Some((_, owner_id)) = playlist else {
+        return Err(Error::NotFound("Playlist not found".to_string()).into());
+    };
+
+    if owner_id != user.user_id {
+        return Err(Error::Forbidden("Not authorized to delete this playlist".to_string()).into());
+    }
+
+    // Delete the playlist (cascade should handle entries)
+    sqlx::query("DELETE FROM playlists WHERE id = ?")
+        .bind(&playlist_id)
+        .execute(&state.pool)
+        .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Request to add songs to a playlist.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct AddPlaylistSongsRequest {
+    pub song_ids: Vec<String>,
+}
+
+/// Add songs to a playlist.
+pub async fn add_playlist_songs(
+    State(state): State<Arc<AppState>>,
+    user: FerrotuneAuthenticatedUser,
+    Path(playlist_id): Path<String>,
+    Json(request): Json<AddPlaylistSongsRequest>,
+) -> FerrotuneApiResult<StatusCode> {
+    use crate::db::queries::{add_entries_to_playlist, PlaylistEntry};
+
+    // Check playlist exists and belongs to user
+    let playlist: Option<(String, i64)> =
+        sqlx::query_as("SELECT id, owner_id FROM playlists WHERE id = ?")
+            .bind(&playlist_id)
+            .fetch_optional(&state.pool)
+            .await?;
+
+    let Some((_, owner_id)) = playlist else {
+        return Err(Error::NotFound("Playlist not found".to_string()).into());
+    };
+
+    if owner_id != user.user_id {
+        return Err(Error::Forbidden("Not authorized to modify this playlist".to_string()).into());
+    }
+
+    if request.song_ids.is_empty() {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    // Convert to PlaylistEntry
+    let entries: Vec<PlaylistEntry> = request
+        .song_ids
+        .iter()
+        .map(|id| PlaylistEntry {
+            song_id: Some(id.clone()),
+            missing_entry_data: None,
+            missing_search_text: None,
+        })
+        .collect();
+
+    add_entries_to_playlist(&state.pool, &playlist_id, &entries).await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Request to remove songs from a playlist by index.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct RemovePlaylistSongsRequest {
+    pub indexes: Vec<i32>,
+}
+
+/// Remove songs from a playlist by index.
+pub async fn remove_playlist_songs(
+    State(state): State<Arc<AppState>>,
+    user: FerrotuneAuthenticatedUser,
+    Path(playlist_id): Path<String>,
+    Json(request): Json<RemovePlaylistSongsRequest>,
+) -> FerrotuneApiResult<StatusCode> {
+    // Check playlist exists and belongs to user
+    let playlist: Option<(String, i64)> =
+        sqlx::query_as("SELECT id, owner_id FROM playlists WHERE id = ?")
+            .bind(&playlist_id)
+            .fetch_optional(&state.pool)
+            .await?;
+
+    let Some((_, owner_id)) = playlist else {
+        return Err(Error::NotFound("Playlist not found".to_string()).into());
+    };
+
+    if owner_id != user.user_id {
+        return Err(Error::Forbidden("Not authorized to modify this playlist".to_string()).into());
+    }
+
+    if request.indexes.is_empty() {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    // Remove songs by index - use transaction
+    let mut tx = state.pool.begin().await?;
+
+    // 1. Delete the items
+    for &index in &request.indexes {
+        sqlx::query("DELETE FROM playlist_songs WHERE playlist_id = ? AND position = ?")
+            .bind(&playlist_id)
+            .bind(index as i64)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    // 2. Re-normalize positions
+    // Fetch all remaining IDs (ordered by position) and re-assign 0..N
+    let rows: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT position, entry_id FROM playlist_songs WHERE playlist_id = ? ORDER BY position",
+    )
+    .bind(&playlist_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for (new_pos, (old_pos, entry_id)) in rows.iter().enumerate() {
+        if *old_pos != new_pos as i64 {
+            sqlx::query(
+                "UPDATE playlist_songs SET position = ? WHERE playlist_id = ? AND entry_id = ?",
+            )
+            .bind(new_pos as i64)
+            .bind(&playlist_id)
+            .bind(entry_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    tx.commit().await?;
+
+    Ok(StatusCode::NO_CONTENT)
 }

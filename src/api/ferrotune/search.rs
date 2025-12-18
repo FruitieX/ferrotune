@@ -1,63 +1,68 @@
-//! Search endpoints for the OpenSubsonic API.
+//! Search endpoints for the Ferrotune API.
 //!
-//! Uses common search logic from api::common::search with additional
-//! OpenSubsonic-specific features like inline thumbnails.
+//! This module provides search endpoints migrated from the OpenSubsonic API,
+//! using proper HTTP status codes and simpler JSON responses.
 
 use crate::api::common::browse::song_to_response_with_stats;
 use crate::api::common::models::{AlbumResponse, ArtistResponse, SongPlayStats, SongResponse};
 use crate::api::common::search::{search_albums, search_artists, search_songs, SearchParams};
 use crate::api::common::starring::{get_ratings_map, get_starred_map};
-use crate::api::subsonic::auth::AuthenticatedUser;
-use crate::api::subsonic::response::FormatResponse;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
+use crate::api::subsonic::inline_thumbnails::{
+    get_album_thumbnails_base64, get_artist_thumbnails_base64, get_song_thumbnails_base64,
+};
 use crate::api::AppState;
 use crate::db::models::ItemType;
-use crate::error::Result;
+use crate::error::FerrotuneApiResult;
+use crate::thumbnails::ThumbnailSize;
 use axum::extract::{Query, State};
+use axum::Json;
 use serde::Serialize;
 use std::sync::Arc;
 use ts_rs::TS;
 
+// ============================================================================
+// Search Endpoint
+// ============================================================================
+
+/// Response for search results
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct SearchResult3 {
-    pub search_result3: SearchContent,
+pub struct FerrotuneSearchResponse {
+    pub search_result: FerrotuneSearchContent,
 }
 
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct SearchContent {
+pub struct FerrotuneSearchContent {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub artist: Vec<ArtistResponse>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub album: Vec<AlbumResponse>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub song: Vec<SongResponse>,
-    /// Total count of matching artists (Ferrotune extension for pagination)
+    /// Total count of matching artists
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | undefined")]
+    #[ts(type = "number | null")]
     pub artist_total: Option<i64>,
-    /// Total count of matching albums (Ferrotune extension for pagination)
+    /// Total count of matching albums
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | undefined")]
+    #[ts(type = "number | null")]
     pub album_total: Option<i64>,
-    /// Total count of matching songs (Ferrotune extension for pagination)
+    /// Total count of matching songs
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | undefined")]
+    #[ts(type = "number | null")]
     pub song_total: Option<i64>,
 }
 
-pub async fn search3(
-    user: AuthenticatedUser,
+/// GET /ferrotune/search - Search for artists, albums, or songs
+pub async fn search(
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<SearchParams>,
-) -> Result<FormatResponse<SearchResult3>> {
-    use super::inline_thumbnails::{
-        get_album_thumbnails_base64, get_artist_thumbnails_base64, get_song_thumbnails_base64,
-    };
-    use crate::thumbnails::ThumbnailSize;
-
+) -> FerrotuneApiResult<Json<FerrotuneSearchResponse>> {
     let artist_count = params.artist_count.unwrap_or(20).min(500) as i64;
     let artist_offset = params.artist_offset.unwrap_or(0) as i64;
     let album_count = params.album_count.unwrap_or(20).min(500) as i64;
@@ -66,16 +71,13 @@ pub async fn search3(
     let song_offset = params.song_offset.unwrap_or(0) as i64;
 
     // Parse inline images parameter
-    // TODO: this is not part of OpenSubsonic spec
     let inline_size: Option<ThumbnailSize> = match params.inline_images.as_deref() {
         Some("small") | Some("s") => Some(ThumbnailSize::Small),
         Some("medium") | Some("m") => Some(ThumbnailSize::Medium),
         _ => None,
     };
 
-    // ========================================================================
-    // Search artists using common logic
-    // ========================================================================
+    // --- Search Artists using common logic ---
     let artist_result = search_artists(
         &state.pool,
         user.user_id,
@@ -86,11 +88,10 @@ pub async fn search3(
     )
     .await?;
 
-    // Get starred status and ratings for artists
     let artist_ids: Vec<String> = artist_result.artists.iter().map(|a| a.id.clone()).collect();
-    let artist_starred_map =
+    let artist_starred =
         get_starred_map(&state.pool, user.user_id, ItemType::Artist, &artist_ids).await?;
-    let artist_ratings_map =
+    let artist_ratings =
         get_ratings_map(&state.pool, user.user_id, ItemType::Artist, &artist_ids).await?;
 
     // Get inline thumbnails for artists if requested
@@ -105,18 +106,16 @@ pub async fn search3(
         .into_iter()
         .map(|artist| ArtistResponse {
             id: artist.id.clone(),
-            name: artist.name,
+            name: artist.name.clone(),
             album_count: Some(artist.album_count),
             cover_art: Some(artist.id.clone()),
             cover_art_data: artist_thumbnails.get(&artist.id).cloned(),
-            starred: artist_starred_map.get(&artist.id).cloned(),
-            user_rating: artist_ratings_map.get(&artist.id).copied(),
+            starred: artist_starred.get(&artist.id).cloned(),
+            user_rating: artist_ratings.get(&artist.id).copied(),
         })
         .collect();
 
-    // ========================================================================
-    // Search albums using common logic
-    // ========================================================================
+    // --- Search Albums using common logic ---
     let album_result = search_albums(
         &state.pool,
         user.user_id,
@@ -127,11 +126,10 @@ pub async fn search3(
     )
     .await?;
 
-    // Get starred status and ratings for albums
     let album_ids: Vec<String> = album_result.albums.iter().map(|a| a.id.clone()).collect();
-    let album_starred_map =
+    let album_starred =
         get_starred_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
-    let album_ratings_map =
+    let album_ratings =
         get_ratings_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
 
     // Get inline thumbnails for albums if requested
@@ -161,15 +159,13 @@ pub async fn search3(
                 year: album.year,
                 genre: album.genre,
                 created,
-                starred: album_starred_map.get(&album.id).cloned(),
-                user_rating: album_ratings_map.get(&album.id).copied(),
+                starred: album_starred.get(&album.id).cloned(),
+                user_rating: album_ratings.get(&album.id).copied(),
             }
         })
         .collect();
 
-    // ========================================================================
-    // Search songs using common logic
-    // ========================================================================
+    // --- Search Songs using common logic ---
     let song_result = search_songs(
         &state.pool,
         user.user_id,
@@ -180,11 +176,10 @@ pub async fn search3(
     )
     .await?;
 
-    // Get starred status and ratings for songs
     let song_ids: Vec<String> = song_result.songs.iter().map(|s| s.id.clone()).collect();
-    let song_starred_map =
+    let song_starred =
         get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
-    let song_ratings_map =
+    let song_ratings =
         get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
 
     // Get inline thumbnails for songs if requested (uses album thumbnails)
@@ -203,20 +198,18 @@ pub async fn search3(
         .songs
         .into_iter()
         .map(|song| {
-            let starred = song_starred_map.get(&song.id).cloned();
-            let user_rating = song_ratings_map.get(&song.id).copied();
-            let cover_art_data = song_thumbnails.get(&song.id).cloned();
             let play_stats = SongPlayStats {
                 play_count: song.play_count,
                 last_played: song
                     .last_played
                     .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
             };
+            let cover_art_data = song_thumbnails.get(&song.id).cloned();
             song_to_response_with_stats(
-                song,
+                song.clone(),
                 None, // Album info already embedded in song
-                starred,
-                user_rating,
+                song_starred.get(&song.id).cloned(),
+                song_ratings.get(&song.id).copied(),
                 Some(play_stats),
                 None,
                 cover_art_data,
@@ -224,8 +217,8 @@ pub async fn search3(
         })
         .collect();
 
-    let response = SearchResult3 {
-        search_result3: SearchContent {
+    Ok(Json(FerrotuneSearchResponse {
+        search_result: FerrotuneSearchContent {
             artist: artist_responses,
             album: album_responses,
             song: song_responses,
@@ -233,7 +226,5 @@ pub async fn search3(
             album_total: album_result.total,
             song_total: song_result.total,
         },
-    };
-
-    Ok(FormatResponse::new(user.format, response))
+    }))
 }

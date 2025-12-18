@@ -3,8 +3,8 @@
 //! This provides an enhanced directory browser with pagination, sorting,
 //! filtering, and folder size information.
 
+use crate::api::common::starring::{get_ratings_map, get_starred_map};
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
-use crate::api::subsonic::browse::{get_ratings_map, get_starred_map};
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::AppState;
 use crate::db::models::ItemType;

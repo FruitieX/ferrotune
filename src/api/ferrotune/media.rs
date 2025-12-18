@@ -1,15 +1,17 @@
 //! Media management endpoints for the Admin API.
 
-use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
-use crate::api::subsonic::search::{
+use crate::api::common::search::{
     build_fts_query, build_song_filter_conditions, get_song_order_clause, SearchParams,
 };
+use crate::api::subsonic::auth::{AuthenticatedUser, FerrotuneAuthenticatedUser};
+use crate::api::subsonic::xml::ResponseFormat;
 use crate::api::AppState;
 use crate::db::queries;
+use crate::error::FerrotuneApiError;
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
-    response::IntoResponse,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::Serialize;
@@ -19,6 +21,7 @@ use ts_rs::TS;
 use super::ErrorResponse;
 
 #[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct DeleteSongResponse {
     success: bool,
@@ -27,7 +30,7 @@ pub struct DeleteSongResponse {
 
 /// Delete a song from the database (not from disk).
 ///
-/// DELETE /api/songs/:id
+/// DELETE /ferrotune/songs/:id
 ///
 /// This removes the song from the database, including all related data:
 /// - Playlist entries
@@ -86,21 +89,19 @@ pub async fn delete_song(
 
 /// Response for getting song IDs matching a search/filter query.
 #[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct SongIdsResponse {
     /// List of song IDs matching the query
     pub ids: Vec<String>,
     /// Total count of matching songs
+    #[ts(type = "number")]
     pub total: i64,
 }
 
 /// Get all song IDs matching the given search and filter criteria.
 ///
 /// GET /ferrotune/songs/ids?query=...&minYear=...&genre=...
-///
-/// This endpoint uses the same search parameters as the search3 endpoint
-/// but only returns the IDs, which is useful for bulk operations like
-/// "select all matching songs".
 pub async fn get_song_ids(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
@@ -187,4 +188,65 @@ pub async fn get_song_ids(
         )
             .into_response(),
     }
+}
+
+// Media Streaming Endpoints (Wrapped from Subsonic)
+
+/// GET /ferrotune/stream - Stream audio
+pub async fn stream(
+    user: FerrotuneAuthenticatedUser,
+    state: State<Arc<AppState>>,
+    headers: HeaderMap,
+    query: Query<crate::api::subsonic::stream::StreamParams>,
+) -> Result<Response, FerrotuneApiError> {
+    let sub_user = AuthenticatedUser {
+        user_id: user.user_id,
+        username: user.username,
+        is_admin: user.is_admin,
+        format: ResponseFormat::Json,
+        client: "ferrotune-admin-api".to_string(),
+    };
+
+    crate::api::subsonic::stream::stream(sub_user, state, headers, query)
+        .await
+        .map_err(FerrotuneApiError::from)
+}
+
+/// GET /ferrotune/cover-art - Get cover art
+pub async fn get_cover_art(
+    user: FerrotuneAuthenticatedUser,
+    state: State<Arc<AppState>>,
+    query: Query<crate::api::subsonic::coverart::CoverArtParams>,
+) -> Result<Response, FerrotuneApiError> {
+    let sub_user = AuthenticatedUser {
+        user_id: user.user_id,
+        username: user.username,
+        is_admin: user.is_admin,
+        format: ResponseFormat::Json,
+        client: "ferrotune-admin-api".to_string(),
+    };
+
+    crate::api::subsonic::coverart::get_cover_art(sub_user, state, query)
+        .await
+        .map_err(FerrotuneApiError::from)
+}
+
+/// GET /ferrotune/download - Download audio file
+pub async fn download(
+    user: FerrotuneAuthenticatedUser,
+    state: State<Arc<AppState>>,
+    headers: HeaderMap,
+    query: Query<crate::api::subsonic::stream::StreamParams>,
+) -> Result<Response, FerrotuneApiError> {
+    let sub_user = AuthenticatedUser {
+        user_id: user.user_id,
+        username: user.username,
+        is_admin: user.is_admin,
+        format: ResponseFormat::Json,
+        client: "ferrotune-admin-api".to_string(),
+    };
+
+    crate::api::subsonic::stream::download(sub_user, state, headers, query)
+        .await
+        .map_err(FerrotuneApiError::from)
 }

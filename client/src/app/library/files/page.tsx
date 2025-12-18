@@ -67,6 +67,7 @@ function directoryChildToSong(child: DirectoryChildPaged): Song | null {
   if (child.isDir) return null;
   return {
     id: child.id,
+    parent: child.parent ?? null,
     title: child.title,
     artist: child.artist ?? "Unknown Artist",
     artistId: child.artistId ?? "",

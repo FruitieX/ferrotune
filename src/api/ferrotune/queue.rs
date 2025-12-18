@@ -11,14 +11,14 @@
 //! the server materializes and stores the queue. Shuffle indices are generated
 //! and stored server-side for consistent behavior across sessions.
 
+use crate::api::common::browse::song_to_response_with_stats;
+use crate::api::common::models::SongResponse;
+use crate::api::common::search::{search_songs_for_queue, SearchParams};
+use crate::api::common::sorting;
+use crate::api::common::starring::{get_ratings_map, get_starred_map};
 use crate::api::ferrotune::smart_playlists::get_smart_playlist_songs_by_id;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
-use crate::api::subsonic::browse::{
-    get_ratings_map, get_starred_map, song_to_response_with_stats, SongResponse,
-};
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
-use crate::api::subsonic::search::{search_songs_for_queue, SearchParams};
-use crate::api::subsonic::sorting;
 use crate::api::AppState;
 use crate::db::models::{ItemType, QueueSourceType, RepeatMode};
 use crate::db::queries;
@@ -125,6 +125,7 @@ pub struct GetQueueResponse {
     /// Current index in the queue
     pub current_index: usize,
     /// Current playback position in milliseconds
+    #[ts(type = "number")]
     pub position_ms: i64,
     /// Whether shuffle is enabled
     pub is_shuffled: bool,

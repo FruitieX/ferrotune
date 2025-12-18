@@ -1,17 +1,86 @@
 //! Scrobbles management endpoints for the Ferrotune Admin API.
 //!
-//! Provides endpoints for importing play counts from external sources.
+//! Provides endpoints for scrobbling and importing play counts.
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
+use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
-    response::{IntoResponse, Json},
+    response::Json,
 };
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
+
+// ============================================================================
+// Scrobble Endpoint (Single)
+// ============================================================================
+
+/// Params for single scrobble
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScrobbleParams {
+    /// Song ID being scrobbled
+    pub id: String,
+    /// Time when it was played (timestamp in ms). Defaults to now.
+    pub time: Option<i64>,
+    /// Whether this is a submission (true) or just "now playing" notification (false)
+    /// Defaults to true for Ferrotune API as we typically use it for submission.
+    #[serde(default = "default_submission")]
+    pub submission: bool,
+}
+
+fn default_submission() -> bool {
+    true
+}
+
+/// POST /ferrotune/scrobbles - Scrobble a song (record playback)
+pub async fn scrobble(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ScrobbleParams>,
+) -> FerrotuneApiResult<StatusCode> {
+    // Calculate played_at timestamp
+    let played_at = if let Some(ms) = params.time {
+        chrono::DateTime::from_timestamp_millis(ms).unwrap_or_else(Utc::now)
+    } else {
+        Utc::now()
+    };
+
+    // If submission, record it
+    if params.submission {
+        // Record scrobble
+        sqlx::query(
+            "INSERT INTO scrobbles (user_id, song_id, played_at, submission) VALUES (?, ?, ?, 1)",
+        )
+        .bind(user.user_id)
+        .bind(&params.id)
+        .bind(played_at)
+        .execute(&state.pool)
+        .await?;
+
+        // Update play count and last played in the simple play_count/last_played fields in songs table (if we had them)
+        // But we rely on the scrobbles table for stats, so insertion is enough.
+        // However, OpenSubsonic updates the 'last_played' field on the song/file itself sometimes,
+        // but our schema relies on joining scrobbles for play counts.
+
+        // We might want to update the "last_played" on the user_data or similar if we had it,
+        // but for now, inserting into scrobbles is the source of truth.
+    } else {
+        // "Now playing" - currently we just log it or update a transient state
+        // For now, we can ignore "now playing" or implement it later.
+        // The implementation in subsonic/lists.rs also behaves similarly (handles submission).
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ============================================================================
+// Import Scrobbles
+// ============================================================================
 
 /// A single scrobble entry to import.
 #[derive(Debug, Deserialize, TS)]
@@ -71,14 +140,13 @@ pub async fn import_scrobbles(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<ImportScrobblesRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<ImportScrobblesResponse>> {
     // Handle empty entries
     if request.entries.is_empty() {
-        return Json(ImportScrobblesResponse {
+        return Ok(Json(ImportScrobblesResponse {
             songs_imported: 0,
             total_plays_imported: 0,
-        })
-        .into_response();
+        }));
     }
 
     // Collect all song IDs for validation
@@ -96,17 +164,7 @@ pub async fn import_scrobbles(
         query = query.bind(*id);
     }
 
-    let existing_ids: Vec<String> = match query.fetch_all(&state.pool).await {
-        Ok(ids) => ids,
-        Err(e) => {
-            tracing::error!("Failed to validate song IDs: {}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::new("Failed to validate song IDs")),
-            )
-                .into_response();
-        }
-    };
+    let existing_ids: Vec<String> = query.fetch_all(&state.pool).await?;
 
     // Filter entries to only include existing songs
     let existing_set: std::collections::HashSet<&str> =
@@ -118,11 +176,9 @@ pub async fn import_scrobbles(
         .collect();
 
     if valid_entries.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(super::ErrorResponse::new("No valid song IDs found")),
-        )
-            .into_response();
+        return Err(FerrotuneApiError::from(Error::InvalidRequest(
+            "No valid song IDs found".to_string(),
+        )));
     }
 
     // If replace mode, delete existing scrobbles for the affected songs
@@ -139,16 +195,7 @@ pub async fn import_scrobbles(
             delete_stmt = delete_stmt.bind(*id);
         }
 
-        if let Err(e) = delete_stmt.execute(&state.pool).await {
-            tracing::error!("Failed to delete existing scrobbles: {}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::new(
-                    "Failed to delete existing scrobbles",
-                )),
-            )
-                .into_response();
-        }
+        delete_stmt.execute(&state.pool).await?;
     }
 
     // Insert new scrobbles - one row per song with play_count
@@ -189,12 +236,15 @@ pub async fn import_scrobbles(
         }
     }
 
-    Json(ImportScrobblesResponse {
+    Ok(Json(ImportScrobblesResponse {
         songs_imported,
         total_plays_imported,
-    })
-    .into_response()
+    }))
 }
+
+// ============================================================================
+// Get Play Counts
+// ============================================================================
 
 /// Get the current play count for a song (for preview in import dialog).
 #[derive(Debug, Serialize, TS)]
@@ -202,6 +252,7 @@ pub async fn import_scrobbles(
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct SongPlayCount {
     pub song_id: String,
+    #[ts(type = "number")]
     pub play_count: i64,
 }
 
@@ -230,9 +281,9 @@ pub async fn get_play_counts(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<GetPlayCountsRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<GetPlayCountsResponse>> {
     if request.song_ids.is_empty() {
-        return Json(GetPlayCountsResponse { counts: vec![] }).into_response();
+        return Ok(Json(GetPlayCountsResponse { counts: vec![] }));
     }
 
     let placeholders: Vec<&str> = request.song_ids.iter().map(|_| "?").collect();
@@ -251,24 +302,14 @@ pub async fn get_play_counts(
         stmt = stmt.bind(id);
     }
 
-    match stmt.fetch_all(&state.pool).await {
-        Ok(rows) => {
-            let counts: Vec<SongPlayCount> = rows
-                .into_iter()
-                .map(|(song_id, play_count)| SongPlayCount {
-                    song_id,
-                    play_count,
-                })
-                .collect();
-            Json(GetPlayCountsResponse { counts }).into_response()
-        }
-        Err(e) => {
-            tracing::error!("Failed to fetch play counts: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::new("Failed to fetch play counts")),
-            )
-                .into_response()
-        }
-    }
+    let rows = stmt.fetch_all(&state.pool).await?;
+
+    let counts: Vec<SongPlayCount> = rows
+        .into_iter()
+        .map(|(song_id, play_count)| SongPlayCount {
+            song_id,
+            play_count,
+        })
+        .collect();
+    Ok(Json(GetPlayCountsResponse { counts }))
 }

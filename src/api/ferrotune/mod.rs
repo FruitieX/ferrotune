@@ -81,10 +81,13 @@
 //! - `PUT /ferrotune/config` - Update server configuration
 //! - `GET /ferrotune/config/all` - Get all configuration as key-value pairs
 
+mod browse;
 mod directory;
 mod duplicates;
 mod filesystem;
+mod history;
 mod listening;
+mod lists;
 mod media;
 pub mod music_folders;
 mod playlists;
@@ -94,11 +97,13 @@ mod queue;
 mod scan;
 pub mod scan_state;
 mod scrobbles;
+mod search;
 mod server_config;
 mod setup;
 mod shuffle_exclude;
 mod smart_playlists;
 mod songs;
+mod starring;
 mod stats;
 mod tags;
 pub mod users;
@@ -119,6 +124,31 @@ use ts_rs::TS;
 pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/ferrotune/health", get(health))
+        // Browse endpoints (migrated from OpenSubsonic)
+        .route("/ferrotune/ping", get(browse::ping))
+        .route("/ferrotune/artists", get(browse::get_artists))
+        .route("/ferrotune/artists/{id}", get(browse::get_artist))
+        .route("/ferrotune/albums/{id}", get(browse::get_album))
+        // .route("/ferrotune/songs/{id}", get(browse::get_song)) <- Moved to combined route below
+        .route("/ferrotune/genres", get(browse::get_genres))
+        .route("/ferrotune/indexes", get(browse::get_indexes))
+        // List endpoints (migrated from OpenSubsonic)
+        .route("/ferrotune/albums", get(lists::get_album_list))
+        .route("/ferrotune/songs/random", get(lists::get_random_songs))
+        .route("/ferrotune/songs/by-genre", get(lists::get_songs_by_genre))
+        // Search endpoint (migrated from OpenSubsonic)
+        .route("/ferrotune/search", get(search::search))
+        // Media endpoints (migrated from OpenSubsonic)
+        .route("/ferrotune/stream", get(media::stream))
+        .route("/ferrotune/cover-art", get(media::get_cover_art))
+        .route("/ferrotune/download", get(media::download))
+        // Starring endpoints (migrated from OpenSubsonic)
+        .route("/ferrotune/star", post(starring::star))
+        .route("/ferrotune/unstar", post(starring::unstar))
+        .route("/ferrotune/rating", post(starring::set_rating))
+        .route("/ferrotune/starred", get(starring::get_starred))
+        // History endpoint (migrated from OpenSubsonic)
+        .route("/ferrotune/history", get(history::get_play_history))
         // Setup endpoint (unauthenticated - for first-run detection)
         .route("/ferrotune/setup/status", get(setup::get_setup_status))
         .route("/ferrotune/setup/complete", post(setup::complete_setup))
@@ -198,7 +228,16 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/ferrotune/playlists/{id}/songs",
-            get(playlists::get_playlist_songs),
+            get(playlists::get_playlist_songs)
+                .post(playlists::add_playlist_songs)
+                .delete(playlists::remove_playlist_songs),
+        )
+        .route("/ferrotune/playlists", post(playlists::import_playlist))
+        .route(
+            "/ferrotune/playlists/{id}",
+            get(playlists::get_playlist_songs)
+                .put(playlists::update_playlist)
+                .delete(playlists::delete_playlist),
         )
         .route(
             "/ferrotune/playlists/import",
@@ -214,7 +253,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Server-side fuzzy matching endpoint
         .route("/ferrotune/songs/match", post(songs::match_tracks))
         // Media management endpoints
-        .route("/ferrotune/songs/{id}", delete(media::delete_song))
+        .route(
+            "/ferrotune/songs/{id}",
+            get(browse::get_song).delete(media::delete_song),
+        )
         // Tag management endpoints
         .route(
             "/ferrotune/songs/{id}/tags",
@@ -244,6 +286,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(listening::get_period_review),
         )
         // Scrobbles import endpoints
+        .route("/ferrotune/scrobbles", post(scrobbles::scrobble))
         .route(
             "/ferrotune/scrobbles/import",
             post(scrobbles::import_scrobbles),

@@ -15,7 +15,6 @@ pub mod playqueue;
 pub mod query;
 pub mod response;
 pub mod search;
-pub mod sorting;
 pub mod starring;
 pub mod stream;
 pub mod system;

@@ -4,14 +4,15 @@
 //! the ID3-based browsing (getArtists/getAlbum). They're particularly useful
 //! for browsing libraries organized by folder structure.
 
+use crate::api::common::browse::get_indexes_logic;
+use crate::api::common::models::DirectoryIndex;
+use crate::api::common::starring::{get_ratings_map, get_starred_map};
 use crate::api::subsonic::auth::AuthenticatedUser;
-use crate::api::subsonic::browse::{get_ratings_map, get_starred_map};
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
 use crate::db::models::ItemType;
 use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
 use ts_rs::TS;
 
@@ -47,101 +48,24 @@ pub struct Indexes {
     pub ignored_articles: String,
 }
 
-#[derive(Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct DirectoryIndex {
-    pub name: String,
-    pub artist: Vec<DirectoryArtist>,
-}
-
-#[derive(Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct DirectoryArtist {
-    pub id: String,
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub starred: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_rating: Option<i32>,
-}
+// DirectoryIndex and DirectoryArtist are imported from common::models
 
 /// Returns the top-level directory index for all music folders.
-/// Each entry in the index represents an artist folder.
+/// Returns filesystem directories (grouped by first letter) to support true folder browsing.
 pub async fn get_indexes(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<GetIndexesParams>,
 ) -> crate::error::Result<FormatResponse<IndexesResponse>> {
-    // Get all top-level directories from songs table
-    // We group by the first path component after the music folder
-    let directories = get_top_level_directories(&state.pool, params.music_folder_id).await?;
-
-    // Get starred status for artists (directories map to artists)
-    let dir_ids: Vec<String> = directories.iter().map(|d| d.id.clone()).collect();
-    let starred_map =
-        get_starred_map(&state.pool, user.user_id, ItemType::Artist, &dir_ids).await?;
-    let ratings_map =
-        get_ratings_map(&state.pool, user.user_id, ItemType::Artist, &dir_ids).await?;
-
-    // Group directories by first letter
-    let mut grouped: HashMap<String, Vec<DirectoryArtist>> = HashMap::new();
-
-    for dir in directories {
-        let first_char = dir
-            .name
-            .chars()
-            .next()
-            .unwrap_or('#')
-            .to_uppercase()
-            .to_string();
-
-        let index_name = if first_char.chars().next().unwrap().is_alphabetic() {
-            first_char
-        } else {
-            "#".to_string()
-        };
-
-        grouped
-            .entry(index_name)
-            .or_default()
-            .push(DirectoryArtist {
-                id: dir.id.clone(),
-                name: dir.name.clone(),
-                starred: starred_map.get(&dir.id).cloned(),
-                user_rating: ratings_map.get(&dir.id).copied(),
-            });
-    }
-
-    // Sort into index list
-    let mut indexes: Vec<DirectoryIndex> = grouped
-        .into_iter()
-        .map(|(name, mut artists)| {
-            artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-            DirectoryIndex {
-                name,
-                artist: artists,
-            }
-        })
-        .collect();
-
-    indexes.sort_by(|a, b| {
-        // Put # at the end
-        match (a.name.as_str(), b.name.as_str()) {
-            ("#", "#") => std::cmp::Ordering::Equal,
-            ("#", _) => std::cmp::Ordering::Greater,
-            (_, "#") => std::cmp::Ordering::Less,
-            _ => a.name.cmp(&b.name),
-        }
-    });
+    let (indexes, last_modified) =
+        get_indexes_logic(&state.pool, user.user_id, params.music_folder_id).await?;
 
     let response = IndexesResponse {
         indexes: Indexes {
             shortcut: Vec::new(),
             index: indexes,
             child: Vec::new(),
-            last_modified: chrono::Utc::now().timestamp_millis(),
+            last_modified,
             ignored_articles: "The El La Los Las Le Les".to_string(),
         },
     };
@@ -204,14 +128,14 @@ pub struct DirectoryChild {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub track: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
+    #[ts(type = "number | undefined")]
     pub size: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suffix: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
+    #[ts(type = "number | undefined")]
     pub duration: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bit_rate: Option<i32>,
@@ -507,63 +431,13 @@ async fn get_directory_by_path(
 
 // ===== Helper Types and Functions =====
 
-#[derive(Debug)]
-struct TopLevelDirectory {
-    id: String,
-    name: String,
-}
+// get_top_level_directories was replaced by get_indexes_logic in common/browse.rs
 
 #[derive(Debug)]
 struct SubDirectory {
     name: String,
     path: String,
     cover_art: Option<String>,
-}
-
-/// Get all top-level directories (artist folders) from the albums table.
-/// This returns ALBUM artists only (artists with albums), not track artists.
-/// This matches the typical filesystem structure where folders represent album artists.
-async fn get_top_level_directories(
-    pool: &sqlx::SqlitePool,
-    music_folder_id: Option<i64>,
-) -> crate::error::Result<Vec<TopLevelDirectory>> {
-    // We use album artists as the top level, since that's what maps to directories
-    // Track-only artists (e.g., featured artists, collabs) are excluded
-    let artists: Vec<(String, String)> = if let Some(folder_id) = music_folder_id {
-        sqlx::query_as(
-            r#"
-            SELECT DISTINCT a.id, a.name
-            FROM artists a
-            INNER JOIN albums al ON al.artist_id = a.id
-            INNER JOIN songs s ON s.album_id = al.id
-            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            WHERE s.music_folder_id = ? AND mf.enabled = 1
-            ORDER BY a.sort_name COLLATE NOCASE, a.name COLLATE NOCASE
-            "#,
-        )
-        .bind(folder_id)
-        .fetch_all(pool)
-        .await?
-    } else {
-        sqlx::query_as(
-            r#"
-            SELECT DISTINCT a.id, a.name
-            FROM artists a
-            INNER JOIN albums al ON al.artist_id = a.id
-            INNER JOIN songs s ON s.album_id = al.id
-            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            WHERE mf.enabled = 1
-            ORDER BY a.sort_name COLLATE NOCASE, a.name COLLATE NOCASE
-            "#,
-        )
-        .fetch_all(pool)
-        .await?
-    };
-
-    Ok(artists
-        .into_iter()
-        .map(|(id, name)| TopLevelDirectory { id, name })
-        .collect())
 }
 
 /// Get subdirectories and songs within a specific directory path

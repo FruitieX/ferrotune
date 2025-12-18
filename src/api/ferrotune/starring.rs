@@ -1,114 +1,52 @@
-use crate::api::common::models::{AlbumResponse, ArtistResponse, SongResponse};
+//! Starring and rating endpoints for the Ferrotune API.
+//!
+//! This module provides starring/favoriting and rating endpoints migrated from
+//! the OpenSubsonic API, using proper HTTP status codes.
+
+use crate::api::common::browse::song_to_response_with_stats;
+use crate::api::common::models::{AlbumResponse, ArtistResponse, SongPlayStats, SongResponse};
 use crate::api::common::starring::get_ratings_map;
-use crate::api::first_string_or_none;
-use crate::api::string_or_seq;
-use crate::api::subsonic::auth::AuthenticatedUser;
-use crate::api::subsonic::query::first_i32;
-use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
-use crate::api::QsQuery;
 use crate::db::models::ItemType;
-use crate::error::Result;
+use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::extract::State;
+use axum::http::StatusCode;
+use axum::Json;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
 
-#[derive(Deserialize)]
-pub struct RatingParams {
-    #[serde(default, deserialize_with = "first_string_or_none")]
-    id: Option<String>,
-    #[serde(deserialize_with = "first_i32")]
-    rating: i32,
+// ============================================================================
+// Star/Unstar Endpoints
+// ============================================================================
+
+/// Request body for star/unstar operations
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StarRequest {
+    /// Song IDs to star/unstar
+    #[serde(default)]
+    pub id: Vec<String>,
+    /// Album IDs to star/unstar
+    #[serde(default)]
+    pub album_id: Vec<String>,
+    /// Artist IDs to star/unstar
+    #[serde(default)]
+    pub artist_id: Vec<String>,
 }
 
-pub async fn set_rating(
-    user: AuthenticatedUser,
-    State(state): State<Arc<AppState>>,
-    QsQuery(params): QsQuery<RatingParams>,
-) -> Result<impl axum::response::IntoResponse> {
-    let id = params.id.ok_or_else(|| {
-        crate::error::Error::InvalidRequest("Missing required parameter: id".to_string())
-    })?;
-
-    if params.rating < 0 || params.rating > 5 {
-        return Err(crate::error::Error::InvalidRequest(
-            "Rating must be between 0 and 5".to_string(),
-        ));
-    }
-
-    // Determine item type by checking which table contains this ID
-    let item_type = if crate::db::queries::get_song_by_id(&state.pool, &id)
-        .await?
-        .is_some()
-    {
-        "song"
-    } else if crate::db::queries::get_album_by_id(&state.pool, &id)
-        .await?
-        .is_some()
-    {
-        "album"
-    } else if crate::db::queries::get_artist_by_id(&state.pool, &id)
-        .await?
-        .is_some()
-    {
-        "artist"
-    } else {
-        return Err(crate::error::Error::NotFound(format!(
-            "Item {} not found",
-            id
-        )));
-    };
-
-    if params.rating == 0 {
-        // Remove rating
-        sqlx::query("DELETE FROM ratings WHERE user_id = ? AND item_type = ? AND item_id = ?")
-            .bind(user.user_id)
-            .bind(item_type)
-            .bind(&id)
-            .execute(&state.pool)
-            .await?;
-    } else {
-        // Insert or update rating
-        sqlx::query(
-            "INSERT INTO ratings (user_id, item_type, item_id, rating, rated_at) 
-             VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT(user_id, item_type, item_id) DO UPDATE SET rating = ?, rated_at = ?",
-        )
-        .bind(user.user_id)
-        .bind(item_type)
-        .bind(&id)
-        .bind(params.rating)
-        .bind(Utc::now())
-        .bind(params.rating)
-        .bind(Utc::now())
-        .execute(&state.pool)
-        .await?;
-    }
-
-    Ok(format_ok_empty(user.format))
-}
-
-#[derive(Deserialize)]
-pub struct StarParams {
-    #[serde(default, deserialize_with = "string_or_seq")]
-    id: Vec<String>,
-    #[serde(default, rename = "albumId", deserialize_with = "string_or_seq")]
-    album_id: Vec<String>,
-    #[serde(default, rename = "artistId", deserialize_with = "string_or_seq")]
-    artist_id: Vec<String>,
-}
-
+/// POST /ferrotune/star - Star (favorite) items
 pub async fn star(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-    QsQuery(params): QsQuery<StarParams>,
-) -> Result<impl axum::response::IntoResponse> {
+    Json(request): Json<StarRequest>,
+) -> FerrotuneApiResult<StatusCode> {
     let now = Utc::now();
 
     // Star songs
-    for id in &params.id {
+    for id in &request.id {
         sqlx::query(
             "INSERT OR IGNORE INTO starred (user_id, item_type, item_id, starred_at) 
              VALUES (?, 'song', ?, ?)",
@@ -121,7 +59,7 @@ pub async fn star(
     }
 
     // Star albums
-    for id in &params.album_id {
+    for id in &request.album_id {
         sqlx::query(
             "INSERT OR IGNORE INTO starred (user_id, item_type, item_id, starred_at) 
              VALUES (?, 'album', ?, ?)",
@@ -134,7 +72,7 @@ pub async fn star(
     }
 
     // Star artists
-    for id in &params.artist_id {
+    for id in &request.artist_id {
         sqlx::query(
             "INSERT OR IGNORE INTO starred (user_id, item_type, item_id, starred_at) 
              VALUES (?, 'artist', ?, ?)",
@@ -146,16 +84,17 @@ pub async fn star(
         .await?;
     }
 
-    Ok(format_ok_empty(user.format))
+    Ok(StatusCode::NO_CONTENT)
 }
 
+/// POST /ferrotune/unstar - Unstar (unfavorite) items
 pub async fn unstar(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-    QsQuery(params): QsQuery<StarParams>,
-) -> Result<impl axum::response::IntoResponse> {
+    Json(request): Json<StarRequest>,
+) -> FerrotuneApiResult<StatusCode> {
     // Unstar songs
-    for id in &params.id {
+    for id in &request.id {
         sqlx::query("DELETE FROM starred WHERE user_id = ? AND item_type = 'song' AND item_id = ?")
             .bind(user.user_id)
             .bind(id)
@@ -164,7 +103,7 @@ pub async fn unstar(
     }
 
     // Unstar albums
-    for id in &params.album_id {
+    for id in &request.album_id {
         sqlx::query(
             "DELETE FROM starred WHERE user_id = ? AND item_type = 'album' AND item_id = ?",
         )
@@ -175,7 +114,7 @@ pub async fn unstar(
     }
 
     // Unstar artists
-    for id in &params.artist_id {
+    for id in &request.artist_id {
         sqlx::query(
             "DELETE FROM starred WHERE user_id = ? AND item_type = 'artist' AND item_id = ?",
         )
@@ -185,55 +124,125 @@ pub async fn unstar(
         .await?;
     }
 
-    Ok(format_ok_empty(user.format))
+    Ok(StatusCode::NO_CONTENT)
 }
 
+// ============================================================================
+// Rating Endpoint
+// ============================================================================
+
+/// Request body for rating operations
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RatingRequest {
+    /// Item ID to rate
+    pub id: String,
+    /// Rating value (0-5, where 0 removes the rating)
+    pub rating: i32,
+}
+
+/// POST /ferrotune/rating - Set rating for an item
+pub async fn set_rating(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<RatingRequest>,
+) -> FerrotuneApiResult<StatusCode> {
+    if request.rating < 0 || request.rating > 5 {
+        return Err(FerrotuneApiError::from(Error::InvalidRequest(
+            "Rating must be between 0 and 5".to_string(),
+        )));
+    }
+
+    // Determine item type by checking which table contains this ID
+    let item_type = if crate::db::queries::get_song_by_id(&state.pool, &request.id)
+        .await?
+        .is_some()
+    {
+        "song"
+    } else if crate::db::queries::get_album_by_id(&state.pool, &request.id)
+        .await?
+        .is_some()
+    {
+        "album"
+    } else if crate::db::queries::get_artist_by_id(&state.pool, &request.id)
+        .await?
+        .is_some()
+    {
+        "artist"
+    } else {
+        return Err(FerrotuneApiError::from(Error::NotFound(format!(
+            "Item {} not found",
+            request.id
+        ))));
+    };
+
+    if request.rating == 0 {
+        // Remove rating
+        sqlx::query("DELETE FROM ratings WHERE user_id = ? AND item_type = ? AND item_id = ?")
+            .bind(user.user_id)
+            .bind(item_type)
+            .bind(&request.id)
+            .execute(&state.pool)
+            .await?;
+    } else {
+        // Insert or update rating
+        sqlx::query(
+            "INSERT INTO ratings (user_id, item_type, item_id, rating, rated_at) 
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(user_id, item_type, item_id) DO UPDATE SET rating = ?, rated_at = ?",
+        )
+        .bind(user.user_id)
+        .bind(item_type)
+        .bind(&request.id)
+        .bind(request.rating)
+        .bind(Utc::now())
+        .bind(request.rating)
+        .bind(Utc::now())
+        .execute(&state.pool)
+        .await?;
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ============================================================================
+// Get Starred Endpoint
+// ============================================================================
+
+/// Response for get starred items
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct Starred2Response {
-    pub starred2: Starred2Content,
+pub struct FerrotuneStarredResponse {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub artists: Vec<ArtistResponse>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub albums: Vec<AlbumResponse>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub songs: Vec<SongResponse>,
 }
 
-#[derive(Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct StarredResponse {
-    pub starred: Starred2Content,
-}
-
-#[derive(Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct Starred2Content {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub artist: Vec<ArtistResponse>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub album: Vec<AlbumResponse>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub song: Vec<SongResponse>,
-}
-
-/// Helper to fetch starred content (shared by getStarred and getStarred2)
-async fn fetch_starred_content(
-    pool: &sqlx::SqlitePool,
-    user_id: i64,
-) -> Result<(Vec<ArtistResponse>, Vec<AlbumResponse>, Vec<SongResponse>)> {
+/// GET /ferrotune/starred - Get all starred items for the current user
+pub async fn get_starred(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+) -> FerrotuneApiResult<Json<FerrotuneStarredResponse>> {
     // Get starred artists with their starred_at timestamps
     let starred_artists: Vec<(String, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
         "SELECT item_id, starred_at FROM starred WHERE user_id = ? AND item_type = 'artist' ORDER BY starred_at DESC"
     )
-    .bind(user_id)
-    .fetch_all(pool)
+    .bind(user.user_id)
+    .fetch_all(&state.pool)
     .await?;
 
     // Get ratings for starred artists
     let artist_ids: Vec<String> = starred_artists.iter().map(|(id, _)| id.clone()).collect();
-    let artist_ratings = get_ratings_map(pool, user_id, ItemType::Artist, &artist_ids).await?;
+    let artist_ratings =
+        get_ratings_map(&state.pool, user.user_id, ItemType::Artist, &artist_ids).await?;
 
     let mut artist_responses = Vec::new();
     for (id, starred_at) in starred_artists {
-        if let Some(artist) = crate::db::queries::get_artist_by_id(pool, &id).await? {
+        if let Some(artist) = crate::db::queries::get_artist_by_id(&state.pool, &id).await? {
             artist_responses.push(ArtistResponse {
                 id: artist.id.clone(),
                 name: artist.name,
@@ -250,17 +259,18 @@ async fn fetch_starred_content(
     let starred_albums: Vec<(String, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
         "SELECT item_id, starred_at FROM starred WHERE user_id = ? AND item_type = 'album' ORDER BY starred_at DESC"
     )
-    .bind(user_id)
-    .fetch_all(pool)
+    .bind(user.user_id)
+    .fetch_all(&state.pool)
     .await?;
 
     // Get ratings for starred albums
     let album_ids: Vec<String> = starred_albums.iter().map(|(id, _)| id.clone()).collect();
-    let album_ratings = get_ratings_map(pool, user_id, ItemType::Album, &album_ids).await?;
+    let album_ratings =
+        get_ratings_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
 
     let mut album_responses = Vec::new();
     for (id, starred_at) in starred_albums {
-        if let Some(album) = crate::db::queries::get_album_by_id(pool, &id).await? {
+        if let Some(album) = crate::db::queries::get_album_by_id(&state.pool, &id).await? {
             let created = album
                 .created_at
                 .format("%Y-%m-%dT%H:%M:%S%.3fZ")
@@ -303,23 +313,22 @@ async fn fetch_starred_content(
                GROUP BY song_id
            ) pc ON s.id = pc.song_id
            WHERE st.user_id = ? AND st.item_type = 'song' AND mf.enabled = 1
-           ORDER BY st.starred_at DESC"#
+           ORDER BY st.starred_at DESC"#,
     )
-    .bind(user_id)
-    .fetch_all(pool)
+    .bind(user.user_id)
+    .fetch_all(&state.pool)
     .await?;
 
     // Get ratings for starred songs
     let song_ids: Vec<String> = starred_songs.iter().map(|s| s.id.clone()).collect();
-    let song_ratings = get_ratings_map(pool, user_id, ItemType::Song, &song_ids).await?;
+    let song_ratings =
+        get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
 
-    use crate::api::common::browse::song_to_response_with_stats;
-    use crate::api::common::models::SongPlayStats;
     let mut song_responses = Vec::new();
     for song in starred_songs {
         let song_id = song.id.clone();
         let album = if let Some(album_id) = &song.album_id {
-            crate::db::queries::get_album_by_id(pool, album_id).await?
+            crate::db::queries::get_album_by_id(&state.pool, album_id).await?
         } else {
             None
         };
@@ -344,42 +353,9 @@ async fn fetch_starred_content(
         ));
     }
 
-    Ok((artist_responses, album_responses, song_responses))
-}
-
-pub async fn get_starred2(
-    user: AuthenticatedUser,
-    State(state): State<Arc<AppState>>,
-) -> Result<FormatResponse<Starred2Response>> {
-    let (artist_responses, album_responses, song_responses) =
-        fetch_starred_content(&state.pool, user.user_id).await?;
-
-    let response = Starred2Response {
-        starred2: Starred2Content {
-            artist: artist_responses,
-            album: album_responses,
-            song: song_responses,
-        },
-    };
-
-    Ok(FormatResponse::new(user.format, response))
-}
-
-/// GET /rest/getStarred - Old API, returns same as getStarred2 but with different wrapper
-pub async fn get_starred(
-    user: AuthenticatedUser,
-    State(state): State<Arc<AppState>>,
-) -> Result<FormatResponse<StarredResponse>> {
-    let (artist_responses, album_responses, song_responses) =
-        fetch_starred_content(&state.pool, user.user_id).await?;
-
-    let response = StarredResponse {
-        starred: Starred2Content {
-            artist: artist_responses,
-            album: album_responses,
-            song: song_responses,
-        },
-    };
-
-    Ok(FormatResponse::new(user.format, response))
+    Ok(Json(FerrotuneStarredResponse {
+        artists: artist_responses,
+        albums: album_responses,
+        songs: song_responses,
+    }))
 }

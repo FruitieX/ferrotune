@@ -36,7 +36,7 @@ import {
   connectionStatusAtom,
   connectionErrorAtom,
 } from "@/lib/store/auth";
-import { initializeClient, SubsonicApiError } from "@/lib/api/client";
+import { initializeClient, FerrotuneApiError } from "@/lib/api/client";
 import type { ServerConnection } from "@/lib/api/types";
 import type { SetupStatusResponse } from "@/lib/api/generated/SetupStatusResponse";
 
@@ -154,7 +154,7 @@ export default function LoginPage() {
       console.error("Connection error:", err);
       setConnectionStatus("error");
 
-      if (err instanceof SubsonicApiError) {
+      if (err instanceof FerrotuneApiError) {
         setError(`Authentication failed: ${err.message}`);
       } else if (err instanceof Error) {
         if (err.message.includes("fetch")) {

@@ -1,20 +1,22 @@
-//! Play history endpoints for the Subsonic API.
+//! Play history endpoints for the Ferrotune API.
+//!
+//! This module provides play history endpoints using common logic from subsonic/history.rs.
 
 use crate::api::common::browse::song_to_response_with_stats;
 use crate::api::common::models::{SongPlayStats, SongResponse};
+use crate::api::common::sorting::filter_and_sort_songs;
 use crate::api::common::starring::{get_ratings_map, get_starred_map};
-use crate::api::subsonic::auth::AuthenticatedUser;
-use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
-use crate::api::subsonic::response::FormatResponse;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
+use crate::api::subsonic::inline_thumbnails::get_song_thumbnails_base64;
 use crate::api::AppState;
 use crate::db::models::ItemType;
-use crate::error::Result;
+use crate::error::FerrotuneApiResult;
+use crate::thumbnails::ThumbnailSize;
 use axum::extract::{Query, State};
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
-
-// ===== getPlayHistory - Ferrotune extension =====
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,53 +33,48 @@ pub struct PlayHistoryParams {
     #[serde(default)]
     filter: Option<String>,
     /// Include inline cover art thumbnails (small or medium)
-    #[serde(flatten)]
-    inline_images: InlineImagesParam,
+    #[serde(default)]
+    inline_images: Option<String>,
 }
 
+/// Response for play history
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct PlayHistoryResponse {
-    pub play_history: PlayHistoryContent,
-}
-
-#[derive(Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct PlayHistoryContent {
-    pub entry: Vec<PlayHistoryEntry>,
+pub struct FerrotunePlayHistoryResponse {
+    pub entry: Vec<FerrotunePlayHistoryEntry>,
     /// Total count of play history entries
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | undefined")]
+    #[ts(type = "number | null")]
     pub total: Option<i64>,
 }
 
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct PlayHistoryEntry {
+pub struct FerrotunePlayHistoryEntry {
     #[serde(flatten)]
     #[ts(flatten)]
     pub song: SongResponse,
     pub played_at: String,
 }
 
-/// GET /rest/getPlayHistory - Get user's play history (Ferrotune extension)
+/// GET /ferrotune/history - Get user's play history
 pub async fn get_play_history(
-    user: AuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<PlayHistoryParams>,
-) -> Result<FormatResponse<PlayHistoryResponse>> {
-    use crate::api::common::sorting::filter_and_sort_songs;
-
+) -> FerrotuneApiResult<Json<FerrotunePlayHistoryResponse>> {
     let size = params.size.unwrap_or(50).min(500) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
-    let inline_size = params.inline_images.get_size();
+
+    // Parse inline images parameter
+    let inline_size: Option<ThumbnailSize> = match params.inline_images.as_deref() {
+        Some("small") | Some("s") => Some(ThumbnailSize::Small),
+        Some("medium") | Some("m") => Some(ThumbnailSize::Medium),
+        _ => None,
+    };
 
     // Get scrobbles with song data joined, deduplicated by song_id (keeping most recent play)
-    // Uses a subquery to get the most recent played_at for each song per user
-    // Also includes play_count and last_played from scrobbles
     let songs: Vec<crate::db::models::Song> = sqlx::query_as(
         r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
                   s.track_number, s.disc_number, s.year, s.genre, s.duration,
@@ -143,7 +140,7 @@ pub async fn get_play_history(
     };
 
     // Convert to response format
-    let entries: Vec<PlayHistoryEntry> = songs
+    let entries: Vec<FerrotunePlayHistoryEntry> = songs
         .into_iter()
         .map(|song| {
             let starred = starred_map.get(&song.id).cloned();
@@ -159,7 +156,7 @@ pub async fn get_play_history(
                     .last_played
                     .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
             };
-            PlayHistoryEntry {
+            FerrotunePlayHistoryEntry {
                 song: song_to_response_with_stats(
                     song,
                     None,
@@ -174,12 +171,8 @@ pub async fn get_play_history(
         })
         .collect();
 
-    let response = PlayHistoryResponse {
-        play_history: PlayHistoryContent {
-            entry: entries,
-            total: Some(total.0),
-        },
-    };
-
-    Ok(FormatResponse::new(user.format, response))
+    Ok(Json(FerrotunePlayHistoryResponse {
+        entry: entries,
+        total: Some(total.0),
+    }))
 }

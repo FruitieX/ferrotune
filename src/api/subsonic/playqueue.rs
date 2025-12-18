@@ -1,5 +1,6 @@
+use crate::api::common::browse::song_to_response;
+use crate::api::common::starring::{get_ratings_map, get_starred_map};
 use crate::api::subsonic::auth::AuthenticatedUser;
-use crate::api::subsonic::browse::{get_ratings_map, get_starred_map, song_to_response};
 use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
 use crate::api::AppState;
 use crate::api::QsQuery;
@@ -40,7 +41,7 @@ pub struct PlayQueueContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
+    #[ts(type = "number | undefined")]
     pub position: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
@@ -48,7 +49,7 @@ pub struct PlayQueueContent {
     pub changed: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub changed_by: Option<String>,
-    pub entry: Vec<crate::api::subsonic::browse::SongResponse>,
+    pub entry: Vec<crate::api::common::models::SongResponse>,
 }
 
 /// GET /rest/savePlayQueue - Save the current play queue
@@ -152,7 +153,7 @@ pub async fn get_play_queue(
     let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
     let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
 
-    let song_responses: Vec<crate::api::subsonic::browse::SongResponse> = songs
+    let song_responses: Vec<crate::api::common::models::SongResponse> = songs
         .iter()
         .map(|song| {
             let starred = starred_map.get(&song.id).cloned();
