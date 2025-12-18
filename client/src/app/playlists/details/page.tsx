@@ -16,6 +16,7 @@ import {
   ListMusic,
   AlertCircle,
   RefreshCw,
+  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -77,6 +78,7 @@ import {
 } from "@/components/playlists/missing-entry-row";
 import { RefineMatchDialog } from "@/components/playlists/refine-match-dialog";
 import { MassResolveDialog } from "@/components/playlists/mass-resolve-dialog";
+import { AddSongToPlaylistDialog } from "@/components/playlists/add-song-dialog";
 import {
   PlaylistBreadcrumb,
   getPlaylistDisplayName,
@@ -135,6 +137,7 @@ function PlaylistDetailContent() {
     position: number;
   } | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [addSongDialogOpen, setAddSongDialogOpen] = useState(false);
   const [massResolveDialogOpen, setMassResolveDialogOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveDialogItem, setMoveDialogItem] = useState<{
@@ -985,6 +988,10 @@ function PlaylistDetailContent() {
               <Pencil className="w-4 h-4 mr-2" />
               Edit Playlist
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setAddSongDialogOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Song
+            </DropdownMenuItem>
             {hasMissingEntries && (
               <DropdownMenuItem onClick={() => setMassResolveDialogOpen(true)}>
                 <RefreshCw className="w-4 h-4 mr-2" />
@@ -1309,6 +1316,16 @@ function PlaylistDetailContent() {
             name: playlist.name,
             comment: playlist.comment ?? undefined,
           }}
+        />
+      )}
+
+      {/* Add song to playlist dialog */}
+      {playlist && (
+        <AddSongToPlaylistDialog
+          open={addSongDialogOpen}
+          onOpenChange={setAddSongDialogOpen}
+          playlistId={playlist.id}
+          playlistName={getPlaylistDisplayName(playlist.name)}
         />
       )}
 
