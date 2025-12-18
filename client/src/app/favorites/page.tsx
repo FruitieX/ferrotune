@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
-import { Heart, Play, Shuffle } from "lucide-react";
+import { Heart, Play, Shuffle, Upload } from "lucide-react";
 import type {
   SongResponse,
   AlbumResponse,
@@ -68,6 +68,7 @@ import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatCount, formatTotalDuration } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
+import { ImportFavoritesDialog } from "@/components/stats/import-favorites-dialog";
 import type { Album, Artist, Song } from "@/lib/api/types";
 
 type TabValue = "songs" | "albums" | "artists";
@@ -81,6 +82,7 @@ export default function FavoritesPage() {
   const addToQueue = useSetAtom(addToQueueAtom);
   const invalidateFavorites = useInvalidateFavorites();
   const [activeTab, setActiveTab] = useState<TabValue>("songs");
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   // Separate search queries for each tab
   const [songSearchQuery, setSongSearchQuery] = useState("");
@@ -550,6 +552,15 @@ export default function FavoritesPage() {
             <Shuffle className="w-5 h-5" />
             Shuffle
           </Button>
+          <Button
+            variant="outline"
+            size="lg"
+            className="rounded-full gap-2"
+            onClick={() => setImportDialogOpen(true)}
+          >
+            <Upload className="w-5 h-5" />
+            Import
+          </Button>
 
           {/* Spacer */}
           <div className="flex-1" />
@@ -909,6 +920,12 @@ export default function FavoritesPage() {
 
       {/* Spacer for player bar */}
       <div className="h-24" />
+
+      {/* Import Favorites Dialog */}
+      <ImportFavoritesDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+      />
     </div>
   );
 }

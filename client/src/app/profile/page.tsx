@@ -14,6 +14,8 @@ import {
   ExternalLink,
   TrendingUp,
   Upload,
+  FileSpreadsheet,
+  Heart,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -46,6 +48,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { formatListeningTime } from "@/lib/utils/format";
 import { ImportPlayCountsDialog } from "@/components/stats/import-play-counts-dialog";
+import { ImportFavoritesDialog } from "@/components/stats/import-favorites-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -57,8 +66,9 @@ export default function ProfilePage() {
   const [, setConnection] = useAtom(serverConnectionAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
 
-  // Import dialog state
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  // Import dialog states
+  const [importPlayCountsDialogOpen, setImportPlayCountsDialogOpen] = useState(false);
+  const [importFavoritesDialogOpen, setImportFavoritesDialogOpen] = useState(false);
 
   // Fetch listening stats
   const { data: listeningStats, isLoading: listeningStatsLoading } = useQuery({
@@ -244,15 +254,28 @@ export default function ProfilePage() {
                   Your music listening statistics
                 </CardDescription>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-2"
-                onClick={() => setImportDialogOpen(true)}
-              >
-                <Upload className="w-4 h-4" />
-                Import
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-2"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Import
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setImportPlayCountsDialogOpen(true)}>
+                    <FileSpreadsheet className="w-4 h-4 mr-2" />
+                    Import Play Counts
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setImportFavoritesDialogOpen(true)}>
+                    <Heart className="w-4 h-4 mr-2" />
+                    Import Favorites
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Link href="/review">
                 <Button
                   size="sm"
@@ -353,8 +376,14 @@ export default function ProfilePage() {
 
       {/* Import Play Counts Dialog */}
       <ImportPlayCountsDialog
-        open={importDialogOpen}
-        onOpenChange={setImportDialogOpen}
+        open={importPlayCountsDialogOpen}
+        onOpenChange={setImportPlayCountsDialogOpen}
+      />
+
+      {/* Import Favorites Dialog */}
+      <ImportFavoritesDialog
+        open={importFavoritesDialogOpen}
+        onOpenChange={setImportFavoritesDialogOpen}
       />
     </div>
   );
