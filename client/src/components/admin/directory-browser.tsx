@@ -98,12 +98,15 @@ export function DirectoryBrowser({
     setHighlightedPath(null); // Clear highlight when navigating
   };
 
-  // When opening the browser, navigate to the current input value if it's valid
-  useEffect(() => {
-    if (isExpanded && value && validationResult?.valid) {
+  // Toggle the expanded state and sync browser path when opening
+  const toggleExpanded = () => {
+    const newExpanded = !isExpanded;
+    setIsExpanded(newExpanded);
+    // When opening (not closing), sync browser path to the current valid value
+    if (newExpanded && value && validationResult?.valid) {
       setBrowserPath(value);
     }
-  }, [isExpanded, value, validationResult?.valid]);
+  };
 
   // Highlight a directory (single click)
   const highlightDirectory = (entry: DirectoryEntry) => {
@@ -157,7 +160,7 @@ export function DirectoryBrowser({
           <Button
             type="button"
             variant="outline"
-            onClick={() => setIsExpanded(!isExpanded)}
+            onClick={toggleExpanded}
             disabled={disabled}
           >
             <Folder className="w-4 h-4 mr-2" />

@@ -7,7 +7,6 @@ import {
   Loader2,
   Upload,
   AlertCircle,
-  FileSpreadsheet,
   Heart,
   Music,
   Disc,
@@ -93,19 +92,23 @@ function parseCSV(csvText: string, type: FavoriteType): ParsedFavorite[] {
     );
 
     if (titleIdx === -1) {
-      throw new Error("CSV must have a 'title' (or 'name', 'track', 'song') column for songs");
+      throw new Error(
+        "CSV must have a 'title' (or 'name', 'track', 'song') column for songs",
+      );
     }
   } else if (type === "albums") {
     // For albums: album name is required, artist optional
-    albumIdx = headers.findIndex((h) =>
-      ["album", "name", "title"].includes(h),
+    albumIdx = headers.findIndex((h) => ["album", "name", "title"].includes(h));
+    artistIdx = headers.findIndex((h) =>
+      ["artist", "artists", "album_artist"].includes(h),
     );
-    artistIdx = headers.findIndex((h) => ["artist", "artists", "album_artist"].includes(h));
     titleIdx = -1;
     durationIdx = -1;
 
     if (albumIdx === -1) {
-      throw new Error("CSV must have an 'album' (or 'name', 'title') column for albums");
+      throw new Error(
+        "CSV must have an 'album' (or 'name', 'title') column for albums",
+      );
     }
   } else {
     // For artists: artist name is required
@@ -117,11 +120,14 @@ function parseCSV(csvText: string, type: FavoriteType): ParsedFavorite[] {
     durationIdx = -1;
 
     if (artistIdx === -1) {
-      throw new Error("CSV must have an 'artist' (or 'name', 'title') column for artists");
+      throw new Error(
+        "CSV must have an 'artist' (or 'name', 'title') column for artists",
+      );
     }
   }
 
-  const durationIsMillis = durationIdx >= 0 && headers[durationIdx] === "duration_ms";
+  const durationIsMillis =
+    durationIdx >= 0 && headers[durationIdx] === "duration_ms";
 
   const rows: ParsedFavorite[] = [];
 
@@ -285,7 +291,7 @@ export function ImportFavoritesDialog({
         // The match contains song data, so we need to get album IDs
         // Use the song's albumId field if available, or fetch song details
         const albumIds = new Set<string>();
-        
+
         for (const track of selectedTracks) {
           // The match.id is a song ID - we need to get its album
           // Songs in our API have albumId field available
@@ -294,7 +300,7 @@ export function ImportFavoritesDialog({
             albumIds.add(songResponse.song.albumId);
           }
         }
-        
+
         if (albumIds.size > 0) {
           await client.star({ albumId: Array.from(albumIds) });
         }
@@ -302,14 +308,14 @@ export function ImportFavoritesDialog({
       } else {
         // For artists, get artist IDs from matched songs
         const artistIds = new Set<string>();
-        
+
         for (const track of selectedTracks) {
           const songResponse = await client.getSong(track.match!.id);
           if (songResponse.song.artistId) {
             artistIds.add(songResponse.song.artistId);
           }
         }
-        
+
         if (artistIds.size > 0) {
           await client.star({ artistId: Array.from(artistIds) });
         }

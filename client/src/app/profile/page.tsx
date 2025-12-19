@@ -67,8 +67,10 @@ export default function ProfilePage() {
   const clearQueue = useSetAtom(clearQueueAtom);
 
   // Import dialog states
-  const [importPlayCountsDialogOpen, setImportPlayCountsDialogOpen] = useState(false);
-  const [importFavoritesDialogOpen, setImportFavoritesDialogOpen] = useState(false);
+  const [importPlayCountsDialogOpen, setImportPlayCountsDialogOpen] =
+    useState(false);
+  const [importFavoritesDialogOpen, setImportFavoritesDialogOpen] =
+    useState(false);
 
   // Fetch listening stats
   const { data: listeningStats, isLoading: listeningStatsLoading } = useQuery({
@@ -256,21 +258,21 @@ export default function ProfilePage() {
               </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-2"
-                  >
+                  <Button size="sm" variant="outline" className="gap-2">
                     <Upload className="w-4 h-4" />
                     Import
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setImportPlayCountsDialogOpen(true)}>
+                  <DropdownMenuItem
+                    onClick={() => setImportPlayCountsDialogOpen(true)}
+                  >
                     <FileSpreadsheet className="w-4 h-4 mr-2" />
                     Import Play Counts
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setImportFavoritesDialogOpen(true)}>
+                  <DropdownMenuItem
+                    onClick={() => setImportFavoritesDialogOpen(true)}
+                  >
                     <Heart className="w-4 h-4 mr-2" />
                     Import Favorites
                   </DropdownMenuItem>

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useAtom, useSetAtom } from "jotai";
-import { useQuery } from "@tanstack/react-query";
 import { Heart, Play, Shuffle, Upload } from "lucide-react";
 import type {
   SongResponse,
@@ -12,8 +11,9 @@ import type {
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
-import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
+import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useDebounce } from "@/lib/hooks/use-debounce";
+import { useSparsePagination } from "@/lib/hooks/use-sparse-pagination";
 import {
   useTrackSelection,
   useItemSelection,
@@ -117,24 +117,44 @@ export default function FavoritesPage() {
     favoritesArtistColumnVisibilityAtom,
   );
 
-  // Restore scroll position when navigating back to this page
-  useScrollRestoration();
+  const PAGE_SIZE = 50;
 
-  // Fetch starred songs using search3 API with starredOnly for server-side sorting
-  const { data: songsData, isLoading: isSongsLoading } = useQuery({
+  // Virtualized scroll restoration for each tab
+  const songScrollRestoration = useVirtualizedScrollRestoration(
+    "favorites-songs-scroll",
+    songViewMode,
+  );
+  const albumScrollRestoration = useVirtualizedScrollRestoration(
+    "favorites-albums-scroll",
+    albumViewMode,
+  );
+  const artistScrollRestoration = useVirtualizedScrollRestoration(
+    "favorites-artists-scroll",
+    artistViewMode,
+  );
+
+  // Fetch starred songs using sparse pagination for infinite scroll
+  const {
+    items: displaySongs,
+    totalCount: totalSongs,
+    isLoading: isSongsLoading,
+    ensureRange: ensureSongsRange,
+  } = useSparsePagination<SongResponse>({
     queryKey: [
       "starred-songs",
       debouncedSongSearch,
       songSortConfig,
       songViewMode,
     ],
-    queryFn: async () => {
+    pageSize: PAGE_SIZE,
+    fetchPage: async (offset) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
 
       const response = await client.search3({
         query: debouncedSongSearch.trim() || "*",
-        songCount: 50,
+        songCount: PAGE_SIZE,
+        songOffset: offset,
         albumCount: 0,
         artistCount: 0,
         starredOnly: true,
@@ -145,23 +165,37 @@ export default function FavoritesPage() {
         // Request small thumbnails for rows, medium for grid
         inlineImages: songViewMode === "grid" ? "medium" : "small",
       });
-      return response.searchResult3.song ?? [];
+      const songs = response.searchResult3.song ?? [];
+      const total = response.searchResult3.songTotal ?? songs.length;
+      return { items: songs, total };
     },
-    enabled: isReady,
-    placeholderData: (prev) => prev,
+    enabled: isReady && activeTab === "songs",
+    staleTime: 0,
   });
 
-  // Fetch starred albums using search3 API with starredOnly for server-side sorting
-  const { data: albumsData, isLoading: isAlbumsLoading } = useQuery({
-    queryKey: ["starred-albums", debouncedAlbumSearch, albumSortConfig],
-    queryFn: async () => {
+  // Fetch starred albums using sparse pagination for infinite scroll
+  const {
+    items: displayAlbums,
+    totalCount: totalAlbums,
+    isLoading: isAlbumsLoading,
+    ensureRange: ensureAlbumsRange,
+  } = useSparsePagination<AlbumResponse>({
+    queryKey: [
+      "starred-albums",
+      debouncedAlbumSearch,
+      albumSortConfig,
+      albumViewMode,
+    ],
+    pageSize: PAGE_SIZE,
+    fetchPage: async (offset) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
 
       const response = await client.search3({
         query: debouncedAlbumSearch.trim() || "*",
         songCount: 0,
-        albumCount: 50,
+        albumCount: PAGE_SIZE,
+        albumOffset: offset,
         artistCount: 0,
         starredOnly: true,
         albumSort:
@@ -171,17 +205,24 @@ export default function FavoritesPage() {
         // Request medium inline thumbnails for album cards
         inlineImages: "medium",
       });
-      return response.searchResult3.album ?? [];
+      const albums = response.searchResult3.album ?? [];
+      const total = response.searchResult3.albumTotal ?? albums.length;
+      return { items: albums, total };
     },
-    enabled: isReady,
-    placeholderData: (prev) => prev,
+    enabled: isReady && activeTab === "albums",
+    staleTime: 0,
   });
 
-  // Fetch starred artists using search3 API with starredOnly
-  // Note: artistSort not yet implemented server-side, but we still use search3 for consistency
-  const { data: artistsData, isLoading: isArtistsLoading } = useQuery({
-    queryKey: ["starred-artists", debouncedArtistSearch],
-    queryFn: async () => {
+  // Fetch starred artists using sparse pagination for infinite scroll
+  const {
+    items: displayArtists,
+    totalCount: totalArtists,
+    isLoading: isArtistsLoading,
+    ensureRange: ensureArtistsRange,
+  } = useSparsePagination<ArtistResponse>({
+    queryKey: ["starred-artists", debouncedArtistSearch, artistViewMode],
+    pageSize: PAGE_SIZE,
+    fetchPage: async (offset) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
 
@@ -189,27 +230,29 @@ export default function FavoritesPage() {
         query: debouncedArtistSearch.trim() || "*",
         songCount: 0,
         albumCount: 0,
-        artistCount: 50,
+        artistCount: PAGE_SIZE,
+        artistOffset: offset,
         starredOnly: true,
         // Request medium inline thumbnails for artist cards
         inlineImages: "medium",
       });
-      return response.searchResult3.artist ?? [];
+      const artists = response.searchResult3.artist ?? [];
+      const total = response.searchResult3.artistTotal ?? artists.length;
+      return { items: artists, total };
     },
-    enabled: isReady,
-    placeholderData: (prev) => prev,
+    enabled: isReady && activeTab === "artists",
+    staleTime: 0,
   });
 
-  // Display data comes directly from server - already sorted and filtered
-  const displaySongs: SongResponse[] = songsData ?? [];
-  const displayAlbums: AlbumResponse[] = albumsData ?? [];
-  const displayArtists: ArtistResponse[] = artistsData ?? [];
+  // Loading state per active tab (not combined - we only load active tab now)
+  const isLoading =
+    (activeTab === "songs" && isSongsLoading) ||
+    (activeTab === "albums" && isAlbumsLoading) ||
+    (activeTab === "artists" && isArtistsLoading);
 
-  // Combined loading state
-  const isLoading = isSongsLoading || isAlbumsLoading || isArtistsLoading;
-
+  // Calculate total duration from loaded songs (approximation for display)
   const totalDuration = displaySongs.reduce(
-    (acc, song) => acc + song.duration,
+    (acc, song) => acc + (song?.duration ?? 0),
     0,
   );
 
@@ -408,11 +451,11 @@ export default function FavoritesPage() {
   const getSubtitle = () => {
     switch (activeTab) {
       case "songs":
-        return `${formatCount(displaySongs.length, "song")} • ${formatTotalDuration(totalDuration)}`;
+        return `${formatCount(totalSongs, "song")} • ${formatTotalDuration(totalDuration)}`;
       case "albums":
-        return formatCount(displayAlbums.length, "album");
+        return formatCount(totalAlbums, "album");
       case "artists":
-        return formatCount(displayArtists.length, "artist");
+        return formatCount(totalArtists, "artist");
     }
   };
 
@@ -626,15 +669,9 @@ export default function FavoritesPage() {
       >
         <div className="px-4 lg:px-6 pt-4">
           <TabsList>
-            <TabsTrigger value="songs">
-              Songs ({displaySongs.length})
-            </TabsTrigger>
-            <TabsTrigger value="albums">
-              Albums ({displayAlbums.length})
-            </TabsTrigger>
-            <TabsTrigger value="artists">
-              Artists ({displayArtists.length})
-            </TabsTrigger>
+            <TabsTrigger value="songs">Songs ({totalSongs})</TabsTrigger>
+            <TabsTrigger value="albums">Albums ({totalAlbums})</TabsTrigger>
+            <TabsTrigger value="artists">Artists ({totalArtists})</TabsTrigger>
           </TabsList>
         </div>
 
@@ -659,10 +696,11 @@ export default function FavoritesPage() {
                   ))}
                 </div>
               )
-            ) : displaySongs.length > 0 ? (
+            ) : displaySongs.length > 0 || totalSongs > 0 ? (
               songViewMode === "grid" ? (
                 <VirtualizedGrid
                   items={displaySongs}
+                  totalCount={totalSongs}
                   renderItem={(song, index) => (
                     <SongCard
                       song={song}
@@ -675,6 +713,9 @@ export default function FavoritesPage() {
                   )}
                   renderSkeleton={() => <SongCardSkeleton />}
                   getItemKey={(song) => song.id}
+                  ensureRange={ensureSongsRange}
+                  initialOffset={songScrollRestoration.getInitialOffset()}
+                  onScrollChange={songScrollRestoration.saveOffset}
                 />
               ) : (
                 <>
@@ -685,6 +726,7 @@ export default function FavoritesPage() {
                   />
                   <VirtualizedList
                     items={displaySongs}
+                    totalCount={totalSongs}
                     renderItem={(song, index) => (
                       <SongRow
                         song={song}
@@ -708,6 +750,9 @@ export default function FavoritesPage() {
                     )}
                     getItemKey={(song) => song.id}
                     estimateItemHeight={56}
+                    ensureRange={ensureSongsRange}
+                    initialOffset={songScrollRestoration.getInitialOffset()}
+                    onScrollChange={songScrollRestoration.saveOffset}
                   />
                 </>
               )
@@ -746,10 +791,11 @@ export default function FavoritesPage() {
                   ))}
                 </div>
               )
-            ) : displayAlbums.length > 0 ? (
+            ) : displayAlbums.length > 0 || totalAlbums > 0 ? (
               albumViewMode === "grid" ? (
                 <VirtualizedGrid
                   items={displayAlbums}
+                  totalCount={totalAlbums}
                   renderItem={(album) => (
                     <AlbumCard
                       album={album}
@@ -761,10 +807,14 @@ export default function FavoritesPage() {
                   )}
                   renderSkeleton={() => <AlbumCardSkeleton />}
                   getItemKey={(album) => album.id}
+                  ensureRange={ensureAlbumsRange}
+                  initialOffset={albumScrollRestoration.getInitialOffset()}
+                  onScrollChange={albumScrollRestoration.saveOffset}
                 />
               ) : (
                 <VirtualizedList
                   items={displayAlbums}
+                  totalCount={totalAlbums}
                   renderItem={(album, index) => (
                     <AlbumCardCompact
                       album={album}
@@ -782,6 +832,9 @@ export default function FavoritesPage() {
                   renderSkeleton={() => <MediaRowSkeleton showIndex />}
                   getItemKey={(album) => album.id}
                   estimateItemHeight={56}
+                  ensureRange={ensureAlbumsRange}
+                  initialOffset={albumScrollRestoration.getInitialOffset()}
+                  onScrollChange={albumScrollRestoration.saveOffset}
                 />
               )
             ) : (
@@ -819,10 +872,11 @@ export default function FavoritesPage() {
                   ))}
                 </div>
               )
-            ) : displayArtists.length > 0 ? (
+            ) : displayArtists.length > 0 || totalArtists > 0 ? (
               artistViewMode === "grid" ? (
                 <VirtualizedGrid
                   items={displayArtists}
+                  totalCount={totalArtists}
                   renderItem={(artist) => (
                     <ArtistCard
                       artist={artist}
@@ -834,10 +888,14 @@ export default function FavoritesPage() {
                   )}
                   renderSkeleton={() => <ArtistCardSkeleton />}
                   getItemKey={(artist) => artist.id}
+                  ensureRange={ensureArtistsRange}
+                  initialOffset={artistScrollRestoration.getInitialOffset()}
+                  onScrollChange={artistScrollRestoration.saveOffset}
                 />
               ) : (
                 <VirtualizedList
                   items={displayArtists}
+                  totalCount={totalArtists}
                   renderItem={(artist, index) => (
                     <ArtistCardCompact
                       artist={artist}
@@ -852,6 +910,9 @@ export default function FavoritesPage() {
                   renderSkeleton={() => <MediaRowSkeleton showIndex />}
                   getItemKey={(artist) => artist.id}
                   estimateItemHeight={56}
+                  ensureRange={ensureArtistsRange}
+                  initialOffset={artistScrollRestoration.getInitialOffset()}
+                  onScrollChange={artistScrollRestoration.saveOffset}
                 />
               )
             ) : (

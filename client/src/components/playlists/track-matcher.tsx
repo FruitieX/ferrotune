@@ -452,13 +452,17 @@ export function TrackRow({
         <div className="font-medium truncate">
           {track.parsed.title || track.parsed.raw || "Unknown"}
         </div>
-        {(track.parsed.artist || track.parsed.album || track.parsed.duration) && (
+        {(track.parsed.artist ||
+          track.parsed.album ||
+          track.parsed.duration) && (
           <div className="text-muted-foreground text-xs truncate">
             {track.parsed.artist}
             {track.parsed.artist && track.parsed.album && " • "}
             {track.parsed.album}
             {track.parsed.duration && track.parsed.duration > 0 && (
-              <span className="ml-1">({formatDuration(track.parsed.duration)})</span>
+              <span className="ml-1">
+                ({formatDuration(track.parsed.duration)})
+              </span>
             )}
           </div>
         )}

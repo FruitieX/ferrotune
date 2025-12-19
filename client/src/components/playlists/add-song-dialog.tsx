@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -51,11 +51,11 @@ export function AddSongToPlaylistDialog({
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const debouncedQuery = useDebounce(searchQuery, 300);
-  
+
   const preview = usePreviewAudio();
 
   // Perform search when debounced query changes
-  const doSearch = useCallback(async (query: string) => {
+  const doSearch = async (query: string) => {
     if (!query.trim()) {
       setSearchResults([]);
       return;
@@ -65,7 +65,7 @@ export function AddSongToPlaylistDialog({
     try {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      
+
       const response = await client.search3({
         query: query.trim(),
         songCount: 30,
@@ -73,7 +73,7 @@ export function AddSongToPlaylistDialog({
         artistCount: 0,
         inlineImages: "small",
       });
-      
+
       setSearchResults(response.searchResult3.song ?? []);
     } catch (error) {
       console.error("Search failed:", error);
@@ -81,7 +81,7 @@ export function AddSongToPlaylistDialog({
     } finally {
       setIsSearching(false);
     }
-  }, []);
+  };
 
   // Effect to trigger search on debounced query change
   useState(() => {
@@ -125,7 +125,7 @@ export function AddSongToPlaylistDialog({
       const songTitle = selectedSong?.title || "Song";
       toast.success(`Added "${songTitle}" to ${playlistName}`);
       queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
-      
+
       // Reset and close
       handleClose();
     },
@@ -177,13 +177,16 @@ export function AddSongToPlaylistDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(newOpen) => {
-      if (!newOpen) {
-        handleClose();
-      } else {
-        onOpenChange(newOpen);
-      }
-    }}>
+    <Dialog
+      open={open}
+      onOpenChange={(newOpen) => {
+        if (!newOpen) {
+          handleClose();
+        } else {
+          onOpenChange(newOpen);
+        }
+      }}
+    >
       <DialogContent className="w-[95vw] max-w-[600px] h-[80vh] max-h-[80vh] flex flex-col overflow-hidden">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
@@ -232,7 +235,7 @@ export function AddSongToPlaylistDialog({
 
           {!isSearching && searchResults.length > 0 && (
             <div className="space-y-1">
-                {searchResults.map((song) => (
+              {searchResults.map((song) => (
                 <div
                   key={song.id}
                   className={cn(
@@ -247,11 +250,15 @@ export function AddSongToPlaylistDialog({
                   {/* Cover art */}
                   <div className="w-10 h-10 bg-muted rounded overflow-hidden shrink-0">
                     {song.coverArt || song.coverArtData ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={
                           song.coverArtData
                             ? `data:image/webp;base64,${song.coverArtData}`
-                            : getClient()?.getCoverArtUrl(song.coverArt!, "small")
+                            : getClient()?.getCoverArtUrl(
+                                song.coverArt!,
+                                "small",
+                              )
                         }
                         alt=""
                         className="w-full h-full object-cover"
