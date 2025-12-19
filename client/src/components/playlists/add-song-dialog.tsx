@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -53,6 +53,7 @@ export function AddSongToPlaylistDialog({
   const debouncedQuery = useDebounce(searchQuery, 300);
 
   const preview = usePreviewAudio();
+  const volumeContainerRef = useRef<HTMLDivElement>(null);
 
   // Perform search when debounced query changes
   const doSearch = async (query: string) => {
@@ -124,7 +125,11 @@ export function AddSongToPlaylistDialog({
     onSuccess: () => {
       const songTitle = selectedSong?.title || "Song";
       toast.success(`Added "${songTitle}" to ${playlistName}`);
+      // Invalidate both playlist and playlistSongs queries
       queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlistId],
+      });
 
       // Reset and close
       handleClose();
@@ -176,6 +181,22 @@ export function AddSongToPlaylistDialog({
     onOpenChange(false);
   };
 
+  // Handle scroll wheel to adjust volume
+  useEffect(() => {
+    const container = volumeContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 5 : -5;
+      const newVolume = Math.max(0, Math.min(100, preview.volume + delta));
+      preview.setVolume(newVolume);
+    };
+
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheel);
+  }, [preview.volume, preview.setVolume, preview]);
+
   return (
     <Dialog
       open={open}
@@ -212,7 +233,7 @@ export function AddSongToPlaylistDialog({
         </div>
 
         {/* Search results */}
-        <ScrollArea className="flex-1 -mx-6 px-6">
+        <ScrollArea className="flex-1 min-h-0 -mx-6 px-6">
           {isSearching && (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -294,41 +315,54 @@ export function AddSongToPlaylistDialog({
           )}
         </ScrollArea>
 
-        {/* Preview controls (shown when song is selected) */}
+        {/* Preview controls (shown when song is selected) - styled like track-search-panel */}
         <div className="shrink-0 border-t pt-4 min-h-[52px]">
           {selectedSong && (
-            <div className="flex items-center gap-4">
-              {/* Play/Pause */}
+            <div className="flex items-center gap-2">
               <Button
-                variant="outline"
+                variant="ghost"
                 size="icon"
-                className="h-8 w-8"
+                className="h-8 w-8 shrink-0"
                 onClick={handlePreviewToggle}
+                disabled={preview.isLoading}
               >
-                {preview.isPlaying ? (
+                {preview.isLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : preview.isPlaying ? (
                   <Pause className="w-4 h-4" />
                 ) : (
                   <Play className="w-4 h-4" />
                 )}
               </Button>
-
-              {/* Progress */}
-              <Slider
-                value={[preview.progress]}
-                max={100}
-                step={1}
-                onValueChange={(value) => preview.seek(value[0])}
-                className="flex-1"
-              />
-
-              {/* Volume */}
-              <div className="flex items-center gap-2 w-24">
-                <Volume2 className="w-4 h-4 text-muted-foreground" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">
+                  {selectedSong.title}
+                  {selectedSong.artist && (
+                    <span className="text-muted-foreground font-normal">
+                      {" "}
+                      — {selectedSong.artist}
+                    </span>
+                  )}
+                </div>
                 <Slider
-                  value={[preview.volume * 100]}
+                  value={[preview.progress]}
+                  onValueChange={(value) => preview.seek(value[0])}
+                  max={100}
+                  step={0.1}
+                  className="cursor-pointer"
+                />
+              </div>
+              <div
+                ref={volumeContainerRef}
+                className="flex items-center gap-1 shrink-0"
+              >
+                <Volume2 className="w-3.5 h-3.5 text-muted-foreground" />
+                <Slider
+                  value={[preview.volume]}
+                  onValueChange={(value) => preview.setVolume(value[0])}
                   max={100}
                   step={1}
-                  onValueChange={(value) => preview.setVolume(value[0] / 100)}
+                  className="w-16 cursor-pointer"
                 />
               </div>
             </div>

@@ -520,8 +520,8 @@ export function SmartPlaylistDropdownMenu({
             size="icon"
             className={
               inline
-                ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                : "h-8 w-8 absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity mr-3"
+                : "h-8 w-8 absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity"
             }
             onClick={(e) => {
               e.preventDefault();

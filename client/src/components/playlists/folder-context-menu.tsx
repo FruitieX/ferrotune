@@ -372,7 +372,7 @@ export function FolderDropdownMenu({
   };
 
   return (
-    <>
+    <div onClick={(e) => e.stopPropagation()}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -381,7 +381,7 @@ export function FolderDropdownMenu({
             className={
               inline
                 ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                : "h-8 w-8 absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                : "h-8 w-8 absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity"
             }
             onClick={(e) => {
               e.preventDefault();
@@ -395,7 +395,7 @@ export function FolderDropdownMenu({
         <DropdownMenuContent
           align="end"
           className="w-56"
-          onDoubleClick={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
         >
           <DropdownMenuItem onClick={() => onCreatePlaylist?.(folder.path)}>
             <ListPlus className="w-4 h-4 mr-2" />
@@ -427,7 +427,7 @@ export function FolderDropdownMenu({
 
       {/* Rename Dialog */}
       <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
-        <DialogContent>
+        <DialogContent onClick={(e) => e.stopPropagation()}>
           <DialogHeader>
             <DialogTitle>Rename Folder</DialogTitle>
             <DialogDescription>
@@ -472,7 +472,7 @@ export function FolderDropdownMenu({
 
       {/* Delete Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Folder</AlertDialogTitle>
             <AlertDialogDescription>
@@ -499,6 +499,6 @@ export function FolderDropdownMenu({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
+    </div>
   );
 }

@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
+import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import { usePreviewAudio } from "@/lib/hooks/use-preview-audio";
 import { useDebounce } from "@/lib/hooks/use-debounce";
@@ -367,6 +368,9 @@ export function TrackSearchPanel({
                     <div className="text-muted-foreground text-xs truncate">
                       {song.artist}
                       {song.album ? ` • ${song.album}` : ""}
+                      {song.duration
+                        ? ` • ${formatDuration(song.duration)}`
+                        : ""}
                     </div>
                   </div>
                 </button>

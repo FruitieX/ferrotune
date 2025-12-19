@@ -1045,13 +1045,9 @@ function DroppableFolderListRow({
   );
 }
 
-// Helper to count all playlists in a folder recursively
+// Helper to count direct playlists in a folder (non-recursive, includes smart playlists)
 function countPlaylistsInFolder(folder: PlaylistFolder): number {
-  let count = folder.playlists.length;
-  for (const subfolder of folder.subfolders) {
-    count += countPlaylistsInFolder(subfolder);
-  }
-  return count;
+  return folder.playlists.length + folder.smartPlaylists.length;
 }
 
 // Draggable playlist grid card
