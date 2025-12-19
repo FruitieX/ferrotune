@@ -44,23 +44,27 @@ pub struct LibraryWatcher {
     scan_state: Arc<ScanState>,
     /// Channel sender for watcher messages
     tx: mpsc::Sender<WatcherMessage>,
-    /// Channel receiver for watcher messages
-    rx: mpsc::Receiver<WatcherMessage>,
     /// Tracked folder paths and their IDs
     watched_folders: std::sync::Mutex<Vec<(i64, PathBuf)>>,
 }
 
 impl LibraryWatcher {
     /// Create a new library watcher
-    pub fn new(pool: SqlitePool, scan_state: Arc<ScanState>) -> Self {
+    /// Returns the watcher and the receiver for watcher messages
+    pub fn new(
+        pool: SqlitePool,
+        scan_state: Arc<ScanState>,
+    ) -> (Self, mpsc::Receiver<WatcherMessage>) {
         let (tx, rx) = mpsc::channel(100);
-        Self {
-            pool,
-            scan_state,
-            tx,
+        (
+            Self {
+                pool,
+                scan_state,
+                tx,
+                watched_folders: std::sync::Mutex::new(Vec::new()),
+            },
             rx,
-            watched_folders: std::sync::Mutex::new(Vec::new()),
-        }
+        )
     }
 
     /// Start watching music folders with watch_enabled = true
@@ -68,7 +72,7 @@ impl LibraryWatcher {
     /// This spawns background tasks for:
     /// 1. The file system watcher itself
     /// 2. A scan trigger that processes debounced events
-    pub async fn start(self: Arc<Self>) -> anyhow::Result<()> {
+    pub async fn start(self: Arc<Self>, rx: mpsc::Receiver<WatcherMessage>) -> anyhow::Result<()> {
         // Load folders to watch
         let folders = self.load_watch_enabled_folders().await?;
 
@@ -103,7 +107,7 @@ impl LibraryWatcher {
         // Spawn the scan trigger task
         let trigger_self = Arc::clone(&self);
         tokio::spawn(async move {
-            trigger_self.run_scan_trigger().await;
+            trigger_self.run_scan_trigger(rx).await;
         });
 
         Ok(())
@@ -123,12 +127,8 @@ impl LibraryWatcher {
     }
 
     /// Process watcher messages and trigger scans
-    async fn run_scan_trigger(mut self: Arc<Self>) {
-        // We need a mutable reference to rx, so we use Arc::get_mut
-        // This should work since we only have one receiver
-        let this = Arc::get_mut(&mut self).expect("Should have exclusive access to receiver");
-
-        while let Some(msg) = this.rx.recv().await {
+    async fn run_scan_trigger(self: Arc<Self>, mut rx: mpsc::Receiver<WatcherMessage>) {
+        while let Some(msg) = rx.recv().await {
             match msg {
                 WatcherMessage::FilesChanged {
                     folder_id,
@@ -140,7 +140,7 @@ impl LibraryWatcher {
                         folder_id
                     );
 
-                    let pool = this.pool.clone();
+                    let pool = self.pool.clone();
 
                     // Spawn scan in background - use targeted file scanning
                     tokio::spawn(async move {

@@ -486,24 +486,22 @@ pub async fn scan_library_with_progress(
         }
 
         // Remove thumbnails that are no longer referenced by any song, album, or artist
-        let orphaned_thumbnails = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM cover_art_thumbnails 
-             WHERE hash NOT IN (SELECT DISTINCT cover_art_hash FROM songs WHERE cover_art_hash IS NOT NULL)
-             AND hash NOT IN (SELECT DISTINCT cover_art_hash FROM albums WHERE cover_art_hash IS NOT NULL)
-             AND hash NOT IN (SELECT DISTINCT cover_art_hash FROM artists WHERE cover_art_hash IS NOT NULL)"
+        // Use a single DELETE with LEFT JOINs which is more efficient than triple NOT IN subqueries
+        let orphan_result = sqlx::query(
+            "DELETE FROM cover_art_thumbnails 
+             WHERE hash NOT IN (
+                 SELECT cover_art_hash FROM songs WHERE cover_art_hash IS NOT NULL
+                 UNION
+                 SELECT cover_art_hash FROM albums WHERE cover_art_hash IS NOT NULL
+                 UNION  
+                 SELECT cover_art_hash FROM artists WHERE cover_art_hash IS NOT NULL
+             )",
         )
-        .fetch_one(pool)
+        .execute(pool)
         .await?;
 
+        let orphaned_thumbnails = orphan_result.rows_affected();
         if orphaned_thumbnails > 0 {
-            sqlx::query(
-                "DELETE FROM cover_art_thumbnails 
-                 WHERE hash NOT IN (SELECT DISTINCT cover_art_hash FROM songs WHERE cover_art_hash IS NOT NULL)
-                 AND hash NOT IN (SELECT DISTINCT cover_art_hash FROM albums WHERE cover_art_hash IS NOT NULL)
-                 AND hash NOT IN (SELECT DISTINCT cover_art_hash FROM artists WHERE cover_art_hash IS NOT NULL)"
-            )
-            .execute(pool)
-            .await?;
             tracing::info!("Removed {} orphaned thumbnails", orphaned_thumbnails);
         }
     } else {
@@ -1235,12 +1233,13 @@ async fn upsert_song(
     let is_new = existing.is_none();
     let _song_id = if let Some((id,)) = existing {
         // Update existing song
+        // Note: we clear full_file_hash since the file content may have changed
         sqlx::query(
             "UPDATE songs SET 
                 title = ?, album_id = ?, artist_id = ?, track_number = ?, 
                 disc_number = ?, year = ?, genre = ?, duration = ?, 
                 bitrate = ?, file_size = ?, file_format = ?, music_folder_id = ?,
-                file_mtime = ?, partial_hash = ?, cover_art_hash = ?, updated_at = datetime('now')
+                file_mtime = ?, partial_hash = ?, cover_art_hash = ?, full_file_hash = NULL, updated_at = datetime('now')
              WHERE id = ?",
         )
         .bind(&metadata.title)
@@ -1418,21 +1417,11 @@ async fn get_or_create_album(
 /// Returns the total number of duplicate files found.
 async fn detect_duplicates(
     pool: &SqlitePool,
-    folder_id: Option<i64>,
+    _folder_id: Option<i64>,
     scan_state: Option<Arc<ScanState>>,
 ) -> Result<u64> {
-    // First, clear full_file_hash for songs that will be re-evaluated
-    // (in case files were modified and are no longer duplicates)
-    if let Some(fid) = folder_id {
-        sqlx::query("UPDATE songs SET full_file_hash = NULL WHERE music_folder_id = ?")
-            .bind(fid)
-            .execute(pool)
-            .await?;
-    } else {
-        sqlx::query("UPDATE songs SET full_file_hash = NULL")
-            .execute(pool)
-            .await?;
-    }
+    // Note: We no longer clear full_file_hash here. Instead, full_file_hash is cleared
+    // in upsert_song when a file is modified, so cached hashes for unchanged files are preserved.
 
     // Find partial hash collisions (songs with the same partial_hash)
     let collision_hashes: Vec<(String, i64)> = sqlx::query_as(
@@ -1462,9 +1451,9 @@ async fn detect_duplicates(
 
     // For each collision group, compute full hashes
     for (partial_hash, _count) in collision_hashes {
-        // Get all songs with this partial hash
-        let songs: Vec<(String, String, i64, i64)> = sqlx::query_as(
-            "SELECT s.id, s.file_path, s.music_folder_id, s.file_size
+        // Get all songs with this partial hash, including cached full_file_hash if present
+        let songs: Vec<(String, String, i64, i64, Option<String>)> = sqlx::query_as(
+            "SELECT s.id, s.file_path, s.music_folder_id, s.file_size, s.full_file_hash
              FROM songs s
              WHERE s.partial_hash = ?",
         )
@@ -1481,36 +1470,42 @@ async fn detect_duplicates(
         let mut hash_to_songs: std::collections::HashMap<String, Vec<(String, String, i64)>> =
             std::collections::HashMap::new();
 
-        for (song_id, file_path, music_folder_id, file_size) in songs {
-            let base_path = match folder_map.get(&music_folder_id) {
-                Some(p) => p,
-                None => {
-                    tracing::warn!(
-                        "Unknown music folder {} for song {}",
-                        music_folder_id,
-                        song_id
-                    );
-                    continue;
-                }
-            };
-
-            let full_path = PathBuf::from(base_path).join(&file_path);
-
-            // For small files (where partial = full), use partial_hash as full_hash
-            let full_hash = if file_size as u64 <= PARTIAL_HASH_CHUNK_SIZE * 2 {
-                partial_hash.clone()
+        for (song_id, file_path, music_folder_id, file_size, cached_full_hash) in songs {
+            // Use cached full_file_hash if available (file hasn't changed since last scan)
+            let full_hash = if let Some(cached) = cached_full_hash {
+                cached
             } else {
-                match compute_full_hash(&full_path) {
-                    Ok(h) => h,
-                    Err(e) => {
+                let base_path = match folder_map.get(&music_folder_id) {
+                    Some(p) => p,
+                    None => {
                         tracing::warn!(
-                            "Failed to compute full hash for {}: {}",
-                            full_path.display(),
-                            e
+                            "Unknown music folder {} for song {}",
+                            music_folder_id,
+                            song_id
                         );
                         continue;
                     }
-                }
+                };
+
+                let full_path = PathBuf::from(base_path).join(&file_path);
+
+                // For small files (where partial = full), use partial_hash as full_hash
+                let computed_hash = if file_size as u64 <= PARTIAL_HASH_CHUNK_SIZE * 2 {
+                    partial_hash.clone()
+                } else {
+                    match compute_full_hash(&full_path) {
+                        Ok(h) => h,
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to compute full hash for {}: {}",
+                                full_path.display(),
+                                e
+                            );
+                            continue;
+                        }
+                    }
+                };
+                computed_hash
             };
 
             hash_to_songs

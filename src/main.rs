@@ -276,8 +276,9 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
     });
 
     // Start the file watcher for directories with watch_enabled=true
-    let library_watcher = Arc::new(watcher::LibraryWatcher::new(pool, scan_state));
-    if let Err(e) = library_watcher.start().await {
+    let (watcher, watcher_rx) = watcher::LibraryWatcher::new(pool, scan_state);
+    let library_watcher = Arc::new(watcher);
+    if let Err(e) = library_watcher.start(watcher_rx).await {
         tracing::warn!("Failed to start file watcher: {}", e);
     }
 
