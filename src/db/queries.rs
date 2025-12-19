@@ -951,13 +951,34 @@ pub async fn delete_playlist(pool: &SqlitePool, id: &str) -> sqlx::Result<()> {
 }
 
 /// Delete a song from the database
-/// This also:
-/// - Deletes the song from playlists (CASCADE)
+///
+/// This function:
+/// - Converts playlist entries referencing this song to "missing" entries (preserves metadata)
 /// - Deletes scrobbles for the song (CASCADE)
 /// - Deletes starred entries for the song
 /// - Cleans up FTS entries via trigger
 /// - Updates album song_count
+/// - Updates affected playlist totals
+///
+/// Playlist entries are NOT deleted - they become "missing" entries with the song's
+/// metadata preserved, allowing them to be re-matched if the song is added again later.
 pub async fn delete_song(pool: &SqlitePool, id: &str) -> sqlx::Result<bool> {
+    // Get song metadata before deleting so we can preserve it in playlist entries
+    let song_meta: Option<(String, Option<String>, Option<String>, i64)> = sqlx::query_as(
+        "SELECT s.title, ar.name as artist_name, al.name as album_name, s.duration
+         FROM songs s
+         LEFT JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         WHERE s.id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some((title, artist_name, album_name, duration)) = song_meta else {
+        return Ok(false);
+    };
+
     // Get album_id before deleting so we can update album counts
     let album_id: Option<(Option<String>,)> =
         sqlx::query_as("SELECT album_id FROM songs WHERE id = ?")
@@ -965,13 +986,51 @@ pub async fn delete_song(pool: &SqlitePool, id: &str) -> sqlx::Result<bool> {
             .fetch_optional(pool)
             .await?;
 
+    // Build the missing entry data JSON
+    let missing_data = serde_json::json!({
+        "title": title,
+        "artist": artist_name,
+        "album": album_name,
+        "duration": duration as i32,
+        "raw": format!("{} - {}", artist_name.as_deref().unwrap_or("Unknown Artist"), title)
+    });
+    let missing_json = serde_json::to_string(&missing_data).unwrap_or_default();
+
+    // Build search text: "artist - album - title" for filtering
+    let mut parts = Vec::new();
+    if let Some(ref a) = artist_name {
+        parts.push(a.as_str());
+    }
+    if let Some(ref al) = album_name {
+        parts.push(al.as_str());
+    }
+    parts.push(title.as_str());
+    let search_text = parts.join(" - ");
+
+    // Get all playlist IDs that will be affected
+    let affected_playlists: Vec<(String,)> =
+        sqlx::query_as("SELECT DISTINCT playlist_id FROM playlist_songs WHERE song_id = ?")
+            .bind(id)
+            .fetch_all(pool)
+            .await?;
+
+    // Convert playlist entries to "missing" entries (song_id becomes NULL, metadata preserved)
+    sqlx::query(
+        "UPDATE playlist_songs SET song_id = NULL, missing_entry_data = ?, missing_search_text = ? WHERE song_id = ?"
+    )
+    .bind(&missing_json)
+    .bind(&search_text)
+    .bind(id)
+    .execute(pool)
+    .await?;
+
     // Delete starred entries for this song
     sqlx::query("DELETE FROM starred WHERE item_type = 'song' AND item_id = ?")
         .bind(id)
         .execute(pool)
         .await?;
 
-    // Delete the song (cascades to playlist_songs, scrobbles, FTS trigger)
+    // Delete the song (scrobbles cascade, FTS trigger cleans up)
     let result = sqlx::query("DELETE FROM songs WHERE id = ?")
         .bind(id)
         .execute(pool)
@@ -996,17 +1055,23 @@ pub async fn delete_song(pool: &SqlitePool, id: &str) -> sqlx::Result<bool> {
         .await?;
     }
 
-    // Update all playlists that contained this song
-    sqlx::query(
-        "UPDATE playlists SET 
-            song_count = (SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = playlists.id),
-            duration = (SELECT COALESCE(SUM(s.duration), 0) FROM songs s 
-                        INNER JOIN playlist_songs ps ON s.id = ps.song_id 
-                        WHERE ps.playlist_id = playlists.id),
-            updated_at = datetime('now')",
-    )
-    .execute(pool)
-    .await?;
+    // Update totals for all affected playlists
+    for (playlist_id,) in &affected_playlists {
+        sqlx::query(
+            "UPDATE playlists SET 
+                song_count = (SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = ? AND song_id IS NOT NULL),
+                duration = (SELECT COALESCE(SUM(s.duration), 0) FROM songs s 
+                            INNER JOIN playlist_songs ps ON s.id = ps.song_id 
+                            WHERE ps.playlist_id = ?),
+                updated_at = datetime('now')
+             WHERE id = ?",
+        )
+        .bind(playlist_id)
+        .bind(playlist_id)
+        .bind(playlist_id)
+        .execute(pool)
+        .await?;
+    }
 
     Ok(true)
 }

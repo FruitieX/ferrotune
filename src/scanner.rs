@@ -960,12 +960,72 @@ async fn remove_missing_songs(
     // Delete missing songs in a transaction
     let mut tx = pool.begin().await?;
 
+    // First, convert all playlist entries for these songs to "missing" entries
+    // This preserves the song metadata so entries can be re-matched later
     for id in truly_missing.values() {
+        // Get song metadata before deleting
+        let song_meta: Option<(String, Option<String>, Option<String>, i64)> = sqlx::query_as(
+            "SELECT s.title, ar.name as artist_name, al.name as album_name, s.duration
+             FROM songs s
+             LEFT JOIN artists ar ON s.artist_id = ar.id
+             LEFT JOIN albums al ON s.album_id = al.id
+             WHERE s.id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some((title, artist_name, album_name, duration)) = song_meta {
+            // Build the missing entry data JSON
+            let missing_data = serde_json::json!({
+                "title": title,
+                "artist": artist_name,
+                "album": album_name,
+                "duration": duration as i32,
+                "raw": format!("{} - {}", artist_name.as_deref().unwrap_or("Unknown Artist"), title)
+            });
+            let missing_json = serde_json::to_string(&missing_data).unwrap_or_default();
+
+            // Build search text: "artist - album - title" for filtering
+            let mut parts = Vec::new();
+            if let Some(ref a) = &artist_name {
+                parts.push(a.as_str());
+            }
+            if let Some(ref al) = &album_name {
+                parts.push(al.as_str());
+            }
+            parts.push(title.as_str());
+            let search_text = parts.join(" - ");
+
+            // Convert playlist entries to "missing" entries
+            sqlx::query(
+                "UPDATE playlist_songs SET song_id = NULL, missing_entry_data = ?, missing_search_text = ? WHERE song_id = ?"
+            )
+            .bind(&missing_json)
+            .bind(&search_text)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        // Delete the song
         sqlx::query("DELETE FROM songs WHERE id = ?")
             .bind(id)
             .execute(&mut *tx)
             .await?;
     }
+
+    // Update affected playlist totals
+    sqlx::query(
+        "UPDATE playlists SET 
+            song_count = (SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = playlists.id AND song_id IS NOT NULL),
+            duration = (SELECT COALESCE(SUM(s.duration), 0) FROM songs s 
+                        INNER JOIN playlist_songs ps ON s.id = ps.song_id 
+                        WHERE ps.playlist_id = playlists.id),
+            updated_at = datetime('now')"
+    )
+    .execute(&mut *tx)
+    .await?;
 
     // Clean up orphaned albums (no songs reference them)
     let orphaned_albums = sqlx::query_scalar::<_, i64>(
