@@ -45,6 +45,10 @@ import {
   ParsedTrackInfo,
 } from "@/components/playlists/track-matcher";
 import { parseCSVLine } from "@/lib/utils/playlist-parser";
+import type { AlbumMatchEntry } from "@/lib/api/generated/AlbumMatchEntry";
+import type { ArtistMatchEntry } from "@/lib/api/generated/ArtistMatchEntry";
+import type { AlbumToMatch } from "@/lib/api/generated/AlbumToMatch";
+import type { ArtistToMatch } from "@/lib/api/generated/ArtistToMatch";
 
 interface ImportFavoritesDialogProps {
   open: boolean;
@@ -64,6 +68,24 @@ interface ParsedFavorite {
 
 // Extended MatchableTrack for favorites import
 interface FavoriteTrack extends MatchableTrack {
+  csvRowIndex: number;
+}
+
+// Matched album for album favorites import
+interface MatchedAlbum {
+  parsed: { name: string | null; artist: string | null; raw: string };
+  match: AlbumMatchEntry | null;
+  matchScore: number;
+  selected?: boolean;
+  csvRowIndex: number;
+}
+
+// Matched artist for artist favorites import
+interface MatchedArtist {
+  parsed: { name: string | null; raw: string };
+  match: ArtistMatchEntry | null;
+  matchScore: number;
+  selected?: boolean;
   csvRowIndex: number;
 }
 
@@ -174,13 +196,21 @@ export function ImportFavoritesDialog({
   const { matchTracks, cancel: cancelMatching } = useTrackMatcher();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const [step, setStep] = useState<ImportStep>("upload");
   const [favoriteType, setFavoriteType] = useState<FavoriteType>("songs");
   const [csvRows, setCsvRows] = useState<ParsedFavorite[]>([]);
   const [csvHeaderLine, setCsvHeaderLine] = useState<string>("");
   const [parseError, setParseError] = useState<string | null>(null);
+
+  // Track matching state (songs)
   const [matchedTracks, setMatchedTracks] = useState<FavoriteTrack[]>([]);
+  // Album matching state
+  const [matchedAlbums, setMatchedAlbums] = useState<MatchedAlbum[]>([]);
+  // Artist matching state
+  const [matchedArtists, setMatchedArtists] = useState<MatchedArtist[]>([]);
+
   const [matchingProgress, setMatchingProgress] = useState(0);
   const [searchOptions, setSearchOptions] = useState<SearchOptions>({
     useTitle: true,
@@ -189,12 +219,25 @@ export function ImportFavoritesDialog({
   });
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
 
-  // Counts
-  const matchedCount = matchedTracks.filter((t) => t.match).length;
-  const selectedCount = matchedTracks.filter(
-    (t) => t.match && t.selected !== false,
-  ).length;
-  const unmatchedCount = matchedTracks.filter((t) => !t.match).length;
+  // Counts based on favorite type
+  const matchedCount =
+    favoriteType === "songs"
+      ? matchedTracks.filter((t) => t.match).length
+      : favoriteType === "albums"
+        ? matchedAlbums.filter((a) => a.match).length
+        : matchedArtists.filter((a) => a.match).length;
+  const selectedCount =
+    favoriteType === "songs"
+      ? matchedTracks.filter((t) => t.match && t.selected !== false).length
+      : favoriteType === "albums"
+        ? matchedAlbums.filter((a) => a.match && a.selected !== false).length
+        : matchedArtists.filter((a) => a.match && a.selected !== false).length;
+  const unmatchedCount =
+    favoriteType === "songs"
+      ? matchedTracks.filter((t) => !t.match).length
+      : favoriteType === "albums"
+        ? matchedAlbums.filter((a) => !a.match).length
+        : matchedArtists.filter((a) => !a.match).length;
 
   const hasUnsavedChanges = step === "preview" && selectedCount > 0;
 
@@ -239,11 +282,22 @@ export function ImportFavoritesDialog({
     }
   };
 
-  // Start matching
-  const doMatchTracks = async () => {
+  // Start matching - dispatches to type-specific matching
+  const doMatch = async () => {
     setStep("matching");
     setMatchingProgress(0);
 
+    if (favoriteType === "songs") {
+      await doMatchSongs();
+    } else if (favoriteType === "albums") {
+      await doMatchAlbums();
+    } else {
+      await doMatchArtists();
+    }
+  };
+
+  // Match songs using the existing track matcher
+  const doMatchSongs = async () => {
     const tracksToMatch: ParsedTrackInfo[] = csvRows.map((row) => ({
       title: row.title,
       artist: row.artist,
@@ -271,55 +325,158 @@ export function ImportFavoritesDialog({
     }
   };
 
-  // Import mutation
+  // Match albums using the new album matching API
+  const doMatchAlbums = async () => {
+    const client = getClient();
+    if (!client) {
+      toast.error("Not connected to server");
+      setStep("upload");
+      return;
+    }
+
+    // Prepare albums to match
+    const albumsToMatch: AlbumToMatch[] = csvRows.map((row) => ({
+      name: row.album ?? row.title, // Use 'album' field, or fall back to 'title' (which is the display title)
+      artist: row.artist,
+    }));
+
+    // Process in batches
+    const BATCH_SIZE = 100;
+    const results: MatchedAlbum[] = [];
+
+    try {
+      for (let i = 0; i < albumsToMatch.length; i += BATCH_SIZE) {
+        const batch = albumsToMatch.slice(i, i + BATCH_SIZE);
+        const batchCsvRows = csvRows.slice(i, i + BATCH_SIZE);
+
+        const response = await client.matchAlbums({
+          albums: batch,
+          useArtist: true,
+        });
+
+        for (let j = 0; j < batch.length; j++) {
+          const row = batchCsvRows[j];
+          const result = response.results[j];
+
+          results.push({
+            parsed: {
+              name: row.album ?? row.title,
+              artist: row.artist,
+              raw: row.raw,
+            },
+            match: result.album ?? null,
+            matchScore: result.score,
+            selected: !!(result.album && result.score >= 0.9),
+            csvRowIndex: i + j,
+          });
+        }
+
+        setMatchingProgress(
+          Math.round(((i + batch.length) / albumsToMatch.length) * 100),
+        );
+      }
+
+      setMatchedAlbums(results);
+      setStep("preview");
+    } catch (error) {
+      console.error("Failed to match albums:", error);
+      toast.error("Failed to match albums");
+      setStep("upload");
+    }
+  };
+
+  // Match artists using the new artist matching API
+  const doMatchArtists = async () => {
+    const client = getClient();
+    if (!client) {
+      toast.error("Not connected to server");
+      setStep("upload");
+      return;
+    }
+
+    // Prepare artists to match
+    const artistsToMatch: ArtistToMatch[] = csvRows.map((row) => ({
+      name: row.artist ?? row.title, // Use 'artist' field, or fall back to 'title' (which is the display title)
+    }));
+
+    // Process in batches
+    const BATCH_SIZE = 100;
+    const results: MatchedArtist[] = [];
+
+    try {
+      for (let i = 0; i < artistsToMatch.length; i += BATCH_SIZE) {
+        const batch = artistsToMatch.slice(i, i + BATCH_SIZE);
+        const batchCsvRows = csvRows.slice(i, i + BATCH_SIZE);
+
+        const response = await client.matchArtists({
+          artists: batch,
+        });
+
+        for (let j = 0; j < batch.length; j++) {
+          const row = batchCsvRows[j];
+          const result = response.results[j];
+
+          results.push({
+            parsed: {
+              name: row.artist ?? row.title,
+              raw: row.raw,
+            },
+            match: result.artist ?? null,
+            matchScore: result.score,
+            selected: !!(result.artist && result.score >= 0.9),
+            csvRowIndex: i + j,
+          });
+        }
+
+        setMatchingProgress(
+          Math.round(((i + batch.length) / artistsToMatch.length) * 100),
+        );
+      }
+
+      setMatchedArtists(results);
+      setStep("preview");
+    } catch (error) {
+      console.error("Failed to match artists:", error);
+      toast.error("Failed to match artists");
+      setStep("upload");
+    }
+  };
+
+  // Import mutation - uses directly matched IDs for albums/artists
   const importMutation = useMutation({
     mutationFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
 
-      const selectedTracks = matchedTracks.filter(
-        (t) => t.match && t.selected !== false,
-      );
-
       if (favoriteType === "songs") {
-        // For songs, star by song ID
+        const selectedTracks = matchedTracks.filter(
+          (t) => t.match && t.selected !== false,
+        );
         const ids = selectedTracks.map((t) => t.match!.id);
         await client.star({ id: ids });
         return { count: ids.length };
       } else if (favoriteType === "albums") {
-        // For albums, we need to fetch album IDs from matched songs
-        // The match contains song data, so we need to get album IDs
-        // Use the song's albumId field if available, or fetch song details
-        const albumIds = new Set<string>();
+        // For albums, now we have direct album IDs from matching
+        const selectedAlbums = matchedAlbums.filter(
+          (a) => a.match && a.selected !== false,
+        );
+        const albumIds = selectedAlbums.map((a) => a.match!.id);
 
-        for (const track of selectedTracks) {
-          // The match.id is a song ID - we need to get its album
-          // Songs in our API have albumId field available
-          const songResponse = await client.getSong(track.match!.id);
-          if (songResponse.song.albumId) {
-            albumIds.add(songResponse.song.albumId);
-          }
+        if (albumIds.length > 0) {
+          await client.star({ albumId: albumIds });
         }
-
-        if (albumIds.size > 0) {
-          await client.star({ albumId: Array.from(albumIds) });
-        }
-        return { count: albumIds.size };
+        return { count: albumIds.length };
       } else {
-        // For artists, get artist IDs from matched songs
-        const artistIds = new Set<string>();
+        // For artists, now we have direct artist IDs from matching
+        const selectedArtists = matchedArtists.filter(
+          (a) => a.match && a.selected !== false,
+        );
+        const artistIds = selectedArtists.map((a) => a.match!.id);
 
-        for (const track of selectedTracks) {
-          const songResponse = await client.getSong(track.match!.id);
-          if (songResponse.song.artistId) {
-            artistIds.add(songResponse.song.artistId);
-          }
+        if (artistIds.length > 0) {
+          await client.star({ artistId: artistIds });
         }
-
-        if (artistIds.size > 0) {
-          await client.star({ artistId: Array.from(artistIds) });
-        }
-        return { count: artistIds.size };
+        return { count: artistIds.length };
       }
     },
     onSuccess: ({ count }) => {
@@ -345,12 +502,18 @@ export function ImportFavoritesDialog({
 
   const resetAndClose = () => {
     cancelMatching();
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     setStep("upload");
     setFavoriteType("songs");
     setCsvRows([]);
     setCsvHeaderLine("");
     setParseError(null);
     setMatchedTracks([]);
+    setMatchedAlbums([]);
+    setMatchedArtists([]);
     setMatchingProgress(0);
     setConfirmCloseOpen(false);
     if (fileInputRef.current) {
@@ -601,7 +764,7 @@ export function ImportFavoritesDialog({
                   <SearchOptionsControl
                     options={searchOptions}
                     onChange={setSearchOptions}
-                    onRematch={doMatchTracks}
+                    onRematch={doMatch}
                     showRematch
                   />
                 )}
@@ -613,46 +776,181 @@ export function ImportFavoritesDialog({
                 />
               </div>
 
-              {/* Track list */}
-              <TabbedTrackList
-                tracks={matchedTracks}
-                onUpdateMatch={(index, match, score) => {
-                  setMatchedTracks((prev) => {
-                    const updated = [...prev];
-                    updated[index] = {
-                      ...updated[index],
-                      match,
-                      matchScore: score,
-                      selected: match ? score >= 0.9 : updated[index].selected,
-                    };
-                    return updated;
-                  });
-                }}
-                onToggleSelection={(index, selected) => {
-                  setMatchedTracks((prev) => {
-                    const updated = [...prev];
-                    updated[index] = {
-                      ...updated[index],
-                      selected,
-                    };
-                    return updated;
-                  });
-                }}
-                onToggleAllSelection={(trackList, selected) => {
-                  const indicesToUpdate = new Set(
-                    trackList
-                      .filter((t) => t.match && !t.locked)
-                      .map((t) => matchedTracks.indexOf(t as FavoriteTrack)),
-                  );
-                  setMatchedTracks((prev) =>
-                    prev.map((track, idx) =>
-                      indicesToUpdate.has(idx) ? { ...track, selected } : track,
-                    ),
-                  );
-                }}
-                showMatchFilter
-                showCheckboxes
-              />
+              {/* Track list (songs only) */}
+              {favoriteType === "songs" && (
+                <TabbedTrackList
+                  tracks={matchedTracks}
+                  onUpdateMatch={(index, match, score) => {
+                    setMatchedTracks((prev) => {
+                      const updated = [...prev];
+                      updated[index] = {
+                        ...updated[index],
+                        match,
+                        matchScore: score,
+                        selected: match
+                          ? score >= 0.9
+                          : updated[index].selected,
+                      };
+                      return updated;
+                    });
+                  }}
+                  onToggleSelection={(index, selected) => {
+                    setMatchedTracks((prev) => {
+                      const updated = [...prev];
+                      updated[index] = {
+                        ...updated[index],
+                        selected,
+                      };
+                      return updated;
+                    });
+                  }}
+                  onToggleAllSelection={(trackList, selected) => {
+                    const indicesToUpdate = new Set(
+                      trackList
+                        .filter((t) => t.match && !t.locked)
+                        .map((t) => matchedTracks.indexOf(t as FavoriteTrack)),
+                    );
+                    setMatchedTracks((prev) =>
+                      prev.map((track, idx) =>
+                        indicesToUpdate.has(idx)
+                          ? { ...track, selected }
+                          : track,
+                      ),
+                    );
+                  }}
+                  showMatchFilter
+                  showCheckboxes
+                />
+              )}
+
+              {/* Album list */}
+              {favoriteType === "albums" && (
+                <div className="flex-1 min-h-0 overflow-auto rounded-md border">
+                  <div className="divide-y">
+                    {matchedAlbums.map((item, index) => (
+                      <div
+                        key={index}
+                        className={`flex items-center gap-3 p-3 ${item.match ? "hover:bg-accent/50" : "bg-orange-500/10"}`}
+                      >
+                        {item.match && (
+                          <input
+                            type="checkbox"
+                            checked={item.selected !== false}
+                            onChange={(e) => {
+                              setMatchedAlbums((prev) => {
+                                const updated = [...prev];
+                                updated[index] = {
+                                  ...updated[index],
+                                  selected: e.target.checked,
+                                };
+                                return updated;
+                              });
+                            }}
+                            className="w-4 h-4"
+                          />
+                        )}
+                        {!item.match && <div className="w-4" />}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">
+                            {item.parsed.name || "Unknown Album"}
+                          </div>
+                          {item.parsed.artist && (
+                            <div className="text-sm text-muted-foreground truncate">
+                              {item.parsed.artist}
+                            </div>
+                          )}
+                          {item.matchScore > 0 && (
+                            <span
+                              className={`text-xs px-1.5 py-0.5 rounded ${item.matchScore >= 0.9 ? "bg-green-500/20 text-green-600" : "bg-yellow-500/20 text-yellow-600"}`}
+                            >
+                              {Math.round(item.matchScore * 100)}% match
+                            </span>
+                          )}
+                        </div>
+                        {item.match && (
+                          <>
+                            <div className="text-muted-foreground">→</div>
+                            <div className="flex-1 min-w-0 text-right">
+                              <div className="font-medium truncate">
+                                {item.match.name}
+                              </div>
+                              <div className="text-sm text-muted-foreground truncate">
+                                {item.match.artist}
+                                {item.match.year && ` (${item.match.year})`}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        {!item.match && (
+                          <div className="text-sm text-orange-500">
+                            Not found
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Artist list */}
+              {favoriteType === "artists" && (
+                <div className="flex-1 min-h-0 overflow-auto rounded-md border">
+                  <div className="divide-y">
+                    {matchedArtists.map((item, index) => (
+                      <div
+                        key={index}
+                        className={`flex items-center gap-3 p-3 ${item.match ? "hover:bg-accent/50" : "bg-orange-500/10"}`}
+                      >
+                        {item.match && (
+                          <input
+                            type="checkbox"
+                            checked={item.selected !== false}
+                            onChange={(e) => {
+                              setMatchedArtists((prev) => {
+                                const updated = [...prev];
+                                updated[index] = {
+                                  ...updated[index],
+                                  selected: e.target.checked,
+                                };
+                                return updated;
+                              });
+                            }}
+                            className="w-4 h-4"
+                          />
+                        )}
+                        {!item.match && <div className="w-4" />}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">
+                            {item.parsed.name || "Unknown Artist"}
+                          </div>
+                          {item.matchScore > 0 && (
+                            <span
+                              className={`text-xs px-1.5 py-0.5 rounded ${item.matchScore >= 0.9 ? "bg-green-500/20 text-green-600" : "bg-yellow-500/20 text-yellow-600"}`}
+                            >
+                              {Math.round(item.matchScore * 100)}% match
+                            </span>
+                          )}
+                        </div>
+                        {item.match && (
+                          <>
+                            <div className="text-muted-foreground">→</div>
+                            <div className="flex-1 min-w-0 text-right">
+                              <div className="font-medium truncate">
+                                {item.match.name}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        {!item.match && (
+                          <div className="text-sm text-orange-500">
+                            Not found
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -681,7 +979,7 @@ export function ImportFavoritesDialog({
             </Button>
 
             {step === "upload" && csvRows.length > 0 && (
-              <Button onClick={doMatchTracks}>Start Matching</Button>
+              <Button onClick={doMatch}>Start Matching</Button>
             )}
 
             {step === "preview" && (

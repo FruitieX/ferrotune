@@ -210,6 +210,126 @@ pub struct MatchTracksResponse {
     pub results: Vec<MatchResult>,
 }
 
+// =============================================================================
+// Album and Artist Matching
+// =============================================================================
+
+/// A minimal album entry for matching.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct AlbumMatchEntry {
+    /// Album ID
+    pub id: String,
+    /// Album name
+    pub name: String,
+    /// Artist name
+    pub artist: String,
+    /// Year (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | undefined")]
+    pub year: Option<i32>,
+}
+
+/// A minimal artist entry for matching.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ArtistMatchEntry {
+    /// Artist ID
+    pub id: String,
+    /// Artist name
+    pub name: String,
+}
+
+/// An album to be matched against the library.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct AlbumToMatch {
+    /// Album name
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Artist name (if available)
+    #[serde(default)]
+    pub artist: Option<String>,
+}
+
+/// An artist to be matched against the library.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ArtistToMatch {
+    /// Artist name
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// Request body for matching albums.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct MatchAlbumsRequest {
+    /// Albums to match against the library
+    pub albums: Vec<AlbumToMatch>,
+    /// Whether to use artist for matching (default: true)
+    #[serde(default = "default_true")]
+    pub use_artist: bool,
+}
+
+/// Request body for matching artists.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct MatchArtistsRequest {
+    /// Artists to match against the library
+    pub artists: Vec<ArtistToMatch>,
+}
+
+/// Result of matching a single album.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct AlbumMatchResult {
+    /// The matched album (if found)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album: Option<AlbumMatchEntry>,
+    /// Match confidence score (0.0 to 1.0)
+    #[ts(type = "number")]
+    pub score: f64,
+}
+
+/// Result of matching a single artist.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ArtistMatchResult {
+    /// The matched artist (if found)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist: Option<ArtistMatchEntry>,
+    /// Match confidence score (0.0 to 1.0)
+    #[ts(type = "number")]
+    pub score: f64,
+}
+
+/// Response containing match results for albums.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct MatchAlbumsResponse {
+    /// Match results in the same order as input albums
+    pub results: Vec<AlbumMatchResult>,
+}
+
+/// Response containing match results for artists.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct MatchArtistsResponse {
+    /// Match results in the same order as input artists
+    pub results: Vec<ArtistMatchResult>,
+}
+
 /// Query parameters for the match endpoint.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -623,6 +743,295 @@ fn match_single_track(
         },
         _ => MatchResult {
             song: None,
+            score: 0.0,
+        },
+    }
+}
+
+// =============================================================================
+// Album Matching
+// =============================================================================
+
+/// Pre-tokenized album for efficient matching.
+struct TokenizedAlbum<'a> {
+    album: &'a AlbumMatchEntry,
+    name_tokens: HashSet<String>,
+    artist_tokens: HashSet<String>,
+    normalized_name: String,
+}
+
+/// Match albums against the library using server-side fuzzy matching.
+///
+/// POST /ferrotune/albums/match
+pub async fn match_albums(
+    State(state): State<Arc<AppState>>,
+    _user: FerrotuneAuthenticatedUser,
+    Query(params): Query<MatchTracksParams>,
+    Json(request): Json<MatchAlbumsRequest>,
+) -> Result<Json<MatchAlbumsResponse>, (StatusCode, Json<super::ErrorResponse>)> {
+    // Fetch all albums from enabled music folders
+    let albums: Vec<AlbumMatchEntry> = if let Some(music_folder_id) = params.library_id {
+        sqlx::query_as::<_, AlbumMatchEntry>(
+            r#"
+            SELECT DISTINCT
+                al.id,
+                al.name,
+                ar.name as artist,
+                al.year
+            FROM albums al
+            JOIN artists ar ON al.artist_id = ar.id
+            JOIN songs s ON s.album_id = al.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            WHERE s.music_folder_id = ? AND mf.enabled = 1
+            "#,
+        )
+        .bind(music_folder_id)
+        .fetch_all(&state.pool)
+        .await
+    } else {
+        sqlx::query_as::<_, AlbumMatchEntry>(
+            r#"
+            SELECT DISTINCT
+                al.id,
+                al.name,
+                ar.name as artist,
+                al.year
+            FROM albums al
+            JOIN artists ar ON al.artist_id = ar.id
+            JOIN songs s ON s.album_id = al.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            WHERE mf.enabled = 1
+            "#,
+        )
+        .fetch_all(&state.pool)
+        .await
+    }
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    // Pre-tokenize all albums for efficient matching
+    let tokenized_albums: Vec<TokenizedAlbum> = albums
+        .par_iter()
+        .map(|album| TokenizedAlbum {
+            album,
+            name_tokens: tokenize(&album.name),
+            artist_tokens: tokenize(&album.artist),
+            normalized_name: album.name.to_lowercase(),
+        })
+        .collect();
+
+    // Match each album in parallel
+    let results: Vec<AlbumMatchResult> = request
+        .albums
+        .par_iter()
+        .map(|album| match_single_album(album, &tokenized_albums, request.use_artist))
+        .collect();
+
+    Ok(Json(MatchAlbumsResponse { results }))
+}
+
+/// Match a single album against the tokenized album library.
+fn match_single_album(
+    album: &AlbumToMatch,
+    albums: &[TokenizedAlbum],
+    use_artist: bool,
+) -> AlbumMatchResult {
+    let query_name = match &album.name {
+        Some(name) if !name.trim().is_empty() => name.trim(),
+        _ => {
+            return AlbumMatchResult {
+                album: None,
+                score: 0.0,
+            }
+        }
+    };
+
+    let query_name_tokens = tokenize(query_name);
+    let query_name_normalized = query_name.to_lowercase();
+    let query_artist_tokens = album.artist.as_deref().map(tokenize);
+
+    let mut best_match: Option<(&AlbumMatchEntry, f64)> = None;
+
+    for tokenized in albums {
+        // Calculate name similarity
+        let name_sim = normalized_levenshtein(&query_name_normalized, &tokenized.normalized_name);
+        let name_token_score = weighted_token_score(&query_name_tokens, &tokenized.name_tokens);
+
+        // Combined name score (mix of levenshtein and token matching)
+        let name_score = 0.6 * name_sim + 0.4 * name_token_score;
+
+        // Skip if name doesn't match well enough
+        if name_score < 0.4 {
+            continue;
+        }
+
+        // Artist matching (if enabled and provided)
+        let artist_score = if use_artist {
+            if let Some(ref query_artist) = query_artist_tokens {
+                let artist_sim = weighted_token_score(query_artist, &tokenized.artist_tokens);
+                // Require at least some artist overlap
+                if artist_sim < 0.3 {
+                    continue;
+                }
+                artist_sim
+            } else {
+                1.0 // No artist provided, don't penalize
+            }
+        } else {
+            1.0 // Artist matching disabled
+        };
+
+        // Combined score: name is more important than artist
+        let total_score = if use_artist && query_artist_tokens.is_some() {
+            0.7 * name_score + 0.3 * artist_score
+        } else {
+            name_score
+        };
+
+        if total_score > best_match.map(|(_, s)| s).unwrap_or(0.0) {
+            best_match = Some((tokenized.album, total_score));
+        }
+    }
+
+    // Only return matches above threshold (50%)
+    match best_match {
+        Some((album, score)) if score >= 0.5 => AlbumMatchResult {
+            album: Some(album.clone()),
+            score,
+        },
+        _ => AlbumMatchResult {
+            album: None,
+            score: 0.0,
+        },
+    }
+}
+
+// =============================================================================
+// Artist Matching
+// =============================================================================
+
+/// Pre-tokenized artist for efficient matching.
+struct TokenizedArtist<'a> {
+    artist: &'a ArtistMatchEntry,
+    name_tokens: HashSet<String>,
+    normalized_name: String,
+}
+
+/// Match artists against the library using server-side fuzzy matching.
+///
+/// POST /ferrotune/artists/match
+pub async fn match_artists(
+    State(state): State<Arc<AppState>>,
+    _user: FerrotuneAuthenticatedUser,
+    Query(params): Query<MatchTracksParams>,
+    Json(request): Json<MatchArtistsRequest>,
+) -> Result<Json<MatchArtistsResponse>, (StatusCode, Json<super::ErrorResponse>)> {
+    // Fetch all artists from enabled music folders
+    let artists: Vec<ArtistMatchEntry> = if let Some(music_folder_id) = params.library_id {
+        sqlx::query_as::<_, ArtistMatchEntry>(
+            r#"
+            SELECT DISTINCT
+                ar.id,
+                ar.name
+            FROM artists ar
+            JOIN songs s ON s.artist_id = ar.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            WHERE s.music_folder_id = ? AND mf.enabled = 1
+            "#,
+        )
+        .bind(music_folder_id)
+        .fetch_all(&state.pool)
+        .await
+    } else {
+        sqlx::query_as::<_, ArtistMatchEntry>(
+            r#"
+            SELECT DISTINCT
+                ar.id,
+                ar.name
+            FROM artists ar
+            JOIN songs s ON s.artist_id = ar.id
+            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+            WHERE mf.enabled = 1
+            "#,
+        )
+        .fetch_all(&state.pool)
+        .await
+    }
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse::with_details(
+                "Database error",
+                e.to_string(),
+            )),
+        )
+    })?;
+
+    // Pre-tokenize all artists for efficient matching
+    let tokenized_artists: Vec<TokenizedArtist> = artists
+        .par_iter()
+        .map(|artist| TokenizedArtist {
+            artist,
+            name_tokens: tokenize(&artist.name),
+            normalized_name: artist.name.to_lowercase(),
+        })
+        .collect();
+
+    // Match each artist in parallel
+    let results: Vec<ArtistMatchResult> = request
+        .artists
+        .par_iter()
+        .map(|artist| match_single_artist(artist, &tokenized_artists))
+        .collect();
+
+    Ok(Json(MatchArtistsResponse { results }))
+}
+
+/// Match a single artist against the tokenized artist library.
+fn match_single_artist(artist: &ArtistToMatch, artists: &[TokenizedArtist]) -> ArtistMatchResult {
+    let query_name = match &artist.name {
+        Some(name) if !name.trim().is_empty() => name.trim(),
+        _ => {
+            return ArtistMatchResult {
+                artist: None,
+                score: 0.0,
+            }
+        }
+    };
+
+    let query_name_tokens = tokenize(query_name);
+    let query_name_normalized = query_name.to_lowercase();
+
+    let mut best_match: Option<(&ArtistMatchEntry, f64)> = None;
+
+    for tokenized in artists {
+        // Calculate name similarity using both Levenshtein and token matching
+        let name_sim = normalized_levenshtein(&query_name_normalized, &tokenized.normalized_name);
+        let name_token_score = weighted_token_score(&query_name_tokens, &tokenized.name_tokens);
+
+        // Combined score (mix of levenshtein and token matching)
+        let total_score = 0.6 * name_sim + 0.4 * name_token_score;
+
+        if total_score > best_match.map(|(_, s)| s).unwrap_or(0.0) {
+            best_match = Some((tokenized.artist, total_score));
+        }
+    }
+
+    // Only return matches above threshold (50%)
+    match best_match {
+        Some((artist, score)) if score >= 0.5 => ArtistMatchResult {
+            artist: Some(artist.clone()),
+            score,
+        },
+        _ => ArtistMatchResult {
+            artist: None,
             score: 0.0,
         },
     }

@@ -66,6 +66,10 @@ import type { ScanDetails } from "./generated/ScanDetails";
 import type { SongMatchListResponse } from "./generated/SongMatchListResponse";
 import type { MatchTracksRequest } from "./generated/MatchTracksRequest";
 import type { MatchTracksResponse } from "./generated/MatchTracksResponse";
+import type { MatchAlbumsRequest } from "./generated/MatchAlbumsRequest";
+import type { MatchAlbumsResponse } from "./generated/MatchAlbumsResponse";
+import type { MatchArtistsRequest } from "./generated/MatchArtistsRequest";
+import type { MatchArtistsResponse } from "./generated/MatchArtistsResponse";
 import type { ImportScrobblesRequest } from "./generated/ImportScrobblesRequest";
 import type { ImportScrobblesResponse } from "./generated/ImportScrobblesResponse";
 import type { GetPlayCountsRequest } from "./generated/GetPlayCountsRequest";
@@ -1346,6 +1350,48 @@ export class FerrotuneClient {
     if (libraryId !== undefined) params.set("libraryId", libraryId.toString());
     const query = params.toString();
     return this.request(`/ferrotune/songs/match${query ? `?${query}` : ""}`, {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * Match albums against the library using server-side fuzzy matching.
+   * Used for bulk album favorites import from CSV.
+   *
+   * @param request The albums to match and search options
+   * @param libraryId Optional library ID to filter by
+   * @returns Match results for each album
+   */
+  async matchAlbums(
+    request: MatchAlbumsRequest,
+    libraryId?: number,
+  ): Promise<MatchAlbumsResponse> {
+    const params = new URLSearchParams();
+    if (libraryId !== undefined) params.set("libraryId", libraryId.toString());
+    const query = params.toString();
+    return this.request(`/ferrotune/albums/match${query ? `?${query}` : ""}`, {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * Match artists against the library using server-side fuzzy matching.
+   * Used for bulk artist favorites import from CSV.
+   *
+   * @param request The artists to match
+   * @param libraryId Optional library ID to filter by
+   * @returns Match results for each artist
+   */
+  async matchArtists(
+    request: MatchArtistsRequest,
+    libraryId?: number,
+  ): Promise<MatchArtistsResponse> {
+    const params = new URLSearchParams();
+    if (libraryId !== undefined) params.set("libraryId", libraryId.toString());
+    const query = params.toString();
+    return this.request(`/ferrotune/artists/match${query ? `?${query}` : ""}`, {
       method: "POST",
       body: JSON.stringify(request),
     });

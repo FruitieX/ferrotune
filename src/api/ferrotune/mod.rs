@@ -252,6 +252,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         // Server-side fuzzy matching endpoint
         .route("/ferrotune/songs/match", post(songs::match_tracks))
+        // Album and artist matching endpoints (for favorites import)
+        .route("/ferrotune/albums/match", post(songs::match_albums))
+        .route("/ferrotune/artists/match", post(songs::match_artists))
         // Media management endpoints
         .route(
             "/ferrotune/songs/{id}",
