@@ -464,8 +464,7 @@ async fn get_transcode_stream_logic(
 
     // Convert receiver to stream
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-    let body_stream =
-        futures::stream::StreamExt::map(stream, |chunk| Ok::<_, std::io::Error>(chunk));
+    let body_stream = futures::stream::StreamExt::map(stream, Ok::<_, std::io::Error>);
     let body = Body::from_stream(body_stream);
 
     Ok(Response::builder()
@@ -502,8 +501,7 @@ pub async fn transcode_with_offset(
 
     // Convert receiver to stream
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-    let body_stream =
-        futures::stream::StreamExt::map(stream, |chunk| Ok::<_, std::io::Error>(chunk));
+    let body_stream = futures::stream::StreamExt::map(stream, Ok::<_, std::io::Error>);
     let body = Body::from_stream(body_stream);
 
     Ok(Response::builder()
@@ -755,7 +753,7 @@ fn transcode_to_opus_with_offset(
         if let Some(ref mut resampler) = resampler {
             let pad_len = chunk_size.saturating_sub(resample_input[0].len());
             for ch in &mut resample_input {
-                ch.extend(std::iter::repeat(0.0f32).take(pad_len));
+                ch.extend(std::iter::repeat_n(0.0f32, pad_len));
             }
 
             if let Ok(output) = resampler.process(&resample_input, None) {
