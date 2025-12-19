@@ -75,6 +75,24 @@ tasks:
     deps:
       - 'client:build-export'
 
+  install:
+    command: 'cargo install --path . --features embedded-ui'
+    inputs:
+      - '@group(sources)'
+      - 'client/src/**/*'
+      - 'client/package.json'
+    deps:
+      - 'client:build-export'
+    options:
+      mutex: 'cargo'
+
+  install-no-ui:
+    command: 'cargo install --path .'
+    inputs:
+      - '@group(sources)'
+    options:
+      mutex: 'cargo'
+
   # ============================================================================
   # TEST TASKS
   # ============================================================================
