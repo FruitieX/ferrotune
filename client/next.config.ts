@@ -4,8 +4,13 @@ const nextConfig: NextConfig = {
   reactCompiler: {
     compilationMode: "infer",
   },
-  // Use a different build directory for tests to avoid conflicts with dev
-  distDir: process.env.NEXT_DIST_DIR || ".next",
+  // Use different build directories:
+  // - NEXT_DIST_DIR env var takes priority (for tests)
+  // - .next-dev for development (npm run dev)
+  // - .next for production builds
+  distDir:
+    process.env.NEXT_DIST_DIR ||
+    (process.env.NODE_ENV === "development" ? ".next-dev" : ".next"),
   // Disable dev indicators (overlay) during Playwright tests
   devIndicators:
     process.env.NEXT_DISABLE_DEV_OVERLAY === "true" ? false : undefined,
