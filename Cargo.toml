@@ -32,9 +32,19 @@ ts-rs = { version = "11", features = ["chrono-impl", "serde-compat"] }
 # Audio metadata
 lofty = "0.21"
 
-# Audio decoding (for waveform generation)
+# Audio decoding (for waveform generation and transcoding)
 symphonia = { version = "0.5", features = ["mp3", "flac", "ogg", "aac", "alac", "pcm", "adpcm", "isomp4", "mkv"] }
 symphonia-adapter-libopus = "0.2"
+
+# Audio encoding (for transcoding to Opus)
+audiopus = "0.3.0-rc.0"
+ogg = "0.9"
+
+# Audio resampling (for transcoding to 48kHz for Opus)
+rubato = "0.16"
+
+# Safe sample format conversion
+bytemuck = { version = "1.21", features = ["derive"] }
 
 # Async streams
 futures = "0.3"

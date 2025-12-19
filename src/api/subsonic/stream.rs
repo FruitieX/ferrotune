@@ -1,5 +1,6 @@
 use crate::api::ferrotune::users::user_has_song_access;
 use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::transcoding::{transcode_with_offset, TranscodeConfig};
 use crate::api::AppState;
 use crate::error::{Error, Result};
 use axum::{
@@ -21,7 +22,6 @@ pub struct StreamParams {
     #[serde(rename = "maxBitRate")]
     max_bit_rate: Option<u32>,
     format: Option<String>,
-    #[allow(dead_code)]
     #[serde(rename = "timeOffset")]
     time_offset: Option<u32>,
 }
@@ -84,12 +84,37 @@ pub async fn stream(
         return Err(Error::NotFound("File not found".to_string()));
     }
 
-    // Check if transcoding is requested (not implemented yet)
-    if params.max_bit_rate.is_some() || params.format.is_some() {
-        tracing::debug!("Transcoding requested but not implemented, serving original file");
+    // Check if transcoding is requested (format conversion or bitrate limit or time offset)
+    let needs_transcoding =
+        params.format.is_some() || params.max_bit_rate.is_some() || params.time_offset.is_some();
+
+    if needs_transcoding {
+        // Determine target format and bitrate
+        let target_format = params.format.as_deref().unwrap_or("opus");
+        let target_bitrate = params.max_bit_rate.unwrap_or(128) * 1000; // Convert kbps to bps
+        let time_offset_seconds = params.time_offset.unwrap_or(0) as f64;
+
+        // For now we only support Opus transcoding
+        if target_format != "opus" && target_format != "ogg" {
+            tracing::debug!(
+                "Requested format {} not supported for transcoding, serving original",
+                target_format
+            );
+            // Fall through to serve original file
+        } else {
+            // Use transcoding with offset
+            let config = TranscodeConfig {
+                song_id: params.id.clone(),
+                bitrate: target_bitrate,
+                sample_rate: 48000,
+                channels: 2, // Default stereo
+            };
+
+            return transcode_with_offset(&canonical_path, &config, time_offset_seconds).await;
+        }
     }
 
-    // Open file
+    // Open file (no transcoding needed)
     let file = File::open(&canonical_path).await?;
     let file_size = file.metadata().await?.len();
 

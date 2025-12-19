@@ -18,6 +18,7 @@ pub mod search;
 pub mod starring;
 pub mod stream;
 pub mod system;
+pub mod transcoding;
 pub mod xml;
 
 pub use query::first_string;
@@ -26,7 +27,10 @@ pub use query::string_or_seq;
 pub use query::QsQuery;
 
 use crate::api::AppState;
-use axum::{routing::get, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use std::sync::Arc;
 
 /// Create the OpenSubsonic API router.
@@ -124,6 +128,23 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/rest/updatePlaylist.view", get(playlists::update_playlist))
         .route("/rest/deletePlaylist", get(playlists::delete_playlist))
         .route("/rest/deletePlaylist.view", get(playlists::delete_playlist))
+        // Transcoding endpoints (OpenSubsonic extension)
+        .route(
+            "/rest/getTranscodeDecision",
+            post(transcoding::get_transcode_decision),
+        )
+        .route(
+            "/rest/getTranscodeDecision.view",
+            post(transcoding::get_transcode_decision),
+        )
+        .route(
+            "/rest/getTranscodeStream",
+            get(transcoding::get_transcode_stream),
+        )
+        .route(
+            "/rest/getTranscodeStream.view",
+            get(transcoding::get_transcode_stream),
+        )
         .with_state(state)
 }
 

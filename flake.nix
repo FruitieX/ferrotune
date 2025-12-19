@@ -33,6 +33,7 @@
             pkgs.proto
             pkgs.sqlite  # for database inspection
             pkgs.cmake # needed for libopus
+            pkgs.libopus # for transcoding to Opus
           ];
           shellHook = ''
             echo "Loaded ferrotune dev shell (server + ui)"

@@ -47,10 +47,22 @@ pub async fn get_opensubsonic_extensions(
     user: AuthenticatedUser,
 ) -> FormatResponse<OpenSubsonicExtensions> {
     let response = OpenSubsonicExtensions {
-        open_subsonic_extensions: vec![OpenSubsonicExtension {
-            name: "apiKeyAuthentication".to_string(),
-            versions: vec![1],
-        }],
+        open_subsonic_extensions: vec![
+            OpenSubsonicExtension {
+                name: "apiKeyAuthentication".to_string(),
+                versions: vec![1],
+            },
+            // Full transcoding extension (getTranscodeDecision + getTranscodeStream)
+            OpenSubsonicExtension {
+                name: "transcoding".to_string(),
+                versions: vec![1],
+            },
+            // timeOffset support in /rest/stream endpoint
+            OpenSubsonicExtension {
+                name: "transcodeOffset".to_string(),
+                versions: vec![1],
+            },
+        ],
     };
     FormatResponse::new(user.format, response)
 }
