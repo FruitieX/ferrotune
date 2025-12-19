@@ -1,10 +1,84 @@
 pub mod models;
 pub mod queries;
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use sqlx::sqlite::{
+    SqliteConnectOptions, SqliteJournalMode, SqliteLockingMode, SqlitePool, SqlitePoolOptions,
+    SqliteSynchronous,
+};
 use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
+
+// Environment variable names for SQLite configuration
+const ENV_MAX_CONNECTIONS: &str = "FERROTUNE_DB_MAX_CONNECTIONS";
+const ENV_JOURNAL_MODE: &str = "FERROTUNE_DB_JOURNAL_MODE";
+const ENV_SYNCHRONOUS: &str = "FERROTUNE_DB_SYNCHRONOUS";
+const ENV_LOCKING_MODE: &str = "FERROTUNE_DB_LOCKING_MODE";
+const ENV_BUSY_TIMEOUT: &str = "FERROTUNE_DB_BUSY_TIMEOUT";
+
+/// Parse journal mode from environment variable.
+/// Valid values: delete, truncate, persist, memory, wal, off
+/// Returns None if not set (uses sqlx default).
+fn get_journal_mode() -> Option<SqliteJournalMode> {
+    match std::env::var(ENV_JOURNAL_MODE)
+        .ok()?
+        .to_lowercase()
+        .as_str()
+    {
+        "delete" => Some(SqliteJournalMode::Delete),
+        "truncate" => Some(SqliteJournalMode::Truncate),
+        "persist" => Some(SqliteJournalMode::Persist),
+        "memory" => Some(SqliteJournalMode::Memory),
+        "wal" => Some(SqliteJournalMode::Wal),
+        "off" => Some(SqliteJournalMode::Off),
+        _ => None,
+    }
+}
+
+/// Parse synchronous mode from environment variable.
+/// Valid values: off, normal, full, extra
+/// Returns None if not set (uses sqlx default).
+fn get_synchronous_mode() -> Option<SqliteSynchronous> {
+    match std::env::var(ENV_SYNCHRONOUS).ok()?.to_lowercase().as_str() {
+        "off" => Some(SqliteSynchronous::Off),
+        "normal" => Some(SqliteSynchronous::Normal),
+        "full" => Some(SqliteSynchronous::Full),
+        "extra" => Some(SqliteSynchronous::Extra),
+        _ => None,
+    }
+}
+
+/// Parse locking mode from environment variable.
+/// Valid values: normal, exclusive
+/// Returns None if not set (uses sqlx default).
+fn get_locking_mode() -> Option<SqliteLockingMode> {
+    match std::env::var(ENV_LOCKING_MODE)
+        .ok()?
+        .to_lowercase()
+        .as_str()
+    {
+        "normal" => Some(SqliteLockingMode::Normal),
+        "exclusive" => Some(SqliteLockingMode::Exclusive),
+        _ => None,
+    }
+}
+
+/// Get max pool connections from environment variable.
+/// Returns None if not set (uses sqlx default).
+fn get_max_connections() -> Option<u32> {
+    std::env::var(ENV_MAX_CONNECTIONS)
+        .ok()
+        .and_then(|s| s.parse().ok())
+}
+
+/// Get busy timeout in seconds from environment variable.
+/// Returns None if not set (uses sqlx default).
+fn get_busy_timeout() -> Option<Duration> {
+    std::env::var(ENV_BUSY_TIMEOUT)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(Duration::from_secs)
+}
 
 pub async fn create_pool(database_path: &Path) -> crate::error::Result<SqlitePool> {
     // Create parent directory if it doesn't exist
@@ -12,21 +86,41 @@ pub async fn create_pool(database_path: &Path) -> crate::error::Result<SqlitePoo
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    let options = SqliteConnectOptions::from_str(&format!("sqlite:{}", database_path.display()))?
-        .create_if_missing(true)
-        .foreign_keys(true)
-        // Set busy timeout to 30 seconds to handle concurrent writes during scanning
-        // This prevents "database is locked" errors when multiple operations are happening
-        .busy_timeout(Duration::from_secs(30))
-        // Enable WAL mode for better concurrent read/write performance
-        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-        // Use NORMAL synchronous mode for better performance with WAL
-        .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
+    let max_connections = get_max_connections();
+    let journal_mode = get_journal_mode();
+    let synchronous = get_synchronous_mode();
+    let locking_mode = get_locking_mode();
+    let busy_timeout = get_busy_timeout();
 
-    let pool = SqlitePoolOptions::new()
-        .max_connections(10)
-        .connect_with(options)
-        .await?;
+    tracing::info!(
+        "SQLite config: max_connections={:?}, journal_mode={:?}, synchronous={:?}, locking_mode={:?}, busy_timeout={:?}",
+        max_connections, journal_mode, synchronous, locking_mode, busy_timeout
+    );
+
+    let mut options =
+        SqliteConnectOptions::from_str(&format!("sqlite:{}", database_path.display()))?
+            .create_if_missing(true)
+            .foreign_keys(true);
+
+    if let Some(timeout) = busy_timeout {
+        options = options.busy_timeout(timeout);
+    }
+    if let Some(mode) = journal_mode {
+        options = options.journal_mode(mode);
+    }
+    if let Some(mode) = synchronous {
+        options = options.synchronous(mode);
+    }
+    if let Some(mode) = locking_mode {
+        options = options.locking_mode(mode);
+    }
+
+    let mut pool_options = SqlitePoolOptions::new();
+    if let Some(max) = max_connections {
+        pool_options = pool_options.max_connections(max);
+    }
+
+    let pool = pool_options.connect_with(options).await?;
 
     // Run migrations
     sqlx::migrate!("./migrations")
