@@ -216,6 +216,7 @@ export function ImportFavoritesDialog({
     useTitle: true,
     useArtist: true,
     useAlbum: true,
+    usePriorMatches: true,
   });
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
 

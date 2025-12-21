@@ -82,6 +82,7 @@ export function MassResolveDialog({
     useTitle: true,
     useArtist: true,
     useAlbum: true,
+    usePriorMatches: true,
   });
   const [confirmCloseDialogOpen, setConfirmCloseDialogOpen] = useState(false);
 

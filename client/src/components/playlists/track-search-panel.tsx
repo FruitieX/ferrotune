@@ -468,18 +468,34 @@ export function TrackSearchPanel({
         </div>
       )}
 
-      {/* Original raw text */}
-      {showRawText && parsed.raw && (
+      {/* Original track info */}
+      {showRawText && (parsed.title || parsed.artist || parsed.raw) && (
         <div className="text-xs text-muted-foreground pt-2 border-t overflow-hidden">
           <span className="font-medium">Original entry:</span>{" "}
-          <span className="font-mono break-all">
-            {parsed.raw}
-            {parsed.duration && parsed.duration > 0 && (
-              <span className="ml-1">
-                ({formatDurationMs(parsed.duration)})
-              </span>
-            )}
-          </span>
+          {parsed.title || parsed.artist || parsed.album ? (
+            <span className="wrap-break-word">
+              {parsed.title && <span className="font-medium">{parsed.title}</span>}
+              {parsed.artist && (
+                <span>
+                  {parsed.title && " — "}
+                  {parsed.artist}
+                </span>
+              )}
+              {parsed.album && (
+                <span className="opacity-75">
+                  {(parsed.title || parsed.artist) && " • "}
+                  {parsed.album}
+                </span>
+              )}
+              {parsed.duration && parsed.duration > 0 && (
+                <span className="ml-1 opacity-75">
+                  ({formatDurationMs(parsed.duration)})
+                </span>
+              )}
+            </span>
+          ) : (
+            <span className="font-mono break-all">{parsed.raw}</span>
+          )}
         </div>
       )}
     </div>

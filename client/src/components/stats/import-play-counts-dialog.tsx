@@ -163,6 +163,7 @@ export function ImportPlayCountsDialog({
     useTitle: true,
     useArtist: true,
     useAlbum: true,
+    usePriorMatches: true,
   });
   const [importMode, setImportMode] = useState<ImportMode>("append");
   const [description, setDescription] = useState("");

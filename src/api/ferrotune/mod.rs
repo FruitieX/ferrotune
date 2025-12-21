@@ -88,6 +88,7 @@ mod filesystem;
 mod history;
 mod listening;
 mod lists;
+mod match_dictionary;
 mod media;
 pub mod music_folders;
 mod playlists;
@@ -252,6 +253,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         // Server-side fuzzy matching endpoint
         .route("/ferrotune/songs/match", post(songs::match_tracks))
+        // Match dictionary endpoint (for reusing prior matches)
+        .route(
+            "/ferrotune/match-dictionary",
+            get(match_dictionary::get_match_dictionary),
+        )
         // Album and artist matching endpoints (for favorites import)
         .route("/ferrotune/albums/match", post(songs::match_albums))
         .route("/ferrotune/artists/match", post(songs::match_artists))

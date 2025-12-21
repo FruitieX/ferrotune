@@ -10,6 +10,7 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  History,
 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -17,6 +18,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
@@ -61,6 +67,8 @@ export interface MatchableTrack {
   parsed: ParsedTrackInfo;
   match: MatchedSongInfo | null;
   matchScore: number;
+  // Whether this match came from the user's prior matches dictionary
+  fromDictionary?: boolean;
   // Whether this track is locked (already matched in playlist, not editable)
   locked?: boolean;
   // Position in playlist (for display)
@@ -77,6 +85,8 @@ export interface SearchOptions {
   useTitle: boolean;
   useArtist: boolean;
   useAlbum: boolean;
+  /** Whether to use previously matched tracks from the user's match dictionary */
+  usePriorMatches: boolean;
 }
 
 // Build search query from parsed track in "artist - album - title" format
@@ -198,6 +208,22 @@ export function SearchOptionsControl({
             className="text-sm font-medium leading-none cursor-pointer"
           >
             Album
+          </label>
+        </div>
+        <div className="flex items-center space-x-2">
+          <Checkbox
+            id="search-prior-matches"
+            checked={options.usePriorMatches}
+            onCheckedChange={(checked) =>
+              onChange({ ...options, usePriorMatches: checked === true })
+            }
+          />
+          <label
+            htmlFor="search-prior-matches"
+            className="text-sm font-medium leading-none cursor-pointer flex items-center gap-1"
+          >
+            <History className="w-3 h-3" />
+            Use prior matches
           </label>
         </div>
       </div>
@@ -489,21 +515,35 @@ export function TrackRow({
           </div>
         )}
         {track.matchScore > 0 && (
-          <Badge
-            variant="outline"
-            className={cn(
-              "text-xs mt-1",
-              track.matchScore >= 0.9
-                ? "border-green-500 text-green-600 bg-green-50 dark:bg-green-950/30"
-                : track.matchScore >= 0.8
-                  ? "border-yellow-500 text-yellow-600 bg-yellow-50 dark:bg-yellow-950/30"
-                  : track.matchScore >= 0.7
-                    ? "border-orange-500 text-orange-600 bg-orange-50 dark:bg-orange-950/30"
-                    : "border-red-500 text-red-600 bg-red-50 dark:bg-red-950/30",
+          <div className="flex items-center gap-1 mt-1">
+            <Badge
+              variant="outline"
+              className={cn(
+                "text-xs",
+                track.matchScore >= 0.9
+                  ? "border-green-500 text-green-600 bg-green-50 dark:bg-green-950/30"
+                  : track.matchScore >= 0.8
+                    ? "border-yellow-500 text-yellow-600 bg-yellow-50 dark:bg-yellow-950/30"
+                    : track.matchScore >= 0.7
+                      ? "border-orange-500 text-orange-600 bg-orange-50 dark:bg-orange-950/30"
+                      : "border-red-500 text-red-600 bg-red-50 dark:bg-red-950/30",
+              )}
+            >
+              {Math.round(track.matchScore * 100)}% match
+            </Badge>
+            {track.fromDictionary && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-purple-100 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400">
+                    <History className="w-3 h-3" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Matched using your prior matches
+                </TooltipContent>
+              </Tooltip>
             )}
-          >
-            {Math.round(track.matchScore * 100)}% match
-          </Badge>
+          </div>
         )}
       </div>
 
@@ -974,6 +1014,7 @@ export function useTrackMatcher() {
           useTitle: searchOptions.useTitle,
           useArtist: searchOptions.useArtist,
           useAlbum: searchOptions.useAlbum,
+          usePriorMatches: searchOptions.usePriorMatches,
         });
 
         if (abortController.signal.aborted) return null;
@@ -994,6 +1035,7 @@ export function useTrackMatcher() {
                 duration: result.song.duration ?? null,
               },
               matchScore: result.score,
+              fromDictionary: result.fromDictionary ?? false,
               // Auto-select only if match confidence is 90% or higher
               selected: result.score >= 0.9,
             });

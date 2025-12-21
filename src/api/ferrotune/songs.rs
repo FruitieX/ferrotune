@@ -182,6 +182,9 @@ pub struct MatchTracksRequest {
     /// Whether to use album for matching (default: true)
     #[serde(default = "default_true")]
     pub use_album: bool,
+    /// Whether to use prior matches from user's match dictionary (default: false)
+    #[serde(default)]
+    pub use_prior_matches: bool,
 }
 
 fn default_true() -> bool {
@@ -199,6 +202,9 @@ pub struct MatchResult {
     /// Match confidence score (0.0 to 1.0, where 1.0 is perfect match)
     #[ts(type = "number")]
     pub score: f64,
+    /// Whether this match came from the user's match dictionary
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub from_dictionary: bool,
 }
 
 /// Response containing match results for all tracks.
@@ -345,13 +351,67 @@ pub struct MatchTracksParams {
 /// which is more accurate than FTS5 for playlist matching scenarios
 /// (handles extra words like "feat.", "remix", etc.).
 ///
+/// When `use_prior_matches` is enabled, the endpoint first checks the user's
+/// match dictionary (previously matched tracks) before falling back to fuzzy matching.
+///
 /// POST /ferrotune/songs/match
 pub async fn match_tracks(
     State(state): State<Arc<AppState>>,
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Query(params): Query<MatchTracksParams>,
     Json(request): Json<MatchTracksRequest>,
 ) -> Result<Json<MatchTracksResponse>, (StatusCode, Json<super::ErrorResponse>)> {
+    use super::match_dictionary::{MatchDictionary, MatchDictionaryEntry};
+
+    // Load match dictionary if requested
+    let dictionary = if request.use_prior_matches {
+        // Query all matched entries from playlists owned by the user
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            r#"
+            SELECT DISTINCT
+                ps.missing_entry_data,
+                ps.song_id
+            FROM playlist_songs ps
+            INNER JOIN playlists p ON ps.playlist_id = p.id
+            WHERE p.owner_id = ?
+              AND ps.missing_entry_data IS NOT NULL
+              AND ps.song_id IS NOT NULL
+            "#,
+        )
+        .bind(user.user_id)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse::with_details(
+                    "Database error loading match dictionary",
+                    e.to_string(),
+                )),
+            )
+        })?;
+
+        // Parse and build dictionary
+        let entries: Vec<MatchDictionaryEntry> = rows
+            .into_iter()
+            .filter_map(|(missing_data_json, song_id)| {
+                let data: crate::db::models::MissingEntryData =
+                    serde_json::from_str(&missing_data_json).ok()?;
+                Some(MatchDictionaryEntry {
+                    title: data.title,
+                    artist: data.artist,
+                    album: data.album,
+                    duration: data.duration,
+                    song_id,
+                })
+            })
+            .collect();
+
+        Some(MatchDictionary::from_entries(entries))
+    } else {
+        None
+    };
+
     // Fetch all songs from enabled music folders
     let songs: Vec<SongMatchEntry> = if let Some(music_folder_id) = params.library_id {
         sqlx::query_as::<_, SongMatchEntry>(
@@ -401,6 +461,10 @@ pub async fn match_tracks(
         )
     })?;
 
+    // Build a map from song_id to SongMatchEntry for dictionary lookups
+    let song_map: std::collections::HashMap<&str, &SongMatchEntry> =
+        songs.iter().map(|s| (s.id.as_str(), s)).collect();
+
     // Pre-tokenize all songs for efficient matching
     let tokenized_songs: Vec<TokenizedSong> = songs
         .par_iter()
@@ -427,6 +491,27 @@ pub async fn match_tracks(
         .tracks
         .par_iter()
         .map(|track| {
+            // First check dictionary if available
+            if let Some(ref dict) = dictionary {
+                if let Some((song_id, score)) = dict.lookup(
+                    track.title.as_deref(),
+                    track.artist.as_deref(),
+                    track.album.as_deref(),
+                    track.duration,
+                ) {
+                    // Found in dictionary - get the full song entry if it still exists
+                    if let Some(song) = song_map.get(song_id) {
+                        return MatchResult {
+                            song: Some((*song).clone()),
+                            score,
+                            from_dictionary: true,
+                        };
+                    }
+                    // Song no longer exists, fall through to fuzzy matching
+                }
+            }
+
+            // Fall back to fuzzy matching
             match_single_track(
                 track,
                 &tokenized_songs,
@@ -605,6 +690,7 @@ fn match_single_track(
         return MatchResult {
             song: None,
             score: 0.0,
+            from_dictionary: false,
         };
     }
 
@@ -740,10 +826,12 @@ fn match_single_track(
         Some((song, score)) if score >= 0.5 => MatchResult {
             song: Some(song.clone()),
             score,
+            from_dictionary: false,
         },
         _ => MatchResult {
             song: None,
             score: 0.0,
+            from_dictionary: false,
         },
     }
 }

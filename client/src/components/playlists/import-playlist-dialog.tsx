@@ -77,6 +77,7 @@ export function ImportPlaylistDialog({
     useTitle: true,
     useArtist: true,
     useAlbum: true,
+    usePriorMatches: true,
   });
   const [includeMissing, setIncludeMissing] = useState(true);
   const [confirmCloseDialogOpen, setConfirmCloseDialogOpen] = useState(false);
@@ -98,7 +99,12 @@ export function ImportPlaylistDialog({
     setIsMatching(false);
     setOriginalFormat("m3u");
     setOriginalHeaderLine(undefined);
-    setSearchOptions({ useTitle: true, useArtist: true, useAlbum: false });
+    setSearchOptions({
+      useTitle: true,
+      useArtist: true,
+      useAlbum: false,
+      usePriorMatches: true,
+    });
     setIncludeMissing(true);
     setConfirmCloseDialogOpen(false);
     onOpenChange(false);
