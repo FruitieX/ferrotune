@@ -8,8 +8,9 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Sparkles, Pencil, Trash2, MoreHorizontal } from "lucide-react";
+import { Sparkles, Pencil, Trash2, MoreHorizontal, Save } from "lucide-react";
 import { toast } from "sonner";
+import { useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
@@ -273,6 +274,28 @@ function SmartPlaylistPageContent() {
     }
   };
 
+  // Materialize (save as regular playlist) mutation
+  const materializePlaylist = useMutation({
+    mutationFn: async () => {
+      if (!id) throw new Error("No playlist ID");
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.materializeSmartPlaylist(id);
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      toast.success(
+        `Created playlist "${result.name}" with ${result.songCount} songs`,
+      );
+      router.push(`/playlists/details?id=${result.playlistId}`);
+    },
+    onError: (error) => {
+      toast.error("Failed to save as playlist", {
+        description: String(error),
+      });
+    },
+  });
+
   // Bulk actions
   const playSelectedNow = () => {
     const selected = getSelectedSongs();
@@ -394,6 +417,13 @@ function SmartPlaylistPageContent() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => materializePlaylist.mutate()}
+              disabled={materializePlaylist.isPending}
+            >
+              <Save className="w-4 h-4 mr-2" />
+              {materializePlaylist.isPending ? "Saving..." : "Save as Playlist"}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
               <Pencil className="w-4 h-4 mr-2" />
               Edit Playlist

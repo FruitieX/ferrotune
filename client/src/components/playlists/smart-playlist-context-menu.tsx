@@ -16,6 +16,7 @@ import {
   FolderInput,
   Folder,
   Home,
+  Save,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -135,6 +136,27 @@ export function SmartPlaylistContextMenu({
     },
     onError: (error) => {
       toast.error("Failed to move smart playlist", {
+        description: String(error),
+      });
+    },
+  });
+
+  // Materialize (save as regular playlist) mutation
+  const materializePlaylist = useMutation({
+    mutationFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.materializeSmartPlaylist(smartPlaylist.id);
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      toast.success(
+        `Created playlist "${result.name}" with ${result.songCount} songs`,
+      );
+      router.push(`/playlists/details?id=${result.playlistId}`);
+    },
+    onError: (error) => {
+      toast.error("Failed to save as playlist", {
         description: String(error),
       });
     },
@@ -293,6 +315,13 @@ export function SmartPlaylistContextMenu({
           )}
         </ContextMenuSubContent>
       </ContextMenuSub>
+      <ContextMenuItem
+        onClick={() => materializePlaylist.mutate()}
+        disabled={materializePlaylist.isPending}
+      >
+        <Save className="w-4 h-4 mr-2" />
+        {materializePlaylist.isPending ? "Saving..." : "Save as Playlist"}
+      </ContextMenuItem>
       <ContextMenuItem onClick={() => setEditDialogOpen(true)}>
         <Pencil className="w-4 h-4 mr-2" />
         Edit Playlist
@@ -418,6 +447,27 @@ export function SmartPlaylistDropdownMenu({
     },
     onError: (error) => {
       toast.error("Failed to move smart playlist", {
+        description: String(error),
+      });
+    },
+  });
+
+  // Materialize (save as regular playlist) mutation
+  const materializePlaylist = useMutation({
+    mutationFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.materializeSmartPlaylist(smartPlaylist.id);
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      toast.success(
+        `Created playlist "${result.name}" with ${result.songCount} songs`,
+      );
+      router.push(`/playlists/details?id=${result.playlistId}`);
+    },
+    onError: (error) => {
+      toast.error("Failed to save as playlist", {
         description: String(error),
       });
     },
@@ -603,6 +653,13 @@ export function SmartPlaylistDropdownMenu({
               )}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
+          <DropdownMenuItem
+            onClick={() => materializePlaylist.mutate()}
+            disabled={materializePlaylist.isPending}
+          >
+            <Save className="w-4 h-4 mr-2" />
+            {materializePlaylist.isPending ? "Saving..." : "Save as Playlist"}
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
             <Pencil className="w-4 h-4 mr-2" />
             Edit Playlist

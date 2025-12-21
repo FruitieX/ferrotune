@@ -80,6 +80,7 @@ import type { SmartPlaylistSongsResponse } from "./generated/SmartPlaylistSongsR
 import type { CreateSmartPlaylistRequest } from "./generated/CreateSmartPlaylistRequest";
 import type { CreateSmartPlaylistResponse } from "./generated/CreateSmartPlaylistResponse";
 import type { UpdateSmartPlaylistRequest } from "./generated/UpdateSmartPlaylistRequest";
+import type { MaterializeSmartPlaylistResponse } from "./generated/MaterializeSmartPlaylistResponse";
 import { PlaylistInFolder } from "./generated";
 
 // Ping response is empty
@@ -1713,6 +1714,30 @@ export class FerrotuneClient {
     const queryStr = params.toString();
     return this.request(
       `/ferrotune/smart-playlists/${encodeURIComponent(id)}/songs${queryStr ? `?${queryStr}` : ""}`,
+    );
+  }
+
+  /**
+   * Materialize a smart playlist into a regular (static) playlist.
+   * Creates a new playlist containing a snapshot of the songs currently matching
+   * the smart playlist's rules.
+   */
+  async materializeSmartPlaylist(
+    id: string,
+    options?: {
+      name?: string;
+      comment?: string;
+    },
+  ): Promise<MaterializeSmartPlaylistResponse> {
+    return this.request(
+      `/ferrotune/smart-playlists/${encodeURIComponent(id)}/materialize`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: options?.name ?? null,
+          comment: options?.comment ?? null,
+        }),
+      },
     );
   }
 }

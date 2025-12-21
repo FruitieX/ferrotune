@@ -474,7 +474,9 @@ export function TrackSearchPanel({
           <span className="font-medium">Original entry:</span>{" "}
           {parsed.title || parsed.artist || parsed.album ? (
             <span className="wrap-break-word">
-              {parsed.title && <span className="font-medium">{parsed.title}</span>}
+              {parsed.title && (
+                <span className="font-medium">{parsed.title}</span>
+              )}
               {parsed.artist && (
                 <span>
                   {parsed.title && " — "}

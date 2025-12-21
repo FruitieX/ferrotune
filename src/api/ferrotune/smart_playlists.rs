@@ -121,6 +121,31 @@ pub struct CreateSmartPlaylistResponse {
     pub name: String,
 }
 
+/// Request to materialize a smart playlist into a regular playlist
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct MaterializeSmartPlaylistRequest {
+    /// Name for the new regular playlist (optional - defaults to smart playlist name)
+    pub name: Option<String>,
+    /// Optional comment for the new playlist
+    pub comment: Option<String>,
+}
+
+/// Response after materializing a smart playlist
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct MaterializeSmartPlaylistResponse {
+    /// ID of the newly created regular playlist
+    pub playlist_id: String,
+    /// Name of the new playlist
+    pub name: String,
+    /// Number of songs added to the playlist
+    #[ts(type = "number")]
+    pub song_count: i64,
+}
+
 /// Response for smart playlist songs with pagination info
 #[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -513,6 +538,84 @@ pub async fn get_smart_playlist_songs(
         offset: params.offset,
         songs: song_responses,
     }))
+}
+
+/// POST /ferrotune/smart-playlists/{id}/materialize - Convert smart playlist to a regular playlist
+///
+/// This "materializes" the current songs matching the smart playlist's rules into a regular
+/// (static) playlist. The new playlist will contain a snapshot of the songs at the time
+/// of creation and won't update automatically like the smart playlist.
+pub async fn materialize_smart_playlist(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(request): Json<MaterializeSmartPlaylistRequest>,
+) -> Result<impl IntoResponse> {
+    use crate::db::queries::{add_songs_to_playlist, create_playlist};
+
+    // Fetch the smart playlist
+    let playlist: SmartPlaylist = sqlx::query_as(
+        "SELECT * FROM smart_playlists WHERE id = ? AND (owner_id = ? OR is_public = 1)",
+    )
+    .bind(&id)
+    .bind(user.user_id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Smart playlist {} not found", id)))?;
+
+    // Parse rules
+    let rules: SmartPlaylistRulesApi = serde_json::from_str(&playlist.rules_json)
+        .map_err(|e| Error::Internal(format!("Failed to parse rules: {}", e)))?;
+
+    // Materialize all matching songs (using the smart playlist's sort order, no pagination)
+    let songs = materialize_smart_playlist_songs(
+        &state.pool,
+        &rules,
+        user.user_id,
+        playlist.sort_field.as_deref(),
+        playlist.sort_direction.as_deref(),
+        playlist.max_songs,
+        None, // No pagination offset
+        None, // No pagination limit
+    )
+    .await?;
+
+    let song_count = songs.len() as i64;
+
+    // Generate new playlist ID
+    let new_playlist_id = format!("pl-{}", Uuid::new_v4());
+
+    // Use provided name or fall back to smart playlist name
+    let new_name = request.name.unwrap_or_else(|| playlist.name.clone());
+
+    // Create the regular playlist
+    create_playlist(
+        &state.pool,
+        &new_playlist_id,
+        &new_name,
+        user.user_id,
+        request.comment.as_deref(),
+        false, // Not public by default
+    )
+    .await
+    .map_err(|e| Error::Internal(e.to_string()))?;
+
+    // Add all songs to the playlist
+    if !songs.is_empty() {
+        let song_ids: Vec<String> = songs.into_iter().map(|s| s.id).collect();
+        add_songs_to_playlist(&state.pool, &new_playlist_id, &song_ids)
+            .await
+            .map_err(|e| Error::Internal(e.to_string()))?;
+    }
+
+    Ok((
+        StatusCode::CREATED,
+        Json(MaterializeSmartPlaylistResponse {
+            playlist_id: new_playlist_id,
+            name: new_name,
+            song_count,
+        }),
+    ))
 }
 
 // ============================================================================

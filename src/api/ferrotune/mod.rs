@@ -386,6 +386,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/smart-playlists/{id}/songs",
             get(smart_playlists::get_smart_playlist_songs),
         )
+        .route(
+            "/ferrotune/smart-playlists/{id}/materialize",
+            post(smart_playlists::materialize_smart_playlist),
+        )
         .with_state(state)
 }
 
