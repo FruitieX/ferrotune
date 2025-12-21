@@ -72,6 +72,7 @@ export function FindMatchDialog({
               title: missing.title,
               artist: missing.artist,
               album: missing.album,
+              duration: missing.duration,
               raw: missing.raw,
             }}
             onConfirm={handleConfirm}

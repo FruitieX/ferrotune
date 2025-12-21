@@ -1209,80 +1209,60 @@ pub async fn get_playlist_songs(
         });
     }
 
-    // Apply text filtering
+    // Apply text filtering using the same tokenization logic as FTS search
     if has_filter {
-        let query = filter_text.unwrap().to_lowercase();
+        use crate::api::common::search::text_matches_query;
+        let query = filter_text.unwrap();
         unified_entries.retain(|entry| match entry {
             EntryData::Song { song, .. } => {
-                song.title.to_lowercase().contains(&query)
-                    || song.artist_name.to_lowercase().contains(&query)
-                    || song
-                        .album_name
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(&query)
+                // Build combined searchable text from song metadata
+                let search_text = format!(
+                    "{} {} {}",
+                    song.title,
+                    song.artist_name,
+                    song.album_name.as_deref().unwrap_or("")
+                );
+                text_matches_query(&search_text, query)
             }
             EntryData::Missing { data, .. } => {
-                // Filter missing entries by their metadata
-                data.title
-                    .as_deref()
-                    .unwrap_or("")
-                    .to_lowercase()
-                    .contains(&query)
-                    || data
-                        .artist
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(&query)
-                    || data
-                        .album
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(&query)
-                    || data.raw.to_lowercase().contains(&query)
+                // Build combined searchable text from missing entry metadata
+                let search_text = format!(
+                    "{} {} {} {}",
+                    data.title.as_deref().unwrap_or(""),
+                    data.artist.as_deref().unwrap_or(""),
+                    data.album.as_deref().unwrap_or(""),
+                    data.raw
+                );
+                text_matches_query(&search_text, query)
             }
             EntryData::NotFound {
                 missing_data,
                 song_id,
                 ..
             } => {
-                // Filter notFound entries by missing data if available, or by song_id
+                // Build searchable text from missing data or song_id
                 if let Some(data) = missing_data {
-                    data.title
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(&query)
-                        || data
-                            .artist
-                            .as_deref()
-                            .unwrap_or("")
-                            .to_lowercase()
-                            .contains(&query)
-                        || data
-                            .album
-                            .as_deref()
-                            .unwrap_or("")
-                            .to_lowercase()
-                            .contains(&query)
-                        || data.raw.to_lowercase().contains(&query)
+                    let search_text = format!(
+                        "{} {} {} {}",
+                        data.title.as_deref().unwrap_or(""),
+                        data.artist.as_deref().unwrap_or(""),
+                        data.album.as_deref().unwrap_or(""),
+                        data.raw
+                    );
+                    text_matches_query(&search_text, query)
                 } else {
-                    song_id.to_lowercase().contains(&query)
+                    text_matches_query(song_id, query)
                 }
             }
             EntryData::DisabledLibrary { song, .. } => {
-                // Filter disabled library songs by their actual metadata
-                song.title.to_lowercase().contains(&query)
-                    || song.artist_name.to_lowercase().contains(&query)
-                    || song
-                        .album_name
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(&query)
+                // Build combined searchable text from song metadata
+                let search_text = format!(
+                    "{} {} {}",
+                    song.title,
+                    song.artist_name,
+                    song.album_name.as_deref().unwrap_or("")
+                );
+                text_matches_query(&search_text, query)
             }
         });
     }

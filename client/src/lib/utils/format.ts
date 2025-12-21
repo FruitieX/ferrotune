@@ -16,6 +16,75 @@ export function formatDuration(seconds: number): string {
 }
 
 /**
+ * Format duration in milliseconds to mm:ss or hh:mm:ss
+ * Useful for imported data that stores duration in milliseconds
+ */
+export function formatDurationMs(ms: number): string {
+  if (!ms || isNaN(ms)) return "0:00";
+  return formatDuration(Math.round(ms / 1000));
+}
+
+/**
+ * Duration delta thresholds in milliseconds
+ */
+export const DURATION_DELTA_THRESHOLDS = {
+  GOOD: 2000, // 2 seconds - green
+  OK: 5000, // 5 seconds - yellow
+  WARNING: 10000, // 10 seconds - orange
+  // Above WARNING threshold = red
+} as const;
+
+/**
+ * Get CSS classes for duration delta color coding.
+ * Compares parsed duration (in ms) with matched song duration (in seconds).
+ *
+ * @param parsedDurationMs Duration from imported data in milliseconds
+ * @param matchedDurationSec Duration from library song in seconds
+ * @returns Object with className for text color and bgClassName for background tinting
+ */
+export function getDurationDeltaStyle(
+  parsedDurationMs: number | null | undefined,
+  matchedDurationSec: number | null | undefined,
+): { className: string; bgClassName: string; deltaMs: number | null } {
+  if (!parsedDurationMs || !matchedDurationSec) {
+    return { className: "", bgClassName: "", deltaMs: null };
+  }
+
+  const matchedDurationMs = matchedDurationSec * 1000;
+  const deltaMs = Math.abs(parsedDurationMs - matchedDurationMs);
+
+  if (deltaMs < DURATION_DELTA_THRESHOLDS.GOOD) {
+    return {
+      className: "text-green-600 dark:text-green-400",
+      bgClassName: "bg-green-50 dark:bg-green-950/30",
+      deltaMs,
+    };
+  }
+
+  if (deltaMs < DURATION_DELTA_THRESHOLDS.OK) {
+    return {
+      className: "text-yellow-600 dark:text-yellow-400",
+      bgClassName: "bg-yellow-50 dark:bg-yellow-950/30",
+      deltaMs,
+    };
+  }
+
+  if (deltaMs < DURATION_DELTA_THRESHOLDS.WARNING) {
+    return {
+      className: "text-orange-600 dark:text-orange-400",
+      bgClassName: "bg-orange-50 dark:bg-orange-950/30",
+      deltaMs,
+    };
+  }
+
+  return {
+    className: "text-red-600 dark:text-red-400",
+    bgClassName: "bg-red-50 dark:bg-red-950/30",
+    deltaMs,
+  };
+}
+
+/**
  * Format duration to a human readable string (e.g., "3 min 45 sec")
  */
 export function formatDurationLong(seconds: number): string {

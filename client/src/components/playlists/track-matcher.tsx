@@ -24,7 +24,11 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { formatDuration } from "@/lib/utils/format";
+import {
+  formatDuration,
+  formatDurationMs,
+  getDurationDeltaStyle,
+} from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 import type { TrackToMatch } from "@/lib/api/generated/TrackToMatch";
@@ -402,14 +406,32 @@ export function TrackRow({
     setSearchOpen(false);
   };
 
+  // Handle row click to toggle checkbox (only for matched, non-locked tracks)
+  const handleRowClick = (e: React.MouseEvent) => {
+    // Don't toggle if clicking on the popover trigger button or if track has no match/is locked
+    if (!track.match || track.locked || !onToggleSelection) return;
+
+    // Check if the click originated from the checkbox or popover area
+    const target = e.target as HTMLElement;
+    const isCheckboxClick = target.closest('[role="checkbox"]');
+    const isPopoverClick =
+      target.closest("[data-radix-popper-content-wrapper]") ||
+      target.closest("[data-popover-trigger]");
+
+    if (isCheckboxClick || isPopoverClick) return;
+
+    onToggleSelection(index, !isSelected);
+  };
+
   return (
     <div
       className={cn(
         "flex items-center gap-3 p-2 rounded-md group",
         track.locked && "opacity-60",
-        track.match ? "hover:bg-accent/50" : "bg-orange-500/10",
+        track.match ? "hover:bg-accent/50 cursor-pointer" : "bg-orange-500/10",
       )}
       style={{ minHeight: TRACK_ROW_HEIGHT - 4 }} // Fixed height for virtualization (minus padding)
+      onClick={handleRowClick}
     >
       {/* Checkbox for matched tracks */}
       {showCheckbox && track.match && !track.locked && (
@@ -461,7 +483,7 @@ export function TrackRow({
             {track.parsed.album}
             {track.parsed.duration && track.parsed.duration > 0 && (
               <span className="ml-1">
-                ({formatDuration(track.parsed.duration)})
+                ({formatDurationMs(track.parsed.duration)})
               </span>
             )}
           </div>
@@ -501,6 +523,25 @@ export function TrackRow({
               {track.match.artist}
               {track.match.artist && track.match.album && " • "}
               {track.match.album}
+              {track.match.duration &&
+                track.match.duration > 0 &&
+                (() => {
+                  const durationStyle = getDurationDeltaStyle(
+                    track.parsed.duration,
+                    track.match.duration,
+                  );
+                  return (
+                    <span
+                      className={cn(
+                        "ml-1 px-1 rounded",
+                        durationStyle.className,
+                        durationStyle.bgClassName,
+                      )}
+                    >
+                      ({formatDuration(track.match.duration)})
+                    </span>
+                  );
+                })()}
             </div>
           </div>
         </>
@@ -513,6 +554,7 @@ export function TrackRow({
               variant="ghost"
               size="icon"
               className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7"
+              data-popover-trigger
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </Button>
@@ -527,11 +569,13 @@ export function TrackRow({
                     title: track.parsed.title,
                     artist: track.parsed.artist,
                     album: track.parsed.album,
+                    duration: track.parsed.duration,
                     raw: track.parsed.raw,
                   }}
                   onConfirm={handleConfirm}
                   idPrefix={`track-row-${index}-`}
                   autoSearch={true}
+                  showRawText={true}
                 />
               )}
 

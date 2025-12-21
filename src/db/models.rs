@@ -303,7 +303,7 @@ pub struct MissingEntryData {
     pub artist: Option<String>,
     /// Album name
     pub album: Option<String>,
-    /// Duration in seconds (if known)
+    /// Duration in milliseconds (if known)
     pub duration: Option<i32>,
     /// Original raw line from the playlist file
     pub raw: String,

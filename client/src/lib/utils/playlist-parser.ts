@@ -14,7 +14,7 @@ export interface ParsedTrack {
   title?: string;
   /** Album name if available */
   album?: string;
-  /** Duration in seconds if available */
+  /** Duration in milliseconds if available */
   duration?: number;
   /** File path if available */
   path?: string;
@@ -325,9 +325,16 @@ function parseCSV(content: string): ParseResult {
       h === "duration" ||
       h === "length" ||
       h === "time" ||
-      h === "duration (ms)",
+      h.includes("duration"), // Match any duration variant
   );
-  const durationIsMillis = headers[durationIdx] === "duration (ms)";
+
+  // Check if header explicitly indicates milliseconds
+  const headerText = durationIdx !== -1 ? headers[durationIdx] : "";
+  const headerIndicatesMs =
+    headerText.includes("(ms)") ||
+    headerText.includes("_ms") ||
+    headerText.endsWith(" ms") ||
+    headerText === "durationms";
 
   // If no title column found, error
   if (titleIdx === -1 && artistIdx === -1) {
@@ -348,7 +355,7 @@ function parseCSV(content: string): ParseResult {
     return { format: "csv", tracks, errors };
   }
 
-  // Parse data rows
+  // Parse data rows - initially store durations as-is
   for (let i = 1; i < lines.length; i++) {
     const values = parseCSVLine(lines[i]);
 
@@ -368,9 +375,8 @@ function parseCSV(content: string): ParseResult {
     }
     if (durationIdx !== -1 && values[durationIdx]) {
       const dur = parseInt(values[durationIdx], 10);
-      if (!isNaN(dur)) {
-        // Convert milliseconds to seconds if needed
-        track.duration = durationIsMillis ? Math.round(dur / 1000) : dur;
+      if (!isNaN(dur) && dur > 0) {
+        track.duration = dur;
       }
     }
 
@@ -378,6 +384,26 @@ function parseCSV(content: string): ParseResult {
       tracks.push(track);
     } else {
       errors++;
+    }
+  }
+
+  // Determine if durations are in seconds and need conversion to milliseconds
+  // 1. If header explicitly indicates ms, they're already in ms
+  // 2. Otherwise, use heuristic: if >50% of durations are <3600, they're likely seconds
+  //    (3600 seconds = 1 hour, most songs are under this; 3600 ms = 3.6 seconds, too short)
+  const tracksWithDuration = tracks.filter((t) => t.duration && t.duration > 0);
+  const durationLooksLikeSeconds =
+    !headerIndicatesMs &&
+    tracksWithDuration.length > 0 &&
+    tracksWithDuration.filter((t) => t.duration! < 3600).length >
+      tracksWithDuration.length * 0.5;
+
+  if (durationLooksLikeSeconds) {
+    // Convert seconds to milliseconds
+    for (const track of tracks) {
+      if (track.duration) {
+        track.duration = track.duration * 1000;
+      }
     }
   }
 

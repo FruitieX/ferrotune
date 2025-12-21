@@ -17,7 +17,11 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
-import { formatDuration } from "@/lib/utils/format";
+import {
+  formatDuration,
+  formatDurationMs,
+  getDurationDeltaStyle,
+} from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import { usePreviewAudio } from "@/lib/hooks/use-preview-audio";
 import { useDebounce } from "@/lib/hooks/use-debounce";
@@ -27,6 +31,7 @@ export interface ParsedTrackData {
   title?: string | null;
   artist?: string | null;
   album?: string | null;
+  duration?: number | null; // Duration in milliseconds
   raw?: string | null;
 }
 
@@ -369,7 +374,23 @@ export function TrackSearchPanel({
                       {song.artist}
                       {song.album ? ` • ${song.album}` : ""}
                       {song.duration
-                        ? ` • ${formatDuration(song.duration)}`
+                        ? (() => {
+                            const durationStyle = getDurationDeltaStyle(
+                              parsed.duration,
+                              song.duration,
+                            );
+                            return (
+                              <span
+                                className={cn(
+                                  "ml-1 px-1 rounded",
+                                  durationStyle.className,
+                                  durationStyle.bgClassName,
+                                )}
+                              >
+                                {formatDuration(song.duration)}
+                              </span>
+                            );
+                          })()
                         : ""}
                     </div>
                   </div>
@@ -451,7 +472,14 @@ export function TrackSearchPanel({
       {showRawText && parsed.raw && (
         <div className="text-xs text-muted-foreground pt-2 border-t overflow-hidden">
           <span className="font-medium">Original entry:</span>{" "}
-          <span className="font-mono break-all">{parsed.raw}</span>
+          <span className="font-mono break-all">
+            {parsed.raw}
+            {parsed.duration && parsed.duration > 0 && (
+              <span className="ml-1">
+                ({formatDurationMs(parsed.duration)})
+              </span>
+            )}
+          </span>
         </div>
       )}
     </div>

@@ -33,6 +33,43 @@ pub fn build_fts_query(query: &str) -> Option<String> {
     }
 }
 
+/// Parse a query string into search tokens.
+/// Uses the same tokenization logic as FTS queries for consistency.
+/// Returns lowercase tokens for case-insensitive matching.
+pub fn parse_search_tokens(query: &str) -> Vec<String> {
+    query
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| !s.is_empty())
+        // Filter out reserved words for consistency with FTS
+        .filter(|s| !matches!(s.to_uppercase().as_str(), "AND" | "OR" | "NOT" | "NEAR"))
+        .map(|s| s.to_lowercase())
+        .collect()
+}
+
+/// Check if a text matches all search tokens (prefix matching).
+/// This provides the same matching logic as FTS but for in-memory filtering.
+///
+/// Example: `text_matches_query("Dire, Dire Docks", "dire dire")` returns true
+/// because both "dire" tokens match (with prefix matching) words in the text.
+pub fn text_matches_query(text: &str, query: &str) -> bool {
+    let tokens = parse_search_tokens(query);
+    if tokens.is_empty() {
+        return true; // Empty query matches everything
+    }
+
+    let text_lower = text.to_lowercase();
+    // Extract words from the text for prefix matching
+    let text_words: Vec<&str> = text_lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    // All query tokens must match at least one word in the text (prefix match)
+    tokens
+        .iter()
+        .all(|token| text_words.iter().any(|word| word.starts_with(token)))
+}
+
 /// Search parameters shared by both OpenSubsonic search3 and Ferrotune search endpoints.
 #[derive(Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -91,6 +128,16 @@ pub struct SearchParams {
 
 /// Get ORDER BY clause for song sorting
 pub fn get_song_order_clause(sort: Option<&String>, sort_dir: Option<&String>) -> String {
+    get_song_order_clause_for_search(sort, sort_dir, false)
+}
+
+/// Get ORDER BY clause for song sorting with FTS rank support.
+/// When `is_fts_query` is true and no explicit sort is specified, use FTS5 rank for relevance sorting.
+pub fn get_song_order_clause_for_search(
+    sort: Option<&String>,
+    sort_dir: Option<&String>,
+    is_fts_query: bool,
+) -> String {
     let dir = match sort_dir.map(|s| s.as_str()) {
         Some("desc") => "DESC",
         _ => "ASC",
@@ -103,7 +150,9 @@ pub fn get_song_order_clause(sort: Option<&String>, sort_dir: Option<&String>) -
         Some("duration") => format!("s.duration {dir}, s.title COLLATE NOCASE {dir}"),
         Some("playCount") => format!("play_count {dir}, s.title COLLATE NOCASE {dir}"),
         Some("dateAdded") => format!("s.created_at {dir}, s.title COLLATE NOCASE {dir}"),
-        _ => format!("s.title COLLATE NOCASE {dir}"), // default: name
+        Some("relevance") => "fts.rank".to_string(), // explicit relevance sort
+        None if is_fts_query => "fts.rank, s.title COLLATE NOCASE ASC".to_string(), // default to relevance for FTS
+        _ => format!("s.title COLLATE NOCASE {dir}"),                               // default: name
     }
 }
 
@@ -581,8 +630,12 @@ pub async fn search_songs(
     };
     let is_wildcard = is_wildcard || fts_query.is_none();
 
-    let song_order =
-        get_song_order_clause(params.song_sort.as_ref(), params.song_sort_dir.as_ref());
+    // Use relevance-based sorting when this is an FTS query and no explicit sort is specified
+    let song_order = get_song_order_clause_for_search(
+        params.song_sort.as_ref(),
+        params.song_sort_dir.as_ref(),
+        !is_wildcard, // is_fts_query
+    );
 
     let filter_conds = build_song_filter_conditions(params, user_id);
 

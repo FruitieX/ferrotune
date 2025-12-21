@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Wand2, AlertCircle } from "lucide-react";
+import { Loader2, Wand2, AlertCircle, Music } from "lucide-react";
+import { formatDurationMs } from "@/lib/utils/format";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -317,8 +318,8 @@ export function MassResolveDialog({
           )}
 
           {step === "options" && (
-            <div className="py-4 space-y-4">
-              <p className="text-sm text-muted-foreground">
+            <div className="flex-1 min-h-0 flex flex-col py-4 space-y-4 overflow-hidden">
+              <p className="text-sm text-muted-foreground shrink-0">
                 Configure search options and click &quot;Start Matching&quot; to
                 automatically find matches for missing entries in your library.
               </p>
@@ -326,6 +327,50 @@ export function MassResolveDialog({
                 options={searchOptions}
                 onChange={setSearchOptions}
               />
+
+              {/* Missing entries list */}
+              {missingEntries.length > 0 && (
+                <div className="flex-1 min-h-0 flex flex-col">
+                  <h4 className="text-sm font-medium mb-2 shrink-0">
+                    Missing entries to resolve ({missingEntries.length})
+                  </h4>
+                  <div className="flex-1 min-h-0 overflow-auto rounded-md border">
+                    <div className="p-1">
+                      {missingEntries.map((entry, idx) => (
+                        <div
+                          key={entry.entryId}
+                          className="flex items-center gap-2 p-2 rounded-md hover:bg-muted/50"
+                        >
+                          <div className="shrink-0 w-6 text-center text-xs text-muted-foreground tabular-nums">
+                            {idx + 1}
+                          </div>
+                          <Music className="w-4 h-4 shrink-0 text-muted-foreground" />
+                          <div className="flex-1 min-w-0 text-sm">
+                            <div className="font-medium truncate">
+                              {entry.missing.title ||
+                                entry.missing.raw ||
+                                "Unknown"}
+                            </div>
+                            <div className="text-muted-foreground text-xs truncate">
+                              {entry.missing.artist}
+                              {entry.missing.artist &&
+                                entry.missing.album &&
+                                " • "}
+                              {entry.missing.album}
+                              {entry.missing.duration &&
+                                entry.missing.duration > 0 && (
+                                  <span className="ml-1">
+                                    ({formatDurationMs(entry.missing.duration)})
+                                  </span>
+                                )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
