@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSetAtom } from "jotai";
+import { useSetAtom, useAtomValue } from "jotai";
 import {
   FolderOpen,
   Plus,
@@ -19,6 +19,7 @@ import {
   HardDrive,
   RefreshCw,
   FolderSync,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
@@ -28,6 +29,7 @@ import {
   scanDialogOpenAtom,
   scanFolderIdAtom,
   scanFolderNameAtom,
+  isScanningAtom,
 } from "@/lib/store/scan";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -96,6 +98,8 @@ interface MusicFolderCardProps {
   onToggleWatchEnabled: (id: number, watchEnabled: boolean) => void;
   onDelete: (id: number) => void;
   isScanning: boolean;
+  isDeleting: boolean;
+  deletingFolderId: number | null;
 }
 
 function MusicFolderCard({
@@ -105,8 +109,11 @@ function MusicFolderCard({
   onToggleWatchEnabled,
   onDelete,
   isScanning,
+  isDeleting,
+  deletingFolderId,
 }: MusicFolderCardProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const isThisFolderDeleting = isDeleting && deletingFolderId === folder.id;
 
   return (
     <div
@@ -114,7 +121,7 @@ function MusicFolderCard({
         folder.enabled
           ? "bg-card border-border"
           : "bg-muted/30 border-border/50 opacity-60"
-      }`}
+      } ${isThisFolderDeleting ? "opacity-50 pointer-events-none" : ""}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -406,6 +413,7 @@ function AddFolderDialog({
 export function MusicLibraries() {
   const queryClient = useQueryClient();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [deletingFolderId, setDeletingFolderId] = useState<number | null>(null);
 
   // Scan dialog atoms
   const setScanDialogOpen = useSetAtom(scanDialogOpenAtom);
@@ -422,18 +430,8 @@ export function MusicLibraries() {
     },
   });
 
-  // Scan status query
-  const { data: scanStatus } = useQuery({
-    queryKey: ["scanStatus"],
-    queryFn: async () => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      return client.getScanStatus();
-    },
-    refetchInterval: 2000, // Poll while potentially scanning
-  });
-
-  const isScanning = scanStatus?.scanning ?? false;
+  // Get scanning state from global store (managed by useScanProgressStream)
+  const isScanning = useAtomValue(isScanningAtom);
 
   // Create mutation
   const createMutation = useMutation({
@@ -562,7 +560,12 @@ export function MusicLibraries() {
   };
 
   const handleDelete = (id: number) => {
-    deleteMutation.mutate(id);
+    setDeletingFolderId(id);
+    deleteMutation.mutate(id, {
+      onSettled: () => {
+        setDeletingFolderId(null);
+      },
+    });
   };
 
   const handleAddFolder = (
@@ -624,6 +627,8 @@ export function MusicLibraries() {
                 onToggleWatchEnabled={handleToggleWatchEnabled}
                 onDelete={handleDelete}
                 isScanning={isScanning}
+                isDeleting={deleteMutation.isPending}
+                deletingFolderId={deletingFolderId}
               />
             ))}
           </div>
@@ -655,6 +660,32 @@ export function MusicLibraries() {
         onSubmit={handleAddFolder}
         isLoading={createMutation.isPending}
       />
+
+      {/* Delete progress dialog */}
+      <Dialog open={deleteMutation.isPending}>
+        <DialogContent className="sm:max-w-md" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Deleting Library
+            </DialogTitle>
+            <DialogDescription>
+              Removing &quot;
+              {folders.find((f) => f.id === deletingFolderId)?.name ??
+                "library"}
+              &quot; and updating playlists...
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+              <div className="h-full bg-primary rounded-full animate-pulse w-full" />
+            </div>
+            <p className="text-sm text-muted-foreground mt-3 text-center">
+              This may take a while for large libraries. Please wait...
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

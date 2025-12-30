@@ -1,10 +1,19 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useSetAtom } from "jotai";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Play, Clock, Sparkles, TrendingUp, Shuffle } from "lucide-react";
+import {
+  Play,
+  Clock,
+  Sparkles,
+  TrendingUp,
+  Shuffle,
+  Search,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { startQueueAtom } from "@/lib/store/server-queue";
@@ -12,6 +21,7 @@ import { getClient } from "@/lib/api/client";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -128,11 +138,18 @@ function AlbumSection({
 }
 
 export default function HomePage() {
+  const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({
     redirectToLogin: true,
   });
   const startQueue = useSetAtom(startQueueAtom);
   const isMounted = useIsMounted();
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Navigate to search when user starts typing
+  const handleSearchFocus = () => {
+    router.push("/search");
+  };
 
   // Fetch recently added albums
   const { data: newestAlbums, isLoading: loadingNewest } = useQuery({
@@ -266,8 +283,14 @@ export default function HomePage() {
       <div className="min-h-screen">
         {/* Header */}
         <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
-          <div className="flex items-center justify-between h-16 px-4 lg:px-6">
+          <div className="flex items-center gap-4 h-16 px-4 lg:px-6">
             <h1 className="text-2xl font-bold">Home</h1>
+            <div className="flex-1 max-w-md ml-auto">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Skeleton className="h-10 w-full rounded-full" />
+              </div>
+            </div>
           </div>
         </header>
 
@@ -298,8 +321,21 @@ export default function HomePage() {
     <div className="min-h-screen">
       {/* Header */}
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
-        <div className="flex items-center justify-between h-16 px-4 lg:px-6">
+        <div className="flex items-center gap-4 h-16 px-4 lg:px-6">
           <h1 className="text-2xl font-bold">Home</h1>
+          <div className="flex-1 max-w-md ml-auto">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={handleSearchFocus}
+                className="pl-9 h-10 bg-secondary border-0 rounded-full cursor-pointer"
+              />
+            </div>
+          </div>
         </div>
       </header>
 

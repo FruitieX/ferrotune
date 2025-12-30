@@ -18,6 +18,8 @@ import {
   Move,
   RefreshCw,
   Unlink,
+  Tag,
+  Trash2,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -39,11 +41,31 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
 import { useSongActions, type QueueSource } from "@/lib/hooks/use-song-actions";
 import type { Song } from "@/lib/api/types";
+import { useSetAtom, useAtom } from "jotai";
+import {
+  taggerSessionAtom,
+  taggerTracksAtom,
+  createTrackState,
+} from "@/lib/store/tagger";
+import { useRouter } from "next/navigation";
+
+import { toast } from "sonner";
+import { getClient } from "@/lib/api/client";
 
 // Global function to dismiss any open context menu by simulating an escape key press
 function dismissContextMenu() {
@@ -102,11 +124,71 @@ export function SongContextMenu({
     handlePlayNext,
     handleAddToQueue,
     handleDownload,
+    confirmDeletionOpen,
+    setConfirmDeletionOpen,
+    handleConfirmDeletion,
     addToPlaylistOpen,
     setAddToPlaylistOpen,
     detailsOpen,
     setDetailsOpen,
   } = useSongActions({ song, queueSongs, songIndex, queueSource });
+
+  const router = useRouter();
+  const setSession = useSetAtom(taggerSessionAtom);
+  const [tracks, setTracks] = useAtom(taggerTracksAtom);
+
+  async function handleMarkForEditing() {
+    // If already in tracks, just show toast
+    if (tracks.has(song.id)) {
+      toast.info("Track already marked for editing", {
+        action: {
+          label: "Open Tagger",
+          onClick: () => router.push("/tagger"),
+        },
+      });
+      return;
+    }
+
+    try {
+      const client = getClient();
+      if (!client) {
+        toast.error("Not connected");
+        return;
+      }
+
+      // Stage the track via API
+      const response = await client.stageLibraryTracks([song.id]);
+
+      // Add track to tracks atom
+      const newTracks = new Map(tracks);
+      for (const track of response.tracks) {
+        newTracks.set(track.id, createTrackState(track));
+      }
+      setTracks(newTracks);
+
+      // Add to session
+      setSession((prev) => {
+        if (prev.tracks.some((t) => t.id === song.id)) return prev;
+        return {
+          ...prev,
+          tracks: [
+            ...prev.tracks,
+            { id: song.id, trackType: "library" as const },
+          ],
+        };
+      });
+
+      toast.success("Track marked for editing", {
+        action: {
+          label: "Open Tagger",
+          onClick: () => router.push("/tagger"),
+        },
+      });
+    } catch (error) {
+      console.error("Failed to mark for editing:", error);
+      toast.error("Failed to mark for editing");
+    }
+  }
 
   const menuItems = (
     <>
@@ -230,6 +312,11 @@ export function SongContextMenu({
         </Link>
       </ContextMenuItem>
 
+      <ContextMenuItem onClick={handleMarkForEditing}>
+        <Tag className="w-4 h-4 mr-2" />
+        Mark for Editing
+      </ContextMenuItem>
+
       <ContextMenuSeparator />
 
       <ContextMenuItem onClick={handleDownload}>
@@ -239,6 +326,16 @@ export function SongContextMenu({
       <ContextMenuItem onClick={() => setDetailsOpen(true)}>
         <Info className="w-4 h-4 mr-2" />
         View Details
+      </ContextMenuItem>
+
+      <ContextMenuSeparator />
+
+      <ContextMenuItem
+        onClick={() => setConfirmDeletionOpen(true)}
+        className="text-destructive"
+      >
+        <Trash2 className="w-4 h-4 mr-2" />
+        Mark for Deletion
       </ContextMenuItem>
     </>
   );
@@ -264,6 +361,30 @@ export function SongContextMenu({
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
       />
+      <AlertDialog
+        open={confirmDeletionOpen}
+        onOpenChange={setConfirmDeletionOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark for Deletion?</AlertDialogTitle>
+            <AlertDialogDescription>
+              &quot;{song.title}&quot; will be moved to the recycle bin and
+              permanently deleted after 30 days. This action can be undone from
+              the Administration page.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDeletion}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Mark for Deletion
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
@@ -319,11 +440,60 @@ export function SongDropdownMenu({
     handlePlayNext,
     handleAddToQueue,
     handleDownload,
+    confirmDeletionOpen,
+    setConfirmDeletionOpen,
+    handleConfirmDeletion,
     addToPlaylistOpen,
     setAddToPlaylistOpen,
     detailsOpen,
     setDetailsOpen,
   } = useSongActions({ song, queueSongs, songIndex, queueSource });
+
+  const router = useRouter();
+  const setSession = useSetAtom(taggerSessionAtom);
+  const [tracks, setTracks] = useAtom(taggerTracksAtom);
+
+  async function handleMarkForEditing() {
+    try {
+      const client = getClient();
+      if (!client) {
+        toast.error("Not connected");
+        return;
+      }
+
+      // Stage the track via API
+      const response = await client.stageLibraryTracks([song.id]);
+
+      // Add track to tracks atom
+      const newTracks = new Map(tracks);
+      for (const track of response.tracks) {
+        newTracks.set(track.id, createTrackState(track));
+      }
+      setTracks(newTracks);
+
+      // Add song to tagger session
+      setSession((prev) => {
+        if (prev.tracks.some((t) => t.id === song.id)) return prev;
+        return {
+          ...prev,
+          tracks: [
+            ...prev.tracks,
+            { id: song.id, trackType: "library" as const },
+          ],
+        };
+      });
+
+      toast.success("Track marked for editing", {
+        action: {
+          label: "Open Tagger",
+          onClick: () => router.push("/tagger"),
+        },
+      });
+    } catch (error) {
+      console.error("Failed to mark for editing:", error);
+      toast.error("Failed to mark for editing");
+    }
+  }
 
   const defaultTrigger = (
     <Button
@@ -483,6 +653,11 @@ export function SongDropdownMenu({
             </Link>
           </DropdownMenuItem>
 
+          <DropdownMenuItem onClick={handleMarkForEditing}>
+            <Tag className="w-4 h-4 mr-2" />
+            Mark for Editing
+          </DropdownMenuItem>
+
           <DropdownMenuSeparator />
 
           <DropdownMenuItem onClick={handleDownload}>
@@ -492,6 +667,16 @@ export function SongDropdownMenu({
           <DropdownMenuItem onClick={() => setDetailsOpen(true)}>
             <Info className="w-4 h-4 mr-2" />
             View Details
+          </DropdownMenuItem>
+
+          <DropdownMenuSeparator />
+
+          <DropdownMenuItem
+            onClick={() => setConfirmDeletionOpen(true)}
+            className="text-destructive"
+          >
+            <Trash2 className="w-4 h-4 mr-2" />
+            Mark for Deletion
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -505,6 +690,30 @@ export function SongDropdownMenu({
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
       />
+      <AlertDialog
+        open={confirmDeletionOpen}
+        onOpenChange={setConfirmDeletionOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark for Deletion?</AlertDialogTitle>
+            <AlertDialogDescription>
+              &quot;{song.title}&quot; will be moved to the recycle bin and
+              permanently deleted after 30 days. This action can be undone from
+              the Administration page.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDeletion}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Mark for Deletion
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

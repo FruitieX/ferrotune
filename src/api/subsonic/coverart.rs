@@ -147,7 +147,7 @@ async fn get_album_cover_with_thumbnails(
     get_album_cover_art_original(state, album_id).await
 }
 
-/// Get song cover art, preferring album thumbnails
+/// Get song cover art, prioritizing song's own cover art when available
 async fn get_song_cover_with_thumbnails(
     state: &AppState,
     song_id: &str,
@@ -157,8 +157,9 @@ async fn get_song_cover_with_thumbnails(
         .await?
         .ok_or_else(|| Error::NotFound(format!("Song {} not found", song_id)))?;
 
-    // If song has a hash, use it
+    // If song has its own cover art hash, use it (don't fall back to album)
     if let Some(hash) = &song.cover_art_hash {
+        // For small/medium sizes, try pre-generated thumbnails
         if size != ThumbnailSize::Large {
             if let Ok(Some(thumbnail)) =
                 crate::thumbnails::get_thumbnail(&state.pool, hash, size).await
@@ -166,16 +167,18 @@ async fn get_song_cover_with_thumbnails(
                 return Ok(thumbnail);
             }
         }
+        // For large size OR if thumbnail not found, get original from file
+        return get_song_cover_art_original(state, &song.id).await;
     }
 
-    // If song has an album, try to use album's cover
+    // Only fall back to album cover if song has NO cover_art_hash
     if let Some(album_id) = &song.album_id {
         if let Ok(data) = get_album_cover_with_thumbnails(state, album_id, size).await {
             return Ok(data);
         }
     }
 
-    // Fall back to song's own cover art
+    // Last resort: try to get from file anyway
     get_song_cover_art_original(state, &song.id).await
 }
 

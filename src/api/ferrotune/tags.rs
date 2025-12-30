@@ -14,6 +14,7 @@ use axum::{
 };
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
+use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::probe::Probe;
 use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagItem, TagType};
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use ts_rs::TS;
 
+use super::server_config::is_tag_editing_enabled;
 use super::ErrorResponse;
 
 /// A single tag entry with key-value pair
@@ -177,7 +179,7 @@ fn item_key_to_string(key: &ItemKey) -> String {
 }
 
 /// Convert a string key back to ItemKey
-fn string_to_item_key(key: &str) -> ItemKey {
+pub fn string_to_item_key(key: &str) -> ItemKey {
     match key.to_uppercase().as_str() {
         "TITLE" => ItemKey::TrackTitle,
         "ARTIST" => ItemKey::TrackArtist,
@@ -260,7 +262,7 @@ fn tag_type_to_string(tag_type: TagType) -> String {
 }
 
 /// Extract all tags from a Tag object
-fn extract_tags_from_tag(tag: &Tag) -> Vec<TagEntry> {
+pub fn extract_tags_from_tag(tag: &Tag) -> Vec<TagEntry> {
     let mut tags = Vec::new();
 
     for item in tag.items() {
@@ -382,7 +384,7 @@ pub async fn get_tags(
             id: song.id,
             file_path: song.file_path,
             file_format: song.file_format,
-            editing_enabled: !state.config.music.readonly_tags,
+            editing_enabled: is_tag_editing_enabled(&state).await,
             tag_type,
             tags,
             additional_tags,
@@ -411,12 +413,12 @@ pub async fn update_tags(
     Json(request): Json<UpdateTagsRequest>,
 ) -> impl IntoResponse {
     // Check if editing is enabled
-    if state.config.music.readonly_tags {
+    if !is_tag_editing_enabled(&state).await {
         return (
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::with_details(
                 "Tag editing is disabled",
-                "Set `readonly_tags = false` in config to enable tag editing",
+                "Enable tag editing in server configuration",
             )),
         )
             .into_response();
@@ -615,4 +617,315 @@ pub async fn update_tags(
         )
             .into_response(),
     }
+}
+
+/// Extract all tags from a TaggedFile (public helper for tagger module)
+pub fn extract_tags_from_file(tagged_file: &lofty::file::TaggedFile) -> Vec<TagEntry> {
+    if let Some(tag) = tagged_file.primary_tag() {
+        extract_tags_from_tag(tag)
+    } else {
+        Vec::new()
+    }
+}
+
+/// Internal function to update tags without the HTTP layer (for batch operations)
+#[allow(dead_code)]
+pub async fn update_tags_internal(
+    full_path: &std::path::Path,
+    request: &UpdateTagsRequest,
+) -> Result<Vec<TagChange>, String> {
+    let set_tags = request.set.clone();
+    let delete_tags = request.delete.clone();
+    let path_clone = full_path.to_path_buf();
+
+    let result = tokio::task::spawn_blocking(move || {
+        // Open and read the file
+        let mut tagged_file = Probe::open(&path_clone)
+            .map_err(|e| format!("Failed to open file: {}", e))?
+            .read()
+            .map_err(|e| format!("Failed to read file: {}", e))?;
+
+        // Get or create primary tag
+        let tag = match tagged_file.primary_tag_mut() {
+            Some(tag) => tag,
+            None => {
+                // Determine best tag type for format
+                let tag_type = tagged_file.primary_tag_type();
+                tagged_file.insert_tag(Tag::new(tag_type));
+                tagged_file.primary_tag_mut().unwrap()
+            }
+        };
+
+        let mut changes = Vec::new();
+
+        // Process deletions first
+        for key_str in &delete_tags {
+            let item_key = string_to_item_key(key_str);
+            let old_value = tag.get_string(&item_key).map(|s| s.to_string());
+
+            if old_value.is_some() {
+                tag.remove_key(&item_key);
+                changes.push(TagChange {
+                    key: key_str.clone(),
+                    action: "deleted".to_string(),
+                    old_value,
+                    new_value: None,
+                });
+            }
+        }
+
+        // Process sets
+        for entry in &set_tags {
+            let item_key = string_to_item_key(&entry.key);
+            let old_value = tag.get_string(&item_key).map(|s| s.to_string());
+
+            match &item_key {
+                ItemKey::TrackTitle => tag.set_title(entry.value.clone()),
+                ItemKey::TrackArtist => tag.set_artist(entry.value.clone()),
+                ItemKey::AlbumTitle => tag.set_album(entry.value.clone()),
+                ItemKey::TrackNumber => {
+                    if let Ok(n) = entry.value.parse::<u32>() {
+                        tag.set_track(n);
+                    } else {
+                        tag.insert(TagItem::new(
+                            item_key.clone(),
+                            ItemValue::Text(entry.value.clone()),
+                        ));
+                    }
+                }
+                ItemKey::DiscNumber => {
+                    if let Ok(n) = entry.value.parse::<u32>() {
+                        tag.set_disk(n);
+                    } else {
+                        tag.insert(TagItem::new(
+                            item_key.clone(),
+                            ItemValue::Text(entry.value.clone()),
+                        ));
+                    }
+                }
+                ItemKey::Year => {
+                    if let Ok(y) = entry.value.parse::<u32>() {
+                        tag.set_year(y);
+                    } else {
+                        tag.insert(TagItem::new(
+                            item_key.clone(),
+                            ItemValue::Text(entry.value.clone()),
+                        ));
+                    }
+                }
+                ItemKey::Genre => tag.set_genre(entry.value.clone()),
+                ItemKey::Comment => tag.set_comment(entry.value.clone()),
+                _ => {
+                    tag.insert(TagItem::new(
+                        item_key.clone(),
+                        ItemValue::Text(entry.value.clone()),
+                    ));
+                }
+            }
+
+            if old_value.as_deref() != Some(&entry.value) {
+                changes.push(TagChange {
+                    key: entry.key.clone(),
+                    action: "set".to_string(),
+                    old_value,
+                    new_value: Some(entry.value.clone()),
+                });
+            }
+        }
+
+        if changes.is_empty() {
+            return Ok(changes);
+        }
+
+        // Save the file
+        tagged_file
+            .save_to_path(&path_clone, WriteOptions::default())
+            .map_err(|e| format!("Failed to save file: {}", e))?;
+
+        Ok::<_, String>(changes)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?;
+
+    result
+}
+
+/// Cover art action for update_tags_with_cover_art
+pub enum CoverArtAction {
+    /// Keep existing cover art (no change)
+    Keep,
+    /// Remove all cover art
+    Remove,
+    /// Set new cover art (data, mime_type)
+    Set(Vec<u8>, String),
+}
+
+/// Internal function to update tags with cover art support (for batch operations)
+pub async fn update_tags_with_cover_art(
+    full_path: &std::path::Path,
+    request: &UpdateTagsRequest,
+    cover_art: CoverArtAction,
+) -> Result<Vec<TagChange>, String> {
+    let set_tags = request.set.clone();
+    let delete_tags = request.delete.clone();
+    let path_clone = full_path.to_path_buf();
+
+    let result = tokio::task::spawn_blocking(move || {
+        // Open and read the file
+        let mut tagged_file = Probe::open(&path_clone)
+            .map_err(|e| format!("Failed to open file: {}", e))?
+            .read()
+            .map_err(|e| format!("Failed to read file: {}", e))?;
+
+        // Get or create primary tag
+        let tag = match tagged_file.primary_tag_mut() {
+            Some(tag) => tag,
+            None => {
+                // Determine best tag type for format
+                let tag_type = tagged_file.primary_tag_type();
+                tagged_file.insert_tag(Tag::new(tag_type));
+                tagged_file.primary_tag_mut().unwrap()
+            }
+        };
+
+        let mut changes = Vec::new();
+
+        // Process cover art
+        match cover_art {
+            CoverArtAction::Keep => {
+                // No change to cover art
+            }
+            CoverArtAction::Remove => {
+                // Remove all pictures
+                tag.remove_picture_type(PictureType::CoverFront);
+                tag.remove_picture_type(PictureType::CoverBack);
+                tag.remove_picture_type(PictureType::Other);
+                changes.push(TagChange {
+                    key: "COVER_ART".to_string(),
+                    action: "deleted".to_string(),
+                    old_value: Some("<picture>".to_string()),
+                    new_value: None,
+                });
+            }
+            CoverArtAction::Set(data, mime_type) => {
+                // Remove existing front covers first
+                tag.remove_picture_type(PictureType::CoverFront);
+
+                // Parse mime type
+                let mime = match mime_type.as_str() {
+                    "image/png" => MimeType::Png,
+                    "image/gif" => MimeType::Gif,
+                    "image/bmp" => MimeType::Bmp,
+                    "image/tiff" => MimeType::Tiff,
+                    _ => MimeType::Jpeg,
+                };
+
+                // Create and add new picture
+                let picture = Picture::new_unchecked(
+                    PictureType::CoverFront,
+                    Some(mime),
+                    None, // description
+                    data,
+                );
+                tag.push_picture(picture);
+
+                changes.push(TagChange {
+                    key: "COVER_ART".to_string(),
+                    action: "set".to_string(),
+                    old_value: None,
+                    new_value: Some("<picture>".to_string()),
+                });
+            }
+        }
+
+        // Process deletions
+        for key_str in &delete_tags {
+            let item_key = string_to_item_key(key_str);
+            let old_value = tag.get_string(&item_key).map(|s| s.to_string());
+
+            if old_value.is_some() {
+                tag.remove_key(&item_key);
+                changes.push(TagChange {
+                    key: key_str.clone(),
+                    action: "deleted".to_string(),
+                    old_value,
+                    new_value: None,
+                });
+            }
+        }
+
+        // Process sets
+        for entry in &set_tags {
+            let item_key = string_to_item_key(&entry.key);
+            let old_value = tag.get_string(&item_key).map(|s| s.to_string());
+
+            match &item_key {
+                ItemKey::TrackTitle => tag.set_title(entry.value.clone()),
+                ItemKey::TrackArtist => tag.set_artist(entry.value.clone()),
+                ItemKey::AlbumTitle => tag.set_album(entry.value.clone()),
+                ItemKey::TrackNumber => {
+                    if let Ok(n) = entry.value.parse::<u32>() {
+                        tag.set_track(n);
+                    } else {
+                        tag.insert(TagItem::new(
+                            item_key.clone(),
+                            ItemValue::Text(entry.value.clone()),
+                        ));
+                    }
+                }
+                ItemKey::DiscNumber => {
+                    if let Ok(n) = entry.value.parse::<u32>() {
+                        tag.set_disk(n);
+                    } else {
+                        tag.insert(TagItem::new(
+                            item_key.clone(),
+                            ItemValue::Text(entry.value.clone()),
+                        ));
+                    }
+                }
+                ItemKey::Year => {
+                    if let Ok(y) = entry.value.parse::<u32>() {
+                        tag.set_year(y);
+                    } else {
+                        tag.insert(TagItem::new(
+                            item_key.clone(),
+                            ItemValue::Text(entry.value.clone()),
+                        ));
+                    }
+                }
+                ItemKey::Genre => tag.set_genre(entry.value.clone()),
+                ItemKey::Comment => tag.set_comment(entry.value.clone()),
+                _ => {
+                    tag.insert(TagItem::new(
+                        item_key.clone(),
+                        ItemValue::Text(entry.value.clone()),
+                    ));
+                }
+            }
+
+            if old_value.as_deref() != Some(&entry.value) {
+                changes.push(TagChange {
+                    key: entry.key.clone(),
+                    action: "set".to_string(),
+                    old_value,
+                    new_value: Some(entry.value.clone()),
+                });
+            }
+        }
+
+        if changes.is_empty() {
+            return Ok(changes);
+        }
+
+        // Save the file
+        tagged_file
+            .save_to_path(&path_clone, WriteOptions::default())
+            .map_err(|e| format!("Failed to save file: {}", e))?;
+
+        Ok::<_, String>(changes)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?;
+
+    result
 }

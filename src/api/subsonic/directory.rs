@@ -283,7 +283,7 @@ pub async fn get_music_directory(
                     title: song.title.clone(),
                     artist: Some(song.artist_name.clone()),
                     album: Some(album.name.clone()),
-                    cover_art: Some(album.id.clone()),
+                    cover_art: Some(song.id.clone()),
                     year: song.year,
                     genre: song.genre.clone(),
                     track: song.track_number,
@@ -461,7 +461,7 @@ async fn get_directory_contents(
         LEFT JOIN artists a ON s.artist_id = a.id
         LEFT JOIN albums al ON s.album_id = al.id
         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-        WHERE s.file_path LIKE ? || '%' AND mf.enabled = 1
+        WHERE s.file_path LIKE ? || '%' AND mf.enabled = 1 AND s.marked_for_deletion_at IS NULL
         ORDER BY s.file_path
         "#,
     )

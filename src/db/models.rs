@@ -482,6 +482,12 @@ pub struct PlayQueue {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub changed_by: String,
+    /// Total count of songs in the queue (for lazy queues)
+    pub total_count: Option<i64>,
+    /// Whether this queue uses lazy materialization
+    pub is_lazy: bool,
+    /// Explicit song IDs for non-reconstructable queues (history, custom)
+    pub song_ids_json: Option<String>,
 }
 
 impl PlayQueue {
@@ -498,6 +504,13 @@ impl PlayQueue {
     /// Parse shuffle indices from JSON
     pub fn shuffle_indices(&self) -> Option<Vec<usize>> {
         self.shuffle_indices_json
+            .as_ref()
+            .and_then(|json| serde_json::from_str(json).ok())
+    }
+
+    /// Parse song IDs from JSON (for explicit ID queues)
+    pub fn parse_song_ids(&self) -> Option<Vec<String>> {
+        self.song_ids_json
             .as_ref()
             .and_then(|json| serde_json::from_str(json).ok())
     }
@@ -566,4 +579,79 @@ pub struct PlaylistShare {
     pub shared_with_user_id: i64,
     pub can_edit: bool,
     pub created_at: DateTime<Utc>,
+}
+
+// ============================================================================
+// Tagger Models
+// ============================================================================
+
+/// Tagger session - stores per-user tagger state
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct TaggerSession {
+    pub id: i64,
+    pub user_id: i64,
+    pub active_rename_script_id: Option<String>,
+    pub active_tag_script_id: Option<String>,
+    pub target_library_id: Option<String>,
+    /// JSON array of visible column names
+    pub visible_columns: String,
+    /// JSON object of column widths
+    pub column_widths: String,
+    pub file_column_width: i64,
+    pub show_library_prefix: bool,
+    pub show_computed_path: bool,
+    pub details_panel_open: bool,
+    /// How to handle dangerous characters: 'ignore', 'strip', or 'replace'
+    pub dangerous_char_mode: String,
+    /// Character to replace dangerous characters with
+    pub dangerous_char_replacement: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Track in a tagger session
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct TaggerSessionTrack {
+    pub id: i64,
+    pub session_id: i64,
+    pub track_id: String,
+    /// 'library' or 'staged'
+    pub track_type: String,
+    pub position: i64,
+}
+
+/// Pending edit for a track in a tagger session
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct TaggerPendingEdit {
+    pub id: i64,
+    pub session_id: i64,
+    pub track_id: String,
+    /// 'library' or 'staged'
+    pub track_type: String,
+    /// JSON object of edited tags
+    pub edited_tags: String,
+    pub computed_path: Option<String>,
+    pub cover_art_removed: bool,
+    /// Cover art as raw binary data
+    #[serde(skip)]
+    pub cover_art_data: Option<Vec<u8>>,
+    /// MIME type for cover art (e.g., 'image/jpeg')
+    pub cover_art_mime_type: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// User script for tagger
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct TaggerScript {
+    pub id: String,
+    pub user_id: i64,
+    pub name: String,
+    /// 'rename' or 'tags'
+    #[sqlx(rename = "type")]
+    pub script_type: String,
+    pub script: String,
+    pub position: i64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }

@@ -14,6 +14,7 @@ import {
   Shuffle,
   HardDrive,
   CalendarPlus,
+  FolderOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,6 +53,7 @@ interface FilterPopoverProps {
     shuffleExcluded?: boolean;
     bitrate?: boolean;
     dateAdded?: boolean;
+    library?: boolean;
   };
   className?: string;
 }
@@ -75,6 +77,7 @@ export function FilterPopover({
     shuffleExcluded: true,
     bitrate: true,
     dateAdded: true,
+    library: true,
   },
   className,
 }: FilterPopoverProps) {
@@ -100,6 +103,20 @@ export function FilterPopover({
       const response = await client.getGenres();
       return response.genres?.genre ?? [];
     },
+    retry: 3,
+    retryDelay: 500,
+  });
+
+  // Fetch music folders for library filter
+  const { data: musicFolders = [], isLoading: musicFoldersLoading } = useQuery({
+    queryKey: ["musicFolders"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getAdminMusicFolders();
+      return response.musicFolders ?? [];
+    },
+    enabled: showOptions.library,
     retry: 3,
     retryDelay: 500,
   });
@@ -139,6 +156,8 @@ export function FilterPopover({
       cleanedFilters.addedAfter = localFilters.addedAfter;
     if (localFilters.addedBefore)
       cleanedFilters.addedBefore = localFilters.addedBefore;
+    if (localFilters.musicFolderId)
+      cleanedFilters.musicFolderId = localFilters.musicFolderId;
 
     setFilters(cleanedFilters);
     setOpen(false);
@@ -537,6 +556,42 @@ export function FilterPopover({
             </div>
           )}
 
+          {/* Library/Music Folder Filter */}
+          {showOptions.library && musicFolders.length > 1 && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-sm">
+                <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                Library
+              </Label>
+              <Select
+                value={localFilters.musicFolderId ?? "__any__"}
+                onValueChange={(value) =>
+                  updateLocalFilter(
+                    "musicFolderId",
+                    value === "__any__" ? undefined : value,
+                  )
+                }
+                disabled={musicFoldersLoading}
+              >
+                <SelectTrigger className="h-8">
+                  <SelectValue
+                    placeholder={
+                      musicFoldersLoading ? "Loading..." : "Any library"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__any__">Any library</SelectItem>
+                  {musicFolders.map((folder) => (
+                    <SelectItem key={folder.id} value={String(folder.id)}>
+                      {folder.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {/* Apply Button */}
           <Button className="w-full" onClick={handleApply}>
             Apply Filters
@@ -636,6 +691,13 @@ export function ActiveFilterBadges({ className }: { className?: string }) {
           ? `After ${filters.addedAfter}`
           : `Before ${filters.addedBefore}`;
     badges.push({ key: "addedAfter", label: `Added: ${dateLabel}` });
+  }
+
+  if (filters.musicFolderId) {
+    badges.push({
+      key: "musicFolderId",
+      label: `Library: ${filters.musicFolderId}`,
+    });
   }
 
   return (

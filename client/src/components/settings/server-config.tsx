@@ -14,6 +14,7 @@ import {
   Tag,
   Database,
   Folder,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
@@ -51,6 +52,7 @@ export function ServerConfig() {
   const [serverPort, setServerPort] = useState("");
   const [maxCoverSize, setMaxCoverSize] = useState("");
   const [readonlyTags, setReadonlyTags] = useState(false);
+  const [allowFileDeletion, setAllowFileDeletion] = useState(false);
 
   // Track the config we've synced form state from
   const [syncedConfig, setSyncedConfig] = useState<ServerConfigResponse | null>(
@@ -80,6 +82,7 @@ export function ServerConfig() {
     setServerPort(config.serverPort?.toString() || "");
     setMaxCoverSize(config.maxCoverSize?.toString() || "");
     setReadonlyTags(config.readonlyTags ?? false);
+    setAllowFileDeletion(config.allowFileDeletion ?? false);
   }
 
   // Derive hasChanges from current state vs config (computed during render, no effect needed)
@@ -88,7 +91,8 @@ export function ServerConfig() {
       serverHost !== (config.serverHost || "") ||
       serverPort !== (config.serverPort?.toString() || "") ||
       maxCoverSize !== (config.maxCoverSize?.toString() || "") ||
-      readonlyTags !== (config.readonlyTags ?? false)
+      readonlyTags !== (config.readonlyTags ?? false) ||
+      allowFileDeletion !== (config.allowFileDeletion ?? false)
     : false;
 
   // Update mutation
@@ -127,6 +131,10 @@ export function ServerConfig() {
           : null,
       readonlyTags:
         readonlyTags !== (config?.readonlyTags ?? false) ? readonlyTags : null,
+      allowFileDeletion:
+        allowFileDeletion !== (config?.allowFileDeletion ?? false)
+          ? allowFileDeletion
+          : null,
       adminUser: null,
       adminPassword: null,
       configured: null,
@@ -142,6 +150,7 @@ export function ServerConfig() {
       setServerPort(config.serverPort?.toString() || "");
       setMaxCoverSize(config.maxCoverSize?.toString() || "");
       setReadonlyTags(config.readonlyTags ?? false);
+      setAllowFileDeletion(config.allowFileDeletion ?? false);
     }
   };
 
@@ -316,6 +325,22 @@ export function ServerConfig() {
               </p>
             </div>
             <Switch checked={readonlyTags} onCheckedChange={setReadonlyTags} />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="flex items-center gap-2">
+                <Trash2 className="w-4 h-4 text-muted-foreground" />
+                Allow File Deletion
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Allow permanently deleting music files from the library
+              </p>
+            </div>
+            <Switch
+              checked={allowFileDeletion}
+              onCheckedChange={setAllowFileDeletion}
+            />
           </div>
         </div>
 

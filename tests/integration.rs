@@ -448,6 +448,39 @@ fn test_song_matching_endpoints() {
 }
 
 // ============================================================================
+// TAGGER TESTS (require scanned library)
+// ============================================================================
+
+#[test]
+fn test_tagger_endpoints() {
+    if !hurl_available() {
+        eprintln!("Skipping test: hurl not available");
+        return;
+    }
+
+    if !fixtures_exist() {
+        eprintln!(
+            "Skipping test: fixtures not generated. Run scripts/generate-test-fixtures.sh first."
+        );
+        return;
+    }
+
+    // Configure server to allow tag editing
+    let config = common::TestServerConfig {
+        readonly_tags: Some(false),
+        copy_fixtures: true,
+        ..Default::default()
+    };
+
+    let server = TestServer::with_config(config).expect("Failed to start test server");
+
+    // Scan the library first
+    server.scan_library().expect("Failed to scan library");
+
+    run_hurl_script(&server, &hurl_script("tagger.hurl")).expect("Tagger endpoint tests failed");
+}
+
+// ============================================================================
 // SCANNER TESTS
 // ============================================================================
 

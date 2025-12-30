@@ -381,7 +381,7 @@ pub async fn start_queue(
                 .unwrap_or(0)
         }
     } else {
-        request.start_index.min(total_count - 1)
+        request.start_index.min(total_count.saturating_sub(1))
     };
 
     // Verify start_song_id matches the song at start_index
@@ -435,40 +435,92 @@ pub async fn start_queue(
         _ => None,
     };
 
-    // Save queue to database
-    queries::create_queue(
-        &state.pool,
-        user.user_id,
-        source_type.as_str(),
-        request.source_id.as_deref(),
-        request.source_name.as_deref(),
-        &song_ids,
-        current_index,
-        is_shuffled,
-        shuffle_seed,
-        shuffle_indices.as_deref(),
-        repeat_mode,
-        filters_json.as_deref(),
-        sort_json.as_deref(),
-        "ferrotune",
-    )
-    .await?;
+    // Determine if we should use lazy mode
+    // Use lazy mode for large queues (>1000 songs) from reconstructable sources
+    // that aren't shuffled (shuffled queues need shuffle indices stored)
+    let use_lazy = !is_shuffled
+        && total_count > 1000
+        && request.song_ids.is_none() // Not explicit song IDs
+        && matches!(
+            source_type,
+            QueueSourceType::Library
+                | QueueSourceType::Search
+                | QueueSourceType::Genre
+                | QueueSourceType::Favorites
+                | QueueSourceType::Directory
+                | QueueSourceType::DirectoryFlat
+        );
 
-    // Fetch entries with entry_ids from database
-    let all_entries = queries::get_queue_entries_with_songs(&state.pool, user.user_id).await?;
+    let window = if use_lazy {
+        // Lazy queue: store parameters, not song IDs
+        queries::create_lazy_queue(
+            &state.pool,
+            user.user_id,
+            source_type.as_str(),
+            request.source_id.as_deref(),
+            request.source_name.as_deref(),
+            total_count as i64,
+            current_index,
+            is_shuffled,
+            shuffle_seed,
+            shuffle_indices.as_deref(),
+            repeat_mode,
+            filters_json.as_deref(),
+            sort_json.as_deref(),
+            None, // No explicit song IDs
+            "ferrotune",
+        )
+        .await?;
 
-    // Build initial window (±20 songs around current position)
-    let window = build_queue_window(
-        &state.pool,
-        user.user_id,
-        &all_entries,
-        current_index as usize,
-        20,
-        is_shuffled,
-        shuffle_indices.as_deref(),
-        inline_size,
-    )
-    .await?;
+        // Build initial window from the materialized songs we already have
+        let window_start = (current_index as usize).saturating_sub(20);
+        let window_end = (current_index as usize + 21).min(total_count);
+        let window_songs: Vec<_> = songs[window_start..window_end].to_vec();
+
+        build_lazy_queue_window(
+            &state.pool,
+            user.user_id,
+            &window_songs,
+            window_start,
+            inline_size,
+        )
+        .await?
+    } else {
+        // Regular queue: store all song IDs
+        queries::create_queue(
+            &state.pool,
+            user.user_id,
+            source_type.as_str(),
+            request.source_id.as_deref(),
+            request.source_name.as_deref(),
+            &song_ids,
+            current_index,
+            is_shuffled,
+            shuffle_seed,
+            shuffle_indices.as_deref(),
+            repeat_mode,
+            filters_json.as_deref(),
+            sort_json.as_deref(),
+            "ferrotune",
+        )
+        .await?;
+
+        // Fetch entries with entry_ids from database
+        let all_entries = queries::get_queue_entries_with_songs(&state.pool, user.user_id).await?;
+
+        // Build initial window (±20 songs around current position)
+        build_queue_window(
+            &state.pool,
+            user.user_id,
+            &all_entries,
+            current_index as usize,
+            20,
+            is_shuffled,
+            shuffle_indices.as_deref(),
+            inline_size,
+        )
+        .await?
+    };
 
     Ok((
         StatusCode::OK,
@@ -496,21 +548,40 @@ pub async fn get_queue(
     let limit = params.limit.unwrap_or(50).min(200);
     let inline_size = params.inline_images.get_size();
 
-    // Get all queue entries with songs (we need them for shuffle mapping)
-    let all_entries = queries::get_queue_entries_with_songs(&state.pool, user.user_id).await?;
-    let total_count = all_entries.len();
+    // Handle lazy queues differently
+    let (total_count, window) = if queue.is_lazy {
+        // Get total count from queue or compute it
+        let total = get_lazy_queue_count(&state.pool, &queue, user.user_id).await?;
 
-    let window = build_queue_window_range(
-        &state.pool,
-        user.user_id,
-        &all_entries,
-        offset,
-        limit,
-        queue.is_shuffled,
-        queue.shuffle_indices_json.as_deref(),
-        inline_size,
-    )
-    .await?;
+        // Materialize just the page we need
+        let page_songs =
+            materialize_lazy_queue_page(&state.pool, &queue, user.user_id, offset, limit).await?;
+
+        // Build window from the page
+        let window =
+            build_lazy_queue_window(&state.pool, user.user_id, &page_songs, offset, inline_size)
+                .await?;
+
+        (total, window)
+    } else {
+        // Original behavior: get all entries from database
+        let all_entries = queries::get_queue_entries_with_songs(&state.pool, user.user_id).await?;
+        let total = all_entries.len();
+
+        let window = build_queue_window_range(
+            &state.pool,
+            user.user_id,
+            &all_entries,
+            offset,
+            limit,
+            queue.is_shuffled,
+            queue.shuffle_indices_json.as_deref(),
+            inline_size,
+        )
+        .await?;
+
+        (total, window)
+    };
 
     Ok((
         StatusCode::OK,
@@ -550,28 +621,53 @@ pub async fn get_current_window(
 
     let radius = params.radius.unwrap_or(20);
     let inline_size = params.inline_images.get_size();
+    let current_index = queue.current_index as usize;
 
-    // Get all queue entries with songs
-    let all_entries = queries::get_queue_entries_with_songs(&state.pool, user.user_id).await?;
-    let total_count = all_entries.len();
+    // Handle lazy queues differently
+    let (total_count, window) = if queue.is_lazy {
+        // Get total count from queue
+        let total = get_lazy_queue_count(&state.pool, &queue, user.user_id).await?;
 
-    let window = build_queue_window(
-        &state.pool,
-        user.user_id,
-        &all_entries,
-        queue.current_index as usize,
-        radius,
-        queue.is_shuffled,
-        queue.shuffle_indices_json.as_deref(),
-        inline_size,
-    )
-    .await?;
+        // Calculate window range
+        let start = current_index.saturating_sub(radius);
+        let end = (current_index + radius + 1).min(total);
+        let limit = end - start;
+
+        // Materialize just the window we need
+        let page_songs =
+            materialize_lazy_queue_page(&state.pool, &queue, user.user_id, start, limit).await?;
+
+        // Build window from the page
+        let window =
+            build_lazy_queue_window(&state.pool, user.user_id, &page_songs, start, inline_size)
+                .await?;
+
+        (total, window)
+    } else {
+        // Original behavior: get all entries from database
+        let all_entries = queries::get_queue_entries_with_songs(&state.pool, user.user_id).await?;
+        let total = all_entries.len();
+
+        let window = build_queue_window(
+            &state.pool,
+            user.user_id,
+            &all_entries,
+            current_index,
+            radius,
+            queue.is_shuffled,
+            queue.shuffle_indices_json.as_deref(),
+            inline_size,
+        )
+        .await?;
+
+        (total, window)
+    };
 
     Ok((
         StatusCode::OK,
         Json(GetQueueResponse {
             total_count,
-            current_index: queue.current_index as usize,
+            current_index,
             position_ms: queue.position_ms,
             is_shuffled: queue.is_shuffled,
             repeat_mode: queue.repeat_mode.clone(),
@@ -1237,6 +1333,8 @@ fn build_search_params_from_json(
         added_after: None,
         added_before: None,
         inline_images: None, // Not used for queue materialization
+        missing_cover_art: None,
+        file_format: None,
     };
 
     // Parse filters
@@ -1287,6 +1385,12 @@ fn build_search_params_from_json(
             if let Some(v) = obj.get("addedBefore").and_then(|v| v.as_str()) {
                 params.added_before = Some(v.to_string());
             }
+            if let Some(v) = obj.get("missingCoverArt").and_then(|v| v.as_bool()) {
+                params.missing_cover_art = Some(v);
+            }
+            if let Some(v) = obj.get("fileFormat").and_then(|v| v.as_str()) {
+                params.file_format = Some(v.to_string());
+            }
         }
     }
 
@@ -1303,6 +1407,131 @@ fn build_search_params_from_json(
     }
 
     params
+}
+
+/// Materialize a page of songs from a lazy queue
+/// This re-runs the materialization query with pagination
+pub async fn materialize_lazy_queue_page(
+    pool: &sqlx::SqlitePool,
+    queue: &crate::db::models::PlayQueue,
+    user_id: i64,
+    offset: usize,
+    limit: usize,
+) -> Result<Vec<crate::db::models::Song>> {
+    // If we have explicit song IDs, use those
+    if let Some(ref song_ids) = queue.parse_song_ids() {
+        // Get the slice we need
+        let page_ids: Vec<&str> = song_ids
+            .iter()
+            .skip(offset)
+            .take(limit)
+            .map(|s| s.as_str())
+            .collect();
+
+        if page_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Fetch songs by IDs - need to convert to owned strings for the query
+        let page_ids_owned: Vec<String> = page_ids.iter().map(|s| s.to_string()).collect();
+        return Ok(queries::get_songs_by_ids(pool, &page_ids_owned).await?);
+    }
+
+    // Parse the source parameters
+    let source_type = QueueSourceType::from_str(&queue.source_type);
+    let filters: Option<serde_json::Value> = queue
+        .filters_json
+        .as_ref()
+        .and_then(|s| serde_json::from_str(s).ok());
+    let sort: Option<serde_json::Value> = queue
+        .sort_json
+        .as_ref()
+        .and_then(|s| serde_json::from_str(s).ok());
+
+    // For shuffled queues, we need the full list + shuffle indices
+    // This is a fallback - ideally we'd use a deterministic permutation
+    if queue.is_shuffled {
+        // Materialize all songs and apply shuffle
+        let all_songs = materialize_queue_songs(
+            pool,
+            user_id,
+            source_type,
+            queue.source_id.as_deref(),
+            filters.as_ref(),
+            sort.as_ref(),
+        )
+        .await?;
+
+        // Apply shuffle indices if available
+        if let Some(indices) = queue.shuffle_indices() {
+            let shuffled: Vec<crate::db::models::Song> = indices
+                .iter()
+                .skip(offset)
+                .take(limit)
+                .filter_map(|&idx| all_songs.get(idx).cloned())
+                .collect();
+            return Ok(shuffled);
+        }
+
+        // No shuffle indices, return unshuffled
+        return Ok(all_songs.into_iter().skip(offset).take(limit).collect());
+    }
+
+    // For non-shuffled queues, we can materialize just the page
+    // However, the current materialization functions don't support pagination
+    // So we materialize all and slice - this could be optimized further
+    let all_songs = materialize_queue_songs(
+        pool,
+        user_id,
+        source_type,
+        queue.source_id.as_deref(),
+        filters.as_ref(),
+        sort.as_ref(),
+    )
+    .await?;
+
+    Ok(all_songs.into_iter().skip(offset).take(limit).collect())
+}
+
+/// Get the total count for a lazy queue
+/// This re-runs the count query based on source parameters
+pub async fn get_lazy_queue_count(
+    pool: &sqlx::SqlitePool,
+    queue: &crate::db::models::PlayQueue,
+    user_id: i64,
+) -> Result<usize> {
+    // If we have a cached total_count, use it
+    if let Some(count) = queue.total_count {
+        return Ok(count as usize);
+    }
+
+    // If we have explicit song IDs, count those
+    if let Some(ref song_ids) = queue.parse_song_ids() {
+        return Ok(song_ids.len());
+    }
+
+    // Otherwise, materialize and count
+    let source_type = QueueSourceType::from_str(&queue.source_type);
+    let filters: Option<serde_json::Value> = queue
+        .filters_json
+        .as_ref()
+        .and_then(|s| serde_json::from_str(s).ok());
+    let sort: Option<serde_json::Value> = queue
+        .sort_json
+        .as_ref()
+        .and_then(|s| serde_json::from_str(s).ok());
+
+    let songs = materialize_queue_songs(
+        pool,
+        user_id,
+        source_type,
+        queue.source_id.as_deref(),
+        filters.as_ref(),
+        sort.as_ref(),
+    )
+    .await?;
+
+    Ok(songs.len())
 }
 
 /// Generate shuffle indices that keep played tracks in order and only shuffle upcoming tracks.
@@ -1472,4 +1701,70 @@ async fn build_queue_window_range(
         .collect();
 
     Ok(QueueWindow { offset, songs })
+}
+
+/// Build a window of songs from a slice (for lazy queues)
+async fn build_lazy_queue_window(
+    pool: &sqlx::SqlitePool,
+    user_id: i64,
+    songs: &[crate::db::models::Song],
+    offset: usize,
+    inline_size: Option<crate::thumbnails::ThumbnailSize>,
+) -> Result<QueueWindow> {
+    if songs.is_empty() {
+        return Ok(QueueWindow {
+            offset,
+            songs: vec![],
+        });
+    }
+
+    let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
+
+    let starred_map = get_starred_map(pool, user_id, ItemType::Song, &song_ids).await?;
+    let ratings_map = get_ratings_map(pool, user_id, ItemType::Song, &song_ids).await?;
+
+    // Get inline thumbnails if requested
+    let thumbnails = if let Some(size) = inline_size {
+        let song_thumbnail_data: Vec<(String, Option<String>)> = songs
+            .iter()
+            .map(|s| (s.id.clone(), s.album_id.clone()))
+            .collect();
+        get_song_thumbnails_base64(pool, &song_thumbnail_data, size).await
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    let queue_songs: Vec<QueueSongEntry> = songs
+        .iter()
+        .enumerate()
+        .map(|(idx, song)| {
+            let starred = starred_map.get(&song.id).cloned();
+            let user_rating = ratings_map.get(&song.id).copied();
+            let cover_art_data = thumbnails.get(&song.id).cloned();
+
+            let song_response = song_to_response_with_stats(
+                song.clone(),
+                None,
+                starred,
+                user_rating,
+                None,
+                None,
+                cover_art_data,
+            );
+
+            // Generate a stable entry_id for lazy queue entries
+            let entry_id = format!("lazy-{}-{}", offset + idx, &song.id);
+
+            QueueSongEntry {
+                entry_id,
+                position: offset + idx,
+                song: song_response,
+            }
+        })
+        .collect();
+
+    Ok(QueueWindow {
+        offset,
+        songs: queue_songs,
+    })
 }

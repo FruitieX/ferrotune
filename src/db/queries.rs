@@ -9,16 +9,20 @@ use uuid::Uuid;
 // Song Query Constants
 // ============================================================================
 // These constants eliminate duplication across the many song query functions.
+// All song queries filter out songs marked for deletion (recycle bin).
 
 /// Base song query with artist and album joins (for simple lookups)
+/// Filters out songs in the recycle bin (marked_for_deletion_at IS NOT NULL)
 pub const SONG_BASE_QUERY: &str = r#"
     SELECT s.*, ar.name as artist_name, al.name as album_name
     FROM songs s
     INNER JOIN artists ar ON s.artist_id = ar.id
     LEFT JOIN albums al ON s.album_id = al.id
+    WHERE s.marked_for_deletion_at IS NULL
 "#;
 
 /// Song query with scrobble statistics (play count, last played)
+/// Filters out songs in the recycle bin (marked_for_deletion_at IS NOT NULL)
 pub const SONG_BASE_QUERY_WITH_SCROBBLES: &str = r#"
     SELECT s.*, ar.name as artist_name, al.name as album_name,
            pc.play_count, pc.last_played, NULL as starred_at
@@ -27,6 +31,7 @@ pub const SONG_BASE_QUERY_WITH_SCROBBLES: &str = r#"
     LEFT JOIN albums al ON s.album_id = al.id
     LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played 
                FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+    WHERE s.marked_for_deletion_at IS NULL
 "#;
 
 /// Standalone scrobble statistics JOIN clause for composing with custom queries.
@@ -36,6 +41,10 @@ pub const SCROBBLE_STATS_JOIN: &str = r#"
     LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played 
                FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
 "#;
+
+/// Standard WHERE clause for filtering out songs marked for deletion.
+/// Use this in custom queries that don't use SONG_BASE_QUERY constants.
+pub const SONG_NOT_DELETED_FILTER: &str = "s.marked_for_deletion_at IS NULL";
 
 // ============================================================================
 // User queries
@@ -216,7 +225,7 @@ pub async fn get_album_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option
 // Song queries
 pub async fn get_songs_by_album(pool: &SqlitePool, album_id: &str) -> sqlx::Result<Vec<Song>> {
     let query = format!(
-        "{} WHERE s.album_id = ? ORDER BY s.disc_number, s.track_number, s.title",
+        "{} AND s.album_id = ? ORDER BY s.disc_number, s.track_number, s.title",
         SONG_BASE_QUERY_WITH_SCROBBLES
     );
     sqlx::query_as::<_, Song>(&query)
@@ -237,7 +246,7 @@ pub async fn get_songs_by_artist(pool: &SqlitePool, artist_id: &str) -> sqlx::Re
          LEFT JOIN albums al ON s.album_id = al.id
          LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
                     FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
-         WHERE s.artist_id = ? OR al.artist_id = ?
+         WHERE s.marked_for_deletion_at IS NULL AND (s.artist_id = ? OR al.artist_id = ?)
          ORDER BY s.album_id, s.disc_number, s.track_number, s.title";
     sqlx::query_as::<_, Song>(query)
         .bind(artist_id)
@@ -247,7 +256,7 @@ pub async fn get_songs_by_artist(pool: &SqlitePool, artist_id: &str) -> sqlx::Re
 }
 
 pub async fn get_song_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<Song>> {
-    let query = format!("{} WHERE s.id = ?", SONG_BASE_QUERY);
+    let query = format!("{} AND s.id = ?", SONG_BASE_QUERY);
     sqlx::query_as::<_, Song>(&query)
         .bind(id)
         .fetch_optional(pool)
@@ -265,11 +274,11 @@ pub async fn get_songs_by_ids(pool: &SqlitePool, ids: &[String]) -> sqlx::Result
     let placeholders: Vec<&str> = ids.iter().map(|_| "?").collect();
     let placeholder_str = placeholders.join(", ");
 
-    // Filter by enabled music folders
+    // Filter by enabled music folders and not deleted
     let query = format!(
         "{} 
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         WHERE s.id IN ({}) AND mf.enabled = 1",
+         AND s.id IN ({}) AND mf.enabled = 1",
         SONG_BASE_QUERY.trim(),
         placeholder_str
     );
@@ -1076,6 +1085,22 @@ pub async fn delete_song(pool: &SqlitePool, id: &str) -> sqlx::Result<bool> {
     Ok(true)
 }
 
+/// Update a song's file path in the database
+pub async fn update_song_path(
+    pool: &SqlitePool,
+    song_id: &str,
+    new_path: &str,
+) -> sqlx::Result<bool> {
+    let result =
+        sqlx::query("UPDATE songs SET file_path = ?, updated_at = datetime('now') WHERE id = ?")
+            .bind(new_path)
+            .bind(song_id)
+            .execute(pool)
+            .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 // ============================================================================
 // Play Queue queries (server-side queue management)
 // ============================================================================
@@ -1196,8 +1221,8 @@ pub async fn create_queue(
     sqlx::query(
         "INSERT INTO play_queues (user_id, source_type, source_id, source_name, current_index, 
          position_ms, is_shuffled, shuffle_seed, shuffle_indices_json, repeat_mode,
-         filters_json, sort_json, created_at, updated_at, changed_by)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)
+         filters_json, sort_json, created_at, updated_at, changed_by, total_count, is_lazy, song_ids_json)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, 0, NULL)
          ON CONFLICT(user_id) DO UPDATE SET
            source_type = excluded.source_type,
            source_id = excluded.source_id,
@@ -1211,7 +1236,10 @@ pub async fn create_queue(
            filters_json = excluded.filters_json,
            sort_json = excluded.sort_json,
            updated_at = datetime('now'),
-           changed_by = excluded.changed_by",
+           changed_by = excluded.changed_by,
+           total_count = excluded.total_count,
+           is_lazy = excluded.is_lazy,
+           song_ids_json = excluded.song_ids_json",
     )
     .bind(user_id)
     .bind(source_type)
@@ -1225,6 +1253,80 @@ pub async fn create_queue(
     .bind(filters_json)
     .bind(sort_json)
     .bind(changed_by)
+    .bind(song_ids.len() as i64) // total_count
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Create a lazy queue that doesn't store individual song IDs
+/// Instead, songs are computed on-demand from the source parameters
+#[allow(clippy::too_many_arguments)]
+pub async fn create_lazy_queue(
+    pool: &SqlitePool,
+    user_id: i64,
+    source_type: &str,
+    source_id: Option<&str>,
+    source_name: Option<&str>,
+    total_count: i64,
+    current_index: i64,
+    is_shuffled: bool,
+    shuffle_seed: Option<i64>,
+    shuffle_indices_json: Option<&str>,
+    repeat_mode: &str,
+    filters_json: Option<&str>,
+    sort_json: Option<&str>,
+    song_ids_json: Option<&str>,
+    changed_by: &str,
+) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
+
+    // Delete existing queue entries (lazy queues don't use entries table)
+    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // Upsert queue metadata with is_lazy = true
+    sqlx::query(
+        "INSERT INTO play_queues (user_id, source_type, source_id, source_name, current_index, 
+         position_ms, is_shuffled, shuffle_seed, shuffle_indices_json, repeat_mode,
+         filters_json, sort_json, created_at, updated_at, changed_by, total_count, is_lazy, song_ids_json)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, 1, ?)
+         ON CONFLICT(user_id) DO UPDATE SET
+           source_type = excluded.source_type,
+           source_id = excluded.source_id,
+           source_name = excluded.source_name,
+           current_index = excluded.current_index,
+           position_ms = 0,
+           is_shuffled = excluded.is_shuffled,
+           shuffle_seed = excluded.shuffle_seed,
+           shuffle_indices_json = excluded.shuffle_indices_json,
+           repeat_mode = excluded.repeat_mode,
+           filters_json = excluded.filters_json,
+           sort_json = excluded.sort_json,
+           updated_at = datetime('now'),
+           changed_by = excluded.changed_by,
+           total_count = excluded.total_count,
+           is_lazy = 1,
+           song_ids_json = excluded.song_ids_json",
+    )
+    .bind(user_id)
+    .bind(source_type)
+    .bind(source_id)
+    .bind(source_name)
+    .bind(current_index)
+    .bind(is_shuffled)
+    .bind(shuffle_seed)
+    .bind(shuffle_indices_json)
+    .bind(repeat_mode)
+    .bind(filters_json)
+    .bind(sort_json)
+    .bind(changed_by)
+    .bind(total_count)
+    .bind(song_ids_json)
     .execute(&mut *tx)
     .await?;
 

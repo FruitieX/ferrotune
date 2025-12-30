@@ -163,7 +163,7 @@ pub async fn get_artist_thumbnails_base64(
         .collect()
 }
 
-/// Get thumbnails for songs (uses their album's thumbnail)
+/// Get thumbnails for songs (uses song's own cover art, falls back to album's cover art)
 pub async fn get_song_thumbnails_base64(
     pool: &SqlitePool,
     songs: &[(String, Option<String>)], // (song_id, album_id)
@@ -173,29 +173,71 @@ pub async fn get_song_thumbnails_base64(
         return HashMap::new();
     }
 
-    // Collect unique album IDs
-    let album_ids: Vec<String> = songs
-        .iter()
-        .filter_map(|(_, album_id)| album_id.clone())
-        .collect::<std::collections::HashSet<_>>()
+    let column = match size {
+        ThumbnailSize::Small => "small",
+        ThumbnailSize::Medium => "medium",
+        ThumbnailSize::Large => return HashMap::new(),
+    };
+
+    // First, try to get thumbnails from song's own cover_art_hash
+    let song_ids: Vec<String> = songs.iter().map(|(id, _)| id.clone()).collect();
+    let placeholders: Vec<&str> = song_ids.iter().map(|_| "?").collect();
+
+    let query = format!(
+        "SELECT s.id, t.{} FROM songs s 
+         INNER JOIN cover_art_thumbnails t ON s.cover_art_hash = t.hash 
+         WHERE s.id IN ({})",
+        column,
+        placeholders.join(", ")
+    );
+
+    let mut query_builder = sqlx::query_as::<_, (String, Vec<u8>)>(&query);
+    for id in &song_ids {
+        query_builder = query_builder.bind(id);
+    }
+
+    let song_results: Vec<(String, Vec<u8>)> = match query_builder.fetch_all(pool).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("Failed to fetch song thumbnails: {}", e);
+            Vec::new()
+        }
+    };
+
+    let mut result: HashMap<String, String> = song_results
         .into_iter()
+        .map(|(song_id, data)| (song_id, BASE64.encode(&data)))
         .collect();
 
-    // Get album thumbnails
-    let album_thumbnails = get_album_thumbnails_base64(pool, &album_ids, size).await;
-
-    // Map song IDs to their album's thumbnail
-    songs
+    // For songs that don't have their own cover art, fall back to album thumbnails
+    let songs_needing_album_fallback: Vec<&(String, Option<String>)> = songs
         .iter()
-        .filter_map(|(song_id, album_id)| {
-            album_id
-                .as_ref()
-                .and_then(|aid| album_thumbnails.get(aid))
-                .map(|thumb| (song_id.clone(), thumb.clone()))
-        })
-        .collect()
-    // TODO: Also fetch songs that have their own unique cover art (not album fallback)
-    // For now this just preserves existing album-fallback behavior
+        .filter(|(song_id, _)| !result.contains_key(song_id))
+        .collect();
+
+    if !songs_needing_album_fallback.is_empty() {
+        // Collect unique album IDs for songs needing fallback
+        let album_ids: Vec<String> = songs_needing_album_fallback
+            .iter()
+            .filter_map(|(_, album_id)| album_id.clone())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        // Get album thumbnails
+        let album_thumbnails = get_album_thumbnails_base64(pool, &album_ids, size).await;
+
+        // Map remaining songs to their album's thumbnail
+        for (song_id, album_id) in songs_needing_album_fallback {
+            if let Some(aid) = album_id {
+                if let Some(thumb) = album_thumbnails.get(aid) {
+                    result.insert(song_id.clone(), thumb.clone());
+                }
+            }
+        }
+    }
+
+    result
 }
 
 /// Generate a tiled playlist thumbnail from album thumbnails and return as base64

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, ChangeEvent } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Loader2,
@@ -182,6 +182,22 @@ export function ImportPlayCountsDialog({
     .reduce((sum, t) => sum + t.importPlayCount, 0);
 
   const hasUnsavedChanges = step === "preview" && selectedCount > 0;
+
+  // Check for duplicate imports by description (debounced)
+  const trimmedDescription = description.trim();
+  const duplicateCheck = useQuery({
+    queryKey: ["import-duplicate-check", trimmedDescription],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client || !trimmedDescription) return null;
+      return client.checkImportDuplicate(trimmedDescription);
+    },
+    enabled: !!trimmedDescription && step === "preview",
+    staleTime: 30000, // Cache for 30 seconds
+  });
+
+  const hasDuplicateWarning =
+    duplicateCheck.data?.exists && duplicateCheck.data.songCount > 0;
 
   // Handle file upload
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -555,9 +571,22 @@ export function ImportPlayCountsDialog({
                     placeholder="e.g., CSV import Dec 2024"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    className="flex-1"
+                    className={`flex-1 ${hasDuplicateWarning ? "border-yellow-500" : ""}`}
                   />
                 </div>
+
+                {/* Duplicate import warning */}
+                {hasDuplicateWarning && duplicateCheck.data && (
+                  <div className="flex items-center gap-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-yellow-600 dark:text-yellow-400 text-sm">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>
+                      An import with this description already exists (
+                      {duplicateCheck.data.songCount} songs,{" "}
+                      {duplicateCheck.data.totalPlays} plays). This may be a
+                      duplicate import.
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Track list */}

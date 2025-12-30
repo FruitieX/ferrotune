@@ -47,9 +47,9 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import {
-  FilterPopover,
+  AdvancedFilterDialog,
   ActiveFilterBadges,
-} from "@/components/shared/filter-popover";
+} from "@/components/shared/advanced-filter-dialog";
 import { cn } from "@/lib/utils";
 
 const tabs = [
@@ -215,8 +215,8 @@ export default function LibraryLayout({
           <h1 className="text-2xl font-bold shrink-0">Library</h1>
 
           {/* Search filter */}
-          <div className="flex-1 max-w-sm">
-            <div className="relative">
+          <div className="flex-1 max-w-sm flex items-center gap-2">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 type="text"
@@ -238,6 +238,10 @@ export default function LibraryLayout({
                 </Button>
               )}
             </div>
+            {/* Advanced filters - right next to search input */}
+            {(isSongsTab || isAlbumsTab || isArtistsTab) && (
+              <AdvancedFilterDialog />
+            )}
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
@@ -397,23 +401,6 @@ export default function LibraryLayout({
                   <List className="w-4 h-4" />
                 </Button>
               </>
-            )}
-
-            {/* Advanced filters - on songs, albums, and artists tabs */}
-            {(isSongsTab || isAlbumsTab || isArtistsTab) && (
-              <FilterPopover
-                showOptions={{
-                  year: isSongsTab || isAlbumsTab,
-                  genre: isSongsTab || isAlbumsTab,
-                  duration: isSongsTab,
-                  rating: isSongsTab || isAlbumsTab || isArtistsTab,
-                  starred: true,
-                  playCount: isSongsTab,
-                  bitrate: isSongsTab,
-                  dateAdded: isSongsTab,
-                  shuffleExcluded: isSongsTab,
-                }}
-              />
             )}
           </div>
         </div>

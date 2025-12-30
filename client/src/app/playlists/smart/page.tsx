@@ -8,9 +8,8 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Sparkles, Pencil, Trash2, MoreHorizontal, Save } from "lucide-react";
+import { Sparkles, Pencil, Trash2, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
-import { useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
@@ -174,39 +173,13 @@ function SmartPlaylistPageContent() {
     // When queue is shuffled, positions don't match - fall back to song ID
     if (queueState.isShuffled) return undefined;
 
-    // Check if the current view's filter/sort matches what was used to create the queue
-    // If they don't match, the display order differs from the queue order
-    const queueFilters = queueState.source?.filters;
-    const queueSort = queueState.source?.sort;
-
-    // Compare filters
-    const currentFilter = debouncedFilter || undefined;
-    const queueFilter = queueFilters?.filter as string | undefined;
-    const filtersMatch = currentFilter === queueFilter;
-
-    // Compare sort (only if not in custom order)
-    const currentSort =
-      sortConfig.field !== "custom"
-        ? { field: sortConfig.field, direction: sortConfig.direction }
-        : undefined;
-    const sortMatch =
-      (currentSort === undefined &&
-        (queueSort === undefined || queueSort === null)) ||
-      (currentSort !== undefined &&
-        queueSort !== undefined &&
-        queueSort !== null &&
-        currentSort.field === queueSort.field &&
-        currentSort.direction === queueSort.direction);
-
-    // If filter/sort don't match, display order differs from queue order
-    if (!filtersMatch || !sortMatch) return undefined;
-
     // Check if position matches (only reliable when not shuffled)
     const positionMatches = queueState.currentIndex === index;
     if (positionMatches) return true;
 
-    // Position doesn't match - this is not the current track
-    return false;
+    // Position doesn't match, return undefined to allow song ID fallback
+    // (sort/filter might have changed since playback started)
+    return undefined;
   };
 
   // Track selection
@@ -273,28 +246,6 @@ function SmartPlaylistPageContent() {
       toast.error("Failed to delete smart playlist");
     }
   };
-
-  // Materialize (save as regular playlist) mutation
-  const materializePlaylist = useMutation({
-    mutationFn: async () => {
-      if (!id) throw new Error("No playlist ID");
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      return client.materializeSmartPlaylist(id);
-    },
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      toast.success(
-        `Created playlist "${result.name}" with ${result.songCount} songs`,
-      );
-      router.push(`/playlists/details?id=${result.playlistId}`);
-    },
-    onError: (error) => {
-      toast.error("Failed to save as playlist", {
-        description: String(error),
-      });
-    },
-  });
 
   // Bulk actions
   const playSelectedNow = () => {
@@ -375,8 +326,9 @@ function SmartPlaylistPageContent() {
     <div className="min-h-screen">
       <DetailHeader
         showBackButton
-        coverType="smartPlaylist"
-        colorSeed={`smart-${id}`}
+        icon={Sparkles}
+        iconClassName="bg-linear-to-br from-purple-500 to-purple-800"
+        gradientColor="rgba(168,85,247,0.2)"
         label="Smart Playlist"
         title={displayName}
         subtitle={
@@ -406,7 +358,6 @@ function SmartPlaylistPageContent() {
             viewMode={viewMode}
             onViewModeChange={setViewMode}
             showCustomSort={true}
-            showAddedToPlaylist={true}
           />
         }
       >
@@ -417,13 +368,6 @@ function SmartPlaylistPageContent() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => materializePlaylist.mutate()}
-              disabled={materializePlaylist.isPending}
-            >
-              <Save className="w-4 h-4 mr-2" />
-              {materializePlaylist.isPending ? "Saving..." : "Save as Playlist"}
-            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
               <Pencil className="w-4 h-4 mr-2" />
               Edit Playlist

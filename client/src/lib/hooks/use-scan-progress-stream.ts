@@ -5,33 +5,45 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
-import { scanProgressAtom, scanLogsAtom } from "@/lib/store/scan";
+import {
+  scanProgressAtom,
+  scanLogsAtom,
+  shouldMonitorScanAtom,
+} from "@/lib/store/scan";
 import { isClientInitializedAtom } from "@/lib/store/auth";
 import type { ScanProgressUpdate } from "@/lib/api/types";
 
 /**
- * Hook to maintain a persistent SSE connection for scan progress updates.
- * This should be used in a top-level component to keep the scan state in sync
- * even when the scan dialog is closed.
+ * Hook to maintain an SSE connection for scan progress updates.
+ *
+ * The connection is only established when:
+ * 1. Initial status check shows a scan is in progress
+ * 2. User explicitly starts a scan (shouldMonitorScanAtom is set to true)
+ *
+ * The connection is closed when the scan completes.
  */
 export function useScanProgressStream() {
-  // We need to wait for the client to be initialized, not just connected
-  // This ensures getClient() returns a valid instance
   const isClientInitialized = useAtomValue(isClientInitializedAtom);
+  const shouldMonitor = useAtomValue(shouldMonitorScanAtom);
   const setProgress = useSetAtom(scanProgressAtom);
   const setLogs = useSetAtom(scanLogsAtom);
+  const setShouldMonitor = useSetAtom(shouldMonitorScanAtom);
   const queryClient = useQueryClient();
   const eventSourceRef = useRef<EventSource | null>(null);
   const wasScanning = useRef(false);
   const hasShownCompletionToast = useRef(false);
+  const hasCheckedInitialStatus = useRef(false);
 
+  // Effect 1: Check initial scan status on load (once)
   useEffect(() => {
-    if (!isClientInitialized) return;
+    if (!isClientInitialized || hasCheckedInitialStatus.current) return;
 
     const client = getClient();
     if (!client) return;
 
-    // Fetch initial status
+    hasCheckedInitialStatus.current = true;
+
+    // Fetch initial status to see if a scan is already in progress
     client
       .getFullScanStatus()
       .then((status) => {
@@ -55,13 +67,30 @@ export function useScanProgressStream() {
         });
         setLogs(status.logs);
 
+        // If a scan is in progress, start monitoring
         if (status.scanning) {
           wasScanning.current = true;
+          setShouldMonitor(true);
         }
       })
       .catch(() => {
         // Silently ignore errors fetching initial status
       });
+  }, [isClientInitialized, setProgress, setLogs, setShouldMonitor]);
+
+  // Effect 2: Manage SSE connection based on shouldMonitor
+  useEffect(() => {
+    if (!isClientInitialized || !shouldMonitor) {
+      // Close any existing connection if we shouldn't monitor
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      return;
+    }
+
+    const client = getClient();
+    if (!client) return;
 
     const connectToStream = () => {
       const streamUrl = client.getScanProgressStreamUrl();
@@ -74,14 +103,10 @@ export function useScanProgressStream() {
           setProgress(update);
 
           // Handle logs from SSE updates
-          // After first update, logs come incrementally so we append
-          // The first update from SSE contains all logs (not incremental)
-          // so we check if we already have logs before appending
           if (update.logs && update.logs.length > 0) {
             setLogs((prev) => {
-              // Check if these logs would be duplicates (first SSE message has all logs)
+              // Check if these logs would be duplicates
               if (prev.length > 0 && update.logs.length > 0) {
-                // Check if the first new log is already in our list (duplicate)
                 const lastPrevTimestamp = prev[prev.length - 1]?.timestamp;
                 const firstNewTimestamp = update.logs[0]?.timestamp;
                 if (
@@ -104,7 +129,7 @@ export function useScanProgressStream() {
             hasShownCompletionToast.current = false;
           }
 
-          // Show notification when scan completes
+          // Handle scan completion
           if (
             update.finished &&
             wasScanning.current &&
@@ -135,6 +160,9 @@ export function useScanProgressStream() {
             queryClient.invalidateQueries({ queryKey: ["playlists"] });
 
             wasScanning.current = false;
+
+            // Stop monitoring since scan is complete
+            setShouldMonitor(false);
           }
         } catch {
           // Ignore parse errors (keep-alive messages)
@@ -146,9 +174,9 @@ export function useScanProgressStream() {
         eventSource.close();
         eventSourceRef.current = null;
 
-        // Reconnect after 5 seconds
+        // Only reconnect if we should still be monitoring
         setTimeout(() => {
-          if (isClientInitialized) {
+          if (shouldMonitor && isClientInitialized) {
             connectToStream();
           }
         }, 5000);
@@ -163,5 +191,12 @@ export function useScanProgressStream() {
         eventSourceRef.current = null;
       }
     };
-  }, [isClientInitialized, setProgress, setLogs, queryClient]);
+  }, [
+    isClientInitialized,
+    shouldMonitor,
+    setProgress,
+    setLogs,
+    setShouldMonitor,
+    queryClient,
+  ]);
 }

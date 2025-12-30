@@ -99,6 +99,9 @@ tasks:
     command: "npx tsc --noEmit"
     inputs:
       - "@group(sources)"
+      # Include Next.js generated types - cache must invalidate when these change/are missing
+      - ".next/types/**/*.ts"
+      - ".next-dev/types/**/*.ts"
     deps:
       - "install"
       - "ferrotune:generate-bindings"

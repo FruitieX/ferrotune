@@ -314,7 +314,7 @@ pub async fn get_random_songs_logic(
          INNER JOIN artists ar ON s.artist_id = ar.id 
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         WHERE mf.enabled = 1
+         WHERE mf.enabled = 1 AND s.marked_for_deletion_at IS NULL
            AND (? IS NULL OR s.genre = ?)
            AND (? IS NULL OR s.year >= ?)
            AND (? IS NULL OR s.year <= ?)
@@ -385,7 +385,7 @@ pub async fn get_songs_by_genre_logic(
          INNER JOIN artists ar ON s.artist_id = ar.id 
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         WHERE s.genre = ? AND mf.enabled = 1
+         WHERE s.genre = ? AND mf.enabled = 1 AND s.marked_for_deletion_at IS NULL
          ORDER BY s.title COLLATE NOCASE
          LIMIT ? OFFSET ?",
     )

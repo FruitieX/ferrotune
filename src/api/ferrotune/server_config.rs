@@ -31,6 +31,8 @@ pub struct ServerConfigResponse {
     pub max_cover_size: u32,
     /// Whether tag editing is disabled
     pub readonly_tags: bool,
+    /// Whether file deletion is allowed
+    pub allow_file_deletion: bool,
     /// Whether the server has been configured (first-run complete)
     pub configured: bool,
     /// Database path (read-only, from config file or default)
@@ -58,6 +60,8 @@ pub struct UpdateServerConfigRequest {
     pub max_cover_size: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub readonly_tags: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_file_deletion: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub configured: Option<bool>,
 }
@@ -99,6 +103,27 @@ fn parse_json<T: serde::de::DeserializeOwned>(value: Option<String>, default: T)
         .unwrap_or(default)
 }
 
+/// Check if tag editing is enabled (reads from database, falls back to startup config).
+/// This allows the toggle to apply immediately without server restart.
+pub async fn is_tag_editing_enabled(state: &AppState) -> bool {
+    // Check database first for dynamic config
+    let db_value = get_config_value(&state.pool, "music.readonly_tags").await;
+    if let Some(val) = db_value {
+        // Database has an explicit value - use it
+        let readonly: bool = parse_json(Some(val), state.config.music.readonly_tags);
+        return !readonly;
+    }
+    // Fall back to startup config value
+    !state.config.music.readonly_tags
+}
+
+/// Check if file deletion is enabled (reads from database, defaults to false).
+/// This controls whether users can mark and delete music files from the library.
+pub async fn is_file_deletion_enabled(state: &AppState) -> bool {
+    let db_value = get_config_value(&state.pool, "music.allow_file_deletion").await;
+    parse_json(db_value, false)
+}
+
 /// Get server configuration
 pub async fn get_server_config(
     user: FerrotuneAuthenticatedUser,
@@ -127,6 +152,10 @@ pub async fn get_server_config(
     let max_cover_size: u32 =
         parse_json(get_config_value(pool, "cache.max_cover_size").await, 1024);
     let readonly_tags: bool = parse_json(get_config_value(pool, "music.readonly_tags").await, true);
+    let allow_file_deletion: bool = parse_json(
+        get_config_value(pool, "music.allow_file_deletion").await,
+        false,
+    );
     let configured: bool = parse_json(get_config_value(pool, "configured").await, false);
 
     Ok(Json(ServerConfigResponse {
@@ -136,6 +165,7 @@ pub async fn get_server_config(
         admin_user,
         max_cover_size,
         readonly_tags,
+        allow_file_deletion,
         configured,
         database_path: state.config.database.path.to_string_lossy().to_string(),
         cache_path: state.config.cache.path.to_string_lossy().to_string(),
@@ -186,6 +216,14 @@ pub async fn update_server_config(
     }
     if let Some(readonly_tags) = request.readonly_tags {
         set_config_value(pool, "music.readonly_tags", &readonly_tags.to_string()).await?;
+    }
+    if let Some(allow_file_deletion) = request.allow_file_deletion {
+        set_config_value(
+            pool,
+            "music.allow_file_deletion",
+            &allow_file_deletion.to_string(),
+        )
+        .await?;
     }
     if let Some(configured) = request.configured {
         set_config_value(pool, "configured", &configured.to_string()).await?;

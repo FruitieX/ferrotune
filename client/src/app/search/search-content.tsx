@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useSetAtom } from "jotai";
+import { useSetAtom, useAtom, useAtomValue } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -17,6 +17,7 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
+import { advancedFiltersAtom, hasActiveFiltersAtom } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,10 @@ import { SongRow, SongRowSkeleton } from "@/components/browse/song-row";
 import { VirtualizedList } from "@/components/shared/virtualized-grid";
 import { GenreCard } from "@/components/browse/genre-card";
 import { CoverImage } from "@/components/shared/cover-image";
+import {
+  AdvancedFilterDialog,
+  ActiveFilterBadges,
+} from "@/components/shared/advanced-filter-dialog";
 import { formatDuration, formatCount } from "@/lib/utils/format";
 import type { Album, Artist, Playlist } from "@/lib/api/types";
 
@@ -39,6 +44,8 @@ export function SearchPageContent() {
   const searchParams = useSearchParams();
   const { isReady } = useAuth({ redirectToLogin: true });
   const startQueue = useSetAtom(startQueueAtom);
+  const [advancedFilters, setAdvancedFilters] = useAtom(advancedFiltersAtom);
+  const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
 
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
@@ -48,6 +55,13 @@ export function SearchPageContent() {
     "all" | "artists" | "albums" | "songs" | "genres" | "playlists"
   >("all");
   const debouncedQuery = useDebounce(query, 300);
+
+  // Clear filters when leaving search page
+  useEffect(() => {
+    return () => {
+      setAdvancedFilters({});
+    };
+  }, [setAdvancedFilters]);
 
   // Update URL when query changes
   useEffect(() => {
@@ -66,17 +80,18 @@ export function SearchPageContent() {
     isLoading,
     isFetching,
   } = useQuery({
-    queryKey: ["search", debouncedQuery],
+    queryKey: ["search", debouncedQuery, advancedFilters],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.search3({
         query: debouncedQuery,
-        artistCount: 20,
-        albumCount: 20,
+        artistCount: hasActiveFilters ? 0 : 20, // Only show songs when filters active
+        albumCount: hasActiveFilters ? 0 : 20,
         songCount: 50,
         // Request medium thumbnails for cards (overview) and small for song rows
         inlineImages: "medium",
+        ...advancedFilters,
       });
       return response.searchResult3;
     },
@@ -153,6 +168,7 @@ export function SearchPageContent() {
     name: `Search: ${debouncedQuery}`,
     filters: {
       query: debouncedQuery,
+      ...advancedFilters,
     },
     sort: {
       field: "title",
@@ -172,29 +188,38 @@ export function SearchPageContent() {
       {/* Header with search input */}
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
         <div className="px-4 lg:px-6 py-4">
-          <div className="relative max-w-xl">
-            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Search for artists, albums, or songs..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="pl-10 pr-10 h-12 text-lg bg-secondary border-0 rounded-full"
-              autoFocus
-            />
-            {isFetching && (
-              <Loader2 className="absolute right-12 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
-            )}
-            {query && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8"
-                onClick={() => setQuery("")}
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            )}
+          <div className="flex items-center justify-center gap-2 max-w-xl mx-auto">
+            <div className="relative flex-1">
+              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Search for artists, albums, or songs..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="pl-10 pr-10 h-12 text-lg bg-secondary border-0 rounded-full"
+                autoFocus
+              />
+              {isFetching && (
+                <Loader2 className="absolute right-12 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+              )}
+              {query && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8"
+                  onClick={() => setQuery("")}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
+            <AdvancedFilterDialog className="h-10 w-10" />
+          </div>
+        </div>
+        {/* Active filter badges */}
+        <div className="px-4 lg:px-6 min-h-2 pb-2">
+          <div className="max-w-xl mx-auto">
+            <ActiveFilterBadges />
           </div>
         </div>
       </header>

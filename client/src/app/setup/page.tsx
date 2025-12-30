@@ -47,6 +47,8 @@ import {
   scanDialogOpenAtom,
   scanFolderIdAtom,
   scanFolderNameAtom,
+  isScanningAtom,
+  shouldMonitorScanAtom,
 } from "@/lib/store/scan";
 import { initializeClient, getClient } from "@/lib/api/client";
 import { DirectoryBrowser } from "@/components/admin/directory-browser";
@@ -83,9 +85,17 @@ export default function SetupPage() {
     string | null
   >(null);
   const [isValidatingFolder, setIsValidatingFolder] = useState(false);
+  // Track if user has manually edited the folder name (vs auto-filled from path)
+  const [folderNameManuallyEdited, setFolderNameManuallyEdited] =
+    useState(false);
   const setScanDialogOpen = useSetAtom(scanDialogOpenAtom);
   const setScanFolderId = useSetAtom(scanFolderIdAtom);
   const setScanFolderName = useSetAtom(scanFolderNameAtom);
+  const isScanning = useAtomValue(isScanningAtom);
+  const setShouldMonitor = useSetAtom(shouldMonitorScanAtom);
+
+  // Track if we've auto-started a scan in this session
+  const [hasAutoStartedScan, setHasAutoStartedScan] = useState(false);
 
   // Helper to open scanner for all libraries
   const openFullScan = () => {
@@ -237,6 +247,7 @@ export default function SetupPage() {
       setNewFolderName("");
       setNewFolderPath("");
       setNewFolderWatchEnabled(false);
+      setFolderNameManuallyEdited(false);
     },
     onError: (err: Error) => {
       setFolderValidationError(err.message);
@@ -306,9 +317,44 @@ export default function SetupPage() {
     deleteFolderMutation.mutate(folderId);
   };
 
-  // Continue mutation - just updates password if needed and moves to scan
+  // Check if pending folder form is filled out
+  const hasPendingFolder =
+    newFolderName.trim() !== "" && newFolderPath.trim() !== "";
+
+  // Continue mutation - adds pending folder if form filled, updates password if needed, and moves to scan
   const continueMutation = useMutation({
     mutationFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+
+      // If folder form is filled, add it first
+      if (hasPendingFolder) {
+        // Validate the path
+        const validation = await client.validatePath(newFolderPath.trim());
+        if (!validation.valid) {
+          throw new Error(validation.error || "Path is not a valid directory");
+        }
+
+        // Check if path is already in the list
+        if (folders.some((f) => f.path === newFolderPath.trim())) {
+          throw new Error("This folder is already added");
+        }
+
+        // Create the folder
+        await client.createMusicFolder(
+          newFolderName.trim(),
+          newFolderPath.trim(),
+          newFolderWatchEnabled,
+        );
+
+        // Clear the form
+        setNewFolderName("");
+        setNewFolderPath("");
+        setNewFolderWatchEnabled(false);
+        setFolderNameManuallyEdited(false);
+        queryClient.invalidateQueries({ queryKey: ["adminMusicFolders"] });
+      }
+
       // Update password if changed
       if (newPassword.trim() && newPassword !== password) {
         await updatePasswordMutation.mutateAsync(newPassword);
@@ -330,21 +376,46 @@ export default function SetupPage() {
       setStep("scan");
     },
     onError: (err: Error) => {
-      toast.error(`Failed to update password: ${err.message}`);
+      setFolderValidationError(err.message);
+      toast.error(err.message);
     },
   });
 
-  // Get scan status
-  const { data: scanStatus } = useQuery({
-    queryKey: ["scanStatus"],
-    queryFn: async () => {
+  // Auto-start scanning when entering the scan step if library is empty and no scan has started
+  useEffect(() => {
+    if (step !== "scan" || hasAutoStartedScan || isScanning) return;
+
+    const autoStartScan = async () => {
       const client = getClient();
-      if (!client) throw new Error("Not connected");
-      return client.getScanStatus();
-    },
-    enabled: step === "scan",
-    refetchInterval: step === "scan" ? 1000 : false,
-  });
+      if (!client) return;
+
+      try {
+        // Check if library is empty
+        const stats = await client.getStats();
+        if (stats.songCount === 0 && !isScanning) {
+          // Library is empty, auto-start a scan
+          const response = await client.startScan({});
+          if (response.status === "started") {
+            setShouldMonitor(true);
+            setHasAutoStartedScan(true);
+            toast.success("Scan started automatically", {
+              description: "Your library is being indexed",
+            });
+          }
+        }
+      } catch {
+        // Silently ignore errors - user can still manually start scan
+      }
+    };
+
+    autoStartScan();
+  }, [
+    step,
+    hasAutoStartedScan,
+    isScanning,
+    setShouldMonitor,
+    setScanDialogOpen,
+  ]);
 
   // Complete setup mutation
   const completeSetupMutation = useMutation({
@@ -713,7 +784,10 @@ export default function SetupPage() {
                         id="folderName"
                         placeholder="My Music"
                         value={newFolderName}
-                        onChange={(e) => setNewFolderName(e.target.value)}
+                        onChange={(e) => {
+                          setNewFolderName(e.target.value);
+                          setFolderNameManuallyEdited(true);
+                        }}
                         disabled={isValidatingFolder}
                       />
                     </div>
@@ -724,6 +798,17 @@ export default function SetupPage() {
                         onChange={(path) => {
                           setNewFolderPath(path);
                           setFolderValidationError(null);
+                          // Auto-fill folder name from last path segment if not manually edited
+                          if (!folderNameManuallyEdited && path.trim()) {
+                            const lastSegment = path
+                              .trim()
+                              .split("/")
+                              .filter(Boolean)
+                              .pop();
+                            if (lastSegment) {
+                              setNewFolderName(lastSegment);
+                            }
+                          }
                         }}
                         disabled={isValidatingFolder}
                         error={folderValidationError}
@@ -787,7 +872,7 @@ export default function SetupPage() {
                               className="w-full"
                               onClick={() => continueMutation.mutate()}
                               disabled={
-                                folders.length === 0 ||
+                                (folders.length === 0 && !hasPendingFolder) ||
                                 continueMutation.isPending
                               }
                             >
@@ -805,7 +890,7 @@ export default function SetupPage() {
                             </Button>
                           </span>
                         </TooltipTrigger>
-                        {folders.length === 0 && (
+                        {folders.length === 0 && !hasPendingFolder && (
                           <TooltipContent>
                             <p>Add at least one music folder to continue</p>
                           </TooltipContent>
@@ -857,8 +942,7 @@ export default function SetupPage() {
 
                   <div className="text-center py-4">
                     <p className="text-muted-foreground mb-4">
-                      Open the scanner dialog to start scanning and monitor
-                      progress
+                      Open the scanner dialog monitor scanner progress
                     </p>
                     <Button onClick={openFullScan}>
                       <RefreshCw className="w-4 h-4 mr-2" />
@@ -871,7 +955,7 @@ export default function SetupPage() {
                     <Button
                       variant="outline"
                       onClick={() => setStep("folders")}
-                      disabled={scanStatus?.scanning}
+                      disabled={isScanning}
                     >
                       Back
                     </Button>

@@ -23,6 +23,7 @@ interface UsePreviewAudioReturn {
 
   // Actions
   play: (songId: string, startPosition?: number) => void;
+  playUrl: (url: string, id: string, startPosition?: number) => void;
   pause: () => void;
   toggle: () => void;
   seek: (position: number) => void; // 0-100
@@ -141,6 +142,42 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
     audio.load();
   };
 
+  // Play a URL directly (for staged files or other non-library audio)
+  const playUrl = (url: string, id: string, startPosition: number = 0) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    // Pause main player if playing
+    if (mainPlaybackState === "playing" && mainAudioElement) {
+      mainAudioElement.pause();
+    }
+
+    // If same id, just resume
+    if (currentSongIdRef.current === id && audio.src) {
+      audio.play().catch(console.error);
+      return;
+    }
+
+    // Load new audio
+    setIsLoading(true);
+    currentSongIdRef.current = id;
+    audio.src = url;
+
+    // Seek to start position after metadata loads
+    const handleLoadedMetadata = () => {
+      if (audio.duration > 0 && startPosition > 0) {
+        const seekTime = (startPosition / 100) * audio.duration;
+        audio.currentTime = seekTime;
+        setProgress(startPosition);
+      }
+      audio.play().catch(console.error);
+      audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+    };
+
+    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+    audio.load();
+  };
+
   const pause = () => {
     audioRef.current?.pause();
   };
@@ -191,6 +228,7 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
     isLoading,
     volume,
     play,
+    playUrl,
     pause,
     toggle,
     seek,

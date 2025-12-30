@@ -559,7 +559,7 @@ async fn get_directory_contents_for_library(
                 artist_id: Some(song.12.clone()),
                 album: song.4.clone(),
                 album_id: song.3.clone(),
-                cover_art: song.3.clone(), // Use album ID for cover art
+                cover_art: Some(song.0.clone()), // Use song ID for cover art
                 cover_art_data: thumbnails.get(&song.0).cloned(),
                 year: song.5,
                 genre: song.6.clone(),

@@ -1070,9 +1070,9 @@ function DraggablePlaylistGridCard({
     id: `playlist-${playlist.id}`,
   });
 
-  const coverArtUrl = playlist.coverArt
-    ? getClient()?.getCoverArtUrl(playlist.coverArt, 300)
-    : undefined;
+  // Use coverArt if available, otherwise use playlist ID (backend generates tiled cover)
+  const artId = playlist.coverArt || playlist.id;
+  const coverArtUrl = getClient()?.getCoverArtUrl(artId, 300);
 
   return (
     <div
@@ -1137,9 +1137,9 @@ function DraggablePlaylistListRow({
     id: `playlist-${playlist.id}`,
   });
 
-  const coverArtUrl = playlist.coverArt
-    ? getClient()?.getCoverArtUrl(playlist.coverArt, 80)
-    : undefined;
+  // Use coverArt if available, otherwise use playlist ID (backend generates tiled cover)
+  const artId = playlist.coverArt || playlist.id;
+  const coverArtUrl = getClient()?.getCoverArtUrl(artId, 80);
 
   // Build subtitle with comment and stats
   const stats = [

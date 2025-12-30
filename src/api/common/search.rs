@@ -124,6 +124,10 @@ pub struct SearchParams {
     pub added_after: Option<String>,
     /// Filter songs added before this ISO 8601 date (e.g., "2024-12-31")
     pub added_before: Option<String>,
+    /// Filter to only songs missing embedded cover art
+    pub missing_cover_art: Option<bool>,
+    /// Filter songs by file format (e.g., "mp3", "flac", "opus")
+    pub file_format: Option<String>,
 }
 
 /// Get ORDER BY clause for song sorting
@@ -180,7 +184,8 @@ pub struct SongFilterConditions {
 }
 
 pub fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> SongFilterConditions {
-    let mut conditions = Vec::new();
+    // Always exclude songs marked for deletion (in recycle bin)
+    let mut conditions = vec!["s.marked_for_deletion_at IS NULL".to_string()];
     let has_rating_filter = params.min_rating.is_some() || params.max_rating.is_some();
     let has_starred_filter = params.starred_only.unwrap_or(false);
     let has_shuffle_exclude_filter = params.shuffle_excluded_only.unwrap_or(false);
@@ -240,6 +245,18 @@ pub fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> Song
     if let Some(ref added_before) = params.added_before {
         let escaped_date = added_before.replace('\'', "''");
         conditions.push(format!("date(s.created_at) <= '{}'", escaped_date));
+    }
+    // Missing cover art filter - checks for songs without a thumbnail in the cache
+    if params.missing_cover_art.unwrap_or(false) {
+        conditions.push(
+            "NOT EXISTS (SELECT 1 FROM thumbnails t WHERE t.item_id = s.id AND t.item_type = 'song')"
+                .to_string(),
+        );
+    }
+    // File format filter
+    if let Some(ref format) = params.file_format {
+        let escaped_format = format.replace('\'', "''").to_lowercase();
+        conditions.push(format!("LOWER(s.file_format) = '{}'", escaped_format));
     }
 
     SongFilterConditions {

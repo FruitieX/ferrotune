@@ -61,7 +61,8 @@ export const isQueueLoadingAtom = atom<boolean>(false);
 export const isQueueOperationPendingAtom = atom<boolean>(false);
 
 // Flag to indicate queue is being restored (don't auto-play during restore)
-export const isRestoringQueueAtom = atom<boolean>(false);
+// Defaults to true to prevent autoplay until user explicitly interacts
+export const isRestoringQueueAtom = atom<boolean>(true);
 
 // Counter to signal when the audio engine should load a new track
 // Incremented when current track changes (not just position updates)

@@ -25,6 +25,7 @@ import {
   Music,
   Tag,
   Sparkles,
+  Import,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useHydrated } from "@/lib/hooks/use-hydrated";
@@ -614,6 +615,29 @@ export function Sidebar() {
             />
             {!isCollapsed && (
               <span className="truncate whitespace-nowrap">Profile</span>
+            )}
+          </Button>
+        </Link>
+
+        {/* Import link */}
+        <Link href="/import">
+          <Button
+            variant="ghost"
+            className={cn(
+              "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent overflow-hidden",
+              pathname.startsWith("/import") &&
+                "bg-sidebar-accent text-sidebar-primary font-semibold",
+              isCollapsed && "justify-center px-0",
+            )}
+          >
+            <Import
+              className={cn(
+                "w-5 h-5 shrink-0",
+                pathname.startsWith("/import") && "text-sidebar-primary",
+              )}
+            />
+            {!isCollapsed && (
+              <span className="truncate whitespace-nowrap">Manage</span>
             )}
           </Button>
         </Link>

@@ -871,49 +871,75 @@ async fn remove_missing_songs(
             .await?;
 
             if let Some((new_id, new_path)) = potential_rename {
-                // Found a rename! Update the old entry with the new path and delete the new entry
+                // Verify the target file actually exists on disk!
+                // This handles the case where both duplicate files were deleted
+                let full_new_path = base_path.join(&new_path);
+                if !full_new_path.exists() {
+                    tracing::debug!(
+                        "Skipping false rename detection: {} does not exist on disk",
+                        full_new_path.display()
+                    );
+                    continue;
+                }
+
+                // Found a genuine rename! Update the old entry with the new path and delete the new entry
                 if dry_run {
                     let full_old_path = base_path.join(old_path).to_string_lossy().to_string();
-                    let full_new_path = base_path.join(&new_path).to_string_lossy().to_string();
+                    let full_new_path_str = full_new_path.to_string_lossy().to_string();
                     tracing::info!(
                         "Would detect rename: {} -> {}",
                         full_old_path,
-                        full_new_path
+                        full_new_path_str
                     );
                     if let Some(ref state) = scan_state {
-                        state.track_renamed(&full_old_path, &full_new_path).await;
+                        state
+                            .track_renamed(&full_old_path, &full_new_path_str)
+                            .await;
                     }
                 } else {
                     // Start a transaction for the rename
                     let mut tx = pool.begin().await?;
 
-                    // Copy the new file_path and mtime to the old entry
-                    sqlx::query(
-                        "UPDATE songs SET 
-                            file_path = ?,
-                            file_mtime = (SELECT file_mtime FROM songs WHERE id = ?),
-                            updated_at = datetime('now')
-                         WHERE id = ?",
-                    )
-                    .bind(&new_path)
-                    .bind(&new_id)
-                    .bind(missing_id)
-                    .execute(&mut *tx)
-                    .await?;
+                    // Get the mtime from the new entry before deleting it
+                    let new_mtime: Option<(Option<i64>,)> =
+                        sqlx::query_as("SELECT file_mtime FROM songs WHERE id = ?")
+                            .bind(&new_id)
+                            .fetch_optional(&mut *tx)
+                            .await?;
 
-                    // Delete the newly created entry (duplicated by the scan)
+                    // Delete the newly created entry FIRST (to free up the file_path)
                     sqlx::query("DELETE FROM songs WHERE id = ?")
                         .bind(&new_id)
                         .execute(&mut *tx)
                         .await?;
 
+                    // Then copy the new file_path and mtime to the old entry
+                    sqlx::query(
+                        "UPDATE songs SET 
+                            file_path = ?,
+                            file_mtime = ?,
+                            updated_at = datetime('now')
+                         WHERE id = ?",
+                    )
+                    .bind(&new_path)
+                    .bind(new_mtime.and_then(|(m,)| m))
+                    .bind(missing_id)
+                    .execute(&mut *tx)
+                    .await?;
+
                     tx.commit().await?;
 
                     let full_old_path = base_path.join(old_path).to_string_lossy().to_string();
-                    let full_new_path = base_path.join(&new_path).to_string_lossy().to_string();
-                    tracing::info!("Detected rename: {} -> {}", full_old_path, full_new_path);
+                    let full_new_path_str = full_new_path.to_string_lossy().to_string();
+                    tracing::info!(
+                        "Detected rename: {} -> {}",
+                        full_old_path,
+                        full_new_path_str
+                    );
                     if let Some(ref state) = scan_state {
-                        state.track_renamed(&full_old_path, &full_new_path).await;
+                        state
+                            .track_renamed(&full_old_path, &full_new_path_str)
+                            .await;
                     }
                 }
                 renamed_ids.push(missing_id.clone());
@@ -1276,7 +1302,9 @@ async fn upsert_song(
                 album_artist_name,
                 metadata.year,
                 metadata.genre.as_deref(),
-                metadata.cover_art_hash.as_deref(), // Use first song's art as album art
+                metadata.cover_art_hash.as_deref(),
+                metadata.track_number,
+                metadata.disc_number,
             )
             .await?,
         )
@@ -1369,6 +1397,21 @@ async fn upsert_song(
         .bind(album_id)
         .execute(&mut *tx)
         .await?;
+
+        // Update album cover_art_hash to match the earliest track's cover art
+        // This must happen AFTER the song is inserted/updated so the query sees the new data
+        sqlx::query(
+            "UPDATE albums SET cover_art_hash = (
+                SELECT s.cover_art_hash FROM songs s 
+                WHERE s.album_id = ? 
+                ORDER BY COALESCE(s.disc_number, 1), COALESCE(s.track_number, 1)
+                LIMIT 1
+            ) WHERE id = ?",
+        )
+        .bind(album_id)
+        .bind(album_id)
+        .execute(&mut *tx)
+        .await?;
     }
 
     // Update album artist's album count
@@ -1417,6 +1460,7 @@ async fn get_or_create_artist(
     // But we could implement a logic to pick the "best" cover art for the artist later
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn get_or_create_album(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     name: &str,
@@ -1425,6 +1469,8 @@ async fn get_or_create_album(
     year: Option<i32>,
     genre: Option<&str>,
     cover_art_hash: Option<&str>,
+    disc_number: Option<u32>,
+    track_number: Option<u32>,
 ) -> Result<String> {
     // Try to find existing album by name and artist
     let existing: Option<(String, Option<String>)> = sqlx::query_as(
@@ -1436,9 +1482,37 @@ async fn get_or_create_album(
     .await?;
 
     if let Some((id, existing_hash)) = existing {
-        // Update metadata if changed (e.g. year found in later tracks)
-        // Also set cover_art_hash if it was missing
-        if existing_hash.is_none() && cover_art_hash.is_some() {
+        // Check if this is the earliest track we have in the album
+        // Query for the track with the lowest (disc_number, track_number) tuple
+        let earliest: Option<(i64, i64)> = sqlx::query_as(
+            "SELECT COALESCE(disc_number, 1), COALESCE(track_number, 1) FROM songs 
+             WHERE album_id = ? 
+             ORDER BY COALESCE(disc_number, 1), COALESCE(track_number, 1)
+             LIMIT 1",
+        )
+        .bind(&id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        let is_earliest_track = match earliest {
+            Some((earliest_disc, earliest_track)) => {
+                let this_disc = disc_number.unwrap_or(1) as i64;
+                let this_track = track_number.unwrap_or(1) as i64;
+
+                // This track is earliest if it matches or is before the current earliest
+                (this_disc, this_track) <= (earliest_disc, earliest_track)
+            }
+            None => true, // No tracks yet, this is the first
+        };
+
+        // Update cover_art_hash if:
+        // 1. Album has no cover art yet, OR
+        // 2. This is the earliest track and cover art changed
+        let should_update = cover_art_hash.is_some()
+            && (existing_hash.is_none()
+                || (is_earliest_track && existing_hash.as_deref() != cover_art_hash));
+
+        if should_update {
             sqlx::query("UPDATE albums SET cover_art_hash = ? WHERE id = ?")
                 .bind(cover_art_hash)
                 .bind(&id)

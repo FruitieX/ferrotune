@@ -26,6 +26,7 @@ import {
   scanDialogOpenAtom,
   scanFolderIdAtom,
   scanFolderNameAtom,
+  shouldMonitorScanAtom,
 } from "@/lib/store/scan";
 import {
   Dialog,
@@ -278,6 +279,7 @@ export function ScanDialog() {
   const logs = useAtomValue(scanLogsAtom);
   const setProgress = useSetAtom(scanProgressAtom);
   const setLogs = useSetAtom(scanLogsAtom);
+  const setShouldMonitor = useSetAtom(shouldMonitorScanAtom);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   // Local state for scan options
@@ -343,6 +345,8 @@ export function ScanDialog() {
       });
 
       if (response.status === "started") {
+        // Enable SSE monitoring for scan progress
+        setShouldMonitor(true);
         toast.success("Scan started", {
           description: response.message,
         });

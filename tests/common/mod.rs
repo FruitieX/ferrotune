@@ -53,6 +53,9 @@ pub struct TestServerConfig {
     pub copy_fixtures: bool,
     /// Additional configuration options to append
     pub extra_config: Option<String>,
+    /// Whether to allow tag editing (default: false - aka readonly)
+    /// Note: Default config sets this to true (readonly), so set this to Some(false) to enable editing.
+    pub readonly_tags: Option<bool>,
 }
 
 impl TestServer {
@@ -117,6 +120,7 @@ impl TestServer {
             &admin_user,
             &admin_password,
             config.extra_config.as_deref(),
+            config.readonly_tags.unwrap_or(true),
         );
         std::fs::write(&config_path, &config_content)?;
 
@@ -155,24 +159,81 @@ impl TestServer {
             binary, self.config_path
         );
 
-        let child = Command::new(&binary)
-            .arg("--config")
-            .arg(&self.config_path)
-            .arg("serve")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| TestServerError::ProcessStart(e.to_string()))?;
+        // Retry loop to handle port race conditions
+        // Sometimes another process grabs the port between when we release it and when the server binds
+        let max_retries = 3;
+        for attempt in 0..max_retries {
+            if attempt > 0 {
+                eprintln!("[test] Retry attempt {} of {}", attempt + 1, max_retries);
+                // Brief delay before retry
+                std::thread::sleep(Duration::from_millis(100));
+            }
 
-        self.process = Some(child);
+            let child = Command::new(&binary)
+                .arg("--config")
+                .arg(&self.config_path)
+                .arg("serve")
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped()) // Capture stderr to see why server failed
+                .spawn()
+                .map_err(|e| TestServerError::ProcessStart(e.to_string()))?;
 
-        // Poll the ping endpoint to confirm server is ready
-        let timeout = Duration::from_secs(30);
-        self.wait_for_ready(timeout)?;
+            self.process = Some(child);
 
-        eprintln!("[test] Server ready at {}", self.base_url);
+            // Poll the ping endpoint to confirm server is ready
+            let timeout = Duration::from_secs(30);
+            match self.wait_for_ready(timeout) {
+                Ok(()) => {
+                    eprintln!("[test] Server ready at {}", self.base_url);
+                    return Ok(());
+                }
+                Err(TestServerError::ProcessStart(msg)) if attempt < max_retries - 1 => {
+                    eprintln!("[test] Server failed to start: {}", msg);
+                    // Try to get stderr for debugging
+                    if let Some(mut process) = self.process.take() {
+                        if let Some(stderr) = process.stderr.take() {
+                            let mut stderr_content = String::new();
+                            use std::io::Read;
+                            if let Ok(bytes) = std::io::BufReader::new(stderr)
+                                .take(4096)
+                                .read_to_string(&mut stderr_content)
+                            {
+                                if bytes > 0 {
+                                    eprintln!("[test] Server stderr: {}", stderr_content);
+                                }
+                            }
+                        }
+                        let _ = process.kill();
+                        let _ = process.wait();
+                    }
+                    continue;
+                }
+                Err(e) => {
+                    // Try to get stderr for debugging on final failure
+                    if let Some(mut process) = self.process.take() {
+                        if let Some(stderr) = process.stderr.take() {
+                            let mut stderr_content = String::new();
+                            use std::io::Read;
+                            if let Ok(bytes_read) = std::io::BufReader::new(stderr)
+                                .take(4096)
+                                .read_to_string(&mut stderr_content)
+                            {
+                                if bytes_read > 0 {
+                                    eprintln!("[test] Server stderr: {}", stderr_content);
+                                }
+                            }
+                        }
+                        let _ = process.kill();
+                        let _ = process.wait();
+                    }
+                    return Err(e);
+                }
+            }
+        }
 
-        Ok(())
+        Err(TestServerError::ProcessStart(
+            "Failed to start server after max retries".to_string(),
+        ))
     }
 
     /// Wait for the server to become ready by polling the ping endpoint.
@@ -358,6 +419,7 @@ fn generate_config(
     admin_user: &str,
     admin_password: &str,
     extra_config: Option<&str>,
+    readonly_tags: bool,
 ) -> String {
     let mut config = format!(
         r#"[server]
@@ -372,7 +434,7 @@ admin_password = "{admin_password}"
 path = "{db_path}"
 
 [music]
-readonly_tags = true
+readonly_tags = {readonly_tags}
 
 [[music.folders]]
 name = "Test Music"
@@ -389,6 +451,7 @@ max_cover_size = 512
         db_path = db_path.display(),
         music_dir = music_dir.display(),
         cache_dir = cache_dir.display(),
+        readonly_tags = readonly_tags,
     );
 
     if let Some(extra) = extra_config {

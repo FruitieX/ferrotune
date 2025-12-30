@@ -496,11 +496,10 @@ pub fn song_to_response_with_stats(
         .map(|s| (s.play_count, s.last_played))
         .unwrap_or((None, None));
 
-    // Use album ID for cover art (prefer album object, fall back to song's album_id, then song id)
-    let cover_art = album
-        .map(|a| a.id.clone())
-        .or_else(|| song.album_id.clone())
-        .unwrap_or_else(|| song.id.clone());
+    // Use song's own ID for cover art. The cover art endpoint will look up the song's
+    // cover_art_hash first, falling back to album cover only if the song has no hash.
+    // This enables individual songs to have different cover art than their album.
+    let cover_art = song.id.clone();
 
     // Use album name from Album object if provided, otherwise use song's album_name field
     let album_name = album

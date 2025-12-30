@@ -23,9 +23,9 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import {
-  FilterPopover,
+  AdvancedFilterDialog,
   ActiveFilterBadges,
-} from "@/components/shared/filter-popover";
+} from "@/components/shared/advanced-filter-dialog";
 import type {
   SortField,
   SortDirection,
@@ -88,16 +88,6 @@ interface SongListToolbarProps {
   showCustomSort?: boolean;
   /** Show the "Added to Playlist" sort option (for playlist views) */
   showAddedToPlaylist?: boolean;
-
-  // Advanced filter options
-  advancedFilterOptions?: {
-    year?: boolean;
-    genre?: boolean;
-    duration?: boolean;
-    rating?: boolean;
-    starred?: boolean;
-    playCount?: boolean;
-  };
 }
 
 export function SongListToolbar({
@@ -117,7 +107,6 @@ export function SongListToolbar({
   showAdvancedFilters = false,
   showCustomSort = false,
   showAddedToPlaylist = false,
-  advancedFilterOptions,
 }: SongListToolbarProps) {
   const handleSort = (field: SortField) => {
     // For "custom" sort (playlist order), don't toggle direction - always use ascending
@@ -272,9 +261,7 @@ export function SongListToolbar({
         )}
 
         {/* Advanced filters */}
-        {showAdvancedFilters && (
-          <FilterPopover showOptions={advancedFilterOptions} />
-        )}
+        {showAdvancedFilters && <AdvancedFilterDialog />}
       </div>
 
       {/* Active filter badges */}

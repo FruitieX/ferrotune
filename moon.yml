@@ -13,6 +13,7 @@ project:
 fileGroups:
   sources:
     - 'src/**/*'
+    - 'migrations/**/*'
     - 'Cargo.toml'
     - 'Cargo.lock'
   tests:
@@ -257,6 +258,17 @@ tasks:
       - '@group(sources)'
       - '@group(tests)'
       - 'tests/hurl/09_playqueue.hurl'
+      - '@group(fixtures)'
+    deps:
+      - 'build'
+      - 'generate-fixtures'
+
+  hurl-tagger:
+    command: 'cargo test --test integration test_tagger_endpoints -- --nocapture'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - 'tests/hurl/tagger.hurl'
       - '@group(fixtures)'
     deps:
       - 'build'

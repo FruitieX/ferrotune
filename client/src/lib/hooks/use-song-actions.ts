@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import {
   startQueueAtom,
   addToQueueAtom,
@@ -47,6 +49,11 @@ interface UseSongActionsReturn {
   handleAddToQueue: () => void;
   handleDownload: () => void;
 
+  // Recycle bin
+  confirmDeletionOpen: boolean;
+  setConfirmDeletionOpen: (open: boolean) => void;
+  handleConfirmDeletion: () => Promise<void>;
+
   // Dialog state
   addToPlaylistOpen: boolean;
   setAddToPlaylistOpen: (open: boolean) => void;
@@ -64,6 +71,8 @@ export function useSongActions({
   songIndex,
   queueSource,
 }: UseSongActionsOptions): UseSongActionsReturn {
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
@@ -71,6 +80,7 @@ export function useSongActions({
   const [currentRating, setCurrentRating] = useState(song.userRating ?? 0);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [confirmDeletionOpen, setConfirmDeletionOpen] = useState(false);
 
   const isExcludedFromShuffle = shuffleExcludes.has(song.id);
 
@@ -172,6 +182,41 @@ export function useSongActions({
     window.open(downloadUrl, "_blank");
   };
 
+  const handleConfirmDeletion = async () => {
+    const client = getClient();
+    if (!client) return;
+
+    try {
+      await client.markForDeletion([song.id]);
+      setConfirmDeletionOpen(false);
+      toast.success(`"${song.title}" moved to recycle bin`, {
+        description: "The file will be permanently deleted in 30 days",
+        action: {
+          label: "View Recycle Bin",
+          onClick: () => router.push("/admin/recycle-bin"),
+        },
+      });
+      // Invalidate all queries that might include this song
+      queryClient.invalidateQueries({ queryKey: ["songs"] });
+      queryClient.invalidateQueries({ queryKey: ["albums"] });
+      queryClient.invalidateQueries({ queryKey: ["album"] });
+      queryClient.invalidateQueries({ queryKey: ["artists"] });
+      queryClient.invalidateQueries({ queryKey: ["artist"] });
+      queryClient.invalidateQueries({ queryKey: ["genres"] });
+      queryClient.invalidateQueries({ queryKey: ["starred"] });
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      queryClient.invalidateQueries({ queryKey: ["playlist"] });
+      queryClient.invalidateQueries({ queryKey: ["search"] });
+      queryClient.invalidateQueries({ queryKey: ["random"] });
+      queryClient.invalidateQueries({ queryKey: ["recentAlbums"] });
+      queryClient.invalidateQueries({ queryKey: ["serverStats"] });
+      queryClient.invalidateQueries({ queryKey: ["recycleBin"] });
+    } catch (error) {
+      toast.error("Failed to mark for deletion");
+      console.error(error);
+    }
+  };
+
   return {
     isStarred,
     toggleStar,
@@ -183,6 +228,9 @@ export function useSongActions({
     handlePlayNext,
     handleAddToQueue,
     handleDownload,
+    confirmDeletionOpen,
+    setConfirmDeletionOpen,
+    handleConfirmDeletion,
     addToPlaylistOpen,
     setAddToPlaylistOpen,
     detailsOpen,

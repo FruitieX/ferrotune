@@ -87,6 +87,140 @@ pub async fn delete_song(
     }
 }
 
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct DeleteSongFileResponse {
+    success: bool,
+    deleted_count: i32,
+    message: String,
+}
+
+/// Request body for deleting song files
+#[derive(serde::Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct DeleteSongFilesRequest {
+    /// List of song IDs to delete
+    pub song_ids: Vec<String>,
+}
+
+/// Delete songs from both the database AND the file system.
+///
+/// POST /ferrotune/songs/delete-files
+///
+/// This is a destructive operation that:
+/// 1. Deletes the actual audio files from disk
+/// 2. Removes the songs from the database
+///
+/// Requires `allow_file_deletion = true` in server config.
+pub async fn delete_song_files(
+    _user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<DeleteSongFilesRequest>,
+) -> impl IntoResponse {
+    // Check if file deletion is enabled
+    if !super::server_config::is_file_deletion_enabled(&state).await {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new(
+                "File deletion is disabled. Enable 'Allow file deletion' in server settings.",
+            )),
+        )
+            .into_response();
+    }
+
+    if request.song_ids.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("No song IDs provided")),
+        )
+            .into_response();
+    }
+
+    let mut deleted_count = 0;
+    let mut errors: Vec<String> = Vec::new();
+
+    for song_id in &request.song_ids {
+        // Get the song and its folder path to construct the full file path
+        let song_with_folder: Option<(String, String)> = match sqlx::query_as(
+            "SELECT s.file_path, mf.path as folder_path \
+             FROM songs s \
+             JOIN music_folders mf ON s.music_folder_id = mf.id \
+             WHERE s.id = ?",
+        )
+        .bind(song_id)
+        .fetch_optional(&state.pool)
+        .await
+        {
+            Ok(result) => result,
+            Err(e) => {
+                errors.push(format!("Error finding song {}: {}", song_id, e));
+                continue;
+            }
+        };
+
+        let (file_path, folder_path) = match song_with_folder {
+            Some(paths) => paths,
+            None => {
+                errors.push(format!("Song not found: {}", song_id));
+                continue;
+            }
+        };
+
+        // Construct full path
+        let full_path = std::path::PathBuf::from(&folder_path).join(&file_path);
+
+        // Try to delete the file from disk
+        if full_path.exists() {
+            if let Err(e) = std::fs::remove_file(&full_path) {
+                errors.push(format!("Failed to delete file {:?}: {}", full_path, e));
+                continue;
+            }
+        }
+
+        // Delete from database
+        match queries::delete_song(&state.pool, song_id).await {
+            Ok(true) => {
+                deleted_count += 1;
+            }
+            Ok(false) => {
+                errors.push(format!("Failed to delete song from database: {}", song_id));
+            }
+            Err(e) => {
+                errors.push(format!("Database error deleting {}: {}", song_id, e));
+            }
+        }
+    }
+
+    let message = if errors.is_empty() {
+        format!(
+            "Successfully deleted {} file{}",
+            deleted_count,
+            if deleted_count == 1 { "" } else { "s" }
+        )
+    } else {
+        format!(
+            "Deleted {} file{}, {} error{}",
+            deleted_count,
+            if deleted_count == 1 { "" } else { "s" },
+            errors.len(),
+            if errors.len() == 1 { "" } else { "s" }
+        )
+    };
+
+    if !errors.is_empty() {
+        tracing::warn!("File deletion errors: {:?}", errors);
+    }
+
+    Json(DeleteSongFileResponse {
+        success: errors.is_empty(),
+        deleted_count,
+        message,
+    })
+    .into_response()
+}
+
 /// Response for getting song IDs matching a search/filter query.
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]

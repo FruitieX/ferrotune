@@ -83,6 +83,7 @@ function writeToServer<T>(key: string, value: T): void {
     try {
       await client.setPreference(key, value);
     } catch (error) {
+      // Error toast is shown by the API client
       console.warn(`Failed to save preference '${key}' to server:`, error);
     }
   }, DEBOUNCE_DELAY);

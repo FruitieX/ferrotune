@@ -2,8 +2,9 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { motion } from "framer-motion";
-import { Shield, RefreshCw } from "lucide-react";
+import { Shield, RefreshCw, Trash2, ChevronRight } from "lucide-react";
 import { useSetAtom } from "jotai";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
@@ -154,6 +155,32 @@ export default function AdministrationPage() {
           transition={{ delay: 0.4 }}
         >
           <ServerConfig />
+        </motion.div>
+
+        {/* Recycle Bin Link */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+        >
+          <Link href="/admin/recycle-bin">
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-lg bg-destructive/10 flex items-center justify-center">
+                    <Trash2 className="w-5 h-5 text-destructive" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base">Recycle Bin</CardTitle>
+                    <CardDescription>
+                      Manage files marked for deletion
+                    </CardDescription>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-muted-foreground" />
+              </CardHeader>
+            </Card>
+          </Link>
         </motion.div>
       </div>
     </div>

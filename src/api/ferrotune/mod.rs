@@ -95,6 +95,7 @@ mod playlists;
 mod playqueue;
 mod preferences;
 mod queue;
+mod recycle_bin;
 mod scan;
 pub mod scan_state;
 mod scrobbles;
@@ -106,12 +107,15 @@ mod smart_playlists;
 mod songs;
 mod starring;
 mod stats;
-mod tags;
+mod tagger;
+mod tagger_session;
+pub mod tags;
 pub mod users;
 mod waveform;
 
 use crate::api::AppState;
 use axum::{
+    extract::DefaultBodyLimit,
     http::StatusCode,
     response::{IntoResponse, Json},
     routing::{delete, get, patch, post},
@@ -266,6 +270,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/songs/{id}",
             get(browse::get_song).delete(media::delete_song),
         )
+        // Delete song files (from disk and database)
+        .route(
+            "/ferrotune/songs/delete-files",
+            post(media::delete_song_files),
+        )
         // Tag management endpoints
         .route(
             "/ferrotune/songs/{id}/tags",
@@ -303,6 +312,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/ferrotune/scrobbles/counts",
             post(scrobbles::get_play_counts),
+        )
+        .route(
+            "/ferrotune/scrobbles/check-duplicate",
+            get(scrobbles::check_import_duplicate),
         )
         // Waveform generation endpoint (streaming only)
         .route(
@@ -371,6 +384,28 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(server_config::get_server_config).put(server_config::update_server_config),
         )
         .route("/ferrotune/config/all", get(server_config::get_all_config))
+        // Recycle bin endpoints (soft delete)
+        .route("/ferrotune/recycle-bin", get(recycle_bin::list_recycle_bin))
+        .route(
+            "/ferrotune/recycle-bin/mark",
+            post(recycle_bin::mark_for_deletion),
+        )
+        .route(
+            "/ferrotune/recycle-bin/restore",
+            post(recycle_bin::restore_songs),
+        )
+        .route(
+            "/ferrotune/recycle-bin/delete-permanently",
+            post(recycle_bin::delete_permanently),
+        )
+        .route(
+            "/ferrotune/recycle-bin/empty",
+            post(recycle_bin::empty_recycle_bin),
+        )
+        .route(
+            "/ferrotune/recycle-bin/purge-expired",
+            post(recycle_bin::purge_expired),
+        )
         // Smart playlist endpoints
         .route(
             "/ferrotune/smart-playlists",
@@ -390,6 +425,93 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/smart-playlists/{id}/materialize",
             post(smart_playlists::materialize_smart_playlist),
         )
+        // Tagger endpoints
+        .route("/ferrotune/tagger/upload", post(tagger::upload_files))
+        .route("/ferrotune/tagger/staged", get(tagger::list_staged_files))
+        .route(
+            "/ferrotune/tagger/orphaned",
+            get(tagger::discover_orphaned_files),
+        )
+        .route(
+            "/ferrotune/tagger/staged/{id}",
+            delete(tagger::delete_staged_file),
+        )
+        .route(
+            "/ferrotune/tagger/staged/{id}/stream",
+            get(tagger::stream_staged_file),
+        )
+        .route(
+            "/ferrotune/tagger/staged/{id}/cover",
+            get(tagger::get_staged_cover_art),
+        )
+        .route(
+            "/ferrotune/tagger/stage-library",
+            post(tagger::stage_library_tracks),
+        )
+        .route(
+            "/ferrotune/tagger/batch-tags",
+            get(tagger::batch_get_tags).patch(tagger::batch_update_tags),
+        )
+        .route("/ferrotune/tagger/save", post(tagger::save_staged_files))
+        .route("/ferrotune/tagger/rescan", post(tagger::rescan_files))
+        .route("/ferrotune/tagger/rename", post(tagger::rename_files))
+        .route(
+            "/ferrotune/tagger/check-conflicts",
+            post(tagger::check_path_conflicts),
+        )
+        // Tagger session endpoints (database-backed state)
+        .route(
+            "/ferrotune/tagger/session",
+            get(tagger_session::get_session)
+                .patch(tagger_session::update_session)
+                .delete(tagger_session::clear_session),
+        )
+        // Track CRUD endpoints
+        .route(
+            "/ferrotune/tagger/session/tracks",
+            axum::routing::put(tagger_session::set_session_tracks).post(tagger_session::add_tracks),
+        )
+        .route(
+            "/ferrotune/tagger/session/tracks/remove",
+            post(tagger_session::remove_tracks),
+        )
+        .route(
+            "/ferrotune/tagger/session/tracks/{track_id}",
+            delete(tagger_session::remove_track),
+        )
+        // Edit CRUD endpoints (batch - GET all, DELETE all)
+        .route(
+            "/ferrotune/tagger/session/edits",
+            get(tagger_session::get_pending_edits).delete(tagger_session::clear_pending_edits),
+        )
+        // Edit CRUD endpoints (individual)
+        .route(
+            "/ferrotune/tagger/session/edits/{track_id}",
+            axum::routing::put(tagger_session::update_edit).delete(tagger_session::delete_edit),
+        )
+        // Cover art endpoints (multipart upload)
+        .route(
+            "/ferrotune/tagger/session/edits/{track_id}/cover",
+            get(tagger_session::get_cover_art)
+                .put(tagger_session::upload_cover_art)
+                .delete(tagger_session::delete_cover_art),
+        )
+        // Save endpoint - reads from database and applies to files
+        .route(
+            "/ferrotune/tagger/session/save",
+            post(tagger_session::save_pending_edits),
+        )
+        // Scripts endpoints
+        .route(
+            "/ferrotune/tagger/scripts",
+            get(tagger_session::get_scripts).put(tagger_session::save_scripts),
+        )
+        .route(
+            "/ferrotune/tagger/scripts/{id}",
+            delete(tagger_session::delete_script),
+        )
+        // Apply larger body limit to allow large payloads like cover art data in preferences
+        .layer(DefaultBodyLimit::max(500 * 1024 * 1024))
         .with_state(state)
 }
 

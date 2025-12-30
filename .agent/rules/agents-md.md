@@ -251,3 +251,4 @@ Read these when working on specific areas:
 - Moon runs dependencies of tasks automatically, so you can just run the high-level tasks like `moon run pre-ci` or `moon run :test` and moon will take care of running e.g. code generation, linting, type checking etc. as needed.
 - Run `moon query tasks` to get a list of moon tasks
 - You can run similarily named client and server tasks with e.g. `moon run :fmt` to format both client and server code.
+- i64 etc types get exported as bigint, you should just override this as number

@@ -5,7 +5,7 @@ import type { ScanProgressUpdate, ScanLogEntry } from "@/lib/api/types";
  * Scan state for the admin library scanning UI.
  *
  * The scan progress is maintained by the useScanProgressStream hook
- * which establishes a persistent SSE connection when the user is connected.
+ * which establishes an SSE connection only when scanning is in progress.
  */
 
 // Current scan progress (null when not scanning or no recent scan)
@@ -28,3 +28,10 @@ export const scanFolderIdAtom = atom<number | null>(null);
 
 // Folder name for display in dialog (optional)
 export const scanFolderNameAtom = atom<string | null>(null);
+
+// Whether we should actively monitor scan progress via SSE
+// This is set to true when:
+// - Initial status check shows a scan is in progress
+// - User starts a scan from the UI
+// It's set to false when a scan completes
+export const shouldMonitorScanAtom = atom(false);

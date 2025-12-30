@@ -41,7 +41,7 @@ fn default_submission() -> bool {
 pub async fn scrobble(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-    Query(params): Query<ScrobbleParams>,
+    Json(params): Json<ScrobbleParams>,
 ) -> FerrotuneApiResult<StatusCode> {
     // Calculate played_at timestamp
     let played_at = if let Some(ms) = params.time {
@@ -240,6 +240,78 @@ pub async fn import_scrobbles(
         songs_imported,
         total_plays_imported,
     }))
+}
+
+// ============================================================================
+// Check for Duplicate Imports
+// ============================================================================
+
+/// Response for checking existing import by description.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct CheckImportDuplicateResponse {
+    /// Whether an import with this description already exists
+    pub exists: bool,
+    /// Number of songs in the existing import
+    pub song_count: i64,
+    /// Total play count in the existing import
+    pub total_plays: i64,
+}
+
+/// Check if an import with the given description already exists.
+///
+/// GET /ferrotune/scrobbles/check-duplicate?description=...
+///
+/// Used by the import dialog to warn about potentially duplicate imports.
+pub async fn check_import_duplicate(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<CheckDuplicateParams>,
+) -> FerrotuneApiResult<Json<CheckImportDuplicateResponse>> {
+    let description = params.description.trim();
+
+    if description.is_empty() {
+        return Ok(Json(CheckImportDuplicateResponse {
+            exists: false,
+            song_count: 0,
+            total_plays: 0,
+        }));
+    }
+
+    // Query for existing scrobbles with this description
+    let result: Option<(i64, i64)> = sqlx::query_as(
+        r#"
+        SELECT COUNT(DISTINCT song_id) as song_count, COALESCE(SUM(play_count), 0) as total_plays
+        FROM scrobbles
+        WHERE user_id = ? AND description = ?
+        "#,
+    )
+    .bind(user.user_id)
+    .bind(description)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    match result {
+        Some((song_count, total_plays)) if song_count > 0 => {
+            Ok(Json(CheckImportDuplicateResponse {
+                exists: true,
+                song_count,
+                total_plays,
+            }))
+        }
+        _ => Ok(Json(CheckImportDuplicateResponse {
+            exists: false,
+            song_count: 0,
+            total_plays: 0,
+        })),
+    }
+}
+
+/// Parameters for checking duplicate import.
+#[derive(Debug, Deserialize)]
+pub struct CheckDuplicateParams {
+    pub description: String,
 }
 
 // ============================================================================

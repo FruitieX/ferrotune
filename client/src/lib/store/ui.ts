@@ -335,6 +335,7 @@ export interface AdvancedFilters {
   maxBitrate?: number; // in kbps
   addedAfter?: string; // ISO 8601 date string (YYYY-MM-DD)
   addedBefore?: string; // ISO 8601 date string (YYYY-MM-DD)
+  musicFolderId?: string; // Filter by library/music folder
 }
 
 // Filter state (not persisted - resets on page reload)

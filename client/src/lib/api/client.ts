@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import type { PlaylistFoldersResponse } from "./generated/PlaylistFoldersResponse";
 import type {
   ServerConnection,
@@ -74,6 +75,16 @@ import type { ImportScrobblesRequest } from "./generated/ImportScrobblesRequest"
 import type { ImportScrobblesResponse } from "./generated/ImportScrobblesResponse";
 import type { GetPlayCountsRequest } from "./generated/GetPlayCountsRequest";
 import type { GetPlayCountsResponse } from "./generated/GetPlayCountsResponse";
+import type { CheckImportDuplicateResponse } from "./generated/CheckImportDuplicateResponse";
+import type { DeleteSongFileResponse } from "./generated/DeleteSongFileResponse";
+import type { DeleteSongFilesRequest } from "./generated/DeleteSongFilesRequest";
+import type { MarkForDeletionRequest } from "./generated/MarkForDeletionRequest";
+import type { MarkForDeletionResponse } from "./generated/MarkForDeletionResponse";
+import type { RestoreSongsRequest } from "./generated/RestoreSongsRequest";
+import type { RestoreSongsResponse } from "./generated/RestoreSongsResponse";
+import type { RecycleBinResponse } from "./generated/RecycleBinResponse";
+import type { PermanentDeleteRequest } from "./generated/PermanentDeleteRequest";
+import type { PermanentDeleteResponse } from "./generated/PermanentDeleteResponse";
 import type { SmartPlaylistsResponse } from "./generated/SmartPlaylistsResponse";
 import type { SmartPlaylistInfo } from "./generated/SmartPlaylistInfo";
 import type { SmartPlaylistSongsResponse } from "./generated/SmartPlaylistSongsResponse";
@@ -81,6 +92,20 @@ import type { CreateSmartPlaylistRequest } from "./generated/CreateSmartPlaylist
 import type { CreateSmartPlaylistResponse } from "./generated/CreateSmartPlaylistResponse";
 import type { UpdateSmartPlaylistRequest } from "./generated/UpdateSmartPlaylistRequest";
 import type { MaterializeSmartPlaylistResponse } from "./generated/MaterializeSmartPlaylistResponse";
+import type { UploadResponse } from "./generated/UploadResponse";
+import type { StagedFilesResponse } from "./generated/StagedFilesResponse";
+import type { StageLibraryTracksResponse } from "./generated/StageLibraryTracksResponse";
+import type { BatchGetTagsResponse } from "./generated/BatchGetTagsResponse";
+import type { BatchUpdateTagsResponse } from "./generated/BatchUpdateTagsResponse";
+import type { SaveStagedFilesResponse } from "./generated/SaveStagedFilesResponse";
+import type { RescanFilesResponse } from "./generated/RescanFilesResponse";
+import type { RenameFilesResponse } from "./generated/RenameFilesResponse";
+import type { CheckPathConflictsResponse } from "./generated/CheckPathConflictsResponse";
+import type { TaggerSessionResponse } from "./generated/TaggerSessionResponse";
+import type { TaggerPendingEditsResponse } from "./generated/TaggerPendingEditsResponse";
+// TaggerPendingEditData import removed - now using individual track sync
+import type { TaggerScriptsResponse } from "./generated/TaggerScriptsResponse";
+import type { TaggerScriptData } from "./generated/TaggerScriptData";
 import { PlaylistInFolder } from "./generated";
 
 // Ping response is empty
@@ -89,13 +114,51 @@ type PingResponse = Record<string, never>;
 const API_VERSION = "1.16.1";
 const CLIENT_NAME = "ferrotune-web";
 
+/**
+ * Custom error class for API errors with status code
+ */
 export class FerrotuneApiError extends Error {
-  code: number;
+  status: number;
+  code: number; // Alias for backwards compatibility
 
-  constructor(code: number, message: string) {
+  constructor(status: number, message: string) {
     super(message);
     this.name = "FerrotuneApiError";
-    this.code = code;
+    this.status = status;
+    this.code = status; // Keep for backwards compatibility
+  }
+}
+
+/**
+ * Get a user-friendly error message based on status code and error details
+ */
+function getUserFriendlyErrorMessage(
+  status: number,
+  serverMessage?: string,
+): string {
+  switch (status) {
+    case 400:
+      return serverMessage || "Invalid request. Please check your input.";
+    case 401:
+      return "Session expired. Please log in again.";
+    case 403:
+      return "You don't have permission to perform this action.";
+    case 404:
+      return serverMessage || "The requested resource was not found.";
+    case 409:
+      return serverMessage || "Conflict: The resource already exists.";
+    case 413:
+      return "Data too large. Please try with less data.";
+    case 429:
+      return "Too many requests. Please try again later.";
+    case 500:
+      return "Server error. Please try again later.";
+    case 502:
+    case 503:
+    case 504:
+      return "Server is temporarily unavailable. Please try again later.";
+    default:
+      return serverMessage || `Request failed (${status})`;
   }
 }
 
@@ -658,10 +721,12 @@ export class FerrotuneClient {
    * @param id - The cover art ID (album, song, artist, or playlist)
    * @param size - Size tier: "small" (for rows/lists), "medium" (for cards), or "large" (original)
    *               For backwards compatibility, numeric sizes are also accepted and mapped to tiers
+   * @param cacheBuster - Optional cache buster (e.g. cover art hash) to force browser refresh
    */
   getCoverArtUrl(
     id: string,
     size?: "small" | "medium" | "large" | number,
+    cacheBuster?: string,
   ): string {
     // Convert numeric sizes to tier names for efficiency
     let sizeParam: string | undefined;
@@ -688,6 +753,7 @@ export class FerrotuneClient {
     params.set("c", CLIENT_NAME);
     params.set("id", id);
     if (sizeParam) params.set("size", sizeParam);
+    if (cacheBuster) params.set("_", cacheBuster);
 
     return `${this.serverUrl}/ferrotune/cover-art?${params.toString()}`;
   }
@@ -713,6 +779,8 @@ export class FerrotuneClient {
   private async request<T>(
     endpoint: string,
     options: RequestInit = {},
+    /** If true, don't show error toast on failure */
+    silent: boolean = false,
   ): Promise<T> {
     const url = this.buildAdminUrl(endpoint);
 
@@ -727,14 +795,37 @@ export class FerrotuneClient {
         `Basic ${btoa(`${this.username}:${this.password}`)}`;
     }
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers,
+      });
+    } catch (_fetchError) {
+      // Network error (offline, connection refused, etc.)
+      const message = "Network error. Please check your connection.";
+      if (!silent) {
+        toast.error(message);
+      }
+      throw new FerrotuneApiError(0, message);
+    }
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || `HTTP error: ${response.status}`);
+      const serverMessage = data.error as string | undefined;
+      const userMessage = getUserFriendlyErrorMessage(
+        response.status,
+        serverMessage,
+      );
+
+      if (!silent) {
+        toast.error(userMessage);
+      }
+
+      throw new FerrotuneApiError(
+        response.status,
+        serverMessage || `HTTP error: ${response.status}`,
+      );
     }
 
     // Handle 204 No Content responses
@@ -762,6 +853,84 @@ export class FerrotuneClient {
   ): Promise<{ success: boolean; message: string }> {
     return this.request(`/ferrotune/songs/${encodeURIComponent(id)}`, {
       method: "DELETE",
+    });
+  }
+
+  /**
+   * Delete song files from disk and database.
+   * This is a destructive operation that permanently removes the files.
+   * Requires 'allow_file_deletion' setting to be enabled.
+   */
+  async deleteSongFiles(songIds: string[]): Promise<DeleteSongFileResponse> {
+    return this.request("/ferrotune/songs/delete-files", {
+      method: "POST",
+      body: JSON.stringify({ songIds } as DeleteSongFilesRequest),
+    });
+  }
+
+  // ============ Recycle Bin ============
+
+  /**
+   * Mark songs for deletion (soft delete).
+   * Songs are moved to recycle bin and will be permanently deleted after 30 days.
+   */
+  async markForDeletion(songIds: string[]): Promise<MarkForDeletionResponse> {
+    return this.request("/ferrotune/recycle-bin/mark", {
+      method: "POST",
+      body: JSON.stringify({ songIds } as MarkForDeletionRequest),
+    });
+  }
+
+  /**
+   * Restore songs from recycle bin.
+   */
+  async restoreSongs(songIds: string[]): Promise<RestoreSongsResponse> {
+    return this.request("/ferrotune/recycle-bin/restore", {
+      method: "POST",
+      body: JSON.stringify({ songIds } as RestoreSongsRequest),
+    });
+  }
+
+  /**
+   * Get songs in the recycle bin.
+   */
+  async getRecycleBin(params?: {
+    offset?: number;
+    limit?: number;
+  }): Promise<RecycleBinResponse> {
+    const searchParams = new URLSearchParams();
+    if (params?.offset != null)
+      searchParams.set("offset", String(params.offset));
+    if (params?.limit != null) searchParams.set("limit", String(params.limit));
+    const query = searchParams.toString();
+    return this.request(`/ferrotune/recycle-bin${query ? `?${query}` : ""}`);
+  }
+
+  /**
+   * Permanently delete songs from recycle bin (from disk and database).
+   */
+  async deletePermanently(songIds: string[]): Promise<PermanentDeleteResponse> {
+    return this.request("/ferrotune/recycle-bin/delete-permanently", {
+      method: "POST",
+      body: JSON.stringify({ songIds } as PermanentDeleteRequest),
+    });
+  }
+
+  /**
+   * Empty the entire recycle bin.
+   */
+  async emptyRecycleBin(): Promise<PermanentDeleteResponse> {
+    return this.request("/ferrotune/recycle-bin/empty", {
+      method: "POST",
+    });
+  }
+
+  /**
+   * Purge expired songs (older than 30 days).
+   */
+  async purgeExpired(): Promise<PermanentDeleteResponse> {
+    return this.request("/ferrotune/recycle-bin/purge-expired", {
+      method: "POST",
     });
   }
 
@@ -1053,6 +1222,20 @@ export class FerrotuneClient {
       method: "POST",
       body: JSON.stringify({ songIds } as GetPlayCountsRequest),
     });
+  }
+
+  /**
+   * Check if an import with the given description already exists.
+   * Used to detect duplicate imports before proceeding.
+   */
+  async checkImportDuplicate(
+    description: string,
+  ): Promise<CheckImportDuplicateResponse> {
+    const params = new URLSearchParams();
+    params.set("description", description);
+    return this.request(
+      `/ferrotune/scrobbles/check-duplicate?${params.toString()}`,
+    );
   }
 
   // Streaming waveform URL (Admin API - returns URL for SSE endpoint)
@@ -1739,6 +1922,454 @@ export class FerrotuneClient {
         }),
       },
     );
+  }
+
+  // ==========================================
+  // Tagger API (Admin API)
+  // ==========================================
+
+  /**
+   * Upload audio files to staging area
+   */
+  async uploadTaggerFiles(files: File[]): Promise<UploadResponse> {
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append("files", file);
+    }
+
+    const url = this.buildAdminUrl("/ferrotune/tagger/upload");
+    const headers: Record<string, string> = {};
+    if (this.username && this.password) {
+      headers["Authorization"] =
+        `Basic ${btoa(`${this.username}:${this.password}`)}`;
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new FerrotuneApiError(
+        response.status,
+        data.error || `Upload failed: ${response.status}`,
+      );
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Upload a single audio file to staging area
+   * Useful for sequential uploads with progress tracking
+   */
+  async uploadTaggerFile(file: File): Promise<UploadResponse> {
+    return this.uploadTaggerFiles([file]);
+  }
+
+  /**
+   * List staged files for the current user
+   */
+  async getStagedFiles(): Promise<StagedFilesResponse> {
+    return this.request("/ferrotune/tagger/staged");
+  }
+
+  /**
+   * Discover orphaned files in staging directory that are not in session
+   */
+  async getOrphanedFiles(): Promise<{
+    count: number;
+    fileIds: string[];
+  }> {
+    return this.request("/ferrotune/tagger/orphaned");
+  }
+
+  /**
+   * Delete a staged file
+   */
+  async deleteStagedFile(id: string): Promise<void> {
+    await this.request(`/ferrotune/tagger/staged/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+  }
+
+  /**
+   * Get stream URL for a staged file (for preview playback).
+   * Includes auth params since Audio elements can't use HTTP headers.
+   */
+  getStagedFileStreamUrl(id: string): string {
+    const params = new URLSearchParams();
+    // Add auth params for Audio element compatibility
+    if (this.username && this.password) {
+      params.set("u", this.username);
+      params.set("p", this.password);
+    } else if (this.apiKey) {
+      params.set("apiKey", this.apiKey);
+    }
+    params.set("v", API_VERSION);
+    params.set("c", CLIENT_NAME);
+
+    return `${this.serverUrl}/ferrotune/tagger/staged/${encodeURIComponent(id)}/stream?${params.toString()}`;
+  }
+
+  /**
+   * Get the URL for fetching cover art from a staged audio file.
+   * Includes auth params since img elements can't use HTTP headers.
+   */
+  getStagedFileCoverUrl(id: string): string {
+    const params = new URLSearchParams();
+    // Add auth params for img element compatibility
+    if (this.username && this.password) {
+      params.set("u", this.username);
+      params.set("p", this.password);
+    } else if (this.apiKey) {
+      params.set("apiKey", this.apiKey);
+    }
+    params.set("v", API_VERSION);
+    params.set("c", CLIENT_NAME);
+
+    return `${this.serverUrl}/ferrotune/tagger/staged/${encodeURIComponent(id)}/cover?${params.toString()}`;
+  }
+
+  /**
+   * Stage library tracks for editing in the tagger
+   */
+  async stageLibraryTracks(
+    songIds: string[],
+  ): Promise<StageLibraryTracksResponse> {
+    return this.request("/ferrotune/tagger/stage-library", {
+      method: "POST",
+      body: JSON.stringify({ songIds }),
+    });
+  }
+
+  /**
+   * Get tags for multiple songs
+   */
+  async batchGetTags(songIds: string[]): Promise<BatchGetTagsResponse> {
+    const params = songIds
+      .map((id) => `songIds=${encodeURIComponent(id)}`)
+      .join("&");
+    return this.request(`/ferrotune/tagger/batch-tags?${params}`);
+  }
+
+  /**
+   * Update tags for multiple songs
+   */
+  async batchUpdateTags(
+    updates: Array<{
+      songId: string;
+      set: Array<{ key: string; value: string }>;
+      delete: string[];
+    }>,
+  ): Promise<BatchUpdateTagsResponse> {
+    return this.request("/ferrotune/tagger/batch-tags", {
+      method: "PATCH",
+      body: JSON.stringify({ updates }),
+    });
+  }
+
+  /**
+   * Save staged files to the library
+   */
+  async saveStagedFiles(
+    files: Array<{
+      stagedId: string;
+      musicFolderId: number;
+      targetPath: string;
+    }>,
+  ): Promise<SaveStagedFilesResponse> {
+    return this.request("/ferrotune/tagger/save", {
+      method: "POST",
+      body: JSON.stringify({ files }),
+    });
+  }
+
+  /**
+   * Rescan specific songs after tag changes
+   */
+  async rescanFiles(songIds: string[]): Promise<RescanFilesResponse> {
+    return this.request("/ferrotune/tagger/rescan", {
+      method: "POST",
+      body: JSON.stringify({ songIds }),
+    });
+  }
+
+  /**
+   * Rename/move library files to new paths
+   */
+  async renameFiles(
+    renames: Array<{ songId: string; newPath: string }>,
+  ): Promise<RenameFilesResponse> {
+    return this.request("/ferrotune/tagger/rename", {
+      method: "POST",
+      body: JSON.stringify({ renames }),
+    });
+  }
+
+  /**
+   * Check if any proposed rename paths would conflict with existing files.
+   * Returns conflicts with suggested alternative paths.
+   */
+  async checkPathConflicts(
+    renames: Array<{ songId: string; newPath: string }>,
+  ): Promise<CheckPathConflictsResponse> {
+    return this.request("/ferrotune/tagger/check-conflicts", {
+      method: "POST",
+      body: JSON.stringify({ renames }),
+    });
+  }
+
+  // ========================================================================
+  // Tagger Session API (Database-backed state)
+  // ========================================================================
+
+  /**
+   * Get the current tagger session state
+   */
+  async getTaggerSession(): Promise<TaggerSessionResponse> {
+    return this.request("/ferrotune/tagger/session");
+  }
+
+  /**
+   * Update tagger session settings
+   */
+  async updateTaggerSession(
+    updates: Partial<Omit<TaggerSessionResponse, "trackIds">>,
+  ): Promise<void> {
+    await this.request("/ferrotune/tagger/session", {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    });
+  }
+
+  /**
+   * Clear the tagger session (tracks and edits)
+   */
+  async clearTaggerSession(): Promise<void> {
+    await this.request("/ferrotune/tagger/session", {
+      method: "DELETE",
+    });
+  }
+
+  /**
+   * Set the tracks in the tagger session (replaces existing)
+   */
+  async setTaggerSessionTracks(
+    tracks: Array<{ id: string; trackType: string }>,
+  ): Promise<void> {
+    await this.request("/ferrotune/tagger/session/tracks", {
+      method: "PUT",
+      body: JSON.stringify({ tracks }),
+    });
+  }
+
+  /**
+   * Get all pending edits for the tagger session
+   */
+  async getTaggerPendingEdits(): Promise<TaggerPendingEditsResponse> {
+    return this.request("/ferrotune/tagger/session/edits");
+  }
+
+  // NOTE: Bulk updateTaggerPendingEdits was removed.
+  // Use updateTaggerEdit for individual track edits instead.
+
+  /**
+   * Clear all pending edits
+   */
+  async clearTaggerPendingEdits(): Promise<void> {
+    await this.request("/ferrotune/tagger/session/edits", {
+      method: "DELETE",
+    });
+  }
+
+  /**
+   * Save pending edits for tracks by reading from database.
+   * This is the primary save method - reads edits from the server and applies them.
+   * Handles both library tracks (tag updates, renames) and staged files (move to library).
+   */
+  async saveTaggerPendingEdits(
+    trackIds: string[],
+    pathOverrides?: Record<string, string>,
+    targetMusicFolderId?: number,
+  ): Promise<{
+    success: boolean;
+    savedCount: number;
+    errors: Array<{ trackId: string; error: string }>;
+    rescanRecommended: boolean;
+    newSongPaths: string[];
+  }> {
+    return this.request("/ferrotune/tagger/session/save", {
+      method: "POST",
+      body: JSON.stringify({
+        trackIds,
+        pathOverrides: pathOverrides ?? {},
+        targetMusicFolderId: targetMusicFolderId ?? null,
+      }),
+    });
+  }
+
+  /**
+   * Get all tagger scripts
+   */
+  async getTaggerScripts(): Promise<TaggerScriptsResponse> {
+    return this.request("/ferrotune/tagger/scripts");
+  }
+
+  /**
+   * Save all tagger scripts (replaces existing)
+   */
+  async saveTaggerScripts(scripts: TaggerScriptData[]): Promise<void> {
+    await this.request("/ferrotune/tagger/scripts", {
+      method: "PUT",
+      body: JSON.stringify(scripts),
+    });
+  }
+
+  /**
+   * Delete a tagger script
+   */
+  async deleteTaggerScript(scriptId: string): Promise<void> {
+    await this.request(
+      `/ferrotune/tagger/scripts/${encodeURIComponent(scriptId)}`,
+      {
+        method: "DELETE",
+      },
+    );
+  }
+
+  // ========================================================================
+  // Tagger Session CRUD API (granular operations)
+  // ========================================================================
+
+  /**
+   * Add tracks to the session (append)
+   */
+  async addTaggerTracks(trackIds: string[]): Promise<void> {
+    await this.request("/ferrotune/tagger/session/tracks", {
+      method: "POST",
+      body: JSON.stringify({ trackIds }),
+    });
+  }
+
+  /**
+   * Remove a single track from the session
+   */
+  async removeTaggerTrack(trackId: string): Promise<void> {
+    await this.request(
+      `/ferrotune/tagger/session/tracks/${encodeURIComponent(trackId)}`,
+      {
+        method: "DELETE",
+      },
+    );
+  }
+
+  /**
+   * Remove multiple tracks from the session
+   */
+  async removeTaggerTracks(trackIds: string[]): Promise<void> {
+    await this.request("/ferrotune/tagger/session/tracks/remove", {
+      method: "POST",
+      body: JSON.stringify({ trackIds }),
+    });
+  }
+
+  /**
+   * Update or create a pending edit for a single track (upsert)
+   */
+  async updateTaggerEdit(
+    trackId: string,
+    edit: {
+      editedTags: Record<string, string>;
+      computedPath: string | null;
+      coverArtRemoved?: boolean;
+    },
+  ): Promise<void> {
+    await this.request(
+      `/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(edit),
+      },
+    );
+  }
+
+  /**
+   * Delete a pending edit for a single track
+   */
+  async deleteTaggerEdit(trackId: string): Promise<void> {
+    await this.request(
+      `/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}`,
+      {
+        method: "DELETE",
+      },
+    );
+  }
+
+  /**
+   * Upload cover art for a track (multipart binary)
+   */
+  async uploadTaggerCoverArt(
+    trackId: string,
+    file: File | Blob,
+  ): Promise<void> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const url = this.buildAdminUrl(
+      `/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/cover`,
+    );
+
+    // Add Basic Auth header (same as uploadTaggerFiles)
+    const headers: Record<string, string> = {};
+    if (this.username && this.password) {
+      headers["Authorization"] =
+        `Basic ${btoa(`${this.username}:${this.password}`)}`;
+    }
+
+    const response = await fetch(url, {
+      method: "PUT",
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to upload cover art: ${response.statusText}`);
+    }
+  }
+
+  /**
+   * Remove cover art for a track
+   */
+  async deleteTaggerCoverArt(trackId: string): Promise<void> {
+    await this.request(
+      `/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/cover`,
+      {
+        method: "DELETE",
+      },
+    );
+  }
+
+  /**
+   * Get the URL for fetching cover art for a track.
+   * Use this URL directly in img src or fetch manually.
+   * Includes auth params since img src doesn't send Authorization headers.
+   */
+  getTaggerCoverArtUrl(trackId: string): string {
+    const params = new URLSearchParams();
+    // Include auth params for browser img requests (no Authorization header)
+    if (this.username && this.password) {
+      params.set("u", this.username);
+      params.set("p", this.password);
+    } else if (this.apiKey) {
+      params.set("apiKey", this.apiKey);
+    }
+    params.set("v", API_VERSION);
+    params.set("c", CLIENT_NAME);
+
+    return `${this.serverUrl}/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/cover?${params.toString()}`;
   }
 }
 

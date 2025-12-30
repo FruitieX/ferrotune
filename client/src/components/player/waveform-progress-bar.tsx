@@ -707,7 +707,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       style={{
         top: `-${waveformHeight / 2}px`,
         height: `${waveformHeight}px`,
-        zIndex: 100,
+        zIndex: 10,
       }}
       onMouseDown={hasTrack ? handleMouseDown : undefined}
       onKeyDown={hasTrack ? handleKeyDown : undefined}

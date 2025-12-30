@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
+import { CoverImage } from "@/components/shared/cover-image";
 import { cn } from "@/lib/utils";
 import { getClient } from "@/lib/api/client";
 import { useDebounce } from "@/lib/hooks/use-debounce";
@@ -269,27 +270,18 @@ export function AddSongToPlaylistDialog({
                   onDoubleClick={() => handleDoubleClickSong(song)}
                 >
                   {/* Cover art */}
-                  <div className="w-10 h-10 bg-muted rounded overflow-hidden shrink-0">
-                    {song.coverArt || song.coverArtData ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={
-                          song.coverArtData
-                            ? `data:image/webp;base64,${song.coverArtData}`
-                            : getClient()?.getCoverArtUrl(
-                                song.coverArt!,
-                                "small",
-                              )
-                        }
-                        alt=""
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <Music className="w-5 h-5 text-muted-foreground" />
-                      </div>
-                    )}
-                  </div>
+                  <CoverImage
+                    src={
+                      song.coverArtData
+                        ? undefined
+                        : getClient()?.getCoverArtUrl(song.id, "small")
+                    }
+                    inlineData={song.coverArtData}
+                    alt={song.title}
+                    colorSeed={song.album || song.title}
+                    type="song"
+                    size="sm"
+                  />
 
                   {/* Song info */}
                   <div className="flex-1 min-w-0">
