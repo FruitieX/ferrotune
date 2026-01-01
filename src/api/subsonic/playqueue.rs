@@ -1,5 +1,7 @@
 use crate::api::common::browse::song_to_response;
+use crate::api::common::playqueue::find_current_index;
 use crate::api::common::starring::{get_ratings_map, get_starred_map};
+use crate::api::common::utils::format_datetime_iso;
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
 use crate::api::AppState;
@@ -83,17 +85,7 @@ pub async fn save_play_queue(
     }
 
     // Find current index from current song ID
-    let current_index = params
-        .current
-        .as_ref()
-        .and_then(|current_id| {
-            params
-                .id
-                .iter()
-                .position(|id| id == current_id)
-                .map(|i| i as i64)
-        })
-        .unwrap_or(0);
+    let current_index = find_current_index(&params.id, params.current.as_deref());
 
     // Upsert the queue metadata using new schema
     sqlx::query(
@@ -174,7 +166,7 @@ pub async fn get_play_queue(
             (
                 current_song_id,
                 Some(position_ms),
-                Some(updated_at.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+                Some(format_datetime_iso(updated_at)),
                 Some(by),
             )
         } else {

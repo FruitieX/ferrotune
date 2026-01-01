@@ -1,6 +1,7 @@
 use crate::api::common::browse::{get_song_play_stats, song_to_response_with_stats};
 use crate::api::common::models::{AlbumResponse, SongResponse};
 use crate::api::common::starring::{get_ratings_map, get_starred_map};
+use crate::api::common::utils::format_datetime_iso_ms;
 use crate::api::subsonic::inline_thumbnails::get_album_thumbnails_base64;
 use crate::db::models::ItemType;
 use crate::thumbnails::ThumbnailSize;
@@ -283,10 +284,7 @@ pub async fn get_album_list_logic(
             duration: album.duration,
             year: album.year,
             genre: album.genre,
-            created: album
-                .created_at
-                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                .to_string(),
+            created: format_datetime_iso_ms(album.created_at),
             starred: starred_map.get(&album.id).cloned(),
             user_rating: ratings_map.get(&album.id).copied(),
         })

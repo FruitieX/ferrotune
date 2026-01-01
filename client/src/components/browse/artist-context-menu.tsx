@@ -1,16 +1,6 @@
 "use client";
 
 import {
-  Play,
-  ListPlus,
-  ListEnd,
-  Heart,
-  Shuffle,
-  MoreHorizontal,
-  FolderPlus,
-  Info,
-} from "lucide-react";
-import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -27,9 +17,26 @@ import {
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
+import {
+  ArtistMenuItems,
+  MenuComponents,
+} from "@/components/shared/media-menu-items";
 import { useArtistActions } from "@/lib/hooks/use-artist-actions";
 import { useStar } from "@/lib/hooks/use-star";
 import type { Artist } from "@/lib/api/types";
+import { MoreHorizontal } from "lucide-react";
+
+// Component adapters for ContextMenu
+const contextMenuComponents: MenuComponents = {
+  Item: ContextMenuItem,
+  Separator: ContextMenuSeparator,
+};
+
+// Component adapters for DropdownMenu
+const dropdownMenuComponents: MenuComponents = {
+  Item: DropdownMenuItem,
+  Separator: DropdownMenuSeparator,
+};
 
 interface ArtistContextMenuProps {
   artist: Artist;
@@ -55,44 +62,6 @@ export function ArtistContextMenu({
     setDetailsOpen,
   } = useArtistActions(artist);
 
-  const menuItems = (
-    <>
-      <ContextMenuItem onClick={handlePlay}>
-        <Play className="w-4 h-4 mr-2" />
-        Play
-      </ContextMenuItem>
-      <ContextMenuItem onClick={handleShuffle}>
-        <Shuffle className="w-4 h-4 mr-2" />
-        Shuffle
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem onClick={handlePlayNext}>
-        <ListPlus className="w-4 h-4 mr-2" />
-        Play Next
-      </ContextMenuItem>
-      <ContextMenuItem onClick={handleAddToQueue}>
-        <ListEnd className="w-4 h-4 mr-2" />
-        Add to Queue
-      </ContextMenuItem>
-      <ContextMenuItem onClick={handleAddToPlaylist}>
-        <FolderPlus className="w-4 h-4 mr-2" />
-        Add to Playlist
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem onClick={toggleStar}>
-        <Heart
-          className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`}
-        />
-        {isStarred ? "Remove from Favorites" : "Add to Favorites"}
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem onClick={() => setDetailsOpen(true)}>
-        <Info className="w-4 h-4 mr-2" />
-        View Details
-      </ContextMenuItem>
-    </>
-  );
-
   return (
     <>
       <ContextMenu>
@@ -101,7 +70,19 @@ export function ArtistContextMenu({
           className="w-56"
           onDoubleClick={(e) => e.stopPropagation()}
         >
-          {menuItems}
+          <ArtistMenuItems
+            components={contextMenuComponents}
+            handlers={{
+              handlePlay,
+              handleShuffle,
+              handlePlayNext,
+              handleAddToQueue,
+              handleAddToPlaylist,
+              toggleStar,
+              setDetailsOpen,
+            }}
+            state={{ isStarred }}
+          />
         </ContextMenuContent>
       </ContextMenu>
       {artistSongs && (
@@ -178,39 +159,19 @@ export function ArtistDropdownMenu({
           className="w-56"
           onDoubleClick={(e) => e.stopPropagation()}
         >
-          <DropdownMenuItem onClick={handlePlay}>
-            <Play className="w-4 h-4 mr-2" />
-            Play
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleShuffle}>
-            <Shuffle className="w-4 h-4 mr-2" />
-            Shuffle
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handlePlayNext}>
-            <ListPlus className="w-4 h-4 mr-2" />
-            Play Next
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleAddToQueue}>
-            <ListEnd className="w-4 h-4 mr-2" />
-            Add to Queue
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleAddToPlaylist}>
-            <FolderPlus className="w-4 h-4 mr-2" />
-            Add to Playlist
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={toggleStar}>
-            <Heart
-              className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`}
-            />
-            {isStarred ? "Remove from Favorites" : "Add to Favorites"}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setDetailsOpen(true)}>
-            <Info className="w-4 h-4 mr-2" />
-            View Details
-          </DropdownMenuItem>
+          <ArtistMenuItems
+            components={dropdownMenuComponents}
+            handlers={{
+              handlePlay,
+              handleShuffle,
+              handlePlayNext,
+              handleAddToQueue,
+              handleAddToPlaylist,
+              toggleStar,
+              setDetailsOpen,
+            }}
+            state={{ isStarred }}
+          />
         </DropdownMenuContent>
       </DropdownMenu>
       {artistSongs && (

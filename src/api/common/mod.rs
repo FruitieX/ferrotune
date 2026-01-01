@@ -1,6 +1,10 @@
 pub mod browse;
+pub mod history;
 pub mod lists;
 pub mod models;
+pub mod playqueue;
 pub mod search;
+pub mod search_utils;
 pub mod sorting;
 pub mod starring;
+pub mod utils;

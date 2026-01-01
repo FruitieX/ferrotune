@@ -4,6 +4,7 @@
 //! filtering, and folder size information.
 
 use crate::api::common::starring::{get_ratings_map, get_starred_map};
+use crate::api::common::utils::get_content_type_for_format;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::AppState;
@@ -538,14 +539,7 @@ async fn get_directory_contents_for_library(
                 }
             }
 
-            let content_type = match song.9.as_str() {
-                "mp3" => "audio/mpeg",
-                "flac" => "audio/flac",
-                "ogg" | "opus" => "audio/ogg",
-                "m4a" | "mp4" | "aac" => "audio/mp4",
-                "wav" => "audio/wav",
-                _ => "application/octet-stream",
-            };
+            let content_type = get_content_type_for_format(&song.9);
 
             // file_path in the database is already relative to library root
             let song_relative_path = song.1.clone();

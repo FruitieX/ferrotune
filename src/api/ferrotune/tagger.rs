@@ -3,6 +3,7 @@
 //! Provides endpoints for the tagger view: uploading files to staging,
 //! batch tag operations, and saving changes.
 
+use crate::api::common::utils::get_content_type_for_format;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::queries;
@@ -796,15 +797,7 @@ pub async fn stream_staged_file(
 
     // Determine content type from extension
     let ext = id.rsplit('.').next().unwrap_or("").to_lowercase();
-    let content_type = match ext.as_str() {
-        "mp3" => "audio/mpeg",
-        "flac" => "audio/flac",
-        "ogg" | "opus" => "audio/ogg",
-        "m4a" | "aac" => "audio/mp4",
-        "wav" => "audio/wav",
-        "wma" => "audio/x-ms-wma",
-        _ => "application/octet-stream",
-    };
+    let content_type = get_content_type_for_format(&ext);
 
     // Parse Range header for partial content
     let range_header = headers.get(header::RANGE).and_then(|v| v.to_str().ok());

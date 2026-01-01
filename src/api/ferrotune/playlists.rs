@@ -1,5 +1,6 @@
 //! Playlist folder management endpoints for the Ferrotune Admin API.
 
+use crate::api::common::utils::format_datetime_iso_ms;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::AppState;
@@ -1512,14 +1513,8 @@ pub async fn get_playlist_songs(
         missing_count,
         duration: playlist.duration,
         filtered_count,
-        created: playlist
-            .created_at
-            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-            .to_string(),
-        changed: playlist
-            .updated_at
-            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-            .to_string(),
+        created: format_datetime_iso_ms(playlist.created_at),
+        changed: format_datetime_iso_ms(playlist.updated_at),
         cover_art,
         entries,
     }))
@@ -1693,14 +1688,8 @@ pub async fn update_playlist(
         missing_count: 0, // Approximate/not calculated here
         duration: updated_playlist.duration,
         filtered_count: 0,
-        created: updated_playlist
-            .created_at
-            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-            .to_string(),
-        changed: updated_playlist
-            .updated_at
-            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-            .to_string(),
+        created: format_datetime_iso_ms(updated_playlist.created_at),
+        changed: format_datetime_iso_ms(updated_playlist.updated_at),
         cover_art: if updated_playlist.song_count > 0 {
             Some(updated_playlist.id.clone())
         } else {

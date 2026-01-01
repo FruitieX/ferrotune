@@ -3,6 +3,7 @@
 //! Smart playlists are dynamic playlists that automatically include songs
 //! matching specified filter rules. Songs are materialized at query time.
 
+use crate::api::common::utils::format_datetime_iso_ms;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::SmartPlaylist;
@@ -508,16 +509,12 @@ pub async fn get_smart_playlist_songs(
     let song_responses: Vec<_> = songs
         .into_iter()
         .map(|s| {
-            let starred = s
-                .starred_at
-                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
+            let starred = s.starred_at.map(format_datetime_iso_ms);
             let cover_art_data = thumbnails.get(&s.id).cloned();
             // Construct play stats from Song model fields
             let play_stats = crate::api::common::models::SongPlayStats {
                 play_count: s.play_count,
-                last_played: s
-                    .last_played
-                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+                last_played: s.last_played.map(format_datetime_iso_ms),
             };
             song_to_response_with_stats(
                 s,

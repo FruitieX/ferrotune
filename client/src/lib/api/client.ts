@@ -115,6 +115,28 @@ const API_VERSION = "1.16.1";
 const CLIENT_NAME = "ferrotune-web";
 
 /**
+ * Utility function to build query string from object params
+ * Filters out undefined and null values
+ */
+function buildQueryString(params: Record<string, unknown>): string {
+  const searchParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null) {
+      searchParams.set(key, String(value));
+    }
+  }
+  return searchParams.toString();
+}
+
+/**
+ * Build endpoint URL with optional query string
+ */
+function buildEndpoint(base: string, params: Record<string, unknown>): string {
+  const queryString = buildQueryString(params);
+  return queryString ? `${base}?${queryString}` : base;
+}
+
+/**
  * Custom error class for API errors with status code
  */
 export class FerrotuneApiError extends Error {
@@ -215,14 +237,7 @@ export class FerrotuneClient {
 
   // Browse endpoints
   async getArtists(musicFolderId?: number): Promise<ArtistsResponse> {
-    const params = new URLSearchParams();
-    if (musicFolderId !== undefined) {
-      params.set("musicFolderId", String(musicFolderId));
-    }
-    const queryString = params.toString();
-    const endpoint = queryString
-      ? `/ferrotune/artists?${queryString}`
-      : "/ferrotune/artists";
+    const endpoint = buildEndpoint("/ferrotune/artists", { musicFolderId });
     return this.request<ArtistsResponse>(endpoint);
   }
 
@@ -230,16 +245,14 @@ export class FerrotuneClient {
     id: string,
     options?: { sort?: string; sortDir?: string; filter?: string },
   ): Promise<ArtistDetailResponse> {
-    const params = new URLSearchParams();
-    if (options?.sort) params.set("sort", options.sort);
-    if (options?.sortDir) params.set("sortDir", options.sortDir);
-    if (options?.filter) params.set("filter", options.filter);
-
-    const queryString = params.toString();
-    const endpoint = queryString
-      ? `/ferrotune/artists/${encodeURIComponent(id)}?${queryString}`
-      : `/ferrotune/artists/${encodeURIComponent(id)}`;
-
+    const endpoint = buildEndpoint(
+      `/ferrotune/artists/${encodeURIComponent(id)}`,
+      {
+        sort: options?.sort,
+        sortDir: options?.sortDir,
+        filter: options?.filter,
+      },
+    );
     return this.request<ArtistDetailResponse>(endpoint);
   }
 
@@ -247,16 +260,14 @@ export class FerrotuneClient {
     id: string,
     options?: { sort?: string; sortDir?: string; filter?: string },
   ): Promise<AlbumDetailResponse> {
-    const params = new URLSearchParams();
-    if (options?.sort) params.set("sort", options.sort);
-    if (options?.sortDir) params.set("sortDir", options.sortDir);
-    if (options?.filter) params.set("filter", options.filter);
-
-    const queryString = params.toString();
-    const endpoint = queryString
-      ? `/ferrotune/albums/${encodeURIComponent(id)}?${queryString}`
-      : `/ferrotune/albums/${encodeURIComponent(id)}`;
-
+    const endpoint = buildEndpoint(
+      `/ferrotune/albums/${encodeURIComponent(id)}`,
+      {
+        sort: options?.sort,
+        sortDir: options?.sortDir,
+        filter: options?.filter,
+      },
+    );
     return this.request<AlbumDetailResponse>(endpoint);
   }
 
@@ -273,14 +284,7 @@ export class FerrotuneClient {
 
   // Directory browsing endpoints
   async getIndexes(musicFolderId?: number): Promise<IndexesResponse> {
-    const params = new URLSearchParams();
-    if (musicFolderId !== undefined) {
-      params.set("musicFolderId", String(musicFolderId));
-    }
-    const queryString = params.toString();
-    const endpoint = queryString
-      ? `/ferrotune/indexes?${queryString}`
-      : "/ferrotune/indexes";
+    const endpoint = buildEndpoint("/ferrotune/indexes", { musicFolderId });
     return this.request<IndexesResponse>(endpoint);
   }
 
@@ -295,26 +299,7 @@ export class FerrotuneClient {
       inlineImages?: "small" | "medium";
     } = {},
   ): Promise<DirectoryPagedResponse> {
-    const queryParams = new URLSearchParams();
-    if (params.libraryId != null)
-      queryParams.set("libraryId", String(params.libraryId));
-    if (params.path != null) queryParams.set("path", params.path);
-    if (params.count != null) queryParams.set("count", String(params.count));
-    if (params.offset != null) queryParams.set("offset", String(params.offset));
-    if (params.sort != null) queryParams.set("sort", params.sort);
-    if (params.sortDir != null) queryParams.set("sortDir", params.sortDir);
-    if (params.filter != null) queryParams.set("filter", params.filter);
-    if (params.foldersOnly != null)
-      queryParams.set("foldersOnly", String(params.foldersOnly));
-    if (params.filesOnly != null)
-      queryParams.set("filesOnly", String(params.filesOnly));
-    if (params.inlineImages != null)
-      queryParams.set("inlineImages", params.inlineImages);
-
-    const queryString = queryParams.toString();
-    const endpoint = queryString
-      ? `/ferrotune/directory?${queryString}`
-      : "/ferrotune/directory";
+    const endpoint = buildEndpoint("/ferrotune/directory", params);
     return this.request<DirectoryPagedResponse>(endpoint);
   }
 
@@ -326,16 +311,7 @@ export class FerrotuneClient {
         inlineImages?: "small" | "medium";
       },
   ): Promise<AlbumListResponse> {
-    const queryParams = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) {
-      if (value !== undefined && value !== null) {
-        queryParams.set(key, String(value));
-      }
-    }
-    const queryString = queryParams.toString();
-    const endpoint = queryString
-      ? `/ferrotune/albums?${queryString}`
-      : "/ferrotune/albums";
+    const endpoint = buildEndpoint("/ferrotune/albums", params);
 
     // Ferrotune API returns { album: [...], total: ... }
     // but client expects { albumList2: { album: [...] } }
@@ -353,17 +329,7 @@ export class FerrotuneClient {
   async getRandomSongs(
     params: Partial<RandomSongsParams> = {},
   ): Promise<RandomSongsResponse> {
-    const queryParams = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) {
-      if (value !== undefined && value !== null) {
-        queryParams.set(key, String(value));
-      }
-    }
-    const queryString = queryParams.toString();
-    const endpoint = queryString
-      ? `/ferrotune/songs/random?${queryString}`
-      : "/ferrotune/songs/random";
-
+    const endpoint = buildEndpoint("/ferrotune/songs/random", params);
     return this.request<RandomSongsResponse>(endpoint);
   }
 
@@ -371,18 +337,10 @@ export class FerrotuneClient {
     genre: string,
     params: Partial<Omit<SongsByGenreParams, "genre">> = {},
   ): Promise<SongsByGenreResponse> {
-    const queryParams = new URLSearchParams();
-    queryParams.set("genre", genre);
-    for (const [key, value] of Object.entries(params)) {
-      if (value !== undefined && value !== null) {
-        queryParams.set(key, String(value));
-      }
-    }
-    const queryString = queryParams.toString();
-    const endpoint = queryString
-      ? `/ferrotune/songs/by-genre?${queryString}`
-      : "/ferrotune/songs/by-genre";
-
+    const endpoint = buildEndpoint("/ferrotune/songs/by-genre", {
+      genre,
+      ...params,
+    });
     return this.request<SongsByGenreResponse>(endpoint);
   }
 
@@ -391,16 +349,7 @@ export class FerrotuneClient {
   async search3(
     params: Pick<SearchParams, "query"> & Partial<Omit<SearchParams, "query">>,
   ): Promise<SearchResponse> {
-    const queryParams = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) {
-      if (value !== undefined && value !== null) {
-        queryParams.set(key, String(value));
-      }
-    }
-    const queryString = queryParams.toString();
-    const endpoint = queryString
-      ? `/ferrotune/search?${queryString}`
-      : "/ferrotune/search";
+    const endpoint = buildEndpoint("/ferrotune/search", params);
 
     // Ferrotune API returns { searchResult: {...} }
     // but client expects { searchResult3: {...} }
@@ -521,22 +470,10 @@ export class FerrotuneClient {
       count?: number;
     },
   ): Promise<PlaylistWithSongsResponse> {
-    const params = new URLSearchParams();
-    if (options?.sort) params.set("sort", options.sort);
-    if (options?.sortDir) params.set("sortDir", options.sortDir);
-    if (options?.filter) params.set("filter", options.filter);
-    if (options?.offset !== undefined)
-      params.set("offset", String(options.offset));
-    if (options?.count !== undefined)
-      params.set("count", String(options.count));
-
-    // Always request small images for list views
-    params.set("inlineImages", "small");
-
-    const queryString = params.toString();
-    const endpoint = queryString
-      ? `/ferrotune/playlists/${encodeURIComponent(id)}?${queryString}`
-      : `/ferrotune/playlists/${encodeURIComponent(id)}`;
+    const endpoint = buildEndpoint(
+      `/ferrotune/playlists/${encodeURIComponent(id)}`,
+      { ...options, inlineImages: "small" },
+    );
 
     const res = await this.request<PlaylistSongsResponse>(endpoint);
 
@@ -667,16 +604,7 @@ export class FerrotuneClient {
       inlineImages?: "small" | "medium";
     } = {},
   ): Promise<PlayHistoryResponse> {
-    const queryParams = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) {
-      if (value !== undefined && value !== null) {
-        queryParams.set(key, String(value));
-      }
-    }
-    const queryString = queryParams.toString();
-    const endpoint = queryString
-      ? `/ferrotune/history?${queryString}`
-      : "/ferrotune/history";
+    const endpoint = buildEndpoint("/ferrotune/history", params);
 
     // Ferrotune API returns { entry: [...], total: ... }
     // but client expects { playHistory: { entry: [...], total: ... } }
@@ -898,12 +826,8 @@ export class FerrotuneClient {
     offset?: number;
     limit?: number;
   }): Promise<RecycleBinResponse> {
-    const searchParams = new URLSearchParams();
-    if (params?.offset != null)
-      searchParams.set("offset", String(params.offset));
-    if (params?.limit != null) searchParams.set("limit", String(params.limit));
-    const query = searchParams.toString();
-    return this.request(`/ferrotune/recycle-bin${query ? `?${query}` : ""}`);
+    const endpoint = buildEndpoint("/ferrotune/recycle-bin", params ?? {});
+    return this.request(endpoint);
   }
 
   /**
@@ -941,50 +865,7 @@ export class FerrotuneClient {
   async getSongIds(
     params: Partial<SearchParams> = {},
   ): Promise<SongIdsResponse> {
-    const searchParams = new URLSearchParams();
-
-    // Add search parameters (filter out null and undefined)
-    if (params.query != null) searchParams.set("query", params.query);
-    if (params.songSort != null) searchParams.set("songSort", params.songSort);
-    if (params.songSortDir != null)
-      searchParams.set("songSortDir", params.songSortDir);
-    if (params.minYear != null)
-      searchParams.set("minYear", String(params.minYear));
-    if (params.maxYear != null)
-      searchParams.set("maxYear", String(params.maxYear));
-    if (params.genre != null) searchParams.set("genre", params.genre);
-    if (params.minDuration != null)
-      searchParams.set("minDuration", String(params.minDuration));
-    if (params.maxDuration != null)
-      searchParams.set("maxDuration", String(params.maxDuration));
-    if (params.minRating != null)
-      searchParams.set("minRating", String(params.minRating));
-    if (params.maxRating != null)
-      searchParams.set("maxRating", String(params.maxRating));
-    if (params.starredOnly != null)
-      searchParams.set("starredOnly", String(params.starredOnly));
-    if (params.minPlayCount != null)
-      searchParams.set("minPlayCount", String(params.minPlayCount));
-    if (params.maxPlayCount != null)
-      searchParams.set("maxPlayCount", String(params.maxPlayCount));
-    if (params.shuffleExcludedOnly != null)
-      searchParams.set(
-        "shuffleExcludedOnly",
-        String(params.shuffleExcludedOnly),
-      );
-    if (params.minBitrate != null)
-      searchParams.set("minBitrate", String(params.minBitrate));
-    if (params.maxBitrate != null)
-      searchParams.set("maxBitrate", String(params.maxBitrate));
-    if (params.addedAfter != null)
-      searchParams.set("addedAfter", params.addedAfter);
-    if (params.addedBefore != null)
-      searchParams.set("addedBefore", params.addedBefore);
-
-    const queryString = searchParams.toString();
-    const endpoint = queryString
-      ? `/ferrotune/songs/ids?${queryString}`
-      : "/ferrotune/songs/ids";
+    const endpoint = buildEndpoint("/ferrotune/songs/ids", params);
     return this.request<SongIdsResponse>(endpoint);
   }
 
@@ -1147,22 +1028,11 @@ export class FerrotuneClient {
       inlineImages?: "small" | "medium";
     },
   ): Promise<PlaylistSongsResponse> {
-    const params = new URLSearchParams();
-    if (options?.offset !== undefined)
-      params.set("offset", options.offset.toString());
-    if (options?.count !== undefined)
-      params.set("count", options.count.toString());
-    if (options?.sort !== undefined) params.set("sort", options.sort);
-    if (options?.sortDir !== undefined) params.set("sortDir", options.sortDir);
-    if (options?.filter !== undefined) params.set("filter", options.filter);
-    if (options?.entryType !== undefined)
-      params.set("entryType", options.entryType);
-    if (options?.inlineImages !== undefined)
-      params.set("inlineImages", options.inlineImages);
-    const query = params.toString();
-    return this.request(
-      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/songs${query ? `?${query}` : ""}`,
+    const endpoint = buildEndpoint(
+      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/songs`,
+      options ?? {},
     );
+    return this.request(endpoint);
   }
 
   /**
@@ -1197,14 +1067,12 @@ export class FerrotuneClient {
     month?: number,
     inlineImages?: "small" | "medium",
   ): Promise<PeriodReviewResponse> {
-    const params = new URLSearchParams();
-    if (year !== undefined) params.set("year", year.toString());
-    if (month !== undefined) params.set("month", month.toString());
-    if (inlineImages !== undefined) params.set("inlineImages", inlineImages);
-    const query = params.toString();
-    return this.request(
-      `/ferrotune/listening/review${query ? `?${query}` : ""}`,
-    );
+    const endpoint = buildEndpoint("/ferrotune/listening/review", {
+      year,
+      month,
+      inlineImages,
+    });
+    return this.request(endpoint);
   }
 
   // Scrobbles import (Admin API)
@@ -1231,11 +1099,10 @@ export class FerrotuneClient {
   async checkImportDuplicate(
     description: string,
   ): Promise<CheckImportDuplicateResponse> {
-    const params = new URLSearchParams();
-    params.set("description", description);
-    return this.request(
-      `/ferrotune/scrobbles/check-duplicate?${params.toString()}`,
-    );
+    const endpoint = buildEndpoint("/ferrotune/scrobbles/check-duplicate", {
+      description,
+    });
+    return this.request(endpoint);
   }
 
   // Streaming waveform URL (Admin API - returns URL for SSE endpoint)

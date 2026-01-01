@@ -3,14 +3,13 @@
 //! Uses common search logic from api::common::search with additional
 //! OpenSubsonic-specific features like inline thumbnails.
 
-use crate::api::common::browse::song_to_response_with_stats;
-use crate::api::common::models::{AlbumResponse, ArtistResponse, SongPlayStats, SongResponse};
-use crate::api::common::search::{search_albums, search_artists, search_songs, SearchParams};
-use crate::api::common::starring::{get_ratings_map, get_starred_map};
+use crate::api::common::models::{AlbumResponse, ArtistResponse, SongResponse};
+use crate::api::common::search::SearchParams;
+use crate::api::common::search_utils::execute_search;
+use crate::api::common::utils::parse_inline_images;
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
-use crate::db::models::ItemType;
 use crate::error::Result;
 use axum::extract::{Query, State};
 use serde::Serialize;
@@ -53,11 +52,6 @@ pub async fn search3(
     State(state): State<Arc<AppState>>,
     Query(params): Query<SearchParams>,
 ) -> Result<FormatResponse<SearchResult3>> {
-    use super::inline_thumbnails::{
-        get_album_thumbnails_base64, get_artist_thumbnails_base64, get_song_thumbnails_base64,
-    };
-    use crate::thumbnails::ThumbnailSize;
-
     let artist_count = params.artist_count.unwrap_or(20).min(500) as i64;
     let artist_offset = params.artist_offset.unwrap_or(0) as i64;
     let album_count = params.album_count.unwrap_or(20).min(500) as i64;
@@ -67,171 +61,32 @@ pub async fn search3(
 
     // Parse inline images parameter
     // TODO: this is not part of OpenSubsonic spec
-    let inline_size: Option<ThumbnailSize> = match params.inline_images.as_deref() {
-        Some("small") | Some("s") => Some(ThumbnailSize::Small),
-        Some("medium") | Some("m") => Some(ThumbnailSize::Medium),
-        _ => None,
-    };
+    let inline_size = parse_inline_images(params.inline_images.as_deref());
 
-    // ========================================================================
-    // Search artists using common logic
-    // ========================================================================
-    let artist_result = search_artists(
+    // Execute search with post-processing using shared utility
+    let results = execute_search(
         &state.pool,
         user.user_id,
         &params.query,
         &params,
         artist_count,
         artist_offset,
-    )
-    .await?;
-
-    // Get starred status and ratings for artists
-    let artist_ids: Vec<String> = artist_result.artists.iter().map(|a| a.id.clone()).collect();
-    let artist_starred_map =
-        get_starred_map(&state.pool, user.user_id, ItemType::Artist, &artist_ids).await?;
-    let artist_ratings_map =
-        get_ratings_map(&state.pool, user.user_id, ItemType::Artist, &artist_ids).await?;
-
-    // Get inline thumbnails for artists if requested
-    let artist_thumbnails = if let Some(size) = inline_size {
-        get_artist_thumbnails_base64(&state.pool, &artist_ids, size).await
-    } else {
-        std::collections::HashMap::new()
-    };
-
-    let artist_responses: Vec<ArtistResponse> = artist_result
-        .artists
-        .into_iter()
-        .map(|artist| ArtistResponse {
-            id: artist.id.clone(),
-            name: artist.name,
-            album_count: Some(artist.album_count),
-            cover_art: Some(artist.id.clone()),
-            cover_art_data: artist_thumbnails.get(&artist.id).cloned(),
-            starred: artist_starred_map.get(&artist.id).cloned(),
-            user_rating: artist_ratings_map.get(&artist.id).copied(),
-        })
-        .collect();
-
-    // ========================================================================
-    // Search albums using common logic
-    // ========================================================================
-    let album_result = search_albums(
-        &state.pool,
-        user.user_id,
-        &params.query,
-        &params,
         album_count,
         album_offset,
-    )
-    .await?;
-
-    // Get starred status and ratings for albums
-    let album_ids: Vec<String> = album_result.albums.iter().map(|a| a.id.clone()).collect();
-    let album_starred_map =
-        get_starred_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
-    let album_ratings_map =
-        get_ratings_map(&state.pool, user.user_id, ItemType::Album, &album_ids).await?;
-
-    // Get inline thumbnails for albums if requested
-    let album_thumbnails = if let Some(size) = inline_size {
-        get_album_thumbnails_base64(&state.pool, &album_ids, size).await
-    } else {
-        std::collections::HashMap::new()
-    };
-
-    let album_responses: Vec<AlbumResponse> = album_result
-        .albums
-        .into_iter()
-        .map(|album| {
-            let created = album
-                .created_at
-                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                .to_string();
-            AlbumResponse {
-                id: album.id.clone(),
-                name: album.name,
-                artist: album.artist_name,
-                artist_id: album.artist_id,
-                cover_art: Some(album.id.clone()),
-                cover_art_data: album_thumbnails.get(&album.id).cloned(),
-                song_count: album.song_count,
-                duration: album.duration,
-                year: album.year,
-                genre: album.genre,
-                created,
-                starred: album_starred_map.get(&album.id).cloned(),
-                user_rating: album_ratings_map.get(&album.id).copied(),
-            }
-        })
-        .collect();
-
-    // ========================================================================
-    // Search songs using common logic
-    // ========================================================================
-    let song_result = search_songs(
-        &state.pool,
-        user.user_id,
-        &params.query,
-        &params,
         song_count,
         song_offset,
+        inline_size,
     )
     .await?;
-
-    // Get starred status and ratings for songs
-    let song_ids: Vec<String> = song_result.songs.iter().map(|s| s.id.clone()).collect();
-    let song_starred_map =
-        get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
-    let song_ratings_map =
-        get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
-
-    // Get inline thumbnails for songs if requested (uses album thumbnails)
-    let song_thumbnail_data: Vec<(String, Option<String>)> = song_result
-        .songs
-        .iter()
-        .map(|s| (s.id.clone(), s.album_id.clone()))
-        .collect();
-    let song_thumbnails = if let Some(size) = inline_size {
-        get_song_thumbnails_base64(&state.pool, &song_thumbnail_data, size).await
-    } else {
-        std::collections::HashMap::new()
-    };
-
-    let song_responses: Vec<SongResponse> = song_result
-        .songs
-        .into_iter()
-        .map(|song| {
-            let starred = song_starred_map.get(&song.id).cloned();
-            let user_rating = song_ratings_map.get(&song.id).copied();
-            let cover_art_data = song_thumbnails.get(&song.id).cloned();
-            let play_stats = SongPlayStats {
-                play_count: song.play_count,
-                last_played: song
-                    .last_played
-                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
-            };
-            song_to_response_with_stats(
-                song,
-                None, // Album info already embedded in song
-                starred,
-                user_rating,
-                Some(play_stats),
-                None,
-                cover_art_data,
-            )
-        })
-        .collect();
 
     let response = SearchResult3 {
         search_result3: SearchContent {
-            artist: artist_responses,
-            album: album_responses,
-            song: song_responses,
-            artist_total: artist_result.total,
-            album_total: album_result.total,
-            song_total: song_result.total,
+            artist: results.artist_responses,
+            album: results.album_responses,
+            song: results.song_responses,
+            artist_total: results.artist_total,
+            album_total: results.album_total,
+            song_total: results.song_total,
         },
     };
 

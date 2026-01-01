@@ -1,13 +1,13 @@
 //! Play history endpoints for the Subsonic API.
 
-use crate::api::common::browse::song_to_response_with_stats;
-use crate::api::common::models::{SongPlayStats, SongResponse};
-use crate::api::common::starring::{get_ratings_map, get_starred_map};
+use crate::api::common::history::{
+    fetch_play_history, PlayHistoryParams as CommonPlayHistoryParams,
+};
+use crate::api::common::models::SongResponse;
 use crate::api::subsonic::auth::AuthenticatedUser;
-use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
+use crate::api::subsonic::inline_thumbnails::InlineImagesParam;
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
-use crate::db::models::ItemType;
 use crate::error::Result;
 use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
@@ -69,115 +69,33 @@ pub async fn get_play_history(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PlayHistoryParams>,
 ) -> Result<FormatResponse<PlayHistoryResponse>> {
-    use crate::api::common::sorting::filter_and_sort_songs;
-
-    let size = params.size.unwrap_or(50).min(500) as i64;
-    let offset = params.offset.unwrap_or(0) as i64;
-    let inline_size = params.inline_images.get_size();
-
-    // Get scrobbles with song data joined, deduplicated by song_id (keeping most recent play)
-    // Uses a subquery to get the most recent played_at for each song per user
-    // Also includes play_count and last_played from scrobbles
-    let songs: Vec<crate::db::models::Song> = sqlx::query_as(
-        r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
-                  s.track_number, s.disc_number, s.year, s.genre, s.duration,
-                  s.bitrate, s.file_path, s.file_size, s.file_format, 
-                  s.created_at, s.updated_at, s.cover_art_hash,
-                  pc.play_count,
-                  sc.played_at as last_played,
-                  NULL as starred_at
-           FROM scrobbles sc
-           INNER JOIN songs s ON sc.song_id = s.id
-           INNER JOIN artists ar ON s.artist_id = ar.id
-           LEFT JOIN albums al ON s.album_id = al.id
-           LEFT JOIN (
-               SELECT song_id, COUNT(*) as play_count
-               FROM scrobbles WHERE submission = 1
-               GROUP BY song_id
-           ) pc ON s.id = pc.song_id
-           WHERE sc.user_id = ? AND sc.submission = 1
-             AND sc.played_at = (
-               SELECT MAX(sc2.played_at)
-               FROM scrobbles sc2
-               WHERE sc2.song_id = sc.song_id AND sc2.user_id = sc.user_id AND sc2.submission = 1
-             )
-           ORDER BY sc.played_at DESC
-           LIMIT ? OFFSET ?"#,
+    let result = fetch_play_history(
+        &state.pool,
+        user.user_id,
+        CommonPlayHistoryParams {
+            size: params.size.unwrap_or(50).min(500) as i64,
+            offset: params.offset.unwrap_or(0) as i64,
+            filter: params.filter,
+            sort: params.sort,
+            sort_dir: params.sort_dir,
+            inline_size: params.inline_images.get_size(),
+        },
     )
-    .bind(user.user_id)
-    .bind(size)
-    .bind(offset)
-    .fetch_all(&state.pool)
     .await?;
 
-    // Apply server-side filtering and sorting
-    let songs = filter_and_sort_songs(
-        songs,
-        params.filter.as_deref(),
-        params.sort.as_deref(),
-        params.sort_dir.as_deref(),
-    );
-
-    // Get total count of unique songs in history
-    let total: (i64,) = sqlx::query_as(
-        "SELECT COUNT(DISTINCT song_id) FROM scrobbles WHERE user_id = ? AND submission = 1",
-    )
-    .bind(user.user_id)
-    .fetch_one(&state.pool)
-    .await?;
-
-    // Get starred status and ratings for all songs in the result
-    let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
-    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
-
-    // Get inline thumbnails if requested
-    let thumbnails = if let Some(size) = inline_size {
-        let song_thumbnail_data: Vec<(String, Option<String>)> = songs
-            .iter()
-            .map(|s| (s.id.clone(), s.album_id.clone()))
-            .collect();
-        get_song_thumbnails_base64(&state.pool, &song_thumbnail_data, size).await
-    } else {
-        std::collections::HashMap::new()
-    };
-
-    // Convert to response format
-    let entries: Vec<PlayHistoryEntry> = songs
+    let entries: Vec<PlayHistoryEntry> = result
+        .entries
         .into_iter()
-        .map(|song| {
-            let starred = starred_map.get(&song.id).cloned();
-            let user_rating = ratings_map.get(&song.id).copied();
-            let cover_art_data = thumbnails.get(&song.id).cloned();
-            let played_at = song
-                .last_played
-                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
-                .unwrap_or_default();
-            let play_stats = SongPlayStats {
-                play_count: song.play_count,
-                last_played: song
-                    .last_played
-                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
-            };
-            PlayHistoryEntry {
-                song: song_to_response_with_stats(
-                    song,
-                    None,
-                    starred,
-                    user_rating,
-                    Some(play_stats),
-                    None,
-                    cover_art_data,
-                ),
-                played_at,
-            }
+        .map(|item| PlayHistoryEntry {
+            song: item.song,
+            played_at: item.played_at,
         })
         .collect();
 
     let response = PlayHistoryResponse {
         play_history: PlayHistoryContent {
             entry: entries,
-            total: Some(total.0),
+            total: Some(result.total),
         },
     };
 

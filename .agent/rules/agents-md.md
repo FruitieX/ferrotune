@@ -85,31 +85,11 @@ moon run test-unit          # Unit tests only
 moon run test-integration   # Integration tests (Hurl)
 moon run test-integration-full  # Integration tests including ignored
 
-# Individual Hurl test scripts
-moon run hurl-system        # System endpoints
-moon run hurl-auth          # Authentication endpoints
-moon run hurl-browse        # Browse endpoints
-moon run hurl-streaming     # Streaming endpoints
-moon run hurl-search        # Search endpoints
-moon run hurl-starring      # Starring endpoints
-moon run hurl-playlists     # Playlist endpoints
-moon run hurl-lists         # List endpoints
-moon run hurl-playqueue     # Play queue endpoints
-
 # Frontend E2E tests
 moon run client:test-e2e          # All E2E tests
 moon run client:test-e2e-ui       # E2E tests with Playwright UI
 moon run client:test-e2e-headed   # E2E tests in headed browser
 moon run client:test-e2e-debug    # E2E tests in debug mode
-
-# Individual E2E test specs
-moon run client:test-auth         # Auth tests
-moon run client:test-browse       # Browse tests
-moon run client:test-search       # Search tests
-moon run client:test-playback     # Playback tests
-moon run client:test-queue        # Queue tests
-moon run client:test-starring     # Starring tests
-moon run client:test-playlists    # Playlist tests
 ```
 
 ### Code Quality
@@ -197,27 +177,56 @@ pub async fn endpoint(user: AuthenticatedUser, ...) -> Result<FormatResponse<Res
 
 ---
 
-## Common Tasks
+## Shared Utilities (Code Reuse)
 
-### Adding a New OpenSubsonic Endpoint
-1. Add handler in `src/api/subsonic/*.rs`
-2. Add route in `src/api/mod.rs`
-3. Create request/response structs with serde
-4. Implement `ToXml` trait for XML support
-5. Add database queries if needed
-6. **Write hurl tests** in `tests/hurl/`
-7. Run tests: `cargo test`
+**IMPORTANT**: Before implementing new functionality, check if shared utilities exist. Avoid duplicating code.
 
-### Adding a Frontend Feature
-1. Implement component/page
-2. **Write Playwright tests** in `client/e2e/`
-3. Run tests: `moon run client:test-e2e`
+### Backend Shared Modules (`src/api/common/`)
 
-### Adding a Database Field
-1. Create migration in `migrations/NNN_description.sql`
-2. Update model in `src/db/models.rs`
-3. Update queries in `src/db/queries.rs`
-4. Update response structs
+| Module | Purpose | Key Functions |
+|--------|---------|---------------|
+| `utils.rs` | Common formatting utilities | `format_datetime_iso()`, `format_datetime_iso_ms()`, `get_content_type_for_format()`, `parse_inline_images()` |
+| `starring.rs` | Star/favorite and rating operations | `star_items()`, `unstar_items()`, `set_item_rating()`, `fetch_starred_content()`, `get_starred_map()`, `get_ratings_map()` |
+| `history.rs` | Play history operations | `fetch_play_history()` |
+| `playqueue.rs` | Queue utilities | `find_current_index()` |
+| `browse.rs` | Browse operations | `get_artists_logic()`, `get_album_logic()`, `song_to_response()`, `song_to_response_with_stats()` |
+| `lists.rs` | List generation | `get_album_list_logic()`, `get_random_songs_logic()`, `get_songs_by_genre_logic()` |
+| `search.rs` | Search operations | `search_artists()`, `search_albums()`, `search_songs()` |
+| `sorting.rs` | Server-side sorting | `filter_and_sort_songs()` |
+
+### Frontend Shared Components (`client/src/components/shared/`)
+
+| Component | Purpose |
+|-----------|---------|
+| `media-menu-items.tsx` | Polymorphic menu items for ContextMenu/DropdownMenu |
+| `details-dialog.tsx` | Unified details dialog for songs/albums/artists |
+| `media-card.tsx` | Shared media card component |
+| `action-bar.tsx` | Shared action bar component |
+
+### Frontend API Client Utilities (`client/src/lib/api/client.ts`)
+
+```typescript
+// ✅ Good - Use buildEndpoint for query parameters
+const endpoint = buildEndpoint(`/ferrotune/artists/${id}`, {
+  sort: options?.sort,
+  sortDir: options?.sortDir,
+  filter: options?.filter,
+});
+
+// ❌ Bad - Don't manually construct URLSearchParams
+const params = new URLSearchParams();
+if (options?.sort) params.set("sort", options.sort);
+// ... repeated code
+```
+
+### Frontend Hooks (`client/src/lib/hooks/`)
+
+| Hook | Purpose |
+|------|---------|
+| `use-album-actions.ts` | Album playback/queue/starring actions |
+| `use-artist-actions.ts` | Artist playback/queue/starring actions |
+| `use-song-actions.ts` | Song playback/queue/starring/rating actions |
+| `use-star.ts` | Generic starring state management |
 
 ---
 
@@ -253,3 +262,5 @@ Read these when working on specific areas:
 - You can run similarily named client and server tasks with e.g. `moon run :fmt` to format both client and server code.
 - i64 etc types get exported as bigint, you should just override this as number
 - Try to reuse code when feasible. If the user refers to replicating some other functionality, or if there are any existing implementations using similar logic, you should aim to share code between these functionalities/implementations by e.g. extracting code into utility functions.
+- **Before implementing new functionality, check the "Shared Utilities" section above** for existing helpers. Use `src/api/common/` for backend and `client/src/components/shared/` for frontend shared code.
+- When adding new shared functionality, update the "Shared Utilities" section in this file to document it for future agents.

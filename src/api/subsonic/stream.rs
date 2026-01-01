@@ -1,3 +1,4 @@
+use crate::api::common::utils::get_content_type_for_format;
 use crate::api::ferrotune::users::user_has_song_access;
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::transcoding::{transcode_with_offset, TranscodeConfig};
@@ -119,14 +120,7 @@ pub async fn stream(
     let file_size = file.metadata().await?.len();
 
     // Determine content type
-    let content_type = match song.file_format.as_str() {
-        "mp3" => "audio/mpeg",
-        "flac" => "audio/flac",
-        "ogg" | "opus" => "audio/ogg",
-        "m4a" | "mp4" | "aac" => "audio/mp4",
-        "wav" => "audio/wav",
-        _ => "application/octet-stream",
-    };
+    let content_type = get_content_type_for_format(&song.file_format);
 
     // Handle range requests (for seeking)
     if let Some(range_header) = headers.get(header::RANGE) {

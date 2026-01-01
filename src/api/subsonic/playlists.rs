@@ -1,3 +1,4 @@
+use crate::api::common::utils::format_datetime_iso_ms;
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::response::{FormatEmptyResponse, FormatResponse};
 use crate::api::AppState;
@@ -152,14 +153,8 @@ fn playlist_to_response(playlist: &Playlist, owner_name: &str) -> PlaylistRespon
         public: playlist.is_public,
         song_count: playlist.song_count,
         duration: playlist.duration,
-        created: playlist
-            .created_at
-            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-            .to_string(),
-        changed: playlist
-            .updated_at
-            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-            .to_string(),
+        created: format_datetime_iso_ms(playlist.created_at),
+        changed: format_datetime_iso_ms(playlist.updated_at),
         cover_art,
     }
 }
@@ -264,14 +259,8 @@ pub async fn get_playlist(
             public: playlist.is_public,
             song_count: playlist.song_count,
             duration: playlist.duration,
-            created: playlist
-                .created_at
-                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                .to_string(),
-            changed: playlist
-                .updated_at
-                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                .to_string(),
+            created: format_datetime_iso_ms(playlist.created_at),
+            changed: format_datetime_iso_ms(playlist.updated_at),
             cover_art,
             song_total: Some(total_after_filter),
             entry: song_responses,
@@ -377,14 +366,8 @@ async fn get_playlist_response(
             public: playlist.is_public,
             song_count: playlist.song_count,
             duration: playlist.duration,
-            created: playlist
-                .created_at
-                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                .to_string(),
-            changed: playlist
-                .updated_at
-                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                .to_string(),
+            created: format_datetime_iso_ms(playlist.created_at),
+            changed: format_datetime_iso_ms(playlist.updated_at),
             cover_art,
             song_total: None, // Not used in create_playlist
             entry: song_responses,

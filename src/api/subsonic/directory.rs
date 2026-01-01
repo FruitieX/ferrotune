@@ -7,6 +7,7 @@
 use crate::api::common::browse::get_indexes_logic;
 use crate::api::common::models::DirectoryIndex;
 use crate::api::common::starring::{get_ratings_map, get_starred_map};
+use crate::api::common::utils::{format_datetime_iso_ms, get_content_type_for_format};
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::response::FormatResponse;
 use crate::api::AppState;
@@ -214,12 +215,7 @@ pub async fn get_music_directory(
                 path: None,
                 starred: starred_map.get(&album.id).cloned(),
                 user_rating: ratings_map.get(&album.id).copied(),
-                created: Some(
-                    album
-                        .created_at
-                        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                        .to_string(),
-                ),
+                created: Some(format_datetime_iso_ms(album.created_at)),
             })
             .collect();
 
@@ -267,14 +263,7 @@ pub async fn get_music_directory(
         let children: Vec<DirectoryChild> = songs
             .iter()
             .map(|song| {
-                let content_type = match song.file_format.as_str() {
-                    "mp3" => "audio/mpeg",
-                    "flac" => "audio/flac",
-                    "ogg" | "opus" => "audio/ogg",
-                    "m4a" | "mp4" | "aac" => "audio/mp4",
-                    "wav" => "audio/wav",
-                    _ => "application/octet-stream",
-                };
+                let content_type = get_content_type_for_format(&song.file_format);
 
                 DirectoryChild {
                     id: song.id.clone(),
@@ -295,7 +284,7 @@ pub async fn get_music_directory(
                     path: Some(song.file_path.clone()),
                     starred: starred_map.get(&song.id).cloned(),
                     user_rating: ratings_map.get(&song.id).copied(),
-                    created: Some(song.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+                    created: Some(format_datetime_iso_ms(song.created_at)),
                 }
             })
             .collect();
@@ -383,14 +372,7 @@ async fn get_directory_by_path(
 
     // Add songs
     for song in songs {
-        let content_type = match song.file_format.as_str() {
-            "mp3" => "audio/mpeg",
-            "flac" => "audio/flac",
-            "ogg" | "opus" => "audio/ogg",
-            "m4a" | "mp4" | "aac" => "audio/mp4",
-            "wav" => "audio/wav",
-            _ => "application/octet-stream",
-        };
+        let content_type = get_content_type_for_format(&song.file_format);
 
         children.push(DirectoryChild {
             id: song.id.clone(),
@@ -411,7 +393,7 @@ async fn get_directory_by_path(
             path: Some(song.file_path.clone()),
             starred: starred_map.get(&song.id).cloned(),
             user_rating: ratings_map.get(&song.id).copied(),
-            created: Some(song.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+            created: Some(format_datetime_iso_ms(song.created_at)),
         });
     }
 

@@ -1,26 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import {
-  Play,
-  ListPlus,
-  ListEnd,
-  Heart,
-  Star,
-  Download,
-  MoreHorizontal,
-  User,
-  Disc,
-  FolderPlus,
-  Info,
-  X,
-  Shuffle,
-  Move,
-  RefreshCw,
-  Unlink,
-  Tag,
-  Trash2,
-} from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -54,6 +34,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
+import {
+  SongMenuItemsQueue,
+  SongMenuItemsStarring,
+  SongMenuItemsNavigation,
+  type MenuComponents,
+} from "@/components/shared/media-menu-items";
 import { useSongActions, type QueueSource } from "@/lib/hooks/use-song-actions";
 import type { Song } from "@/lib/api/types";
 import { useSetAtom, useAtom } from "jotai";
@@ -73,6 +59,160 @@ function dismissContextMenu() {
     new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
   );
 }
+
+// ===================================
+// Menu component adapters
+// ===================================
+
+const contextMenuComponents: MenuComponents = {
+  Item: ContextMenuItem,
+  Separator: ContextMenuSeparator,
+  Sub: ContextMenuSub,
+  SubTrigger: ContextMenuSubTrigger,
+  SubContent: ContextMenuSubContent,
+};
+
+const dropdownMenuComponents: MenuComponents = {
+  Item: DropdownMenuItem,
+  Separator: DropdownMenuSeparator,
+  Sub: DropdownMenuSub,
+  SubTrigger: DropdownMenuSubTrigger,
+  SubContent: DropdownMenuSubContent,
+};
+
+// ===================================
+// Shared hook for mark for editing
+// ===================================
+
+function useMarkForEditing(song: Song) {
+  const router = useRouter();
+  const setSession = useSetAtom(taggerSessionAtom);
+  const [tracks, setTracks] = useAtom(taggerTracksAtom);
+
+  async function handleMarkForEditing() {
+    // If already in tracks, just show toast
+    if (tracks.has(song.id)) {
+      toast.info("Track already marked for editing", {
+        action: {
+          label: "Open Tagger",
+          onClick: () => router.push("/tagger"),
+        },
+      });
+      return;
+    }
+
+    try {
+      const client = getClient();
+      if (!client) {
+        toast.error("Not connected");
+        return;
+      }
+
+      // Stage the track via API
+      const response = await client.stageLibraryTracks([song.id]);
+
+      // Add track to tracks atom
+      const newTracks = new Map(tracks);
+      for (const track of response.tracks) {
+        newTracks.set(track.id, createTrackState(track));
+      }
+      setTracks(newTracks);
+
+      // Add to session
+      setSession((prev) => {
+        if (prev.tracks.some((t) => t.id === song.id)) return prev;
+        return {
+          ...prev,
+          tracks: [
+            ...prev.tracks,
+            { id: song.id, trackType: "library" as const },
+          ],
+        };
+      });
+
+      toast.success("Track marked for editing", {
+        action: {
+          label: "Open Tagger",
+          onClick: () => router.push("/tagger"),
+        },
+      });
+    } catch (error) {
+      console.error("Failed to mark for editing:", error);
+      toast.error("Failed to mark for editing");
+    }
+  }
+
+  return handleMarkForEditing;
+}
+
+// ===================================
+// Shared dialogs component
+// ===================================
+
+interface SongDialogsProps {
+  song: Song;
+  addToPlaylistOpen: boolean;
+  setAddToPlaylistOpen: (open: boolean) => void;
+  detailsOpen: boolean;
+  setDetailsOpen: (open: boolean) => void;
+  confirmDeletionOpen: boolean;
+  setConfirmDeletionOpen: (open: boolean) => void;
+  handleConfirmDeletion: () => void;
+}
+
+function SongDialogs({
+  song,
+  addToPlaylistOpen,
+  setAddToPlaylistOpen,
+  detailsOpen,
+  setDetailsOpen,
+  confirmDeletionOpen,
+  setConfirmDeletionOpen,
+  handleConfirmDeletion,
+}: SongDialogsProps) {
+  return (
+    <>
+      <AddToPlaylistDialog
+        open={addToPlaylistOpen}
+        onOpenChange={setAddToPlaylistOpen}
+        songs={[song]}
+      />
+      <DetailsDialog
+        item={{ type: "song", data: song }}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+      />
+      <AlertDialog
+        open={confirmDeletionOpen}
+        onOpenChange={setConfirmDeletionOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark for Deletion?</AlertDialogTitle>
+            <AlertDialogDescription>
+              &quot;{song.title}&quot; will be moved to the recycle bin and
+              permanently deleted after 30 days. This action can be undone from
+              the Administration page.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDeletion}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Mark for Deletion
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+// ===================================
+// Context Menu Component
+// ===================================
 
 interface SongContextMenuProps {
   song: Song;
@@ -133,212 +273,7 @@ export function SongContextMenu({
     setDetailsOpen,
   } = useSongActions({ song, queueSongs, songIndex, queueSource });
 
-  const router = useRouter();
-  const setSession = useSetAtom(taggerSessionAtom);
-  const [tracks, setTracks] = useAtom(taggerTracksAtom);
-
-  async function handleMarkForEditing() {
-    // If already in tracks, just show toast
-    if (tracks.has(song.id)) {
-      toast.info("Track already marked for editing", {
-        action: {
-          label: "Open Tagger",
-          onClick: () => router.push("/tagger"),
-        },
-      });
-      return;
-    }
-
-    try {
-      const client = getClient();
-      if (!client) {
-        toast.error("Not connected");
-        return;
-      }
-
-      // Stage the track via API
-      const response = await client.stageLibraryTracks([song.id]);
-
-      // Add track to tracks atom
-      const newTracks = new Map(tracks);
-      for (const track of response.tracks) {
-        newTracks.set(track.id, createTrackState(track));
-      }
-      setTracks(newTracks);
-
-      // Add to session
-      setSession((prev) => {
-        if (prev.tracks.some((t) => t.id === song.id)) return prev;
-        return {
-          ...prev,
-          tracks: [
-            ...prev.tracks,
-            { id: song.id, trackType: "library" as const },
-          ],
-        };
-      });
-
-      toast.success("Track marked for editing", {
-        action: {
-          label: "Open Tagger",
-          onClick: () => router.push("/tagger"),
-        },
-      });
-    } catch (error) {
-      console.error("Failed to mark for editing:", error);
-      toast.error("Failed to mark for editing");
-    }
-  }
-
-  const menuItems = (
-    <>
-      {!hideQueueActions && (
-        <>
-          <ContextMenuItem onClick={handlePlay}>
-            <Play className="w-4 h-4 mr-2" />
-            Play
-          </ContextMenuItem>
-          <ContextMenuItem onClick={handlePlayNext}>
-            <ListPlus className="w-4 h-4 mr-2" />
-            Play Next
-          </ContextMenuItem>
-          <ContextMenuItem onClick={handleAddToQueue}>
-            <ListEnd className="w-4 h-4 mr-2" />
-            Add to Queue
-          </ContextMenuItem>
-        </>
-      )}
-      <ContextMenuItem onClick={() => setAddToPlaylistOpen(true)}>
-        <FolderPlus className="w-4 h-4 mr-2" />
-        Add to Playlist
-      </ContextMenuItem>
-      {showRemoveFromQueue && onRemoveFromQueue && (
-        <ContextMenuItem onClick={onRemoveFromQueue}>
-          <X className="w-4 h-4 mr-2" />
-          Remove from Queue
-        </ContextMenuItem>
-      )}
-      {showMoveToPosition && onMoveToPosition && songIndex !== undefined && (
-        <ContextMenuItem onClick={() => onMoveToPosition(song, songIndex)}>
-          <Move className="w-4 h-4 mr-2" />
-          {moveToPositionLabel}
-        </ContextMenuItem>
-      )}
-      {showRemoveFromPlaylist && onRemoveFromPlaylist && (
-        <ContextMenuItem
-          onClick={() => onRemoveFromPlaylist(song.id)}
-          className="text-destructive"
-        >
-          <X className="w-4 h-4 mr-2" />
-          Remove from Playlist
-        </ContextMenuItem>
-      )}
-      {showRefineMatch && onRefineMatch && songIndex !== undefined && (
-        <ContextMenuItem onClick={() => onRefineMatch(song, songIndex)}>
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refine Match
-        </ContextMenuItem>
-      )}
-      {showUnmatch && onUnmatch && songIndex !== undefined && (
-        <ContextMenuItem
-          onClick={() => onUnmatch(song, songIndex)}
-          className="text-destructive"
-        >
-          <Unlink className="w-4 h-4 mr-2" />
-          Unmatch Song
-        </ContextMenuItem>
-      )}
-
-      <ContextMenuSeparator />
-
-      <ContextMenuItem onClick={toggleStar}>
-        <Heart
-          className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`}
-        />
-        {isStarred ? "Remove from Favorites" : "Add to Favorites"}
-      </ContextMenuItem>
-
-      <ContextMenuItem onClick={handleToggleShuffleExclude}>
-        <Shuffle
-          className={`w-4 h-4 mr-2 ${isExcludedFromShuffle ? "text-muted-foreground line-through" : ""}`}
-        />
-        {isExcludedFromShuffle ? "Include in Shuffle" : "Exclude from Shuffle"}
-      </ContextMenuItem>
-
-      <ContextMenuSub>
-        <ContextMenuSubTrigger>
-          <Star
-            className={`w-4 h-4 mr-2 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`}
-          />
-          Rate {currentRating > 0 && `(${currentRating})`}
-        </ContextMenuSubTrigger>
-        <ContextMenuSubContent>
-          {[5, 4, 3, 2, 1].map((rating) => (
-            <ContextMenuItem
-              key={rating}
-              onClick={() => handleRate(rating)}
-              className={currentRating === rating ? "bg-accent" : ""}
-            >
-              {Array.from({ length: rating }).map((_, i) => (
-                <Star
-                  key={i}
-                  className="w-3 h-3 fill-yellow-500 text-yellow-500"
-                />
-              ))}
-              {Array.from({ length: 5 - rating }).map((_, i) => (
-                <Star key={i} className="w-3 h-3 text-muted-foreground" />
-              ))}
-            </ContextMenuItem>
-          ))}
-          <ContextMenuSeparator />
-          <ContextMenuItem onClick={() => handleRate(0)}>
-            Remove Rating
-          </ContextMenuItem>
-        </ContextMenuSubContent>
-      </ContextMenuSub>
-
-      <ContextMenuSeparator />
-
-      <ContextMenuItem asChild>
-        <Link href={`/library/artists/details?id=${song.artistId}`}>
-          <User className="w-4 h-4 mr-2" />
-          Go to Artist
-        </Link>
-      </ContextMenuItem>
-      <ContextMenuItem asChild>
-        <Link href={`/library/albums/details?id=${song.albumId}`}>
-          <Disc className="w-4 h-4 mr-2" />
-          Go to Album
-        </Link>
-      </ContextMenuItem>
-
-      <ContextMenuItem onClick={handleMarkForEditing}>
-        <Tag className="w-4 h-4 mr-2" />
-        Mark for Editing
-      </ContextMenuItem>
-
-      <ContextMenuSeparator />
-
-      <ContextMenuItem onClick={handleDownload}>
-        <Download className="w-4 h-4 mr-2" />
-        Download
-      </ContextMenuItem>
-      <ContextMenuItem onClick={() => setDetailsOpen(true)}>
-        <Info className="w-4 h-4 mr-2" />
-        View Details
-      </ContextMenuItem>
-
-      <ContextMenuSeparator />
-
-      <ContextMenuItem
-        onClick={() => setConfirmDeletionOpen(true)}
-        className="text-destructive"
-      >
-        <Trash2 className="w-4 h-4 mr-2" />
-        Mark for Deletion
-      </ContextMenuItem>
-    </>
-  );
+  const handleMarkForEditing = useMarkForEditing(song);
 
   return (
     <>
@@ -348,48 +283,86 @@ export function SongContextMenu({
           className="w-56"
           onDoubleClick={(e) => e.stopPropagation()}
         >
-          {menuItems}
+          <SongMenuItemsQueue
+            components={contextMenuComponents}
+            handlers={{
+              handlePlay,
+              handlePlayNext,
+              handleAddToQueue,
+              setAddToPlaylistOpen,
+            }}
+            options={{
+              hideQueueActions,
+              showRemoveFromQueue,
+              onRemoveFromQueue,
+              showRemoveFromPlaylist,
+              onRemoveFromPlaylist: onRemoveFromPlaylist
+                ? () => onRemoveFromPlaylist(song.id)
+                : undefined,
+              showMoveToPosition: showMoveToPosition && songIndex !== undefined,
+              onMoveToPosition:
+                onMoveToPosition && songIndex !== undefined
+                  ? () => onMoveToPosition(song, songIndex)
+                  : undefined,
+              moveToPositionLabel,
+              showRefineMatch: showRefineMatch && songIndex !== undefined,
+              onRefineMatch:
+                onRefineMatch && songIndex !== undefined
+                  ? () => onRefineMatch(song, songIndex)
+                  : undefined,
+              showUnmatch: showUnmatch && songIndex !== undefined,
+              onUnmatch:
+                onUnmatch && songIndex !== undefined
+                  ? () => onUnmatch(song, songIndex)
+                  : undefined,
+            }}
+          />
+          <SongMenuItemsStarring
+            components={contextMenuComponents}
+            handlers={{
+              toggleStar,
+              handleToggleShuffleExclude,
+              handleRate,
+            }}
+            state={{
+              isStarred,
+              isExcludedFromShuffle,
+              currentRating,
+            }}
+          />
+          <SongMenuItemsNavigation
+            components={contextMenuComponents}
+            handlers={{
+              handleDownload,
+              handleMarkForEditing,
+              setDetailsOpen,
+              setConfirmDeletionOpen,
+            }}
+            song={{
+              artistId: song.artistId,
+              albumId: song.albumId,
+            }}
+          />
         </ContextMenuContent>
       </ContextMenu>
-      <AddToPlaylistDialog
-        open={addToPlaylistOpen}
-        onOpenChange={setAddToPlaylistOpen}
-        songs={[song]}
+      <SongDialogs
+        song={song}
+        addToPlaylistOpen={addToPlaylistOpen}
+        setAddToPlaylistOpen={setAddToPlaylistOpen}
+        detailsOpen={detailsOpen}
+        setDetailsOpen={setDetailsOpen}
+        confirmDeletionOpen={confirmDeletionOpen}
+        setConfirmDeletionOpen={setConfirmDeletionOpen}
+        handleConfirmDeletion={handleConfirmDeletion}
       />
-      <DetailsDialog
-        item={{ type: "song", data: song }}
-        open={detailsOpen}
-        onOpenChange={setDetailsOpen}
-      />
-      <AlertDialog
-        open={confirmDeletionOpen}
-        onOpenChange={setConfirmDeletionOpen}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Mark for Deletion?</AlertDialogTitle>
-            <AlertDialogDescription>
-              &quot;{song.title}&quot; will be moved to the recycle bin and
-              permanently deleted after 30 days. This action can be undone from
-              the Administration page.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmDeletion}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Mark for Deletion
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }
 
-// Dropdown variant for mobile and click-triggered menu
+// ===================================
+// Dropdown Menu Component
+// ===================================
+
 interface SongDropdownMenuProps {
   song: Song;
   queueSongs?: Song[];
@@ -449,51 +422,7 @@ export function SongDropdownMenu({
     setDetailsOpen,
   } = useSongActions({ song, queueSongs, songIndex, queueSource });
 
-  const router = useRouter();
-  const setSession = useSetAtom(taggerSessionAtom);
-  const [tracks, setTracks] = useAtom(taggerTracksAtom);
-
-  async function handleMarkForEditing() {
-    try {
-      const client = getClient();
-      if (!client) {
-        toast.error("Not connected");
-        return;
-      }
-
-      // Stage the track via API
-      const response = await client.stageLibraryTracks([song.id]);
-
-      // Add track to tracks atom
-      const newTracks = new Map(tracks);
-      for (const track of response.tracks) {
-        newTracks.set(track.id, createTrackState(track));
-      }
-      setTracks(newTracks);
-
-      // Add song to tagger session
-      setSession((prev) => {
-        if (prev.tracks.some((t) => t.id === song.id)) return prev;
-        return {
-          ...prev,
-          tracks: [
-            ...prev.tracks,
-            { id: song.id, trackType: "library" as const },
-          ],
-        };
-      });
-
-      toast.success("Track marked for editing", {
-        action: {
-          label: "Open Tagger",
-          onClick: () => router.push("/tagger"),
-        },
-      });
-    } catch (error) {
-      console.error("Failed to mark for editing:", error);
-      toast.error("Failed to mark for editing");
-    }
-  }
+  const handleMarkForEditing = useMarkForEditing(song);
 
   const defaultTrigger = (
     <Button
@@ -527,193 +456,78 @@ export function SongDropdownMenu({
           className="w-56"
           onDoubleClick={(e) => e.stopPropagation()}
         >
-          {!hideQueueActions && (
-            <>
-              <DropdownMenuItem onClick={handlePlay}>
-                <Play className="w-4 h-4 mr-2" />
-                Play
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handlePlayNext}>
-                <ListPlus className="w-4 h-4 mr-2" />
-                Play Next
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleAddToQueue}>
-                <ListEnd className="w-4 h-4 mr-2" />
-                Add to Queue
-              </DropdownMenuItem>
-            </>
-          )}
-          <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
-            <FolderPlus className="w-4 h-4 mr-2" />
-            Add to Playlist
-          </DropdownMenuItem>
-          {showRemoveFromQueue && onRemoveFromQueue && (
-            <DropdownMenuItem onClick={onRemoveFromQueue}>
-              <X className="w-4 h-4 mr-2" />
-              Remove from Queue
-            </DropdownMenuItem>
-          )}
-          {showMoveToPosition &&
-            onMoveToPosition &&
-            songIndex !== undefined && (
-              <DropdownMenuItem
-                onClick={() => onMoveToPosition(song, songIndex)}
-              >
-                <Move className="w-4 h-4 mr-2" />
-                {moveToPositionLabel}
-              </DropdownMenuItem>
-            )}
-          {showRemoveFromPlaylist && onRemoveFromPlaylist && (
-            <DropdownMenuItem
-              onClick={() => onRemoveFromPlaylist(song.id)}
-              className="text-destructive"
-            >
-              <X className="w-4 h-4 mr-2" />
-              Remove from Playlist
-            </DropdownMenuItem>
-          )}
-          {showRefineMatch && onRefineMatch && songIndex !== undefined && (
-            <DropdownMenuItem onClick={() => onRefineMatch(song, songIndex)}>
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Refine Match
-            </DropdownMenuItem>
-          )}
-          {showUnmatch && onUnmatch && songIndex !== undefined && (
-            <DropdownMenuItem
-              onClick={() => onUnmatch(song, songIndex)}
-              className="text-destructive"
-            >
-              <Unlink className="w-4 h-4 mr-2" />
-              Unmatch Song
-            </DropdownMenuItem>
-          )}
-
-          <DropdownMenuSeparator />
-
-          <DropdownMenuItem onClick={toggleStar}>
-            <Heart
-              className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`}
-            />
-            {isStarred ? "Remove from Favorites" : "Add to Favorites"}
-          </DropdownMenuItem>
-
-          <DropdownMenuItem onClick={handleToggleShuffleExclude}>
-            <Shuffle
-              className={`w-4 h-4 mr-2 ${isExcludedFromShuffle ? "text-muted-foreground line-through" : ""}`}
-            />
-            {isExcludedFromShuffle
-              ? "Include in Shuffle"
-              : "Exclude from Shuffle"}
-          </DropdownMenuItem>
-
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Star
-                className={`w-4 h-4 mr-2 ${currentRating > 0 ? "fill-yellow-500 text-yellow-500" : ""}`}
-              />
-              Rate {currentRating > 0 && `(${currentRating})`}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              {[5, 4, 3, 2, 1].map((rating) => (
-                <DropdownMenuItem
-                  key={rating}
-                  onClick={() => handleRate(rating)}
-                  className={currentRating === rating ? "bg-accent" : ""}
-                >
-                  {Array.from({ length: rating }).map((_, i) => (
-                    <Star
-                      key={i}
-                      className="w-3 h-3 fill-yellow-500 text-yellow-500"
-                    />
-                  ))}
-                  {Array.from({ length: 5 - rating }).map((_, i) => (
-                    <Star key={i} className="w-3 h-3 text-muted-foreground" />
-                  ))}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => handleRate(0)}>
-                Remove Rating
-              </DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-
-          <DropdownMenuSeparator />
-
-          <DropdownMenuItem asChild>
-            <Link href={`/library/artists/details?id=${song.artistId}`}>
-              <User className="w-4 h-4 mr-2" />
-              Go to Artist
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link href={`/library/albums/details?id=${song.albumId}`}>
-              <Disc className="w-4 h-4 mr-2" />
-              Go to Album
-            </Link>
-          </DropdownMenuItem>
-
-          <DropdownMenuItem onClick={handleMarkForEditing}>
-            <Tag className="w-4 h-4 mr-2" />
-            Mark for Editing
-          </DropdownMenuItem>
-
-          <DropdownMenuSeparator />
-
-          <DropdownMenuItem onClick={handleDownload}>
-            <Download className="w-4 h-4 mr-2" />
-            Download
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setDetailsOpen(true)}>
-            <Info className="w-4 h-4 mr-2" />
-            View Details
-          </DropdownMenuItem>
-
-          <DropdownMenuSeparator />
-
-          <DropdownMenuItem
-            onClick={() => setConfirmDeletionOpen(true)}
-            className="text-destructive"
-          >
-            <Trash2 className="w-4 h-4 mr-2" />
-            Mark for Deletion
-          </DropdownMenuItem>
+          <SongMenuItemsQueue
+            components={dropdownMenuComponents}
+            handlers={{
+              handlePlay,
+              handlePlayNext,
+              handleAddToQueue,
+              setAddToPlaylistOpen,
+            }}
+            options={{
+              hideQueueActions,
+              showRemoveFromQueue,
+              onRemoveFromQueue,
+              showRemoveFromPlaylist,
+              onRemoveFromPlaylist: onRemoveFromPlaylist
+                ? () => onRemoveFromPlaylist(song.id)
+                : undefined,
+              showMoveToPosition: showMoveToPosition && songIndex !== undefined,
+              onMoveToPosition:
+                onMoveToPosition && songIndex !== undefined
+                  ? () => onMoveToPosition(song, songIndex)
+                  : undefined,
+              moveToPositionLabel,
+              showRefineMatch: showRefineMatch && songIndex !== undefined,
+              onRefineMatch:
+                onRefineMatch && songIndex !== undefined
+                  ? () => onRefineMatch(song, songIndex)
+                  : undefined,
+              showUnmatch: showUnmatch && songIndex !== undefined,
+              onUnmatch:
+                onUnmatch && songIndex !== undefined
+                  ? () => onUnmatch(song, songIndex)
+                  : undefined,
+            }}
+          />
+          <SongMenuItemsStarring
+            components={dropdownMenuComponents}
+            handlers={{
+              toggleStar,
+              handleToggleShuffleExclude,
+              handleRate,
+            }}
+            state={{
+              isStarred,
+              isExcludedFromShuffle,
+              currentRating,
+            }}
+          />
+          <SongMenuItemsNavigation
+            components={dropdownMenuComponents}
+            handlers={{
+              handleDownload,
+              handleMarkForEditing,
+              setDetailsOpen,
+              setConfirmDeletionOpen,
+            }}
+            song={{
+              artistId: song.artistId,
+              albumId: song.albumId,
+            }}
+          />
         </DropdownMenuContent>
       </DropdownMenu>
-      <AddToPlaylistDialog
-        open={addToPlaylistOpen}
-        onOpenChange={setAddToPlaylistOpen}
-        songs={[song]}
+      <SongDialogs
+        song={song}
+        addToPlaylistOpen={addToPlaylistOpen}
+        setAddToPlaylistOpen={setAddToPlaylistOpen}
+        detailsOpen={detailsOpen}
+        setDetailsOpen={setDetailsOpen}
+        confirmDeletionOpen={confirmDeletionOpen}
+        setConfirmDeletionOpen={setConfirmDeletionOpen}
+        handleConfirmDeletion={handleConfirmDeletion}
       />
-      <DetailsDialog
-        item={{ type: "song", data: song }}
-        open={detailsOpen}
-        onOpenChange={setDetailsOpen}
-      />
-      <AlertDialog
-        open={confirmDeletionOpen}
-        onOpenChange={setConfirmDeletionOpen}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Mark for Deletion?</AlertDialogTitle>
-            <AlertDialogDescription>
-              &quot;{song.title}&quot; will be moved to the recycle bin and
-              permanently deleted after 30 days. This action can be undone from
-              the Administration page.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmDeletion}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Mark for Deletion
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

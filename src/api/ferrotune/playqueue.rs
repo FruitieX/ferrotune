@@ -4,6 +4,7 @@
 //! that uses JSON body instead of query parameters for better scalability with
 //! large queues.
 
+use crate::api::common::playqueue::find_current_index;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::error::Result;
@@ -65,17 +66,7 @@ pub async fn save_play_queue(
     }
 
     // Find current index from current song ID
-    let current_index = request
-        .current
-        .as_ref()
-        .and_then(|current_id| {
-            request
-                .song_ids
-                .iter()
-                .position(|id| id == current_id)
-                .map(|i| i as i64)
-        })
-        .unwrap_or(0);
+    let current_index = find_current_index(&request.song_ids, request.current.as_deref());
 
     // Upsert the queue metadata using new schema
     sqlx::query(

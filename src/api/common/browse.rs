@@ -1,5 +1,8 @@
 use crate::api::common::models::*;
 use crate::api::common::starring::{get_ratings_map, get_starred_map};
+use crate::api::common::utils::{
+    format_datetime_iso, format_datetime_iso_ms, get_content_type_for_format,
+};
 use crate::db::models::{Album, ItemType, Song};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -124,10 +127,7 @@ pub async fn get_artist_logic(
             duration: album.duration,
             year: album.year,
             genre: album.genre.clone(),
-            created: album
-                .created_at
-                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                .to_string(),
+            created: format_datetime_iso_ms(album.created_at),
             starred: starred_map.get(&album.id).cloned(),
             user_rating: ratings_map.get(&album.id).copied(),
         })
@@ -140,9 +140,7 @@ pub async fn get_artist_logic(
             // Use play stats from the Song model (populated by get_songs_by_artist)
             let play_stats = SongPlayStats {
                 play_count: song.play_count,
-                last_played: song
-                    .last_played
-                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+                last_played: song.last_played.map(format_datetime_iso),
             };
             song_to_response_with_stats(
                 song.clone(),
@@ -205,9 +203,7 @@ pub async fn get_album_logic(
             // Use play stats from the Song model (populated by get_songs_by_album)
             let play_stats = SongPlayStats {
                 play_count: song.play_count,
-                last_played: song
-                    .last_played
-                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+                last_played: song.last_played.map(format_datetime_iso),
             };
             song_to_response_with_stats(
                 song.clone(),
@@ -232,10 +228,7 @@ pub async fn get_album_logic(
         duration: album.duration,
         year: album.year,
         genre: album.genre,
-        created: album
-            .created_at
-            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-            .to_string(),
+        created: format_datetime_iso_ms(album.created_at),
         starred: album_starred_map.get(&album.id).cloned(),
         user_rating: album_ratings_map.get(&album.id).copied(),
         song: song_responses,
@@ -474,14 +467,7 @@ pub fn song_to_response_with_stats(
     folder_path: Option<&str>,
     cover_art_data: Option<String>,
 ) -> SongResponse {
-    let content_type = match song.file_format.as_str() {
-        "mp3" => "audio/mpeg",
-        "flac" => "audio/flac",
-        "ogg" | "opus" => "audio/ogg",
-        "m4a" | "mp4" | "aac" => "audio/mp4",
-        "wav" => "audio/wav",
-        _ => "application/octet-stream",
-    };
+    let content_type = get_content_type_for_format(&song.file_format);
 
     // Use song's artist name, fall back to album artist if empty
     let artist = if song.artist_name.is_empty() {
@@ -529,7 +515,7 @@ pub fn song_to_response_with_stats(
         full_path: folder_path.map(|fp| format!("{}/{}", fp, song.file_path)),
         starred,
         user_rating,
-        created: song.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+        created: format_datetime_iso_ms(song.created_at),
         media_type: "music".to_string(),
         play_count,
         last_played,

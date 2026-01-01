@@ -1,17 +1,5 @@
 "use client";
 
-import Link from "next/link";
-import {
-  Play,
-  ListPlus,
-  ListEnd,
-  Heart,
-  Shuffle,
-  User,
-  FolderPlus,
-  MoreHorizontal,
-  Info,
-} from "lucide-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -29,8 +17,25 @@ import {
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
+import {
+  AlbumMenuItems,
+  MenuComponents,
+} from "@/components/shared/media-menu-items";
 import { useAlbumActions } from "@/lib/hooks/use-album-actions";
 import type { Album } from "@/lib/api/types";
+import { MoreHorizontal } from "lucide-react";
+
+// Component adapters for ContextMenu
+const contextMenuComponents: MenuComponents = {
+  Item: ContextMenuItem,
+  Separator: ContextMenuSeparator,
+};
+
+// Component adapters for DropdownMenu
+const dropdownMenuComponents: MenuComponents = {
+  Item: DropdownMenuItem,
+  Separator: DropdownMenuSeparator,
+};
 
 interface AlbumContextMenuProps {
   album: Album;
@@ -53,50 +58,6 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
     setDetailsOpen,
   } = useAlbumActions(album);
 
-  const menuItems = (
-    <>
-      <ContextMenuItem onClick={handlePlay}>
-        <Play className="w-4 h-4 mr-2" />
-        Play
-      </ContextMenuItem>
-      <ContextMenuItem onClick={handleShuffle}>
-        <Shuffle className="w-4 h-4 mr-2" />
-        Shuffle
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem onClick={handlePlayNext}>
-        <ListPlus className="w-4 h-4 mr-2" />
-        Play Next
-      </ContextMenuItem>
-      <ContextMenuItem onClick={handleAddToQueue}>
-        <ListEnd className="w-4 h-4 mr-2" />
-        Add to Queue
-      </ContextMenuItem>
-      <ContextMenuItem onClick={handleAddToPlaylist}>
-        <FolderPlus className="w-4 h-4 mr-2" />
-        Add to Playlist
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem onClick={toggleStar}>
-        <Heart
-          className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`}
-        />
-        {isStarred ? "Remove from Favorites" : "Add to Favorites"}
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem asChild>
-        <Link href={`/library/artists/details?id=${album.artistId}`}>
-          <User className="w-4 h-4 mr-2" />
-          Go to Artist
-        </Link>
-      </ContextMenuItem>
-      <ContextMenuItem onClick={() => setDetailsOpen(true)}>
-        <Info className="w-4 h-4 mr-2" />
-        View Details
-      </ContextMenuItem>
-    </>
-  );
-
   return (
     <>
       <ContextMenu>
@@ -105,7 +66,20 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
           className="w-56"
           onDoubleClick={(e) => e.stopPropagation()}
         >
-          {menuItems}
+          <AlbumMenuItems
+            components={contextMenuComponents}
+            handlers={{
+              handlePlay,
+              handleShuffle,
+              handlePlayNext,
+              handleAddToQueue,
+              handleAddToPlaylist,
+              toggleStar,
+              setDetailsOpen,
+            }}
+            state={{ isStarred }}
+            album={{ artistId: album.artistId }}
+          />
         </ContextMenuContent>
       </ContextMenu>
       {albumSongs && (
@@ -179,45 +153,20 @@ export function AlbumDropdownMenu({
           className="w-56"
           onDoubleClick={(e) => e.stopPropagation()}
         >
-          <DropdownMenuItem onClick={handlePlay}>
-            <Play className="w-4 h-4 mr-2" />
-            Play
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleShuffle}>
-            <Shuffle className="w-4 h-4 mr-2" />
-            Shuffle
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handlePlayNext}>
-            <ListPlus className="w-4 h-4 mr-2" />
-            Play Next
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleAddToQueue}>
-            <ListEnd className="w-4 h-4 mr-2" />
-            Add to Queue
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleAddToPlaylist}>
-            <FolderPlus className="w-4 h-4 mr-2" />
-            Add to Playlist
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={toggleStar}>
-            <Heart
-              className={`w-4 h-4 mr-2 ${isStarred ? "fill-red-500 text-red-500" : ""}`}
-            />
-            {isStarred ? "Remove from Favorites" : "Add to Favorites"}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <Link href={`/library/artists/details?id=${album.artistId}`}>
-              <User className="w-4 h-4 mr-2" />
-              Go to Artist
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setDetailsOpen(true)}>
-            <Info className="w-4 h-4 mr-2" />
-            View Details
-          </DropdownMenuItem>
+          <AlbumMenuItems
+            components={dropdownMenuComponents}
+            handlers={{
+              handlePlay,
+              handleShuffle,
+              handlePlayNext,
+              handleAddToQueue,
+              handleAddToPlaylist,
+              toggleStar,
+              setDetailsOpen,
+            }}
+            state={{ isStarred }}
+            album={{ artistId: album.artistId }}
+          />
         </DropdownMenuContent>
       </DropdownMenu>
       {albumSongs && (
