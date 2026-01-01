@@ -322,6 +322,8 @@ function AddFolderDialog({
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [watchEnabled, setWatchEnabled] = useState(false);
+  // Track if user has manually edited the folder name (vs auto-filled from path)
+  const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -330,18 +332,20 @@ function AddFolderDialog({
     }
   };
 
-  // Reset form when dialog closes
-  const handleOpenChange = (newOpen: boolean) => {
-    if (!newOpen) {
-      setName("");
-      setPath("");
-      setWatchEnabled(false);
+  // Handle path change with auto-fill logic
+  const handlePathChange = (newPath: string) => {
+    setPath(newPath);
+    // Auto-fill folder name from last path segment if not manually edited
+    if (!nameManuallyEdited && newPath.trim()) {
+      const lastSegment = newPath.trim().split("/").filter(Boolean).pop();
+      if (lastSegment) {
+        setName(lastSegment);
+      }
     }
-    onOpenChange(newOpen);
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Add Music Folder</DialogTitle>
@@ -358,7 +362,10 @@ function AddFolderDialog({
                 id="name"
                 placeholder="My Music"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setNameManuallyEdited(true);
+                }}
                 disabled={isLoading}
               />
             </div>
@@ -366,7 +373,7 @@ function AddFolderDialog({
               <Label>Path</Label>
               <DirectoryBrowser
                 value={path}
-                onChange={setPath}
+                onChange={handlePathChange}
                 placeholder="/path/to/music"
                 disabled={isLoading}
               />
@@ -392,7 +399,7 @@ function AddFolderDialog({
             <Button
               type="button"
               variant="outline"
-              onClick={() => handleOpenChange(false)}
+              onClick={() => onOpenChange(false)}
               disabled={isLoading}
             >
               Cancel
@@ -413,7 +420,14 @@ function AddFolderDialog({
 export function MusicLibraries() {
   const queryClient = useQueryClient();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [addDialogKey, setAddDialogKey] = useState(0);
   const [deletingFolderId, setDeletingFolderId] = useState<number | null>(null);
+
+  // Wrapper to reset dialog state by incrementing key when opening
+  const openAddDialog = () => {
+    setAddDialogKey((k) => k + 1);
+    setAddDialogOpen(true);
+  };
 
   // Scan dialog atoms
   const setScanDialogOpen = useSetAtom(scanDialogOpenAtom);
@@ -591,7 +605,7 @@ export function MusicLibraries() {
               Manage your music folders and scan settings
             </CardDescription>
           </div>
-          <Button onClick={() => setAddDialogOpen(true)} size="sm">
+          <Button onClick={openAddDialog} size="sm">
             <Plus className="w-4 h-4 mr-2" />
             Add Folder
           </Button>
@@ -655,6 +669,7 @@ export function MusicLibraries() {
 
       {/* Add folder dialog */}
       <AddFolderDialog
+        key={addDialogKey}
         open={addDialogOpen}
         onOpenChange={setAddDialogOpen}
         onSubmit={handleAddFolder}

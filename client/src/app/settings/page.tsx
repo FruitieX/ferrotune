@@ -29,9 +29,6 @@ import {
   Activity,
   Shield,
   Tag,
-  RefreshCw,
-  Trash2,
-  ChevronRight,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
@@ -49,11 +46,6 @@ import {
   type AccentColor,
   progressBarStyleAtom,
 } from "@/lib/store/ui";
-import {
-  scanDialogOpenAtom,
-  scanFolderIdAtom,
-  scanFolderNameAtom,
-} from "@/lib/store/scan";
 import { useEffect, useState } from "react";
 import {
   parseCssColorToOklch,
@@ -93,17 +85,7 @@ export default function SettingsPage() {
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
-  const setScanDialogOpen = useSetAtom(scanDialogOpenAtom);
-  const setScanFolderId = useSetAtom(scanFolderIdAtom);
-  const setScanFolderName = useSetAtom(scanFolderNameAtom);
   const { theme, setTheme } = useTheme();
-
-  // Helper to open scanner for all libraries
-  const openFullScan = () => {
-    setScanFolderId(null);
-    setScanFolderName(null);
-    setScanDialogOpen(true);
-  };
 
   // Derive shuffle state from server queue state
   const isShuffled = queueState?.isShuffled ?? false;
@@ -314,57 +296,6 @@ export default function SettingsPage() {
                 </Link>
               </CardHeader>
             </Card>
-          </motion.div>
-        )}
-
-        {/* Scanner and Recycle Bin Quick Links (admin only) */}
-        {isAdmin && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.13 }}
-            className="grid grid-cols-1 md:grid-cols-2 gap-4"
-          >
-            {/* Scanner Card */}
-            <Card
-              className="cursor-pointer hover:bg-muted/50 transition-colors"
-              onClick={openFullScan}
-            >
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <RefreshCw className="w-5 h-5 text-primary" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-base">Library Scanner</CardTitle>
-                    <CardDescription>
-                      Scan for new and changed files
-                    </CardDescription>
-                  </div>
-                </div>
-                <ChevronRight className="w-5 h-5 text-muted-foreground" />
-              </CardHeader>
-            </Card>
-
-            {/* Recycle Bin Card */}
-            <Link href="/admin/recycle-bin">
-              <Card className="cursor-pointer hover:bg-muted/50 transition-colors h-full">
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-destructive/10 flex items-center justify-center">
-                      <Trash2 className="w-5 h-5 text-destructive" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-base">Recycle Bin</CardTitle>
-                      <CardDescription>
-                        Manage files marked for deletion
-                      </CardDescription>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-muted-foreground" />
-                </CardHeader>
-              </Card>
-            </Link>
           </motion.div>
         )}
 

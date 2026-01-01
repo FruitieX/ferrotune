@@ -260,6 +260,7 @@ export function DirectoryBrowser({
                     >
                       {/* Single click to highlight, double-click to navigate */}
                       <button
+                        type="button"
                         className="flex items-center gap-2 flex-1 min-w-0 text-left"
                         onClick={() => highlightDirectory(entry)}
                         onDoubleClick={(e) => {

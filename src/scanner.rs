@@ -405,7 +405,9 @@ pub async fn scan_library_with_progress(
             .push((base_path, file_path));
     }
 
-    // Process each folder
+    // Process each folder and collect missing files info
+    let mut all_missing_files: Vec<FolderMissingFiles> = Vec::new();
+
     for folder in &folders {
         let Some(files) = files_by_folder.get(&folder.id) else {
             continue; // No files for this folder (maybe it errored during enumeration)
@@ -436,7 +438,7 @@ pub async fn scan_library_with_progress(
         // Update folder scan timestamp/error based on result
         if !dry_run {
             match &folder_result {
-                Ok(()) => {
+                Ok(_) => {
                     // Update last_scanned_at timestamp on success
                     if let Err(e) =
                         crate::api::ferrotune::music_folders::update_folder_scan_timestamp(
@@ -462,8 +464,25 @@ pub async fn scan_library_with_progress(
             }
         }
 
-        // Propagate the error if the folder scan failed
-        folder_result?;
+        // Collect missing files info and propagate error if scan failed
+        let missing_files = folder_result?;
+        if !missing_files.missing_files.is_empty() {
+            all_missing_files.push(missing_files);
+        }
+    }
+
+    // After scanning ALL folders, resolve missing files (detect cross-library renames + delete truly missing)
+    if !all_missing_files.is_empty() {
+        if let Some(ref state) = scan_state {
+            state
+                .log(
+                    "INFO",
+                    "Resolving missing files and detecting cross-library moves...",
+                )
+                .await;
+            state.broadcast().await;
+        }
+        resolve_missing_songs(pool, all_missing_files, dry_run, scan_state.clone()).await?;
     }
 
     // After scanning all folders, detect and resolve hash collisions
@@ -522,11 +541,24 @@ async fn get_music_folder(pool: &SqlitePool, id: i64) -> Result<crate::db::model
     .ok_or_else(|| Error::NotFound(format!("Music folder with id {} not found", id)))
 }
 
+/// Info about missing files from a scanned folder, used for cross-library rename detection.
+#[derive(Debug)]
+struct FolderMissingFiles {
+    folder_id: i64,
+    folder_path: PathBuf,
+    /// Map of relative file_path -> song_id for files not found during scan
+    missing_files: std::collections::HashMap<String, String>,
+}
+
 /// Scan a folder using pre-collected file paths.
 ///
 /// This function is called by scan_library_with_progress after the enumeration phase
 /// has collected all file paths. The files parameter contains tuples of (base_path, file_path)
 /// where file_path is the absolute path to the file.
+///
+/// Returns information about files that were in the database but not found on disk.
+/// The caller should collect these from all folders and then call resolve_missing_songs
+/// to handle renames (including cross-library moves) and deletions.
 async fn scan_folder_files(
     pool: &SqlitePool,
     folder_id: i64,
@@ -535,7 +567,7 @@ async fn scan_folder_files(
     full: bool,
     dry_run: bool,
     scan_state: Option<Arc<ScanState>>,
-) -> Result<()> {
+) -> Result<FolderMissingFiles> {
     let base_path = PathBuf::from(folder_path);
 
     let mut scanned = 0;
@@ -754,9 +786,9 @@ async fn scan_folder_files(
         }
     }
 
-    // Any files still in unseen_files no longer exist on disk - remove them
-    let removed =
-        remove_missing_songs(pool, &unseen_files, &base_path, dry_run, scan_state.clone()).await?;
+    // Any files still in unseen_files no longer exist on disk
+    // Return this info so the caller can handle cross-library rename detection
+    let missing_count = unseen_files.len();
 
     if let Some(ref state) = scan_state {
         state.set_current_file(None).await;
@@ -765,12 +797,12 @@ async fn scan_folder_files(
 
     if !dry_run {
         tracing::info!(
-            "Folder scan complete: {} files scanned, {} added, {} updated, {} unchanged, {} removed, {} errors",
+            "Folder scan complete: {} files scanned, {} added, {} updated, {} unchanged, {} missing, {} errors",
             scanned,
             added,
             updated,
             unchanged,
-            removed,
+            missing_count,
             errors
         );
         if let Some(ref state) = scan_state {
@@ -778,20 +810,20 @@ async fn scan_folder_files(
                 .log(
                     "INFO",
                     format!(
-                        "Folder scan complete: {} files scanned, {} added, {} updated, {} unchanged, {} removed, {} errors",
-                        scanned, added, updated, unchanged, removed, errors
+                        "Folder scan complete: {} files scanned, {} added, {} updated, {} unchanged, {} missing, {} errors",
+                        scanned, added, updated, unchanged, missing_count, errors
                     ),
                 )
                 .await;
         }
     } else {
         tracing::info!(
-            "Dry-run complete: {} files scanned, {} would be added, {} would be updated, {} unchanged, {} would be removed, {} errors",
+            "Dry-run complete: {} files scanned, {} would be added, {} would be updated, {} unchanged, {} missing, {} errors",
             scanned,
             added,
             updated,
             unchanged,
-            removed,
+            missing_count,
             errors
         );
         if let Some(ref state) = scan_state {
@@ -799,81 +831,109 @@ async fn scan_folder_files(
                 .log(
                     "INFO",
                     format!(
-                        "Dry-run complete: {} files scanned, {} would be added, {} would be updated, {} unchanged, {} would be removed, {} errors",
-                        scanned, added, updated, unchanged, removed, errors
+                        "Dry-run complete: {} files scanned, {} would be added, {} would be updated, {} unchanged, {} missing, {} errors",
+                        scanned, added, updated, unchanged, missing_count, errors
                     ),
                 )
                 .await;
         }
     }
 
-    Ok(())
+    Ok(FolderMissingFiles {
+        folder_id,
+        folder_path: base_path,
+        missing_files: unseen_files,
+    })
 }
 
-/// Remove songs from database that no longer exist on disk.
-/// Takes a map of file_path -> song_id for files that were not seen during scan.
+/// Resolve missing files: detect renames (including cross-library moves) and delete truly missing songs.
 ///
-/// This function also detects renamed files by comparing partial_hash values.
-/// If a "missing" file has the same hash as a "new" file, it's treated as a rename:
-/// - The old entry's file_path is updated to the new path
-/// - The new entry (created during scanning) is deleted
-/// - This preserves play counts, starred status, and other metadata
-async fn remove_missing_songs(
+/// This function takes missing files info from ALL folders and:
+/// 1. Detects renames by comparing partial_hash values across ALL libraries
+/// 2. For renames: updates the old entry's file_path and music_folder_id, deletes the new entry
+/// 3. For truly missing files: converts playlist entries to "missing" entries and deletes the songs
+///
+/// This enables moving songs between libraries without losing playlist entries, starred status, etc.
+async fn resolve_missing_songs(
     pool: &SqlitePool,
-    missing_files: &std::collections::HashMap<String, String>,
-    base_path: &Path,
+    all_missing_files: Vec<FolderMissingFiles>,
     dry_run: bool,
     scan_state: Option<Arc<crate::api::ScanState>>,
-) -> Result<usize> {
-    if missing_files.is_empty() {
-        return Ok(0);
+) -> Result<()> {
+    // Collect all missing song IDs with their folder context
+    struct MissingSong {
+        id: String,
+        old_relative_path: String,
+        old_folder_id: i64,
+        old_folder_path: PathBuf,
+        partial_hash: Option<String>,
     }
 
-    // Collect IDs and paths for missing files
-    let missing_ids: Vec<&String> = missing_files.values().collect();
+    let mut missing_songs: Vec<MissingSong> = Vec::new();
 
-    // Get partial hashes for missing files
-    let missing_hashes: Vec<(String, String, Option<String>)> = {
-        let mut hashes = Vec::new();
-        for id in &missing_ids {
-            if let Ok(Some(row)) = sqlx::query_as::<_, (String, String, Option<String>)>(
-                "SELECT id, file_path, partial_hash FROM songs WHERE id = ?",
-            )
-            .bind(id)
-            .fetch_optional(pool)
-            .await
-            {
-                hashes.push(row);
-            }
+    for folder_info in &all_missing_files {
+        for (relative_path, song_id) in &folder_info.missing_files {
+            // Get partial hash for this song
+            let hash: Option<(Option<String>,)> =
+                sqlx::query_as("SELECT partial_hash FROM songs WHERE id = ?")
+                    .bind(song_id)
+                    .fetch_optional(pool)
+                    .await?;
+
+            missing_songs.push(MissingSong {
+                id: song_id.clone(),
+                old_relative_path: relative_path.clone(),
+                old_folder_id: folder_info.folder_id,
+                old_folder_path: folder_info.folder_path.clone(),
+                partial_hash: hash.and_then(|(h,)| h),
+            });
         }
-        hashes
-    };
+    }
 
-    // Track which files are renames vs truly removed
-    let mut renamed_ids: Vec<String> = Vec::new();
+    if missing_songs.is_empty() {
+        return Ok(());
+    }
+
+    tracing::info!(
+        "Checking {} missing files for renames/moves...",
+        missing_songs.len()
+    );
+
+    // Track which songs are renames vs truly removed
+    let mut renamed_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut renamed_count = 0;
+    let mut cross_library_moves = 0;
 
     // For each missing file with a hash, check if there's a newly added file with the same hash
-    for (missing_id, old_path, hash_opt) in &missing_hashes {
-        if let Some(hash) = hash_opt {
-            // Look for a different song with the same partial_hash in this folder
-            // that has a different file_path (i.e., a newly added file)
-            let potential_rename: Option<(String, String)> = sqlx::query_as(
-                "SELECT id, file_path FROM songs 
-                 WHERE partial_hash = ? AND id != ? AND music_folder_id = (
-                     SELECT music_folder_id FROM songs WHERE id = ?
-                 )",
+    // across ALL libraries (not just the same library)
+    for missing in &missing_songs {
+        if let Some(ref hash) = missing.partial_hash {
+            // Look for a different song with the same partial_hash in ANY folder
+            // The new song must have been created during this scan (id != missing.id)
+            let potential_rename: Option<(String, String, i64)> = sqlx::query_as(
+                "SELECT id, file_path, music_folder_id FROM songs 
+                 WHERE partial_hash = ? AND id != ?",
             )
             .bind(hash)
-            .bind(missing_id)
-            .bind(missing_id)
+            .bind(&missing.id)
             .fetch_optional(pool)
             .await?;
 
-            if let Some((new_id, new_path)) = potential_rename {
-                // Verify the target file actually exists on disk!
-                // This handles the case where both duplicate files were deleted
-                let full_new_path = base_path.join(&new_path);
+            if let Some((new_id, new_relative_path, new_folder_id)) = potential_rename {
+                // Get the folder path for the new location
+                let new_folder_path: Option<(String,)> =
+                    sqlx::query_as("SELECT path FROM music_folders WHERE id = ?")
+                        .bind(new_folder_id)
+                        .fetch_optional(pool)
+                        .await?;
+
+                let new_folder_path = match new_folder_path {
+                    Some((path,)) => PathBuf::from(path),
+                    None => continue, // Folder not found, skip
+                };
+
+                // Verify the target file actually exists on disk
+                let full_new_path = new_folder_path.join(&new_relative_path);
                 if !full_new_path.exists() {
                     tracing::debug!(
                         "Skipping false rename detection: {} does not exist on disk",
@@ -882,22 +942,32 @@ async fn remove_missing_songs(
                     continue;
                 }
 
-                // Found a genuine rename! Update the old entry with the new path and delete the new entry
+                let is_cross_library = new_folder_id != missing.old_folder_id;
+                let full_old_path = missing.old_folder_path.join(&missing.old_relative_path);
+
+                // Found a genuine rename (or cross-library move)!
                 if dry_run {
-                    let full_old_path = base_path.join(old_path).to_string_lossy().to_string();
-                    let full_new_path_str = full_new_path.to_string_lossy().to_string();
+                    let move_type = if is_cross_library {
+                        "cross-library move"
+                    } else {
+                        "rename"
+                    };
                     tracing::info!(
-                        "Would detect rename: {} -> {}",
-                        full_old_path,
-                        full_new_path_str
+                        "Would detect {}: {} -> {}",
+                        move_type,
+                        full_old_path.display(),
+                        full_new_path.display()
                     );
                     if let Some(ref state) = scan_state {
                         state
-                            .track_renamed(&full_old_path, &full_new_path_str)
+                            .track_renamed(
+                                &full_old_path.to_string_lossy(),
+                                &full_new_path.to_string_lossy(),
+                            )
                             .await;
                     }
                 } else {
-                    // Start a transaction for the rename
+                    // Start a transaction for the rename/move
                     let mut tx = pool.begin().await?;
 
                     // Get the mtime from the new entry before deleting it
@@ -913,82 +983,107 @@ async fn remove_missing_songs(
                         .execute(&mut *tx)
                         .await?;
 
-                    // Then copy the new file_path and mtime to the old entry
+                    // Update the old entry with new file_path, music_folder_id, and mtime
                     sqlx::query(
                         "UPDATE songs SET 
                             file_path = ?,
+                            music_folder_id = ?,
                             file_mtime = ?,
                             updated_at = datetime('now')
                          WHERE id = ?",
                     )
-                    .bind(&new_path)
+                    .bind(&new_relative_path)
+                    .bind(new_folder_id)
                     .bind(new_mtime.and_then(|(m,)| m))
-                    .bind(missing_id)
+                    .bind(&missing.id)
                     .execute(&mut *tx)
                     .await?;
 
                     tx.commit().await?;
 
-                    let full_old_path = base_path.join(old_path).to_string_lossy().to_string();
-                    let full_new_path_str = full_new_path.to_string_lossy().to_string();
+                    let move_type = if is_cross_library {
+                        "cross-library move"
+                    } else {
+                        "rename"
+                    };
                     tracing::info!(
-                        "Detected rename: {} -> {}",
-                        full_old_path,
-                        full_new_path_str
+                        "Detected {}: {} -> {}",
+                        move_type,
+                        full_old_path.display(),
+                        full_new_path.display()
                     );
                     if let Some(ref state) = scan_state {
                         state
-                            .track_renamed(&full_old_path, &full_new_path_str)
+                            .track_renamed(
+                                &full_old_path.to_string_lossy(),
+                                &full_new_path.to_string_lossy(),
+                            )
                             .await;
                     }
                 }
-                renamed_ids.push(missing_id.clone());
+
+                renamed_ids.insert(missing.id.clone());
                 renamed_count += 1;
+                if is_cross_library {
+                    cross_library_moves += 1;
+                }
             }
         }
     }
 
-    // Filter out renamed files from the removal list
-    let truly_missing: std::collections::HashMap<String, String> = missing_files
+    // Collect truly missing songs (not renamed/moved)
+    let truly_missing: Vec<&MissingSong> = missing_songs
         .iter()
-        .filter(|(_, id)| !renamed_ids.contains(id))
-        .map(|(k, v)| (k.clone(), v.clone()))
+        .filter(|s| !renamed_ids.contains(&s.id))
         .collect();
 
     if truly_missing.is_empty() {
-        return Ok(renamed_count);
+        if renamed_count > 0 {
+            tracing::info!(
+                "Resolved {} renames ({} cross-library moves), no files to remove",
+                renamed_count,
+                cross_library_moves
+            );
+        }
+        return Ok(());
     }
 
-    let count = truly_missing.len();
-    let relative_paths: Vec<String> = truly_missing.keys().cloned().collect();
+    let remove_count = truly_missing.len();
 
-    for file_path in &relative_paths {
-        tracing::info!("Missing file: {}", file_path);
+    // Log and track removed files
+    for missing in &truly_missing {
+        let full_path = missing.old_folder_path.join(&missing.old_relative_path);
+        tracing::info!("Missing file: {}", full_path.display());
     }
 
-    // Track removed files in scan state (using full paths for display)
     if let Some(ref state) = scan_state {
-        let full_paths: Vec<String> = relative_paths
+        let full_paths: Vec<String> = truly_missing
             .iter()
-            .map(|p| base_path.join(p).to_string_lossy().to_string())
+            .map(|m| {
+                m.old_folder_path
+                    .join(&m.old_relative_path)
+                    .to_string_lossy()
+                    .to_string()
+            })
             .collect();
         state.track_removed(&full_paths).await;
     }
 
     if dry_run {
         tracing::info!(
-            "Dry-run: would remove {} missing files from database",
-            count
+            "Dry-run: would remove {} missing files, {} renames detected ({} cross-library)",
+            remove_count,
+            renamed_count,
+            cross_library_moves
         );
-        return Ok(count + renamed_count);
+        return Ok(());
     }
 
     // Delete missing songs in a transaction
     let mut tx = pool.begin().await?;
 
     // First, convert all playlist entries for these songs to "missing" entries
-    // This preserves the song metadata so entries can be re-matched later
-    for id in truly_missing.values() {
+    for missing in &truly_missing {
         // Get song metadata before deleting
         let song_meta: Option<(String, Option<String>, Option<String>, i64)> = sqlx::query_as(
             "SELECT s.title, ar.name as artist_name, al.name as album_name, s.duration
@@ -997,7 +1092,7 @@ async fn remove_missing_songs(
              LEFT JOIN albums al ON s.album_id = al.id
              WHERE s.id = ?",
         )
-        .bind(id)
+        .bind(&missing.id)
         .fetch_optional(&mut *tx)
         .await?;
 
@@ -1014,10 +1109,10 @@ async fn remove_missing_songs(
 
             // Build search text: "artist - album - title" for filtering
             let mut parts = Vec::new();
-            if let Some(ref a) = &artist_name {
+            if let Some(ref a) = artist_name {
                 parts.push(a.as_str());
             }
-            if let Some(ref al) = &album_name {
+            if let Some(ref al) = album_name {
                 parts.push(al.as_str());
             }
             parts.push(title.as_str());
@@ -1029,14 +1124,14 @@ async fn remove_missing_songs(
             )
             .bind(&missing_json)
             .bind(&search_text)
-            .bind(id)
+            .bind(&missing.id)
             .execute(&mut *tx)
             .await?;
         }
 
         // Delete the song
         sqlx::query("DELETE FROM songs WHERE id = ?")
-            .bind(id)
+            .bind(&missing.id)
             .execute(&mut *tx)
             .await?;
     }
@@ -1053,7 +1148,7 @@ async fn remove_missing_songs(
     .execute(&mut *tx)
     .await?;
 
-    // Clean up orphaned albums (no songs reference them)
+    // Clean up orphaned albums
     let orphaned_albums = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM songs WHERE album_id IS NOT NULL)"
     )
@@ -1069,7 +1164,7 @@ async fn remove_missing_songs(
         tracing::info!("Removed {} orphaned albums", orphaned_albums);
     }
 
-    // Clean up orphaned artists (no songs or albums reference them)
+    // Clean up orphaned artists
     let orphaned_artists = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM songs) 
          AND id NOT IN (SELECT DISTINCT artist_id FROM albums)",
@@ -1087,7 +1182,7 @@ async fn remove_missing_songs(
         tracing::info!("Removed {} orphaned artists", orphaned_artists);
     }
 
-    // Update album song counts and durations for remaining albums
+    // Update album song counts and durations
     sqlx::query(
         "UPDATE albums SET 
             song_count = (SELECT COUNT(*) FROM songs WHERE songs.album_id = albums.id),
@@ -1096,7 +1191,7 @@ async fn remove_missing_songs(
     .execute(&mut *tx)
     .await?;
 
-    // Update artist album counts for remaining artists
+    // Update artist album counts
     sqlx::query(
         "UPDATE artists SET 
             album_count = (SELECT COUNT(DISTINCT album_id) FROM songs WHERE songs.artist_id = artists.id AND album_id IS NOT NULL)"
@@ -1107,12 +1202,13 @@ async fn remove_missing_songs(
     tx.commit().await?;
 
     tracing::info!(
-        "Removed {} missing files from database, {} renamed",
-        count,
-        renamed_count
+        "Removed {} missing files, {} renames detected ({} cross-library moves)",
+        remove_count,
+        renamed_count,
+        cross_library_moves
     );
 
-    Ok(count + renamed_count)
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -1312,11 +1408,17 @@ async fn upsert_song(
         None
     };
 
-    // Check if song exists
-    let existing: Option<(String,)> = sqlx::query_as("SELECT id FROM songs WHERE file_path = ?")
-        .bind(&file_path)
-        .fetch_optional(&mut *tx)
-        .await?;
+    // Check if song exists in THIS folder
+    // Important: match on both file_path AND music_folder_id so we only find songs
+    // within the same library. This allows cross-library moves (where files happen
+    // to have the same relative path) to be detected as renames via partial_hash
+    // matching in resolve_missing_songs, rather than being updated in-place.
+    let existing: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM songs WHERE file_path = ? AND music_folder_id = ?")
+            .bind(&file_path)
+            .bind(folder_id)
+            .fetch_optional(&mut *tx)
+            .await?;
 
     let is_new = existing.is_none();
     let _song_id = if let Some((id,)) = existing {
@@ -1605,24 +1707,27 @@ async fn detect_duplicates(
             std::collections::HashMap::new();
 
         for (song_id, file_path, music_folder_id, file_size, cached_full_hash) in songs {
+            // Get the base path for this music folder
+            let base_path = match folder_map.get(&music_folder_id) {
+                Some(p) => p,
+                None => {
+                    tracing::warn!(
+                        "Unknown music folder {} for song {}",
+                        music_folder_id,
+                        song_id
+                    );
+                    continue;
+                }
+            };
+
+            // Compute full filesystem path (used for display and hash computation)
+            let full_path = PathBuf::from(base_path).join(&file_path);
+            let full_path_str = full_path.to_string_lossy().to_string();
+
             // Use cached full_file_hash if available (file hasn't changed since last scan)
             let full_hash = if let Some(cached) = cached_full_hash {
                 cached
             } else {
-                let base_path = match folder_map.get(&music_folder_id) {
-                    Some(p) => p,
-                    None => {
-                        tracing::warn!(
-                            "Unknown music folder {} for song {}",
-                            music_folder_id,
-                            song_id
-                        );
-                        continue;
-                    }
-                };
-
-                let full_path = PathBuf::from(base_path).join(&file_path);
-
                 // For small files (where partial = full), use partial_hash as full_hash
                 let computed_hash = if file_size as u64 <= PARTIAL_HASH_CHUNK_SIZE * 2 {
                     partial_hash.clone()
@@ -1645,7 +1750,7 @@ async fn detect_duplicates(
             hash_to_songs
                 .entry(full_hash)
                 .or_default()
-                .push((song_id, file_path, file_size));
+                .push((song_id, full_path_str, file_size));
         }
 
         // Update full_file_hash for songs that are actually duplicates

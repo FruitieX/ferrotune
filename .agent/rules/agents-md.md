@@ -252,3 +252,4 @@ Read these when working on specific areas:
 - Run `moon query tasks` to get a list of moon tasks
 - You can run similarily named client and server tasks with e.g. `moon run :fmt` to format both client and server code.
 - i64 etc types get exported as bigint, you should just override this as number
+- Try to reuse code when feasible. If the user refers to replicating some other functionality, or if there are any existing implementations using similar logic, you should aim to share code between these functionalities/implementations by e.g. extracting code into utility functions.

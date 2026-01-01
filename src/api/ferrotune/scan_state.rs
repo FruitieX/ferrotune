@@ -356,9 +356,21 @@ impl ScanState {
 
     /// Track a renamed file (path changed but same content hash).
     /// The path should be formatted as "old_path -> new_path" for display.
+    /// Also removes the new_path from the "added" list since it's actually a rename, not a new file.
     pub async fn track_renamed(&self, old_path: &str, new_path: &str) {
         self.renamed.fetch_add(1, Ordering::Relaxed);
-        self.details.write().await.renamed.push(ScanDetailEntry {
+
+        // Remove the new path from "added" since it's not actually a new file, it's a rename
+        let mut details = self.details.write().await;
+        let original_len = details.added.len();
+        details.added.retain(|entry| entry.path != new_path);
+
+        // If we removed an entry, decrement the added counter
+        if details.added.len() < original_len {
+            self.added.fetch_sub(1, Ordering::Relaxed);
+        }
+
+        details.renamed.push(ScanDetailEntry {
             path: format!("{} -> {}", old_path, new_path),
             error: None,
         });
