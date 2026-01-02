@@ -457,7 +457,7 @@ export const VirtualizedQueueDisplay = forwardRef<
   // Reset fetched ranges when queue changes
   useEffect(() => {
     fetchedRangesRef.current.clear();
-  }, [queueState?.source.id, queueState?.isShuffled]);
+  }, [queueState?.source?.id, queueState?.isShuffled]);
 
   // Handle move to position
   const handleMoveToPosition = (

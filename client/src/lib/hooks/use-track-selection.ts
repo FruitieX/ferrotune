@@ -191,17 +191,21 @@ export function useTrackSelection(
 
   // Bulk action handlers
   // Uses selectedIds directly for operations that work with IDs
-  const addSelectedToQueue = (position: "next" | "end" = "end") => {
+  const addSelectedToQueue = async (position: "next" | "end" = "end") => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
 
-    addToQueue({ songIds: ids, position });
+    const result = await addToQueue({ songIds: ids, position });
 
-    toast.success(
-      position === "next"
-        ? `Added ${ids.length} songs to play next`
-        : `Added ${ids.length} songs to queue`,
-    );
+    if (result.success) {
+      toast.success(
+        position === "next"
+          ? `Added ${ids.length} songs to play next`
+          : `Added ${ids.length} songs to queue`,
+      );
+    } else {
+      toast.error("Failed to add songs to queue");
+    }
     clearSelection();
   };
 

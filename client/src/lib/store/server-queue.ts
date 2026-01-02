@@ -453,8 +453,9 @@ export const addToQueueAtom = atom(
     try {
       // If no queue exists, start a new queue instead of adding
       if (!hasQueue && params.songIds && params.songIds.length > 0) {
+        set(isRestoringQueueAtom, false); // User action - enable auto-play
         const response = await client.startQueue({
-          sourceType: "songs",
+          sourceType: "other",
           songIds: params.songIds,
           startIndex: 0,
           shuffle: false,
@@ -468,7 +469,7 @@ export const addToQueueAtom = atom(
           isShuffled: response.isShuffled,
           repeatMode: response.repeatMode as RepeatMode,
           source: {
-            type: "songs",
+            type: "other",
             id: null,
             name: null,
             filters: null,

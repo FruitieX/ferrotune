@@ -197,35 +197,6 @@ export class FerrotuneClient {
     this.password = connection.password;
   }
 
-  private buildUrl(
-    endpoint: string,
-    params: Record<string, string | number | boolean | null | undefined> = {},
-  ): string {
-    const url = new URL(`${this.serverUrl}/rest/${endpoint}`);
-
-    // Add required params
-    url.searchParams.set("v", API_VERSION);
-    url.searchParams.set("c", CLIENT_NAME);
-    url.searchParams.set("f", "json");
-
-    // Add auth params
-    if (this.apiKey) {
-      url.searchParams.set("apiKey", this.apiKey);
-    } else if (this.username && this.password) {
-      url.searchParams.set("u", this.username);
-      url.searchParams.set("p", this.password);
-    }
-
-    // Add custom params (skip null and undefined)
-    for (const [key, value] of Object.entries(params)) {
-      if (value !== undefined && value !== null) {
-        url.searchParams.set(key, String(value));
-      }
-    }
-
-    return url.toString();
-  }
-
   // System endpoints
   async ping(): Promise<PingResponse> {
     return this.request<PingResponse>("/ferrotune/ping");

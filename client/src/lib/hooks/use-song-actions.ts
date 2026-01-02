@@ -146,14 +146,22 @@ export function useSongActions({
     }
   };
 
-  const handlePlayNext = () => {
-    addToQueue({ songIds: [song.id], position: "next" });
-    toast.success(`Added "${song.title}" to play next`);
+  const handlePlayNext = async () => {
+    const result = await addToQueue({ songIds: [song.id], position: "next" });
+    if (result.success) {
+      toast.success(`Added "${song.title}" to play next`);
+    } else {
+      toast.error(`Failed to add "${song.title}" to queue`);
+    }
   };
 
-  const handleAddToQueue = () => {
-    addToQueue({ songIds: [song.id], position: "end" });
-    toast.success(`Added "${song.title}" to queue`);
+  const handleAddToQueue = async () => {
+    const result = await addToQueue({ songIds: [song.id], position: "end" });
+    if (result.success) {
+      toast.success(`Added "${song.title}" to queue`);
+    } else {
+      toast.error(`Failed to add "${song.title}" to queue`);
+    }
   };
 
   const handleRate = async (rating: number) => {

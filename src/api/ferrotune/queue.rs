@@ -22,11 +22,9 @@ use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, Inline
 use crate::api::AppState;
 use crate::db::models::{ItemType, QueueSourceType, RepeatMode};
 use crate::db::queries;
-use crate::error::{Error, Result};
+use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult, Result};
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
-    response::IntoResponse,
     Json,
 };
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
@@ -280,7 +278,7 @@ pub async fn start_queue(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<StartQueueRequest>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<Json<StartQueueResponse>> {
     let source_type = QueueSourceType::from_str(&request.source_type);
 
     // For playlists with missing entries, we need to track position mappings
@@ -292,7 +290,9 @@ pub async fn start_queue(
     let songs = if let Some(ref song_ids) = request.song_ids {
         // Use explicit song IDs provided by client
         if song_ids.is_empty() {
-            return Err(Error::NotFound("No songs provided".to_string()));
+            return Err(FerrotuneApiError(Error::NotFound(
+                "No songs provided".to_string(),
+            )));
         }
         queries::get_songs_by_ids(&state.pool, song_ids).await?
     } else if source_type == QueueSourceType::Playlist {
@@ -354,9 +354,9 @@ pub async fn start_queue(
     };
 
     if songs.is_empty() {
-        return Err(Error::NotFound(
+        return Err(FerrotuneApiError(Error::NotFound(
             "No songs found for this source".to_string(),
-        ));
+        )));
     }
 
     let total_count = songs.len();
@@ -522,16 +522,13 @@ pub async fn start_queue(
         .await?
     };
 
-    Ok((
-        StatusCode::OK,
-        Json(StartQueueResponse {
-            total_count,
-            current_index: current_index as usize,
-            is_shuffled,
-            repeat_mode: repeat_mode.to_string(),
-            window,
-        }),
-    ))
+    Ok(Json(StartQueueResponse {
+        total_count,
+        current_index: current_index as usize,
+        is_shuffled,
+        repeat_mode: repeat_mode.to_string(),
+        window,
+    }))
 }
 
 /// GET /ferrotune/queue - Get the current queue with pagination
@@ -539,7 +536,7 @@ pub async fn get_queue(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<QueuePaginationParams>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<Json<GetQueueResponse>> {
     let queue = queries::get_play_queue(&state.pool, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
@@ -583,30 +580,27 @@ pub async fn get_queue(
         (total, window)
     };
 
-    Ok((
-        StatusCode::OK,
-        Json(GetQueueResponse {
-            total_count,
-            current_index: queue.current_index as usize,
-            position_ms: queue.position_ms,
-            is_shuffled: queue.is_shuffled,
-            repeat_mode: queue.repeat_mode.clone(),
-            source: QueueSourceInfo {
-                source_type: queue.source_type.clone(),
-                id: queue.source_id.clone(),
-                name: queue.source_name.clone(),
-                filters: queue
-                    .filters_json
-                    .as_ref()
-                    .and_then(|s| serde_json::from_str(s).ok()),
-                sort: queue
-                    .sort_json
-                    .as_ref()
-                    .and_then(|s| serde_json::from_str(s).ok()),
-            },
-            window,
-        }),
-    ))
+    Ok(Json(GetQueueResponse {
+        total_count,
+        current_index: queue.current_index as usize,
+        position_ms: queue.position_ms,
+        is_shuffled: queue.is_shuffled,
+        repeat_mode: queue.repeat_mode.clone(),
+        source: QueueSourceInfo {
+            source_type: queue.source_type.clone(),
+            id: queue.source_id.clone(),
+            name: queue.source_name.clone(),
+            filters: queue
+                .filters_json
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok()),
+            sort: queue
+                .sort_json
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok()),
+        },
+        window,
+    }))
 }
 
 /// GET /ferrotune/queue/current-window - Get songs around current position
@@ -614,7 +608,7 @@ pub async fn get_current_window(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<CurrentWindowParams>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<Json<GetQueueResponse>> {
     let queue = queries::get_play_queue(&state.pool, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
@@ -663,30 +657,27 @@ pub async fn get_current_window(
         (total, window)
     };
 
-    Ok((
-        StatusCode::OK,
-        Json(GetQueueResponse {
-            total_count,
-            current_index,
-            position_ms: queue.position_ms,
-            is_shuffled: queue.is_shuffled,
-            repeat_mode: queue.repeat_mode.clone(),
-            source: QueueSourceInfo {
-                source_type: queue.source_type.clone(),
-                id: queue.source_id.clone(),
-                name: queue.source_name.clone(),
-                filters: queue
-                    .filters_json
-                    .as_ref()
-                    .and_then(|s| serde_json::from_str(s).ok()),
-                sort: queue
-                    .sort_json
-                    .as_ref()
-                    .and_then(|s| serde_json::from_str(s).ok()),
-            },
-            window,
-        }),
-    ))
+    Ok(Json(GetQueueResponse {
+        total_count,
+        current_index,
+        position_ms: queue.position_ms,
+        is_shuffled: queue.is_shuffled,
+        repeat_mode: queue.repeat_mode.clone(),
+        source: QueueSourceInfo {
+            source_type: queue.source_type.clone(),
+            id: queue.source_id.clone(),
+            name: queue.source_name.clone(),
+            filters: queue
+                .filters_json
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok()),
+            sort: queue
+                .sort_json
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok()),
+        },
+        window,
+    }))
 }
 
 /// POST /ferrotune/queue/add - Add songs to the queue
@@ -694,7 +685,7 @@ pub async fn add_to_queue(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<AddToQueueRequest>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let queue = queries::get_play_queue(&state.pool, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
@@ -728,21 +719,18 @@ pub async fn add_to_queue(
         .await?;
         songs.into_iter().map(|s| s.id).collect()
     } else {
-        return Err(Error::InvalidRequest(
+        return Err(FerrotuneApiError(Error::InvalidRequest(
             "Either songIds or sourceType+sourceId required".to_string(),
-        ));
+        )));
     };
 
     if song_ids.is_empty() {
-        return Ok((
-            StatusCode::OK,
-            Json(QueueSuccessResponse {
-                success: true,
-                new_index: None,
-                total_count: Some(current_len as usize),
-                added_count: Some(0),
-            }),
-        ));
+        return Ok(Json(QueueSuccessResponse {
+            success: true,
+            new_index: None,
+            total_count: Some(current_len as usize),
+            added_count: Some(0),
+        }));
     }
 
     let new_len = queries::add_to_queue(&state.pool, user.user_id, &song_ids, position).await?;
@@ -789,15 +777,12 @@ pub async fn add_to_queue(
 
     let added_count = song_ids.len();
 
-    Ok((
-        StatusCode::OK,
-        Json(QueueSuccessResponse {
-            success: true,
-            new_index: None,
-            total_count: Some(new_len as usize),
-            added_count: Some(added_count),
-        }),
-    ))
+    Ok(Json(QueueSuccessResponse {
+        success: true,
+        new_index: None,
+        total_count: Some(new_len as usize),
+        added_count: Some(added_count),
+    }))
 }
 
 /// DELETE /ferrotune/queue/{position} - Remove a song from the queue
@@ -805,7 +790,7 @@ pub async fn remove_from_queue(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(position): Path<usize>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let queue = queries::get_play_queue(&state.pool, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
@@ -814,7 +799,9 @@ pub async fn remove_from_queue(
     let original_position = if queue.is_shuffled {
         let indices = queue.shuffle_indices().unwrap_or_default();
         if position >= indices.len() {
-            return Err(Error::InvalidRequest("Position out of range".to_string()));
+            return Err(FerrotuneApiError(Error::InvalidRequest(
+                "Position out of range".to_string(),
+            )));
         }
         indices[position]
     } else {
@@ -825,7 +812,9 @@ pub async fn remove_from_queue(
         queries::remove_from_queue(&state.pool, user.user_id, original_position as i64).await?;
 
     if !removed {
-        return Err(Error::NotFound("Position not found in queue".to_string()));
+        return Err(FerrotuneApiError(Error::NotFound(
+            "Position not found in queue".to_string(),
+        )));
     }
 
     // Update current index if needed
@@ -883,15 +872,12 @@ pub async fn remove_from_queue(
 
     let new_len = queries::get_queue_length(&state.pool, user.user_id).await?;
 
-    Ok((
-        StatusCode::OK,
-        Json(QueueSuccessResponse {
-            success: true,
-            new_index: Some(new_current_index as usize),
-            total_count: Some(new_len as usize),
-            added_count: None,
-        }),
-    ))
+    Ok(Json(QueueSuccessResponse {
+        success: true,
+        new_index: Some(new_current_index as usize),
+        total_count: Some(new_len as usize),
+        added_count: None,
+    }))
 }
 
 /// POST /ferrotune/queue/move - Move a song to a new position
@@ -899,7 +885,7 @@ pub async fn move_in_queue(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<MoveInQueueRequest>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let queue = queries::get_play_queue(&state.pool, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
@@ -909,7 +895,9 @@ pub async fn move_in_queue(
         let mut indices = queue.shuffle_indices().unwrap_or_default();
 
         if request.from_position >= indices.len() || request.to_position >= indices.len() {
-            return Err(Error::InvalidRequest("Position out of range".to_string()));
+            return Err(FerrotuneApiError(Error::InvalidRequest(
+                "Position out of range".to_string(),
+            )));
         }
 
         let moved = indices.remove(request.from_position);
@@ -941,15 +929,12 @@ pub async fn move_in_queue(
         )
         .await?;
 
-        Ok((
-            StatusCode::OK,
-            Json(QueueSuccessResponse {
-                success: true,
-                new_index: Some(new_current as usize),
-                total_count: None,
-                added_count: None,
-            }),
-        ))
+        Ok(Json(QueueSuccessResponse {
+            success: true,
+            new_index: Some(new_current as usize),
+            total_count: None,
+            added_count: None,
+        }))
     } else {
         // Not shuffled, move in the actual queue
         let moved = queries::move_in_queue(
@@ -961,7 +946,9 @@ pub async fn move_in_queue(
         .await?;
 
         if !moved {
-            return Err(Error::NotFound("Position not found in queue".to_string()));
+            return Err(FerrotuneApiError(Error::NotFound(
+                "Position not found in queue".to_string(),
+            )));
         }
 
         // Calculate new current index
@@ -987,15 +974,12 @@ pub async fn move_in_queue(
         )
         .await?;
 
-        Ok((
-            StatusCode::OK,
-            Json(QueueSuccessResponse {
-                success: true,
-                new_index: Some(new_current),
-                total_count: None,
-                added_count: None,
-            }),
-        ))
+        Ok(Json(QueueSuccessResponse {
+            success: true,
+            new_index: Some(new_current),
+            total_count: None,
+            added_count: None,
+        }))
     }
 }
 
@@ -1004,7 +988,7 @@ pub async fn toggle_shuffle(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<ShuffleRequest>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let queue = queries::get_play_queue(&state.pool, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
@@ -1028,15 +1012,12 @@ pub async fn toggle_shuffle(
         )
         .await?;
 
-        Ok((
-            StatusCode::OK,
-            Json(QueueSuccessResponse {
-                success: true,
-                new_index: Some(current_index),
-                total_count: None,
-                added_count: None,
-            }),
-        ))
+        Ok(Json(QueueSuccessResponse {
+            success: true,
+            new_index: Some(current_index),
+            total_count: None,
+            added_count: None,
+        }))
     } else {
         // Disable shuffle - restore original order, keep current position
         // The current_index still points to the same position in the original order
@@ -1051,15 +1032,12 @@ pub async fn toggle_shuffle(
         )
         .await?;
 
-        Ok((
-            StatusCode::OK,
-            Json(QueueSuccessResponse {
-                success: true,
-                new_index: Some(current_index),
-                total_count: None,
-                added_count: None,
-            }),
-        ))
+        Ok(Json(QueueSuccessResponse {
+            success: true,
+            new_index: Some(current_index),
+            total_count: None,
+            added_count: None,
+        }))
     }
 }
 
@@ -1068,7 +1046,7 @@ pub async fn update_position(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<UpdatePositionRequest>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let queue = queries::get_play_queue(&state.pool, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
@@ -1076,7 +1054,9 @@ pub async fn update_position(
     let total_count = queries::get_queue_length(&state.pool, user.user_id).await? as usize;
 
     if request.current_index >= total_count {
-        return Err(Error::InvalidRequest("Position out of range".to_string()));
+        return Err(FerrotuneApiError(Error::InvalidRequest(
+            "Position out of range".to_string(),
+        )));
     }
 
     // If shuffled, update the shuffled current index
@@ -1100,15 +1080,12 @@ pub async fn update_position(
         .await?;
     }
 
-    Ok((
-        StatusCode::OK,
-        Json(QueueSuccessResponse {
-            success: true,
-            new_index: Some(request.current_index),
-            total_count: None,
-            added_count: None,
-        }),
-    ))
+    Ok(Json(QueueSuccessResponse {
+        success: true,
+        new_index: Some(request.current_index),
+        total_count: None,
+        added_count: None,
+    }))
 }
 
 /// POST /ferrotune/queue/repeat - Update repeat mode
@@ -1116,39 +1093,33 @@ pub async fn update_repeat_mode(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<RepeatModeRequest>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     // Validate repeat mode
     let mode = RepeatMode::from_str(&request.mode);
 
     queries::update_queue_repeat_mode(&state.pool, user.user_id, mode.as_str()).await?;
 
-    Ok((
-        StatusCode::OK,
-        Json(QueueSuccessResponse {
-            success: true,
-            new_index: None,
-            total_count: None,
-            added_count: None,
-        }),
-    ))
+    Ok(Json(QueueSuccessResponse {
+        success: true,
+        new_index: None,
+        total_count: None,
+        added_count: None,
+    }))
 }
 
 /// DELETE /ferrotune/queue - Clear the entire queue
 pub async fn clear_queue(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     queries::clear_queue(&state.pool, user.user_id).await?;
 
-    Ok((
-        StatusCode::OK,
-        Json(QueueSuccessResponse {
-            success: true,
-            new_index: None,
-            total_count: Some(0),
-            added_count: None,
-        }),
-    ))
+    Ok(Json(QueueSuccessResponse {
+        success: true,
+        new_index: None,
+        total_count: Some(0),
+        added_count: None,
+    }))
 }
 
 // ============================================================================

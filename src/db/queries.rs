@@ -274,12 +274,16 @@ pub async fn get_songs_by_ids(pool: &SqlitePool, ids: &[String]) -> sqlx::Result
     let placeholders: Vec<&str> = ids.iter().map(|_| "?").collect();
     let placeholder_str = placeholders.join(", ");
 
-    // Filter by enabled music folders and not deleted
+    // Build query with JOINs before WHERE clause
     let query = format!(
-        "{} 
+        "SELECT s.*, ar.name as artist_name, al.name as album_name
+         FROM songs s
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         AND s.id IN ({}) AND mf.enabled = 1",
-        SONG_BASE_QUERY.trim(),
+         WHERE s.marked_for_deletion_at IS NULL
+           AND s.id IN ({})
+           AND mf.enabled = 1",
         placeholder_str
     );
 

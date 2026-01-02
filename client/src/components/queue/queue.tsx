@@ -111,6 +111,7 @@ function QueueSourceDisplay({ variant }: { variant: "mobile" | "desktop" }) {
   if (
     !queueState ||
     queueState.totalCount === 0 ||
+    !queueState.source ||
     queueState.source.type === "other"
   ) {
     return null;

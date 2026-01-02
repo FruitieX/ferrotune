@@ -269,25 +269,3 @@ export interface ServerConnection {
   username?: string;
   password?: string;
 }
-
-// ============================================================================
-// Base Response Types (client-only - for wrapping API responses)
-// ============================================================================
-
-/** Subsonic API response wrapper */
-export interface SubsonicResponse<T = unknown> {
-  "subsonic-response": {
-    status: "ok" | "failed";
-    version: string;
-    type: string;
-    serverVersion: string;
-    openSubsonic: boolean;
-    error?: SubsonicError;
-  } & T;
-}
-
-/** Subsonic API error */
-export interface SubsonicError {
-  code: number;
-  message: string;
-}
