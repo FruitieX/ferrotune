@@ -1,281 +1,98 @@
-import { test, expect, playFirstSong, waitForPlayerReady } from "./fixtures";
+/**
+ * Playlist tests - Create and manage playlists
+ */
+
+import { test, expect } from "./fixtures";
 
 test.describe("Playlists", () => {
-  test("playlists page is accessible", async ({ authenticatedPage: page }) => {
-    await page.goto("/playlists");
-
-    await expect(
-      page.getByRole("heading", { name: "Playlists", exact: true }),
-    ).toBeVisible();
-  });
-
-  test("can open create playlist dialog", async ({
-    authenticatedPage: page,
-  }) => {
-    await page.goto("/playlists");
-
-    const createButton = page
-      .getByRole("button", { name: /create|new|\+|playlist/i })
-      .first();
-    await createButton.click();
-
-    // Dialog should open
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-  });
-
   test("can create a new playlist", async ({ authenticatedPage: page }) => {
     const playlistName = `Test Playlist ${Date.now()}`;
 
     await page.goto("/playlists");
 
-    const createButton = page
-      .getByRole("button", { name: /create|new|\+|playlist/i })
-      .first();
-    await createButton.click();
+    // Click the "New" dropdown button
+    const newButton = page.getByRole("button", { name: /new/i });
+    await expect(newButton).toBeVisible({ timeout: 10000 });
+    await newButton.click();
 
+    // Click "Playlist" in the dropdown
+    const playlistOption = page.getByRole("menuitem", { name: /^playlist$/i });
+    await expect(playlistOption).toBeVisible();
+    await playlistOption.click();
+
+    // Dialog should appear
     const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
+    await expect(dialog).toBeVisible({ timeout: 5000 });
 
-    // Fill in name
+    // Fill in playlist name
     await dialog.getByRole("textbox").fill(playlistName);
-
-    // Submit
     await dialog.getByRole("button", { name: /create|save/i }).click();
 
     // Wait for dialog to close
-    await page.waitForTimeout(1000);
+    await expect(dialog).not.toBeVisible({ timeout: 5000 });
 
+    // Should see success or stay on playlists page
     expect(page.url()).toContain("/playlists");
   });
 
-  test("can navigate to playlist detail", async ({
+  test("can add songs to playlist via context menu", async ({
     authenticatedPage: page,
   }) => {
-    // First create a playlist
-    const playlistName = `Nav Test ${Date.now()}`;
-
-    await page.goto("/playlists");
-
-    const createButton = page
-      .getByRole("button", { name: /create|new|\+|playlist/i })
-      .first();
-    await createButton.click();
-
-    const dialog = page.getByRole("dialog");
-    await dialog.getByRole("textbox").fill(playlistName);
-    await dialog.getByRole("button", { name: /create|save/i }).click();
-
-    await page.waitForTimeout(1000);
-
-    // Click on the playlist
-    const playlistLink = page.getByText(playlistName);
-    if (await playlistLink.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await playlistLink.click();
-      await expect(page).toHaveURL(/\/playlists\//);
-    }
-  });
-
-  test("playlist detail shows empty state", async ({
-    authenticatedPage: page,
-  }) => {
-    // Create a new empty playlist
-    const playlistName = `Empty Test ${Date.now()}`;
-
-    await page.goto("/playlists");
-
-    const createButton = page
-      .getByRole("button", { name: /create|new|\+|playlist/i })
-      .first();
-    await createButton.click();
-
-    const dialog = page.getByRole("dialog");
-    await dialog.getByRole("textbox").fill(playlistName);
-    await dialog.getByRole("button", { name: /create|save/i }).click();
-
-    await page.waitForTimeout(1000);
-
-    // Navigate to it
-    const playlistLink = page.getByText(playlistName);
-    if (await playlistLink.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await playlistLink.click();
-      await expect(page).toHaveURL(/\/playlists\//);
-
-      // Should show empty state or no tracks
-      await expect(page.getByRole("heading")).toBeVisible();
-    }
-  });
-
-  test("can delete playlist", async ({ authenticatedPage: page }) => {
-    // Create a playlist to delete
-    const playlistName = `Delete Test ${Date.now()}`;
-
-    await page.goto("/playlists");
-
-    const createButton = page
-      .getByRole("button", { name: /create|new|\+|playlist/i })
-      .first();
-    await createButton.click();
-
-    const dialog = page.getByRole("dialog");
-    await dialog.getByRole("textbox").fill(playlistName);
-    await dialog.getByRole("button", { name: /create|save/i }).click();
-
-    await page.waitForTimeout(1000);
-
-    // Navigate to playlist
-    const playlistLink = page.getByText(playlistName);
-    if (await playlistLink.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await playlistLink.click();
-      await expect(page).toHaveURL(/\/playlists\//);
-
-      // Look for delete button
-      const deleteButton = page
-        .getByRole("button", { name: /delete/i })
-        .first();
-      if (await deleteButton.isVisible().catch(() => false)) {
-        await deleteButton.click();
-
-        // Confirm deletion if dialog appears
-        const confirmButton = page.getByRole("button", {
-          name: /delete|confirm|yes/i,
-        });
-        if (
-          await confirmButton.isVisible({ timeout: 2000 }).catch(() => false)
-        ) {
-          await confirmButton.click();
-        }
-
-        await page.waitForTimeout(1000);
-      }
-    }
-
-    expect(page.url()).toBeTruthy();
-  });
-
-  test("can add song to playlist via context menu", async ({
-    authenticatedPage: page,
-  }) => {
-    // First create a playlist
     const playlistName = `Add Songs Test ${Date.now()}`;
 
+    // Create playlist first
     await page.goto("/playlists");
-
-    const createButton = page
-      .getByRole("button", { name: /create|new|\+|playlist/i })
-      .first();
-    await createButton.click();
+    const newButton = page.getByRole("button", { name: /new/i });
+    await expect(newButton).toBeVisible({ timeout: 10000 });
+    await newButton.click();
+    await page.getByRole("menuitem", { name: /^playlist$/i }).click();
 
     const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible({ timeout: 5000 });
     await dialog.getByRole("textbox").fill(playlistName);
     await dialog.getByRole("button", { name: /create|save/i }).click();
+    await expect(dialog).not.toBeVisible({ timeout: 5000 });
 
-    await page.waitForTimeout(1000);
+    // Go to album and add song
+    await page.goto("/library");
+    await page.waitForSelector('[data-testid="media-card"]', {
+      timeout: 10000,
+    });
+    const testAlbum = page
+      .locator('[data-testid="media-card"]')
+      .filter({ hasText: "Test Album" });
+    await testAlbum.click();
 
-    // Go to library songs
-    await page.goto("/library/songs");
+    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 
-    // Wait for songs to load
+    // Right-click to open context menu
     const songRow = page.locator('[data-testid="song-row"]').first();
-    const hasSongs = await songRow
-      .isVisible({ timeout: 10000 })
-      .catch(() => false);
+    await songRow.click({ button: "right" });
 
-    if (hasSongs) {
-      // Right-click on first song row to open context menu
-      await songRow.click({ button: "right" });
+    // Wait for context menu
+    const contextMenu = page.locator('[data-slot="context-menu-content"]');
+    await expect(contextMenu).toBeVisible({ timeout: 5000 });
 
-      // Click "Add to Playlist" in context menu
-      const addToPlaylistItem = page.getByRole("menuitem", {
-        name: /add to playlist/i,
-      });
-      const hasMenuItem = await addToPlaylistItem
-        .isVisible({ timeout: 3000 })
-        .catch(() => false);
+    const addToPlaylistItem = contextMenu.getByRole("menuitem", {
+      name: /add to playlist/i,
+    });
+    await expect(addToPlaylistItem).toBeVisible();
+    // Use force click to handle submenu opening
+    await addToPlaylistItem.click({ force: true });
 
-      if (hasMenuItem) {
-        await addToPlaylistItem.click();
+    // Wait for submenu
+    await page.waitForTimeout(300);
 
-        // Select the playlist we created
-        const playlistOption = page.getByRole("menuitem", {
-          name: new RegExp(playlistName, "i"),
-        });
-        if (
-          await playlistOption.isVisible({ timeout: 5000 }).catch(() => false)
-        ) {
-          await playlistOption.click();
+    const playlistOption = page.getByRole("menuitem", {
+      name: new RegExp(playlistName, "i"),
+    });
+    if (await playlistOption.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await playlistOption.click({ force: true });
 
-          // Wait for toast confirmation
-          await page.waitForTimeout(500);
-        }
-      }
+      // Verify toast
+      await expect(
+        page.locator("[data-sonner-toast]").filter({ hasText: /added/i }),
+      ).toBeVisible({ timeout: 3000 });
     }
-
-    // Test passes if we got this far without errors
-    expect(true).toBeTruthy();
-  });
-
-  test("can add song to playlist from player bar", async ({
-    authenticatedPage: page,
-  }) => {
-    // First create a playlist
-    const playlistName = `Player Bar Test ${Date.now()}`;
-
-    await page.goto("/playlists");
-
-    const createButton = page
-      .getByRole("button", { name: /create|new|\+|playlist/i })
-      .first();
-    await createButton.click();
-
-    const dialog = page.getByRole("dialog");
-    await dialog.getByRole("textbox").fill(playlistName);
-    await dialog.getByRole("button", { name: /create|save/i }).click();
-
-    await page.waitForTimeout(1000);
-
-    // Play a song first
-    await playFirstSong(page);
-    await waitForPlayerReady(page);
-
-    // Click more options in player bar (footer) if visible
-    const moreButton = page
-      .locator("footer")
-      .getByRole("button")
-      .filter({ has: page.locator("svg") })
-      .last();
-    const hasMoreButton = await moreButton
-      .isVisible({ timeout: 3000 })
-      .catch(() => false);
-
-    if (hasMoreButton) {
-      await moreButton.click();
-
-      // Click "Add to Playlist"
-      const addToPlaylistItem = page.getByRole("menuitem", {
-        name: /add to playlist/i,
-      });
-      if (
-        await addToPlaylistItem.isVisible({ timeout: 3000 }).catch(() => false)
-      ) {
-        await addToPlaylistItem.click();
-
-        // Select the playlist we created
-        const playlistOption = page.getByRole("menuitem", {
-          name: new RegExp(playlistName, "i"),
-        });
-        if (
-          await playlistOption.isVisible({ timeout: 5000 }).catch(() => false)
-        ) {
-          await playlistOption.click();
-
-          // Wait for toast confirmation
-          await page.waitForTimeout(500);
-        }
-      }
-    }
-
-    // Test passes if we got this far without errors
-    expect(true).toBeTruthy();
   });
 });

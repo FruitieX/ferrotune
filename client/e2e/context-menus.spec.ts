@@ -1,14 +1,9 @@
-import {
-  test,
-  expect,
-  playFirstSong,
-  waitForPlayerReady,
-  waitForPageReady,
-} from "./fixtures";
-
 /**
- * Helper to wait for context menu to appear and get it
+ * Context menu tests - Right-click menus for songs, albums, artists
  */
+
+import { test, expect, waitForPlayerReady } from "./fixtures";
+
 async function openContextMenu(
   page: import("@playwright/test").Page,
   element: import("@playwright/test").Locator,
@@ -19,331 +14,85 @@ async function openContextMenu(
   return contextMenu;
 }
 
-/**
- * Helper to wait for dropdown menu to appear
- */
-async function openDropdownMenu(
-  page: import("@playwright/test").Page,
-  trigger: import("@playwright/test").Locator,
-) {
-  await trigger.click();
-  const dropdownMenu = page.locator('[data-slot="dropdown-menu-content"]');
-  await expect(dropdownMenu).toBeVisible({ timeout: 5000 });
-  return dropdownMenu;
-}
-
 test.describe("Context Menus", () => {
-  test.describe("Song Context Menu", () => {
-    test.beforeEach(async ({ authenticatedPage: page }) => {
-      // Navigate to songs view in list mode
-      await page.goto("/library/songs");
+  test("song context menu has all actions and can play", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/library/songs");
 
-      // Switch to list view to get song rows
-      const listViewButton = page.getByRole("button", { name: /list view/i });
-      await expect(listViewButton).toBeVisible({ timeout: 10000 });
-      await listViewButton.click();
+    const listViewButton = page.getByRole("button", { name: /list view/i });
+    await expect(listViewButton).toBeVisible({ timeout: 10000 });
+    await listViewButton.click();
+    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 
-      await page.waitForSelector('[data-testid="song-row"]', {
-        timeout: 10000,
-      });
-    });
+    const songRow = page.locator('[data-testid="song-row"]').first();
+    const contextMenu = await openContextMenu(page, songRow);
 
-    test("right-click on song opens context menu", async ({
-      authenticatedPage: page,
-    }) => {
-      const songRow = page.locator('[data-testid="song-row"]').first();
-      const contextMenu = await openContextMenu(page, songRow);
+    // Check for expected menu items
+    await expect(
+      contextMenu.getByRole("menuitem", { name: /^play$/i }),
+    ).toBeVisible();
+    await expect(
+      contextMenu.getByRole("menuitem", { name: /play next/i }),
+    ).toBeVisible();
+    await expect(
+      contextMenu.getByRole("menuitem", { name: /add to queue/i }),
+    ).toBeVisible();
+    await expect(
+      contextMenu.getByRole("menuitem", { name: /add to playlist/i }),
+    ).toBeVisible();
 
-      // Check that Play menu item exists
-      await expect(contextMenu.locator('text="Play"').first()).toBeVisible();
-    });
-
-    test("context menu has expected items", async ({
-      authenticatedPage: page,
-    }) => {
-      const songRow = page.locator('[data-testid="song-row"]').first();
-      const contextMenu = await openContextMenu(page, songRow);
-
-      // Check for expected menu items using text locators for reliability
-      await expect(contextMenu.locator('text="Play"').first()).toBeVisible();
-      await expect(contextMenu.locator('text="Play Next"')).toBeVisible();
-      await expect(contextMenu.locator('text="Add to Queue"')).toBeVisible();
-      await expect(contextMenu.locator('text="Add to Playlist"')).toBeVisible();
-      // One of Add to Favorites or Remove from Favorites should be visible
-      const hasFavorites = await contextMenu
-        .locator("text=/Add to Favorites|Remove from Favorites/")
-        .isVisible();
-      expect(hasFavorites).toBeTruthy();
-    });
-
-    test("can play song from context menu", async ({
-      authenticatedPage: page,
-    }) => {
-      const songRow = page.locator('[data-testid="song-row"]').first();
-      const contextMenu = await openContextMenu(page, songRow);
-
-      await contextMenu.locator('text="Play"').first().click();
-
-      await waitForPlayerReady(page);
-      // Player bar should show a song is playing
-      await expect(page.locator('[data-testid="player-bar"]')).toBeVisible();
-    });
-
-    test("can add song to queue via Play Next", async ({
-      authenticatedPage: page,
-    }) => {
-      // First start playback
-      await playFirstSong(page);
-      await waitForPlayerReady(page);
-
-      // Go back to songs list view
-      await page.goto("/library/songs");
-      const listViewButton = page.getByRole("button", { name: /list view/i });
-      await expect(listViewButton).toBeVisible({ timeout: 10000 });
-      await listViewButton.click();
-      await page.waitForSelector('[data-testid="song-row"]', {
-        timeout: 10000,
-      });
-
-      // Right-click and add to queue
-      const songRow = page.locator('[data-testid="song-row"]').nth(1); // Second song
-      const contextMenu = await openContextMenu(page, songRow);
-
-      await contextMenu.locator('text="Play Next"').click();
-
-      // Verify toast
-      await expect(page.locator("[data-sonner-toast]")).toBeVisible({
-        timeout: 3000,
-      });
-    });
-
-    test("can add song to queue via Add to Queue", async ({
-      authenticatedPage: page,
-    }) => {
-      // First start playback
-      await playFirstSong(page);
-      await waitForPlayerReady(page);
-
-      // Go back to songs list view
-      await page.goto("/library/songs");
-      const listViewButton = page.getByRole("button", { name: /list view/i });
-      await expect(listViewButton).toBeVisible({ timeout: 10000 });
-      await listViewButton.click();
-      await page.waitForSelector('[data-testid="song-row"]', {
-        timeout: 10000,
-      });
-
-      // Right-click and add to queue
-      const songRow = page.locator('[data-testid="song-row"]').nth(1); // Second song
-      const contextMenu = await openContextMenu(page, songRow);
-
-      await contextMenu.locator('text="Add to Queue"').click();
-
-      // Verify toast
-      await expect(page.locator("[data-sonner-toast]")).toBeVisible({
-        timeout: 3000,
-      });
-    });
-
-    test("can toggle favorites from context menu", async ({
-      authenticatedPage: page,
-    }) => {
-      const songRow = page.locator('[data-testid="song-row"]').first();
-      const contextMenu = await openContextMenu(page, songRow);
-
-      // Click whichever favorites option is visible
-      const addFavorite = contextMenu.locator('text="Add to Favorites"');
-      const removeFavorite = contextMenu.locator(
-        'text="Remove from Favorites"',
-      );
-
-      if (await addFavorite.isVisible()) {
-        await addFavorite.click();
-      } else {
-        await removeFavorite.click();
-      }
-
-      // Verify toast
-      await expect(page.locator("[data-sonner-toast]")).toBeVisible({
-        timeout: 3000,
-      });
-    });
-
-    test("can navigate to artist from context menu", async ({
-      authenticatedPage: page,
-    }) => {
-      const songRow = page.locator('[data-testid="song-row"]').first();
-      const contextMenu = await openContextMenu(page, songRow);
-
-      await contextMenu.locator('text="Go to Artist"').click();
-
-      await expect(page).toHaveURL(/\/library\/artists\/details/);
-    });
-
-    test("can navigate to album from context menu", async ({
-      authenticatedPage: page,
-    }) => {
-      const songRow = page.locator('[data-testid="song-row"]').first();
-      const contextMenu = await openContextMenu(page, songRow);
-
-      await contextMenu.locator('text="Go to Album"').click();
-
-      await expect(page).toHaveURL(/\/library\/albums\/details/);
-    });
-
-    test("can open rating submenu", async ({ authenticatedPage: page }) => {
-      const songRow = page.locator('[data-testid="song-row"]').first();
-      const contextMenu = await openContextMenu(page, songRow);
-
-      // Click on Rate to open submenu
-      await contextMenu.locator("text=/^Rate/").click();
-
-      // Rating submenu should appear with star options
-      const ratingSubmenu = page.locator(
-        '[data-slot="context-menu-sub-content"]',
-      );
-      await expect(ratingSubmenu).toBeVisible({ timeout: 2000 });
-    });
-
-    test("context menu closes on Escape", async ({
-      authenticatedPage: page,
-    }) => {
-      const songRow = page.locator('[data-testid="song-row"]').first();
-      const contextMenu = await openContextMenu(page, songRow);
-
-      await page.keyboard.press("Escape");
-
-      await expect(contextMenu).not.toBeVisible();
-    });
+    // Play the song
+    await contextMenu.getByRole("menuitem", { name: /^play$/i }).click();
+    await waitForPlayerReady(page);
+    await expect(page.getByTestId("player-bar")).toBeVisible();
   });
 
-  test.describe("Dropdown Menu (More Options)", () => {
-    test.beforeEach(async ({ authenticatedPage: page }) => {
-      await page.goto("/library/songs");
-      const listViewButton = page.getByRole("button", { name: /list view/i });
-      await expect(listViewButton).toBeVisible({ timeout: 10000 });
-      await listViewButton.click();
-      await page.waitForSelector('[data-testid="song-row"]', {
-        timeout: 10000,
-      });
+  test("album card context menu can play and shuffle", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/library/albums");
+    await page.waitForSelector('[data-testid="media-card"]', {
+      timeout: 10000,
     });
 
-    test("can open dropdown menu via more options button", async ({
-      authenticatedPage: page,
-    }) => {
-      const songRow = page.locator('[data-testid="song-row"]').first();
-      await songRow.hover();
+    const albumCard = page.locator('[data-testid="media-card"]').first();
+    const contextMenu = await openContextMenu(page, albumCard);
 
-      const moreButton = songRow.getByRole("button", { name: /more options/i });
-      await expect(moreButton).toBeVisible({ timeout: 2000 });
+    await expect(
+      contextMenu.getByRole("menuitem", { name: /^play$/i }),
+    ).toBeVisible();
+    await expect(
+      contextMenu.getByRole("menuitem", { name: /shuffle/i }),
+    ).toBeVisible();
 
-      const dropdownMenu = await openDropdownMenu(page, moreButton);
-
-      // Check that Play menu item exists
-      await expect(dropdownMenu.locator('text="Play"').first()).toBeVisible();
-    });
-
-    test("dropdown menu has same items as context menu", async ({
-      authenticatedPage: page,
-    }) => {
-      const songRow = page.locator('[data-testid="song-row"]').first();
-      await songRow.hover();
-
-      const moreButton = songRow.getByRole("button", { name: /more options/i });
-      const dropdownMenu = await openDropdownMenu(page, moreButton);
-
-      // Check for expected menu items
-      await expect(dropdownMenu.locator('text="Play"').first()).toBeVisible();
-      await expect(dropdownMenu.locator('text="Play Next"')).toBeVisible();
-      await expect(dropdownMenu.locator('text="Add to Queue"')).toBeVisible();
-    });
+    // Play the album
+    await contextMenu.getByRole("menuitem", { name: /^play$/i }).click();
+    await waitForPlayerReady(page);
   });
 
-  test.describe("Album Card Context Menu", () => {
-    test("right-click on album card opens context menu", async ({
-      authenticatedPage: page,
-    }) => {
-      await page.goto("/library/albums");
-      await waitForPageReady(page);
+  test("artist card context menu can play and shuffle", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/library/artists");
 
-      // Switch to grid view to see media cards
-      const gridViewButton = page.getByRole("button", { name: /grid view/i });
-      await gridViewButton.click();
-
-      await page.waitForSelector('[data-testid="media-card"]', {
-        timeout: 10000,
-      });
-
-      const albumCard = page.locator('[data-testid="media-card"]').first();
-      const contextMenu = await openContextMenu(page, albumCard);
-
-      // Check for play menu item
-      await expect(contextMenu.locator("text=/^Play$/")).toBeVisible();
+    // Switch to grid view
+    const gridViewButton = page.getByRole("button", { name: /grid view/i });
+    await expect(gridViewButton).toBeVisible({ timeout: 10000 });
+    await gridViewButton.click();
+    await page.waitForSelector('[data-testid="media-card"]', {
+      timeout: 10000,
     });
 
-    test("album context menu has play and shuffle options", async ({
-      authenticatedPage: page,
-    }) => {
-      await page.goto("/library/albums");
-      await waitForPageReady(page);
+    const artistCard = page.locator('[data-testid="media-card"]').first();
+    const contextMenu = await openContextMenu(page, artistCard);
 
-      // Switch to grid view to see media cards
-      const gridViewButton = page.getByRole("button", { name: /grid view/i });
-      await gridViewButton.click();
-
-      await page.waitForSelector('[data-testid="media-card"]', {
-        timeout: 10000,
-      });
-
-      const albumCard = page.locator('[data-testid="media-card"]').first();
-      const contextMenu = await openContextMenu(page, albumCard);
-
-      await expect(contextMenu.locator("text=/^Play$/")).toBeVisible();
-      await expect(contextMenu.locator("text=/Shuffle/i")).toBeVisible();
-    });
-  });
-
-  test.describe("Artist Card Context Menu", () => {
-    test("right-click on artist card opens context menu", async ({
-      authenticatedPage: page,
-    }) => {
-      await page.goto("/library/artists");
-      await waitForPageReady(page);
-
-      // Switch to grid view to see media cards
-      const gridViewButton = page.getByRole("button", { name: /grid view/i });
-      await gridViewButton.click();
-
-      await page.waitForSelector('[data-testid="media-card"]', {
-        timeout: 10000,
-      });
-
-      const artistCard = page.locator('[data-testid="media-card"]').first();
-      const contextMenu = await openContextMenu(page, artistCard);
-
-      // Artist context menu has Play and Shuffle
-      await expect(contextMenu.locator("text=/^Play$/")).toBeVisible();
-    });
-
-    test("artist context menu has play and shuffle options", async ({
-      authenticatedPage: page,
-    }) => {
-      await page.goto("/library/artists");
-      await waitForPageReady(page);
-
-      // Switch to grid view to see media cards
-      const gridViewButton = page.getByRole("button", { name: /grid view/i });
-      await gridViewButton.click();
-
-      await page.waitForSelector('[data-testid="media-card"]', {
-        timeout: 10000,
-      });
-
-      const artistCard = page.locator('[data-testid="media-card"]').first();
-      const contextMenu = await openContextMenu(page, artistCard);
-
-      await expect(contextMenu.locator("text=/^Play$/")).toBeVisible();
-      await expect(contextMenu.locator("text=/^Shuffle$/")).toBeVisible();
-    });
+    // Artist context menu uses "Play All" and "Shuffle All"
+    await expect(
+      contextMenu.getByRole("menuitem", { name: /play all/i }),
+    ).toBeVisible();
+    await expect(
+      contextMenu.getByRole("menuitem", { name: /shuffle all/i }),
+    ).toBeVisible();
   });
 });

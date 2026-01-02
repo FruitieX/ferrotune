@@ -86,7 +86,7 @@ nix develop
 moon run :dev
 
 # Run CI checks
-moon run ci-all-lite
+moon run ci-all
 ```
 
 ## License

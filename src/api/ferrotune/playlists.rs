@@ -888,19 +888,6 @@ pub async fn import_playlist(
     }))
 }
 
-/// An entry in the playlist entries response
-#[derive(Debug, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct PlaylistEntryResponse {
-    /// Position in the playlist (0-indexed)
-    pub position: i32,
-    /// Song ID if matched (null for missing entries)
-    pub song_id: Option<String>,
-    /// Missing entry data if not matched
-    pub missing: Option<MissingEntryDataResponse>,
-}
-
 /// Missing entry data in the response
 #[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -911,21 +898,6 @@ pub struct MissingEntryDataResponse {
     pub album: Option<String>,
     pub duration: Option<i32>,
     pub raw: String,
-}
-
-/// Response containing playlist entries (including missing)
-#[derive(Debug, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct PlaylistEntriesResponse {
-    /// Total entries in the playlist
-    pub total: i32,
-    /// Number of matched entries
-    pub matched: i32,
-    /// Number of missing entries
-    pub missing: i32,
-    /// Entries in position order
-    pub entries: Vec<PlaylistEntryResponse>,
 }
 
 // ============================================================================
@@ -1516,89 +1488,6 @@ pub async fn get_playlist_songs(
         created: format_datetime_iso_ms(playlist.created_at),
         changed: format_datetime_iso_ms(playlist.updated_at),
         cover_art,
-        entries,
-    }))
-}
-
-/// Get playlist entries including missing ones
-///
-/// @deprecated Use `get_playlist_songs` instead which returns songs with entries interleaved
-#[allow(dead_code)]
-pub async fn get_playlist_entries(
-    State(state): State<Arc<AppState>>,
-    user: FerrotuneAuthenticatedUser,
-    Path(playlist_id): Path<String>,
-) -> FerrotuneApiResult<Json<PlaylistEntriesResponse>> {
-    use crate::db::models::MissingEntryData;
-
-    // Check playlist exists and belongs to user
-    let playlist: Option<(String, i64, bool)> =
-        sqlx::query_as("SELECT id, owner_id, is_public FROM playlists WHERE id = ?")
-            .bind(&playlist_id)
-            .fetch_optional(&state.pool)
-            .await?;
-
-    let Some((_, owner_id, is_public)) = playlist else {
-        return Err(Error::NotFound("Playlist not found".to_string()).into());
-    };
-
-    // Check access
-    if owner_id != user.user_id && !is_public {
-        return Err(Error::Forbidden("Not authorized to access this playlist".to_string()).into());
-    }
-
-    // Get all entries (both matched and missing)
-    let rows: Vec<(i64, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT position, song_id, missing_entry_data FROM playlist_songs WHERE playlist_id = ? ORDER BY position"
-    )
-    .bind(&playlist_id)
-    .fetch_all(&state.pool)
-    .await?;
-
-    let mut matched_count = 0i32;
-    let mut missing_count = 0i32;
-
-    let entries: Vec<PlaylistEntryResponse> = rows
-        .into_iter()
-        .map(|(position, song_id, missing_data)| {
-            if song_id.is_some() {
-                matched_count += 1;
-            }
-
-            let missing = if let Some(data_str) = missing_data {
-                if let Ok(data) = serde_json::from_str::<MissingEntryData>(&data_str) {
-                    // Only count as missing if there's no song_id (truly unmatched)
-                    if song_id.is_none() {
-                        missing_count += 1;
-                    }
-                    Some(MissingEntryDataResponse {
-                        title: data.title,
-                        artist: data.artist,
-                        album: data.album,
-                        duration: data.duration,
-                        raw: data.raw,
-                    })
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-            PlaylistEntryResponse {
-                position: position as i32,
-                song_id,
-                missing,
-            }
-        })
-        .collect();
-
-    let total = entries.len() as i32;
-
-    Ok(Json(PlaylistEntriesResponse {
-        total,
-        matched: matched_count,
-        missing: missing_count,
         entries,
     }))
 }

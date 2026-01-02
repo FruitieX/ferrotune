@@ -323,24 +323,6 @@ impl ScanState {
         });
     }
 
-    /// Increment the added counter (without tracking - for backwards compatibility).
-    #[allow(dead_code)]
-    pub fn increment_added(&self) {
-        self.added.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Increment the updated counter (without tracking - for backwards compatibility).
-    #[allow(dead_code)]
-    pub fn increment_updated(&self) {
-        self.updated.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Increment the removed counter.
-    #[allow(dead_code)]
-    pub fn increment_removed(&self) {
-        self.removed.fetch_add(1, Ordering::Relaxed);
-    }
-
     /// Add removed files to tracking.
     pub async fn track_removed(&self, paths: &[String]) {
         self.removed
@@ -376,12 +358,6 @@ impl ScanState {
         });
     }
 
-    /// Add to the removed counter (without tracking - for backwards compatibility).
-    #[allow(dead_code)]
-    pub fn add_removed(&self, count: u64) {
-        self.removed.fetch_add(count, Ordering::Relaxed);
-    }
-
     /// Increment the errors counter and track the file.
     pub async fn track_error(&self, path: &str, error: &str) {
         self.errors.fetch_add(1, Ordering::Relaxed);
@@ -389,12 +365,6 @@ impl ScanState {
             path: path.to_string(),
             error: Some(error.to_string()),
         });
-    }
-
-    /// Increment the errors counter (without tracking - for backwards compatibility).
-    #[allow(dead_code)]
-    pub fn increment_errors(&self) {
-        self.errors.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Track duplicate files.
@@ -408,18 +378,6 @@ impl ScanState {
                 error: None,
             });
         }
-    }
-
-    /// Add to the duplicates counter (without tracking - for backwards compatibility).
-    #[allow(dead_code)]
-    pub fn add_duplicates(&self, count: u64) {
-        self.duplicates.fetch_add(count, Ordering::Relaxed);
-    }
-
-    /// Set the total count.
-    #[allow(dead_code)]
-    pub async fn set_total(&self, total: u64) {
-        *self.total.write().await = Some(total);
     }
 
     /// Add to the total count (for multi-folder scans).

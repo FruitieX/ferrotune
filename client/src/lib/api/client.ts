@@ -59,7 +59,6 @@ import type { UpdateServerConfigRequest } from "./generated/UpdateServerConfigRe
 import type { PeriodReviewResponse } from "./generated/PeriodReviewResponse";
 import type { ImportPlaylistRequest } from "./generated/ImportPlaylistRequest";
 import type { ImportPlaylistResponse } from "./generated/ImportPlaylistResponse";
-import type { PlaylistEntriesResponse } from "./generated/PlaylistEntriesResponse";
 import type { BrowseFilesystemResponse } from "./generated/BrowseFilesystemResponse";
 import type { ValidatePathResponse } from "./generated/ValidatePathResponse";
 import type { PlaylistSongsResponse } from "./generated/PlaylistSongsResponse";
@@ -1004,17 +1003,6 @@ export class FerrotuneClient {
       options ?? {},
     );
     return this.request(endpoint);
-  }
-
-  /**
-   * @deprecated Use getPlaylistSongs instead which returns songs with entries interleaved
-   */
-  async getPlaylistEntries(
-    playlistId: string,
-  ): Promise<PlaylistEntriesResponse> {
-    return this.request(
-      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/entries`,
-    );
   }
 
   // Listening statistics (Admin API)

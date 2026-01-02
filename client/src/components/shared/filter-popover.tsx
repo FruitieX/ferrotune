@@ -40,6 +40,7 @@ import {
   type AdvancedFilters,
 } from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
+import { formatDurationCompact } from "@/lib/utils/format";
 
 interface FilterPopoverProps {
   /** Which filter options to show */
@@ -56,14 +57,6 @@ interface FilterPopoverProps {
     library?: boolean;
   };
   className?: string;
-}
-
-function formatDuration(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  if (mins > 0 && secs > 0) return `${mins}m ${secs}s`;
-  if (mins > 0) return `${mins}m`;
-  return `${secs}s`;
 }
 
 export function FilterPopover({
@@ -638,10 +631,10 @@ export function ActiveFilterBadges({ className }: { className?: string }) {
   if (filters.minDuration || filters.maxDuration) {
     const durLabel =
       filters.minDuration && filters.maxDuration
-        ? `${formatDuration(filters.minDuration)}–${formatDuration(filters.maxDuration)}`
+        ? `${formatDurationCompact(filters.minDuration)}–${formatDurationCompact(filters.maxDuration)}`
         : filters.minDuration
-          ? `${formatDuration(filters.minDuration)}+`
-          : `≤${formatDuration(filters.maxDuration!)}`;
+          ? `${formatDurationCompact(filters.minDuration)}+`
+          : `≤${formatDurationCompact(filters.maxDuration!)}`;
     badges.push({ key: "minDuration", label: `Duration: ${durLabel}` });
   }
 

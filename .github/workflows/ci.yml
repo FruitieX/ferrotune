@@ -39,7 +39,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Install libopus dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake
-      - run: moon run ci-all-lite
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+        working-directory: client
+      - run: moon run ci-all
 
   e2e-tests:
     if: false

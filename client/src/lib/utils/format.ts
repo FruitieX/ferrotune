@@ -85,6 +85,21 @@ export function getDurationDeltaStyle(
 }
 
 /**
+ * Format duration to a compact string (e.g., "5m 30s")
+ * Used for filter badges and other space-constrained displays
+ */
+export function formatDurationCompact(seconds: number): string {
+  if (!seconds || isNaN(seconds)) return "0s";
+
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+
+  if (mins > 0 && secs > 0) return `${mins}m ${secs}s`;
+  if (mins > 0) return `${mins}m`;
+  return `${secs}s`;
+}
+
+/**
  * Format duration to a human readable string (e.g., "3 min 45 sec")
  */
 export function formatDurationLong(seconds: number): string {

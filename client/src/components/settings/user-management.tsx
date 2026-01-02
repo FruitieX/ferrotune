@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
+import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import type { UserInfo, MusicFolderInfo } from "@/lib/api/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -197,8 +198,9 @@ export function UserManagement() {
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
 
-  // Get current user ID from connection
-  const currentUserId = 1; // TODO: Get from auth context
+  // Get current user ID from auth context
+  const { user: currentUser } = useCurrentUser();
+  const currentUserId = currentUser?.id ?? 0;
 
   // Fetch users
   const {

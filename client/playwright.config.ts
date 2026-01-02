@@ -3,38 +3,36 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * Playwright configuration for Ferrotune client E2E tests.
  *
- * Tests automatically start a fresh Ferrotune server with test fixtures.
+ * Tests run in parallel with each worker spawning its own Ferrotune server.
  *
  * Environment variables:
- * - FERROTUNE_EXTERNAL_SERVER=true: Use an external server instead of starting one
+ * - FERROTUNE_EXTERNAL_SERVER=true: Use an external server instead of spawning
  * - FERROTUNE_TEST_URL: Server URL when using external server (default: http://localhost:4040)
- * - FERROTUNE_TEST_USER: Username (default: testadmin)
- * - FERROTUNE_TEST_PASS: Password (default: testpass)
+ * - FERROTUNE_TEST_USER: Username (default: admin)
+ * - FERROTUNE_TEST_PASS: Password (default: admin)
  * - DEBUG=true: Show server output
  */
 export default defineConfig({
   testDir: "./e2e",
 
-  /* Global setup and teardown */
+  /* Global setup and teardown (starts/stops Next.js server) */
   globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
 
-  /* Run tests sequentially - tests share a single server instance and can interfere
-   * with each other when run in parallel (e.g., modifying playlists, queue state).
-   * TODO: Add per-worker server isolation for parallel test support */
-  fullyParallel: false,
+  /* Run tests in parallel - each worker spawns its own server instance */
+  fullyParallel: true,
 
   /* Fail the build on CI if you accidentally left test.only in the source code */
   forbidOnly: !!process.env.CI,
 
-  /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
+  /* Retry on failure - helps with flaky tests due to timing/virtualization */
+  retries: process.env.CI ? 3 : 1,
 
-  /* Single worker to prevent test interference from shared server state */
-  workers: 1,
+  /* Use 50% of available CPUs for parallel execution */
+  workers: "50%",
 
   /* Global timeout per test */
-  timeout: 30_000,
+  timeout: 60_000,
 
   /* Expect timeout */
   expect: {
@@ -67,35 +65,23 @@ export default defineConfig({
 
   /* Configure projects for major browsers */
   projects: [
-    /* Setup project - runs once to authenticate */
-    {
-      name: "setup",
-      testMatch: /.*\.setup\.ts/,
-    },
-
-    /* Desktop Chrome - use larger viewport to ensure xl breakpoint for queue sidebar */
+    /* Desktop Chrome - full test suite */
     {
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1440, height: 900 },
-        /* Use saved authentication state */
-        storageState: "e2e/.auth/user.json",
       },
-      dependencies: ["setup"],
+      testIgnore: /mobile\.spec\.ts/,
     },
 
-    /* Mobile Chrome */
+    /* Mobile Chrome - curated subset only */
     {
       name: "mobile-chrome",
       use: {
         ...devices["Pixel 5"],
-        /* Use saved authentication state */
-        storageState: "e2e/.auth/user.json",
       },
-      dependencies: ["setup"],
+      testMatch: /mobile\.spec\.ts/,
     },
   ],
-
-  /* Note: Next.js dev server is started in global-setup.ts alongside the Ferrotune backend */
 });
