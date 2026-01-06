@@ -1,5 +1,5 @@
 -- Ferrotune Database Schema
--- Consolidated from migrations 001-020
+-- Consolidated from migrations 001-012
 
 -- =====================
 -- SERVER CONFIGURATION
@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS server_config (
 );
 
 -- Insert default configuration values
+-- Note: 'music.readonly_tags' is NOT included - it's read dynamically from the config file
 INSERT OR IGNORE INTO server_config (key, value) VALUES
     ('server.name', '"Ferrotune"'),
     ('server.host', '"127.0.0.1"'),
@@ -20,7 +21,6 @@ INSERT OR IGNORE INTO server_config (key, value) VALUES
     ('server.admin_user', '"admin"'),
     ('server.admin_password', '"admin"'),
     ('cache.max_cover_size', '1024'),
-    ('music.readonly_tags', 'true'),
     ('initial_setup_complete', 'false');
 
 -- =====================
@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS music_folders (
     name TEXT NOT NULL,
     path TEXT UNIQUE NOT NULL,
     enabled BOOLEAN NOT NULL DEFAULT 1,
+    watch_enabled BOOLEAN NOT NULL DEFAULT 0,  -- From migration 004
     last_scanned_at TIMESTAMP,
     scan_error TEXT
 );
@@ -64,7 +65,8 @@ CREATE TABLE IF NOT EXISTS artists (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     sort_name TEXT,
-    album_count INTEGER NOT NULL DEFAULT 0
+    album_count INTEGER NOT NULL DEFAULT 0,
+    cover_art_hash TEXT  -- From migration 002
 );
 
 CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name COLLATE NOCASE);
@@ -78,6 +80,7 @@ CREATE TABLE IF NOT EXISTS albums (
     genre TEXT,
     song_count INTEGER NOT NULL DEFAULT 0,
     duration INTEGER NOT NULL DEFAULT 0,
+    cover_art_hash TEXT,  -- From migration 002
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -98,14 +101,18 @@ CREATE TABLE IF NOT EXISTS songs (
     genre TEXT,
     duration INTEGER NOT NULL DEFAULT 0,
     bitrate INTEGER,
-    file_path TEXT UNIQUE NOT NULL,
+    file_path TEXT NOT NULL,
     file_size INTEGER NOT NULL,
     file_format TEXT NOT NULL,
     file_mtime INTEGER,
     partial_hash TEXT,
     full_file_hash TEXT,
+    cover_art_hash TEXT,  -- From migration 002
+    marked_for_deletion_at TEXT DEFAULT NULL,  -- From migration 010 (recycle bin)
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Uniqueness is per-folder, not global (from migration 012)
+    UNIQUE(file_path, music_folder_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_songs_album ON songs(album_id);
@@ -117,6 +124,18 @@ CREATE INDEX IF NOT EXISTS idx_songs_music_folder ON songs(music_folder_id);
 CREATE INDEX IF NOT EXISTS idx_songs_mtime ON songs(file_mtime);
 CREATE INDEX IF NOT EXISTS idx_songs_full_hash ON songs(full_file_hash) WHERE full_file_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_songs_partial_hash ON songs(partial_hash) WHERE partial_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_songs_cover_art ON songs(cover_art_hash) WHERE cover_art_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_songs_marked_for_deletion ON songs(marked_for_deletion_at) WHERE marked_for_deletion_at IS NOT NULL;
+
+-- Cover art thumbnails (from migration 002)
+CREATE TABLE IF NOT EXISTS cover_art_thumbnails (
+    hash TEXT PRIMARY KEY,
+    small BLOB NOT NULL,
+    medium BLOB NOT NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_cover_art_thumbnails_updated ON cover_art_thumbnails(updated_at);
 
 -- =====================
 -- FULL TEXT SEARCH
@@ -291,17 +310,21 @@ CREATE TABLE IF NOT EXISTS playlists (
 CREATE INDEX IF NOT EXISTS idx_playlists_owner ON playlists(owner_id);
 CREATE INDEX IF NOT EXISTS idx_playlists_folder ON playlists(folder_id);
 
+-- Playlist songs with proper foreign key behavior (from migration 007)
 CREATE TABLE IF NOT EXISTS playlist_songs (
     playlist_id TEXT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
-    song_id TEXT REFERENCES songs(id) ON DELETE CASCADE,
+    song_id TEXT REFERENCES songs(id) ON DELETE SET NULL,  -- SET NULL instead of CASCADE
     position INTEGER NOT NULL,
     missing_entry_data TEXT,
     missing_search_text TEXT,
+    added_at DATETIME DEFAULT CURRENT_TIMESTAMP,  -- From migration 005
+    entry_id TEXT,  -- From migration 006
     PRIMARY KEY (playlist_id, position),
     CHECK (song_id IS NOT NULL OR missing_entry_data IS NOT NULL)
 );
 
 CREATE INDEX IF NOT EXISTS idx_playlist_songs_song ON playlist_songs(song_id);
+CREATE INDEX IF NOT EXISTS idx_playlist_songs_entry_id ON playlist_songs(playlist_id, entry_id);
 
 CREATE TABLE IF NOT EXISTS playlist_shares (
     playlist_id TEXT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
@@ -314,11 +337,28 @@ CREATE TABLE IF NOT EXISTS playlist_shares (
 CREATE INDEX IF NOT EXISTS idx_playlist_shares_playlist ON playlist_shares(playlist_id);
 CREATE INDEX IF NOT EXISTS idx_playlist_shares_user ON playlist_shares(shared_with_user_id);
 
+-- Smart playlists (from migration 004)
+CREATE TABLE IF NOT EXISTS smart_playlists (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    comment TEXT,
+    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    is_public BOOLEAN NOT NULL DEFAULT 0,
+    rules_json TEXT NOT NULL,
+    sort_field TEXT,
+    sort_direction TEXT DEFAULT 'desc',
+    max_songs INTEGER,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_smart_playlists_owner ON smart_playlists(owner_id);
+
 -- =====================
 -- PLAYBACK
 -- =====================
 
--- Play queue (server-side)
+-- Play queue (server-side) with lazy queue support (from migration 011)
 CREATE TABLE IF NOT EXISTS play_queues (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     source_type TEXT NOT NULL DEFAULT 'other',
@@ -332,6 +372,9 @@ CREATE TABLE IF NOT EXISTS play_queues (
     repeat_mode TEXT NOT NULL DEFAULT 'off',
     filters_json TEXT,
     sort_json TEXT,
+    total_count INTEGER DEFAULT NULL,  -- From migration 011
+    is_lazy INTEGER NOT NULL DEFAULT 0,  -- From migration 011
+    song_ids_json TEXT DEFAULT NULL,  -- From migration 011
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     changed_by TEXT NOT NULL DEFAULT 'ferrotune-web'
@@ -349,13 +392,15 @@ CREATE INDEX IF NOT EXISTS idx_play_queue_entries_user ON play_queue_entries(use
 CREATE INDEX IF NOT EXISTS idx_play_queue_entries_song ON play_queue_entries(song_id);
 CREATE INDEX IF NOT EXISTS idx_play_queue_entries_entry_id ON play_queue_entries(user_id, entry_id);
 
--- Scrobbles/play history
+-- Scrobbles/play history (from migration 003)
 CREATE TABLE IF NOT EXISTS scrobbles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     song_id TEXT NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
-    played_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    submission BOOLEAN NOT NULL DEFAULT 1
+    played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- Nullable for imported entries
+    submission BOOLEAN NOT NULL DEFAULT 1,
+    play_count INTEGER NOT NULL DEFAULT 1,  -- For bulk imports
+    description TEXT  -- For import labels
 );
 
 CREATE INDEX IF NOT EXISTS idx_scrobbles_user_time ON scrobbles(user_id, played_at DESC);
@@ -374,3 +419,69 @@ CREATE TABLE IF NOT EXISTS listening_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_listening_sessions_user_time ON listening_sessions(user_id, listened_at);
 CREATE INDEX IF NOT EXISTS idx_listening_sessions_song ON listening_sessions(song_id);
+
+-- =====================
+-- TAGGER (from migration 009)
+-- =====================
+
+-- Tagger sessions table - stores per-user tagger state
+CREATE TABLE IF NOT EXISTS tagger_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    active_rename_script_id TEXT,
+    active_tag_script_id TEXT,
+    target_library_id TEXT,
+    visible_columns TEXT NOT NULL DEFAULT '["TITLE","ARTIST","ALBUM","ALBUMARTIST","TRACKNUMBER","DISCNUMBER","YEAR","GENRE"]',
+    column_widths TEXT NOT NULL DEFAULT '{}',
+    file_column_width INTEGER NOT NULL DEFAULT 400,
+    show_library_prefix INTEGER NOT NULL DEFAULT 0,
+    show_computed_path INTEGER NOT NULL DEFAULT 1,
+    details_panel_open INTEGER NOT NULL DEFAULT 1,
+    dangerous_char_mode TEXT NOT NULL DEFAULT 'replace',
+    dangerous_char_replacement TEXT NOT NULL DEFAULT '_',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Staged tracks currently loaded in the tagger
+CREATE TABLE IF NOT EXISTS tagger_session_tracks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES tagger_sessions(id) ON DELETE CASCADE,
+    track_id TEXT NOT NULL,
+    track_type TEXT NOT NULL DEFAULT 'library' CHECK(track_type IN ('library', 'staged')),
+    position INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(session_id, track_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tagger_session_tracks_session ON tagger_session_tracks(session_id);
+
+-- Pending edits for tracks in the tagger session
+CREATE TABLE IF NOT EXISTS tagger_pending_edits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES tagger_sessions(id) ON DELETE CASCADE,
+    track_id TEXT NOT NULL,
+    track_type TEXT NOT NULL DEFAULT 'library' CHECK(track_type IN ('library', 'staged')),
+    edited_tags TEXT NOT NULL DEFAULT '{}',
+    computed_path TEXT,
+    cover_art_removed INTEGER NOT NULL DEFAULT 0,
+    cover_art_filename TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(session_id, track_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tagger_pending_edits_session ON tagger_pending_edits(session_id);
+
+-- User scripts table - stores rename and tag scripts per user
+CREATE TABLE IF NOT EXISTS tagger_scripts (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK(type IN ('rename', 'tags')),
+    script TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_tagger_scripts_user ON tagger_scripts(user_id);
