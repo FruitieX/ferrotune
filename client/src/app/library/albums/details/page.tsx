@@ -41,7 +41,11 @@ import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dial
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
-import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import {
+  SongListToolbar,
+  MobileFilterInput,
+  AlbumDetailMobileMenu,
+} from "@/components/shared/song-list-toolbar";
 import { SongListHeader } from "@/components/shared/song-list-header";
 import {
   VirtualizedGrid,
@@ -226,7 +230,7 @@ function AlbumDetailContent() {
   // This prevents hydration mismatches
   if (!isMounted || authLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-dvh">
         <Skeleton className="w-32 h-8" />
       </div>
     );
@@ -237,7 +241,7 @@ function AlbumDetailContent() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       {/* Header with blurred background */}
       <DetailHeader
         showBackButton
@@ -285,6 +289,7 @@ function AlbumDetailContent() {
         onPlayAll={handlePlayAll}
         onShuffle={handleShuffle}
         disablePlay={isLoading || displaySongs.length === 0}
+        showShuffleOnMobile
         toolbar={
           <SongListToolbar
             filter={filter}
@@ -296,6 +301,23 @@ function AlbumDetailContent() {
             onColumnVisibilityChange={setColumnVisibility}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
+          />
+        }
+        mobileFilter={
+          <MobileFilterInput
+            filter={filter}
+            onFilterChange={setFilter}
+            placeholder="Filter songs..."
+          />
+        }
+        mobileMenuContent={
+          <AlbumDetailMobileMenu
+            sortConfig={sortConfig}
+            onSortChange={setSortConfig}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            columnVisibility={columnVisibility}
+            onColumnVisibilityChange={setColumnVisibility}
           />
         }
       >
@@ -457,7 +479,7 @@ export default function AlbumDetailPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex items-center justify-center min-h-screen">
+        <div className="flex items-center justify-center min-h-dvh">
           <Skeleton className="w-32 h-8" />
         </div>
       }

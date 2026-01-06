@@ -15,6 +15,7 @@ import {
   VolumeX,
   ListMusic,
   Heart,
+  MoreHorizontal,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -80,11 +81,27 @@ export function FullscreenPlayer() {
   }, [isOpen, setQueuePanelOpen]);
 
   // Handle Escape key to close fullscreen
+  // Only close if there are no higher-priority overlays that should handle Escape first
   useEffect(() => {
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        // Check if there are any overlays that should handle Escape first
+        // (sheets, dialogs, menus, popovers, dropdown menus)
+        const higherPriorityOverlay = document.querySelector(
+          '[data-state="open"][data-slot="sheet-content"], ' +
+            '[data-state="open"][data-slot="dialog-content"], ' +
+            '[data-state="open"][data-slot="context-menu-content"], ' +
+            '[data-state="open"][data-slot="dropdown-menu-content"], ' +
+            '[data-state="open"][data-slot="popover-content"]',
+        );
+
+        // If there's a higher priority overlay, let it handle Escape
+        if (higherPriorityOverlay) {
+          return;
+        }
+
         e.preventDefault();
         setIsOpen(false);
       }
@@ -92,6 +109,53 @@ export function FullscreenPlayer() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, setIsOpen]);
+
+  // Manage browser history state for back button navigation (Android)
+  // Push a history entry when fullscreen opens, handle popstate to close
+  useEffect(() => {
+    // Only on mobile devices with back button
+    const isMobileOrTablet =
+      typeof window !== "undefined" &&
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent,
+      );
+
+    if (!isMobileOrTablet) return;
+    if (!isOpen) return;
+
+    // Push a history state so back button doesn't navigate away
+    window.history.pushState({ fullscreenPlayer: true }, "");
+
+    const handlePopState = (_event: PopStateEvent) => {
+      // Check if there are any higher priority overlays open
+      const higherPriorityOverlay = document.querySelector(
+        '[data-state="open"][data-slot="sheet-content"], ' +
+          '[data-state="open"][data-slot="dialog-content"], ' +
+          '[data-state="open"][data-slot="context-menu-content"], ' +
+          '[data-state="open"][data-slot="dropdown-menu-content"], ' +
+          '[data-state="open"][data-slot="popover-content"]',
+      );
+
+      // If there's a higher priority overlay, let it handle the back button
+      // (the back button hook or the overlay itself will handle it)
+      if (higherPriorityOverlay) {
+        // Re-push our state since we still want to intercept the next back
+        window.history.pushState({ fullscreenPlayer: true }, "");
+        return;
+      }
+
+      // Close the fullscreen player
+      setIsOpen(false);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      // When component unmounts or isOpen becomes false, we don't need to do anything
+      // The history state will naturally be left behind (back button will just navigate)
+    };
   }, [isOpen, setIsOpen]);
 
   // Get cover art URL
@@ -157,7 +221,8 @@ export function FullscreenPlayer() {
             stiffness: 300,
             mass: 0.8,
           }}
-          className="fixed inset-0 z-50 bg-gradient-to-b from-background/95 to-background flex flex-col"
+          data-fullscreen-player="true"
+          className="fixed inset-0 z-50 bg-linear-to-b from-background/95 to-background flex flex-col"
           style={{
             backgroundImage: coverArtUrl
               ? `linear-gradient(to bottom, rgba(0,0,0,0.1), var(--background)), url(${coverArtUrl})`
@@ -191,7 +256,25 @@ export function FullscreenPlayer() {
                   {queueState?.totalCount ?? 0}
                 </p>
               </div>
-              <SongDropdownMenu song={currentTrack} />
+              <SongDropdownMenu
+                song={currentTrack}
+                trigger={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="rounded-full"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="w-5 h-5" />
+                    <span className="sr-only">More options</span>
+                  </Button>
+                }
+              />
             </div>
 
             {/* Album Art */}

@@ -57,9 +57,8 @@ import type { SetupStatusResponse } from "@/lib/api/generated/SetupStatusRespons
 
 type SetupStep = "welcome" | "credentials" | "folders" | "scan" | "complete";
 
-// Default server URL based on environment
-const DEFAULT_SERVER_URL =
-  process.env.NODE_ENV === "development" ? "http://localhost:4040" : "";
+// Default server URL - empty means use current origin (works in dev with proxy)
+const DEFAULT_SERVER_URL = "";
 
 export default function SetupPage() {
   const router = useRouter();
@@ -455,7 +454,7 @@ export default function SetupPage() {
   // Loading state
   if (statusLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+      <div className="min-h-dvh flex items-center justify-center p-4 bg-background">
         <div className="text-center">
           <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-muted-foreground" />
           <p className="text-muted-foreground">Checking setup status...</p>
@@ -465,7 +464,7 @@ export default function SetupPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+    <div className="min-h-dvh flex items-center justify-center p-4 bg-background">
       {/* Scan Dialog - shared across setup */}
       <ScanDialog />
       <motion.div

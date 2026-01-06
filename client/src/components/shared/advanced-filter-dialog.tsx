@@ -28,6 +28,12 @@ import {
 
 interface AdvancedFilterDialogProps {
   className?: string;
+  /** When provided, the dialog becomes controlled */
+  open?: boolean;
+  /** Called when open state changes (for controlled mode) */
+  onOpenChange?: (open: boolean) => void;
+  /** Whether to show the trigger button (default: true) */
+  showTrigger?: boolean;
 }
 
 /**
@@ -189,10 +195,22 @@ function rulesToFlat(rules: RuleBasedFilters): FlatFilters {
   return filtersToSearchParams(rules) as FlatFilters;
 }
 
-export function AdvancedFilterDialog({ className }: AdvancedFilterDialogProps) {
+export function AdvancedFilterDialog({
+  className,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+  showTrigger = true,
+}: AdvancedFilterDialogProps) {
   const [flatFilters, setFlatFilters] = useAtom(advancedFiltersAtom);
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+
+  // Use controlled or internal state
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = isControlled
+    ? (value: boolean) => controlledOnOpenChange?.(value)
+    : setInternalOpen;
 
   // Local rule-based state for the builder
   const [localFilters, setLocalFilters] =
@@ -209,6 +227,15 @@ export function AdvancedFilterDialog({ className }: AdvancedFilterDialogProps) {
     setOpen(true);
   };
 
+  // Handle dialog open state change (including controlled mode)
+  const handleOpenChange = (value: boolean) => {
+    if (value && isControlled) {
+      // Sync local filters when opening in controlled mode
+      setLocalFilters(flatToRules(flatFilters));
+    }
+    setOpen(value);
+  };
+
   const handleApply = () => {
     const flat = rulesToFlat(localFilters);
     setFlatFilters(flat);
@@ -223,25 +250,27 @@ export function AdvancedFilterDialog({ className }: AdvancedFilterDialogProps) {
 
   return (
     <>
-      <Button
-        variant={hasActiveFilters ? "default" : "outline"}
-        size="icon"
-        className={cn("h-8 w-8 relative", className)}
-        onClick={handleOpen}
-        aria-label="Advanced filters"
-      >
-        <Filter className="h-4 w-4" />
-        {activeFilterCount > 0 && (
-          <Badge
-            variant="secondary"
-            className="absolute -top-1 -right-1 h-4 min-w-4 p-0 text-[10px] flex items-center justify-center"
-          >
-            {activeFilterCount}
-          </Badge>
-        )}
-      </Button>
+      {showTrigger && (
+        <Button
+          variant={hasActiveFilters ? "default" : "outline"}
+          size="icon"
+          className={cn("h-8 w-8 relative", className)}
+          onClick={handleOpen}
+          aria-label="Advanced filters"
+        >
+          <Filter className="h-4 w-4" />
+          {activeFilterCount > 0 && (
+            <Badge
+              variant="secondary"
+              className="absolute -top-1 -right-1 h-4 min-w-4 p-0 text-[10px] flex items-center justify-center"
+            >
+              {activeFilterCount}
+            </Badge>
+          )}
+        </Button>
+      )}
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Advanced Filters</DialogTitle>
@@ -266,7 +295,7 @@ export function AdvancedFilterDialog({ className }: AdvancedFilterDialogProps) {
                 Clear All
               </Button>
             )}
-            <Button variant="outline" onClick={() => setOpen(false)}>
+            <Button variant="outline" onClick={() => handleOpenChange(false)}>
               Cancel
             </Button>
             <Button onClick={handleApply}>Apply Filters</Button>

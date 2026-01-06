@@ -53,11 +53,20 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
 
-// Global function to dismiss any open context menu by simulating an escape key press
+// Global function to dismiss any open context menu
+// Uses a targeted approach to only close context menus, not other overlays like fullscreen player
 function dismissContextMenu() {
-  document.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+  // Find any open context menu and simulate clicking outside it
+  const contextMenu = document.querySelector(
+    '[data-state="open"][data-slot="context-menu-content"]',
   );
+  if (contextMenu) {
+    // Dispatch escape only to the context menu's document context
+    // by using a custom event that context menus listen for
+    contextMenu.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+  }
 }
 
 // ===================================

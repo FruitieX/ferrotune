@@ -52,7 +52,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
-import { PlaylistsListToolbar } from "@/components/shared/playlists-list-toolbar";
+import {
+  PlaylistsListToolbar,
+  PlaylistsMobileMenu,
+  MobileFilterInput,
+} from "@/components/shared/playlists-list-toolbar";
 import {
   VirtualizedGrid,
   VirtualizedList,
@@ -454,7 +458,7 @@ function PlaylistsPageContent() {
   // Always render the same loading state on server and during hydration
   if (!isMounted || authLoading) {
     return (
-      <div className="min-h-screen">
+      <div className="min-h-dvh">
         <DetailHeader
           icon={ListMusic}
           iconClassName="bg-linear-to-br from-emerald-500 to-emerald-800"
@@ -502,7 +506,7 @@ function PlaylistsPageContent() {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="min-h-screen">
+      <div className="min-h-dvh">
         {/* Header */}
         <DetailHeader
           icon={currentPath ? FolderOpen : ListMusic}
@@ -545,6 +549,7 @@ function PlaylistsPageContent() {
           onPlayAll={playSelectedNow}
           onShuffle={shuffleSelected}
           disablePlay={displayPlaylists.length === 0}
+          showShuffleOnMobile
           actions={
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -592,6 +597,27 @@ function PlaylistsPageContent() {
               onColumnVisibilityChange={setColumnVisibility}
               viewMode={viewMode}
               onViewModeChange={setViewMode}
+            />
+          }
+          mobileMenuContent={
+            <PlaylistsMobileMenu
+              onNewPlaylist={() => setCreateDialogOpen(true)}
+              onNewSmartPlaylist={() => setSmartPlaylistDialogOpen(true)}
+              onNewFolder={() => setCreateFolderDialogOpen(true)}
+              onImport={() => setImportDialogOpen(true)}
+              sortConfig={sortConfig}
+              onSortChange={setSortConfig}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              columnVisibility={columnVisibility}
+              onColumnVisibilityChange={setColumnVisibility}
+            />
+          }
+          mobileFilter={
+            <MobileFilterInput
+              filter={filter}
+              onFilterChange={setFilter}
+              placeholder="Filter playlists..."
             />
           }
         />
@@ -1261,7 +1287,7 @@ export default function PlaylistsPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen">
+        <div className="min-h-dvh">
           <DetailHeader
             icon={ListMusic}
             iconClassName="bg-linear-to-br from-emerald-500 to-emerald-800"

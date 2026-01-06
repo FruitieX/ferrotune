@@ -76,11 +76,13 @@ test.describe("Mobile Tests", () => {
     await playFirstSong(page);
     await waitForPlayerReady(page);
 
-    // Open queue via button in footer
-    const queueButton = page
-      .locator("footer")
-      .getByRole("button", { name: /queue/i })
-      .first();
+    // On mobile, queue is in the more menu
+    const playerBar = page.getByTestId("player-bar");
+    const moreButton = playerBar.getByRole("button", { name: /more options/i });
+    await moreButton.click();
+
+    // Click queue in the popover menu
+    const queueButton = page.getByRole("button", { name: /queue/i });
     await queueButton.click();
 
     // Mobile uses a sheet/dialog, not sidebar
@@ -112,9 +114,17 @@ test.describe("Mobile Tests", () => {
   }) => {
     await page.goto("/library/songs");
 
-    // Switch to list view
-    const listViewButton = page.getByRole("button", { name: /list view/i });
-    await listViewButton.click();
+    // On mobile, the list view button is hidden behind the overflow menu
+    // Open the mobile overflow menu and click on "List"
+    const moreOptionsButton = page.getByRole("button", {
+      name: /view options/i,
+    });
+    await moreOptionsButton.click();
+
+    // Click on List view option in the dropdown
+    const listMenuItem = page.getByRole("menuitem", { name: /^list$/i });
+    await listMenuItem.click();
+
     await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 
     const songRow = page.locator('[data-testid="song-row"]').first();

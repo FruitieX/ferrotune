@@ -12,7 +12,7 @@ export default function SearchPage() {
 
 function SearchPageSkeleton() {
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
         <div className="px-4 lg:px-6 py-4">
           <Skeleton className="h-12 max-w-xl rounded-full" />

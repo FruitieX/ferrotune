@@ -280,7 +280,7 @@ export default function HomePage() {
   // This prevents hydration mismatches
   if (!isMounted || authLoading) {
     return (
-      <div className="min-h-screen">
+      <div className="min-h-dvh">
         {/* Header */}
         <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
           <div className="flex items-center gap-4 h-16 px-4 lg:px-6">
@@ -318,7 +318,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       {/* Header */}
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
         <div className="flex items-center gap-4 h-16 px-4 lg:px-6">

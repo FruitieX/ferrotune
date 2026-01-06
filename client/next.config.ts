@@ -16,6 +16,25 @@ const nextConfig: NextConfig = {
     process.env.NEXT_DISABLE_DEV_OVERLAY === "true" ? false : undefined,
   // Enable static export for embedding into release binaries
   output: process.env.NEXT_OUTPUT_STATIC === "1" ? "export" : undefined,
+  // Allow dev server to be accessed from Tailscale and local network
+  allowedDevOrigins: ["*.tailscale", "*.local", "*.lan"],
+  // Proxy API requests to backend in development
+  async rewrites() {
+    // Only proxy in development mode
+    if (process.env.NODE_ENV !== "development") {
+      return [];
+    }
+    return [
+      {
+        source: "/ferrotune/:path*",
+        destination: "http://localhost:4040/ferrotune/:path*",
+      },
+      {
+        source: "/rest/:path*",
+        destination: "http://localhost:4040/rest/:path*",
+      },
+    ];
+  },
 };
 
 export default nextConfig;

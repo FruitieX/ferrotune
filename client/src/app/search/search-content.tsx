@@ -184,7 +184,7 @@ export function SearchPageContent() {
     filteredGenres.length > 0;
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       {/* Header with search input */}
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
         <div className="px-4 lg:px-6 py-4">

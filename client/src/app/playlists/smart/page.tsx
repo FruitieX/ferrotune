@@ -308,7 +308,7 @@ function SmartPlaylistPageContent() {
 
   if (!id) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-dvh flex items-center justify-center">
         <p className="text-muted-foreground">No playlist ID provided</p>
       </div>
     );
@@ -316,14 +316,14 @@ function SmartPlaylistPageContent() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-dvh flex items-center justify-center">
         <p className="text-destructive">Failed to load smart playlist</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       <DetailHeader
         showBackButton
         icon={Sparkles}
@@ -568,7 +568,7 @@ export default function SmartPlaylistPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen">
+        <div className="min-h-dvh">
           <DetailHeader
             icon={Sparkles}
             iconClassName="bg-linear-to-br from-purple-500 to-purple-800"

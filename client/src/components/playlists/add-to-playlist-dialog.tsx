@@ -30,6 +30,7 @@ import { formatCount } from "@/lib/utils/format";
 import { isFolderPlaceholder } from "@/lib/utils/playlist-folders";
 import type { Playlist, Song } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/lib/hooks/use-media-query";
 
 interface AddToPlaylistDialogProps {
   open: boolean;
@@ -72,6 +73,7 @@ export function AddToPlaylistDialog({
   );
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
   const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
 
   // Fetch playlists
   const { data: playlists, isLoading } = useQuery({
@@ -256,6 +258,7 @@ export function AddToPlaylistDialog({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="h-9"
+              autoFocus={!isMobile}
             />
           </div>
 
@@ -264,7 +267,10 @@ export function AddToPlaylistDialog({
               {/* Create new playlist option */}
               {!showCreateNew ? (
                 <button
-                  onClick={() => setShowCreateNew(true)}
+                  onClick={() => {
+                    setNewPlaylistName(searchQuery.trim());
+                    setShowCreateNew(true);
+                  }}
                   className="flex items-center gap-3 w-full p-2 rounded-md hover:bg-accent/70 transition-all text-left"
                   disabled={isPending}
                 >
@@ -335,8 +341,10 @@ export function AddToPlaylistDialog({
                   />
                 ))
               ) : searchQuery ? (
-                <div className="py-8 text-center text-muted-foreground text-sm">
-                  No playlists match &ldquo;{searchQuery}&rdquo;
+                <div className="py-6 text-center space-y-3">
+                  <p className="text-muted-foreground text-sm">
+                    No playlists match &ldquo;{searchQuery}&rdquo;
+                  </p>
                 </div>
               ) : (
                 <div className="py-8 text-center text-muted-foreground text-sm">

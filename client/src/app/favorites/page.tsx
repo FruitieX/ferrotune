@@ -520,7 +520,7 @@ export default function FavoritesPage() {
   // Always render the same loading state on server and during hydration
   if (!isMounted || authLoading) {
     return (
-      <div className="min-h-screen">
+      <div className="min-h-dvh">
         {/* Header skeleton */}
         <div className="relative">
           <div className="absolute inset-0 h-[300px] bg-linear-to-b from-red-500/20 to-background" />
@@ -561,7 +561,7 @@ export default function FavoritesPage() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       {/* Header */}
       <DetailHeader
         icon={Heart}

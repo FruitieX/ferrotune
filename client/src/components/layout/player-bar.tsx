@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -20,6 +20,7 @@ import {
   Heart,
   MoreHorizontal,
 } from "lucide-react";
+import { useIsMobile } from "@/lib/hooks/use-media-query";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -69,6 +70,9 @@ interface NowPlayingInfoProps {
 
 /** Now playing track info - only re-renders when track changes */
 function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
+  const isMobile = useIsMobile();
+  const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
+
   // Use global starred state
   const { isStarred, toggleStar } = useStarred(
     track?.id ?? "",
@@ -79,6 +83,13 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
   const coverArtUrl = track?.coverArt
     ? getClient()?.getCoverArtUrl(track.coverArt, 96)
     : null;
+
+  // Handle click on now playing info - open fullscreen on mobile
+  const handleNowPlayingClick = () => {
+    if (isMobile) {
+      setFullscreenOpen(true);
+    }
+  };
 
   if (!track || isEnded) {
     return (
@@ -91,6 +102,42 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
     );
   }
 
+  // Mobile: entire area is clickable to open fullscreen
+  if (isMobile) {
+    return (
+      <button
+        type="button"
+        onClick={handleNowPlayingClick}
+        className="flex items-center gap-3 min-w-0 text-left"
+      >
+        <motion.div
+          key={track.id}
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="shrink-0 album-glow"
+        >
+          <CoverImage
+            src={coverArtUrl}
+            alt={track.album || "Album cover"}
+            colorSeed={track.album || track.title}
+            type="song"
+            size="sm"
+            className="w-14 h-14"
+          />
+        </motion.div>
+        <div className="min-w-0">
+          <span className="block text-sm font-medium text-foreground truncate">
+            {track.title}
+          </span>
+          <span className="block text-xs text-muted-foreground truncate">
+            {track.artist}
+          </span>
+        </div>
+      </button>
+    );
+  }
+
+  // Desktop: links to album/artist pages
   return (
     <>
       <motion.div
@@ -167,10 +214,11 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
         <Shuffle className="w-4 h-4" />
       </Button>
 
+      {/* Previous - hidden on mobile, shown in more menu */}
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 sm:h-9 sm:w-9"
+        className="hidden sm:flex h-8 w-8 sm:h-9 sm:w-9"
         onClick={previous}
         disabled={!hasTrack}
         aria-label="Previous"
@@ -178,10 +226,11 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
         <SkipBack className="w-4 h-4 sm:w-5 sm:h-5" />
       </Button>
 
+      {/* Play/pause - ghost variant on mobile, default (filled) on desktop */}
       <Button
-        variant="default"
+        variant="ghost"
         size="icon"
-        className="h-9 w-9 sm:h-10 sm:w-10 rounded-full"
+        className="flex sm:hidden h-9 w-9 rounded-full"
         onClick={togglePlayPause}
         disabled={playbackState === "idle"}
         aria-label={isPlaying ? "Pause" : "Play"}
@@ -190,19 +239,40 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-            className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-primary-foreground border-t-transparent rounded-full"
+            className="w-4 h-4 border-2 border-foreground border-t-transparent rounded-full"
           />
         ) : isPlaying ? (
-          <Pause className="w-4 h-4 sm:w-5 sm:h-5" />
+          <Pause className="w-4 h-4" />
         ) : (
-          <Play className="w-4 h-4 sm:w-5 sm:h-5 ml-0.5" />
+          <Play className="w-4 h-4 ml-0.5" />
+        )}
+      </Button>
+      <Button
+        variant="default"
+        size="icon"
+        className="hidden sm:flex h-10 w-10 rounded-full"
+        onClick={togglePlayPause}
+        disabled={playbackState === "idle"}
+        aria-label={isPlaying ? "Pause" : "Play"}
+      >
+        {isLoading ? (
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+            className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full"
+          />
+        ) : isPlaying ? (
+          <Pause className="w-5 h-5" />
+        ) : (
+          <Play className="w-5 h-5 ml-0.5" />
         )}
       </Button>
 
+      {/* Next - hidden on mobile, shown in more menu */}
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 sm:h-9 sm:w-9"
+        className="hidden sm:flex h-8 w-8 sm:h-9 sm:w-9"
         onClick={next}
         disabled={!hasTrack}
         aria-label="Next"
@@ -290,70 +360,29 @@ function VolumeControls() {
   }, [volume, changeVolume]);
 
   return (
-    <>
-      {/* Volume control - popover on mobile, inline on desktop */}
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 sm:hidden"
-            aria-label={isMuted ? "Unmute" : "Mute"}
-          >
-            <VolumeIcon className="w-4 h-4" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent side="top" align="center" className="w-auto p-3">
-          <div className="flex flex-col items-center gap-3">
-            <span className="text-xs text-muted-foreground">Volume</span>
-            <div className="h-32 flex items-center">
-              <Slider
-                orientation="vertical"
-                value={[isMuted ? 0 : volume * 100]}
-                max={100}
-                step={1}
-                className="h-full"
-                onValueChange={([value]) => changeVolume(value / 100)}
-                aria-label="Volume"
-              />
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={toggleMute}
-              aria-label={isMuted ? "Unmute" : "Mute"}
-            >
-              <VolumeIcon className="w-4 h-4" />
-            </Button>
-          </div>
-        </PopoverContent>
-      </Popover>
-
-      {/* Desktop volume - hidden on mobile */}
-      <div
-        ref={volumeContainerRef}
-        className="hidden sm:flex items-center gap-2 w-32"
+    // Desktop volume - hidden on mobile (mobile uses more menu for volume)
+    <div
+      ref={volumeContainerRef}
+      className="hidden sm:flex items-center gap-2 w-32"
+    >
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8"
+        onClick={toggleMute}
+        aria-label={isMuted ? "Unmute" : "Mute"}
       >
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={toggleMute}
-          aria-label={isMuted ? "Unmute" : "Mute"}
-        >
-          <VolumeIcon className="w-4 h-4" />
-        </Button>
-        <Slider
-          value={[isMuted ? 0 : volume * 100]}
-          max={100}
-          step={1}
-          className="flex-1"
-          onValueChange={([value]) => changeVolume(value / 100)}
-          aria-label="Volume"
-        />
-      </div>
-    </>
+        <VolumeIcon className="w-4 h-4" />
+      </Button>
+      <Slider
+        value={[isMuted ? 0 : volume * 100]}
+        max={100}
+        step={1}
+        className="flex-1"
+        onValueChange={([value]) => changeVolume(value / 100)}
+        aria-label="Volume"
+      />
+    </div>
   );
 }
 
@@ -380,14 +409,32 @@ function QueueButton() {
 
 /** Mobile more options menu - separated to avoid re-renders */
 function MobileMoreMenu() {
+  const [isOpen, setIsOpen] = useState(false);
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
+  const [queuePanelOpen, setQueuePanelOpen] = useAtom(queuePanelOpenAtom);
   const { isShuffled, toggleShuffle } = useShuffle();
   const { repeatMode, cycleRepeatMode } = useRepeatMode();
+  const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
+  const { togglePlayPause, next, previous } = useAudioEngine();
+  const playbackState = useAtomValue(playbackStateAtom);
 
+  const isPlaying = playbackState === "playing";
   const RepeatIcon = repeatMode === "one" ? Repeat1 : Repeat;
+  const VolumeIcon =
+    isMuted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
+
+  const handleFullscreen = () => {
+    setIsOpen(false);
+    setFullscreenOpen(true);
+  };
+
+  const handleQueue = () => {
+    setIsOpen(false);
+    setQueuePanelOpen(!queuePanelOpen);
+  };
 
   return (
-    <Popover>
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
@@ -400,6 +447,73 @@ function MobileMoreMenu() {
       </PopoverTrigger>
       <PopoverContent side="top" align="end" className="w-auto p-2">
         <div className="flex flex-col gap-1">
+          {/* Playback controls row */}
+          <div className="flex items-center justify-center gap-1 pb-1 border-b border-border mb-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={previous}
+              aria-label="Previous"
+            >
+              <SkipBack className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={togglePlayPause}
+              aria-label={isPlaying ? "Pause" : "Play"}
+            >
+              {isPlaying ? (
+                <Pause className="w-4 h-4" />
+              ) : (
+                <Play className="w-4 h-4" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={next}
+              aria-label="Next"
+            >
+              <SkipForward className="w-4 h-4" />
+            </Button>
+          </div>
+          {/* Queue */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              "justify-start gap-2",
+              queuePanelOpen && "text-primary",
+            )}
+            onClick={handleQueue}
+          >
+            <ListMusic className="w-4 h-4" />
+            Queue
+          </Button>
+          {/* Volume */}
+          <div className="flex items-center gap-2 px-3 py-1.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 p-0"
+              onClick={toggleMute}
+            >
+              <VolumeIcon className="w-4 h-4" />
+            </Button>
+            <Slider
+              value={[isMuted ? 0 : volume * 100]}
+              max={100}
+              step={1}
+              className="w-24"
+              onValueChange={([value]) => changeVolume(value / 100)}
+              aria-label="Volume"
+            />
+          </div>
+          {/* Shuffle */}
           <Button
             variant="ghost"
             size="sm"
@@ -409,6 +523,7 @@ function MobileMoreMenu() {
             <Shuffle className="w-4 h-4" />
             Shuffle {isShuffled && "On"}
           </Button>
+          {/* Repeat */}
           <Button
             variant="ghost"
             size="sm"
@@ -426,11 +541,12 @@ function MobileMoreMenu() {
                 ? "All"
                 : "Off"}
           </Button>
+          {/* Fullscreen */}
           <Button
             variant="ghost"
             size="sm"
             className="justify-start gap-2"
-            onClick={() => setFullscreenOpen(true)}
+            onClick={handleFullscreen}
           >
             <Maximize2 className="w-4 h-4" />
             Fullscreen
@@ -493,22 +609,34 @@ export function PlayerBar() {
         <SimpleProgressBar />
       )}
 
-      <div className="flex items-center h-full px-4 gap-4">
-        {/* Now Playing Info */}
-        <div className="flex items-center gap-3 w-[30%] min-w-0">
+      <div className="flex items-center h-full px-4 gap-2 sm:gap-4">
+        {/* Now Playing Info - takes available space on mobile, fixed width on desktop */}
+        <div className="flex items-center gap-3 flex-1 sm:flex-none sm:w-[30%] min-w-0">
           <NowPlayingInfo track={currentTrack} isEnded={isEnded} />
         </div>
 
-        {/* Center Controls */}
-        <div className="flex flex-col items-center gap-1 flex-1 max-w-[40%]">
+        {/* Center Controls - hidden on mobile (moved to right), visible on desktop */}
+        <div className="hidden sm:flex flex-col items-center gap-1 flex-1 max-w-[40%]">
           <PlaybackControls hasTrack={hasTrack} playbackState={playbackState} />
           <TimeSlider />
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-1 sm:gap-2 w-[30%] justify-end">
-          <QueueButton />
+        <div className="flex items-center gap-1 sm:gap-2 sm:w-[30%] justify-end">
+          {/* Mobile-only playback controls - right aligned */}
+          <div className="flex sm:hidden items-center">
+            <PlaybackControls
+              hasTrack={hasTrack}
+              playbackState={playbackState}
+            />
+          </div>
+          {/* Desktop-only queue button (on mobile it's in more menu) */}
+          <div className="hidden sm:block">
+            <QueueButton />
+          </div>
+          {/* Desktop volume controls */}
           <VolumeControls />
+          {/* Mobile more menu (includes queue, volume, etc.) */}
           <MobileMoreMenu />
           <FullscreenButton />
         </div>

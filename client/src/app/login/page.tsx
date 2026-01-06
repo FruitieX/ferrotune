@@ -40,9 +40,8 @@ import { initializeClient, FerrotuneApiError } from "@/lib/api/client";
 import type { ServerConnection } from "@/lib/api/types";
 import type { SetupStatusResponse } from "@/lib/api/generated/SetupStatusResponse";
 
-// Default server URL based on environment
-const DEFAULT_SERVER_URL =
-  process.env.NODE_ENV === "development" ? "http://localhost:4040" : "";
+// Default server URL - empty means use current origin (works in dev with proxy)
+const DEFAULT_SERVER_URL = "";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -58,14 +57,9 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Compute stable backend URL for setup check - doesn't depend on user input
-  // to avoid re-fetching on every keystroke in the server URL field
+  // Compute stable backend URL for setup check - uses current origin (works in dev with proxy)
   const setupCheckUrl =
-    process.env.NODE_ENV === "development"
-      ? "http://localhost:4040"
-      : typeof window !== "undefined"
-        ? window.location.origin
-        : "";
+    typeof window !== "undefined" ? window.location.origin : "";
 
   // Check setup status - redirect to setup if not complete
   const { data: setupStatus, isLoading: setupLoading } = useQuery({
@@ -174,7 +168,7 @@ export default function LoginPage() {
   // Show loading state while checking setup status
   if (setupLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+      <div className="min-h-dvh flex items-center justify-center p-4 bg-background">
         <div className="text-center">
           <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-muted-foreground" />
           <p className="text-muted-foreground">Loading...</p>
@@ -186,7 +180,7 @@ export default function LoginPage() {
   // If setup not complete, the effect will redirect - show loading
   if (setupStatus && !setupStatus.setupComplete) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+      <div className="min-h-dvh flex items-center justify-center p-4 bg-background">
         <div className="text-center">
           <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-muted-foreground" />
           <p className="text-muted-foreground">Redirecting to setup...</p>
@@ -196,7 +190,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+    <div className="min-h-dvh flex items-center justify-center p-4 bg-background">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}

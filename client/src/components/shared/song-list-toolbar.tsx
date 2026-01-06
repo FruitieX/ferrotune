@@ -10,6 +10,12 @@ import {
   Grid,
   List,
   Check,
+  MoreHorizontal,
+  Shuffle,
+  Pencil,
+  Trash2,
+  RefreshCw,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +27,10 @@ import {
   DropdownMenuTrigger,
   DropdownMenuCheckboxItem,
   DropdownMenuLabel,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuPortal,
 } from "@/components/ui/dropdown-menu";
 import {
   AdvancedFilterDialog,
@@ -267,5 +277,401 @@ export function SongListToolbar({
       {/* Active filter badges */}
       {showAdvancedFilters && <ActiveFilterBadges />}
     </div>
+  );
+}
+
+/**
+ * Mobile overflow menu for song lists (e.g., playlist details, album details).
+ * Contains shuffle, more actions (edit, add, delete), sort, column visibility, and view mode.
+ */
+interface SongListMobileMenuProps {
+  // Shuffle
+  onShuffle?: () => void;
+  disableShuffle?: boolean;
+
+  // More menu actions (edit playlist, add song, resolve missing, delete)
+  onEditPlaylist?: () => void;
+  onAddSong?: () => void;
+  onResolveMissing?: () => void;
+  showResolveMissing?: boolean;
+  onDeletePlaylist?: () => void;
+
+  // Sort
+  sortConfig: SortConfig;
+  onSortChange: (config: SortConfig) => void;
+  showCustomSort?: boolean;
+  showAddedToPlaylist?: boolean;
+
+  // View mode
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
+
+  // Column visibility (optional, only for list view)
+  columnVisibility?: ColumnVisibility;
+  onColumnVisibilityChange?: (visibility: ColumnVisibility) => void;
+}
+
+export function SongListMobileMenu({
+  onShuffle,
+  disableShuffle = false,
+  onEditPlaylist,
+  onAddSong,
+  onResolveMissing,
+  showResolveMissing = false,
+  onDeletePlaylist,
+  sortConfig,
+  onSortChange,
+  showCustomSort = false,
+  showAddedToPlaylist = false,
+  viewMode,
+  onViewModeChange,
+  columnVisibility,
+  onColumnVisibilityChange,
+}: SongListMobileMenuProps) {
+  const handleSort = (field: SortField) => {
+    if (field === "custom") {
+      onSortChange({ field, direction: "asc" });
+      return;
+    }
+
+    if (sortConfig.field === field) {
+      onSortChange({
+        field,
+        direction: sortConfig.direction === "asc" ? "desc" : "asc",
+      });
+    } else {
+      onSortChange({ field, direction: "asc" });
+    }
+  };
+
+  const handleColumnToggle = (key: keyof ColumnVisibility) => {
+    if (!columnVisibility || !onColumnVisibilityChange) return;
+    onColumnVisibilityChange({
+      ...columnVisibility,
+      [key]: !columnVisibility[key],
+    });
+  };
+
+  const SortIcon = sortConfig.direction === "asc" ? ArrowUp : ArrowDown;
+
+  const hasMoreActions =
+    onEditPlaylist ||
+    onAddSong ||
+    (showResolveMissing && onResolveMissing) ||
+    onDeletePlaylist;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          aria-label="More options"
+        >
+          <MoreHorizontal className="w-4 h-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-40">
+        {/* Shuffle */}
+        {onShuffle && (
+          <>
+            <DropdownMenuItem onClick={onShuffle} disabled={disableShuffle}>
+              <Shuffle className="w-4 h-4 mr-2" />
+              Shuffle
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
+
+        {/* Playlist actions - inline */}
+        {onEditPlaylist && (
+          <DropdownMenuItem onClick={onEditPlaylist}>
+            <Pencil className="w-4 h-4 mr-2" />
+            Edit Playlist
+          </DropdownMenuItem>
+        )}
+        {onAddSong && (
+          <DropdownMenuItem onClick={onAddSong}>
+            <Plus className="w-4 h-4 mr-2" />
+            Add Song
+          </DropdownMenuItem>
+        )}
+        {showResolveMissing && onResolveMissing && (
+          <DropdownMenuItem onClick={onResolveMissing}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Resolve Missing
+          </DropdownMenuItem>
+        )}
+        {onDeletePlaylist && (
+          <DropdownMenuItem
+            onClick={onDeletePlaylist}
+            className="text-destructive"
+          >
+            <Trash2 className="w-4 h-4 mr-2" />
+            Delete Playlist
+          </DropdownMenuItem>
+        )}
+        {hasMoreActions && <DropdownMenuSeparator />}
+
+        {/* Sort submenu */}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <ArrowUpDown className="w-4 h-4 mr-2" />
+            Sort
+          </DropdownMenuSubTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuSubContent className="w-40">
+              {sortOptions
+                .filter(
+                  (option) =>
+                    (showCustomSort || option.value !== "custom") &&
+                    (showAddedToPlaylist || option.value !== "addedToPlaylist"),
+                )
+                .map((option) => (
+                  <DropdownMenuItem
+                    key={option.value}
+                    onClick={() => handleSort(option.value)}
+                    className="flex items-center justify-between"
+                  >
+                    <span>{option.label}</span>
+                    {sortConfig.field === option.value &&
+                      (option.value === "custom" ? (
+                        <Check className="w-4 h-4 text-primary" />
+                      ) : (
+                        <SortIcon className="w-4 h-4 text-primary" />
+                      ))}
+                  </DropdownMenuItem>
+                ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuPortal>
+        </DropdownMenuSub>
+
+        {/* Column visibility submenu - only in list view */}
+        {viewMode === "list" &&
+          columnVisibility &&
+          onColumnVisibilityChange && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Columns className="w-4 h-4 mr-2" />
+                Columns
+              </DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent className="w-40">
+                  {columnOptions.map((option) => (
+                    <DropdownMenuCheckboxItem
+                      key={option.key}
+                      checked={columnVisibility[option.key]}
+                      onCheckedChange={() => handleColumnToggle(option.key)}
+                    >
+                      {option.label}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+          )}
+
+        {/* View mode */}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
+          View
+        </DropdownMenuLabel>
+        <DropdownMenuItem onClick={() => onViewModeChange("grid")}>
+          <Grid className="w-4 h-4 mr-2" />
+          Grid
+          {viewMode === "grid" && (
+            <Check className="w-4 h-4 ml-auto text-primary" />
+          )}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onViewModeChange("list")}>
+          <List className="w-4 h-4 mr-2" />
+          List
+          {viewMode === "list" && (
+            <Check className="w-4 h-4 ml-auto text-primary" />
+          )}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * Mobile filter input - a compact filter input for mobile views.
+ */
+interface MobileFilterInputProps {
+  filter: string;
+  onFilterChange: (filter: string) => void;
+  placeholder?: string;
+}
+
+export function MobileFilterInput({
+  filter,
+  onFilterChange,
+  placeholder = "Filter...",
+}: MobileFilterInputProps) {
+  return (
+    <div className="relative w-full">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+      <Input
+        type="text"
+        placeholder={placeholder}
+        value={filter}
+        onChange={(e) => onFilterChange(e.target.value)}
+        className="pl-9 pr-8 h-9 bg-secondary border-0 rounded-full w-full"
+        aria-label="Filter items"
+      />
+      {filter && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+          onClick={() => onFilterChange("")}
+          aria-label="Clear filter"
+        >
+          <X className="w-3 h-3" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Mobile overflow menu for album/artist detail views.
+ * Contains sort, column visibility, and view mode options.
+ * Simpler than SongListMobileMenu - no playlist-specific actions.
+ */
+interface AlbumDetailMobileMenuProps {
+  // Sort
+  sortConfig: SortConfig;
+  onSortChange: (config: SortConfig) => void;
+
+  // View mode
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
+
+  // Column visibility (optional, only for list view)
+  columnVisibility?: ColumnVisibility;
+  onColumnVisibilityChange?: (visibility: ColumnVisibility) => void;
+}
+
+export function AlbumDetailMobileMenu({
+  sortConfig,
+  onSortChange,
+  viewMode,
+  onViewModeChange,
+  columnVisibility,
+  onColumnVisibilityChange,
+}: AlbumDetailMobileMenuProps) {
+  const handleSort = (field: SortField) => {
+    if (sortConfig.field === field) {
+      onSortChange({
+        field,
+        direction: sortConfig.direction === "asc" ? "desc" : "asc",
+      });
+    } else {
+      onSortChange({ field, direction: "asc" });
+    }
+  };
+
+  const handleColumnToggle = (key: keyof ColumnVisibility) => {
+    if (!columnVisibility || !onColumnVisibilityChange) return;
+    onColumnVisibilityChange({
+      ...columnVisibility,
+      [key]: !columnVisibility[key],
+    });
+  };
+
+  const SortIcon = sortConfig.direction === "asc" ? ArrowUp : ArrowDown;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          aria-label="More options"
+        >
+          <MoreHorizontal className="w-4 h-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-40">
+        {/* Sort submenu */}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <ArrowUpDown className="w-4 h-4 mr-2" />
+            Sort
+          </DropdownMenuSubTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuSubContent className="w-40">
+              {sortOptions
+                .filter(
+                  (option) =>
+                    option.value !== "custom" &&
+                    option.value !== "addedToPlaylist",
+                )
+                .map((option) => (
+                  <DropdownMenuItem
+                    key={option.value}
+                    onClick={() => handleSort(option.value)}
+                    className="flex items-center justify-between"
+                  >
+                    <span>{option.label}</span>
+                    {sortConfig.field === option.value && (
+                      <SortIcon className="w-4 h-4 text-primary" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuPortal>
+        </DropdownMenuSub>
+
+        {/* Column visibility submenu - only in list view */}
+        {viewMode === "list" &&
+          columnVisibility &&
+          onColumnVisibilityChange && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Columns className="w-4 h-4 mr-2" />
+                Columns
+              </DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent className="w-40">
+                  {columnOptions.map((option) => (
+                    <DropdownMenuCheckboxItem
+                      key={option.key}
+                      checked={columnVisibility[option.key]}
+                      onCheckedChange={() => handleColumnToggle(option.key)}
+                    >
+                      {option.label}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+          )}
+
+        {/* View mode */}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
+          View
+        </DropdownMenuLabel>
+        <DropdownMenuItem onClick={() => onViewModeChange("grid")}>
+          <Grid className="w-4 h-4 mr-2" />
+          Grid
+          {viewMode === "grid" && (
+            <Check className="w-4 h-4 ml-auto text-primary" />
+          )}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onViewModeChange("list")}>
+          <List className="w-4 h-4 mr-2" />
+          List
+          {viewMode === "list" && (
+            <Check className="w-4 h-4 ml-auto text-primary" />
+          )}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

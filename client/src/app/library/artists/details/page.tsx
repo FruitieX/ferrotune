@@ -35,7 +35,11 @@ import { ArtistDropdownMenu } from "@/components/browse/artist-context-menu";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { ActionBar } from "@/components/shared/action-bar";
-import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import {
+  SongListToolbar,
+  MobileFilterInput,
+  AlbumDetailMobileMenu,
+} from "@/components/shared/song-list-toolbar";
 import { SongListHeader } from "@/components/shared/song-list-header";
 import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
 import { formatCount } from "@/lib/utils/format";
@@ -207,7 +211,7 @@ function ArtistDetailContent() {
   // This prevents hydration mismatches
   if (!isMounted || authLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-dvh">
         <Skeleton className="w-32 h-8" />
       </div>
     );
@@ -218,7 +222,7 @@ function ArtistDetailContent() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       {/* Header with blurred background */}
       <DetailHeader
         showBackButton
@@ -308,19 +312,41 @@ function ArtistDetailContent() {
 
       {/* Songs section with toolbar */}
       <div className="p-4 lg:p-6">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2 mb-6">
           <h2 className="text-xl font-bold">Songs</h2>
-          <SongListToolbar
-            filter={filter}
-            onFilterChange={setFilter}
-            filterPlaceholder="Filter songs..."
-            sortConfig={sortConfig}
-            onSortChange={setSortConfig}
-            columnVisibility={columnVisibility}
-            onColumnVisibilityChange={setColumnVisibility}
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-          />
+          {/* Mobile filter input */}
+          <div className="flex-1 md:hidden">
+            <MobileFilterInput
+              filter={filter}
+              onFilterChange={setFilter}
+              placeholder="Filter songs..."
+            />
+          </div>
+          {/* Mobile overflow menu */}
+          <div className="md:hidden">
+            <AlbumDetailMobileMenu
+              sortConfig={sortConfig}
+              onSortChange={setSortConfig}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              columnVisibility={columnVisibility}
+              onColumnVisibilityChange={setColumnVisibility}
+            />
+          </div>
+          {/* Desktop toolbar */}
+          <div className="hidden md:block ml-auto">
+            <SongListToolbar
+              filter={filter}
+              onFilterChange={setFilter}
+              filterPlaceholder="Filter songs..."
+              sortConfig={sortConfig}
+              onSortChange={setSortConfig}
+              columnVisibility={columnVisibility}
+              onColumnVisibilityChange={setColumnVisibility}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+            />
+          </div>
         </div>
         {isLoading ? (
           viewMode === "grid" ? (
@@ -423,7 +449,7 @@ export default function ArtistDetailPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex items-center justify-center min-h-screen">
+        <div className="flex items-center justify-center min-h-dvh">
           <Skeleton className="w-32 h-8" />
         </div>
       }

@@ -57,7 +57,11 @@ import { usePlaylistCoverUrl } from "@/components/shared/playlist-cover";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import { EmptyState, EmptyFilterState } from "@/components/shared/empty-state";
-import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import {
+  SongListToolbar,
+  SongListMobileMenu,
+  MobileFilterInput,
+} from "@/components/shared/song-list-toolbar";
 import { SongListHeader } from "@/components/shared/song-list-header";
 import {
   VirtualizedGrid,
@@ -853,7 +857,7 @@ function PlaylistDetailContent() {
   // Loading state
   if (!isMounted || authLoading) {
     return (
-      <div className="min-h-screen">
+      <div className="min-h-dvh">
         <DetailHeader
           showBackButton
           icon={ListMusic}
@@ -899,7 +903,7 @@ function PlaylistDetailContent() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       {/* Header */}
       <DetailHeader
         showBackButton
@@ -961,6 +965,7 @@ function PlaylistDetailContent() {
         onPlayAll={handlePlayAll}
         onShuffle={handleShuffle}
         disablePlay={isLoading || displaySongs.length === 0}
+        showShuffleOnMobile
         toolbar={
           <SongListToolbar
             filter={filter}
@@ -974,6 +979,30 @@ function PlaylistDetailContent() {
             onViewModeChange={setViewMode}
             showCustomSort
             showAddedToPlaylist
+          />
+        }
+        mobileFilter={
+          <MobileFilterInput
+            filter={filter}
+            onFilterChange={setFilter}
+            placeholder="Filter playlist..."
+          />
+        }
+        mobileMenuContent={
+          <SongListMobileMenu
+            onEditPlaylist={() => setEditDialogOpen(true)}
+            onAddSong={() => setAddSongDialogOpen(true)}
+            onResolveMissing={() => setMassResolveDialogOpen(true)}
+            showResolveMissing={hasMissingEntries}
+            onDeletePlaylist={() => setDeleteDialogOpen(true)}
+            sortConfig={sortConfig}
+            onSortChange={setSortConfig}
+            showCustomSort
+            showAddedToPlaylist
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            columnVisibility={columnVisibility}
+            onColumnVisibilityChange={setColumnVisibility}
           />
         }
       >
@@ -1397,7 +1426,7 @@ export default function PlaylistDetailPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen">
+        <div className="min-h-dvh">
           <DetailHeader
             showBackButton
             icon={ListMusic}

@@ -413,7 +413,7 @@ function FilesPageContent() {
   // Show library selection if no library is selected
   if (libraryId === null) {
     return (
-      <div className="min-h-screen">
+      <div className="min-h-dvh">
         {/* Header */}
         <div className="px-4 lg:px-6 pt-4 pb-4">
           <motion.div
@@ -464,7 +464,7 @@ function FilesPageContent() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       {/* Directory Info Header */}
       <div className="px-4 lg:px-6 pt-4 pb-4">
         <motion.div

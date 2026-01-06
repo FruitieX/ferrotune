@@ -170,7 +170,7 @@ export default function RootLayout({
       >
         <Providers>
           <SetupGuard>
-            <div className="h-screen flex flex-col">
+            <div className="h-dvh flex flex-col">
               {/* Main container - takes up all space except footer */}
               <div className="flex flex-1 min-h-0">
                 {/* Sidebar - hidden on mobile, spans full height of main container */}

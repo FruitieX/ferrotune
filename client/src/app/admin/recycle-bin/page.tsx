@@ -43,7 +43,7 @@ export default function RecycleBinPage() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       {/* Header */}
       <div className="px-4 lg:px-6 pt-8 pb-4">
         <motion.div

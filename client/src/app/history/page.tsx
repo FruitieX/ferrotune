@@ -154,7 +154,7 @@ export default function HistoryPage() {
   // This prevents hydration mismatches
   if (!isMounted || authLoading) {
     return (
-      <div className="min-h-screen">
+      <div className="min-h-dvh">
         {/* Header skeleton */}
         <div className="relative">
           <div className="absolute inset-0 h-[300px] bg-linear-to-b from-purple-500/20 to-background" />
@@ -195,7 +195,7 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       {/* Header */}
       <DetailHeader
         icon={History}
