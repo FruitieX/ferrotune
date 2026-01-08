@@ -178,6 +178,27 @@ export function QueuePanel() {
     }
   }, [isOpen, isQueueLoading, queueState]);
 
+  // Push history state when queue opens on mobile for proper back navigation
+  useEffect(() => {
+    const isMobile =
+      typeof window !== "undefined" &&
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent,
+      );
+
+    if (!isMobile || !isOpen) return;
+
+    // Push a history state so back button closes queue first (before fullscreen)
+    window.history.pushState({ queuePanel: true }, "");
+
+    const handlePopState = () => {
+      setIsOpen(false);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [isOpen, setIsOpen]);
+
   const handleClearQueue = () => {
     const trackCount = queueState?.totalCount ?? 0;
     clearQueue();

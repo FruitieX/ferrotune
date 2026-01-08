@@ -105,6 +105,7 @@ import type { TaggerPendingEditsResponse } from "./generated/TaggerPendingEditsR
 // TaggerPendingEditData import removed - now using individual track sync
 import type { TaggerScriptsResponse } from "./generated/TaggerScriptsResponse";
 import type { TaggerScriptData } from "./generated/TaggerScriptData";
+import type { SongPlaylistsResponse } from "./generated/SongPlaylistsResponse";
 import { PlaylistInFolder } from "./generated";
 
 // Ping response is empty
@@ -546,6 +547,25 @@ export class FerrotuneClient {
     await this.request(`/ferrotune/playlists/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
+  }
+
+  /**
+   * Get playlists that contain the specified songs.
+   * Returns a map of songId -> list of playlists containing that song.
+   */
+  async getPlaylistsContainingSongs(
+    songIds: string[],
+  ): Promise<SongPlaylistsResponse> {
+    if (songIds.length === 0) {
+      return { playlistsBySong: {} };
+    }
+    const params = new URLSearchParams();
+    for (const id of songIds) {
+      params.append("songId", id);
+    }
+    return this.request<SongPlaylistsResponse>(
+      `/ferrotune/playlists/containing-songs?${params.toString()}`,
+    );
   }
   // Play Queue endpoints
   async savePlayQueue(params: {

@@ -87,6 +87,30 @@ export function AddToPlaylistDialog({
     enabled: open,
   });
 
+  // Fetch which playlists already contain the songs being added
+  const { data: containingPlaylists } = useQuery({
+    queryKey: ["playlists-containing-songs", idsToAdd],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) return null;
+      return client.getPlaylistsContainingSongs(idsToAdd);
+    },
+    enabled: open && idsToAdd.length > 0,
+  });
+
+  // Build a set of playlist IDs that already contain at least one of the songs
+  const containingPlaylistIds = new Set<string>();
+  if (containingPlaylists?.playlistsBySong) {
+    for (const playlistList of Object.values(
+      containingPlaylists.playlistsBySong,
+    )) {
+      if (!playlistList) continue;
+      for (const p of playlistList) {
+        containingPlaylistIds.add(p.playlistId);
+      }
+    }
+  }
+
   // Check for duplicates before adding
   const checkDuplicates = async (playlistId: string, playlistName: string) => {
     const client = getClient();
@@ -177,11 +201,21 @@ export function AddToPlaylistDialog({
     },
   });
 
-  const filteredPlaylists = (Array.isArray(playlists) ? playlists : []).filter(
-    (p) =>
-      !isFolderPlaceholder(p.name) &&
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+  const filteredPlaylists = (Array.isArray(playlists) ? playlists : [])
+    .filter(
+      (p) =>
+        !isFolderPlaceholder(p.name) &&
+        p.name.toLowerCase().includes(searchQuery.toLowerCase()),
+    )
+    .sort((a, b) => {
+      // Sort playlists that already contain the songs to the top
+      const aContains = containingPlaylistIds.has(a.id);
+      const bContains = containingPlaylistIds.has(b.id);
+      if (aContains && !bContains) return -1;
+      if (!aContains && bContains) return 1;
+      // Otherwise maintain original order (by name)
+      return a.name.localeCompare(b.name);
+    });
 
   const handleAddToPlaylist = async (
     playlistId: string,
@@ -338,6 +372,7 @@ export function AddToPlaylistDialog({
                       handleAddToPlaylist(playlist.id, playlist.name)
                     }
                     disabled={isPending}
+                    alreadyContainsSong={containingPlaylistIds.has(playlist.id)}
                   />
                 ))
               ) : searchQuery ? (
@@ -419,6 +454,7 @@ interface PlaylistOptionProps {
   isPending: boolean;
   onSelect: () => void;
   disabled: boolean;
+  alreadyContainsSong?: boolean;
 }
 
 function PlaylistOption({
@@ -427,6 +463,7 @@ function PlaylistOption({
   isPending,
   onSelect,
   disabled,
+  alreadyContainsSong = false,
 }: PlaylistOptionProps) {
   const coverArtUrl = playlist.coverArt
     ? getClient()?.getCoverArtUrl(playlist.coverArt, 80)
@@ -441,6 +478,7 @@ function PlaylistOption({
         "hover:bg-accent/70",
         isSelected && "bg-accent/50",
         disabled && "opacity-50 cursor-not-allowed",
+        alreadyContainsSong && "bg-primary/5 border border-primary/20",
       )}
     >
       <CoverImage
@@ -453,12 +491,17 @@ function PlaylistOption({
         <p className="font-medium truncate">{playlist.name}</p>
         <p className="text-xs text-muted-foreground">
           {formatCount(playlist.songCount, "song")}
+          {alreadyContainsSong && (
+            <span className="ml-1 text-primary">• Already added</span>
+          )}
         </p>
       </div>
       {isPending ? (
         <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
       ) : isSelected ? (
         <Check className="w-4 h-4 text-primary" />
+      ) : alreadyContainsSong ? (
+        <Check className="w-4 h-4 text-primary/50" />
       ) : null}
     </button>
   );

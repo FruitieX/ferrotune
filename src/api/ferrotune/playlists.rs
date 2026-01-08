@@ -6,7 +6,7 @@ use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, Inline
 use crate::api::AppState;
 use crate::error::{Error, FerrotuneApiResult};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
@@ -1741,4 +1741,96 @@ pub async fn remove_playlist_songs(
     tx.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ============================================================================
+// Song containment endpoint - which playlists contain these songs?
+// ============================================================================
+
+/// Query parameters for getting playlists containing songs
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SongPlaylistsQuery {
+    /// Song IDs to check
+    #[serde(
+        rename = "songId",
+        deserialize_with = "crate::api::subsonic::query::string_or_seq"
+    )]
+    pub song_ids: Vec<String>,
+}
+
+/// Information about a playlist containing a song
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PlaylistContainingSong {
+    pub playlist_id: String,
+    pub playlist_name: String,
+}
+
+/// Response with playlists that contain the requested songs
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct SongPlaylistsResponse {
+    /// Map of song_id to list of playlists containing that song
+    pub playlists_by_song: std::collections::HashMap<String, Vec<PlaylistContainingSong>>,
+}
+
+/// Get playlists that contain the specified songs
+pub async fn get_playlists_for_songs(
+    State(state): State<Arc<AppState>>,
+    user: FerrotuneAuthenticatedUser,
+    Query(params): Query<SongPlaylistsQuery>,
+) -> FerrotuneApiResult<Json<SongPlaylistsResponse>> {
+    use std::collections::HashMap;
+
+    if params.song_ids.is_empty() {
+        return Ok(Json(SongPlaylistsResponse {
+            playlists_by_song: HashMap::new(),
+        }));
+    }
+
+    // Build the query with placeholders for the song IDs
+    let placeholders = params
+        .song_ids
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(", ");
+    let query = format!(
+        r#"
+        SELECT ps.song_id, p.id as playlist_id, p.name as playlist_name
+        FROM playlist_songs ps
+        INNER JOIN playlists p ON ps.playlist_id = p.id
+        WHERE ps.song_id IN ({})
+          AND p.owner_id = ?
+          AND ps.song_id IS NOT NULL
+        ORDER BY p.name
+        "#,
+        placeholders
+    );
+
+    // Build and execute the query
+    let mut query_builder = sqlx::query_as::<_, (String, String, String)>(&query);
+    for song_id in &params.song_ids {
+        query_builder = query_builder.bind(song_id);
+    }
+    query_builder = query_builder.bind(user.user_id);
+
+    let rows: Vec<(String, String, String)> = query_builder.fetch_all(&state.pool).await?;
+
+    // Group by song_id
+    let mut playlists_by_song: HashMap<String, Vec<PlaylistContainingSong>> = HashMap::new();
+    for (song_id, playlist_id, playlist_name) in rows {
+        playlists_by_song
+            .entry(song_id)
+            .or_default()
+            .push(PlaylistContainingSong {
+                playlist_id,
+                playlist_name,
+            });
+    }
+
+    Ok(Json(SongPlaylistsResponse { playlists_by_song }))
 }

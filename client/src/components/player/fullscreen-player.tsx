@@ -1,7 +1,12 @@
 "use client";
 
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { motion, AnimatePresence } from "framer-motion";
+import {
+  motion,
+  AnimatePresence,
+  useMotionValue,
+  useTransform,
+} from "framer-motion";
 import {
   ChevronDown,
   SkipBack,
@@ -70,15 +75,22 @@ export function FullscreenPlayer() {
   const [localProgress, setLocalProgress] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
 
+  // Motion values for swipe-to-close
+  const dragY = useMotionValue(0);
+  const playerOpacity = useTransform(dragY, [0, 300], [1, 0.5]);
+
   const duration = currentTrack?.duration ?? audioDuration ?? 0;
   const progress = isDragging ? localProgress : currentTime;
 
   // Close queue panel when fullscreen opens to avoid showing it on top unexpectedly
+  // Also reset dragY to fix animation after swipe-to-close
   useEffect(() => {
     if (isOpen) {
       setQueuePanelOpen(false);
+      // Reset dragY when opening to fix animation after swipe-close
+      dragY.set(0);
     }
-  }, [isOpen, setQueuePanelOpen]);
+  }, [isOpen, setQueuePanelOpen, dragY]);
 
   // Handle Escape key to close fullscreen
   // Only close if there are no higher-priority overlays that should handle Escape first
@@ -221,24 +233,63 @@ export function FullscreenPlayer() {
             stiffness: 300,
             mass: 0.8,
           }}
+          style={{
+            // Opacity dims slightly while dragging to close
+            opacity: playerOpacity,
+          }}
           data-fullscreen-player="true"
           className="fixed inset-0 z-50 bg-linear-to-b from-background/95 to-background flex flex-col"
-          style={{
-            backgroundImage: coverArtUrl
-              ? `linear-gradient(to bottom, rgba(0,0,0,0.1), var(--background)), url(${coverArtUrl})`
-              : undefined,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            backgroundBlendMode: "multiply",
-          }}
         >
+          {/* Background with cover art */}
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: coverArtUrl
+                ? `linear-gradient(to bottom, rgba(0,0,0,0.1), var(--background)), url(${coverArtUrl})`
+                : undefined,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              backgroundBlendMode: "multiply",
+            }}
+          />
           {/* Blur overlay */}
           <div className="absolute inset-0 backdrop-blur-3xl bg-background/70" />
 
-          {/* Content */}
-          <div className="relative z-10 flex flex-col h-full max-w-lg xl:max-w-6xl mx-auto w-full px-6 py-4">
-            {/* Header */}
-            <div className="flex items-center justify-between">
+          {/* Content - entire view moves with drag */}
+          <motion.div
+            className="relative z-10 flex flex-col h-full max-w-lg xl:max-w-6xl mx-auto w-full px-6 py-4"
+            style={{ y: dragY }}
+          >
+            {/* Header - drag handle for swipe down to close */}
+            <div
+              className="flex items-center justify-between touch-none cursor-grab active:cursor-grabbing"
+              onPointerDown={(e) => {
+                // Start drag tracking
+                const startY = e.clientY;
+                const handleMove = (moveEvent: PointerEvent) => {
+                  const deltaY = moveEvent.clientY - startY;
+                  if (deltaY > 0) {
+                    dragY.set(deltaY);
+                  } else {
+                    dragY.set(0);
+                  }
+                };
+                const handleUp = (upEvent: PointerEvent) => {
+                  const deltaY = upEvent.clientY - startY;
+                  // If dragged down far enough, close
+                  if (deltaY > 100) {
+                    setIsOpen(false);
+                  } else {
+                    // Snap back
+                    dragY.set(0);
+                  }
+                  document.removeEventListener("pointermove", handleMove);
+                  document.removeEventListener("pointerup", handleUp);
+                };
+                document.addEventListener("pointermove", handleMove);
+                document.addEventListener("pointerup", handleUp);
+              }}
+            >
               <Button
                 variant="ghost"
                 size="icon"
@@ -473,7 +524,7 @@ export function FullscreenPlayer() {
                 Queue
               </Button>
             </motion.div>
-          </div>
+          </motion.div>
         </motion.div>
       )}
     </AnimatePresence>

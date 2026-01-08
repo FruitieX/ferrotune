@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { motion } from "framer-motion";
+import {
+  motion,
+  useMotionValue,
+  useTransform,
+  animate,
+  type PanInfo,
+} from "framer-motion";
 import Link from "next/link";
 import {
   Play,
@@ -41,7 +47,11 @@ import {
   durationAtom,
   playbackStateAtom,
 } from "@/lib/store/player";
-import { currentSongAtom } from "@/lib/store/server-queue";
+import {
+  currentSongAtom,
+  queueWindowAtom,
+  serverQueueStateAtom,
+} from "@/lib/store/server-queue";
 import {
   queuePanelOpenAtom,
   fullscreenPlayerOpenAtom,
@@ -72,6 +82,7 @@ interface NowPlayingInfoProps {
 function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
   const isMobile = useIsMobile();
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
+  const { next, previous } = useAudioEngine();
 
   // Use global starred state
   const { isStarred, toggleStar } = useStarred(
@@ -84,13 +95,6 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
     ? getClient()?.getCoverArtUrl(track.coverArt, 96)
     : null;
 
-  // Handle click on now playing info - open fullscreen on mobile
-  const handleNowPlayingClick = () => {
-    if (isMobile) {
-      setFullscreenOpen(true);
-    }
-  };
-
   if (!track || isEnded) {
     return (
       <div className="flex items-center gap-3">
@@ -102,38 +106,16 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
     );
   }
 
-  // Mobile: entire area is clickable to open fullscreen
+  // Mobile: entire area is clickable to open fullscreen, swipeable to change tracks
   if (isMobile) {
     return (
-      <button
-        type="button"
-        onClick={handleNowPlayingClick}
-        className="flex items-center gap-3 min-w-0 text-left"
-      >
-        <motion.div
-          key={track.id}
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="shrink-0 album-glow"
-        >
-          <CoverImage
-            src={coverArtUrl}
-            alt={track.album || "Album cover"}
-            colorSeed={track.album || track.title}
-            type="song"
-            size="sm"
-            className="w-14 h-14"
-          />
-        </motion.div>
-        <div className="min-w-0">
-          <span className="block text-sm font-medium text-foreground truncate">
-            {track.title}
-          </span>
-          <span className="block text-xs text-muted-foreground truncate">
-            {track.artist}
-          </span>
-        </div>
-      </button>
+      <SwipeableNowPlaying
+        track={track}
+        coverArtUrl={coverArtUrl}
+        onOpenFullscreen={() => setFullscreenOpen(true)}
+        onNext={next}
+        onPrevious={previous}
+      />
     );
   }
 
@@ -183,6 +165,239 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
         <SongDropdownMenu song={track} />
       </div>
     </>
+  );
+}
+
+// ============================================================================
+// SwipeableNowPlaying - Advanced swipe gestures with preview animations
+// ============================================================================
+
+interface SwipeableNowPlayingProps {
+  track: Song;
+  coverArtUrl: string | null | undefined;
+  onOpenFullscreen: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
+}
+
+function SwipeableNowPlaying({
+  track,
+  coverArtUrl,
+  onOpenFullscreen,
+  onNext,
+  onPrevious,
+}: SwipeableNowPlayingProps) {
+  // Get adjacent tracks for preview
+  const queueWindow = useAtomValue(queueWindowAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
+  const [isAnimating, setIsAnimating] = useState(false);
+
+  const prevTrack =
+    queueWindow?.songs.find(
+      (s) => s.position === (queueState?.currentIndex ?? 0) - 1,
+    )?.song ?? null;
+  const nextTrack =
+    queueWindow?.songs.find(
+      (s) => s.position === (queueState?.currentIndex ?? 0) + 1,
+    )?.song ?? null;
+
+  const prevCoverUrl = prevTrack?.coverArt
+    ? getClient()?.getCoverArtUrl(prevTrack.coverArt, 96)
+    : null;
+  const nextCoverUrl = nextTrack?.coverArt
+    ? getClient()?.getCoverArtUrl(nextTrack.coverArt, 96)
+    : null;
+
+  // Motion values for drag tracking
+  const dragX = useMotionValue(0);
+
+  // Swipe thresholds and distances (fixed value works well for mobile)
+  const SWIPE_THRESHOLD = 50;
+  const VELOCITY_THRESHOLD = 300;
+  const SWIPE_DISTANCE = 250; // Distance to animate off-screen
+
+  // Transform drag distance to opacity (current track fades out as it moves)
+  const currentOpacity = useTransform(
+    dragX,
+    [-SWIPE_DISTANCE, 0, SWIPE_DISTANCE],
+    [0, 1, 0],
+  );
+
+  // Preview tracks: move 1:1 with drag from offscreen
+  // Previous track starts at -SWIPE_DISTANCE (offscreen left), moves to 0 as you swipe right
+  const prevPreviewX = useTransform(
+    dragX,
+    [0, SWIPE_DISTANCE],
+    [-SWIPE_DISTANCE, 0],
+  );
+  const prevPreviewOpacity = useTransform(
+    dragX,
+    [0, SWIPE_DISTANCE * 0.3, SWIPE_DISTANCE],
+    [0, 0.5, 1],
+  );
+
+  // Next track starts at +SWIPE_DISTANCE (offscreen right), moves to 0 as you swipe left
+  const nextPreviewX = useTransform(
+    dragX,
+    [-SWIPE_DISTANCE, 0],
+    [0, SWIPE_DISTANCE],
+  );
+  const nextPreviewOpacity = useTransform(
+    dragX,
+    [-SWIPE_DISTANCE, -SWIPE_DISTANCE * 0.3, 0],
+    [1, 0.5, 0],
+  );
+
+  const handleDragEnd = async (
+    _event: MouseEvent | TouchEvent | PointerEvent,
+    info: PanInfo,
+  ) => {
+    if (isAnimating) return;
+
+    const { offset, velocity } = info;
+    const shouldGoNext =
+      offset.x < -SWIPE_THRESHOLD || velocity.x < -VELOCITY_THRESHOLD;
+    const shouldGoPrev =
+      offset.x > SWIPE_THRESHOLD || velocity.x > VELOCITY_THRESHOLD;
+    const shouldOpenFullscreen =
+      offset.y < -50 || velocity.y < -VELOCITY_THRESHOLD;
+
+    if (shouldGoNext && nextTrack) {
+      // Animate current track off to the left, then change track
+      setIsAnimating(true);
+      await animate(dragX, -SWIPE_DISTANCE, {
+        type: "spring",
+        stiffness: 500,
+        damping: 40,
+      });
+      onNext();
+      // Reset position instantly (no animation) after track change
+      dragX.set(0);
+      setIsAnimating(false);
+    } else if (shouldGoPrev && prevTrack) {
+      // Animate current track off to the right, then change track
+      setIsAnimating(true);
+      await animate(dragX, SWIPE_DISTANCE, {
+        type: "spring",
+        stiffness: 500,
+        damping: 40,
+      });
+      onPrevious();
+      // Reset position instantly (no animation) after track change
+      dragX.set(0);
+      setIsAnimating(false);
+    } else if (shouldOpenFullscreen) {
+      onOpenFullscreen();
+    } else {
+      // Snap back to center with animation
+      animate(dragX, 0, { type: "spring", stiffness: 500, damping: 30 });
+    }
+  };
+
+  return (
+    <div className="relative flex items-center w-full overflow-visible">
+      {/* Previous track preview (slides in from left on right swipe) */}
+      {prevTrack && (
+        <motion.div
+          className="absolute inset-0 flex items-center gap-3 pointer-events-none"
+          style={{
+            x: prevPreviewX,
+            opacity: prevPreviewOpacity,
+          }}
+        >
+          <CoverImage
+            src={prevCoverUrl}
+            alt={prevTrack.album || "Previous album"}
+            colorSeed={prevTrack.album || prevTrack.title}
+            type="song"
+            size="sm"
+            className="w-14 h-14 shrink-0"
+          />
+          <div className="min-w-0 overflow-hidden">
+            <span className="block text-sm font-medium text-foreground truncate">
+              {prevTrack.title}
+            </span>
+            <span className="block text-xs text-muted-foreground truncate">
+              {prevTrack.artist}
+            </span>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Next track preview (slides in from right on left swipe) */}
+      {nextTrack && (
+        <motion.div
+          className="absolute inset-0 flex items-center gap-3 pointer-events-none"
+          style={{
+            x: nextPreviewX,
+            opacity: nextPreviewOpacity,
+          }}
+        >
+          <CoverImage
+            src={nextCoverUrl}
+            alt={nextTrack.album || "Next album"}
+            colorSeed={nextTrack.album || nextTrack.title}
+            type="song"
+            size="sm"
+            className="w-14 h-14 shrink-0"
+          />
+          <div className="min-w-0 overflow-hidden">
+            <span className="block text-sm font-medium text-foreground truncate">
+              {nextTrack.title}
+            </span>
+            <span className="block text-xs text-muted-foreground truncate">
+              {nextTrack.artist}
+            </span>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Current track (main draggable element) */}
+      <motion.button
+        type="button"
+        onClick={() => {
+          // Only open fullscreen if not dragging
+          if (Math.abs(dragX.get()) < 5) {
+            onOpenFullscreen();
+          }
+        }}
+        className="flex flex-1 items-center gap-3 min-w-0 text-left touch-none relative z-10"
+        drag
+        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+        dragElastic={{ left: 1, right: 1, top: 0, bottom: 0 }} // Less elastic in Y, none for down
+        onDragEnd={handleDragEnd}
+        style={{
+          x: dragX,
+          opacity: currentOpacity,
+        }}
+        whileDrag={{ scale: 0.98 }}
+        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+      >
+        <motion.div
+          key={track.id}
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="shrink-0 album-glow"
+        >
+          <CoverImage
+            src={coverArtUrl}
+            alt={track.album || "Album cover"}
+            colorSeed={track.album || track.title}
+            type="song"
+            size="sm"
+            className="w-14 h-14"
+          />
+        </motion.div>
+        <div className="min-w-0">
+          <span className="block text-sm font-medium text-foreground truncate">
+            {track.title}
+          </span>
+          <span className="block text-xs text-muted-foreground truncate">
+            {track.artist}
+          </span>
+        </div>
+      </motion.button>
+    </div>
   );
 }
 
