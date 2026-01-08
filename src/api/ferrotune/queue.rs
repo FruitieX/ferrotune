@@ -537,9 +537,30 @@ pub async fn get_queue(
     State(state): State<Arc<AppState>>,
     Query(params): Query<QueuePaginationParams>,
 ) -> FerrotuneApiResult<Json<GetQueueResponse>> {
-    let queue = queries::get_play_queue(&state.pool, user.user_id)
-        .await?
-        .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
+    let queue = match queries::get_play_queue(&state.pool, user.user_id).await? {
+        Some(q) => q,
+        None => {
+            // Return empty queue response instead of 404
+            return Ok(Json(GetQueueResponse {
+                total_count: 0,
+                current_index: 0,
+                position_ms: 0,
+                is_shuffled: false,
+                repeat_mode: "off".to_string(),
+                source: QueueSourceInfo {
+                    source_type: "other".to_string(),
+                    id: None,
+                    name: None,
+                    filters: None,
+                    sort: None,
+                },
+                window: QueueWindow {
+                    offset: 0,
+                    songs: vec![],
+                },
+            }));
+        }
+    };
 
     let offset = params.offset.unwrap_or(0);
     let limit = params.limit.unwrap_or(50).min(200);
@@ -609,9 +630,30 @@ pub async fn get_current_window(
     State(state): State<Arc<AppState>>,
     Query(params): Query<CurrentWindowParams>,
 ) -> FerrotuneApiResult<Json<GetQueueResponse>> {
-    let queue = queries::get_play_queue(&state.pool, user.user_id)
-        .await?
-        .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
+    let queue = match queries::get_play_queue(&state.pool, user.user_id).await? {
+        Some(q) => q,
+        None => {
+            // Return empty queue response instead of 404
+            return Ok(Json(GetQueueResponse {
+                total_count: 0,
+                current_index: 0,
+                position_ms: 0,
+                is_shuffled: false,
+                repeat_mode: "off".to_string(),
+                source: QueueSourceInfo {
+                    source_type: "other".to_string(),
+                    id: None,
+                    name: None,
+                    filters: None,
+                    sort: None,
+                },
+                window: QueueWindow {
+                    offset: 0,
+                    songs: vec![],
+                },
+            }));
+        }
+    };
 
     let radius = params.radius.unwrap_or(20);
     let inline_size = params.inline_images.get_size();

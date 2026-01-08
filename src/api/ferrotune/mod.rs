@@ -500,6 +500,16 @@ pub fn create_router(state: Arc<AppState>) -> Router {
                 .put(tagger_session::upload_cover_art)
                 .delete(tagger_session::delete_cover_art),
         )
+        // Replacement audio endpoints (multipart upload)
+        .route(
+            "/ferrotune/tagger/session/edits/{track_id}/replacement-audio",
+            axum::routing::put(tagger_session::upload_replacement_audio)
+                .delete(tagger_session::delete_replacement_audio),
+        )
+        .route(
+            "/ferrotune/tagger/session/edits/{track_id}/replacement-audio/stream",
+            get(tagger_session::stream_replacement_audio),
+        )
         // Save endpoint - reads from database and applies to files
         .route(
             "/ferrotune/tagger/session/save",

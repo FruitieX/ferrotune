@@ -106,10 +106,23 @@ import type { TaggerPendingEditsResponse } from "./generated/TaggerPendingEditsR
 import type { TaggerScriptsResponse } from "./generated/TaggerScriptsResponse";
 import type { TaggerScriptData } from "./generated/TaggerScriptData";
 import type { SongPlaylistsResponse } from "./generated/SongPlaylistsResponse";
+import type { ReplacementAudioUploadResponse } from "./generated/ReplacementAudioUploadResponse";
 import { PlaylistInFolder } from "./generated";
 
 // Ping response is empty
 type PingResponse = Record<string, never>;
+
+/**
+ * Options for importing from an audio file
+ */
+export interface ImportFromFileOptions {
+  /** Whether to replace the audio (default: true) */
+  importAudio?: boolean;
+  /** Whether to import tags from the file */
+  importTags?: boolean;
+  /** Whether to import cover art from the file */
+  importCoverArt?: boolean;
+}
 
 const API_VERSION = "1.16.1";
 const CLIENT_NAME = "ferrotune-web";
@@ -2216,6 +2229,90 @@ export class FerrotuneClient {
     params.set("c", CLIENT_NAME);
 
     return `${this.serverUrl}/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/cover?${params.toString()}`;
+  }
+
+  /**
+   * Upload replacement audio for a library track (multipart binary).
+   * The replacement file will be staged and applied when the track is saved.
+   * Can also import tags and/or cover art from the file.
+   */
+  async uploadTaggerReplacementAudio(
+    trackId: string,
+    file: File,
+    options?: ImportFromFileOptions,
+  ): Promise<ReplacementAudioUploadResponse> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    if (options) {
+      formData.append(
+        "options",
+        JSON.stringify({
+          importAudio: options.importAudio ?? true,
+          importTags: options.importTags ?? false,
+          importCoverArt: options.importCoverArt ?? false,
+        }),
+      );
+    }
+
+    const url = this.buildAdminUrl(
+      `/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/replacement-audio`,
+    );
+
+    // Add Basic Auth header (same as uploadTaggerFiles)
+    const headers: Record<string, string> = {};
+    if (this.username && this.password) {
+      headers["Authorization"] =
+        `Basic ${btoa(`${this.username}:${this.password}`)}`;
+    }
+
+    const response = await fetch(url, {
+      method: "PUT",
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new FerrotuneApiError(
+        response.status,
+        data.error ||
+          `Failed to upload replacement audio: ${response.statusText}`,
+      );
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Remove staged replacement audio for a track
+   */
+  async deleteTaggerReplacementAudio(trackId: string): Promise<void> {
+    await this.request(
+      `/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/replacement-audio`,
+      {
+        method: "DELETE",
+      },
+    );
+  }
+
+  /**
+   * Get stream URL for replacement audio (for preview playback).
+   * Includes auth params since Audio elements can't use HTTP headers.
+   */
+  getReplacementAudioStreamUrl(trackId: string): string {
+    const params = new URLSearchParams();
+    // Add auth params for Audio element compatibility
+    if (this.username && this.password) {
+      params.set("u", this.username);
+      params.set("p", this.password);
+    } else if (this.apiKey) {
+      params.set("apiKey", this.apiKey);
+    }
+    params.set("v", API_VERSION);
+    params.set("c", CLIENT_NAME);
+
+    return `${this.serverUrl}/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/replacement-audio/stream?${params.toString()}`;
   }
 }
 

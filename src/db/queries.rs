@@ -1105,6 +1105,26 @@ pub async fn update_song_path(
     Ok(result.rows_affected() > 0)
 }
 
+/// Update a song's file path and format in the database
+/// Used when replacing audio with a different format
+pub async fn update_song_path_and_format(
+    pool: &SqlitePool,
+    song_id: &str,
+    new_path: &str,
+    new_format: &str,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query(
+        "UPDATE songs SET file_path = ?, file_format = ?, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind(new_path)
+    .bind(new_format)
+    .bind(song_id)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 // ============================================================================
 // Play Queue queries (server-side queue management)
 // ============================================================================

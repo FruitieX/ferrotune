@@ -581,26 +581,41 @@ export function TrackDetailsPanel({ panelWidth }: TrackDetailsPanelProps) {
     (t) => t.coverArt?.changed || t.coverArt?.removed,
   );
 
-  // Check if any selected track has any changes (tags, path, or cover art)
+  // Check if any selected track has any changes (tags, path, cover art, or replacement audio)
   const selectedTracksHaveChanges = selectedTracks.some(
     (t) =>
       Object.keys(t.editedTags).length > 0 ||
       t.computedPath !== null ||
       t.coverArt?.changed ||
-      t.coverArt?.removed,
+      t.coverArt?.removed ||
+      t.hasReplacementAudio,
   );
 
   // Discard all changes in selected tracks
-  function handleDiscardAllChanges() {
+  async function handleDiscardAllChanges() {
+    const client = getClient();
     const newTracks = new Map(tracks);
+
     for (const id of editingIds) {
       const state = newTracks.get(id);
       if (state) {
+        // If there's replacement audio staged, delete it from server
+        if (state.hasReplacementAudio && client) {
+          try {
+            await client.deleteTaggerReplacementAudio(id);
+          } catch (err) {
+            console.error("Failed to delete staged replacement audio:", err);
+          }
+        }
+
         newTracks.set(id, {
           ...state,
           editedTags: {},
           computedPath: null,
           coverArt: null,
+          hasReplacementAudio: false,
+          replacementAudioFilename: undefined,
+          replacementAudioOriginalName: undefined,
         });
       }
     }
@@ -733,6 +748,13 @@ export function TrackDetailsPanel({ panelWidth }: TrackDetailsPanelProps) {
                     title={computedPath}
                   >
                     → {computedPath}
+                  </p>
+                )}
+                {/* Replacement audio indicator */}
+                {singleTrack.hasReplacementAudio && (
+                  <p className="text-xs text-blue-500 font-medium">
+                    🔊 Audio replacement staged:{" "}
+                    {singleTrack.replacementAudioOriginalName}
                   </p>
                 )}
               </div>
@@ -1117,29 +1139,29 @@ export function TrackDetailsPanel({ panelWidth }: TrackDetailsPanelProps) {
                           onChange={(e) => handleTagChange(key, e.target.value)}
                           placeholder={isDeleted ? "(deleted)" : undefined}
                         />
-                      </div>
-                      {/* Action buttons */}
-                      <div className="flex items-center gap-0.5 justify-end">
-                        {tag.edited && (
+                        {/* Action buttons */}
+                        <div className="shrink-0 flex items-center gap-0.5">
+                          {tag.edited && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => handleRevertTag(key)}
+                              title="Revert to original"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-6 w-6 p-0"
-                            onClick={() => handleRevertTag(key)}
-                            title="Revert to original"
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-red-500"
+                            onClick={() => handleDeleteTag(key)}
+                            title="Delete tag"
                           >
-                            <RotateCcw className="w-3 h-3" />
+                            <Trash2 className="w-3 h-3" />
                           </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 w-6 p-0 text-muted-foreground hover:text-red-500"
-                          onClick={() => handleDeleteTag(key)}
-                          title="Delete tag"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
+                        </div>
                       </div>
                     </div>
                   ) : (
@@ -1312,8 +1334,13 @@ export function TrackDetailsPanel({ panelWidth }: TrackDetailsPanelProps) {
                 if (preview.isPlaying) {
                   preview.pause();
                 } else {
-                  // Use staged file URL for uploaded files, library stream for library tracks
-                  if (singleTrack.track.isStaged) {
+                  // Priority: replacement audio > staged file > library stream
+                  if (singleTrack.hasReplacementAudio) {
+                    const url = client.getReplacementAudioStreamUrl(
+                      singleTrack.track.id,
+                    );
+                    preview.playUrl(url, singleTrack.track.id, 0);
+                  } else if (singleTrack.track.isStaged) {
                     const url = client.getStagedFileStreamUrl(
                       singleTrack.track.id,
                     );
@@ -1335,7 +1362,9 @@ export function TrackDetailsPanel({ panelWidth }: TrackDetailsPanelProps) {
             </Button>
             <div className="flex-1 min-w-0">
               <div className="text-xs text-muted-foreground truncate mb-1">
-                {singleTrack.track.filePath.split("/").pop()}
+                {singleTrack.hasReplacementAudio
+                  ? `🔊 ${singleTrack.replacementAudioOriginalName ?? "Replacement audio"}`
+                  : singleTrack.track.filePath.split("/").pop()}
               </div>
               <Slider
                 value={[preview.progress]}

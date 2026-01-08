@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ImagePlus, ImageMinus } from "lucide-react";
+import { Check, ImagePlus, ImageMinus, FileAudio } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getTrackTagValue } from "@/lib/store/tagger";
 import {
@@ -182,19 +182,21 @@ export function TaggerGridRow({
         </div>
       </div>
 
-      {/* Cover art status cell */}
+      {/* Cover art / replacement audio status cell */}
       <div
         className={cn(
-          "flex items-center justify-center border-r border-border/50 shrink-0",
+          "flex items-center justify-center gap-1 border-r border-border/50 shrink-0",
           isRowSelected && "bg-primary/10",
         )}
         style={{ width: COVER_ART_COLUMN_WIDTH }}
         title={
-          row.state.coverArt?.removed
-            ? "Cover art will be removed"
-            : row.state.coverArt?.changed
-              ? "Cover art changed"
-              : undefined
+          row.state.hasReplacementAudio
+            ? `Audio replacement: ${row.state.replacementAudioOriginalName ?? "staged"}`
+            : row.state.coverArt?.removed
+              ? "Cover art will be removed"
+              : row.state.coverArt?.changed
+                ? "Cover art changed"
+                : undefined
         }
       >
         {row.state.coverArt?.removed ? (
@@ -202,6 +204,9 @@ export function TaggerGridRow({
         ) : row.state.coverArt?.changed ? (
           <ImagePlus className="w-4 h-4 text-green-500" />
         ) : null}
+        {row.state.hasReplacementAudio && (
+          <FileAudio className="w-4 h-4 text-blue-500" />
+        )}
       </div>
 
       {/* File cell - shows path based on showComputedPath and showLibraryPrefix settings */}

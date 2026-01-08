@@ -218,8 +218,9 @@ pub async fn list_smart_playlists(
                 logic: "and".to_string(),
             });
 
-        // Count matching songs
-        let song_count = count_matching_songs(&state.pool, &rules, user.user_id).await?;
+        // Count matching songs (respecting max_songs limit)
+        let song_count =
+            count_matching_songs(&state.pool, &rules, user.user_id, playlist.max_songs).await?;
 
         result.push(SmartPlaylistInfo {
             id: playlist.id,
@@ -265,7 +266,8 @@ pub async fn get_smart_playlist(
                     logic: "and".to_string(),
                 });
 
-            let song_count = count_matching_songs(&state.pool, &rules, user.user_id).await?;
+            let song_count =
+                count_matching_songs(&state.pool, &rules, user.user_id, playlist.max_songs).await?;
 
             Ok(Json(SmartPlaylistInfo {
                 id: playlist.id,
@@ -469,10 +471,15 @@ pub async fn get_smart_playlist_songs(
         params.sort_direction.as_deref()
     };
 
-    // Get total count (with filter applied)
-    let total_count =
-        count_matching_songs_filtered(&state.pool, &rules, user.user_id, params.filter.as_deref())
-            .await?;
+    // Get total count (with filter applied, respecting max_songs limit)
+    let total_count = count_matching_songs_filtered(
+        &state.pool,
+        &rules,
+        user.user_id,
+        params.filter.as_deref(),
+        playlist.max_songs,
+    )
+    .await?;
 
     // Build and execute materialization query with pagination
     let songs = materialize_smart_playlist_songs_filtered(
@@ -619,11 +626,12 @@ pub async fn materialize_smart_playlist(
 // Materialization Logic
 // ============================================================================
 
-/// Count songs matching the smart playlist rules
+/// Count songs matching the smart playlist rules (respecting max_songs if set)
 async fn count_matching_songs(
     pool: &sqlx::SqlitePool,
     rules: &SmartPlaylistRulesApi,
     user_id: i64,
+    max_songs: Option<i64>,
 ) -> Result<i64> {
     let where_clause = build_where_clause(rules, user_id)?;
 
@@ -654,7 +662,13 @@ async fn count_matching_songs(
         .fetch_one(pool)
         .await?;
 
-    Ok(count)
+    // Apply max_songs limit if set
+    let effective_count = match max_songs {
+        Some(max) => count.min(max),
+        None => count,
+    };
+
+    Ok(effective_count)
 }
 
 /// Materialize songs matching the smart playlist rules
@@ -748,12 +762,13 @@ async fn materialize_smart_playlist_songs(
     Ok(songs)
 }
 
-/// Count songs matching the smart playlist rules with optional text filter
+/// Count songs matching the smart playlist rules with optional text filter (respecting max_songs if set)
 async fn count_matching_songs_filtered(
     pool: &sqlx::SqlitePool,
     rules: &SmartPlaylistRulesApi,
     user_id: i64,
     filter: Option<&str>,
+    max_songs: Option<i64>,
 ) -> Result<i64> {
     let where_clause = build_where_clause(rules, user_id)?;
 
@@ -802,7 +817,13 @@ async fn count_matching_songs_filtered(
         .fetch_one(pool)
         .await?;
 
-    Ok(count)
+    // Apply max_songs limit if set
+    let effective_count = match max_songs {
+        Some(max) => count.min(max),
+        None => count,
+    };
+
+    Ok(effective_count)
 }
 
 /// Materialize songs matching the smart playlist rules with optional text filter
@@ -977,57 +998,187 @@ fn build_where_clause(rules: &SmartPlaylistRulesApi, user_id: i64) -> Result<Str
 }
 
 /// Build a single SQL condition from a filter condition
-fn build_condition(cond: &SmartPlaylistConditionApi, _user_id: i64) -> Option<String> {
+fn build_condition(cond: &SmartPlaylistConditionApi, user_id: i64) -> Option<String> {
     let field = &cond.field;
     let op = &cond.operator;
     let value = &cond.value;
 
-    // Map field names to SQL expressions
+    // Handle special boolean fields that need custom SQL
+    match field.as_str() {
+        "starred" => {
+            return match op.as_str() {
+                "eq" => {
+                    if value.as_bool().unwrap_or(false) {
+                        Some("st.starred_at IS NOT NULL".to_string())
+                    } else {
+                        Some("st.starred_at IS NULL".to_string())
+                    }
+                }
+                "neq" => {
+                    if value.as_bool().unwrap_or(false) {
+                        Some("st.starred_at IS NULL".to_string())
+                    } else {
+                        Some("st.starred_at IS NOT NULL".to_string())
+                    }
+                }
+                _ => None,
+            };
+        }
+        "coverArt" => {
+            // coverArt checks if song has a thumbnail in the cache
+            return match op.as_str() {
+                "eq" => {
+                    if value.as_bool().unwrap_or(false) {
+                        Some("EXISTS (SELECT 1 FROM thumbnails t WHERE t.item_id = s.id AND t.item_type = 'song')".to_string())
+                    } else {
+                        Some("NOT EXISTS (SELECT 1 FROM thumbnails t WHERE t.item_id = s.id AND t.item_type = 'song')".to_string())
+                    }
+                }
+                "neq" => {
+                    if value.as_bool().unwrap_or(false) {
+                        Some("NOT EXISTS (SELECT 1 FROM thumbnails t WHERE t.item_id = s.id AND t.item_type = 'song')".to_string())
+                    } else {
+                        Some("EXISTS (SELECT 1 FROM thumbnails t WHERE t.item_id = s.id AND t.item_type = 'song')".to_string())
+                    }
+                }
+                _ => None,
+            };
+        }
+        "shuffleExcluded" => {
+            // shuffleExcluded checks if song is in the shuffle_excludes table
+            return match op.as_str() {
+                "eq" => {
+                    if value.as_bool().unwrap_or(false) {
+                        Some(format!(
+                            "EXISTS (SELECT 1 FROM shuffle_excludes se WHERE se.song_id = s.id AND se.user_id = {})",
+                            user_id
+                        ))
+                    } else {
+                        Some(format!(
+                            "NOT EXISTS (SELECT 1 FROM shuffle_excludes se WHERE se.song_id = s.id AND se.user_id = {})",
+                            user_id
+                        ))
+                    }
+                }
+                "neq" => {
+                    if value.as_bool().unwrap_or(false) {
+                        Some(format!(
+                            "NOT EXISTS (SELECT 1 FROM shuffle_excludes se WHERE se.song_id = s.id AND se.user_id = {})",
+                            user_id
+                        ))
+                    } else {
+                        Some(format!(
+                            "EXISTS (SELECT 1 FROM shuffle_excludes se WHERE se.song_id = s.id AND se.user_id = {})",
+                            user_id
+                        ))
+                    }
+                }
+                _ => None,
+            };
+        }
+        _ => {}
+    }
+
+    // Map field names to SQL expressions (all as String for consistent handling)
     let sql_field = match field.as_str() {
-        "year" => "s.year",
-        "genre" => "s.genre",
-        "artist" | "artistName" => "ar.name",
-        "album" | "albumName" => "al.name",
-        "title" => "s.title",
-        "duration" => "s.duration",
-        "playCount" => "COALESCE(pc.play_count, 0)",
-        "lastPlayed" => "pc.last_played",
-        "dateAdded" | "createdAt" => "s.created_at",
-        "starred" => "st.starred_at",
+        "year" => "s.year".to_string(),
+        "genre" => "s.genre".to_string(),
+        "artist" | "artistName" => "ar.name".to_string(),
+        "album" | "albumName" => "al.name".to_string(),
+        "title" => "s.title".to_string(),
+        "duration" => "s.duration".to_string(),
+        "bitrate" => "COALESCE(s.bitrate, 0)".to_string(),
+        "playCount" => "COALESCE(pc.play_count, 0)".to_string(),
+        "rating" => format!("COALESCE((SELECT r.rating FROM ratings r WHERE r.item_id = s.id AND r.item_type = 'song' AND r.user_id = {}), 0)", user_id),
+        "lastPlayed" => "pc.last_played".to_string(),
+        "dateAdded" | "createdAt" => "s.created_at".to_string(),
+        "fileFormat" => "LOWER(s.file_format)".to_string(),
+        "albumartist" => "ar.name".to_string(), // Same as artist for now (album artist not stored separately)
+        "composer" => return None, // Composer field not in database schema
+        "comment" => return None,  // Comment field not in database schema for songs
         _ => return None, // Unknown field
     };
 
     // Build the comparison based on operator
     match op.as_str() {
-        "eq" => {
-            if field == "starred" {
-                if value.as_bool().unwrap_or(false) {
-                    Some("st.starred_at IS NOT NULL".to_string())
+        "eq" => value
+            .as_str()
+            .map(|s| {
+                let escaped = s.replace('\'', "''");
+                // For fileFormat, compare lowercase
+                if field == "fileFormat" {
+                    format!("{} = '{}'", sql_field, escaped.to_lowercase())
                 } else {
-                    Some("st.starred_at IS NULL".to_string())
+                    format!("{} = '{}'", sql_field, escaped)
                 }
-            } else {
-                value
-                    .as_str()
-                    .map(|s| format!("{} = '{}'", sql_field, s.replace('\'', "''")))
-                    .or_else(|| value.as_i64().map(|n| format!("{} = {}", sql_field, n)))
-            }
-        }
+            })
+            .or_else(|| value.as_i64().map(|n| format!("{} = {}", sql_field, n))),
         "neq" => value
             .as_str()
-            .map(|s| format!("{} != '{}'", sql_field, s.replace('\'', "''")))
+            .map(|s| {
+                let escaped = s.replace('\'', "''");
+                if field == "fileFormat" {
+                    format!("{} != '{}'", sql_field, escaped.to_lowercase())
+                } else {
+                    format!("{} != '{}'", sql_field, escaped)
+                }
+            })
             .or_else(|| value.as_i64().map(|n| format!("{} != {}", sql_field, n))),
-        "gt" => value.as_i64().map(|n| format!("{} > {}", sql_field, n)),
+        "gt" => value
+            .as_i64()
+            .map(|n| format!("{} > {}", sql_field, n))
+            .or_else(|| {
+                // For date fields, support ISO date strings
+                value.as_str().map(|s| {
+                    let escaped = s.replace('\'', "''");
+                    format!("date({}) > '{}'", sql_field, escaped)
+                })
+            }),
         "gte" => value.as_i64().map(|n| format!("{} >= {}", sql_field, n)),
-        "lt" => value.as_i64().map(|n| format!("{} < {}", sql_field, n)),
+        "lt" => value
+            .as_i64()
+            .map(|n| format!("{} < {}", sql_field, n))
+            .or_else(|| {
+                // For date fields, support ISO date strings
+                value.as_str().map(|s| {
+                    let escaped = s.replace('\'', "''");
+                    format!("date({}) < '{}'", sql_field, escaped)
+                })
+            }),
         "lte" => value.as_i64().map(|n| format!("{} <= {}", sql_field, n)),
         "contains" => value.as_str().map(|s| {
             format!(
-                "{} LIKE '%{}%'",
+                "{} LIKE '%{}%' COLLATE NOCASE",
                 sql_field,
                 s.replace('\'', "''").replace('%', "\\%")
             )
         }),
+        "notContains" => value.as_str().map(|s| {
+            format!(
+                "{} NOT LIKE '%{}%' COLLATE NOCASE",
+                sql_field,
+                s.replace('\'', "''").replace('%', "\\%")
+            )
+        }),
+        "startsWith" => value.as_str().map(|s| {
+            format!(
+                "{} LIKE '{}%' COLLATE NOCASE",
+                sql_field,
+                s.replace('\'', "''").replace('%', "\\%")
+            )
+        }),
+        "endsWith" => value.as_str().map(|s| {
+            format!(
+                "{} LIKE '%{}' COLLATE NOCASE",
+                sql_field,
+                s.replace('\'', "''").replace('%', "\\%")
+            )
+        }),
+        "empty" => Some(format!("({} IS NULL OR {} = '')", sql_field, sql_field)),
+        "notEmpty" => Some(format!(
+            "({} IS NOT NULL AND {} != '')",
+            sql_field, sql_field
+        )),
         "within" => {
             // Time-based "within" operator, e.g., "30d" for last 30 days
             value.as_str().and_then(|s| {

@@ -83,6 +83,7 @@ export default function TaggerPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
   const [isSaveConfirmOpen, setIsSaveConfirmOpen] = useState(false);
+  const [trackIdsToSave, setTrackIdsToSave] = useState<string[]>([]); // Specific tracks to save (empty = all dirty)
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isLoadingTracks, setIsLoadingTracks] = useState(false);
@@ -194,6 +195,8 @@ export default function TaggerPage() {
           // hasCoverArt is set when cover art is uploaded to server
           // Local changes (coverArt.changed) need to be uploaded first
           hasCoverArt: state.coverArt?.changed ?? false,
+          // hasReplacementAudio is managed by the server - preserve existing value
+          hasReplacementAudio: pendingEdits[id]?.hasReplacementAudio ?? false,
         };
       }
     }
@@ -204,7 +207,7 @@ export default function TaggerPage() {
       prevPendingEditsRef.current = newPendingStr;
       setPendingEdits(newPendingEdits);
     }
-  }, [tracks, setPendingEdits]);
+  }, [tracks, setPendingEdits, pendingEdits]);
 
   // Load tracks from session that aren't in the tracks map
   useEffect(() => {
@@ -295,6 +298,11 @@ export default function TaggerPage() {
                 if (pending) {
                   trackState.editedTags = pending.editedTags;
                   trackState.computedPath = pending.computedPath;
+                  trackState.hasReplacementAudio = pending.hasReplacementAudio;
+                  trackState.replacementAudioFilename =
+                    pending.replacementAudioFilename ?? undefined;
+                  trackState.replacementAudioOriginalName =
+                    pending.replacementAudioOriginalName ?? undefined;
                   if (pending.coverArtRemoved) {
                     trackState.coverArt = {
                       changed: false,
@@ -374,6 +382,11 @@ export default function TaggerPage() {
             if (pending) {
               trackState.editedTags = pending.editedTags;
               trackState.computedPath = pending.computedPath;
+              trackState.hasReplacementAudio = pending.hasReplacementAudio;
+              trackState.replacementAudioFilename =
+                pending.replacementAudioFilename ?? undefined;
+              trackState.replacementAudioOriginalName =
+                pending.replacementAudioOriginalName ?? undefined;
               if (pending.coverArtRemoved) {
                 trackState.coverArt = {
                   changed: false,
@@ -568,17 +581,46 @@ export default function TaggerPage() {
   }
 
   // Drag and drop handlers
+  // Use a counter to track nested drag events
+  const dragCounterRef = useRef(0);
+
+  // Reset drag state when drag ends (e.g., user presses Escape or drops outside window)
+  useEffect(() => {
+    function handleDragEnd() {
+      dragCounterRef.current = 0;
+      setIsDragOver(false);
+    }
+
+    // dragend fires when the user releases the mouse button or cancels
+    document.addEventListener("dragend", handleDragEnd);
+    // Also reset if a drop happens anywhere on the document (catches drops outside our container)
+    document.addEventListener("drop", handleDragEnd);
+
+    return () => {
+      document.removeEventListener("dragend", handleDragEnd);
+      document.removeEventListener("drop", handleDragEnd);
+    };
+  }, []);
+
+  function handleDragEnter(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (dragCounterRef.current === 1) {
+      setIsDragOver(true);
+    }
+  }
+
   function handleDragOver(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragOver(true);
   }
 
   function handleDragLeave(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
-    // Only hide overlay if leaving the container (not entering a child)
-    if (e.currentTarget === e.target) {
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
       setIsDragOver(false);
     }
   }
@@ -586,6 +628,7 @@ export default function TaggerPage() {
   function handleDrop(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
+    dragCounterRef.current = 0;
     setIsDragOver(false);
 
     if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
@@ -634,13 +677,9 @@ export default function TaggerPage() {
     const client = getClient();
     if (!client || dirtyTrackIds.length === 0) return;
 
-    // Determine which tracks to save:
-    // - If tracks are selected, only save selected dirty tracks
-    // - If no selection, save all dirty tracks
+    // Use trackIdsToSave if set (from "Save selected"), otherwise save all dirty tracks
     const tracksToSave =
-      selectedIds.size > 0
-        ? dirtyTrackIds.filter((id) => selectedIds.has(id))
-        : dirtyTrackIds;
+      trackIdsToSave.length > 0 ? trackIdsToSave : dirtyTrackIds;
 
     if (tracksToSave.length === 0) {
       toast.error("No tracks to save", {
@@ -738,6 +777,9 @@ export default function TaggerPage() {
             editedTags: {},
             computedPath: null,
             coverArt: null,
+            hasReplacementAudio: false,
+            replacementAudioFilename: undefined,
+            replacementAudioOriginalName: undefined,
           });
         }
       }
@@ -879,12 +921,9 @@ export default function TaggerPage() {
     // Run rename script first to ensure paths are up-to-date
     runOnAllTracks();
 
-    // Open save confirmation dialog (will need to modify SaveConfirmationDialog to accept specific track IDs)
-    // For now, just trigger the full save flow
+    // Set specific track IDs and open dialog
+    setTrackIdsToSave(tracksToSave);
     setIsSaveConfirmOpen(true);
-    toast.info(
-      `Saving ${tracksToSave.length} track${tracksToSave.length > 1 ? "s" : ""}...`,
-    );
   }
 
   // Handle running one-off script on selected tracks
@@ -1024,6 +1063,7 @@ export default function TaggerPage() {
   return (
     <div
       className="flex flex-col h-full relative"
+      onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -1098,6 +1138,8 @@ export default function TaggerPage() {
             onClick={() => {
               // Run rename script on all tracks first to ensure paths are up-to-date
               runOnAllTracks();
+              // Clear specific track IDs to save all dirty tracks
+              setTrackIdsToSave([]);
               setIsSaveConfirmOpen(true);
             }}
           >
@@ -1310,8 +1352,13 @@ export default function TaggerPage() {
       {/* Save confirmation */}
       <SaveConfirmationDialog
         open={isSaveConfirmOpen}
-        onOpenChange={setIsSaveConfirmOpen}
-        dirtyTrackIds={dirtyTrackIds}
+        onOpenChange={(open) => {
+          setIsSaveConfirmOpen(open);
+          if (!open) setTrackIdsToSave([]); // Clear on close
+        }}
+        dirtyTrackIds={
+          trackIdsToSave.length > 0 ? trackIdsToSave : dirtyTrackIds
+        }
         onSave={handleSave}
         isSaving={isSaving}
       />

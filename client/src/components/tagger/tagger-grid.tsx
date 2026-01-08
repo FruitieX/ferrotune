@@ -36,6 +36,18 @@ import {
   getColumnByIndex,
   getRangeBounds,
 } from "./grid";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
+import { Loader2 } from "lucide-react";
+import {
+  ImportFromFileDialog,
+  type ImportFromFileOptions,
+} from "./import-from-file-dialog";
 
 // Stable empty object for columnWidths fallback to avoid dependency changes
 const EMPTY_COLUMN_WIDTHS: Record<string, number> = {};
@@ -107,6 +119,18 @@ export function TaggerGrid({
   const editStartedByTypingRef = useRef(false);
   // Guard to prevent double-commit when blur fires after Enter/Tab
   const isCommittingRef = useRef(false);
+
+  // Import from file (replace audio) state
+  const importFromFileTargetIdsRef = useRef<string[]>([]);
+  const [importFromFileDialogOpen, setImportFromFileDialogOpen] =
+    useState(false);
+
+  // Import from file upload progress state
+  const [isImportingFromFile, setIsImportingFromFile] = useState(false);
+  const [importFromFileProgress, setImportFromFileProgress] = useState({
+    current: 0,
+    total: 0,
+  });
 
   // Undo/redo
   const { pushToUndoStack, handleUndo, handleRedo, canUndo, canRedo } =
@@ -599,6 +623,299 @@ export function TaggerGrid({
     if (targetIds.length === 0) return;
 
     onRemoveTracks?.(targetIds);
+  }
+
+  // Import from file - works for library tracks (single or batch)
+  function handleImportFromFile() {
+    const targetIds = getContextMenuTargetIds(contextMenuRowId);
+    if (targetIds.length === 0) return;
+
+    // Filter to only library tracks
+    const libraryTrackIds = targetIds.filter((id) => {
+      const state = tracks.get(id);
+      return state && !state.track.isStaged;
+    });
+
+    if (libraryTrackIds.length === 0) return;
+
+    // Sort IDs by their position in sortedRows to match user's visible order
+    const sortedTargetIds = libraryTrackIds.sort((a, b) => {
+      const indexA = sortedRows.findIndex((r) => r.id === a);
+      const indexB = sortedRows.findIndex((r) => r.id === b);
+      return indexA - indexB;
+    });
+
+    // Store the target IDs and open the dialog
+    importFromFileTargetIdsRef.current = sortedTargetIds;
+    setImportFromFileDialogOpen(true);
+  }
+
+  async function handleImportFromFileConfirm(
+    options: ImportFromFileOptions,
+    files: File[],
+  ) {
+    const targetIds = importFromFileTargetIdsRef.current;
+
+    if (targetIds.length === 0 || files.length === 0) return;
+
+    const client = getClient();
+    if (!client) {
+      toast.error("Not connected");
+      return;
+    }
+
+    const newTracks = new Map(tracks);
+    let successCount = 0;
+    let failCount = 0;
+
+    // Show progress dialog for batch uploads
+    if (targetIds.length > 1) {
+      setImportFromFileProgress({ current: 0, total: targetIds.length });
+      setIsImportingFromFile(true);
+    }
+
+    // Process files - for single track use single file, for batch match by index
+    for (let i = 0; i < targetIds.length; i++) {
+      const trackId = targetIds[i];
+      const file = files[i] ?? files[0]; // For single selection, use the first file
+
+      if (!file) {
+        console.error(`No file at index ${i} for track ${trackId}`);
+        failCount++;
+        if (targetIds.length > 1) {
+          setImportFromFileProgress((prev) => ({
+            ...prev,
+            current: prev.current + 1,
+          }));
+        }
+        continue;
+      }
+
+      try {
+        const response = await client.uploadTaggerReplacementAudio(
+          trackId,
+          file,
+          {
+            importAudio: options.importAudio,
+            importTags: options.importTags,
+            importCoverArt: options.importCoverArt,
+          },
+        );
+
+        const trackState = newTracks.get(trackId);
+        if (trackState) {
+          const updatedState = { ...trackState };
+
+          // Update audio replacement state
+          if (options.importAudio && response.audioImported) {
+            updatedState.hasReplacementAudio = true;
+            updatedState.replacementAudioFilename = response.originalName;
+            updatedState.replacementAudioOriginalName = response.originalName;
+          }
+
+          // Update tags if imported
+          // When importing, we REPLACE all tags - clear originals first, then set imported values
+          if (options.importTags) {
+            const newEditedTags: Record<string, string> = {};
+
+            // First, mark all original tags as cleared (empty string)
+            for (const tag of trackState.track.tags) {
+              newEditedTags[tag.key] = "";
+            }
+
+            // Then apply imported tags (if any exist)
+            if (response.importedTags) {
+              for (const [key, value] of Object.entries(
+                response.importedTags,
+              )) {
+                if (value !== undefined) {
+                  newEditedTags[key] = value;
+                }
+              }
+            }
+
+            // Replace the editedTags entirely for tag-related keys
+            updatedState.editedTags = {
+              ...updatedState.editedTags,
+              ...newEditedTags,
+            };
+          }
+
+          // Update cover art state if imported
+          // coverArtImported: true = new cover art added, false = source had no cover art (clear existing)
+          if (options.importCoverArt) {
+            if (response.coverArtImported) {
+              // Fetch the cover art as data URL so it displays immediately
+              try {
+                const coverArtUrl = client.getTaggerCoverArtUrl(trackId);
+                const coverArtResponse = await fetch(coverArtUrl);
+                if (coverArtResponse.ok) {
+                  const blob = await coverArtResponse.blob();
+                  const dataUrl = await new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.readAsDataURL(blob);
+                  });
+                  updatedState.coverArt = {
+                    dataUrl,
+                    changed: true,
+                    removed: false,
+                  };
+                } else {
+                  // Fallback - just mark as changed
+                  updatedState.coverArt = {
+                    ...updatedState.coverArt,
+                    changed: true,
+                    removed: false,
+                  };
+                }
+              } catch {
+                // Fallback - just mark as changed
+                updatedState.coverArt = {
+                  ...updatedState.coverArt,
+                  changed: true,
+                  removed: false,
+                };
+              }
+            } else {
+              // Source file had no cover art - mark existing cover art as removed
+              updatedState.coverArt = {
+                changed: false,
+                removed: true,
+              };
+            }
+          }
+
+          newTracks.set(trackId, updatedState);
+        }
+        successCount++;
+      } catch (error) {
+        console.error(`Failed to import from file for ${trackId}:`, error);
+        failCount++;
+      }
+
+      if (targetIds.length > 1) {
+        setImportFromFileProgress((prev) => ({
+          ...prev,
+          current: prev.current + 1,
+        }));
+      }
+    }
+
+    setTracks(newTracks);
+    setIsImportingFromFile(false);
+
+    // Build success message based on what was imported
+    const importedItems: string[] = [];
+    if (options.importAudio) importedItems.push("audio");
+    if (options.importTags) importedItems.push("tags");
+    if (options.importCoverArt) importedItems.push("cover art");
+    const importedStr = importedItems.join(", ");
+
+    if (failCount === 0) {
+      toast.success(
+        `Imported ${importedStr} for ${successCount} track${successCount !== 1 ? "s" : ""}`,
+      );
+    } else if (successCount === 0) {
+      toast.error("Failed to import from file");
+    } else {
+      toast.warning(
+        `Imported for ${successCount} of ${targetIds.length} tracks (${failCount} failed)`,
+      );
+    }
+
+    // Clean up
+    importFromFileTargetIdsRef.current = [];
+  }
+
+  async function handleRevertImportFromFile() {
+    const targetIds = getContextMenuTargetIds(contextMenuRowId);
+
+    // Filter to only tracks with replacement audio
+    const tracksWithReplacement = targetIds.filter((id) => {
+      const state = tracks.get(id);
+      return state?.hasReplacementAudio;
+    });
+
+    if (tracksWithReplacement.length === 0) return;
+
+    const client = getClient();
+    if (!client) {
+      toast.error("Not connected");
+      return;
+    }
+
+    const newTracks = new Map(tracks);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const trackId of tracksWithReplacement) {
+      try {
+        await client.deleteTaggerReplacementAudio(trackId);
+
+        const trackState = newTracks.get(trackId);
+        if (trackState) {
+          newTracks.set(trackId, {
+            ...trackState,
+            hasReplacementAudio: false,
+            replacementAudioFilename: undefined,
+            replacementAudioOriginalName: undefined,
+          });
+        }
+        successCount++;
+      } catch (error) {
+        console.error(
+          `Failed to revert replacement audio for ${trackId}:`,
+          error,
+        );
+        failCount++;
+      }
+    }
+
+    setTracks(newTracks);
+
+    if (failCount === 0) {
+      toast.success(
+        `Audio replacement reverted for ${successCount} track${successCount !== 1 ? "s" : ""}`,
+      );
+    } else {
+      toast.warning(
+        `Reverted ${successCount} of ${tracksWithReplacement.length} replacements (${failCount} failed)`,
+      );
+    }
+  }
+
+  // Determine if import from file option should be shown
+  function getCanImportFromFile(): boolean {
+    const targetIds = getContextMenuTargetIds(contextMenuRowId);
+    if (targetIds.length === 0) return false;
+
+    // Check if any target is a library track (not staged)
+    return targetIds.some((id) => {
+      const state = tracks.get(id);
+      return state && !state.track.isStaged;
+    });
+  }
+
+  function getHasAnyReplacementAudio(): boolean {
+    const targetIds = getContextMenuTargetIds(contextMenuRowId);
+    return targetIds.some((id) => {
+      const state = tracks.get(id);
+      return state?.hasReplacementAudio;
+    });
+  }
+
+  function getImportFromFileLabel(): string {
+    const targetIds = getContextMenuTargetIds(contextMenuRowId);
+    const libraryTrackCount = targetIds.filter((id) => {
+      const state = tracks.get(id);
+      return state && !state.track.isStaged;
+    }).length;
+
+    if (libraryTrackCount <= 1) {
+      return "Replace with File...";
+    }
+    return `Replace with File (${libraryTrackCount} tracks)...`;
   }
 
   function handleContextMenuRunScript(scriptId: string) {
@@ -1764,13 +2081,63 @@ export function TaggerGrid({
         onRunOneOffScript={() => onOpenOneOffScript?.()}
         onSave={handleContextMenuSave}
         onRemove={handleContextMenuRemove}
+        onImportFromFile={handleImportFromFile}
+        onRevertImportFromFile={handleRevertImportFromFile}
         canUndo={canUndo}
         canRedo={canRedo}
         canRevert={!!onRevertTracks}
         canSave={!!onSaveTracks}
         canRemove={!!onRemoveTracks}
+        canImportFromFile={getCanImportFromFile()}
+        hasAnyReplacementAudio={getHasAnyReplacementAudio()}
+        importFromFileLabel={getImportFromFileLabel()}
         scripts={scripts}
       />
+
+      {/* Import from file options dialog */}
+      <ImportFromFileDialog
+        open={importFromFileDialogOpen}
+        onOpenChange={setImportFromFileDialogOpen}
+        trackCount={importFromFileTargetIdsRef.current.length}
+        trackNames={importFromFileTargetIdsRef.current.map((id) => {
+          const state = tracks.get(id);
+          if (!state) return id;
+          const title = getTrackTagValue(state, "TITLE");
+          const artist = getTrackTagValue(state, "ARTIST");
+          if (title && artist) return `${artist} - ${title}`;
+          if (title) return title;
+          // Fallback to filename
+          return state.track.filePath.split("/").pop() ?? id;
+        })}
+        onConfirm={handleImportFromFileConfirm}
+      />
+
+      {/* Import from file progress dialog */}
+      <Dialog open={isImportingFromFile}>
+        <DialogContent className="sm:max-w-md" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Replacing with File...
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Progress
+              value={
+                importFromFileProgress.total > 0
+                  ? (importFromFileProgress.current /
+                      importFromFileProgress.total) *
+                    100
+                  : 0
+              }
+            />
+            <p className="text-sm text-muted-foreground text-center">
+              {importFromFileProgress.current} of {importFromFileProgress.total}{" "}
+              files processed
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Rows container */}
       <div

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -18,6 +18,7 @@ import {
   Merge,
   ListMinus,
   MoreHorizontal,
+  Pen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +30,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
@@ -44,9 +46,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
+import {
+  taggerSessionAtom,
+  taggerTracksAtom,
+  createTrackState,
+} from "@/lib/store/tagger";
 import { getClient } from "@/lib/api/client";
 import type { Song, Album, Artist, Genre, Playlist } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 
 // Type for different media types
 export type MediaType = "song" | "album" | "artist" | "genre" | "playlist";
@@ -264,6 +272,76 @@ export function BulkActionsBar(
     } catch (error) {
       toast.error("Failed to update shuffle settings");
       console.error(error);
+    }
+  };
+
+  // Handler for bulk mark for editing (add songs to tagger)
+  const router = useRouter();
+  const [tracks, setTracks] = useAtom(taggerTracksAtom);
+  const setSession = useSetAtom(taggerSessionAtom);
+
+  const handleBulkMarkForEditing = async () => {
+    const client = getClient();
+    if (!client || !canShuffleExclude) return;
+
+    const songIds = getSelectedIds();
+    if (songIds.length === 0) return;
+
+    // Filter out already-added tracks
+    const newIds = songIds.filter((id) => !tracks.has(id));
+    if (newIds.length === 0) {
+      toast.info(
+        songIds.length === 1
+          ? "Track already marked for editing"
+          : "All tracks already marked for editing",
+        {
+          action: {
+            label: "Open Tagger",
+            onClick: () => router.push("/tagger"),
+          },
+        },
+      );
+      return;
+    }
+
+    try {
+      const response = await client.stageLibraryTracks(newIds);
+
+      // Add tracks to tracks atom
+      const newTracks = new Map(tracks);
+      for (const track of response.tracks) {
+        newTracks.set(track.id, createTrackState(track));
+      }
+      setTracks(newTracks);
+
+      // Add to session
+      setSession((prev) => {
+        const existingIds = new Set(prev.tracks.map((t) => t.id));
+        const tracksToAdd = response.tracks
+          .filter((t) => !existingIds.has(t.id))
+          .map((t) => ({ id: t.id, trackType: "library" as const }));
+        return {
+          ...prev,
+          tracks: [...prev.tracks, ...tracksToAdd],
+        };
+      });
+
+      const skippedCount = songIds.length - newIds.length;
+      const message =
+        skippedCount > 0
+          ? `${newIds.length} tracks marked for editing (${skippedCount} already added)`
+          : `${newIds.length} tracks marked for editing`;
+
+      toast.success(message, {
+        action: {
+          label: "Open Tagger",
+          onClick: () => router.push("/tagger"),
+        },
+      });
+      props.onClear();
+    } catch (error) {
+      console.error("Failed to mark for editing:", error);
+      toast.error("Failed to mark tracks for editing");
     }
   };
 
@@ -593,6 +671,11 @@ export function BulkActionsBar(
                         side="top"
                         className="mb-2"
                       >
+                        <DropdownMenuItem onClick={handleBulkMarkForEditing}>
+                          <Pen className="w-4 h-4 mr-2" />
+                          Mark for editing
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem
                           onClick={() => handleBulkShuffleExclude(true)}
                         >

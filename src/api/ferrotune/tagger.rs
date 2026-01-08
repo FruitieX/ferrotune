@@ -3,6 +3,7 @@
 //! Provides endpoints for the tagger view: uploading files to staging,
 //! batch tag operations, and saving changes.
 
+use crate::api::common::fs_utils::move_file_cross_fs;
 use crate::api::common::utils::get_content_type_for_format;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
@@ -305,10 +306,13 @@ pub struct PathConflict {
     pub suggested_path: String,
 }
 
-/// Get staging directory for a user
+/// Get staging directory for uploaded files for a user
 fn get_staging_dir(_state: &AppState, user_id: &str) -> PathBuf {
     // Use a staging subdirectory in the data directory
-    crate::config::get_data_dir().join("staging").join(user_id)
+    crate::config::get_data_dir()
+        .join("staging")
+        .join(user_id)
+        .join("uploaded")
 }
 
 /// POST /ferrotune/tagger/upload
@@ -1351,21 +1355,13 @@ pub async fn save_staged_files(
             }
         }
 
-        // Move file from staging to target
-        if let Err(e) = fs::rename(&staging_path, &target_path).await {
-            // If rename fails (cross-device), try copy + delete
-            match fs::copy(&staging_path, &target_path).await {
-                Ok(_) => {
-                    let _ = fs::remove_file(&staging_path).await;
-                }
-                Err(copy_err) => {
-                    errors.push(SaveError {
-                        staged_id: file_save.staged_id.clone(),
-                        error: format!("Failed to move file: {} / {}", e, copy_err),
-                    });
-                    continue;
-                }
-            }
+        // Move file from staging to target (with cross-filesystem support)
+        if let Err(e) = move_file_cross_fs(&staging_path, &target_path).await {
+            errors.push(SaveError {
+                staged_id: file_save.staged_id.clone(),
+                error: format!("Failed to move file: {}", e),
+            });
+            continue;
         }
 
         // Delete from staged files table
@@ -1583,23 +1579,13 @@ pub async fn rename_files(
             }
         }
 
-        // Move the file
-        if let Err(e) = fs::rename(&current, &new_path).await {
-            // Try copy + delete for cross-device moves
-            match fs::copy(&current, &new_path).await {
-                Ok(_) => {
-                    if let Err(e) = fs::remove_file(&current).await {
-                        tracing::warn!("Failed to remove original file after copy: {}", e);
-                    }
-                }
-                Err(copy_err) => {
-                    errors.push(RenameError {
-                        song_id: entry.song_id.clone(),
-                        error: format!("Failed to move file: {} (copy attempt: {})", e, copy_err),
-                    });
-                    continue;
-                }
-            }
+        // Move the file (with cross-filesystem support)
+        if let Err(e) = move_file_cross_fs(&current, &new_path).await {
+            errors.push(RenameError {
+                song_id: entry.song_id.clone(),
+                error: format!("Failed to move file: {}", e),
+            });
+            continue;
         }
 
         // Update database path
@@ -1607,7 +1593,7 @@ pub async fn rename_files(
             queries::update_song_path(&state.pool, &entry.song_id, &entry.new_path).await
         {
             // Try to rollback the file move
-            let _ = fs::rename(&new_path, &current).await;
+            let _ = move_file_cross_fs(&new_path, &current).await;
             errors.push(RenameError {
                 song_id: entry.song_id.clone(),
                 error: format!("Failed to update database: {}", e),

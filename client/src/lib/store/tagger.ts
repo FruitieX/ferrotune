@@ -28,6 +28,12 @@ export interface TaggerTrackState {
   } | null;
   /** Computed target path (from rename script) */
   computedPath: string | null;
+  /** Whether replacement audio is staged for this track */
+  hasReplacementAudio: boolean;
+  /** Filename of staged replacement audio (UUID-based, for streaming) */
+  replacementAudioFilename?: string;
+  /** Original filename of replacement audio (for display) */
+  replacementAudioOriginalName?: string;
 }
 
 /** Reference to a track with its type */
@@ -118,6 +124,19 @@ export interface PendingEdit {
    * Use getTaggerCoverArtUrl(trackId) to fetch the actual image.
    */
   hasCoverArt: boolean;
+  /**
+   * Whether this edit has replacement audio staged on the server.
+   * When true, the original audio will be replaced on save.
+   */
+  hasReplacementAudio: boolean;
+  /**
+   * The filename of the replacement audio (UUID-based, for streaming).
+   */
+  replacementAudioFilename?: string | null;
+  /**
+   * The original filename of the replacement audio (for display).
+   */
+  replacementAudioOriginalName?: string | null;
 }
 
 // =============================================================================
@@ -263,10 +282,7 @@ export const taggerFocusedRowIdAtom = atom<string | null>(null);
 export const taggerHasChangesAtom = atom((get) => {
   const tracks = get(taggerTracksAtom);
   for (const state of tracks.values()) {
-    if (Object.keys(state.editedTags).length > 0) return true;
-    if (state.coverArt?.changed || state.coverArt?.removed) return true;
-    if (state.computedPath && state.computedPath !== state.track.filePath)
-      return true;
+    if (hasTrackChanges(state)) return true;
   }
   return false;
 });
@@ -278,15 +294,7 @@ export const taggerDirtyTrackIdsAtom = atom((get) => {
   const tracks = get(taggerTracksAtom);
   const dirty: string[] = [];
   for (const [id, state] of tracks) {
-    if (Object.keys(state.editedTags).length > 0) {
-      dirty.push(id);
-      continue;
-    }
-    if (state.coverArt?.changed || state.coverArt?.removed) {
-      dirty.push(id);
-      continue;
-    }
-    if (state.computedPath && state.computedPath !== state.track.filePath) {
+    if (hasTrackChanges(state)) {
       dirty.push(id);
     }
   }
@@ -507,6 +515,9 @@ export async function loadTaggerState(): Promise<void> {
         computedPath: edit.computedPath ?? null,
         coverArtRemoved: edit.coverArtRemoved,
         hasCoverArt: edit.hasCoverArt,
+        hasReplacementAudio: edit.hasReplacementAudio,
+        replacementAudioFilename: edit.replacementAudioFilename,
+        replacementAudioOriginalName: edit.replacementAudioOriginalName,
       };
     }
     // Initialize lastSyncedEdits to match server state (prevents re-sync on load)
@@ -632,6 +643,7 @@ export function createTrackState(track: TaggerTrack): TaggerTrackState {
     editedTags: {},
     coverArt: null,
     computedPath: null,
+    hasReplacementAudio: false,
   };
 }
 
@@ -643,5 +655,6 @@ export function hasTrackChanges(state: TaggerTrackState): boolean {
   if (state.coverArt?.changed || state.coverArt?.removed) return true;
   if (state.computedPath && state.computedPath !== state.track.filePath)
     return true;
+  if (state.hasReplacementAudio) return true;
   return false;
 }

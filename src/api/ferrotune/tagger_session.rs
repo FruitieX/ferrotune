@@ -7,7 +7,7 @@ use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
@@ -145,6 +145,12 @@ pub struct TaggerPendingEditData {
     pub cover_art_removed: bool,
     /// Whether this edit has cover art to fetch via GET /cover endpoint
     pub has_cover_art: bool,
+    /// Whether this edit has replacement audio staged
+    pub has_replacement_audio: bool,
+    /// The filename of the replacement audio (UUID-based, for internal use)
+    pub replacement_audio_filename: Option<String>,
+    /// The original filename of the replacement audio (for display)
+    pub replacement_audio_original_name: Option<String>,
 }
 
 /// Pending edit data without cover art (for update requests where cover is uploaded separately)
@@ -243,6 +249,8 @@ struct PendingEditRow {
     computed_path: Option<String>,
     cover_art_removed: bool,
     cover_art_filename: Option<String>,
+    replacement_audio_filename: Option<String>,
+    replacement_audio_original_name: Option<String>,
     #[allow(dead_code)]
     created_at: String,
     #[allow(dead_code)]
@@ -293,6 +301,9 @@ pub struct SaveError {
 // =============================================================================
 // Database Helpers
 // =============================================================================
+
+// Re-export cross-filesystem utilities from common module
+use crate::api::common::fs_utils::move_file_cross_fs;
 
 /// Get cover art directory for a user
 fn get_cover_art_dir(username: &str) -> PathBuf {
@@ -832,7 +843,8 @@ pub async fn get_pending_edits(
     let edits: Vec<PendingEditRow> = match sqlx::query_as(
         r#"
         SELECT id, session_id, track_id, edited_tags, computed_path,
-               cover_art_removed, cover_art_filename, created_at, updated_at
+               cover_art_removed, cover_art_filename, replacement_audio_filename,
+               replacement_audio_original_name, created_at, updated_at
         FROM tagger_pending_edits WHERE session_id = ?
         "#,
     )
@@ -860,6 +872,8 @@ pub async fn get_pending_edits(
 
         // has_cover_art is true if there's a cover art filename set
         let has_cover_art = edit.cover_art_filename.is_some();
+        // has_replacement_audio is true if there's a replacement audio filename set
+        let has_replacement_audio = edit.replacement_audio_filename.is_some();
 
         edits_map.insert(
             edit.track_id.clone(),
@@ -868,6 +882,9 @@ pub async fn get_pending_edits(
                 computed_path: edit.computed_path.clone(),
                 cover_art_removed: edit.cover_art_removed,
                 has_cover_art,
+                has_replacement_audio,
+                replacement_audio_filename: edit.replacement_audio_filename.clone(),
+                replacement_audio_original_name: edit.replacement_audio_original_name.clone(),
             },
         );
     }
@@ -1586,6 +1603,829 @@ pub async fn get_cover_art(
     }
 }
 
+/// Get replacement audio staging directory for a user
+fn get_replacement_audio_dir(username: &str) -> PathBuf {
+    crate::config::get_data_dir()
+        .join("staging")
+        .join(username)
+        .join("replacement_audio")
+}
+
+/// Request options for replacement audio upload
+#[derive(Debug, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ReplacementAudioUploadOptions {
+    /// Whether to replace the audio with the uploaded file (default: true)
+    #[serde(default = "default_true")]
+    pub import_audio: bool,
+    /// Whether to import tags from the uploaded file
+    #[serde(default)]
+    pub import_tags: bool,
+    /// Whether to import cover art from the uploaded file
+    #[serde(default)]
+    pub import_cover_art: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Response for replacement audio upload
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ReplacementAudioUploadResponse {
+    /// Whether the upload was successful
+    pub success: bool,
+    /// File format (extension) of the uploaded file
+    pub file_format: String,
+    /// Original filename of the uploaded file (for display)
+    pub original_name: String,
+    /// Whether audio was imported (replaced)
+    pub audio_imported: bool,
+    /// Tags imported from the file (if import_tags was true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imported_tags: Option<HashMap<String, String>>,
+    /// Whether cover art was imported from the file
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art_imported: Option<bool>,
+}
+
+/// PUT /ferrotune/tagger/session/edits/:track_id/replacement-audio
+///
+/// Upload replacement audio for a library track.
+/// The replacement file will be staged and applied on save.
+///
+/// Multipart fields:
+/// - file: The audio file to upload
+/// - options: JSON object with import options (optional)
+///   - importAudio: boolean (default: true) - Whether to replace the audio
+///   - importTags: boolean (default: false) - Whether to import tags from the file
+///   - importCoverArt: boolean (default: false) - Whether to import cover art from the file
+pub async fn upload_replacement_audio(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path(track_id): Path<String>,
+    mut multipart: axum::extract::Multipart,
+) -> impl IntoResponse {
+    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
+        Ok(id) => id,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::with_details(
+                    "Failed to get session",
+                    e.to_string(),
+                )),
+            )
+                .into_response();
+        }
+    };
+
+    // Check that this is a library track (not staged)
+    let track_type: Option<(String,)> = sqlx::query_as(
+        "SELECT track_type FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
+    )
+    .bind(session_id)
+    .bind(&track_id)
+    .fetch_optional(&state.pool)
+    .await
+    .ok()
+    .flatten();
+
+    match track_type {
+        Some((t,)) if t == "staged" => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse::new("Cannot replace audio for staged files")),
+            )
+                .into_response();
+        }
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Track not found in session")),
+            )
+                .into_response();
+        }
+        _ => {} // library track, proceed
+    }
+
+    // Extract file and options from multipart
+    let mut file_data: Option<(Vec<u8>, String)> = None;
+    let mut options = ReplacementAudioUploadOptions {
+        import_audio: true,
+        import_tags: false,
+        import_cover_art: false,
+    };
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().map(|s| s.to_string()).unwrap_or_default();
+
+        if name == "file" {
+            let filename = field
+                .file_name()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "audio.mp3".to_string());
+
+            match field.bytes().await {
+                Ok(bytes) => {
+                    file_data = Some((bytes.to_vec(), filename));
+                }
+                Err(e) => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse::with_details(
+                            "Failed to read file",
+                            e.to_string(),
+                        )),
+                    )
+                        .into_response();
+                }
+            }
+        } else if name == "options" {
+            match field.bytes().await {
+                Ok(bytes) => {
+                    if let Ok(parsed) =
+                        serde_json::from_slice::<ReplacementAudioUploadOptions>(&bytes)
+                    {
+                        options = parsed;
+                    }
+                }
+                Err(_) => {
+                    // Ignore options parsing errors, use defaults
+                }
+            }
+        }
+    }
+
+    let (data, original_filename) = match file_data {
+        Some(d) => d,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse::new("No file provided")),
+            )
+                .into_response();
+        }
+    };
+
+    // Validate file extension
+    let ext = original_filename
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+    let valid_extensions = ["mp3", "flac", "ogg", "m4a", "opus", "wav", "aac", "wma"];
+    if !valid_extensions.contains(&ext.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::with_details(
+                "Unsupported file type",
+                format!("Extension '{}' is not supported", ext),
+            )),
+        )
+            .into_response();
+    }
+
+    // At least one import option must be enabled
+    if !options.import_audio && !options.import_tags && !options.import_cover_art {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new(
+                "At least one import option must be enabled",
+            )),
+        )
+            .into_response();
+    }
+
+    // Write to a temporary file so we can parse it with lofty
+    let temp_dir = std::env::temp_dir();
+    let temp_filename = format!("{}.{}", uuid::Uuid::new_v4(), ext);
+    let temp_path = temp_dir.join(&temp_filename);
+
+    if let Err(e) = fs::write(&temp_path, &data).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::with_details(
+                "Failed to write temporary file",
+                e.to_string(),
+            )),
+        )
+            .into_response();
+    }
+
+    // Extract tags and cover art from the file if needed
+    let mut imported_tags: Option<HashMap<String, String>> = None;
+    let mut cover_art_data: Option<Vec<u8>> = None;
+
+    if options.import_tags || options.import_cover_art {
+        let temp_path_clone = temp_path.clone();
+        let import_tags = options.import_tags;
+        let import_cover_art = options.import_cover_art;
+
+        let extraction_result = tokio::task::spawn_blocking(move || {
+            use lofty::config::ParseOptions;
+            use lofty::file::TaggedFileExt;
+            use lofty::probe::Probe;
+            use lofty::tag::Accessor;
+
+            let parse_options = ParseOptions::new().read_properties(false);
+
+            let tagged_file =
+                match Probe::open(&temp_path_clone).and_then(|p| p.options(parse_options).read()) {
+                    Ok(f) => f,
+                    Err(e) => return Err(format!("Failed to read file tags: {}", e)),
+                };
+
+            let mut tags: Option<HashMap<String, String>> = None;
+            let mut cover: Option<Vec<u8>> = None;
+
+            if import_tags {
+                let mut tag_map = HashMap::new();
+                if let Some(tag) = tagged_file.primary_tag() {
+                    // Extract common tags
+                    if let Some(v) = tag.title() {
+                        tag_map.insert("title".to_string(), v.to_string());
+                    }
+                    if let Some(v) = tag.artist() {
+                        tag_map.insert("artist".to_string(), v.to_string());
+                    }
+                    if let Some(v) = tag.album() {
+                        tag_map.insert("album".to_string(), v.to_string());
+                    }
+                    if let Some(v) = tag.genre() {
+                        tag_map.insert("genre".to_string(), v.to_string());
+                    }
+                    if let Some(v) = tag.year() {
+                        tag_map.insert("year".to_string(), v.to_string());
+                    }
+                    if let Some(v) = tag.track() {
+                        tag_map.insert("track".to_string(), v.to_string());
+                    }
+                    if let Some(v) = tag.disk() {
+                        tag_map.insert("disc".to_string(), v.to_string());
+                    }
+                    if let Some(v) = tag.comment() {
+                        tag_map.insert("comment".to_string(), v.to_string());
+                    }
+
+                    // Also check for album artist
+                    if let Some(v) = tag.get_string(&lofty::tag::ItemKey::AlbumArtist) {
+                        tag_map.insert("albumArtist".to_string(), v.to_string());
+                    }
+                }
+
+                // Always return the tag map when importing tags, even if empty
+                // This clears existing tags if the source file has none
+                tags = Some(tag_map);
+            }
+
+            if import_cover_art {
+                // Try to get cover art from any tag
+                let picture = tagged_file
+                    .primary_tag()
+                    .and_then(|tag| tag.pictures().first())
+                    .or_else(|| {
+                        tagged_file
+                            .tags()
+                            .iter()
+                            .find_map(|tag| tag.pictures().first())
+                    });
+
+                if let Some(pic) = picture {
+                    cover = Some(pic.data().to_vec());
+                }
+            }
+
+            Ok((tags, cover))
+        })
+        .await;
+
+        match extraction_result {
+            Ok(Ok((tags, cover))) => {
+                imported_tags = tags;
+                cover_art_data = cover;
+            }
+            Ok(Err(e)) => {
+                let _ = fs::remove_file(&temp_path).await;
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse::with_details("Failed to extract metadata", e)),
+                )
+                    .into_response();
+            }
+            Err(e) => {
+                let _ = fs::remove_file(&temp_path).await;
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::with_details(
+                        "Failed to process file",
+                        e.to_string(),
+                    )),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    // Clean up temp file
+    let _ = fs::remove_file(&temp_path).await;
+
+    let mut replacement_audio_filename: Option<String> = None;
+    let mut cover_art_filename: Option<String> = None;
+
+    // Handle audio import
+    if options.import_audio {
+        let replacement_dir = get_replacement_audio_dir(&user.username);
+        if let Err(e) = fs::create_dir_all(&replacement_dir).await {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::with_details(
+                    "Failed to create replacement audio directory",
+                    e.to_string(),
+                )),
+            )
+                .into_response();
+        }
+
+        // Get existing replacement audio filename to clean up
+        let existing_filename: Option<(Option<String>,)> = sqlx::query_as(
+            "SELECT replacement_audio_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
+        )
+        .bind(session_id)
+        .bind(&track_id)
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten();
+
+        // Delete old replacement audio file if exists
+        if let Some((Some(old_filename),)) = existing_filename {
+            let old_path = replacement_dir.join(&old_filename);
+            let _ = fs::remove_file(&old_path).await;
+        }
+
+        // Generate UUID filename with extension
+        let uuid = uuid::Uuid::new_v4();
+        let filename = format!("{}.{}", uuid, ext);
+        let replacement_path = replacement_dir.join(&filename);
+
+        // Write the new replacement audio file
+        if let Err(e) = fs::write(&replacement_path, &data).await {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::with_details(
+                    "Failed to write replacement audio file",
+                    e.to_string(),
+                )),
+            )
+                .into_response();
+        }
+
+        replacement_audio_filename = Some(filename);
+    }
+
+    // Handle cover art import
+    // cover_art_imported: Some(true) = new cover art uploaded, Some(false) = cover art removed, None = no change
+    let (cover_art_imported, should_remove_cover_art) = if options.import_cover_art {
+        if let Some(cover_data) = cover_art_data {
+            let cover_art_dir = get_cover_art_dir(&user.username);
+            if let Err(e) = fs::create_dir_all(&cover_art_dir).await {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::with_details(
+                        "Failed to create cover art directory",
+                        e.to_string(),
+                    )),
+                )
+                    .into_response();
+            }
+
+            // Get existing cover art filename to clean up
+            let existing_cover: Option<(Option<String>,)> = sqlx::query_as(
+                "SELECT cover_art_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
+            )
+            .bind(session_id)
+            .bind(&track_id)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten();
+
+            // Delete old cover art file if exists
+            if let Some((Some(old_filename),)) = existing_cover {
+                let old_path = cover_art_dir.join(&old_filename);
+                let _ = fs::remove_file(&old_path).await;
+            }
+
+            // Detect image type and extension
+            let img_ext = if cover_data.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+                ".png"
+            } else if cover_data.starts_with(&[0x47, 0x49, 0x46]) {
+                ".gif"
+            } else if cover_data.starts_with(b"RIFF")
+                && cover_data.len() > 12
+                && &cover_data[8..12] == b"WEBP"
+            {
+                ".webp"
+            } else {
+                ".jpg"
+            };
+
+            let uuid = uuid::Uuid::new_v4();
+            let filename = format!("{}{}", uuid, img_ext);
+            let cover_path = cover_art_dir.join(&filename);
+
+            if let Err(e) = fs::write(&cover_path, &cover_data).await {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::with_details(
+                        "Failed to write cover art file",
+                        e.to_string(),
+                    )),
+                )
+                    .into_response();
+            }
+
+            cover_art_filename = Some(filename);
+            (Some(true), false) // Cover art was added
+        } else {
+            // Source file has no cover art - mark as removed to clear existing
+            (Some(false), true)
+        }
+    } else {
+        (None, false)
+    };
+
+    // Update the database
+    let now = Utc::now().to_rfc3339();
+
+    // Get existing pending edit to merge with
+    let existing_edit: Option<(String, Option<String>, i32, Option<String>)> = sqlx::query_as(
+        "SELECT edited_tags, cover_art_filename, cover_art_removed, replacement_audio_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
+    )
+    .bind(session_id)
+    .bind(&track_id)
+    .fetch_optional(&state.pool)
+    .await
+    .ok()
+    .flatten();
+
+    // Replace edited tags if importing tags (no merging - clear all existing and replace with imported)
+    let final_edited_tags = if let Some(ref new_tags) = imported_tags {
+        // Don't merge - just use the imported tags directly, clearing any previously edited tags
+        serde_json::to_string(new_tags).unwrap_or_else(|_| "{}".to_string())
+    } else if let Some((ref existing_tags_json, _, _, _)) = existing_edit {
+        existing_tags_json.clone()
+    } else {
+        "{}".to_string()
+    };
+
+    // Determine final cover art filename
+    // If should_remove_cover_art is true, we clear the filename and set removed flag
+    let final_cover_art_filename = if should_remove_cover_art {
+        None // Clear any staged cover art since we're removing it
+    } else if cover_art_filename.is_some() {
+        cover_art_filename
+    } else if let Some((_, ref existing_cover, _, _)) = existing_edit {
+        existing_cover.clone()
+    } else {
+        None
+    };
+
+    // Determine cover_art_removed
+    // Set to 1 if we're marking cover art as removed (source file had no cover art)
+    // Reset to 0 if we're adding new cover art
+    let cover_art_removed = if should_remove_cover_art {
+        1 // Mark as removed
+    } else if final_cover_art_filename.is_some() {
+        0 // Adding new cover art, so not removed
+    } else if let Some((_, _, existing_removed, _)) = existing_edit {
+        existing_removed
+    } else {
+        0
+    };
+
+    // Determine final replacement audio
+    let (final_replacement_filename, final_replacement_original_name) = if options.import_audio {
+        (replacement_audio_filename, Some(original_filename.clone()))
+    } else if let Some((_, _, _, ref existing_replacement)) = existing_edit {
+        (existing_replacement.clone(), None) // Keep existing
+    } else {
+        (None, None)
+    };
+
+    if let Err(e) = sqlx::query(
+        r#"
+        INSERT INTO tagger_pending_edits 
+        (session_id, track_id, track_type, edited_tags, cover_art_filename, cover_art_removed, replacement_audio_filename, replacement_audio_original_name, created_at, updated_at)
+        VALUES (?, ?, 'library', ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, track_id) DO UPDATE SET
+            edited_tags = excluded.edited_tags,
+            cover_art_filename = excluded.cover_art_filename,
+            cover_art_removed = excluded.cover_art_removed,
+            replacement_audio_filename = COALESCE(excluded.replacement_audio_filename, tagger_pending_edits.replacement_audio_filename),
+            replacement_audio_original_name = COALESCE(excluded.replacement_audio_original_name, tagger_pending_edits.replacement_audio_original_name),
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(session_id)
+    .bind(&track_id)
+    .bind(&final_edited_tags)
+    .bind(&final_cover_art_filename)
+    .bind(cover_art_removed)
+    .bind(&final_replacement_filename)
+    .bind(&final_replacement_original_name)
+    .bind(&now)
+    .bind(&now)
+    .execute(&state.pool)
+    .await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::with_details(
+                "Failed to update pending edits",
+                e.to_string(),
+            )),
+        )
+            .into_response();
+    }
+
+    Json(ReplacementAudioUploadResponse {
+        success: true,
+        file_format: ext,
+        original_name: original_filename,
+        audio_imported: options.import_audio,
+        imported_tags,
+        cover_art_imported,
+    })
+    .into_response()
+}
+
+/// DELETE /ferrotune/tagger/session/edits/:track_id/replacement-audio
+///
+/// Remove staged replacement audio for a track
+pub async fn delete_replacement_audio(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path(track_id): Path<String>,
+) -> impl IntoResponse {
+    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
+        Ok(id) => id,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::with_details(
+                    "Failed to get session",
+                    e.to_string(),
+                )),
+            )
+                .into_response();
+        }
+    };
+
+    // Get and delete the replacement audio file
+    let existing: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT replacement_audio_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
+    )
+    .bind(session_id)
+    .bind(&track_id)
+    .fetch_optional(&state.pool)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some((Some(filename),)) = existing {
+        let replacement_dir = get_replacement_audio_dir(&user.username);
+        let _ = fs::remove_file(replacement_dir.join(&filename)).await;
+    }
+
+    // Clear the replacement_audio_filename in database
+    let now = Utc::now().to_rfc3339();
+    let _ = sqlx::query(
+        "UPDATE tagger_pending_edits SET replacement_audio_filename = NULL, updated_at = ? WHERE session_id = ? AND track_id = ?",
+    )
+    .bind(&now)
+    .bind(session_id)
+    .bind(&track_id)
+    .execute(&state.pool)
+    .await;
+
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// GET /ferrotune/tagger/session/edits/:track_id/replacement-audio/stream
+///
+/// Stream the replacement audio file for preview playback.
+pub async fn stream_replacement_audio(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path(track_id): Path<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    use axum::http::header;
+    use tokio::io::AsyncReadExt;
+
+    // Get user's session
+    let session_id: Option<(i64,)> = sqlx::query_as(
+        "SELECT id FROM tagger_sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1",
+    )
+    .bind(user.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .ok()
+    .flatten();
+
+    let session_id = match session_id {
+        Some((id,)) => id,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::with_details(
+                    "No tagger session found",
+                    "Session does not exist",
+                )),
+            )
+                .into_response();
+        }
+    };
+
+    // Get replacement audio filename from database
+    let filename: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT replacement_audio_filename FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?",
+    )
+    .bind(session_id)
+    .bind(&track_id)
+    .fetch_optional(&state.pool)
+    .await
+    .ok()
+    .flatten();
+
+    let filename = match filename {
+        Some((Some(f),)) => f,
+        _ => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::with_details(
+                    "No replacement audio found",
+                    "No replacement audio staged for this track",
+                )),
+            )
+                .into_response();
+        }
+    };
+
+    let replacement_dir = get_replacement_audio_dir(&user.username);
+    let file_path = replacement_dir.join(&filename);
+
+    if !file_path.exists() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::with_details(
+                "File not found",
+                "The replacement audio file does not exist on disk",
+            )),
+        )
+            .into_response();
+    }
+
+    // Get file metadata
+    let metadata = match fs::metadata(&file_path).await {
+        Ok(m) => m,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::with_details(
+                    "Failed to read file metadata",
+                    e.to_string(),
+                )),
+            )
+                .into_response();
+        }
+    };
+
+    let file_size = metadata.len();
+
+    // Determine content type from extension
+    let ext = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let content_type = crate::api::common::utils::get_content_type_for_format(&ext);
+
+    // Parse Range header for seeking support
+    let range = headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| {
+            if let Some(range_str) = s.strip_prefix("bytes=") {
+                let parts: Vec<&str> = range_str.split('-').collect();
+                if parts.len() == 2 {
+                    let start = parts[0].parse::<u64>().ok()?;
+                    let end = if parts[1].is_empty() {
+                        file_size - 1
+                    } else {
+                        parts[1].parse::<u64>().ok()?
+                    };
+                    Some((start, end))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+
+    // Read file content
+    let mut file = match fs::File::open(&file_path).await {
+        Ok(f) => f,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::with_details(
+                    "Failed to open file",
+                    e.to_string(),
+                )),
+            )
+                .into_response();
+        }
+    };
+
+    match range {
+        Some((start, end)) => {
+            // Partial content response
+            use tokio::io::AsyncSeekExt;
+
+            if let Err(e) = file.seek(std::io::SeekFrom::Start(start)).await {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::with_details(
+                        "Failed to seek in file",
+                        e.to_string(),
+                    )),
+                )
+                    .into_response();
+            }
+
+            let content_length = end - start + 1;
+            let mut buffer = vec![0u8; content_length as usize];
+            if let Err(e) = file.read_exact(&mut buffer).await {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::with_details(
+                        "Failed to read file",
+                        e.to_string(),
+                    )),
+                )
+                    .into_response();
+            }
+
+            (
+                StatusCode::PARTIAL_CONTENT,
+                [
+                    (header::CONTENT_TYPE, content_type.to_string()),
+                    (header::CONTENT_LENGTH, content_length.to_string()),
+                    (
+                        header::CONTENT_RANGE,
+                        format!("bytes {}-{}/{}", start, end, file_size),
+                    ),
+                    (header::ACCEPT_RANGES, "bytes".to_string()),
+                ],
+                buffer,
+            )
+                .into_response()
+        }
+        None => {
+            // Full content response
+            let mut buffer = Vec::new();
+            if let Err(e) = file.read_to_end(&mut buffer).await {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::with_details(
+                        "Failed to read file",
+                        e.to_string(),
+                    )),
+                )
+                    .into_response();
+            }
+
+            (
+                StatusCode::OK,
+                [
+                    (header::CONTENT_TYPE, content_type.to_string()),
+                    (header::CONTENT_LENGTH, file_size.to_string()),
+                    (header::ACCEPT_RANGES, "bytes".to_string()),
+                ],
+                buffer,
+            )
+                .into_response()
+        }
+    }
+}
+
 // =============================================================================
 // Scripts Endpoints
 // =============================================================================
@@ -1849,7 +2689,8 @@ pub async fn save_pending_edits(
         // Get the pending edit from database
         let pending: Option<PendingEditRow> = match sqlx::query_as(
             r#"SELECT id, session_id, track_id, edited_tags, computed_path, 
-                      cover_art_removed, cover_art_filename, created_at, updated_at
+                      cover_art_removed, cover_art_filename, replacement_audio_filename,
+                      replacement_audio_original_name, created_at, updated_at
                FROM tagger_pending_edits 
                WHERE session_id = ? AND track_id = ?"#,
         )
@@ -2042,21 +2883,13 @@ pub async fn save_pending_edits(
                 }
             }
 
-            // Move file from staging to target
-            if let Err(e) = fs::rename(&staging_path, &target_path).await {
-                // Try copy + delete for cross-device moves
-                match fs::copy(&staging_path, &target_path).await {
-                    Ok(_) => {
-                        let _ = fs::remove_file(&staging_path).await;
-                    }
-                    Err(copy_err) => {
-                        errors.push(SaveError {
-                            track_id: track_id.clone(),
-                            error: format!("Failed to move file: {} (copy: {})", e, copy_err),
-                        });
-                        continue;
-                    }
-                }
+            // Move file from staging to target (with cross-filesystem support)
+            if let Err(e) = move_file_cross_fs(&staging_path, &target_path).await {
+                errors.push(SaveError {
+                    track_id: track_id.clone(),
+                    error: format!("Failed to move file: {}", e),
+                });
+                continue;
             }
 
             // Delete from staged files table
@@ -2133,10 +2966,216 @@ pub async fn save_pending_edits(
                 }
             };
 
+            // Track the actual path we'll be working with (may change if replacement audio)
+            let mut working_path = current_path.clone();
+
+            // Track if we need to copy original tags/cover to replacement audio
+            let mut original_tags_for_replacement: Option<Vec<super::tags::TagEntry>> = None;
+            let mut original_cover_for_replacement: Option<(Vec<u8>, String)> = None;
+
+            // Handle replacement audio if present
+            if let Some(ref replacement_filename) = pending.replacement_audio_filename {
+                let replacement_dir = get_replacement_audio_dir(&user.username);
+                let replacement_file_path = replacement_dir.join(replacement_filename);
+
+                if replacement_file_path.exists() {
+                    // BEFORE replacing, read tags and cover art from the ORIGINAL file
+                    // so we can apply them to the replacement
+                    let original_path_clone = current_path.clone();
+                    let original_data = tokio::task::spawn_blocking(move || {
+                        use lofty::prelude::*;
+                        use lofty::probe::Probe;
+
+                        let tagged_file = match Probe::open(&original_path_clone)
+                            .and_then(|probe| probe.read())
+                        {
+                            Ok(f) => f,
+                            Err(e) => {
+                                tracing::warn!("Failed to read original file tags: {}", e);
+                                return (Vec::new(), None);
+                            }
+                        };
+
+                        // Extract tags from primary tag
+                        let tags = if let Some(tag) = tagged_file.primary_tag() {
+                            super::tags::extract_tags_from_tag(tag)
+                        } else {
+                            Vec::new()
+                        };
+
+                        // Extract cover art
+                        let cover = tagged_file
+                            .primary_tag()
+                            .and_then(|tag| tag.pictures().first())
+                            .or_else(|| {
+                                tagged_file
+                                    .tags()
+                                    .iter()
+                                    .find_map(|tag| tag.pictures().first())
+                            })
+                            .map(|pic| {
+                                let mime = pic
+                                    .mime_type()
+                                    .map_or_else(|| "image/jpeg".to_string(), |m| m.to_string());
+                                (pic.data().to_vec(), mime)
+                            });
+
+                        (tags, cover)
+                    })
+                    .await
+                    .unwrap_or_else(|e| {
+                        tracing::warn!("Failed to spawn blocking task: {}", e);
+                        (Vec::new(), None)
+                    });
+
+                    original_tags_for_replacement = Some(original_data.0);
+                    original_cover_for_replacement = original_data.1;
+
+                    // Get the new extension from the replacement file
+                    let new_ext = replacement_filename
+                        .rsplit('.')
+                        .next()
+                        .unwrap_or("")
+                        .to_lowercase();
+                    let old_ext = current_path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+
+                    // Determine target path - same as original but with new extension if different
+                    let target_path = if new_ext != old_ext {
+                        current_path.with_extension(&new_ext)
+                    } else {
+                        current_path.clone()
+                    };
+
+                    // Use a safe copy strategy: copy to temp file first, then rename
+                    // This prevents data loss if the copy fails partway through
+                    // Temp file is in the same directory as target so rename is atomic
+                    let temp_path = target_path.with_extension(format!("{}.tmp", new_ext));
+
+                    tracing::debug!(
+                        "Replacing audio: src={} temp={} target={}",
+                        replacement_file_path.display(),
+                        temp_path.display(),
+                        target_path.display()
+                    );
+
+                    // Step 1: Read source file and write to temp file
+                    // Using read+write instead of fs::copy for better cross-filesystem compatibility
+                    let copy_result: Result<(), std::io::Error> = async {
+                        let data = fs::read(&replacement_file_path).await?;
+                        fs::write(&temp_path, &data).await?;
+                        Ok(())
+                    }
+                    .await;
+
+                    match copy_result {
+                        Ok(_) => {
+                            // Step 2: Rename temp file to target (atomic on same filesystem)
+                            match fs::rename(&temp_path, &target_path).await {
+                                Ok(_) => {
+                                    // Step 3: Delete the old file if extension changed
+                                    if new_ext != old_ext && current_path.exists() {
+                                        if let Err(e) = fs::remove_file(&current_path).await {
+                                            tracing::warn!(
+                                                "Failed to remove old file after replacement: {}",
+                                                e
+                                            );
+                                        }
+                                    }
+
+                                    // Update working path
+                                    working_path = target_path.clone();
+
+                                    // Update database path if extension changed
+                                    if new_ext != old_ext {
+                                        let old_rel_path = &song.file_path;
+                                        // Find the position of the last dot and extract the stem
+                                        let new_rel_path =
+                                            if let Some(pos) = old_rel_path.rfind('.') {
+                                                format!("{}.{}", &old_rel_path[..pos], new_ext)
+                                            } else {
+                                                format!("{}.{}", old_rel_path, new_ext)
+                                            };
+
+                                        if let Err(e) = queries::update_song_path_and_format(
+                                            &state.pool,
+                                            track_id,
+                                            &new_rel_path,
+                                            &new_ext,
+                                        )
+                                        .await
+                                        {
+                                            tracing::warn!(
+                                                "Failed to update song path in database: {}",
+                                                e
+                                            );
+                                        }
+                                    }
+
+                                    // Clean up the staged replacement file
+                                    let _ = fs::remove_file(&replacement_file_path).await;
+                                }
+                                Err(e) => {
+                                    // Clean up temp file on rename failure
+                                    let _ = fs::remove_file(&temp_path).await;
+                                    tracing::error!(
+                                        "Failed to rename {} -> {}: {}",
+                                        temp_path.display(),
+                                        target_path.display(),
+                                        e
+                                    );
+                                    errors.push(SaveError {
+                                        track_id: track_id.clone(),
+                                        error: format!(
+                                            "Failed to rename replacement audio to {}: {}",
+                                            target_path.display(),
+                                            e
+                                        ),
+                                    });
+                                    continue;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            // Clean up temp file if it was partially written
+                            let _ = fs::remove_file(&temp_path).await;
+                            tracing::error!(
+                                "Failed to copy {} -> {}: {}",
+                                replacement_file_path.display(),
+                                temp_path.display(),
+                                e
+                            );
+                            errors.push(SaveError {
+                                track_id: track_id.clone(),
+                                error: format!(
+                                    "Failed to copy replacement audio from {} to {}: {}",
+                                    replacement_file_path.display(),
+                                    temp_path.display(),
+                                    e
+                                ),
+                            });
+                            continue;
+                        }
+                    }
+
+                    rescan_recommended = true;
+                } else {
+                    tracing::warn!(
+                        "Replacement audio file not found: {}",
+                        replacement_file_path.display()
+                    );
+                }
+            }
+
             // Determine cover art action
+            // For replacement audio: use original cover unless user explicitly changed/removed it
             let cover_art_action = if pending.cover_art_removed {
                 super::tags::CoverArtAction::Remove
             } else if let Some(ref filename) = pending.cover_art_filename {
+                // User explicitly set new cover art
                 let cover_art_path = cover_art_dir.join(filename);
                 match fs::read(&cover_art_path).await {
                     Ok(data) => {
@@ -2157,25 +3196,48 @@ pub async fn save_pending_edits(
                         continue;
                     }
                 }
+            } else if let Some((cover_data, mime)) = original_cover_for_replacement {
+                // Replacement audio: copy cover art from original file
+                super::tags::CoverArtAction::Set(cover_data, mime)
             } else {
                 super::tags::CoverArtAction::Keep
             };
 
             // Build update request for tags
-            let update_request = super::tags::UpdateTagsRequest {
-                set: edited_tags
+            // For replacement audio: start with original tags, then overlay user edits
+            let tags_to_set = if let Some(original_tags) = original_tags_for_replacement {
+                // Start with original tags
+                let mut tag_map: std::collections::HashMap<String, String> = original_tags
+                    .into_iter()
+                    .map(|t| (t.key, t.value))
+                    .collect();
+                // Apply user edits on top
+                for (key, value) in &edited_tags {
+                    tag_map.insert(key.clone(), value.clone());
+                }
+                tag_map
+                    .into_iter()
+                    .map(|(key, value)| super::tags::TagEntry { key, value })
+                    .collect()
+            } else {
+                // No replacement - just apply user edits
+                edited_tags
                     .iter()
                     .map(|(k, v)| super::tags::TagEntry {
                         key: k.clone(),
                         value: v.clone(),
                     })
-                    .collect(),
+                    .collect()
+            };
+
+            let update_request = super::tags::UpdateTagsRequest {
+                set: tags_to_set,
                 delete: vec![],
             };
 
-            // Apply tag changes with cover art support (on current path)
+            // Apply tag changes with cover art support (on working path - could be replacement file)
             if let Err(e) = super::tags::update_tags_with_cover_art(
-                &current_path,
+                &working_path,
                 &update_request,
                 cover_art_action,
             )
@@ -2252,29 +3314,21 @@ pub async fn save_pending_edits(
                         }
                     }
 
-                    // Move the file
-                    if let Err(e) = fs::rename(&current_path, &new_path).await {
-                        match fs::copy(&current_path, &new_path).await {
-                            Ok(_) => {
-                                if let Err(e) = fs::remove_file(&current_path).await {
-                                    tracing::warn!("Failed to remove original: {}", e);
-                                }
-                            }
-                            Err(copy_err) => {
-                                errors.push(SaveError {
-                                    track_id: track_id.clone(),
-                                    error: format!("Failed to move: {} (copy: {})", e, copy_err),
-                                });
-                                continue;
-                            }
-                        }
+                    // Move the file (with cross-filesystem support)
+                    if let Err(e) = move_file_cross_fs(&current_path, &new_path).await {
+                        errors.push(SaveError {
+                            track_id: track_id.clone(),
+                            error: format!("Failed to move file: {}", e),
+                        });
+                        continue;
                     }
 
                     // Update database path
                     if let Err(e) =
                         queries::update_song_path(&state.pool, track_id, new_rel_path).await
                     {
-                        let _ = fs::rename(&new_path, &current_path).await;
+                        // Try to move back on failure
+                        let _ = move_file_cross_fs(&new_path, &current_path).await;
                         errors.push(SaveError {
                             track_id: track_id.clone(),
                             error: format!("Failed to update database: {}", e),
@@ -2335,14 +3389,39 @@ pub async fn save_pending_edits(
         }
     }
 
-    Json(SavePendingEditsResponse {
-        success: errors.is_empty(),
-        saved_count,
-        errors,
-        rescan_recommended,
-        new_song_paths: new_song_ids,
-    })
-    .into_response()
+    // Log errors if any occurred
+    if !errors.is_empty() {
+        tracing::warn!(
+            "Save completed with {} errors out of {} tracks",
+            errors.len(),
+            saved_count as usize + errors.len()
+        );
+        for error in &errors {
+            tracing::warn!("  - {}: {}", error.track_id, error.error);
+        }
+    }
+
+    // Return appropriate status code based on results
+    let status = if errors.is_empty() {
+        StatusCode::OK
+    } else if saved_count == 0 {
+        StatusCode::INTERNAL_SERVER_ERROR
+    } else {
+        // Partial success
+        StatusCode::MULTI_STATUS
+    };
+
+    (
+        status,
+        Json(SavePendingEditsResponse {
+            success: errors.is_empty(),
+            saved_count,
+            errors,
+            rescan_recommended,
+            new_song_paths: new_song_ids,
+        }),
+    )
+        .into_response()
 }
 
 /// Helper function to get track IDs for a user's session (for orphaned files detection)

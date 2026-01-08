@@ -1,4 +1,5 @@
 pub mod browse;
+pub mod fs_utils;
 pub mod history;
 pub mod lists;
 pub mod models;

@@ -196,19 +196,25 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
   try {
     const response = await client.getQueueCurrentWindow(20, "small");
 
-    set(serverQueueStateAtom, {
-      totalCount: response.totalCount,
-      currentIndex: response.currentIndex,
-      positionMs: Number(response.positionMs),
-      isShuffled: response.isShuffled,
-      repeatMode: response.repeatMode as RepeatMode,
-      source: response.source,
-    });
+    // Empty queue (totalCount 0) means no queue exists yet
+    if (response.totalCount === 0) {
+      set(serverQueueStateAtom, null);
+      set(queueWindowAtom, null);
+    } else {
+      set(serverQueueStateAtom, {
+        totalCount: response.totalCount,
+        currentIndex: response.currentIndex,
+        positionMs: Number(response.positionMs),
+        isShuffled: response.isShuffled,
+        repeatMode: response.repeatMode as RepeatMode,
+        source: response.source,
+      });
 
-    set(queueWindowAtom, response.window);
+      set(queueWindowAtom, response.window);
+    }
   } catch (error) {
-    // No queue found, that's okay
-    console.debug("No queue found:", error);
+    // Network error or other failure
+    console.error("Failed to fetch queue:", error);
     set(serverQueueStateAtom, null);
     set(queueWindowAtom, null);
   } finally {

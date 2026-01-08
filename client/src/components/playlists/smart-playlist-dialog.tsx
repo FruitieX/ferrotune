@@ -37,17 +37,49 @@ const FIELDS = [
   { value: "year", label: "Year", type: "number" },
   { value: "playCount", label: "Play Count", type: "number" },
   { value: "duration", label: "Duration (seconds)", type: "number" },
+  { value: "bitrate", label: "Bitrate (kbps)", type: "number" },
+  { value: "rating", label: "Rating", type: "number" },
   { value: "dateAdded", label: "Date Added", type: "date" },
   { value: "lastPlayed", label: "Last Played", type: "date" },
+  {
+    value: "fileFormat",
+    label: "File Format",
+    type: "enum",
+    enumOptions: [
+      { value: "flac", label: "FLAC" },
+      { value: "mp3", label: "MP3" },
+      { value: "opus", label: "Opus" },
+      { value: "ogg", label: "Ogg Vorbis" },
+      { value: "m4a", label: "M4A/AAC" },
+      { value: "wav", label: "WAV" },
+      { value: "aiff", label: "AIFF" },
+    ],
+  },
   { value: "starred", label: "Starred", type: "boolean" },
+  { value: "coverArt", label: "Has Cover Art", type: "boolean" },
+  { value: "shuffleExcluded", label: "Shuffle Excluded", type: "boolean" },
 ] as const;
 
+type FieldType = (typeof FIELDS)[number]["type"];
+
+interface FieldDefinition {
+  value: string;
+  label: string;
+  type: FieldType;
+  enumOptions?: { value: string; label: string }[];
+}
+
 // Operators by type
-const OPERATORS = {
+const OPERATORS: Record<FieldType, { value: string; label: string }[]> = {
   text: [
     { value: "contains", label: "contains" },
+    { value: "notContains", label: "does not contain" },
     { value: "eq", label: "equals" },
     { value: "neq", label: "does not equal" },
+    { value: "startsWith", label: "starts with" },
+    { value: "endsWith", label: "ends with" },
+    { value: "empty", label: "is empty" },
+    { value: "notEmpty", label: "is not empty" },
   ],
   number: [
     { value: "eq", label: "equals" },
@@ -56,13 +88,24 @@ const OPERATORS = {
     { value: "gte", label: "at least" },
     { value: "lt", label: "less than" },
     { value: "lte", label: "at most" },
+    { value: "empty", label: "is empty" },
+    { value: "notEmpty", label: "is not empty" },
   ],
   date: [
     { value: "within", label: "within last" },
     { value: "gt", label: "after" },
     { value: "lt", label: "before" },
+    { value: "empty", label: "never" },
+    { value: "notEmpty", label: "has value" },
   ],
-  boolean: [{ value: "eq", label: "is" }],
+  boolean: [
+    { value: "eq", label: "is" },
+    { value: "neq", label: "is not" },
+  ],
+  enum: [
+    { value: "eq", label: "is" },
+    { value: "neq", label: "is not" },
+  ],
 };
 
 // Sort field options
@@ -404,8 +447,10 @@ export function SmartPlaylistDialog({
                         </SelectContent>
                       </Select>
 
-                      {/* Value input */}
-                      {fieldType === "boolean" ? (
+                      {/* Value input - hidden for empty/notEmpty operators */}
+                      {["empty", "notEmpty"].includes(cond.operator) ? (
+                        <div className="flex-1" /> /* Spacer */
+                      ) : fieldType === "boolean" ? (
                         <Select
                           value={String(cond.value)}
                           onValueChange={(v) =>
@@ -420,10 +465,41 @@ export function SmartPlaylistDialog({
                             <SelectItem value="false">No</SelectItem>
                           </SelectContent>
                         </Select>
+                      ) : fieldType === "enum" ? (
+                        <Select
+                          value={String(cond.value)}
+                          onValueChange={(v) =>
+                            updateCondition(cond.id, { value: v })
+                          }
+                        >
+                          <SelectTrigger className="flex-1">
+                            <SelectValue placeholder="Select..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(
+                              FIELDS.find(
+                                (f) => f.value === cond.field,
+                              ) as FieldDefinition
+                            )?.enumOptions?.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       ) : fieldType === "date" && cond.operator === "within" ? (
                         <Input
                           className="flex-1"
                           placeholder="e.g., 30d, 1w, 6m"
+                          value={String(cond.value)}
+                          onChange={(e) =>
+                            updateCondition(cond.id, { value: e.target.value })
+                          }
+                        />
+                      ) : fieldType === "date" ? (
+                        <Input
+                          className="flex-1"
+                          type="date"
                           value={String(cond.value)}
                           onChange={(e) =>
                             updateCondition(cond.id, { value: e.target.value })

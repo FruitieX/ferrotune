@@ -12,6 +12,7 @@ import {
   ImageIcon,
   X,
   FolderOpen,
+  FileAudio,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -68,6 +69,8 @@ interface ChangeSummary {
   /** Music folder path for library prefix display */
   musicFolderPath: string | null;
   isStaged: boolean;
+  /** Replacement audio filename if staged */
+  replacementAudioFilename: string | null;
 }
 
 interface ConflictResolution {
@@ -267,6 +270,9 @@ export function SaveConfirmationDialog({
         newCoverArtDataUrl,
         musicFolderPath: state.track.musicFolderPath ?? null,
         isStaged: state.track.isStaged,
+        replacementAudioFilename: state.hasReplacementAudio
+          ? (state.replacementAudioOriginalName ?? "Replacement audio staged")
+          : null,
       });
     }
 
@@ -751,6 +757,17 @@ export function SaveConfirmationDialog({
                               ) : null}
                             </>
                           )}
+                        </div>
+                      </div>
+                    )}
+                    {change.replacementAudioFilename && (
+                      <div className="text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <FileAudio className="w-3 h-3 text-muted-foreground" />
+                          <span className="text-muted-foreground">Audio:</span>
+                          <span className="text-green-500 truncate">
+                            Replaced with {change.replacementAudioFilename}
+                          </span>
                         </div>
                       </div>
                     )}

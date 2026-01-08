@@ -3,6 +3,8 @@
 //! This module implements the OpenSubsonic API specification for compatibility
 //! with existing Subsonic music player clients.
 
+use axum::response::IntoResponse;
+
 pub mod auth;
 pub mod browse;
 pub mod coverart;
@@ -151,5 +153,19 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 /// Fallback handler for unknown endpoints (used by main router)
 pub async fn fallback_handler(uri: axum::http::Uri) -> impl axum::response::IntoResponse {
     tracing::warn!(path = %uri.path(), "Unknown endpoint requested");
-    crate::error::Error::InvalidRequest(format!("Endpoint not implemented: {}", uri.path()))
+
+    // For Subsonic API endpoints, return Subsonic-style error (HTTP 200 per spec)
+    // For other endpoints, return proper HTTP 404
+    if uri.path().starts_with("/rest/") {
+        crate::error::Error::NotFound(format!("Endpoint not implemented: {}", uri.path()))
+            .into_response()
+    } else {
+        (
+            axum::http::StatusCode::NOT_FOUND,
+            axum::Json(serde_json::json!({
+                "error": format!("Endpoint not found: {}", uri.path())
+            })),
+        )
+            .into_response()
+    }
 }

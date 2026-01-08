@@ -11,6 +11,8 @@ import {
   FileCode,
   Save,
   Plus,
+  FileAudio,
+  RotateCcw,
 } from "lucide-react";
 import type { TaggerScript } from "@/lib/store/tagger";
 import {
@@ -40,12 +42,17 @@ interface TaggerGridContextMenuProps {
   onRunOneOffScript: () => void;
   onSave: () => void;
   onRemove: () => void;
+  onImportFromFile?: () => void;
+  onRevertImportFromFile?: () => void;
   // State
   canUndo: boolean;
   canRedo: boolean;
   canRevert: boolean;
   canSave: boolean;
   canRemove: boolean;
+  canImportFromFile: boolean;
+  hasAnyReplacementAudio: boolean;
+  importFromFileLabel: string;
   scripts: TaggerScript[];
 }
 
@@ -64,11 +71,16 @@ export function TaggerGridContextMenu({
   onRunOneOffScript,
   onSave,
   onRemove,
+  onImportFromFile,
+  onRevertImportFromFile,
   canUndo,
   canRedo,
   canRevert,
   canSave,
   canRemove,
+  canImportFromFile,
+  hasAnyReplacementAudio,
+  importFromFileLabel,
   scripts,
 }: TaggerGridContextMenuProps) {
   return (
@@ -142,6 +154,25 @@ export function TaggerGridContextMenu({
           <Play className="w-4 h-4" />
           <span>Play</span>
         </DropdownMenuItem>
+
+        {/* Import from file - for library tracks */}
+        {canImportFromFile && (
+          <>
+            <DropdownMenuSeparator />
+            {/* Always show Replace with File option */}
+            <DropdownMenuItem onClick={onImportFromFile}>
+              <FileAudio className="w-4 h-4" />
+              <span>{importFromFileLabel}</span>
+            </DropdownMenuItem>
+            {/* Show revert option if any selected have replacement */}
+            {hasAnyReplacementAudio && (
+              <DropdownMenuItem onClick={onRevertImportFromFile}>
+                <RotateCcw className="w-4 h-4" />
+                <span>Revert Audio Replacement</span>
+              </DropdownMenuItem>
+            )}
+          </>
+        )}
 
         <DropdownMenuSeparator />
 
