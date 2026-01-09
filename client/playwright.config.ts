@@ -29,7 +29,7 @@ export default defineConfig({
   retries: process.env.CI ? 3 : 1,
 
   /* Use 50% of available CPUs for parallel execution */
-  workers: "50%",
+  workers: process.env.CI ? "100%" : "50%",
 
   /* Global timeout per test */
   timeout: 60_000,

@@ -697,6 +697,8 @@ export class FerrotuneClient {
     } else if (this.apiKey) {
       params.set("apiKey", this.apiKey);
     }
+    params.set("v", API_VERSION);
+    params.set("c", CLIENT_NAME);
     params.set("id", id);
 
     return `${this.serverUrl}/ferrotune/download?${params.toString()}`;

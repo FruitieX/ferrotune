@@ -37,3 +37,12 @@ export function useIsMobile(): boolean {
   const isDesktop = useIsDesktop();
   return !isDesktop;
 }
+
+/**
+ * Hook that returns true when viewport is below sm breakpoint (640px).
+ * Used for features that should only be active on small screens,
+ * e.g., swipe gestures when playback controls are hidden.
+ */
+export function useIsSmallScreen(): boolean {
+  return !useMediaQuery("(min-width: 640px)");
+}

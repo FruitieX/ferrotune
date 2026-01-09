@@ -26,7 +26,7 @@ import {
   Heart,
   MoreHorizontal,
 } from "lucide-react";
-import { useIsMobile } from "@/lib/hooks/use-media-query";
+import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -80,7 +80,7 @@ interface NowPlayingInfoProps {
 
 /** Now playing track info - only re-renders when track changes */
 function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
-  const isMobile = useIsMobile();
+  const isSmallScreen = useIsSmallScreen();
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
   const { next, previous } = useAudioEngine();
 
@@ -107,7 +107,8 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
   }
 
   // Mobile: entire area is clickable to open fullscreen, swipeable to change tracks
-  if (isMobile) {
+  // Show swipeable controls only on small screens where playback buttons are hidden
+  if (isSmallScreen) {
     return (
       <SwipeableNowPlaying
         track={track}
