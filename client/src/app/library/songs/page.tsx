@@ -91,7 +91,6 @@ export default function SongsPage() {
       return { items: songs, total };
     },
     enabled: isReady,
-    staleTime: 0,
   });
 
   const isLoadingData = isLoading;

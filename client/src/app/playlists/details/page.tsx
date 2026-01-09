@@ -4,11 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MoreHorizontal,
   Pencil,
@@ -22,6 +18,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
+import { usePlaylistSparsePagination } from "@/lib/hooks/use-playlist-sparse-pagination";
 import {
   playlistViewModeAtom,
   playlistSortAtom,
@@ -187,53 +184,43 @@ function PlaylistDetailContent() {
     }
   }, [playlistId, isMounted, authLoading, router]);
 
-  // Fetch playlist songs with infinite scroll
+  // Fetch playlist songs with sparse pagination
   const {
-    data: playlistData,
+    entries: allEntries,
+    metadata: playlist,
     isLoading,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useInfiniteQuery({
+    ensureRange,
+  } = usePlaylistSparsePagination({
     queryKey: [
       "playlistSongs",
       playlistId,
       sortConfig.field,
       sortConfig.direction,
       debouncedFilter,
+      viewMode,
     ],
-    queryFn: async ({ pageParam = 0 }) => {
+    pageSize: PAGE_SIZE,
+    fetchPage: async (offset) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       return client.getPlaylistSongs(playlistId!, {
-        offset: pageParam,
+        offset,
         count: PAGE_SIZE,
         sort: sortConfig.field,
         sortDir: sortConfig.direction,
         filter: debouncedFilter.trim() || undefined,
-        inlineImages: "small",
+        inlineImages: viewMode === "grid" ? "medium" : "small",
       });
     },
-    getNextPageParam: (lastPage, allPages) => {
-      const loadedCount = allPages.reduce(
-        (sum, page) => sum + page.entries.length,
-        0,
-      );
-      return loadedCount < lastPage.filteredCount ? loadedCount : undefined;
-    },
-    initialPageParam: 0,
     enabled: isReady && !!playlistId,
-    placeholderData: (prev) => prev,
   });
 
-  // Extract playlist metadata from first page
-  const playlist = playlistData?.pages[0];
-
-  // Flatten entries from all pages
-  const allEntries = playlistData?.pages.flatMap((page) => page.entries) ?? [];
-
   // Convert entries to display items, including the server-provided songIndex
-  const displayItems: DisplayItem[] = allEntries.map((entry) => {
+  // Keep undefined slots for sparse pagination - VirtualizedGrid/List will render skeletons
+  const displayItems: (DisplayItem | undefined)[] = allEntries.map((entry) => {
+    if (entry === undefined) {
+      return undefined;
+    }
     if (entry.entryType === "song" && entry.song) {
       return {
         type: "song" as const,
@@ -254,8 +241,13 @@ function PlaylistDetailContent() {
     }
   });
 
-  // Extract just the songs for selection tracking
-  const displaySongs: Song[] = displayItems
+  // Loaded display items for operations (filtered, without undefined slots)
+  const loadedDisplayItems: DisplayItem[] = displayItems.filter(
+    (item): item is DisplayItem => item !== undefined,
+  );
+
+  // Extract just the songs for selection tracking (filter out undefined and missing)
+  const displaySongs: Song[] = loadedDisplayItems
     .filter(
       (item): item is Extract<DisplayItem, { type: "song" }> =>
         item.type === "song",
@@ -384,7 +376,7 @@ function PlaylistDetailContent() {
   // Shows confirmation dialog instead of direct removal
   const handleRemoveSingleSong = (songId: string) => {
     // Find the position of the song in the display items
-    const item = displayItems.find(
+    const item = loadedDisplayItems.find(
       (item) => item.type === "song" && item.song.id === songId,
     );
     if (!item || item.type !== "song") return;
@@ -412,7 +404,7 @@ function PlaylistDetailContent() {
   // Helper to remove a missing entry by entryId (no undo since we can't add it back)
   // Note: OpenSubsonic API uses position-based indices, so we look up the position
   const handleRemoveMissingEntry = async (entryId: string) => {
-    const item = displayItems.find((i) => i.entryId === entryId);
+    const item = loadedDisplayItems.find((i) => i.entryId === entryId);
     if (!item) return;
 
     const client = getClient();
@@ -443,7 +435,7 @@ function PlaylistDetailContent() {
 
   // Wrapper for song move to position (adapts Song to the generic interface)
   const handleSongMoveToPosition = (song: Song, currentIndex: number) => {
-    const item = displayItems.find(
+    const item = loadedDisplayItems.find(
       (i) =>
         i.type === "song" &&
         i.song.id === song.id &&
@@ -459,7 +451,7 @@ function PlaylistDetailContent() {
 
   // Handler for missing entry move to position
   const handleMissingMoveToPosition = (name: string, entryId: string) => {
-    const item = displayItems.find((i) => i.entryId === entryId);
+    const item = loadedDisplayItems.find((i) => i.entryId === entryId);
     if (!item) return;
     handleMoveToPosition({ name, entryId, position: item.position });
   };
@@ -467,7 +459,7 @@ function PlaylistDetailContent() {
   // Handler for refine match (for songs that have associated missing data)
   const handleRefineMatch = (song: Song, index: number) => {
     // Find the display item to get the missing data
-    const item = displayItems.find(
+    const item = loadedDisplayItems.find(
       (i) => i.type === "song" && i.song.id === song.id && i.position === index,
     );
     if (!item || item.type !== "song" || !item.missing) return;
@@ -483,7 +475,7 @@ function PlaylistDetailContent() {
   // Handler for unmatch (revert a matched song back to missing)
   // Shows confirmation dialog instead of immediate action
   const handleUnmatch = (song: Song, index: number) => {
-    const item = displayItems.find(
+    const item = loadedDisplayItems.find(
       (i) => i.type === "song" && i.song.id === song.id && i.position === index,
     );
     if (!item) return;
@@ -650,7 +642,7 @@ function PlaylistDetailContent() {
     const selected = getSelectedSongs();
     const selectedIds = new Set(selected.map((s) => s.id));
     const indices: number[] = [];
-    displayItems.forEach((item) => {
+    loadedDisplayItems.forEach((item) => {
       if (item.type === "song" && selectedIds.has(item.song.id)) {
         indices.push(item.position);
       }
@@ -696,7 +688,7 @@ function PlaylistDetailContent() {
 
       const newMissingIds = new Set(selectedMissingIds);
 
-      displayItems.forEach((item) => {
+      loadedDisplayItems.forEach((item) => {
         if (item.position >= start && item.position <= end) {
           if (item.type === "missing") {
             newMissingIds.add(`missing-${item.position}`);
@@ -746,7 +738,7 @@ function PlaylistDetailContent() {
 
   // Song selection handler (wrapper for unified handler with position tracking)
   const handleSongSelect = (id: string, event?: React.MouseEvent) => {
-    const item = displayItems.find(
+    const item = loadedDisplayItems.find(
       (i) => i.type === "song" && i.song.id === id,
     );
     if (item) {
@@ -774,7 +766,7 @@ function PlaylistDetailContent() {
     selectAll();
     // Select all missing entries
     const allMissingIds = new Set<string>();
-    displayItems.forEach((item) => {
+    loadedDisplayItems.forEach((item) => {
       if (item.type === "missing") {
         allMissingIds.add(`missing-${item.position}`);
       }
@@ -1041,7 +1033,7 @@ function PlaylistDetailContent() {
 
       {/* Track list */}
       <div className={cn("px-4 lg:px-6 py-4", hasSelection && "select-none")}>
-        {isLoading && displayItems.length === 0 ? (
+        {isLoading ? (
           viewMode === "grid" ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
               {Array.from({ length: 12 }).map((_, i) => (
@@ -1055,7 +1047,7 @@ function PlaylistDetailContent() {
               ))}
             </div>
           )
-        ) : displayItems.length > 0 ? (
+        ) : filteredCount > 0 || displayItems.length > 0 ? (
           viewMode === "grid" ? (
             <VirtualizedGrid
               items={displayItems}
@@ -1125,9 +1117,7 @@ function PlaylistDetailContent() {
                   ? `${item.position}-${item.song.id}`
                   : `missing-${item.position}`
               }
-              hasNextPage={hasNextPage ?? false}
-              isFetchingNextPage={isFetchingNextPage}
-              fetchNextPage={fetchNextPage}
+              ensureRange={ensureRange}
             />
           ) : (
             <>
@@ -1219,9 +1209,7 @@ function PlaylistDetailContent() {
                     : `missing-${item.position}`
                 }
                 estimateItemHeight={56}
-                hasNextPage={hasNextPage ?? false}
-                isFetchingNextPage={isFetchingNextPage}
-                fetchNextPage={fetchNextPage}
+                ensureRange={ensureRange}
               />
             </>
           )

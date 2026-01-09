@@ -78,8 +78,26 @@ export function CoverImage({
   lazy = !priority,
   showPlaceholderWhileLoading = false,
 }: CoverImageProps) {
+  // Helper to check if an image is cached (synchronous check)
+  const isImageCached = (imgSrc: string | null | undefined): boolean => {
+    if (!imgSrc) return false;
+    // Create a temporary Image to check if it's cached
+    // .complete is true if the image is cached or embedded
+    // .naturalWidth > 0 ensures it's a valid loaded image (not a broken one)
+    const testImg = new window.Image();
+    testImg.src = imgSrc;
+    return testImg.complete && testImg.naturalWidth > 0;
+  };
+
   const [hasError, setHasError] = useState(false);
-  const [isLoaded, setIsLoaded] = useState(false);
+  // Initialize isLoaded based on whether image is already cached
+  // This prevents flash when component mounts with a cached image
+  const [isLoaded, setIsLoaded] = useState(() => {
+    // Inline data is always immediately "loaded" (embedded in page)
+    if (inlineData) return true;
+    // Check browser cache for external URLs
+    return isImageCached(src);
+  });
   const [isVisible, setIsVisible] = useState(!lazy);
   const [prevSrc, setPrevSrc] = useState<string | null | undefined>(src);
   const [prevInlineData, setPrevInlineData] = useState<
@@ -104,11 +122,18 @@ export function CoverImage({
   const isRound = type === "artist";
 
   // Reset state when src or inlineData changes (React-recommended pattern for adjusting state when props change)
-  if (src !== prevSrc || inlineData !== prevInlineData) {
+  // We keep a flag to know if this is a "fresh" image or a src change
+  const isSrcChanging = src !== prevSrc || inlineData !== prevInlineData;
+  if (isSrcChanging) {
     setPrevSrc(src);
     setPrevInlineData(inlineData);
     setHasError(false);
-    setIsLoaded(false);
+    // Check if the new image is already cached - if so, keep isLoaded=true to avoid flash
+    if (inlineData) {
+      setIsLoaded(true);
+    } else {
+      setIsLoaded(isImageCached(src));
+    }
   }
 
   // Generate a unique color based on colorSeed (album/artist name) or fall back to alt
@@ -190,9 +215,14 @@ export function CoverImage({
           src={imageSrc}
           alt={alt || "Cover art"}
           fill
+          draggable={false}
           className={cn(
-            "object-cover transition-opacity duration-200",
-            isImageLoaded ? "opacity-100" : "opacity-0",
+            "object-cover",
+            // Only use opacity transition when loading, not when already loaded
+            // This prevents flash when switching to a cached image
+            isImageLoaded
+              ? "opacity-100"
+              : "opacity-0 transition-opacity duration-200",
           )}
           sizes={
             size === "full"

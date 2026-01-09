@@ -167,9 +167,26 @@ export function QueuePanel() {
   const clearQueue = useSetAtom(clearQueueAtom);
   const queueDisplayRef = useRef<VirtualizedQueueDisplayHandle>(null);
 
-  // Auto-scroll to current song when queue panel opens
+  // Track if we've already scrolled for this open state
+  const hasScrolledRef = useRef(false);
+
+  // Reset scroll tracking when panel closes
   useEffect(() => {
-    if (isOpen && !isQueueLoading && queueState && queueState.totalCount > 0) {
+    if (!isOpen) {
+      hasScrolledRef.current = false;
+    }
+  }, [isOpen]);
+
+  // Auto-scroll to current song when queue panel opens (only once per open)
+  useEffect(() => {
+    if (
+      isOpen &&
+      !isQueueLoading &&
+      queueState &&
+      queueState.totalCount > 0 &&
+      !hasScrolledRef.current
+    ) {
+      hasScrolledRef.current = true;
       // Use a small delay to ensure the virtualized list is mounted
       const timer = setTimeout(() => {
         queueDisplayRef.current?.scrollToNowPlaying("auto");
@@ -273,15 +290,27 @@ export function QueueSidebar() {
   const clearQueue = useSetAtom(clearQueueAtom);
   const queueDisplayRef = useRef<VirtualizedQueueDisplayHandle>(null);
 
-  // Auto-scroll to current song when queue sidebar opens
+  // Track if we've already scrolled for this open state
+  const hasScrolledRef = useRef(false);
+
+  // Reset scroll tracking when sidebar closes
+  useEffect(() => {
+    if (!isOpen) {
+      hasScrolledRef.current = false;
+    }
+  }, [isOpen]);
+
+  // Auto-scroll to current song when queue sidebar opens (only once per open)
   useEffect(() => {
     if (
       hydrated &&
       isOpen &&
       !isQueueLoading &&
       queueState &&
-      queueState.totalCount > 0
+      queueState.totalCount > 0 &&
+      !hasScrolledRef.current
     ) {
+      hasScrolledRef.current = true;
       // Use a small delay to ensure the virtualized list is mounted
       const timer = setTimeout(() => {
         queueDisplayRef.current?.scrollToNowPlaying("auto");

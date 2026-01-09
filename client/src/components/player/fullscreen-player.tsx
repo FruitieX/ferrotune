@@ -6,6 +6,8 @@ import {
   AnimatePresence,
   useMotionValue,
   useTransform,
+  animate,
+  type PanInfo,
 } from "framer-motion";
 import {
   ChevronDown,
@@ -30,6 +32,7 @@ import { CoverImage } from "@/components/shared/cover-image";
 import { WaveformProgressBar } from "@/components/player/waveform-progress-bar";
 import {
   fullscreenPlayerOpenAtom,
+  fullscreenOpenDragY,
   queuePanelOpenAtom,
   progressBarStyleAtom,
 } from "@/lib/store/ui";
@@ -51,6 +54,7 @@ import { useAudioEngine } from "@/lib/audio/hooks";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import { SongDropdownMenu } from "@/components/browse/song-context-menu";
+import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 
 export function FullscreenPlayer() {
   const [isOpen, setIsOpen] = useAtom(fullscreenPlayerOpenAtom);
@@ -66,6 +70,14 @@ export function FullscreenPlayer() {
   const progressBarStyle = useAtomValue(progressBarStyleAtom);
   const audioDuration = useAtomValue(durationAtom);
   const volumeContainerRef = useRef<HTMLDivElement>(null);
+  const isSmallScreen = useIsSmallScreen();
+
+  // Track if we're in the middle of a gesture-based close animation
+  const [isClosingViaGesture, setIsClosingViaGesture] = useState(false);
+  // Track if closing animation has completed (for pointer-events)
+  const [closeAnimationComplete, setCloseAnimationComplete] = useState(false);
+  // Track if we're currently opening via gesture (shared motion value is being dragged)
+  const [isOpeningWithGesture, setIsOpeningWithGesture] = useState(false);
 
   const { togglePlayPause, seek, next, previous } = useAudioEngine();
   const { isStarred, toggleStar } = useStarred(
@@ -77,13 +89,41 @@ export function FullscreenPlayer() {
 
   // Motion values for swipe-to-close
   const dragY = useMotionValue(0);
-  const playerOpacity = useTransform(dragY, [0, 300], [1, 0.5]);
+  // Opacity fades as the view is dragged down - fades to 0 as it reaches the bottom of the screen
+  const playerOpacity = useTransform(
+    dragY,
+    [0, 300, typeof window !== "undefined" ? window.innerHeight : 800],
+    [1, 0.7, 0],
+  );
+
+  // Transform the shared open gesture drag value to Y position for the sheet
+  // fullscreenOpenDragY is negative (upward swipe), we need to convert to Y position
+  // When dragY is 0, sheet is at 100% (offscreen), when dragY is -innerHeight, sheet is at 0% (visible)
+  const openGestureY = useTransform(fullscreenOpenDragY, (latest) => {
+    if (latest >= 0) return "100%";
+    const progress = Math.min(
+      1,
+      Math.abs(latest) /
+        (typeof window !== "undefined" ? window.innerHeight : 800),
+    );
+    return `${(1 - progress) * 100}%`;
+  });
 
   const duration = currentTrack?.duration ?? audioDuration ?? 0;
   const progress = isDragging ? localProgress : currentTime;
 
+  // Subscribe to the shared motion value to know when we're opening via gesture
+  useEffect(() => {
+    const unsubscribe = fullscreenOpenDragY.on("change", (latest) => {
+      // We're opening when the drag value is negative (swiping up)
+      const opening = latest < -10; // Small threshold to avoid flickering
+      setIsOpeningWithGesture(opening);
+    });
+    return unsubscribe;
+  }, []);
+
   // Close queue panel when fullscreen opens to avoid showing it on top unexpectedly
-  // Also reset dragY to fix animation after swipe-to-close
+  // Also reset dragY to fix animation after swipe-close
   useEffect(() => {
     if (isOpen) {
       setQueuePanelOpen(false);
@@ -216,17 +256,65 @@ export function FullscreenPlayer() {
     setQueuePanelOpen(true);
   };
 
+  // Handler for swipe-to-close gesture end
+  const handleDragEnd = (
+    _event: MouseEvent | TouchEvent | PointerEvent,
+    info: PanInfo,
+  ) => {
+    const { offset, velocity } = info;
+    const shouldClose = offset.y > 100 || velocity.y > 500;
+
+    if (shouldClose) {
+      // Mark that we're closing via gesture so exit animation is skipped
+      setIsClosingViaGesture(true);
+      // Mark animation complete immediately to allow tap-through
+      setCloseAnimationComplete(true);
+      // Animate off-screen then close
+      // Use a duration-based approach for cleaner unmounting
+      const animDuration = 250; // ms
+      animate(dragY, window.innerHeight, {
+        type: "tween",
+        duration: animDuration / 1000,
+        ease: "easeOut",
+      });
+      // Schedule the close after animation completes
+      // This ensures the drag gesture is fully complete before unmounting
+      setTimeout(() => {
+        setIsOpen(false);
+        setIsClosingViaGesture(false);
+        setCloseAnimationComplete(false);
+        dragY.set(0);
+      }, animDuration + 16); // Add one frame buffer
+    } else {
+      // Snap back to origin
+      animate(dragY, 0, { type: "spring", stiffness: 500, damping: 30 });
+    }
+  };
+
   const isEnded = playbackState === "ended";
+
+  // Should we render the player? Either when open, during closing gesture, or during opening gesture
+  const shouldRender = isOpen || isClosingViaGesture || isOpeningWithGesture;
 
   if (!currentTrack) return null;
 
+  // Determine animation state:
+  // - During opening gesture: use the shared motion value for smooth 60fps animation
+  // - When open: use AnimatePresence entry animation
+  // - When closing: use AnimatePresence exit animation
+  const useGestureAnimation = isOpeningWithGesture && !isOpen;
+
   return (
     <AnimatePresence>
-      {isOpen && (
+      {shouldRender && (
         <motion.div
-          initial={{ y: "100%" }}
-          animate={{ y: 0 }}
-          exit={{ y: "100%" }}
+          initial={{ y: useGestureAnimation ? undefined : "100%" }}
+          animate={{ y: useGestureAnimation ? undefined : 0 }}
+          exit={
+            isClosingViaGesture
+              ? { y: 0, opacity: 0, transition: { duration: 0 } }
+              : { y: "100%" }
+          }
           transition={{
             type: "spring",
             damping: 25,
@@ -234,8 +322,13 @@ export function FullscreenPlayer() {
             mass: 0.8,
           }}
           style={{
+            // During opening gesture, use the motion value for smooth animation
+            // Otherwise, let framer-motion handle the animation
+            y: useGestureAnimation ? openGestureY : undefined,
             // Opacity dims slightly while dragging to close
             opacity: playerOpacity,
+            // Disable pointer events during closing animation to prevent tap interception
+            pointerEvents: closeAnimationComplete ? "none" : "auto",
           }}
           data-fullscreen-player="true"
           className="fixed inset-0 z-50 bg-linear-to-b from-background/95 to-background flex flex-col"
@@ -255,275 +348,255 @@ export function FullscreenPlayer() {
           {/* Blur overlay */}
           <div className="absolute inset-0 backdrop-blur-3xl bg-background/70" />
 
-          {/* Content - entire view moves with drag */}
+          {/* Content - entire view is draggable to close on small screens */}
           <motion.div
-            className="relative z-10 flex flex-col h-full max-w-lg xl:max-w-6xl mx-auto w-full px-6 py-4"
-            style={{ y: dragY }}
+            className="relative z-10 flex flex-col h-full w-full"
+            style={{ y: dragY, touchAction: isSmallScreen ? "none" : "auto" }}
+            drag={isSmallScreen ? "y" : false}
+            dragConstraints={{ top: 0, bottom: 0 }}
+            dragElastic={{ top: 0, bottom: 0.5 }}
+            dragDirectionLock
+            onDragEnd={isSmallScreen ? handleDragEnd : undefined}
           >
-            {/* Header - drag handle for swipe down to close */}
-            <div
-              className="flex items-center justify-between touch-none cursor-grab active:cursor-grabbing"
-              onPointerDown={(e) => {
-                // Start drag tracking
-                const startY = e.clientY;
-                const handleMove = (moveEvent: PointerEvent) => {
-                  const deltaY = moveEvent.clientY - startY;
-                  if (deltaY > 0) {
-                    dragY.set(deltaY);
-                  } else {
-                    dragY.set(0);
+            {/* Inner container with max-width and padding */}
+            <div className="flex flex-col h-full max-w-lg xl:max-w-6xl mx-auto w-full px-6 py-4">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsOpen(false)}
+                  className="rounded-full"
+                >
+                  <ChevronDown className="w-6 h-6" />
+                </Button>
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                    {isEnded ? "Queue Ended" : "Now Playing"}
+                  </p>
+                  <p className="text-sm font-medium">
+                    {(queueState?.currentIndex ?? 0) + 1} /{" "}
+                    {queueState?.totalCount ?? 0}
+                  </p>
+                </div>
+                <SongDropdownMenu
+                  song={currentTrack}
+                  trigger={
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="rounded-full"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                    >
+                      <MoreHorizontal className="w-5 h-5" />
+                      <span className="sr-only">More options</span>
+                    </Button>
                   }
-                };
-                const handleUp = (upEvent: PointerEvent) => {
-                  const deltaY = upEvent.clientY - startY;
-                  // If dragged down far enough, close
-                  if (deltaY > 100) {
-                    setIsOpen(false);
-                  } else {
-                    // Snap back
-                    dragY.set(0);
-                  }
-                  document.removeEventListener("pointermove", handleMove);
-                  document.removeEventListener("pointerup", handleUp);
-                };
-                document.addEventListener("pointermove", handleMove);
-                document.addEventListener("pointerup", handleUp);
-              }}
-            >
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setIsOpen(false)}
-                className="rounded-full"
-              >
-                <ChevronDown className="w-6 h-6" />
-              </Button>
-              <div className="text-center">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                  {isEnded ? "Queue Ended" : "Now Playing"}
-                </p>
-                <p className="text-sm font-medium">
-                  {(queueState?.currentIndex ?? 0) + 1} /{" "}
-                  {queueState?.totalCount ?? 0}
-                </p>
-              </div>
-              <SongDropdownMenu
-                song={currentTrack}
-                trigger={
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="rounded-full"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onTouchStart={(e) => e.stopPropagation()}
-                  >
-                    <MoreHorizontal className="w-5 h-5" />
-                    <span className="sr-only">More options</span>
-                  </Button>
-                }
-              />
-            </div>
-
-            {/* Album Art */}
-            <div className="flex-1 flex items-center justify-center py-4 xl:py-8 min-h-0 overflow-hidden">
-              <motion.div
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ delay: 0.1 }}
-                className="w-full max-w-[min(80vh,500px)] xl:max-w-[min(60vh,800px)] aspect-square"
-              >
-                <CoverImage
-                  src={coverArtUrl}
-                  alt={currentTrack.album ?? currentTrack.title}
-                  colorSeed={currentTrack.album ?? undefined}
-                  type="song"
-                  size="full"
-                  className="rounded-lg shadow-2xl w-full h-full object-cover"
-                  priority
                 />
-              </motion.div>
-            </div>
-
-            {/* Track Info */}
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              className="flex items-center justify-between mb-6"
-            >
-              <div className="min-w-0 flex-1">
-                <h2 className="text-xl font-bold truncate">
-                  {currentTrack.title}
-                </h2>
-                <p className="text-muted-foreground truncate">
-                  {currentTrack.artist}
-                </p>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-full shrink-0"
-                onClick={toggleStar}
-              >
-                <Heart
-                  className={cn(
-                    "w-6 h-6",
-                    isStarred && "fill-red-500 text-red-500",
-                  )}
-                />
-              </Button>
-            </motion.div>
 
-            {/* Progress */}
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.3 }}
-              className="space-y-2 mb-6"
-            >
-              {/* Progress bar - waveform or simple based on preference */}
-              <div className="relative h-4">
-                {progressBarStyle === "waveform" ? (
-                  <WaveformProgressBar className="absolute inset-x-0 top-1/2" />
-                ) : (
-                  <Slider
-                    value={[isEnded ? 0 : progress]}
-                    max={duration}
-                    step={1}
-                    onValueChange={handleProgressChange}
-                    onValueCommit={handleProgressCommit}
-                    className="w-full cursor-pointer absolute inset-x-0 top-1/2 -translate-y-1/2"
-                    disabled={isEnded}
+              {/* Album Art */}
+              <div className="flex-1 flex items-center justify-center py-4 xl:py-8 min-h-0 overflow-hidden">
+                <motion.div
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ delay: 0.1 }}
+                  className="w-full max-w-[min(80vh,500px)] xl:max-w-[min(60vh,800px)] aspect-square"
+                >
+                  <CoverImage
+                    src={coverArtUrl}
+                    alt={currentTrack.album ?? currentTrack.title}
+                    colorSeed={currentTrack.album ?? undefined}
+                    type="song"
+                    size="full"
+                    className="rounded-lg shadow-2xl w-full h-full object-cover"
+                    priority
                   />
-                )}
+                </motion.div>
               </div>
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span className="tabular-nums">
-                  {formatDuration(isEnded ? 0 : Math.floor(progress))}
-                </span>
-                <span className="tabular-nums">
-                  {formatDuration(isEnded ? 0 : duration)}
-                </span>
-              </div>
-            </motion.div>
 
-            {/* Controls */}
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.4 }}
-              className="flex items-center justify-center gap-6 mb-8"
-            >
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "rounded-full",
-                  queueState?.isShuffled && "text-primary",
-                )}
-                onClick={() => toggleShuffle()}
+              {/* Track Info */}
+              <motion.div
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.2 }}
+                className="flex items-center justify-between mb-6"
               >
-                <Shuffle className="w-5 h-5" />
-              </Button>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-xl font-bold truncate">
+                    {currentTrack.title}
+                  </h2>
+                  <p className="text-muted-foreground truncate">
+                    {currentTrack.artist}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full shrink-0"
+                  onClick={toggleStar}
+                >
+                  <Heart
+                    className={cn(
+                      "w-6 h-6",
+                      isStarred && "fill-red-500 text-red-500",
+                    )}
+                  />
+                </Button>
+              </motion.div>
 
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-full w-12 h-12"
-                onClick={previous}
+              {/* Progress */}
+              <motion.div
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.3 }}
+                className="space-y-2 mb-6"
               >
-                <SkipBack className="w-7 h-7" />
-              </Button>
+                {/* Progress bar - waveform or simple based on preference */}
+                <div className="relative h-4">
+                  {progressBarStyle === "waveform" ? (
+                    <WaveformProgressBar className="absolute inset-x-0 top-1/2" />
+                  ) : (
+                    <Slider
+                      value={[isEnded ? 0 : progress]}
+                      max={duration}
+                      step={1}
+                      onValueChange={handleProgressChange}
+                      onValueCommit={handleProgressCommit}
+                      className="w-full cursor-pointer absolute inset-x-0 top-1/2 -translate-y-1/2"
+                      disabled={isEnded}
+                    />
+                  )}
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="tabular-nums">
+                    {formatDuration(isEnded ? 0 : Math.floor(progress))}
+                  </span>
+                  <span className="tabular-nums">
+                    {formatDuration(isEnded ? 0 : duration)}
+                  </span>
+                </div>
+              </motion.div>
 
-              <Button
-                size="icon"
-                className="rounded-full w-16 h-16 bg-primary hover:bg-primary/80"
-                onClick={togglePlayPause}
-              >
-                {playbackState === "playing" ? (
-                  <Pause className="w-8 h-8" />
-                ) : (
-                  <Play className="w-8 h-8 ml-1" />
-                )}
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-full w-12 h-12"
-                onClick={next}
-              >
-                <SkipForward className="w-7 h-7" />
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "rounded-full",
-                  repeatMode !== "off" && "text-primary",
-                )}
-                onClick={cycleRepeat}
-              >
-                {repeatMode === "one" ? (
-                  <Repeat1 className="w-5 h-5" />
-                ) : (
-                  <Repeat className="w-5 h-5" />
-                )}
-              </Button>
-            </motion.div>
-
-            {/* Bottom bar */}
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.5 }}
-              className="flex items-center justify-between pb-4"
-            >
-              {/* Volume */}
-              <div
-                ref={volumeContainerRef}
-                className="flex items-center gap-2 w-32"
+              {/* Controls */}
+              <motion.div
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.4 }}
+                className="flex items-center justify-center gap-6 mb-8"
               >
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="shrink-0 rounded-full h-8 w-8"
-                  onClick={() => setIsMuted(!isMuted)}
+                  className={cn(
+                    "rounded-full",
+                    queueState?.isShuffled && "text-primary",
+                  )}
+                  onClick={() => toggleShuffle()}
                 >
-                  {isMuted || volume === 0 ? (
-                    <VolumeX className="w-4 h-4" />
+                  <Shuffle className="w-5 h-5" />
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full w-12 h-12"
+                  onClick={previous}
+                >
+                  <SkipBack className="w-7 h-7" />
+                </Button>
+
+                <Button
+                  size="icon"
+                  className="rounded-full w-16 h-16 bg-primary hover:bg-primary/80"
+                  onClick={togglePlayPause}
+                >
+                  {playbackState === "playing" ? (
+                    <Pause className="w-8 h-8" />
                   ) : (
-                    <Volume2 className="w-4 h-4" />
+                    <Play className="w-8 h-8 ml-1" />
                   )}
                 </Button>
-                <Slider
-                  value={[isMuted ? 0 : volume]}
-                  max={1}
-                  step={0.01}
-                  onValueChange={([v]) => {
-                    setVolume(v);
-                    if (v > 0) setIsMuted(false);
-                  }}
-                  className="w-full"
-                />
-              </div>
 
-              {/* Queue button */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-full gap-2"
-                onClick={openQueue}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full w-12 h-12"
+                  onClick={next}
+                >
+                  <SkipForward className="w-7 h-7" />
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "rounded-full",
+                    repeatMode !== "off" && "text-primary",
+                  )}
+                  onClick={cycleRepeat}
+                >
+                  {repeatMode === "one" ? (
+                    <Repeat1 className="w-5 h-5" />
+                  ) : (
+                    <Repeat className="w-5 h-5" />
+                  )}
+                </Button>
+              </motion.div>
+
+              {/* Bottom bar */}
+              <motion.div
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.5 }}
+                className="flex items-center justify-between pb-4"
               >
-                <ListMusic className="w-4 h-4" />
-                Queue
-              </Button>
-            </motion.div>
+                {/* Volume */}
+                <div
+                  ref={volumeContainerRef}
+                  className="flex items-center gap-2 w-32"
+                >
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0 rounded-full h-8 w-8"
+                    onClick={() => setIsMuted(!isMuted)}
+                  >
+                    {isMuted || volume === 0 ? (
+                      <VolumeX className="w-4 h-4" />
+                    ) : (
+                      <Volume2 className="w-4 h-4" />
+                    )}
+                  </Button>
+                  <Slider
+                    value={[isMuted ? 0 : volume]}
+                    max={1}
+                    step={0.01}
+                    onValueChange={([v]) => {
+                      setVolume(v);
+                      if (v > 0) setIsMuted(false);
+                    }}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Queue button */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-full gap-2"
+                  onClick={openQueue}
+                >
+                  <ListMusic className="w-4 h-4" />
+                  Queue
+                </Button>
+              </motion.div>
+            </div>
           </motion.div>
         </motion.div>
       )}

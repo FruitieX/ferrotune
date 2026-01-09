@@ -241,6 +241,10 @@ interface SongContextMenuProps {
   onRefineMatch?: (song: Song, index: number) => void;
   showUnmatch?: boolean;
   onUnmatch?: (song: Song, index: number) => void;
+  /** Padding from viewport edges for collision detection. Use larger bottom value for elements near screen bottom. */
+  collisionPadding?:
+    | number
+    | { top?: number; right?: number; bottom?: number; left?: number };
 }
 
 export function SongContextMenu({
@@ -261,6 +265,7 @@ export function SongContextMenu({
   onRefineMatch,
   showUnmatch = false,
   onUnmatch,
+  collisionPadding,
 }: SongContextMenuProps) {
   const {
     isStarred,
@@ -291,6 +296,7 @@ export function SongContextMenu({
         <ContextMenuContent
           className="w-56"
           onDoubleClick={(e) => e.stopPropagation()}
+          collisionPadding={collisionPadding}
         >
           <SongMenuItemsQueue
             components={contextMenuComponents}

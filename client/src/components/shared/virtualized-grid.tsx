@@ -4,8 +4,11 @@ import { useRef, useEffect, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 
+// Debounce delay for ensureRange calls (ms) - prevents request spam during rapid scrolling
+const ENSURE_RANGE_DEBOUNCE_MS = 100;
+
 interface VirtualizedGridProps<T> {
-  items: T[];
+  items: (T | undefined)[];
   /** Total count of items (for scroll height when using infinite scroll) */
   totalCount?: number;
   renderItem: (item: T, index: number) => React.ReactNode;
@@ -158,17 +161,21 @@ export function VirtualizedGrid<T>({
   // Ref to track last fetch to prevent duplicate calls
   const lastFetchedRowRef = useRef<number>(-1);
 
-  // Sparse pagination: request loading of visible item range
+  // Sparse pagination: request loading of visible item range (debounced)
   useEffect(() => {
     if (!ensureRange) return;
 
-    const firstVirtualRow = virtualRows[0];
-    const lastVirtualRow = virtualRows[virtualRows.length - 1];
-    if (!firstVirtualRow || !lastVirtualRow) return;
+    const debounceTimeout = setTimeout(() => {
+      const firstVirtualRow = virtualRows[0];
+      const lastVirtualRow = virtualRows[virtualRows.length - 1];
+      if (!firstVirtualRow || !lastVirtualRow) return;
 
-    const startIndex = firstVirtualRow.index * columnCount;
-    const endIndex = (lastVirtualRow.index + 1) * columnCount - 1;
-    ensureRange(startIndex, endIndex);
+      const startIndex = firstVirtualRow.index * columnCount;
+      const endIndex = (lastVirtualRow.index + 1) * columnCount - 1;
+      ensureRange(startIndex, endIndex);
+    }, ENSURE_RANGE_DEBOUNCE_MS);
+
+    return () => clearTimeout(debounceTimeout);
   }, [ensureRange, virtualRows, columnCount]);
 
   // Sequential pagination: fetch more when approaching the end of loaded data
@@ -242,23 +249,21 @@ export function VirtualizedGrid<T>({
                 {Array.from({ length: columnCount }).map((_, colIndex) => {
                   const globalIndex = startIndex + colIndex;
                   const item = items[globalIndex];
-                  // Check if item is loaded (handles both sparse and sequential pagination)
-                  const isLoaded = item !== undefined;
                   // Don't render cells beyond total count
                   if (globalIndex >= effectiveTotalCount) {
                     return <div key={`empty-${rowIndex}-${colIndex}`} />;
                   }
+                  // Check if item is loaded (handles both sparse and sequential pagination)
+                  if (item === undefined) {
+                    return (
+                      <div key={`skeleton-${rowIndex}-${colIndex}`}>
+                        {renderSkeleton?.(globalIndex)}
+                      </div>
+                    );
+                  }
                   return (
-                    <div
-                      key={
-                        isLoaded
-                          ? getItemKey(item, globalIndex)
-                          : `skeleton-${rowIndex}-${colIndex}`
-                      }
-                    >
-                      {isLoaded
-                        ? renderItem(item, globalIndex)
-                        : renderSkeleton?.(globalIndex)}
+                    <div key={getItemKey(item, globalIndex)}>
+                      {renderItem(item, globalIndex)}
                     </div>
                   );
                 })}
@@ -273,7 +278,7 @@ export function VirtualizedGrid<T>({
 
 // Virtualized list for compact/list view
 interface VirtualizedListProps<T> {
-  items: T[];
+  items: (T | undefined)[];
   /** Total count of items (for scroll height when using infinite scroll) */
   totalCount?: number;
   renderItem: (item: T, index: number) => React.ReactNode;
@@ -382,15 +387,19 @@ export function VirtualizedList<T>({
   // Ref to track last fetch to prevent duplicate calls
   const lastFetchedIndexRef = useRef<number>(-1);
 
-  // Sparse pagination: request loading of visible item range
+  // Sparse pagination: request loading of visible item range (debounced)
   useEffect(() => {
     if (!ensureRange) return;
 
-    const firstVirtualItem = virtualItems[0];
-    const lastVirtualItem = virtualItems[virtualItems.length - 1];
-    if (!firstVirtualItem || !lastVirtualItem) return;
+    const debounceTimeout = setTimeout(() => {
+      const firstVirtualItem = virtualItems[0];
+      const lastVirtualItem = virtualItems[virtualItems.length - 1];
+      if (!firstVirtualItem || !lastVirtualItem) return;
 
-    ensureRange(firstVirtualItem.index, lastVirtualItem.index);
+      ensureRange(firstVirtualItem.index, lastVirtualItem.index);
+    }, ENSURE_RANGE_DEBOUNCE_MS);
+
+    return () => clearTimeout(debounceTimeout);
   }, [ensureRange, virtualItems]);
 
   // Sequential pagination: fetch more when approaching the end of loaded data
@@ -437,9 +446,6 @@ export function VirtualizedList<T>({
       >
         {virtualItems.map((virtualItem) => {
           const item = items[virtualItem.index];
-          // For sparse pagination, item exists but may be undefined
-          // For sequential pagination, check if index is within loaded range
-          const isLoaded = item !== undefined;
 
           return (
             <div
@@ -455,7 +461,7 @@ export function VirtualizedList<T>({
                 transform: `translateY(${virtualItem.start - (autoScrollMargin ? scrollMargin : 0)}px)`,
               }}
             >
-              {isLoaded
+              {item !== undefined
                 ? renderItem(item, virtualItem.index)
                 : renderSkeleton?.(virtualItem.index)}
             </div>

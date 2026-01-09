@@ -1035,7 +1035,7 @@ pub async fn toggle_shuffle(
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
-    let total_count = queries::get_queue_length(&state.pool, user.user_id).await? as usize;
+    let total_count = get_queue_total_count(&state.pool, &queue, user.user_id).await?;
     let current_index = queue.current_index as usize;
 
     if request.enabled {
@@ -1093,7 +1093,7 @@ pub async fn update_position(
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
-    let total_count = queries::get_queue_length(&state.pool, user.user_id).await? as usize;
+    let total_count = get_queue_total_count(&state.pool, &queue, user.user_id).await?;
 
     if request.current_index >= total_count {
         return Err(FerrotuneApiError(Error::InvalidRequest(
@@ -1504,6 +1504,21 @@ pub async fn materialize_lazy_queue_page(
     .await?;
 
     Ok(all_songs.into_iter().skip(offset).take(limit).collect())
+}
+
+/// Get the total count for a queue (handles both lazy and non-lazy queues)
+/// For lazy queues: uses cached total_count or re-materializes to count
+/// For non-lazy queues: counts entries in the database
+pub async fn get_queue_total_count(
+    pool: &sqlx::SqlitePool,
+    queue: &crate::db::models::PlayQueue,
+    user_id: i64,
+) -> Result<usize> {
+    if queue.is_lazy {
+        get_lazy_queue_count(pool, queue, user_id).await
+    } else {
+        Ok(queries::get_queue_length(pool, user_id).await? as usize)
+    }
 }
 
 /// Get the total count for a lazy queue

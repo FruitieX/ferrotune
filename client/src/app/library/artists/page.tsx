@@ -88,7 +88,6 @@ export default function ArtistsPage() {
       return { items: artists, total };
     },
     enabled: isReady,
-    staleTime: 0,
   });
 
   const displayArtists = rawArtists;

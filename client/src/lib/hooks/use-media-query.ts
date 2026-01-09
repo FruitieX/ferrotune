@@ -39,10 +39,10 @@ export function useIsMobile(): boolean {
 }
 
 /**
- * Hook that returns true when viewport is below sm breakpoint (640px).
+ * Hook that returns true when viewport is below md breakpoint (768px).
  * Used for features that should only be active on small screens,
- * e.g., swipe gestures when playback controls are hidden.
+ * e.g., swipe gestures and compact now playing layout.
  */
 export function useIsSmallScreen(): boolean {
-  return !useMediaQuery("(min-width: 640px)");
+  return !useMediaQuery("(min-width: 768px)");
 }

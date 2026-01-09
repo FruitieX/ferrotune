@@ -7,7 +7,7 @@
 use crate::api::common::playqueue::find_current_index;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
-use crate::error::Result;
+use crate::error::FerrotuneApiResult;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -43,7 +43,7 @@ pub async fn save_play_queue(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<SavePlayQueueRequest>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<impl IntoResponse> {
     // Use a transaction to ensure atomicity
     let mut tx = state.pool.begin().await?;
 

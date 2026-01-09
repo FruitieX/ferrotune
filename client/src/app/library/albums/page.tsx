@@ -98,7 +98,6 @@ export default function AlbumsPage() {
       return { items: albums, total };
     },
     enabled: isReady,
-    staleTime: 0,
   });
 
   const isLoadingData = isLoading;

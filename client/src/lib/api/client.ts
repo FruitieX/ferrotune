@@ -734,7 +734,14 @@ export class FerrotuneClient {
         ...options,
         headers,
       });
-    } catch (_fetchError) {
+    } catch (fetchError) {
+      // Check if this is an abort error
+      if (
+        fetchError instanceof DOMException &&
+        fetchError.name === "AbortError"
+      ) {
+        throw fetchError; // Re-throw abort errors without toast
+      }
       // Network error (offline, connection refused, etc.)
       const message = "Network error. Please check your connection.";
       if (!silent) {
@@ -1216,6 +1223,7 @@ export class FerrotuneClient {
       offset?: number;
       limit?: number;
       inlineImages?: "small" | "medium";
+      signal?: AbortSignal;
     } = {},
   ): Promise<GetQueueResponse> {
     const query = new URLSearchParams();
@@ -1224,7 +1232,9 @@ export class FerrotuneClient {
     if (params.inlineImages !== undefined)
       query.set("inlineImages", params.inlineImages);
     const queryStr = query.toString();
-    return this.request(`/ferrotune/queue${queryStr ? `?${queryStr}` : ""}`);
+    return this.request(`/ferrotune/queue${queryStr ? `?${queryStr}` : ""}`, {
+      signal: params.signal,
+    });
   }
 
   /**

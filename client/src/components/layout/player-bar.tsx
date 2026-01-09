@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   motion,
@@ -55,6 +55,7 @@ import {
 import {
   queuePanelOpenAtom,
   fullscreenPlayerOpenAtom,
+  fullscreenOpenDragY,
   progressBarStyleAtom,
 } from "@/lib/store/ui";
 import { serverConnectionAtom } from "@/lib/store/auth";
@@ -63,7 +64,10 @@ import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 
-import { SongDropdownMenu } from "@/components/browse/song-context-menu";
+import {
+  SongContextMenu,
+  SongDropdownMenu,
+} from "@/components/browse/song-context-menu";
 import { CoverImage } from "@/components/shared/cover-image";
 import { WaveformProgressBar } from "@/components/player/waveform-progress-bar";
 import { SimpleProgressBar } from "@/components/player/simple-progress-bar";
@@ -82,7 +86,7 @@ interface NowPlayingInfoProps {
 function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
   const isSmallScreen = useIsSmallScreen();
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
-  const { next, previous } = useAudioEngine();
+  const { next, previousForce } = useAudioEngine();
 
   // Use global starred state
   const { isStarred, toggleStar } = useStarred(
@@ -115,57 +119,59 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
         coverArtUrl={coverArtUrl}
         onOpenFullscreen={() => setFullscreenOpen(true)}
         onNext={next}
-        onPrevious={previous}
+        onPrevious={previousForce}
       />
     );
   }
 
   // Desktop: links to album/artist pages
   return (
-    <>
-      <motion.div
-        key={track.id}
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="shrink-0 album-glow"
-      >
-        <CoverImage
-          src={coverArtUrl}
-          alt={track.album || "Album cover"}
-          colorSeed={track.album || track.title}
-          type="song"
-          size="sm"
-          className="w-14 h-14"
-        />
-      </motion.div>
-      <div className="min-w-0">
-        <Link
-          href={`/library/albums/details?id=${track.albumId}`}
-          className="block text-sm font-medium text-foreground truncate hover:underline"
+    <SongContextMenu song={track} collisionPadding={{ bottom: 200 }}>
+      <div className="flex items-center gap-3 min-w-0">
+        <motion.div
+          key={track.id}
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="shrink-0 album-glow"
         >
-          {track.title}
-        </Link>
-        <Link
-          href={`/library/artists/details?id=${track.artistId}`}
-          className="block text-xs text-muted-foreground truncate hover:underline"
+          <CoverImage
+            src={coverArtUrl}
+            alt={track.album || "Album cover"}
+            colorSeed={track.album || track.title}
+            type="song"
+            size="sm"
+            className="w-14 h-14"
+          />
+        </motion.div>
+        <div className="min-w-0">
+          <Link
+            href={`/library/albums/details?id=${track.albumId}`}
+            className="block text-sm font-medium text-foreground truncate hover:underline"
+          >
+            {track.title}
+          </Link>
+          <Link
+            href={`/library/artists/details?id=${track.artistId}`}
+            className="block text-xs text-muted-foreground truncate hover:underline"
+          >
+            {track.artist}
+          </Link>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hidden lg:flex shrink-0 h-8 w-8"
+          onClick={toggleStar}
         >
-          {track.artist}
-        </Link>
+          <Heart
+            className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")}
+          />
+        </Button>
+        <div className="hidden lg:block">
+          <SongDropdownMenu song={track} />
+        </div>
       </div>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="hidden sm:flex shrink-0 h-8 w-8"
-        onClick={toggleStar}
-      >
-        <Heart
-          className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")}
-        />
-      </Button>
-      <div className="hidden sm:block">
-        <SongDropdownMenu song={track} />
-      </div>
-    </>
+    </SongContextMenu>
   );
 }
 
@@ -181,6 +187,10 @@ interface SwipeableNowPlayingProps {
   onPrevious: () => void;
 }
 
+// Module-level flag to skip animation after swipe
+// This is NOT React state, so it can be read/written during render without issues
+let skipNextAnimation = false;
+
 function SwipeableNowPlaying({
   track,
   coverArtUrl,
@@ -192,6 +202,88 @@ function SwipeableNowPlaying({
   const queueWindow = useAtomValue(queueWindowAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const [isAnimating, setIsAnimating] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(250);
+  // Track ID we're waiting to transition away from (for race condition fix)
+  const pendingTrackChangeFromId = useRef<string | null>(null);
+
+  // Read the module-level skip animation flag
+  const shouldSkipAnimation = skipNextAnimation;
+
+  // Motion values for drag tracking - declared early so useEffect can reference it
+  const dragX = useMotionValue(0);
+  // Track vertical offset during drag to dampen horizontal movement
+  const dragStartY = useRef(0);
+  // Track whether drag has been "dismissed" (user swiped up far enough for fullscreen)
+  const isDragDismissed = useRef(false);
+  // Track maximum horizontal distance traveled during this drag gesture
+  const maxHorizontalDistance = useRef(0);
+  // Track maximum vertical distance traveled during this drag gesture (for tap detection after fullscreen dismiss)
+  const maxVerticalDistance = useRef(0);
+
+  // Measure container width on mount and resize
+  useEffect(() => {
+    const updateWidth = () => {
+      if (containerRef.current) {
+        setContainerWidth(containerRef.current.offsetWidth);
+      }
+    };
+
+    updateWidth();
+    window.addEventListener("resize", updateWidth);
+    return () => window.removeEventListener("resize", updateWidth);
+  }, []);
+
+  // Track the previous track id to detect track changes
+  const prevTrackIdRef = useRef(track.id);
+
+  // Handle drag position reset when track changes after a swipe gesture
+  useLayoutEffect(() => {
+    if (track.id !== prevTrackIdRef.current) {
+      // Track changed - reset drag position if we were waiting for this
+      if (pendingTrackChangeFromId.current !== null) {
+        dragX.set(0);
+        pendingTrackChangeFromId.current = null;
+      }
+      prevTrackIdRef.current = track.id;
+    }
+  }, [track.id, dragX]);
+
+  // Clean up isAnimating state after track change
+  const prevTrackIdForAnimationRef = useRef(track.id);
+  useLayoutEffect(() => {
+    if (track.id !== prevTrackIdForAnimationRef.current) {
+      prevTrackIdForAnimationRef.current = track.id;
+      // setIsAnimating is only called after track change, not on every render
+      // This is a valid use case - synchronizing with external prop change
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsAnimating(false);
+    }
+  }, [track.id]);
+
+  // Reset the skip animation flag after the render has used it
+  // This effect runs after the render where shouldSkipAnimation was read
+  useLayoutEffect(() => {
+    if (shouldSkipAnimation) {
+      skipNextAnimation = false;
+    }
+  }, [shouldSkipAnimation]);
+
+  // Timeout to recover from failed track changes (network errors, etc.)
+  // If track doesn't change within 3 seconds, reset the swipe state
+  useEffect(() => {
+    if (pendingTrackChangeFromId.current === null || !isAnimating) return;
+
+    const timeout = setTimeout(() => {
+      // Track change timed out, reset state to allow retrying
+      pendingTrackChangeFromId.current = null;
+      skipNextAnimation = false;
+      dragX.set(0);
+      setIsAnimating(false);
+    }, 3000);
+
+    return () => clearTimeout(timeout);
+  }, [isAnimating, dragX]);
 
   const prevTrack =
     queueWindow?.songs.find(
@@ -209,13 +301,26 @@ function SwipeableNowPlaying({
     ? getClient()?.getCoverArtUrl(nextTrack.coverArt, 96)
     : null;
 
-  // Motion values for drag tracking
-  const dragX = useMotionValue(0);
+  // Preload adjacent track images so they're cached before we need them
+  useEffect(() => {
+    const urls = [prevCoverUrl, nextCoverUrl].filter(Boolean) as string[];
+    urls.forEach((url) => {
+      const img = new window.Image();
+      img.src = url;
+    });
+  }, [prevCoverUrl, nextCoverUrl]);
 
-  // Swipe thresholds and distances (fixed value works well for mobile)
+  // Swipe thresholds and distances
   const SWIPE_THRESHOLD = 50;
   const VELOCITY_THRESHOLD = 300;
-  const SWIPE_DISTANCE = 250; // Distance to animate off-screen
+  // Threshold for considering gesture a "drag" not a "tap" (based on max distance traveled)
+  const TAP_MAX_DISTANCE = 20;
+  // Threshold for upward swipe to dismiss horizontal drag (fullscreen trigger threshold)
+  const VERTICAL_DISMISS_THRESHOLD = 50;
+  // Swipe distance is container width - this is how far the current track animates
+  const SWIPE_DISTANCE = containerWidth;
+  // Preview padding - how much gap between preview and current track
+  const PREVIEW_PADDING = 16;
 
   // Transform drag distance to opacity (current track fades out as it moves)
   const currentOpacity = useTransform(
@@ -224,44 +329,115 @@ function SwipeableNowPlaying({
     [0, 1, 0],
   );
 
-  // Preview tracks: move 1:1 with drag from offscreen
-  // Previous track starts at -SWIPE_DISTANCE (offscreen left), moves to 0 as you swipe right
+  // Preview tracks: start just outside container (width + padding), end at position 0
+  // This ensures no visual snap when the track changes and dragX resets to 0
+  // Previous track starts offscreen left at -(containerWidth + padding), ends at 0
   const prevPreviewX = useTransform(
     dragX,
     [0, SWIPE_DISTANCE],
-    [-SWIPE_DISTANCE, 0],
+    [-(SWIPE_DISTANCE + PREVIEW_PADDING), 0],
   );
   const prevPreviewOpacity = useTransform(
     dragX,
-    [0, SWIPE_DISTANCE * 0.3, SWIPE_DISTANCE],
+    [0, SWIPE_THRESHOLD, SWIPE_DISTANCE],
     [0, 0.5, 1],
   );
 
-  // Next track starts at +SWIPE_DISTANCE (offscreen right), moves to 0 as you swipe left
+  // Next track starts offscreen right at +(containerWidth + padding), ends at 0
   const nextPreviewX = useTransform(
     dragX,
     [-SWIPE_DISTANCE, 0],
-    [0, SWIPE_DISTANCE],
+    [0, SWIPE_DISTANCE + PREVIEW_PADDING],
   );
   const nextPreviewOpacity = useTransform(
     dragX,
-    [-SWIPE_DISTANCE, -SWIPE_DISTANCE * 0.3, 0],
+    [-SWIPE_DISTANCE, -SWIPE_THRESHOLD, 0],
     [1, 0.5, 0],
   );
+
+  const handleDragStart = (event: MouseEvent | TouchEvent | PointerEvent) => {
+    // Capture initial Y position to track upward movement
+    if ("touches" in event) {
+      dragStartY.current = event.touches[0].clientY;
+    } else {
+      dragStartY.current = event.clientY;
+    }
+    // Reset state for new gesture
+    isDragDismissed.current = false;
+    maxHorizontalDistance.current = 0;
+    maxVerticalDistance.current = 0;
+  };
+
+  const handleDrag = (
+    event: MouseEvent | TouchEvent | PointerEvent,
+    info: PanInfo,
+  ) => {
+    // Track maximum horizontal distance for tap detection
+    maxHorizontalDistance.current = Math.max(
+      maxHorizontalDistance.current,
+      Math.abs(info.offset.x),
+    );
+
+    // Get current Y position
+    let currentY: number;
+    if ("touches" in event) {
+      currentY = event.touches[0].clientY;
+    } else {
+      currentY = event.clientY;
+    }
+
+    // Only consider UPWARD movement (dragStartY - currentY > 0)
+    // Downward movement should not affect horizontal drag
+    const upwardOffset = Math.max(0, dragStartY.current - currentY);
+
+    // Track max vertical distance for tap detection
+    maxVerticalDistance.current = Math.max(
+      maxVerticalDistance.current,
+      upwardOffset,
+    );
+
+    // Update the shared fullscreenOpenDragY so the fullscreen player preview follows
+    if (upwardOffset > 0) {
+      fullscreenOpenDragY.set(-upwardOffset);
+    }
+
+    // If drag was dismissed (user swiped up past threshold), keep at center
+    if (isDragDismissed.current) {
+      dragX.set(0);
+      return;
+    }
+
+    // Check if we've crossed the threshold to dismiss the horizontal drag
+    if (upwardOffset >= VERTICAL_DISMISS_THRESHOLD) {
+      // Dismiss the drag - snap back to center and ignore further movement
+      isDragDismissed.current = true;
+      dragX.set(0);
+      return;
+    }
+
+    // Apply damping factor that fades from 1x to 0x as we approach the threshold
+    const dampingFactor = 1 - upwardOffset / VERTICAL_DISMISS_THRESHOLD;
+    dragX.set(info.offset.x * dampingFactor);
+  };
 
   const handleDragEnd = async (
     _event: MouseEvent | TouchEvent | PointerEvent,
     info: PanInfo,
   ) => {
-    if (isAnimating) return;
+    // If drag was dismissed, do nothing (already snapped back)
+    if (isDragDismissed.current || isAnimating) {
+      return;
+    }
 
-    const { offset, velocity } = info;
+    const { velocity } = info;
+
+    // Only consider it a horizontal swipe if the movement is significant
+    // Use the actual dragX value (which may be dampened) for threshold check
+    const currentDragX = dragX.get();
     const shouldGoNext =
-      offset.x < -SWIPE_THRESHOLD || velocity.x < -VELOCITY_THRESHOLD;
+      currentDragX < -SWIPE_THRESHOLD || velocity.x < -VELOCITY_THRESHOLD;
     const shouldGoPrev =
-      offset.x > SWIPE_THRESHOLD || velocity.x > VELOCITY_THRESHOLD;
-    const shouldOpenFullscreen =
-      offset.y < -50 || velocity.y < -VELOCITY_THRESHOLD;
+      currentDragX > SWIPE_THRESHOLD || velocity.x > VELOCITY_THRESHOLD;
 
     if (shouldGoNext && nextTrack) {
       // Animate current track off to the left, then change track
@@ -271,10 +447,12 @@ function SwipeableNowPlaying({
         stiffness: 500,
         damping: 40,
       });
+      // Mark that we're waiting for this track to change
+      // The useEffect will reset dragX when track.id actually changes
+      pendingTrackChangeFromId.current = track.id;
+      // Skip the enter animation for the new track (preview is already in position)
+      skipNextAnimation = true;
       onNext();
-      // Reset position instantly (no animation) after track change
-      dragX.set(0);
-      setIsAnimating(false);
     } else if (shouldGoPrev && prevTrack) {
       // Animate current track off to the right, then change track
       setIsAnimating(true);
@@ -283,12 +461,11 @@ function SwipeableNowPlaying({
         stiffness: 500,
         damping: 40,
       });
+      // Mark that we're waiting for this track to change
+      pendingTrackChangeFromId.current = track.id;
+      // Skip the enter animation for the new track (preview is already in position)
+      skipNextAnimation = true;
       onPrevious();
-      // Reset position instantly (no animation) after track change
-      dragX.set(0);
-      setIsAnimating(false);
-    } else if (shouldOpenFullscreen) {
-      onOpenFullscreen();
     } else {
       // Snap back to center with animation
       animate(dragX, 0, { type: "spring", stiffness: 500, damping: 30 });
@@ -296,109 +473,129 @@ function SwipeableNowPlaying({
   };
 
   return (
-    <div className="relative flex items-center w-full overflow-visible">
-      {/* Previous track preview (slides in from left on right swipe) */}
-      {prevTrack && (
-        <motion.div
-          className="absolute inset-0 flex items-center gap-3 pointer-events-none"
-          style={{
-            x: prevPreviewX,
-            opacity: prevPreviewOpacity,
-          }}
-        >
-          <CoverImage
-            src={prevCoverUrl}
-            alt={prevTrack.album || "Previous album"}
-            colorSeed={prevTrack.album || prevTrack.title}
-            type="song"
-            size="sm"
-            className="w-14 h-14 shrink-0"
-          />
-          <div className="min-w-0 overflow-hidden">
-            <span className="block text-sm font-medium text-foreground truncate">
-              {prevTrack.title}
-            </span>
-            <span className="block text-xs text-muted-foreground truncate">
-              {prevTrack.artist}
-            </span>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Next track preview (slides in from right on left swipe) */}
-      {nextTrack && (
-        <motion.div
-          className="absolute inset-0 flex items-center gap-3 pointer-events-none"
-          style={{
-            x: nextPreviewX,
-            opacity: nextPreviewOpacity,
-          }}
-        >
-          <CoverImage
-            src={nextCoverUrl}
-            alt={nextTrack.album || "Next album"}
-            colorSeed={nextTrack.album || nextTrack.title}
-            type="song"
-            size="sm"
-            className="w-14 h-14 shrink-0"
-          />
-          <div className="min-w-0 overflow-hidden">
-            <span className="block text-sm font-medium text-foreground truncate">
-              {nextTrack.title}
-            </span>
-            <span className="block text-xs text-muted-foreground truncate">
-              {nextTrack.artist}
-            </span>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Current track (main draggable element) */}
-      <motion.button
-        type="button"
-        onClick={() => {
-          // Only open fullscreen if not dragging
-          if (Math.abs(dragX.get()) < 5) {
-            onOpenFullscreen();
-          }
-        }}
-        className="flex flex-1 items-center gap-3 min-w-0 text-left touch-none relative z-10"
-        drag
-        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
-        dragElastic={{ left: 1, right: 1, top: 0, bottom: 0 }} // Less elastic in Y, none for down
-        onDragEnd={handleDragEnd}
-        style={{
-          x: dragX,
-          opacity: currentOpacity,
-        }}
-        whileDrag={{ scale: 0.98 }}
-        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+    <SongContextMenu song={track} collisionPadding={{ bottom: 200 }}>
+      <div
+        ref={containerRef}
+        className="relative flex items-center w-full overflow-visible"
       >
-        <motion.div
-          key={track.id}
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="shrink-0 album-glow"
+        {/* Previous track preview (slides in from left on right swipe) */}
+        {prevTrack && (
+          <motion.div
+            className="absolute inset-0 flex items-center gap-3 pointer-events-none"
+            style={{
+              x: prevPreviewX,
+              opacity: prevPreviewOpacity,
+            }}
+          >
+            <CoverImage
+              src={prevCoverUrl}
+              alt={prevTrack.album || "Previous album"}
+              colorSeed={prevTrack.album || prevTrack.title}
+              type="song"
+              size="sm"
+              className="w-14 h-14 shrink-0"
+            />
+            <div className="min-w-0 overflow-hidden">
+              <span className="block text-sm font-medium text-foreground truncate">
+                {prevTrack.title}
+              </span>
+              <span className="block text-xs text-muted-foreground truncate">
+                {prevTrack.artist}
+              </span>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Next track preview (slides in from right on left swipe) */}
+        {nextTrack && (
+          <motion.div
+            className="absolute inset-0 flex items-center gap-3 pointer-events-none"
+            style={{
+              x: nextPreviewX,
+              opacity: nextPreviewOpacity,
+            }}
+          >
+            <CoverImage
+              src={nextCoverUrl}
+              alt={nextTrack.album || "Next album"}
+              colorSeed={nextTrack.album || nextTrack.title}
+              type="song"
+              size="sm"
+              className="w-14 h-14 shrink-0"
+            />
+            <div className="min-w-0 overflow-hidden">
+              <span className="block text-sm font-medium text-foreground truncate">
+                {nextTrack.title}
+              </span>
+              <span className="block text-xs text-muted-foreground truncate">
+                {nextTrack.artist}
+              </span>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Current track (main draggable element) */}
+        <motion.button
+          type="button"
+          onPointerDown={() => {
+            // Reset all gesture state at the start of any interaction
+            // This ensures a fresh tap isn't blocked by stale values from previous gestures
+            maxHorizontalDistance.current = 0;
+            maxVerticalDistance.current = 0;
+            isDragDismissed.current = false;
+          }}
+          onClick={() => {
+            // Only open fullscreen if this was a tap, not a drag
+            // Check both horizontal and vertical distance - if either exceeds threshold, it's a drag
+            const wasTap =
+              maxHorizontalDistance.current < TAP_MAX_DISTANCE &&
+              maxVerticalDistance.current < TAP_MAX_DISTANCE;
+            if (wasTap) {
+              onOpenFullscreen();
+            }
+          }}
+          className="flex flex-1 items-center gap-3 min-w-0 text-left relative z-10"
+          drag="x"
+          dragConstraints={{ left: 0, right: 0 }}
+          dragElastic={1}
+          onDragStart={handleDragStart}
+          onDrag={handleDrag}
+          onDragEnd={handleDragEnd}
+          style={{
+            touchAction: "pan-y",
+            x: dragX,
+            opacity: currentOpacity,
+          }}
+          whileDrag={{ scale: 0.98 }}
+          transition={{ type: "spring", stiffness: 500, damping: 30 }}
         >
-          <CoverImage
-            src={coverArtUrl}
-            alt={track.album || "Album cover"}
-            colorSeed={track.album || track.title}
-            type="song"
-            size="sm"
-            className="w-14 h-14"
-          />
-        </motion.div>
-        <div className="min-w-0">
-          <span className="block text-sm font-medium text-foreground truncate">
-            {track.title}
-          </span>
-          <span className="block text-xs text-muted-foreground truncate">
-            {track.artist}
-          </span>
-        </div>
-      </motion.button>
-    </div>
+          <motion.div
+            key={track.id}
+            // Skip animation when coming from a swipe - the preview was already in position
+            initial={shouldSkipAnimation ? false : { scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="shrink-0 album-glow"
+          >
+            <CoverImage
+              src={coverArtUrl}
+              alt={track.album || "Album cover"}
+              colorSeed={track.album || track.title}
+              type="song"
+              size="sm"
+              className="w-14 h-14"
+            />
+          </motion.div>
+          <div className="min-w-0">
+            <span className="block text-sm font-medium text-foreground truncate">
+              {track.title}
+            </span>
+            <span className="block text-xs text-muted-foreground truncate">
+              {track.artist}
+            </span>
+          </div>
+        </motion.button>
+      </div>
+    </SongContextMenu>
   );
 }
 
@@ -418,12 +615,12 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
   const RepeatIcon = repeatMode === "one" ? Repeat1 : Repeat;
 
   return (
-    <div className="flex items-center gap-1 sm:gap-2">
+    <div className="flex items-center gap-1 md:gap-2">
       {/* Shuffle - hidden on mobile, shown in more menu */}
       <Button
         variant="ghost"
         size="icon"
-        className={cn("hidden sm:flex h-8 w-8", isShuffled && "text-primary")}
+        className={cn("hidden md:flex h-8 w-8", isShuffled && "text-primary")}
         onClick={toggleShuffle}
         aria-label="Shuffle"
       >
@@ -434,19 +631,19 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
       <Button
         variant="ghost"
         size="icon"
-        className="hidden sm:flex h-8 w-8 sm:h-9 sm:w-9"
+        className="hidden md:flex h-8 w-8 md:h-9 md:w-9"
         onClick={previous}
         disabled={!hasTrack}
         aria-label="Previous"
       >
-        <SkipBack className="w-4 h-4 sm:w-5 sm:h-5" />
+        <SkipBack className="w-4 h-4 md:w-5 md:h-5" />
       </Button>
 
       {/* Play/pause - ghost variant on mobile, default (filled) on desktop */}
       <Button
         variant="ghost"
         size="icon"
-        className="flex sm:hidden h-9 w-9 rounded-full"
+        className="flex md:hidden h-9 w-9 rounded-full"
         onClick={togglePlayPause}
         disabled={playbackState === "idle"}
         aria-label={isPlaying ? "Pause" : "Play"}
@@ -466,7 +663,7 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
       <Button
         variant="default"
         size="icon"
-        className="hidden sm:flex h-10 w-10 rounded-full"
+        className="hidden md:flex h-10 w-10 rounded-full"
         onClick={togglePlayPause}
         disabled={playbackState === "idle"}
         aria-label={isPlaying ? "Pause" : "Play"}
@@ -488,12 +685,12 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
       <Button
         variant="ghost"
         size="icon"
-        className="hidden sm:flex h-8 w-8 sm:h-9 sm:w-9"
+        className="hidden md:flex h-8 w-8 md:h-9 md:w-9"
         onClick={next}
         disabled={!hasTrack}
         aria-label="Next"
       >
-        <SkipForward className="w-4 h-4 sm:w-5 sm:h-5" />
+        <SkipForward className="w-4 h-4 md:w-5 md:h-5" />
       </Button>
 
       {/* Repeat - hidden on mobile, shown in more menu */}
@@ -501,7 +698,7 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
         variant="ghost"
         size="icon"
         className={cn(
-          "hidden sm:flex h-8 w-8",
+          "hidden md:flex h-8 w-8",
           repeatMode !== "off" && "text-primary",
         )}
         onClick={cycleRepeatMode}
@@ -530,7 +727,7 @@ function TimeSlider() {
   const displayDuration = isEnded ? 0 : duration;
 
   return (
-    <div className="hidden sm:flex items-center gap-2 w-full max-w-md text-xs text-muted-foreground">
+    <div className="hidden md:flex items-center gap-2 w-full max-w-md text-xs text-muted-foreground">
       <span className="w-10 text-right tabular-nums">
         {formatDuration(displayTime)}
       </span>
@@ -579,7 +776,7 @@ function VolumeControls() {
     // Desktop volume - hidden on mobile (mobile uses more menu for volume)
     <div
       ref={volumeContainerRef}
-      className="hidden sm:flex items-center gap-2 w-32"
+      className="hidden md:flex items-center gap-2 w-32"
     >
       <Button
         variant="ghost"
@@ -655,7 +852,7 @@ function MobileMoreMenu() {
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 sm:hidden"
+          className="h-8 w-8 md:hidden"
           aria-label="More options"
         >
           <MoreHorizontal className="w-4 h-4" />
@@ -781,7 +978,7 @@ function FullscreenButton() {
     <Button
       variant="ghost"
       size="icon"
-      className="hidden sm:flex h-8 w-8"
+      className="hidden md:flex h-8 w-8"
       onClick={() => setFullscreenOpen(true)}
       aria-label="Fullscreen"
     >
@@ -825,29 +1022,29 @@ export function PlayerBar() {
         <SimpleProgressBar />
       )}
 
-      <div className="flex items-center h-full px-4 gap-2 sm:gap-4">
+      <div className="flex items-center h-full px-4 gap-2 md:gap-4">
         {/* Now Playing Info - takes available space on mobile, fixed width on desktop */}
-        <div className="flex items-center gap-3 flex-1 sm:flex-none sm:w-[30%] min-w-0">
+        <div className="flex items-center gap-3 flex-1 md:flex-none md:w-[30%] min-w-0">
           <NowPlayingInfo track={currentTrack} isEnded={isEnded} />
         </div>
 
         {/* Center Controls - hidden on mobile (moved to right), visible on desktop */}
-        <div className="hidden sm:flex flex-col items-center gap-1 flex-1 max-w-[40%]">
+        <div className="hidden md:flex flex-col items-center gap-1 flex-1 max-w-[40%]">
           <PlaybackControls hasTrack={hasTrack} playbackState={playbackState} />
           <TimeSlider />
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-1 sm:gap-2 sm:w-[30%] justify-end">
+        <div className="flex items-center gap-1 md:gap-2 md:w-[30%] justify-end">
           {/* Mobile-only playback controls - right aligned */}
-          <div className="flex sm:hidden items-center">
+          <div className="flex md:hidden items-center">
             <PlaybackControls
               hasTrack={hasTrack}
               playbackState={playbackState}
             />
           </div>
           {/* Desktop-only queue button (on mobile it's in more menu) */}
-          <div className="hidden sm:block">
+          <div className="hidden md:block">
             <QueueButton />
           </div>
           {/* Desktop volume controls */}

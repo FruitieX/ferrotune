@@ -65,29 +65,42 @@ test.describe("Playlists", () => {
 
     await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 
+    // Wait for all async data to load and React state to settle
+    // This includes shuffle excludes fetch, starred state initialization, etc.
+    await page.waitForTimeout(1000);
+
     // Right-click to open context menu
     const songRow = page.locator('[data-testid="song-row"]').first();
     await songRow.click({ button: "right" });
 
-    // Wait for context menu
+    // Wait for context menu to be visible
     const contextMenu = page.locator('[data-slot="context-menu-content"]');
     await expect(contextMenu).toBeVisible({ timeout: 5000 });
 
-    const addToPlaylistItem = contextMenu.getByRole("menuitem", {
-      name: /add to playlist/i,
+    // Click Add to Playlist using JavaScript evaluate to avoid Playwright's stability checks
+    // which can fail if React re-renders the context menu
+    await page.evaluate(() => {
+      const menuItems = document.querySelectorAll(
+        '[data-slot="context-menu-content"] [role="menuitem"]',
+      );
+      for (const item of menuItems) {
+        if (item.textContent?.toLowerCase().includes("add to playlist")) {
+          (item as HTMLElement).click();
+          break;
+        }
+      }
     });
-    await expect(addToPlaylistItem).toBeVisible();
-    // Use force click to handle submenu opening
-    await addToPlaylistItem.click({ force: true });
 
-    // Wait for submenu
-    await page.waitForTimeout(300);
+    // Wait for the Add to Playlist dialog to open
+    const addToPlaylistDialog = page.getByRole("dialog");
+    await expect(addToPlaylistDialog).toBeVisible({ timeout: 5000 });
 
-    const playlistOption = page.getByRole("menuitem", {
+    // Find and click the playlist button inside the dialog
+    const playlistButton = addToPlaylistDialog.getByRole("button", {
       name: new RegExp(playlistName, "i"),
     });
-    if (await playlistOption.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await playlistOption.click({ force: true });
+    if (await playlistButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await playlistButton.click();
 
       // Verify toast
       await expect(

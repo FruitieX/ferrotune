@@ -3,16 +3,13 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import {
-  useInfiniteQuery,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles, Pencil, Trash2, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
+import { useSparsePagination } from "@/lib/hooks/use-sparse-pagination";
 import {
   playlistViewModeAtom,
   playlistSortAtom,
@@ -46,7 +43,11 @@ import {
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import { EmptyState } from "@/components/shared/empty-state";
-import { SongListToolbar } from "@/components/shared/song-list-toolbar";
+import {
+  SongListToolbar,
+  SongListMobileMenu,
+  MobileFilterInput,
+} from "@/components/shared/song-list-toolbar";
 import { SongListHeader } from "@/components/shared/song-list-header";
 import {
   VirtualizedGrid,
@@ -91,15 +92,14 @@ function SmartPlaylistPageContent() {
     playlistColumnVisibilityAtom,
   );
 
-  // Fetch smart playlist with pagination
+  // Fetch smart playlist with sparse pagination
   const {
-    data: playlistData,
+    items: songs,
+    totalCount,
     isLoading,
-    error,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useInfiniteQuery({
+    ensureRange,
+    metadata,
+  } = useSparsePagination<Song, { totalDuration: number }>({
     // Include filter and sort in query key for proper refetching
     queryKey: [
       "smartPlaylistSongs",
@@ -109,11 +109,12 @@ function SmartPlaylistPageContent() {
       sortConfig.field,
       sortConfig.direction,
     ],
-    queryFn: async ({ pageParam = 0 }) => {
+    pageSize: PAGE_SIZE,
+    fetchPage: async (offset) => {
       const client = getClient();
       if (!client || !id) throw new Error("Not connected");
-      return client.getSmartPlaylistSongs(id, {
-        offset: pageParam,
+      const response = await client.getSmartPlaylistSongs(id, {
+        offset,
         count: PAGE_SIZE,
         // Use medium thumbnails for grid view, small for list view
         inlineImages: viewMode === "grid" ? "medium" : "small",
@@ -122,15 +123,12 @@ function SmartPlaylistPageContent() {
         sortField: sortConfig.field,
         sortDirection: sortConfig.direction,
       });
+      return {
+        items: response.songs as Song[],
+        total: response.totalCount,
+        metadata: { totalDuration: response.totalDuration },
+      };
     },
-    getNextPageParam: (lastPage, allPages) => {
-      const loadedCount = allPages.reduce(
-        (sum, page) => sum + page.songs.length,
-        0,
-      );
-      return loadedCount < lastPage.totalCount ? loadedCount : undefined;
-    },
-    initialPageParam: 0,
     enabled: isReady && !!id,
   });
 
@@ -146,23 +144,33 @@ function SmartPlaylistPageContent() {
     enabled: isReady && !!id,
   });
 
-  // Flatten songs from all pages (no client-side filtering - server handles it)
-  const songs: Song[] = (playlistData?.pages.flatMap((page) => page.songs) ??
-    []) as Song[];
-
-  // Get metadata from first page
-  const firstPage = playlistData?.pages[0];
-
-  // Get the playlist name
-  const playlistName = firstPage?.name ?? smartPlaylist?.name;
+  // Filter out undefined entries from sparse array
+  const loadedSongs: Song[] = songs.filter(
+    (song): song is Song => song !== undefined,
+  );
 
   // Get display name using shared utility
-  const displayName = getPlaylistDisplayName(playlistName);
+  const displayName = getPlaylistDisplayName(smartPlaylist?.name);
 
   // Determine if this smart playlist is the current queue source
   const isSmartPlaylistInQueue =
     queueState?.source?.type === "smartPlaylist" &&
     queueState?.source?.id === id;
+
+  // Queue source for song cards/rows - extracted to avoid recreating on every render
+  const smartPlaylistQueueSource = {
+    type: "smartPlaylist" as const,
+    id: id!,
+    name: smartPlaylist?.name ?? "Smart Playlist",
+    filters: debouncedFilter ? { filter: debouncedFilter } : undefined,
+    sort:
+      sortConfig.field !== "custom"
+        ? {
+            field: sortConfig.field,
+            direction: sortConfig.direction,
+          }
+        : undefined,
+  };
 
   // Check if a song at a given position is the currently playing track
   // When shuffled, return undefined to let SongRow fall back to song ID matching
@@ -191,10 +199,10 @@ function SmartPlaylistPageContent() {
     clearSelection,
     selectAll,
     getSelectedSongs,
-  } = useTrackSelection(songs);
+  } = useTrackSelection(loadedSongs);
 
   const handlePlay = () => {
-    if (songs.length === 0 || !id) return;
+    if (loadedSongs.length === 0 || !id) return;
     // If currently shuffled, turn off shuffle first so playback starts from first track
     if (queueState?.isShuffled) {
       toggleShuffle();
@@ -202,7 +210,7 @@ function SmartPlaylistPageContent() {
     startQueue({
       sourceType: "smartPlaylist",
       sourceId: id,
-      sourceName: firstPage?.name,
+      sourceName: smartPlaylist?.name,
       // Pass filter and sort options so server materializes with same order as displayed
       filters: debouncedFilter ? { filter: debouncedFilter } : undefined,
       sort:
@@ -216,11 +224,11 @@ function SmartPlaylistPageContent() {
   };
 
   const handleShuffle = () => {
-    if (songs.length === 0 || !id) return;
+    if (loadedSongs.length === 0 || !id) return;
     startQueue({
       sourceType: "smartPlaylist",
       sourceId: id,
-      sourceName: firstPage?.name,
+      sourceName: smartPlaylist?.name,
       shuffle: true,
       // Pass filter and sort options
       filters: debouncedFilter ? { filter: debouncedFilter } : undefined,
@@ -253,7 +261,7 @@ function SmartPlaylistPageContent() {
     if (selected.length === 0) return;
     startQueue({
       sourceType: "other",
-      sourceName: `Selected from ${firstPage?.name}`,
+      sourceName: `Selected from ${smartPlaylist?.name}`,
       songIds: selected.map((s) => s.id),
     });
     clearSelection();
@@ -264,7 +272,7 @@ function SmartPlaylistPageContent() {
     if (selected.length === 0) return;
     startQueue({
       sourceType: "other",
-      sourceName: `Selected from ${firstPage?.name}`,
+      sourceName: `Selected from ${smartPlaylist?.name}`,
       songIds: selected.map((s) => s.id),
       shuffle: true,
     });
@@ -301,23 +309,13 @@ function SmartPlaylistPageContent() {
     }
   };
 
-  const totalDuration = songs.reduce(
-    (acc: number, s: Song) => acc + (s.duration ?? 0),
-    0,
-  );
+  // Use server-provided total duration
+  const totalDuration = metadata?.totalDuration ?? 0;
 
   if (!id) {
     return (
       <div className="min-h-dvh flex items-center justify-center">
         <p className="text-muted-foreground">No playlist ID provided</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-dvh flex items-center justify-center">
-        <p className="text-destructive">Failed to load smart playlist</p>
       </div>
     );
   }
@@ -333,19 +331,20 @@ function SmartPlaylistPageContent() {
         title={displayName}
         subtitle={
           !isLoading &&
-          firstPage &&
-          `${firstPage.totalCount} songs • ${formatTotalDuration(totalDuration)}`
+          totalCount > 0 &&
+          `${totalCount} songs • ${formatTotalDuration(totalDuration)}`
         }
         isLoading={isLoading}
       />
 
       {/* Breadcrumb navigation (only if playlist is in a folder) */}
-      <PlaylistBreadcrumb playlistName={playlistName} />
+      <PlaylistBreadcrumb playlistName={smartPlaylist?.name} />
 
       <ActionBar
         onPlayAll={handlePlay}
         onShuffle={handleShuffle}
-        disablePlay={songs.length === 0}
+        disablePlay={loadedSongs.length === 0}
+        showShuffleOnMobile
         toolbar={
           <SongListToolbar
             filter={filter}
@@ -358,6 +357,26 @@ function SmartPlaylistPageContent() {
             viewMode={viewMode}
             onViewModeChange={setViewMode}
             showCustomSort={true}
+          />
+        }
+        mobileFilter={
+          <MobileFilterInput
+            filter={filter}
+            onFilterChange={setFilter}
+            placeholder="Filter songs..."
+          />
+        }
+        mobileMenuContent={
+          <SongListMobileMenu
+            onEditPlaylist={() => setEditDialogOpen(true)}
+            onDeletePlaylist={() => setDeleteDialogOpen(true)}
+            sortConfig={sortConfig}
+            onSortChange={setSortConfig}
+            showCustomSort
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            columnVisibility={columnVisibility}
+            onColumnVisibilityChange={setColumnVisibility}
           />
         }
       >
@@ -413,32 +432,16 @@ function SmartPlaylistPageContent() {
               ))}
             </div>
           )
-        ) : songs.length > 0 ? (
+        ) : totalCount > 0 || songs.length > 0 ? (
           viewMode === "grid" ? (
             <VirtualizedGrid
               items={songs}
-              totalCount={
-                firstPage?.totalCount ? Number(firstPage.totalCount) : undefined
-              }
+              totalCount={totalCount || undefined}
               renderItem={(song: Song, index: number) => (
                 <SongCard
                   song={song}
                   index={index}
-                  queueSource={{
-                    type: "smartPlaylist",
-                    id: id!,
-                    name: firstPage?.name ?? "Smart Playlist",
-                    filters: debouncedFilter
-                      ? { filter: debouncedFilter }
-                      : undefined,
-                    sort:
-                      sortConfig.field !== "custom"
-                        ? {
-                            field: sortConfig.field,
-                            direction: sortConfig.direction,
-                          }
-                        : undefined,
-                  }}
+                  queueSource={smartPlaylistQueueSource}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
                   onSelect={handleSelect}
@@ -447,9 +450,7 @@ function SmartPlaylistPageContent() {
               )}
               renderSkeleton={() => <SongCardSkeleton />}
               getItemKey={(song: Song) => song.id}
-              hasNextPage={hasNextPage ?? false}
-              isFetchingNextPage={isFetchingNextPage}
-              fetchNextPage={fetchNextPage}
+              ensureRange={ensureRange}
             />
           ) : (
             <>
@@ -460,31 +461,13 @@ function SmartPlaylistPageContent() {
               />
               <VirtualizedList
                 items={songs}
-                totalCount={
-                  firstPage?.totalCount
-                    ? Number(firstPage.totalCount)
-                    : undefined
-                }
+                totalCount={totalCount || undefined}
                 renderItem={(song: Song, index: number) => (
                   <SongRow
                     song={song}
                     index={index}
                     showCover
-                    queueSource={{
-                      type: "smartPlaylist",
-                      id: id!,
-                      name: firstPage?.name ?? "Smart Playlist",
-                      filters: debouncedFilter
-                        ? { filter: debouncedFilter }
-                        : undefined,
-                      sort:
-                        sortConfig.field !== "custom"
-                          ? {
-                              field: sortConfig.field,
-                              direction: sortConfig.direction,
-                            }
-                          : undefined,
-                    }}
+                    queueSource={smartPlaylistQueueSource}
                     isSelected={isSelected(song.id)}
                     isSelectionMode={hasSelection}
                     onSelect={handleSelect}
@@ -501,9 +484,7 @@ function SmartPlaylistPageContent() {
                 renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
                 getItemKey={(song: Song) => song.id}
                 estimateItemHeight={56}
-                hasNextPage={hasNextPage ?? false}
-                isFetchingNextPage={isFetchingNextPage}
-                fetchNextPage={fetchNextPage}
+                ensureRange={ensureRange}
               />
             </>
           )
@@ -545,7 +526,7 @@ function SmartPlaylistPageContent() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Smart Playlist</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete &quot;{firstPage?.name}&quot;?
+              Are you sure you want to delete &quot;{smartPlaylist?.name}&quot;?
               This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>

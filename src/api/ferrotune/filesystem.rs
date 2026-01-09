@@ -4,7 +4,7 @@
 //! users select music folder paths during setup.
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
-use crate::error::{Error, Result};
+use crate::error::{Error, FerrotuneApiResult, Result};
 use axum::extract::Query;
 use axum::response::Json;
 use serde::{Deserialize, Serialize};
@@ -93,12 +93,12 @@ pub struct ValidatePathResponse {
 pub async fn browse_filesystem(
     user: FerrotuneAuthenticatedUser,
     Query(params): Query<BrowseFilesystemParams>,
-) -> Result<Json<BrowseFilesystemResponse>> {
+) -> FerrotuneApiResult<Json<BrowseFilesystemResponse>> {
     // Only allow admins to browse the filesystem
     if !user.is_admin {
-        return Err(Error::Forbidden(
-            "Only administrators can browse the filesystem".to_string(),
-        ));
+        return Err(
+            Error::Forbidden("Only administrators can browse the filesystem".to_string()).into(),
+        );
     }
 
     let path_str = params.path.as_deref().unwrap_or("");
@@ -112,17 +112,11 @@ pub async fn browse_filesystem(
 
     // Validate the path exists and is a directory
     if !path.exists() {
-        return Err(Error::InvalidRequest(format!(
-            "Path does not exist: {}",
-            path_str
-        )));
+        return Err(Error::InvalidRequest(format!("Path does not exist: {}", path_str)).into());
     }
 
     if !path.is_dir() {
-        return Err(Error::InvalidRequest(format!(
-            "Path is not a directory: {}",
-            path_str
-        )));
+        return Err(Error::InvalidRequest(format!("Path is not a directory: {}", path_str)).into());
     }
 
     // Read directory contents
@@ -152,10 +146,7 @@ pub async fn browse_filesystem(
             }
         }
         Err(e) => {
-            return Err(Error::InvalidRequest(format!(
-                "Cannot read directory: {}",
-                e
-            )));
+            return Err(Error::InvalidRequest(format!("Cannot read directory: {}", e)).into());
         }
     }
 
@@ -182,12 +173,10 @@ pub async fn browse_filesystem(
 pub async fn validate_path(
     user: FerrotuneAuthenticatedUser,
     Query(params): Query<ValidatePathParams>,
-) -> Result<Json<ValidatePathResponse>> {
+) -> FerrotuneApiResult<Json<ValidatePathResponse>> {
     // Only allow admins to validate paths
     if !user.is_admin {
-        return Err(Error::Forbidden(
-            "Only administrators can validate paths".to_string(),
-        ));
+        return Err(Error::Forbidden("Only administrators can validate paths".to_string()).into());
     }
 
     let path = PathBuf::from(&params.path);

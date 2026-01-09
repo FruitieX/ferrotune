@@ -7,7 +7,7 @@ use crate::api::common::utils::format_datetime_iso_ms;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::SmartPlaylist;
-use crate::error::{Error, Result};
+use crate::error::{Error, FerrotuneApiResult, Result};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -158,6 +158,9 @@ pub struct SmartPlaylistSongsResponse {
     /// Total matching songs (before limit)
     #[ts(type = "number")]
     pub total_count: i64,
+    /// Total duration of all matching songs in seconds
+    #[ts(type = "number")]
+    pub total_duration: i64,
     /// Offset of the current page
     #[ts(type = "number")]
     pub offset: i64,
@@ -199,7 +202,7 @@ fn default_page_size() -> i64 {
 pub async fn list_smart_playlists(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<SmartPlaylistsResponse>> {
+) -> FerrotuneApiResult<Json<SmartPlaylistsResponse>> {
     let playlists: Vec<SmartPlaylist> = sqlx::query_as(
         "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, created_at, updated_at
          FROM smart_playlists
@@ -247,7 +250,7 @@ pub async fn get_smart_playlist(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-) -> Result<Json<SmartPlaylistInfo>> {
+) -> FerrotuneApiResult<Json<SmartPlaylistInfo>> {
     let playlist: Option<SmartPlaylist> = sqlx::query_as(
         "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, created_at, updated_at
          FROM smart_playlists
@@ -283,7 +286,7 @@ pub async fn get_smart_playlist(
                 updated_at: playlist.updated_at,
             }))
         }
-        None => Err(Error::NotFound(format!("Smart playlist {} not found", id))),
+        None => Err(Error::NotFound(format!("Smart playlist {} not found", id)).into()),
     }
 }
 
@@ -292,7 +295,7 @@ pub async fn create_smart_playlist(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreateSmartPlaylistRequest>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<impl IntoResponse> {
     let id = Uuid::new_v4().to_string();
     let rules_json = serde_json::to_string(&request.rules)
         .map_err(|e| Error::InvalidRequest(format!("Invalid rules: {}", e)))?;
@@ -328,7 +331,7 @@ pub async fn update_smart_playlist(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(request): Json<UpdateSmartPlaylistRequest>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<impl IntoResponse> {
     // Check ownership
     let existing: Option<(String,)> =
         sqlx::query_as("SELECT id FROM smart_playlists WHERE id = ? AND owner_id = ?")
@@ -341,7 +344,8 @@ pub async fn update_smart_playlist(
         return Err(Error::NotFound(format!(
             "Smart playlist {} not found or not owned by you",
             id
-        )));
+        ))
+        .into());
     }
 
     // Build dynamic update query
@@ -415,7 +419,7 @@ pub async fn delete_smart_playlist(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<impl IntoResponse> {
     let result = sqlx::query("DELETE FROM smart_playlists WHERE id = ? AND owner_id = ?")
         .bind(&id)
         .bind(user.user_id)
@@ -426,7 +430,8 @@ pub async fn delete_smart_playlist(
         return Err(Error::NotFound(format!(
             "Smart playlist {} not found or not owned by you",
             id
-        )));
+        ))
+        .into());
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -438,7 +443,7 @@ pub async fn get_smart_playlist_songs(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Query(params): Query<SmartPlaylistSongsParams>,
-) -> Result<Json<SmartPlaylistSongsResponse>> {
+) -> FerrotuneApiResult<Json<SmartPlaylistSongsResponse>> {
     use crate::api::common::browse::song_to_response_with_stats;
     use crate::api::subsonic::inline_thumbnails::get_song_thumbnails_base64;
     use crate::thumbnails::ThumbnailSize;
@@ -478,6 +483,18 @@ pub async fn get_smart_playlist_songs(
         user.user_id,
         params.filter.as_deref(),
         playlist.max_songs,
+    )
+    .await?;
+
+    // Get total duration (with filter applied, respecting max_songs limit)
+    let total_duration = sum_matching_songs_duration_filtered(
+        &state.pool,
+        &rules,
+        user.user_id,
+        params.filter.as_deref(),
+        playlist.max_songs,
+        sort_field,
+        sort_direction,
     )
     .await?;
 
@@ -539,6 +556,7 @@ pub async fn get_smart_playlist_songs(
         id: playlist.id,
         name: playlist.name,
         total_count,
+        total_duration,
         offset: params.offset,
         songs: song_responses,
     }))
@@ -554,7 +572,7 @@ pub async fn materialize_smart_playlist(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(request): Json<MaterializeSmartPlaylistRequest>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<impl IntoResponse> {
     use crate::db::queries::{add_songs_to_playlist, create_playlist};
 
     // Fetch the smart playlist
@@ -826,6 +844,105 @@ async fn count_matching_songs_filtered(
     Ok(effective_count)
 }
 
+/// Sum total duration of songs matching the smart playlist rules with optional text filter (respecting max_songs if set)
+async fn sum_matching_songs_duration_filtered(
+    pool: &sqlx::SqlitePool,
+    rules: &SmartPlaylistRulesApi,
+    user_id: i64,
+    filter: Option<&str>,
+    max_songs: Option<i64>,
+    sort_field: Option<&str>,
+    sort_direction: Option<&str>,
+) -> Result<i64> {
+    let where_clause = build_where_clause(rules, user_id)?;
+
+    // Add filter clause if provided
+    let filter_clause = if let Some(f) = filter {
+        if !f.trim().is_empty() {
+            let escaped = f.replace('\'', "''");
+            format!(
+                " AND (s.title LIKE '%{}%' COLLATE NOCASE OR ar.name LIKE '%{}%' COLLATE NOCASE OR al.name LIKE '%{}%' COLLATE NOCASE)",
+                escaped, escaped, escaped
+            )
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
+    // Always filter by enabled music folders
+    let enabled_filter = "mf.enabled = 1";
+    let combined_where = if where_clause.is_empty() {
+        format!("WHERE {}{}", enabled_filter, filter_clause)
+    } else {
+        format!(
+            "WHERE {} AND {}{}",
+            enabled_filter, where_clause, filter_clause
+        )
+    };
+
+    // If max_songs is set, we need to use a subquery to respect the limit
+    // The duration sum should only include the songs that would actually be shown
+    let query = if let Some(max) = max_songs {
+        // Build ORDER BY clause for the subquery (needed for correct LIMIT)
+        let order_by = match sort_field {
+            Some("title") | Some("name") => "s.title",
+            Some("artist") => "ar.name",
+            Some("album") => "al.name",
+            Some("year") => "s.year",
+            Some("playCount") => "pc.play_count",
+            Some("dateAdded") | Some("createdAt") => "s.created_at",
+            Some("lastPlayed") => "pc.last_played",
+            Some("duration") => "s.duration",
+            _ => "RANDOM()",
+        };
+        let direction = match sort_direction {
+            Some("desc") => "DESC",
+            Some("asc") => "ASC",
+            _ => "ASC",
+        };
+
+        format!(
+            "SELECT COALESCE(SUM(duration), 0) FROM (
+                SELECT s.duration FROM songs s
+                LEFT JOIN artists ar ON s.artist_id = ar.id
+                LEFT JOIN albums al ON s.album_id = al.id
+                INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+                LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
+                           FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
+                   ON s.id = pc.song_id
+                LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
+                {}
+                ORDER BY {} {}
+                LIMIT {}
+            )",
+            combined_where, order_by, direction, max
+        )
+    } else {
+        format!(
+            "SELECT COALESCE(SUM(s.duration), 0) FROM songs s
+             LEFT JOIN artists ar ON s.artist_id = ar.id
+             LEFT JOIN albums al ON s.album_id = al.id
+             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+             LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
+                        FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
+                ON s.id = pc.song_id
+             LEFT JOIN starred st ON s.id = st.item_id AND st.item_type = 'song' AND st.user_id = ?
+             {}",
+            combined_where
+        )
+    };
+
+    let (duration,): (i64,) = sqlx::query_as(&query)
+        .bind(user_id)
+        .bind(user_id)
+        .fetch_one(pool)
+        .await?;
+
+    Ok(duration)
+}
+
 /// Materialize songs matching the smart playlist rules with optional text filter
 #[allow(clippy::too_many_arguments)]
 async fn materialize_smart_playlist_songs_filtered(
@@ -1025,22 +1142,29 @@ fn build_condition(cond: &SmartPlaylistConditionApi, user_id: i64) -> Option<Str
             };
         }
         "coverArt" => {
-            // coverArt checks if song has a thumbnail in the cache
+            // coverArt uses enum values: "any", "embedded", "album"
+            // - "any": song has any cover art (either embedded or from album)
+            // - "embedded": song has its own embedded cover art
+            // - "album": song's album has cover art
+            let val_str = value.as_str().unwrap_or("");
+            let (has_condition, not_has_condition) = match val_str {
+                "any" => (
+                    "(s.cover_art_hash IS NOT NULL OR al.cover_art_hash IS NOT NULL)",
+                    "(s.cover_art_hash IS NULL AND (al.cover_art_hash IS NULL OR s.album_id IS NULL))",
+                ),
+                "embedded" => (
+                    "s.cover_art_hash IS NOT NULL",
+                    "s.cover_art_hash IS NULL",
+                ),
+                "album" => (
+                    "(s.album_id IS NOT NULL AND al.cover_art_hash IS NOT NULL)",
+                    "(s.album_id IS NULL OR al.cover_art_hash IS NULL)",
+                ),
+                _ => return None,
+            };
             return match op.as_str() {
-                "eq" => {
-                    if value.as_bool().unwrap_or(false) {
-                        Some("EXISTS (SELECT 1 FROM thumbnails t WHERE t.item_id = s.id AND t.item_type = 'song')".to_string())
-                    } else {
-                        Some("NOT EXISTS (SELECT 1 FROM thumbnails t WHERE t.item_id = s.id AND t.item_type = 'song')".to_string())
-                    }
-                }
-                "neq" => {
-                    if value.as_bool().unwrap_or(false) {
-                        Some("NOT EXISTS (SELECT 1 FROM thumbnails t WHERE t.item_id = s.id AND t.item_type = 'song')".to_string())
-                    } else {
-                        Some("EXISTS (SELECT 1 FROM thumbnails t WHERE t.item_id = s.id AND t.item_type = 'song')".to_string())
-                    }
-                }
+                "eq" => Some(has_condition.to_string()),
+                "neq" => Some(not_has_condition.to_string()),
                 _ => None,
             };
         }
@@ -1073,6 +1197,20 @@ fn build_condition(cond: &SmartPlaylistConditionApi, user_id: i64) -> Option<Str
                         ))
                     }
                 }
+                _ => None,
+            };
+        }
+        "musicFolder" | "library" => {
+            // Filter by music folder ID - the value should be the music folder ID
+            return match op.as_str() {
+                "eq" => value.as_str().map(|s| {
+                    let escaped = s.replace('\'', "''");
+                    format!("mf.id = '{}'", escaped)
+                }),
+                "neq" => value.as_str().map(|s| {
+                    let escaped = s.replace('\'', "''");
+                    format!("mf.id != '{}'", escaped)
+                }),
                 _ => None,
             };
         }

@@ -787,6 +787,16 @@ export function useAudioEngine() {
     goToPreviousAction();
   };
 
+  // Force go to previous track (used for swipe gestures - always skip, never restart)
+  const previousForce = () => {
+    // Clear restore flag on explicit user interaction
+    setIsRestoring(false);
+
+    // Log listening time before going to previous track
+    logListeningTimeAndReset();
+    goToPreviousAction();
+  };
+
   return {
     play,
     pause,
@@ -795,6 +805,7 @@ export function useAudioEngine() {
     seekPercent,
     next,
     previous,
+    previousForce,
     retryPlayback,
     playbackState,
   };

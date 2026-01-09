@@ -96,7 +96,6 @@ export function SearchPageContent() {
       return response.searchResult3;
     },
     enabled: isReady && debouncedQuery.length >= 2,
-    staleTime: 0,
     refetchOnMount: "always",
   });
 

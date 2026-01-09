@@ -6,7 +6,7 @@
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::MusicFolder;
-use crate::error::{Error, Result};
+use crate::error::{Error, FerrotuneApiResult, Result};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -97,7 +97,7 @@ pub struct CreateMusicFolderResponse {
 pub async fn list_music_folders(
     _user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<MusicFoldersResponse>> {
+) -> FerrotuneApiResult<Json<MusicFoldersResponse>> {
     let folders = get_all_music_folders_with_stats(&state).await?;
     Ok(Json(MusicFoldersResponse {
         music_folders: folders,
@@ -109,11 +109,11 @@ pub async fn get_music_folder(
     _user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-) -> Result<Json<MusicFolderInfo>> {
+) -> FerrotuneApiResult<Json<MusicFolderInfo>> {
     let folder = get_music_folder_with_stats(&state, id).await?;
     match folder {
         Some(f) => Ok(Json(f)),
-        None => Err(Error::NotFound(format!("Music folder {} not found", id))),
+        None => Err(Error::NotFound(format!("Music folder {} not found", id)).into()),
     }
 }
 
@@ -122,20 +122,16 @@ pub async fn create_music_folder(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreateMusicFolderRequest>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<impl IntoResponse> {
     // Validate the path exists
     let path = std::path::Path::new(&request.path);
     if !path.exists() {
-        return Err(Error::InvalidRequest(format!(
-            "Path does not exist: {}",
-            request.path
-        )));
+        return Err(Error::InvalidRequest(format!("Path does not exist: {}", request.path)).into());
     }
     if !path.is_dir() {
-        return Err(Error::InvalidRequest(format!(
-            "Path is not a directory: {}",
-            request.path
-        )));
+        return Err(
+            Error::InvalidRequest(format!("Path is not a directory: {}", request.path)).into(),
+        );
     }
 
     // Check if path is already registered
@@ -148,7 +144,8 @@ pub async fn create_music_folder(
         return Err(Error::InvalidRequest(format!(
             "Path is already registered as a music folder: {}",
             request.path
-        )));
+        ))
+        .into());
     }
 
     // Create the folder
@@ -188,7 +185,7 @@ pub async fn update_music_folder(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(request): Json<UpdateMusicFolderRequest>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<impl IntoResponse> {
     // Check if folder exists
     let existing: Option<MusicFolder> =
         sqlx::query_as("SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?")
@@ -197,7 +194,7 @@ pub async fn update_music_folder(
             .await?;
 
     if existing.is_none() {
-        return Err(Error::NotFound(format!("Music folder {} not found", id)));
+        return Err(Error::NotFound(format!("Music folder {} not found", id)).into());
     }
 
     // Build update query dynamically
@@ -250,7 +247,7 @@ pub async fn delete_music_folder(
     _user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<impl IntoResponse> {
     // Check if folder exists
     let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM music_folders WHERE id = ?")
         .bind(id)
@@ -258,7 +255,7 @@ pub async fn delete_music_folder(
         .await?;
 
     if existing.is_none() {
-        return Err(Error::NotFound(format!("Music folder {} not found", id)));
+        return Err(Error::NotFound(format!("Music folder {} not found", id)).into());
     }
 
     // Get song IDs being deleted for cleanup
@@ -556,7 +553,7 @@ pub async fn get_music_folder_stats(
     _user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-) -> Result<Json<MusicFolderStats>> {
+) -> FerrotuneApiResult<Json<MusicFolderStats>> {
     // Check if folder exists
     let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM music_folders WHERE id = ?")
         .bind(id)
@@ -564,7 +561,7 @@ pub async fn get_music_folder_stats(
         .await?;
 
     if existing.is_none() {
-        return Err(Error::NotFound(format!("Music folder {} not found", id)));
+        return Err(Error::NotFound(format!("Music folder {} not found", id)).into());
     }
 
     let stats = get_folder_stats(&state.pool, id).await?;

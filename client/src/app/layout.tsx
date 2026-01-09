@@ -7,6 +7,7 @@ import { SetupGuard } from "@/components/setup-guard";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { PlayerBar } from "@/components/layout/player-bar";
+import { SwipeableFooter } from "@/components/layout/swipeable-footer";
 import { QueuePanel, QueueSidebar } from "@/components/queue/queue";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import { MainContent } from "@/components/layout/main-content";
@@ -191,7 +192,8 @@ export default function RootLayout({
               </div>
 
               {/* Footer section - player bar and mobile nav */}
-              <div className="shrink-0">
+              {/* Wrapped in SwipeableFooter to enable swipe-up to fullscreen on mobile */}
+              <SwipeableFooter>
                 {/* Player bar */}
                 <PlayerBar />
 
@@ -199,7 +201,7 @@ export default function RootLayout({
                 <div className="lg:hidden">
                   <MobileNav />
                 </div>
-              </div>
+              </SwipeableFooter>
 
               {/* Fullscreen player - modal overlay */}
               <FullscreenPlayer />

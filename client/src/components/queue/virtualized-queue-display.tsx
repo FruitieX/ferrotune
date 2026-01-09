@@ -18,7 +18,6 @@ import {
   isQueueLoadingAtom,
   isQueueOperationPendingAtom,
   isRestoringQueueAtom,
-  trackChangeSignalAtom,
   fetchQueueRangeAtom,
   playAtIndexAtom,
   removeFromQueueAtom,
@@ -46,6 +45,8 @@ const OVERSCAN = 5;
 const FETCH_THRESHOLD = 10;
 // Minimum batch size for fetching - always fetch at least this many items
 const MIN_FETCH_BATCH_SIZE = 50;
+// Debounce delay for fetch requests (ms) - prevents request spam during rapid scrolling
+const FETCH_DEBOUNCE_MS = 100;
 
 // Loading placeholder for unfetched items
 function QueueItemPlaceholder() {
@@ -253,7 +254,6 @@ export const VirtualizedQueueDisplay = forwardRef<
   const isLoading = useAtomValue(isQueueLoadingAtom);
   const isPending = useAtomValue(isQueueOperationPendingAtom);
   const isRestoring = useAtomValue(isRestoringQueueAtom);
-  const trackChangeSignal = useAtomValue(trackChangeSignalAtom);
   const playbackState = useAtomValue(playbackStateAtom);
 
   const fetchQueueRange = useSetAtom(fetchQueueRangeAtom);
@@ -271,8 +271,12 @@ export const VirtualizedQueueDisplay = forwardRef<
 
   // Track previous current index to detect track changes
   const prevCurrentIndexRef = useRef<number | null>(null);
-  // Track if we should skip the next auto-scroll (user scrolled away)
-  const userScrolledAwayRef = useRef(false);
+  // Track previous queue source to detect new queue starts
+  const prevQueueSourceRef = useRef<string | null>(null);
+  // AbortController for cancelling pending fetch requests
+  const fetchAbortControllerRef = useRef<AbortController | null>(null);
+  // Flag to track if we're waiting for initial queue data after source change
+  const waitingForInitialDataRef = useRef(false);
 
   const totalCount = queueState?.totalCount ?? 0;
   const currentIndex = queueState?.currentIndex ?? 0;
@@ -280,8 +284,22 @@ export const VirtualizedQueueDisplay = forwardRef<
   // Memoize the songs array reference for stable dependencies
   const songs = queueWindow?.songs;
 
-  // Create a memoized map of loaded songs by position for O(1) lookup
-  // Only recreate when the songs array changes
+  // Create a map of loaded songs by position for O(1) lookup
+  // Store in a ref so it can be accessed in effects without being a dependency
+  const songsByPositionRef = useRef(new Map<number, QueueSongEntry>());
+
+  // Update the map when songs change
+  useEffect(() => {
+    const map = new Map<number, QueueSongEntry>();
+    if (songs) {
+      for (const entry of songs) {
+        map.set(entry.position, entry);
+      }
+    }
+    songsByPositionRef.current = map;
+  }, [songs]);
+
+  // Also create a render-time map for use in rendering (not effects)
   const songsByPosition = (() => {
     const map = new Map<number, QueueSongEntry>();
     if (songs) {
@@ -317,46 +335,16 @@ export const VirtualizedQueueDisplay = forwardRef<
       scrollToNowPlaying: (behavior: "auto" | "smooth" = "smooth") => {
         if (totalCount === 0) return;
         virtualizer.scrollToIndex(currentIndex, { align: "start", behavior });
-        userScrolledAwayRef.current = false;
       },
     }),
     [totalCount, virtualizer, currentIndex],
   );
 
-  // Track when user scrolls away from the now playing track
-  // We detect this by checking if now playing was visible before scrolling stopped
-  useEffect(() => {
-    const scrollElement = parentRef.current;
-    if (!scrollElement) return;
-
-    let scrollTimeout: ReturnType<typeof setTimeout>;
-
-    const handleScroll = () => {
-      // Clear any pending timeout
-      clearTimeout(scrollTimeout);
-
-      // After scroll ends, check if user scrolled away from now playing
-      scrollTimeout = setTimeout(() => {
-        const virtualItems = virtualizer.getVirtualItems();
-        const first = virtualItems[0]?.index ?? 0;
-        const last = virtualItems[virtualItems.length - 1]?.index ?? 0;
-
-        // If now playing is no longer visible, mark that user scrolled away
-        if (currentIndex < first || currentIndex > last) {
-          userScrolledAwayRef.current = true;
-        }
-      }, 150);
-    };
-
-    scrollElement.addEventListener("scroll", handleScroll, { passive: true });
-    return () => {
-      scrollElement.removeEventListener("scroll", handleScroll);
-      clearTimeout(scrollTimeout);
-    };
-  }, [virtualizer, currentIndex]);
-
   // Auto-scroll to now playing when track changes
-  // Only scroll if the user hasn't scrolled away (i.e., now playing is still "nearby")
+  // Only scroll if:
+  // 1. Now playing is currently visible in the scroll area
+  // 2. Now playing is in the bottom 25% of the visible area
+  // If scrolling, bring now playing to the middle of the viewport
   useEffect(() => {
     // Skip during queue restoration (page load)
     if (isRestoring) return;
@@ -371,39 +359,114 @@ export const VirtualizedQueueDisplay = forwardRef<
     if (prevCurrentIndexRef.current !== currentIndex) {
       prevCurrentIndexRef.current = currentIndex;
 
-      // Only auto-scroll if user hasn't scrolled away from the queue
-      if (!userScrolledAwayRef.current) {
-        // Use instant scroll for automatic track progression to avoid jarring animation
-        virtualizer.scrollToIndex(currentIndex, {
-          align: "start",
-          behavior: "auto",
-        });
-      }
-    }
-  }, [currentIndex, isRestoring, virtualizer]);
+      // Get scroll container dimensions to calculate visibility
+      const scrollElement = parentRef.current;
+      if (!scrollElement) return;
 
-  // When playback starts from library (trackChangeSignal changes while not restoring),
-  // always scroll to the new now playing track
-  const prevTrackChangeSignalRef = useRef(trackChangeSignal);
+      const containerHeight = scrollElement.clientHeight;
+      const scrollTop = scrollElement.scrollTop;
+
+      // Calculate which item indices are visible based on scroll position
+      const firstVisibleIndex = Math.floor(scrollTop / ITEM_HEIGHT);
+      const visibleItemCount = Math.ceil(containerHeight / ITEM_HEIGHT);
+      const lastVisibleIndex = firstVisibleIndex + visibleItemCount - 1;
+
+      // Check if now playing is currently visible
+      const isVisible =
+        currentIndex >= firstVisibleIndex && currentIndex <= lastVisibleIndex;
+
+      // Calculate the 75% threshold position (bottom 25% triggers scroll)
+      const threshold = 0.75;
+      const thresholdIndex =
+        firstVisibleIndex + Math.floor(visibleItemCount * threshold);
+
+      // Check if now playing is in the bottom 25% of visible area
+      const isInBottomQuarter = currentIndex > thresholdIndex;
+
+      // Only scroll if now playing is visible
+      if (isVisible) {
+        if (isInBottomQuarter) {
+          // Scroll to bring now playing to the middle of the viewport
+          const middleOffset = Math.floor(visibleItemCount * threshold);
+          const targetScrollTop = Math.max(
+            0,
+            (currentIndex - middleOffset) * ITEM_HEIGHT,
+          );
+          scrollElement.scrollTo({
+            top: targetScrollTop,
+            behavior: "auto",
+          });
+        }
+        // If in top 75% (0-75%), don't scroll at all
+      }
+      // If not visible, don't scroll (user scrolled elsewhere)
+    }
+  }, [currentIndex, isRestoring]);
+
+  // When a new queue starts (source changes), reset scroll and prepare for initial data
   useEffect(() => {
-    if (
-      prevTrackChangeSignalRef.current !== trackChangeSignal &&
-      !isRestoring
-    ) {
-      prevTrackChangeSignalRef.current = trackChangeSignal;
-      // Scroll to now playing with smooth animation when user starts playback from library
+    // Skip during queue restoration (page load)
+    if (isRestoring) return;
+
+    // Get the current queue source identifier
+    const currentSource = queueState?.source?.id ?? null;
+
+    // Skip on initial mount
+    if (prevQueueSourceRef.current === null) {
+      prevQueueSourceRef.current = currentSource;
+      return;
+    }
+
+    // Queue source changed - new queue started
+    if (prevQueueSourceRef.current !== currentSource) {
+      prevQueueSourceRef.current = currentSource;
+
+      // Abort any pending fetch requests
+      if (fetchAbortControllerRef.current) {
+        fetchAbortControllerRef.current.abort();
+        fetchAbortControllerRef.current = null;
+      }
+
+      // Reset scroll to top immediately
+      const scrollElement = parentRef.current;
+      if (scrollElement) {
+        scrollElement.scrollTop = 0;
+      }
+
+      // Clear fetched ranges since we have a new queue
+      fetchedRangesRef.current.clear();
+      isFetchingRef.current = false;
+
+      // Mark that we're waiting for initial data to scroll to correct position
+      waitingForInitialDataRef.current = true;
+    }
+  }, [queueState?.source?.id, isRestoring]);
+
+  // After queue data loads, scroll to now playing if we were waiting
+  useEffect(() => {
+    if (waitingForInitialDataRef.current && songs && songs.length > 0) {
+      waitingForInitialDataRef.current = false;
+      // Scroll immediately without animation
       virtualizer.scrollToIndex(currentIndex, {
         align: "start",
-        behavior: "smooth",
+        behavior: "auto",
       });
-      userScrolledAwayRef.current = false;
     }
-  }, [trackChangeSignal, isRestoring, virtualizer, currentIndex]);
+  }, [songs, currentIndex, virtualizer]);
 
   // Check for more data to fetch when scroll position changes
+  // Uses debouncing to prevent request spam during rapid scrolling
+  // In-flight requests are allowed to complete - only aborted when queue source changes
   useEffect(() => {
-    const checkAndFetchMore = async () => {
-      if (isFetchingRef.current || totalCount === 0) return;
+    if (totalCount === 0) return;
+
+    // Debounce the fetch to avoid spamming requests during rapid scrolling
+    const debounceTimeout = setTimeout(async () => {
+      // Don't start a new fetch if one is already in progress
+      if (isFetchingRef.current) return;
+
+      // Read from ref to get current loaded songs (not stale closure value)
+      const currentSongsByPosition = songsByPositionRef.current;
 
       // Find gaps in the loaded data within the visible + threshold range
       const checkStart = Math.max(0, firstVisible - FETCH_THRESHOLD);
@@ -412,7 +475,7 @@ export const VirtualizedQueueDisplay = forwardRef<
       let fetchStart = -1;
 
       for (let i = checkStart; i <= checkEnd; i++) {
-        if (!songsByPosition.has(i)) {
+        if (!currentSongsByPosition.has(i)) {
           if (fetchStart === -1) fetchStart = i;
         }
       }
@@ -439,20 +502,39 @@ export const VirtualizedQueueDisplay = forwardRef<
           fetchedRangesRef.current.add(rangeKey);
           isFetchingRef.current = true;
 
+          // Create a new AbortController for this fetch
+          const abortController = new AbortController();
+          fetchAbortControllerRef.current = abortController;
+
           try {
             await fetchQueueRange({
               offset: adjustedStart,
               limit: adjustedEnd - adjustedStart + 1,
+              signal: abortController.signal,
             });
+          } catch (error) {
+            // If aborted, remove from fetched ranges so it can be retried
+            if (error instanceof DOMException && error.name === "AbortError") {
+              fetchedRangesRef.current.delete(rangeKey);
+            }
           } finally {
+            // Only clear if this is still the current controller
+            if (fetchAbortControllerRef.current === abortController) {
+              fetchAbortControllerRef.current = null;
+            }
             isFetchingRef.current = false;
           }
         }
       }
-    };
+    }, FETCH_DEBOUNCE_MS);
 
-    checkAndFetchMore();
-  }, [firstVisible, lastVisible, totalCount, songsByPosition, fetchQueueRange]);
+    // Cleanup: only clear debounce timeout on scroll change
+    // Don't abort in-flight requests - let them complete
+    // Requests are only aborted when queue source changes (handled in separate effect)
+    return () => {
+      clearTimeout(debounceTimeout);
+    };
+  }, [firstVisible, lastVisible, totalCount, fetchQueueRange]);
 
   // Reset fetched ranges when queue changes
   useEffect(() => {

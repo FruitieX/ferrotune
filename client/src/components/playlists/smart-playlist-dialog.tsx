@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Sparkles, Plus, Trash2, Loader2 } from "lucide-react";
 import {
@@ -25,26 +25,28 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getClient } from "@/lib/api/client";
+import type { MusicFolderInfo } from "@/lib/api/types";
 import type { SmartPlaylistInfo } from "@/lib/api/generated/SmartPlaylistInfo";
 import type { SmartPlaylistConditionApi } from "@/lib/api/generated/SmartPlaylistConditionApi";
 
 // Field definitions with their supported operators
-const FIELDS = [
-  { value: "artist", label: "Artist", type: "text" },
-  { value: "album", label: "Album", type: "text" },
-  { value: "title", label: "Title", type: "text" },
-  { value: "genre", label: "Genre", type: "text" },
-  { value: "year", label: "Year", type: "number" },
-  { value: "playCount", label: "Play Count", type: "number" },
-  { value: "duration", label: "Duration (seconds)", type: "number" },
-  { value: "bitrate", label: "Bitrate (kbps)", type: "number" },
-  { value: "rating", label: "Rating", type: "number" },
-  { value: "dateAdded", label: "Date Added", type: "date" },
-  { value: "lastPlayed", label: "Last Played", type: "date" },
+// Note: "library" field uses dynamic options from music folders API
+const STATIC_FIELDS = [
+  { value: "artist", label: "Artist", type: "text" as const },
+  { value: "album", label: "Album", type: "text" as const },
+  { value: "title", label: "Title", type: "text" as const },
+  { value: "genre", label: "Genre", type: "text" as const },
+  { value: "year", label: "Year", type: "number" as const },
+  { value: "playCount", label: "Play Count", type: "number" as const },
+  { value: "duration", label: "Duration (seconds)", type: "number" as const },
+  { value: "bitrate", label: "Bitrate (kbps)", type: "number" as const },
+  { value: "rating", label: "Rating", type: "number" as const },
+  { value: "dateAdded", label: "Date Added", type: "date" as const },
+  { value: "lastPlayed", label: "Last Played", type: "date" as const },
   {
     value: "fileFormat",
     label: "File Format",
-    type: "enum",
+    type: "enum" as const,
     enumOptions: [
       { value: "flac", label: "FLAC" },
       { value: "mp3", label: "MP3" },
@@ -55,12 +57,49 @@ const FIELDS = [
       { value: "aiff", label: "AIFF" },
     ],
   },
-  { value: "starred", label: "Starred", type: "boolean" },
-  { value: "coverArt", label: "Has Cover Art", type: "boolean" },
-  { value: "shuffleExcluded", label: "Shuffle Excluded", type: "boolean" },
-] as const;
+  { value: "starred", label: "Starred", type: "boolean" as const },
+  {
+    value: "coverArt",
+    label: "Cover Art",
+    type: "enum" as const,
+    enumOptions: [
+      { value: "any", label: "Has Cover Art" },
+      { value: "embedded", label: "Has Embedded Cover Art" },
+      { value: "album", label: "Has Album Cover Art" },
+    ],
+  },
+  {
+    value: "shuffleExcluded",
+    label: "Shuffle Excluded",
+    type: "boolean" as const,
+  },
+];
 
-type FieldType = (typeof FIELDS)[number]["type"];
+type FieldType = "text" | "number" | "date" | "boolean" | "enum";
+
+/**
+ * Build the complete fields list including dynamic library options
+ */
+function buildFieldsWithLibraries(
+  musicFolders: MusicFolderInfo[],
+): FieldDefinition[] {
+  const fields: FieldDefinition[] = [...STATIC_FIELDS];
+
+  // Only add library field if there are multiple music folders
+  if (musicFolders.length > 1) {
+    fields.push({
+      value: "library",
+      label: "Library",
+      type: "enum",
+      enumOptions: musicFolders.map((f) => ({
+        value: String(f.id),
+        label: f.name,
+      })),
+    });
+  }
+
+  return fields;
+}
 
 interface FieldDefinition {
   value: string;
@@ -158,6 +197,20 @@ export function SmartPlaylistDialog({
 }: SmartPlaylistDialogProps) {
   const queryClient = useQueryClient();
   const isEditing = !!editPlaylist;
+
+  // Fetch music folders for the library field
+  const { data: musicFolders = [] } = useQuery({
+    queryKey: ["musicFolders"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) return [];
+      const response = await client.getAdminMusicFolders();
+      return response.musicFolders ?? [];
+    },
+  });
+
+  // Build dynamic fields list including library field if multiple folders exist
+  const FIELDS = buildFieldsWithLibraries(musicFolders);
 
   // Form state
   const [name, setName] = useState("");

@@ -2,7 +2,7 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
-use crate::error::Result;
+use crate::error::FerrotuneApiResult;
 use axum::{extract::State, Json};
 use serde::Serialize;
 use std::sync::Arc;
@@ -44,7 +44,7 @@ pub struct StatsResponse {
 pub async fn get_stats(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<StatsResponse>> {
+) -> FerrotuneApiResult<Json<StatsResponse>> {
     // Get song count from enabled folders
     let (song_count,): (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM songs s

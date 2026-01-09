@@ -2,35 +2,51 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { PlaylistSongsResponse } from "@/lib/api/generated/PlaylistSongsResponse";
+import type { PlaylistSongEntry } from "@/lib/api/generated/PlaylistSongEntry";
 
 /**
- * Configuration for sparse pagination
+ * Configuration for playlist sparse pagination
  */
-export interface SparsePaginationConfig<T, TMeta = Record<string, never>> {
+export interface PlaylistSparsePaginationConfig {
   /** Unique query key for caching */
   queryKey: unknown[];
   /** Page size */
   pageSize: number;
-  /** Total count of items (if known) */
-  totalCount?: number;
   /** Function to fetch a page at a given offset */
-  fetchPage: (offset: number) => Promise<{
-    items: T[];
-    total: number;
-    /** Optional metadata (e.g., totalDuration) returned from each page fetch */
-    metadata?: TMeta;
-  }>;
+  fetchPage: (offset: number) => Promise<PlaylistSongsResponse>;
   /** Whether the query is enabled */
   enabled?: boolean;
 }
 
 /**
- * Result of the sparse pagination hook
+ * Playlist metadata extracted from responses
  */
-export interface SparsePaginationResult<T, TMeta = Record<string, never>> {
-  /** Array of items, with undefined for unloaded indices */
-  items: T[];
-  /** Total count of items */
+export interface PlaylistMetadata {
+  id: string;
+  name: string;
+  comment: string | null;
+  owner: string;
+  public: boolean;
+  totalEntries: number;
+  matchedCount: number;
+  missingCount: number;
+  duration: number;
+  filteredCount: number;
+  created: string;
+  changed: string;
+  coverArt: string | null;
+}
+
+/**
+ * Result of the playlist sparse pagination hook
+ */
+export interface PlaylistSparsePaginationResult {
+  /** Array of entries, with undefined for unloaded indices */
+  entries: PlaylistSongEntry[];
+  /** Playlist metadata (from first loaded page) */
+  metadata: PlaylistMetadata | null;
+  /** Total count of items (filteredCount) */
   totalCount: number;
   /** Whether initial data is loading */
   isLoading: boolean;
@@ -38,48 +54,26 @@ export interface SparsePaginationResult<T, TMeta = Record<string, never>> {
   isFetching: boolean;
   /** Request loading of items in a range (called by virtualizer) */
   ensureRange: (startIndex: number, endIndex: number) => void;
-  /** Additional metadata from the fetch (e.g., totalDuration) */
-  metadata: TMeta | null;
 }
 
 /**
- * Hook for sparse pagination that only loads pages around the visible area.
+ * Hook for sparse pagination of playlist entries.
  *
  * Unlike useInfiniteQuery which loads pages sequentially, this hook allows
- * jumping to any position and only loading the required pages. Previously
- * loaded pages are kept in cache.
- *
- * Usage:
- * ```tsx
- * const { items, totalCount, ensureRange } = useSparsePagination({
- *   queryKey: ['songs', filter],
- *   pageSize: 50,
- *   fetchPage: async (offset) => {
- *     const response = await api.getSongs({ offset, limit: 50 });
- *     return { items: response.songs, total: response.total };
- *   },
- * });
- *
- * // In virtualizer effect:
- * useEffect(() => {
- *   const firstVisible = virtualItems[0]?.index ?? 0;
- *   const lastVisible = virtualItems[virtualItems.length - 1]?.index ?? 0;
- *   ensureRange(firstVisible, lastVisible);
- * }, [virtualItems, ensureRange]);
- * ```
+ * jumping to any position and only loading the required pages.
  */
-export function useSparsePagination<T, TMeta = Record<string, never>>({
+export function usePlaylistSparsePagination({
   queryKey,
   pageSize,
-  totalCount: initialTotalCount,
   fetchPage,
   enabled = true,
-}: SparsePaginationConfig<T, TMeta>): SparsePaginationResult<T, TMeta> {
-  // Track loaded pages: Map<pageIndex, T[]>
-  const [pages, setPages] = useState<Map<number, T[]>>(new Map());
-  const [totalCount, setTotalCount] = useState(initialTotalCount ?? 0);
-  // Track metadata from the last fetch (e.g., totalDuration)
-  const [metadata, setMetadata] = useState<TMeta | null>(null);
+}: PlaylistSparsePaginationConfig): PlaylistSparsePaginationResult {
+  // Track loaded pages: Map<pageIndex, PlaylistSongEntry[]>
+  const [pages, setPages] = useState<Map<number, PlaylistSongEntry[]>>(
+    new Map(),
+  );
+  const [metadata, setMetadata] = useState<PlaylistMetadata | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
   // Track if we've completed at least one successful fetch
   // Used to avoid showing empty state before initial data loads
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
@@ -101,13 +95,13 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     if (keyChanged) {
       queryKeyRef.current = queryKey;
       setPages(new Map());
-      setTotalCount(initialTotalCount ?? 0);
       setMetadata(null);
+      setTotalCount(0);
       setHasLoadedOnce(false);
       fetchingPages.current.clear();
       setPendingRange(null);
     }
-  }, [queryKey, initialTotalCount]);
+  }, [queryKey]);
 
   // Calculate which pages need to be loaded for a given range
   const getRequiredPages = (startIndex: number, endIndex: number): number[] => {
@@ -148,31 +142,44 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
         const results = await Promise.all(
           requiredPages.map(async (pageIndex) => {
             const offset = pageIndex * pageSize;
-            const {
-              items,
-              total,
-              metadata: pageMeta,
-            } = await fetchPage(offset);
-            return { pageIndex, items, total, metadata: pageMeta };
+            const response = await fetchPage(offset);
+            return { pageIndex, response };
           }),
         );
 
         // Update state with fetched pages
         setPages((prev) => {
           const next = new Map(prev);
-          results.forEach(({ pageIndex, items }) => {
-            next.set(pageIndex, items);
+          results.forEach(({ pageIndex, response }) => {
+            next.set(pageIndex, response.entries);
           });
           return next;
         });
 
-        // Update total count and metadata from the first result
+        // Update metadata and total count from the first result
         if (results.length > 0) {
-          setTotalCount(results[0].total);
-          if (results[0].metadata) {
-            setMetadata(results[0].metadata);
-          }
+          const firstResponse = results[0].response;
+          setTotalCount(firstResponse.filteredCount);
           setHasLoadedOnce(true);
+
+          // Extract metadata if not already set
+          if (!metadata) {
+            setMetadata({
+              id: firstResponse.id,
+              name: firstResponse.name,
+              comment: firstResponse.comment,
+              owner: firstResponse.owner,
+              public: firstResponse.public,
+              totalEntries: firstResponse.totalEntries,
+              matchedCount: firstResponse.matchedCount,
+              missingCount: firstResponse.missingCount,
+              duration: firstResponse.duration,
+              filteredCount: firstResponse.filteredCount,
+              created: firstResponse.created,
+              changed: firstResponse.changed,
+              coverArt: firstResponse.coverArt,
+            });
+          }
         }
 
         return results;
@@ -199,18 +206,18 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     }
   };
 
-  // Build flat items array from loaded pages
-  const items: T[] = [];
+  // Build flat entries array from loaded pages
+  const entries: PlaylistSongEntry[] = [];
   if (totalCount > 0) {
     // Pre-size array with undefined values
-    items.length = totalCount;
+    entries.length = totalCount;
 
     // Fill in loaded items
     pages.forEach((pageItems, pageIndex) => {
       const startIdx = pageIndex * pageSize;
       pageItems.forEach((item, i) => {
         if (startIdx + i < totalCount) {
-          items[startIdx + i] = item;
+          entries[startIdx + i] = item;
         }
       });
     });
@@ -225,11 +232,11 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
   }, [enabled, hasLoadedOnce, pages.size, pageSize]);
 
   return {
-    items,
+    entries,
+    metadata,
     totalCount,
     isLoading: !hasLoadedOnce,
     isFetching,
     ensureRange,
-    metadata,
   };
 }

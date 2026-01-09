@@ -34,10 +34,9 @@ jsonpath "$.stats.totalSizeBytes" isInteger
 # Test: Get non-existent music folder returns error
 GET {{base_url}}/ferrotune/music-folders/9999
 Authorization: Basic {{auth_basic}}
-HTTP 200
+HTTP 404
 [Asserts]
-jsonpath "$.subsonic-response.status" == "failed"
-jsonpath "$.subsonic-response.error.code" == 70
+jsonpath "$.error" startsWith "Not found:"
 
 # ============================================================================
 # UPDATE MUSIC FOLDER
@@ -111,10 +110,9 @@ Content-Type: application/json
   "path": "/nonexistent/path/that/does/not/exist"
 }
 ```
-HTTP 200
+HTTP 400
 [Asserts]
-jsonpath "$.subsonic-response.status" == "failed"
-jsonpath "$.subsonic-response.error.code" == 10
+jsonpath "$.error" startsWith "Invalid request:"
 
 # ============================================================================
 # DELETE MUSIC FOLDER - Error Cases
@@ -123,10 +121,9 @@ jsonpath "$.subsonic-response.error.code" == 10
 # Test: Delete non-existent folder returns error
 DELETE {{base_url}}/ferrotune/music-folders/9999
 Authorization: Basic {{auth_basic}}
-HTTP 200
+HTTP 404
 [Asserts]
-jsonpath "$.subsonic-response.status" == "failed"
-jsonpath "$.subsonic-response.error.code" == 70
+jsonpath "$.error" startsWith "Not found:"
 
 # ============================================================================
 # STATS ENDPOINT
@@ -146,7 +143,6 @@ jsonpath "$.totalSizeBytes" isInteger
 # Test: Get stats for non-existent folder returns error
 GET {{base_url}}/ferrotune/music-folders/9999/stats
 Authorization: Basic {{auth_basic}}
-HTTP 200
+HTTP 404
 [Asserts]
-jsonpath "$.subsonic-response.status" == "failed"
-jsonpath "$.subsonic-response.error.code" == 70
+jsonpath "$.error" startsWith "Not found:"

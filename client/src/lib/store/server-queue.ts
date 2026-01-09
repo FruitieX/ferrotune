@@ -225,7 +225,11 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
 // Fetch a specific range of the queue
 export const fetchQueueRangeAtom = atom(
   null,
-  async (get, set, params: { offset: number; limit: number }) => {
+  async (
+    get,
+    set,
+    params: { offset: number; limit: number; signal?: AbortSignal },
+  ) => {
     const client = getClient();
     if (!client) return null;
 
@@ -233,6 +237,7 @@ export const fetchQueueRangeAtom = atom(
       const response = await client.getServerQueue({
         ...params,
         inlineImages: "small",
+        signal: params.signal,
       });
 
       // Merge the new window into existing state
@@ -254,6 +259,10 @@ export const fetchQueueRangeAtom = atom(
 
       return response.window;
     } catch (error) {
+      // Silently ignore abort errors
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return null;
+      }
       console.error("Failed to fetch queue range:", error);
       return null;
     }

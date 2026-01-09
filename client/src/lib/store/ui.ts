@@ -1,4 +1,5 @@
 import { atom } from "jotai";
+import { motionValue, type MotionValue } from "framer-motion";
 import { atomWithServerStorage } from "./server-storage";
 import { oklchToRgbString } from "@/lib/utils/color";
 
@@ -20,6 +21,11 @@ export const queuePanelOpenAtom = atomWithServerStorage<boolean>(
 
 // Fullscreen player state
 export const fullscreenPlayerOpenAtom = atom<boolean>(false);
+
+// Shared MotionValue for fullscreen open gesture - allows direct animation without React re-renders
+// This value represents the Y offset of the swipe gesture (negative = swiping up to open)
+// It's a singleton that both SwipeableFooter and FullscreenPlayer can subscribe to
+export const fullscreenOpenDragY: MotionValue<number> = motionValue(0);
 
 // Search state
 export const searchQueryAtom = atom<string>("");

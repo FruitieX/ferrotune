@@ -9,7 +9,7 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
-use crate::error::{Error, Result};
+use crate::error::{Error, FerrotuneApiResult, Result};
 use axum::{
     extract::{Path, Query, State},
     response::sse::{Event, KeepAlive, Sse},
@@ -75,7 +75,7 @@ pub async fn get_waveform_stream(
     State(state): State<Arc<AppState>>,
     Path(song_id): Path<String>,
     Query(params): Query<WaveformQuery>,
-) -> Result<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
+) -> FerrotuneApiResult<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
     let resolution = params.resolution.clamp(10, 1000);
 
     // Get song from database
@@ -87,10 +87,7 @@ pub async fn get_waveform_stream(
     if !crate::api::ferrotune::users::user_has_song_access(&state.pool, user.user_id, &song_id)
         .await?
     {
-        return Err(Error::Forbidden(format!(
-            "You do not have access to song {}",
-            song_id
-        )));
+        return Err(Error::Forbidden(format!("You do not have access to song {}", song_id)).into());
     }
 
     // Find the music folder for this song
@@ -129,7 +126,7 @@ pub async fn get_waveform_stream(
             song.file_path,
             canonical_path.display()
         );
-        return Err(Error::NotFound("File not found".to_string()));
+        return Err(Error::NotFound("File not found".to_string()).into());
     }
 
     // Create channel for streaming chunks

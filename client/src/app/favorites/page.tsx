@@ -170,7 +170,6 @@ export default function FavoritesPage() {
       return { items: songs, total };
     },
     enabled: isReady && activeTab === "songs",
-    staleTime: 0,
   });
 
   // Fetch starred albums using sparse pagination for infinite scroll
@@ -210,7 +209,6 @@ export default function FavoritesPage() {
       return { items: albums, total };
     },
     enabled: isReady && activeTab === "albums",
-    staleTime: 0,
   });
 
   // Fetch starred artists using sparse pagination for infinite scroll
@@ -241,7 +239,6 @@ export default function FavoritesPage() {
       return { items: artists, total };
     },
     enabled: isReady && activeTab === "artists",
-    staleTime: 0,
   });
 
   // Loading state per active tab (not combined - we only load active tab now)
