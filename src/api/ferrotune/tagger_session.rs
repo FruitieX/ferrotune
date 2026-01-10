@@ -1240,27 +1240,9 @@ pub async fn remove_tracks(
 
             // If this is a staged track, also clean up the staged audio file
             if track_type == "staged" {
-                // Get the staging path from tagger_staged_files
-                if let Ok(Some((staging_path,))) = sqlx::query_as::<_, (String,)>(
-                    "SELECT staging_path FROM tagger_staged_files WHERE id = ? AND user_id = ?",
-                )
-                .bind(track_id)
-                .bind(&user.username)
-                .fetch_optional(&state.pool)
-                .await
-                {
-                    // Delete the staged audio file
-                    let full_path = staging_dir.join(&staging_path);
-                    let _ = fs::remove_file(&full_path).await;
-
-                    // Delete the staged file database record
-                    let _ =
-                        sqlx::query("DELETE FROM tagger_staged_files WHERE id = ? AND user_id = ?")
-                            .bind(track_id)
-                            .bind(&user.username)
-                            .execute(&state.pool)
-                            .await;
-                }
+                // The track_id IS the filename in format: {uuid}_{original_filename}
+                let full_path = staging_dir.join(track_id);
+                let _ = fs::remove_file(&full_path).await;
             }
         }
 
@@ -2623,6 +2605,7 @@ pub async fn save_pending_edits(
     };
 
     let cover_art_dir = get_cover_art_dir(&user.username);
+    let staging_dir = super::tagger::get_staging_dir(&state, &user.username);
 
     let mut saved_count = 0i32;
     let mut errors = Vec::<SaveError>::new();
@@ -2753,41 +2736,20 @@ pub async fn save_pending_edits(
                 }
             };
 
-            // Get staged file info from database
-            let staged_row: Option<(String, String)> = match sqlx::query_as(
-                "SELECT staging_path, original_filename FROM tagger_staged_files WHERE id = ? AND user_id = ?",
-            )
-            .bind(track_id)
-            .bind(&user.username)
-            .fetch_optional(&state.pool)
-            .await
+            // Get staged file info - the track_id IS the filename in format: {uuid}_{original_filename}
+            // Extract original_filename by stripping the UUID prefix (36 chars + underscore)
+            let original_filename = if track_id.len() > 37 && track_id.chars().nth(36) == Some('_')
             {
-                Ok(r) => r,
-                Err(e) => {
-                    errors.push(SaveError {
-                        track_id: track_id.clone(),
-                        error: format!("Database error: {}", e),
-                    });
-                    continue;
-                }
+                track_id[37..].to_string()
+            } else {
+                track_id.clone()
             };
 
-            let (staging_path, original_filename) = match staged_row {
-                Some(r) => r,
-                None => {
-                    errors.push(SaveError {
-                        track_id: track_id.clone(),
-                        error: "Staged file not found".to_string(),
-                    });
-                    continue;
-                }
-            };
-
-            let staging_path = PathBuf::from(&staging_path);
+            let staging_path = staging_dir.join(track_id);
             if !staging_path.exists() {
                 errors.push(SaveError {
                     track_id: track_id.clone(),
-                    error: "Staged file missing from disk".to_string(),
+                    error: "Staged file not found".to_string(),
                 });
                 continue;
             }
@@ -2892,14 +2854,7 @@ pub async fn save_pending_edits(
                 continue;
             }
 
-            // Delete from staged files table
-            let _ = sqlx::query("DELETE FROM tagger_staged_files WHERE id = ? AND user_id = ?")
-                .bind(track_id)
-                .bind(&user.username)
-                .execute(&state.pool)
-                .await;
-
-            // Remove from session tracks
+            // Remove from session tracks (file is moved, no separate cleanup needed)
             let _ = sqlx::query(
                 "DELETE FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
             )

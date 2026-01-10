@@ -307,7 +307,7 @@ pub struct PathConflict {
 }
 
 /// Get staging directory for uploaded files for a user
-fn get_staging_dir(_state: &AppState, user_id: &str) -> PathBuf {
+pub fn get_staging_dir(_state: &AppState, user_id: &str) -> PathBuf {
     // Use a staging subdirectory in the data directory
     crate::config::get_data_dir()
         .join("staging")
@@ -407,7 +407,8 @@ pub async fn upload_files(
             }
         };
 
-        // Success - no database insert needed
+        // Success - staged file info is encoded in the filename itself
+        // Format: {uuid}_{original_filename}
         uploaded_files.push(StagedFile {
             id: staged_filename, // Use filename as ID
             original_filename: filename,
@@ -1285,35 +1286,20 @@ pub async fn save_staged_files(
     let mut saved_count = 0;
     let mut errors = Vec::new();
     let mut new_song_ids = Vec::new();
+    let staging_dir = get_staging_dir(&state, &user.username);
 
     for file_save in &request.files {
-        // Get staged file info
-        let row = match sqlx::query_as::<_, (String,)>(
-            r#"SELECT staging_path FROM tagger_staged_files WHERE id = ? AND user_id = ?"#,
-        )
-        .bind(&file_save.staged_id)
-        .bind(&user.username)
-        .fetch_optional(&state.pool)
-        .await
-        {
-            Ok(Some(row)) => row,
-            Ok(None) => {
-                errors.push(SaveError {
-                    staged_id: file_save.staged_id.clone(),
-                    error: "Staged file not found".to_string(),
-                });
-                continue;
-            }
-            Err(e) => {
-                errors.push(SaveError {
-                    staged_id: file_save.staged_id.clone(),
-                    error: format!("Database error: {}", e),
-                });
-                continue;
-            }
-        };
+        // The staged file ID is the filename in format: {uuid}_{original_filename}
+        // The staging path is just the staging directory + the ID
+        let staging_path = staging_dir.join(&file_save.staged_id);
 
-        let staging_path = PathBuf::from(&row.0);
+        if !staging_path.exists() {
+            errors.push(SaveError {
+                staged_id: file_save.staged_id.clone(),
+                error: "Staged file not found".to_string(),
+            });
+            continue;
+        }
 
         // Get target music folder
         let music_folders = match queries::get_music_folders(&state.pool).await {
@@ -1362,17 +1348,6 @@ pub async fn save_staged_files(
                 error: format!("Failed to move file: {}", e),
             });
             continue;
-        }
-
-        // Delete from staged files table
-        if let Err(e) =
-            sqlx::query(r#"DELETE FROM tagger_staged_files WHERE id = ? AND user_id = ?"#)
-                .bind(&file_save.staged_id)
-                .bind(&user.username)
-                .execute(&state.pool)
-                .await
-        {
-            tracing::warn!("Failed to delete staged file record: {}", e);
         }
 
         saved_count += 1;

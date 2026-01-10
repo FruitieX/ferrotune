@@ -174,7 +174,7 @@ admin_password = "${password}"
 path = "${dbPath}"
 
 [music]
-readonly_tags = true
+readonly_tags = false
 
 [[music.folders]]
 name = "Test Music"

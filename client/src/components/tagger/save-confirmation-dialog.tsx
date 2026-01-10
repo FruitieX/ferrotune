@@ -128,6 +128,17 @@ export function SaveConfirmationDialog({
 
   const musicFolders: MusicFolderInfo[] = musicFoldersData?.musicFolders ?? [];
 
+  // Auto-select the library if there's only one
+  useEffect(() => {
+    const folders = musicFoldersData?.musicFolders;
+    if (folders?.length === 1 && !session.targetLibraryId) {
+      setSession((prev) => ({
+        ...prev,
+        targetLibraryId: String(folders[0].id),
+      }));
+    }
+  }, [musicFoldersData?.musicFolders, session.targetLibraryId, setSession]);
+
   // Check if there are any staged tracks in the dirty list
   const hasStagedTracks = dirtyTrackIds.some((id) => {
     const state = tracks.get(id);

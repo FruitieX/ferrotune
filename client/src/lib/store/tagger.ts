@@ -651,6 +651,8 @@ export function createTrackState(track: TaggerTrack): TaggerTrackState {
  * Check if a track state has any changes
  */
 export function hasTrackChanges(state: TaggerTrackState): boolean {
+  // Staged (uploaded) tracks always need saving
+  if (state.track.isStaged) return true;
   if (Object.keys(state.editedTags).length > 0) return true;
   if (state.coverArt?.changed || state.coverArt?.removed) return true;
   if (state.computedPath && state.computedPath !== state.track.filePath)

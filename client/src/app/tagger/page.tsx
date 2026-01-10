@@ -108,14 +108,19 @@ export default function TaggerPage() {
   const resizeStartWidthRef = useRef(400);
 
   // Load tagger state from database on mount
+  // Also check taggerStateLoaded to handle HMR cases where atoms get reset
   const hasLoadedRef = useRef(false);
   useEffect(() => {
+    // Reset hasLoadedRef if atoms were reset (e.g., after HMR)
+    if (hasLoadedRef.current && !taggerStateLoaded) {
+      hasLoadedRef.current = false;
+    }
     if (!isReady || hasLoadedRef.current) return;
     hasLoadedRef.current = true;
 
     registerTaggerSetters({ type: "register" });
     loadTaggerState();
-  }, [isReady, registerTaggerSetters]);
+  }, [isReady, registerTaggerSetters, taggerStateLoaded]);
 
   // Details panel resize handlers
   useEffect(() => {

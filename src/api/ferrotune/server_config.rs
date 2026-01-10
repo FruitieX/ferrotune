@@ -151,7 +151,11 @@ pub async fn get_server_config(
     );
     let max_cover_size: u32 =
         parse_json(get_config_value(pool, "cache.max_cover_size").await, 1024);
-    let readonly_tags: bool = parse_json(get_config_value(pool, "music.readonly_tags").await, true);
+    // Use config file value as default for readonly_tags (consistent with is_tag_editing_enabled)
+    let readonly_tags: bool = parse_json(
+        get_config_value(pool, "music.readonly_tags").await,
+        state.config.music.readonly_tags,
+    );
     let allow_file_deletion: bool = parse_json(
         get_config_value(pool, "music.allow_file_deletion").await,
         false,
