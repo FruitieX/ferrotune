@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useAtomValue, useSetAtom } from "jotai";
-import { Check, Shuffle } from "lucide-react";
+import { Check, Shuffle, Ban } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
@@ -15,6 +15,7 @@ import {
 } from "@/lib/store/server-queue";
 import { playbackStateAtom } from "@/lib/store/player";
 import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
+import { disabledSongsAtom } from "@/lib/store/disabled-songs";
 import { useStarred } from "@/lib/store/starred";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import {
@@ -189,6 +190,7 @@ export function SongRow({
   const currentSong = useAtomValue(currentSongAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const shuffleExcludes = useAtomValue(shuffleExcludesAtom);
+  const disabledSongs = useAtomValue(disabledSongsAtom);
   const startQueue = useSetAtom(startQueueAtom);
   const { togglePlayPause } = useAudioEngine();
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
@@ -203,6 +205,7 @@ export function SongRow({
       : currentSong?.id === song.id && playbackState !== "ended";
   const isPlaying = isCurrentTrack && playbackState === "playing";
   const isExcludedFromShuffle = shuffleExcludes.has(song.id);
+  const isDisabled = disabledSongs.has(song.id);
 
   // Use inline thumbnail if available, otherwise construct URL for fetching
   const coverArtUrl =
@@ -345,6 +348,18 @@ export function SongRow({
         }
         rightContent={
           <div className="flex items-center gap-4 text-sm text-muted-foreground tabular-nums shrink-0">
+            {isDisabled && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="relative hidden sm:inline-flex items-center justify-center w-4 h-4">
+                    <Ban className="w-3.5 h-3.5 text-muted-foreground/60" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p>Track disabled - excluded from automatic playback</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
             {isExcludedFromShuffle && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -406,7 +421,7 @@ export function SongRow({
             {children}
           </SongContextMenu>
         )}
-        className={className}
+        className={cn(className, isDisabled && "opacity-50")}
       >
         {/* Custom content with clickable links */}
         <div className="min-w-0 flex flex-col flex-1">

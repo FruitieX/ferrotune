@@ -3,10 +3,11 @@
 use crate::api::common::utils::format_datetime_iso_ms;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
+use crate::api::subsonic::query::QsQuery;
 use crate::api::AppState;
 use crate::error::{Error, FerrotuneApiResult};
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::StatusCode,
     Json,
 };
@@ -1781,7 +1782,7 @@ pub struct SongPlaylistsResponse {
 pub async fn get_playlists_for_songs(
     State(state): State<Arc<AppState>>,
     user: FerrotuneAuthenticatedUser,
-    Query(params): Query<SongPlaylistsQuery>,
+    QsQuery(params): QsQuery<SongPlaylistsQuery>,
 ) -> FerrotuneApiResult<Json<SongPlaylistsResponse>> {
     use std::collections::HashMap;
 

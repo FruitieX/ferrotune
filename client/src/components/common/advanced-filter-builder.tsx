@@ -88,6 +88,7 @@ export const DEFAULT_SONG_FIELDS: FieldDefinition[] = [
   { value: "coverArt", label: "Cover Art", type: "boolean" },
   { value: "starred", label: "Starred", type: "boolean" },
   { value: "shuffleExcluded", label: "Shuffle Excluded", type: "boolean" },
+  { value: "disabled", label: "Disabled", type: "boolean" },
 ];
 
 // ============================================================================
@@ -578,6 +579,13 @@ export function filtersToSearchParams(
         // shuffleExcluded: "is" + true = shuffle excluded only
         if (operator === "eq" && value === true) {
           params.shuffleExcludedOnly = true;
+        }
+        break;
+
+      case "disabled":
+        // disabled: "is" + true = disabled only
+        if (operator === "eq" && value === true) {
+          params.disabledOnly = true;
         }
         break;
 

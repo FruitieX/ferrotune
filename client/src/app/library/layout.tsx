@@ -38,6 +38,10 @@ import {
   shuffleExcludesAtom,
   shuffleExcludesLoadingAtom,
 } from "@/lib/store/shuffle-excludes";
+import {
+  disabledSongsAtom,
+  disabledSongsLoadingAtom,
+} from "@/lib/store/disabled-songs";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -129,6 +133,8 @@ export default function LibraryLayout({
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
   const setShuffleExcludes = useSetAtom(shuffleExcludesAtom);
   const setShuffleExcludesLoading = useSetAtom(shuffleExcludesLoadingAtom);
+  const setDisabledSongs = useSetAtom(disabledSongsAtom);
+  const setDisabledSongsLoading = useSetAtom(disabledSongsLoadingAtom);
 
   // Load shuffle excludes on mount
   useEffect(() => {
@@ -149,6 +155,26 @@ export default function LibraryLayout({
 
     loadShuffleExcludes();
   }, [setShuffleExcludes, setShuffleExcludesLoading]);
+
+  // Load disabled songs on mount
+  useEffect(() => {
+    const loadDisabledSongs = async () => {
+      const client = getClient();
+      if (!client) return;
+
+      setDisabledSongsLoading(true);
+      try {
+        const response = await client.getAllDisabledSongs();
+        setDisabledSongs(new Set(response.songIds));
+      } catch (error) {
+        console.error("Failed to load disabled songs:", error);
+      } finally {
+        setDisabledSongsLoading(false);
+      }
+    };
+
+    loadDisabledSongs();
+  }, [setDisabledSongs, setDisabledSongsLoading]);
 
   // Clear filter when navigating away from library
   useEffect(() => {

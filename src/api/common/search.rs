@@ -116,6 +116,8 @@ pub struct SearchParams {
     pub max_play_count: Option<i32>,
     /// Filter to only shuffle-excluded songs
     pub shuffle_excluded_only: Option<bool>,
+    /// Filter to only disabled songs
+    pub disabled_only: Option<bool>,
     /// Filter songs by minimum bitrate in kbps
     pub min_bitrate: Option<i32>,
     /// Filter songs by maximum bitrate in kbps
@@ -227,6 +229,14 @@ pub fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> Song
         // Filter to only show songs that are in the shuffle_excludes table for this user
         conditions.push(format!(
             "EXISTS (SELECT 1 FROM shuffle_excludes se WHERE se.song_id = s.id AND se.user_id = {})",
+            user_id
+        ));
+    }
+    // Disabled filter
+    if params.disabled_only.unwrap_or(false) {
+        // Filter to only show songs that are in the disabled_songs table for this user
+        conditions.push(format!(
+            "EXISTS (SELECT 1 FROM disabled_songs ds WHERE ds.song_id = s.id AND ds.user_id = {})",
             user_id
         ));
     }

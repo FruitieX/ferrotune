@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { toast } from "sonner";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
+import { disabledSongsAtom } from "@/lib/store/disabled-songs";
 import { getClient } from "@/lib/api/client";
 import { useStar } from "./use-star";
 import type { Album, Song } from "@/lib/api/types";
@@ -37,6 +38,7 @@ interface UseAlbumActionsReturn {
 export function useAlbumActions(album: Album): UseAlbumActionsReturn {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
+  const disabledSongs = useAtomValue(disabledSongsAtom);
 
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -106,8 +108,14 @@ export function useAlbumActions(album: Album): UseAlbumActionsReturn {
   const handleAddToPlaylist = async () => {
     const songs = await fetchSongs();
     if (songs && songs.length > 0) {
-      setAlbumSongs(songs);
-      setAddToPlaylistOpen(true);
+      // Filter out disabled songs when adding album to playlist
+      const enabledSongs = songs.filter((s) => !disabledSongs.has(s.id));
+      if (enabledSongs.length > 0) {
+        setAlbumSongs(enabledSongs);
+        setAddToPlaylistOpen(true);
+      } else {
+        toast.error("All songs in this album are disabled");
+      }
     } else {
       toast.error("No songs in this album");
     }

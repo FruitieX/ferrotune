@@ -12,6 +12,7 @@ import {
 } from "@/lib/store/server-queue";
 import { useStarred } from "@/lib/store/starred";
 import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
+import { disabledSongsAtom } from "@/lib/store/disabled-songs";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
 
@@ -38,6 +39,10 @@ interface UseSongActionsReturn {
   // Shuffle exclude state
   isExcludedFromShuffle: boolean;
   handleToggleShuffleExclude: () => Promise<void>;
+
+  // Disabled state
+  isDisabled: boolean;
+  handleToggleDisabled: () => Promise<void>;
 
   // Rating state
   currentRating: number;
@@ -77,12 +82,14 @@ export function useSongActions({
   const addToQueue = useSetAtom(addToQueueAtom);
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
   const [shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
+  const [disabledSongs, setDisabledSongs] = useAtom(disabledSongsAtom);
   const [currentRating, setCurrentRating] = useState(song.userRating ?? 0);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [confirmDeletionOpen, setConfirmDeletionOpen] = useState(false);
 
   const isExcludedFromShuffle = shuffleExcludes.has(song.id);
+  const isDisabled = disabledSongs.has(song.id);
 
   const handleToggleShuffleExclude = async () => {
     const client = getClient();
@@ -107,6 +114,31 @@ export function useSongActions({
       );
     } catch (error) {
       toast.error("Failed to update shuffle setting");
+      console.error(error);
+    }
+  };
+
+  const handleToggleDisabled = async () => {
+    const client = getClient();
+    if (!client) return;
+
+    const newDisabled = !isDisabled;
+    try {
+      await client.setDisabled(song.id, newDisabled);
+      setDisabledSongs((prev: Set<string>) => {
+        const next = new Set(prev);
+        if (newDisabled) {
+          next.add(song.id);
+        } else {
+          next.delete(song.id);
+        }
+        return next;
+      });
+      toast.success(
+        newDisabled ? `"${song.title}" disabled` : `"${song.title}" enabled`,
+      );
+    } catch (error) {
+      toast.error("Failed to update disabled status");
       console.error(error);
     }
   };
@@ -230,6 +262,8 @@ export function useSongActions({
     toggleStar,
     isExcludedFromShuffle,
     handleToggleShuffleExclude,
+    isDisabled,
+    handleToggleDisabled,
     currentRating,
     handleRate,
     handlePlay,

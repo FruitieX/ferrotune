@@ -20,6 +20,8 @@ import {
   Move,
   RefreshCw,
   Unlink,
+  Settings,
+  Ban,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -399,11 +401,13 @@ export interface SongMenuItemsStarringProps {
   handlers: {
     toggleStar: () => void;
     handleToggleShuffleExclude?: () => void;
+    handleToggleDisabled?: () => void;
     handleRate?: (rating: number) => void;
   };
   state: {
     isStarred: boolean;
     isExcludedFromShuffle?: boolean;
+    isDisabled?: boolean;
     currentRating?: number;
   };
 }
@@ -415,6 +419,9 @@ export function SongMenuItemsStarring({
 }: SongMenuItemsStarringProps) {
   const { Item, Separator, Sub, SubTrigger, SubContent } = components;
 
+  const hasTrackOptions =
+    handlers.handleToggleShuffleExclude || handlers.handleToggleDisabled;
+
   return (
     <>
       <Separator />
@@ -425,15 +432,34 @@ export function SongMenuItemsStarring({
         {state.isStarred ? "Remove from Favorites" : "Add to Favorites"}
       </Item>
 
-      {handlers.handleToggleShuffleExclude && (
-        <Item onClick={handlers.handleToggleShuffleExclude}>
-          <Shuffle
-            className={`w-4 h-4 mr-2 ${state.isExcludedFromShuffle ? "text-muted-foreground line-through" : ""}`}
-          />
-          {state.isExcludedFromShuffle
-            ? "Include in Shuffle"
-            : "Exclude from Shuffle"}
-        </Item>
+      {/* Track Options submenu for shuffle exclude and disabled state */}
+      {hasTrackOptions && Sub && SubTrigger && SubContent && (
+        <Sub>
+          <SubTrigger>
+            <Settings className="w-4 h-4 mr-2" />
+            Track Options
+          </SubTrigger>
+          <SubContent>
+            {handlers.handleToggleShuffleExclude && (
+              <Item onClick={handlers.handleToggleShuffleExclude}>
+                <Shuffle
+                  className={`w-4 h-4 mr-2 ${state.isExcludedFromShuffle ? "text-muted-foreground line-through" : ""}`}
+                />
+                {state.isExcludedFromShuffle
+                  ? "Include in Shuffle"
+                  : "Exclude from Shuffle"}
+              </Item>
+            )}
+            {handlers.handleToggleDisabled && (
+              <Item onClick={handlers.handleToggleDisabled}>
+                <Ban
+                  className={`w-4 h-4 mr-2 ${state.isDisabled ? "text-muted-foreground" : ""}`}
+                />
+                {state.isDisabled ? "Enable Track" : "Disable Track"}
+              </Item>
+            )}
+          </SubContent>
+        </Sub>
       )}
 
       {Sub && SubTrigger && SubContent && handlers.handleRate && (
@@ -498,6 +524,9 @@ export function SongMenuItemsNavigation({
 }: SongMenuItemsNavigationProps) {
   const { Item, Separator } = components;
 
+  const hasEditingActions =
+    handlers.handleMarkForEditing || handlers.setConfirmDeletionOpen;
+
   return (
     <>
       <Separator />
@@ -518,15 +547,32 @@ export function SongMenuItemsNavigation({
             href: `/library/albums/details?id=${song.albumId}`,
           },
         )}
-      {handlers.handleMarkForEditing &&
-        renderMenuItem(
-          { Item },
-          {
-            icon: Tag,
-            label: "Mark for Editing",
-            onClick: handlers.handleMarkForEditing,
-          },
-        )}
+      {/* Mark for Editing and Mark for Deletion grouped together */}
+      {hasEditingActions && (
+        <>
+          <Separator />
+          {handlers.handleMarkForEditing &&
+            renderMenuItem(
+              { Item },
+              {
+                icon: Tag,
+                label: "Mark for Editing",
+                onClick: handlers.handleMarkForEditing,
+              },
+            )}
+          {handlers.setConfirmDeletionOpen &&
+            renderMenuItem(
+              { Item },
+              {
+                icon: Trash2,
+                label: "Mark for Deletion",
+                onClick: () => handlers.setConfirmDeletionOpen?.(true),
+                className: "text-destructive",
+              },
+            )}
+        </>
+      )}
+      {/* Download and View Details at the bottom */}
       <Separator />
       {handlers.handleDownload &&
         renderMenuItem(
@@ -544,20 +590,6 @@ export function SongMenuItemsNavigation({
           label: "View Details",
           onClick: () => handlers.setDetailsOpen(true),
         },
-      )}
-      {handlers.setConfirmDeletionOpen && (
-        <>
-          <Separator />
-          {renderMenuItem(
-            { Item },
-            {
-              icon: Trash2,
-              label: "Mark for Deletion",
-              onClick: () => handlers.setConfirmDeletionOpen?.(true),
-              className: "text-destructive",
-            },
-          )}
-        </>
       )}
     </>
   );

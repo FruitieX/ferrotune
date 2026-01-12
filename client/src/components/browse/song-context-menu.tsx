@@ -14,6 +14,8 @@ import {
   Shuffle,
   Pen,
   Trash2,
+  Ban,
+  Settings,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -65,6 +67,7 @@ import {
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { starredItemsAtom, useInvalidateFavorites } from "@/lib/store/starred";
 import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
+import { disabledSongsAtom } from "@/lib/store/disabled-songs";
 import {
   taggerSessionAtom,
   taggerTracksAtom,
@@ -187,6 +190,7 @@ function useBulkSongActions(songs: Song[]) {
   const setStarredItems = useSetAtom(starredItemsAtom);
   const invalidateFavorites = useInvalidateFavorites();
   const [_shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
+  const [_disabledSongs, setDisabledSongs] = useAtom(disabledSongsAtom);
   const [tracks, setTracks] = useAtom(taggerTracksAtom);
   const setSession = useSetAtom(taggerSessionAtom);
 
@@ -359,6 +363,50 @@ function useBulkSongActions(songs: Song[]) {
     }
   };
 
+  // Disable tracks
+  const handleDisable = async () => {
+    const client = getClient();
+    if (!client || selectedIds.length === 0) return;
+
+    try {
+      await client.bulkSetDisabled(selectedIds, true);
+
+      setDisabledSongs((prev: Set<string>) => {
+        const next = new Set(prev);
+        selectedIds.forEach((id) => next.add(id));
+        return next;
+      });
+
+      toast.success(`Disabled ${selectedIds.length} tracks`);
+      clearSelection();
+    } catch (error) {
+      toast.error("Failed to update disabled status");
+      console.error(error);
+    }
+  };
+
+  // Enable tracks
+  const handleEnable = async () => {
+    const client = getClient();
+    if (!client || selectedIds.length === 0) return;
+
+    try {
+      await client.bulkSetDisabled(selectedIds, false);
+
+      setDisabledSongs((prev: Set<string>) => {
+        const next = new Set(prev);
+        selectedIds.forEach((id) => next.delete(id));
+        return next;
+      });
+
+      toast.success(`Enabled ${selectedIds.length} tracks`);
+      clearSelection();
+    } catch (error) {
+      toast.error("Failed to update disabled status");
+      console.error(error);
+    }
+  };
+
   // Mark for editing in tagger
   const handleMarkForEditing = async () => {
     const client = getClient();
@@ -463,6 +511,8 @@ function useBulkSongActions(songs: Song[]) {
     handleUnstar,
     handleExcludeFromShuffle,
     handleIncludeInShuffle,
+    handleDisable,
+    handleEnable,
     handleMarkForEditing,
     confirmDeletionOpen,
     setConfirmDeletionOpen,
@@ -488,6 +538,8 @@ interface BulkSongMenuContentProps {
     handleUnstar: () => void;
     handleExcludeFromShuffle: () => void;
     handleIncludeInShuffle: () => void;
+    handleDisable: () => void;
+    handleEnable: () => void;
     handleMarkForEditing: () => void;
     setConfirmDeletionOpen: (open: boolean) => void;
     setAddToPlaylistOpen: (open: boolean) => void;
@@ -499,7 +551,7 @@ function BulkSongMenuContent({
   selectedCount,
   handlers,
 }: BulkSongMenuContentProps) {
-  const { Item, Separator } = components;
+  const { Item, Separator, Sub, SubTrigger, SubContent } = components;
 
   return (
     <>
@@ -543,25 +595,45 @@ function BulkSongMenuContent({
         <HeartOff className="w-4 h-4 mr-2" />
         Remove All from Favorites
       </Item>
+
+      {/* Track Options submenu */}
+      {Sub && SubTrigger && SubContent && (
+        <>
+          <Separator />
+          <Sub>
+            <SubTrigger>
+              <Settings className="w-4 h-4 mr-2" />
+              Track Options
+            </SubTrigger>
+            <SubContent>
+              <Item onClick={handlers.handleExcludeFromShuffle}>
+                <Shuffle className="w-4 h-4 mr-2 text-muted-foreground line-through" />
+                Exclude from Shuffle
+              </Item>
+              <Item onClick={handlers.handleIncludeInShuffle}>
+                <Shuffle className="w-4 h-4 mr-2" />
+                Include in Shuffle
+              </Item>
+              <Separator />
+              <Item onClick={handlers.handleDisable}>
+                <Ban className="w-4 h-4 mr-2 text-muted-foreground" />
+                Disable Tracks
+              </Item>
+              <Item onClick={handlers.handleEnable}>
+                <Ban className="w-4 h-4 mr-2" />
+                Enable Tracks
+              </Item>
+            </SubContent>
+          </Sub>
+        </>
+      )}
       <Separator />
 
-      {/* Additional actions (flattened from More Actions submenu) */}
+      {/* Editing actions (grouped together) */}
       <Item onClick={handlers.handleMarkForEditing}>
         <Pen className="w-4 h-4 mr-2" />
         Mark for Editing
       </Item>
-      <Separator />
-      <Item onClick={handlers.handleExcludeFromShuffle}>
-        <Shuffle className="w-4 h-4 mr-2 text-muted-foreground line-through" />
-        Exclude from Shuffle
-      </Item>
-      <Item onClick={handlers.handleIncludeInShuffle}>
-        <Shuffle className="w-4 h-4 mr-2" />
-        Include in Shuffle
-      </Item>
-      <Separator />
-
-      {/* Destructive action */}
       <Item
         onClick={() => handlers.setConfirmDeletionOpen(true)}
         className="text-destructive focus:text-destructive"
@@ -692,6 +764,8 @@ export function SongContextMenu({
     toggleStar,
     isExcludedFromShuffle,
     handleToggleShuffleExclude,
+    isDisabled,
+    handleToggleDisabled,
     currentRating,
     handleRate,
     handlePlay,
@@ -737,6 +811,8 @@ export function SongContextMenu({
                 handleUnstar: bulkActions.handleUnstar,
                 handleExcludeFromShuffle: bulkActions.handleExcludeFromShuffle,
                 handleIncludeInShuffle: bulkActions.handleIncludeInShuffle,
+                handleDisable: bulkActions.handleDisable,
+                handleEnable: bulkActions.handleEnable,
                 handleMarkForEditing: bulkActions.handleMarkForEditing,
                 setConfirmDeletionOpen: bulkActions.setConfirmDeletionOpen,
                 setAddToPlaylistOpen: bulkActions.setAddToPlaylistOpen,
@@ -784,11 +860,13 @@ export function SongContextMenu({
                 handlers={{
                   toggleStar,
                   handleToggleShuffleExclude,
+                  handleToggleDisabled,
                   handleRate,
                 }}
                 state={{
                   isStarred,
                   isExcludedFromShuffle,
+                  isDisabled,
                   currentRating,
                 }}
               />
@@ -913,6 +991,8 @@ export function SongDropdownMenu({
     toggleStar,
     isExcludedFromShuffle,
     handleToggleShuffleExclude,
+    isDisabled,
+    handleToggleDisabled,
     currentRating,
     handleRate,
     handlePlay,
@@ -1001,11 +1081,13 @@ export function SongDropdownMenu({
             handlers={{
               toggleStar,
               handleToggleShuffleExclude,
+              handleToggleDisabled,
               handleRate,
             }}
             state={{
               isStarred,
               isExcludedFromShuffle,
+              isDisabled,
               currentRating,
             }}
           />

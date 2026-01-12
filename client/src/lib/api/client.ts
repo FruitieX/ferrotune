@@ -1183,6 +1183,62 @@ export class FerrotuneClient {
   }
 
   // ============================================================================
+  // Disabled Songs API
+  // ============================================================================
+
+  async getDisabledStatus(
+    songId: string,
+  ): Promise<{ songId: string; disabled: boolean }> {
+    return this.request(
+      `/ferrotune/songs/${encodeURIComponent(songId)}/disabled`,
+    );
+  }
+
+  async setDisabled(
+    songId: string,
+    disabled: boolean,
+  ): Promise<{ songId: string; disabled: boolean }> {
+    const url = this.buildAdminUrl(
+      `/ferrotune/songs/${encodeURIComponent(songId)}/disabled`,
+    );
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (this.username && this.password) {
+      headers["Authorization"] =
+        `Basic ${btoa(`${this.username}:${this.password}`)}`;
+    }
+
+    const response = await fetch(url, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ disabled }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP error: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  async getAllDisabledSongs(): Promise<{ songIds: string[] }> {
+    return this.request("/ferrotune/disabled-songs");
+  }
+
+  async bulkSetDisabled(
+    songIds: string[],
+    disabled: boolean,
+  ): Promise<{ count: number; disabled: boolean }> {
+    return this.request("/ferrotune/disabled-songs/bulk", {
+      method: "POST",
+      body: JSON.stringify({ songIds, disabled }),
+    });
+  }
+
+  // ============================================================================
   // Server-Side Queue API (Admin API)
   // ============================================================================
 

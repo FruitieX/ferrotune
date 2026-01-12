@@ -83,6 +83,7 @@
 
 mod browse;
 mod directory;
+mod disabled_songs;
 mod duplicates;
 mod filesystem;
 mod history;
@@ -338,6 +339,19 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/ferrotune/shuffle-excludes/bulk",
             post(shuffle_exclude::bulk_set_shuffle_excludes),
+        )
+        // Disabled songs endpoints
+        .route(
+            "/ferrotune/songs/{id}/disabled",
+            get(disabled_songs::get_disabled).put(disabled_songs::set_disabled),
+        )
+        .route(
+            "/ferrotune/disabled-songs",
+            get(disabled_songs::get_all_disabled),
+        )
+        .route(
+            "/ferrotune/disabled-songs/bulk",
+            post(disabled_songs::bulk_set_disabled),
         )
         // Server-side queue endpoints
         .route("/ferrotune/queue/start", post(queue::start_queue))

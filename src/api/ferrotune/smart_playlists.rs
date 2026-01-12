@@ -1200,6 +1200,38 @@ fn build_condition(cond: &SmartPlaylistConditionApi, user_id: i64) -> Option<Str
                 _ => None,
             };
         }
+        "disabled" => {
+            // disabled checks if song is in the disabled_songs table
+            return match op.as_str() {
+                "eq" => {
+                    if value.as_bool().unwrap_or(false) {
+                        Some(format!(
+                            "EXISTS (SELECT 1 FROM disabled_songs ds WHERE ds.song_id = s.id AND ds.user_id = {})",
+                            user_id
+                        ))
+                    } else {
+                        Some(format!(
+                            "NOT EXISTS (SELECT 1 FROM disabled_songs ds WHERE ds.song_id = s.id AND ds.user_id = {})",
+                            user_id
+                        ))
+                    }
+                }
+                "neq" => {
+                    if value.as_bool().unwrap_or(false) {
+                        Some(format!(
+                            "NOT EXISTS (SELECT 1 FROM disabled_songs ds WHERE ds.song_id = s.id AND ds.user_id = {})",
+                            user_id
+                        ))
+                    } else {
+                        Some(format!(
+                            "EXISTS (SELECT 1 FROM disabled_songs ds WHERE ds.song_id = s.id AND ds.user_id = {})",
+                            user_id
+                        ))
+                    }
+                }
+                _ => None,
+            };
+        }
         "musicFolder" | "library" => {
             // Filter by music folder ID - the value should be the music folder ID
             return match op.as_str() {

@@ -353,6 +353,38 @@ pub async fn start_queue(
         .await?
     };
 
+    // Filter out disabled songs UNLESS:
+    // 1. The user provided explicit song IDs with only 1 song (direct playback)
+    // 2. The start_song_id matches a disabled song (playing a specific disabled track)
+    let should_filter_disabled = {
+        // Direct single-song playback should NOT filter
+        let is_direct_single_playback = request
+            .song_ids
+            .as_ref()
+            .map(|ids| ids.len() == 1)
+            .unwrap_or(false);
+
+        !is_direct_single_playback
+    };
+
+    let songs = if should_filter_disabled {
+        // Get disabled song IDs for this user
+        let disabled_ids = get_disabled_song_ids(&state.pool, user.user_id).await?;
+
+        if disabled_ids.is_empty() {
+            songs
+        } else {
+            // Filter out disabled songs, but keep the start_song if it was explicitly requested
+            let keep_song_id = request.start_song_id.as_ref();
+            songs
+                .into_iter()
+                .filter(|s| !disabled_ids.contains(&s.id) || Some(&s.id) == keep_song_id)
+                .collect()
+        }
+    } else {
+        songs
+    };
+
     if songs.is_empty() {
         return Err(FerrotuneApiError(Error::NotFound(
             "No songs found for this source".to_string(),
@@ -1168,6 +1200,20 @@ pub async fn clear_queue(
 // Helper Functions
 // ============================================================================
 
+/// Get all disabled song IDs for a user
+async fn get_disabled_song_ids(
+    pool: &sqlx::SqlitePool,
+    user_id: i64,
+) -> Result<std::collections::HashSet<String>> {
+    let rows: Vec<(String,)> =
+        sqlx::query_as("SELECT song_id FROM disabled_songs WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?;
+
+    Ok(rows.into_iter().map(|(id,)| id).collect())
+}
+
 /// Materialize songs from a queue source
 async fn materialize_queue_songs(
     pool: &sqlx::SqlitePool,
@@ -1341,6 +1387,7 @@ fn build_search_params_from_json(
         min_play_count: None,
         max_play_count: None,
         shuffle_excluded_only: None,
+        disabled_only: None,
         min_bitrate: None,
         max_bitrate: None,
         added_after: None,
@@ -1385,6 +1432,9 @@ fn build_search_params_from_json(
             }
             if let Some(v) = obj.get("shuffleExcludedOnly").and_then(|v| v.as_bool()) {
                 params.shuffle_excluded_only = Some(v);
+            }
+            if let Some(v) = obj.get("disabledOnly").and_then(|v| v.as_bool()) {
+                params.disabled_only = Some(v);
             }
             if let Some(v) = obj.get("minBitrate").and_then(|v| v.as_i64()) {
                 params.min_bitrate = Some(v as i32);

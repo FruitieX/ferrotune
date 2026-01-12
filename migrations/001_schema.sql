@@ -1,5 +1,4 @@
 -- Ferrotune Database Schema
--- Consolidated from migrations 001-012
 
 -- =====================
 -- SERVER CONFIGURATION
@@ -56,7 +55,7 @@ CREATE TABLE IF NOT EXISTS music_folders (
     name TEXT NOT NULL,
     path TEXT UNIQUE NOT NULL,
     enabled BOOLEAN NOT NULL DEFAULT 1,
-    watch_enabled BOOLEAN NOT NULL DEFAULT 0,  -- From migration 004
+    watch_enabled BOOLEAN NOT NULL DEFAULT 0,
     last_scanned_at TIMESTAMP,
     scan_error TEXT
 );
@@ -66,7 +65,7 @@ CREATE TABLE IF NOT EXISTS artists (
     name TEXT NOT NULL,
     sort_name TEXT,
     album_count INTEGER NOT NULL DEFAULT 0,
-    cover_art_hash TEXT  -- From migration 002
+    cover_art_hash TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name COLLATE NOCASE);
@@ -80,7 +79,7 @@ CREATE TABLE IF NOT EXISTS albums (
     genre TEXT,
     song_count INTEGER NOT NULL DEFAULT 0,
     duration INTEGER NOT NULL DEFAULT 0,
-    cover_art_hash TEXT,  -- From migration 002
+    cover_art_hash TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -107,11 +106,11 @@ CREATE TABLE IF NOT EXISTS songs (
     file_mtime INTEGER,
     partial_hash TEXT,
     full_file_hash TEXT,
-    cover_art_hash TEXT,  -- From migration 002
-    marked_for_deletion_at TEXT DEFAULT NULL,  -- From migration 010 (recycle bin)
+    cover_art_hash TEXT,
+    marked_for_deletion_at TEXT DEFAULT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    -- Uniqueness is per-folder, not global (from migration 012)
+    -- Uniqueness is per-folder, not global
     UNIQUE(file_path, music_folder_id)
 );
 
@@ -127,7 +126,7 @@ CREATE INDEX IF NOT EXISTS idx_songs_partial_hash ON songs(partial_hash) WHERE p
 CREATE INDEX IF NOT EXISTS idx_songs_cover_art ON songs(cover_art_hash) WHERE cover_art_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_songs_marked_for_deletion ON songs(marked_for_deletion_at) WHERE marked_for_deletion_at IS NOT NULL;
 
--- Cover art thumbnails (from migration 002)
+-- Cover art thumbnails
 CREATE TABLE IF NOT EXISTS cover_art_thumbnails (
     hash TEXT PRIMARY KEY,
     small BLOB NOT NULL,
@@ -310,15 +309,15 @@ CREATE TABLE IF NOT EXISTS playlists (
 CREATE INDEX IF NOT EXISTS idx_playlists_owner ON playlists(owner_id);
 CREATE INDEX IF NOT EXISTS idx_playlists_folder ON playlists(folder_id);
 
--- Playlist songs with proper foreign key behavior (from migration 007)
+-- Playlist songs with proper foreign key behavior
 CREATE TABLE IF NOT EXISTS playlist_songs (
     playlist_id TEXT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
     song_id TEXT REFERENCES songs(id) ON DELETE SET NULL,  -- SET NULL instead of CASCADE
     position INTEGER NOT NULL,
     missing_entry_data TEXT,
     missing_search_text TEXT,
-    added_at DATETIME DEFAULT CURRENT_TIMESTAMP,  -- From migration 005
-    entry_id TEXT,  -- From migration 006
+    added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    entry_id TEXT,
     PRIMARY KEY (playlist_id, position),
     CHECK (song_id IS NOT NULL OR missing_entry_data IS NOT NULL)
 );
@@ -337,7 +336,7 @@ CREATE TABLE IF NOT EXISTS playlist_shares (
 CREATE INDEX IF NOT EXISTS idx_playlist_shares_playlist ON playlist_shares(playlist_id);
 CREATE INDEX IF NOT EXISTS idx_playlist_shares_user ON playlist_shares(shared_with_user_id);
 
--- Smart playlists (from migration 004)
+-- Smart playlists
 CREATE TABLE IF NOT EXISTS smart_playlists (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -358,7 +357,7 @@ CREATE INDEX IF NOT EXISTS idx_smart_playlists_owner ON smart_playlists(owner_id
 -- PLAYBACK
 -- =====================
 
--- Play queue (server-side) with lazy queue support (from migration 011)
+-- Play queue (server-side) with lazy queue support
 CREATE TABLE IF NOT EXISTS play_queues (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     source_type TEXT NOT NULL DEFAULT 'other',
@@ -372,9 +371,9 @@ CREATE TABLE IF NOT EXISTS play_queues (
     repeat_mode TEXT NOT NULL DEFAULT 'off',
     filters_json TEXT,
     sort_json TEXT,
-    total_count INTEGER DEFAULT NULL,  -- From migration 011
-    is_lazy INTEGER NOT NULL DEFAULT 0,  -- From migration 011
-    song_ids_json TEXT DEFAULT NULL,  -- From migration 011
+    total_count INTEGER DEFAULT NULL,
+    is_lazy INTEGER NOT NULL DEFAULT 0,
+    song_ids_json TEXT DEFAULT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     changed_by TEXT NOT NULL DEFAULT 'ferrotune-web'
@@ -392,7 +391,7 @@ CREATE INDEX IF NOT EXISTS idx_play_queue_entries_user ON play_queue_entries(use
 CREATE INDEX IF NOT EXISTS idx_play_queue_entries_song ON play_queue_entries(song_id);
 CREATE INDEX IF NOT EXISTS idx_play_queue_entries_entry_id ON play_queue_entries(user_id, entry_id);
 
--- Scrobbles/play history (from migration 003)
+-- Scrobbles/play history
 CREATE TABLE IF NOT EXISTS scrobbles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -421,7 +420,7 @@ CREATE INDEX IF NOT EXISTS idx_listening_sessions_user_time ON listening_session
 CREATE INDEX IF NOT EXISTS idx_listening_sessions_song ON listening_sessions(song_id);
 
 -- =====================
--- TAGGER (from migration 009)
+-- TAGGER
 -- =====================
 
 -- Tagger sessions table - stores per-user tagger state

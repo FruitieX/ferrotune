@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { toast } from "sonner";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
+import { disabledSongsAtom } from "@/lib/store/disabled-songs";
 import { getClient } from "@/lib/api/client";
 import { useStar } from "./use-star";
 import type { Artist, Song } from "@/lib/api/types";
@@ -63,6 +64,7 @@ async function fetchArtistSongs(artistId: string): Promise<Song[]> {
 export function useArtistActions(artist: Artist): UseArtistActionsReturn {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
+  const disabledSongs = useAtomValue(disabledSongsAtom);
 
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -120,8 +122,14 @@ export function useArtistActions(artist: Artist): UseArtistActionsReturn {
   const handleAddToPlaylist = async () => {
     const songs = await fetchArtistSongs(artist.id);
     if (songs.length > 0) {
-      setArtistSongs(songs);
-      setAddToPlaylistOpen(true);
+      // Filter out disabled songs when adding artist to playlist
+      const enabledSongs = songs.filter((s) => !disabledSongs.has(s.id));
+      if (enabledSongs.length > 0) {
+        setArtistSongs(enabledSongs);
+        setAddToPlaylistOpen(true);
+      } else {
+        toast.error("All songs from this artist are disabled");
+      }
     } else {
       toast.error("No songs found for this artist");
     }
