@@ -1984,9 +1984,14 @@ export class FerrotuneClient {
   /**
    * Check if any proposed rename paths would conflict with existing files.
    * Returns conflicts with suggested alternative paths.
+   * For staged tracks, include targetMusicFolderId to specify the target library.
    */
   async checkPathConflicts(
-    renames: Array<{ songId: string; newPath: string }>,
+    renames: Array<{
+      songId: string;
+      newPath: string;
+      targetMusicFolderId?: number;
+    }>,
   ): Promise<CheckPathConflictsResponse> {
     return this.request("/ferrotune/tagger/check-conflicts", {
       method: "POST",

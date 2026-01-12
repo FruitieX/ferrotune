@@ -255,6 +255,9 @@ pub struct RenameEntry {
     pub song_id: String,
     /// New relative path within the same music folder
     pub new_path: String,
+    /// Target music folder ID (required for staged files, optional for library files)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_music_folder_id: Option<i64>,
 }
 
 /// Response for rename operation
@@ -1591,6 +1594,7 @@ pub async fn rename_files(
 ///
 /// Check if any of the proposed rename paths would conflict with existing files.
 /// Returns a list of conflicts with suggested alternative paths.
+/// Supports both library tracks (looks up by song_id) and staged tracks (uses target_music_folder_id).
 pub async fn check_path_conflicts(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
@@ -1617,26 +1621,38 @@ pub async fn check_path_conflicts(
     let mut pending_paths: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
 
     for entry in &request.renames {
-        // Get the song from database to find its music folder
-        let song = match queries::get_song_by_id(&state.pool, &entry.song_id).await {
-            Ok(Some(s)) => s,
-            Ok(None) | Err(_) => continue,
-        };
+        // Try to determine the music folder:
+        // 1. For library tracks: look up the song and find its folder
+        // 2. For staged tracks: use the provided target_music_folder_id
+        let folder: PathBuf;
 
-        // Find the music folder
-        let mut folder_path: Option<PathBuf> = None;
-        for folder in &music_folders {
-            let candidate = PathBuf::from(&folder.path).join(&song.file_path);
-            if candidate.exists() {
-                folder_path = Some(PathBuf::from(&folder.path));
-                break;
+        // First try to get the song from database (for library tracks)
+        if let Ok(Some(song)) = queries::get_song_by_id(&state.pool, &entry.song_id).await {
+            // Library track - find its music folder
+            let mut found_folder: Option<PathBuf> = None;
+            for mf in &music_folders {
+                let candidate = PathBuf::from(&mf.path).join(&song.file_path);
+                if candidate.exists() {
+                    found_folder = Some(PathBuf::from(&mf.path));
+                    break;
+                }
+            }
+            match found_folder {
+                Some(f) => folder = f,
+                None => continue, // Skip if folder not found
+            }
+        } else {
+            // Not a library track - must be staged, use target_music_folder_id
+            match entry.target_music_folder_id {
+                Some(folder_id) => {
+                    match music_folders.iter().find(|f| f.id == folder_id) {
+                        Some(mf) => folder = PathBuf::from(&mf.path),
+                        None => continue, // Skip if folder not found
+                    }
+                }
+                None => continue, // Skip if no target folder specified for staged track
             }
         }
-
-        let folder = match folder_path {
-            Some(f) => f,
-            None => continue,
-        };
 
         // Calculate target absolute path
         let target_path = folder.join(&entry.new_path);

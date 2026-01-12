@@ -4,6 +4,10 @@ const nextConfig: NextConfig = {
   reactCompiler: {
     compilationMode: "infer",
   },
+  // Allow large file uploads (10GB) for tagger audio replacement
+  experimental: {
+    proxyClientMaxBodySize: "10gb",
+  },
   // Use different build directories:
   // - NEXT_DIST_DIR env var takes priority (for tests)
   // - .next-dev for development (npm run dev)

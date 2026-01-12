@@ -53,11 +53,6 @@ import { useRenameScript } from "@/lib/hooks/use-rename-script";
 import type { PathConflict } from "@/lib/api/generated/PathConflict";
 import type { MusicFolderInfo } from "@/lib/api/generated";
 
-interface RenameEntry {
-  songId: string;
-  newPath: string;
-}
-
 interface TagChange {
   key: string;
   oldValue: string;
@@ -193,20 +188,42 @@ export function SaveConfirmationDialog({
       const client = getClient();
       if (!client) return;
 
-      // Build renames list for files with path changes (only where path actually differs)
-      const renames: RenameEntry[] = [];
+      // Build renames list for files with path changes
+      // Include both library tracks (path changes) and staged tracks (any target path)
+      const renames: Array<{
+        songId: string;
+        newPath: string;
+        targetMusicFolderId?: number;
+      }> = [];
+
       for (const id of dirtyTrackIds) {
         const state = tracks.get(id);
-        // Only include if there's a computed path that differs from the original
-        if (
-          state?.computedPath &&
-          !state.track.isStaged &&
-          state.computedPath !== state.track.filePath
-        ) {
+        if (!state) continue;
+
+        if (state.track.isStaged) {
+          // Staged track - check the target path in the target library
+          // Skip if no target library is selected
+          if (!session.targetLibraryId) continue;
+
+          // Target path is computedPath if available, otherwise the original filename
+          const targetPath = state.computedPath || state.track.filePath;
+
           renames.push({
             songId: id,
-            newPath: state.computedPath,
+            newPath: targetPath,
+            targetMusicFolderId: parseInt(session.targetLibraryId, 10),
           });
+        } else {
+          // Library track - only include if there's a computed path that differs from the original
+          if (
+            state.computedPath &&
+            state.computedPath !== state.track.filePath
+          ) {
+            renames.push({
+              songId: id,
+              newPath: state.computedPath,
+            });
+          }
         }
       }
 
@@ -238,7 +255,7 @@ export function SaveConfirmationDialog({
     }
 
     doCheck();
-  }, [open, dirtyTrackIds, tracks]);
+  }, [open, dirtyTrackIds, tracks, session.targetLibraryId]);
 
   function getChangeSummary(): ChangeSummary[] {
     const changes: ChangeSummary[] = [];
@@ -362,14 +379,19 @@ export function SaveConfirmationDialog({
       if (resolution) {
         // This track has a conflict resolution
         finalPath = resolution.resolvedPath;
+      } else if (state.track.isStaged) {
+        // Staged track - target path is computedPath or original filename
+        // Skip if no target library (can't check for duplicates without knowing where it's going)
+        if (!session.targetLibraryId) continue;
+        finalPath = state.computedPath || state.track.filePath;
       } else if (
         state.computedPath &&
         state.computedPath !== state.track.filePath
       ) {
-        // This track has a path change but no conflict
+        // Library track with a path change but no conflict
         finalPath = state.computedPath;
       } else {
-        // This track keeps its original path (no path change)
+        // Library track keeping its original path (no path change)
         continue;
       }
 
