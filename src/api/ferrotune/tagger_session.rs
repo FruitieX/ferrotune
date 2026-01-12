@@ -32,7 +32,7 @@ pub const DEFAULT_SCRIPT_RENAME_ARTIST_TITLE: &str =
 
 /// Default rename script: AlbumArtist/Album/NN - Title (Picard-style)
 pub const DEFAULT_SCRIPT_RENAME_TRACKNUM_TITLE: &str =
-    include_str!("../../../scripts/tagger/rename_albumartist_album_tracknum_title.js");
+    include_str!("../../../scripts/tagger/rename_albumartist_album_tracknum_artist_title.js");
 
 /// Default tags script: Parse Artist - Title from filename
 pub const DEFAULT_SCRIPT_PARSE_ARTIST_TITLE: &str =
@@ -282,18 +282,42 @@ pub struct SavePendingEditsResponse {
     /// Number of tracks successfully saved
     pub saved_count: i32,
     /// Errors for individual tracks
-    pub errors: Vec<SaveError>,
+    pub errors: Vec<SessionSaveError>,
     /// Whether a library rescan is recommended (if key tags changed)
     pub rescan_recommended: bool,
     /// New relative paths for staged files that were saved to library (for rescanning)
     pub new_song_paths: Vec<String>,
 }
 
-/// Error for a single track save
+/// Progress event for streaming save endpoint
 #[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct SaveError {
+pub struct SaveProgressEvent {
+    /// Event type: 'progress' or 'complete'
+    #[serde(rename = "type")]
+    pub event_type: String,
+    /// Current track index (0-based)
+    pub current: i32,
+    /// Total number of tracks
+    pub total: i32,
+    /// Track ID being processed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub track_id: Option<String>,
+    /// Error for current track (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Final response (only present on 'complete' event)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<SavePendingEditsResponse>,
+}
+
+/// Error for a single track save
+/// Error for a single track save (in tagger session save operation)
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct SessionSaveError {
     pub track_id: String,
     pub error: String,
 }
@@ -2608,7 +2632,7 @@ pub async fn save_pending_edits(
     let staging_dir = super::tagger::get_staging_dir(&state, &user.username);
 
     let mut saved_count = 0i32;
-    let mut errors = Vec::<SaveError>::new();
+    let mut errors = Vec::<SessionSaveError>::new();
     let mut rescan_recommended = false;
     let mut new_song_ids = Vec::<String>::new();
     let mut saved_library_song_ids = Vec::<String>::new(); // Track library songs to rescan
@@ -2652,7 +2676,7 @@ pub async fn save_pending_edits(
         {
             Ok(t) => t,
             Err(e) => {
-                errors.push(SaveError {
+                errors.push(SessionSaveError {
                     track_id: track_id.clone(),
                     error: format!("Database error: {}", e),
                 });
@@ -2684,7 +2708,7 @@ pub async fn save_pending_edits(
         {
             Ok(p) => p,
             Err(e) => {
-                errors.push(SaveError {
+                errors.push(SessionSaveError {
                     track_id: track_id.clone(),
                     error: format!("Database error: {}", e),
                 });
@@ -2720,7 +2744,7 @@ pub async fn save_pending_edits(
                 Some(id) => match music_folders.iter().find(|f| f.id == id) {
                     Some(f) => f,
                     None => {
-                        errors.push(SaveError {
+                        errors.push(SessionSaveError {
                             track_id: track_id.clone(),
                             error: "Target music folder not found".to_string(),
                         });
@@ -2728,7 +2752,7 @@ pub async fn save_pending_edits(
                     }
                 },
                 None => {
-                    errors.push(SaveError {
+                    errors.push(SessionSaveError {
                         track_id: track_id.clone(),
                         error: "Target music folder required for staged files".to_string(),
                     });
@@ -2747,7 +2771,7 @@ pub async fn save_pending_edits(
 
             let staging_path = staging_dir.join(track_id);
             if !staging_path.exists() {
-                errors.push(SaveError {
+                errors.push(SessionSaveError {
                     track_id: track_id.clone(),
                     error: "Staged file not found".to_string(),
                 });
@@ -2771,7 +2795,7 @@ pub async fn save_pending_edits(
                         super::tags::CoverArtAction::Set(data, mime_type.to_string())
                     }
                     Err(e) => {
-                        errors.push(SaveError {
+                        errors.push(SessionSaveError {
                             track_id: track_id.clone(),
                             error: format!("Failed to read cover art: {}", e),
                         });
@@ -2802,7 +2826,7 @@ pub async fn save_pending_edits(
             )
             .await
             {
-                errors.push(SaveError {
+                errors.push(SessionSaveError {
                     track_id: track_id.clone(),
                     error: e,
                 });
@@ -2827,7 +2851,7 @@ pub async fn save_pending_edits(
 
             // Security check
             if !target_path.starts_with(&target_folder.path) {
-                errors.push(SaveError {
+                errors.push(SessionSaveError {
                     track_id: track_id.clone(),
                     error: "Target path must be within music folder".to_string(),
                 });
@@ -2837,7 +2861,7 @@ pub async fn save_pending_edits(
             // Create parent directories
             if let Some(parent) = target_path.parent() {
                 if let Err(e) = fs::create_dir_all(parent).await {
-                    errors.push(SaveError {
+                    errors.push(SessionSaveError {
                         track_id: track_id.clone(),
                         error: format!("Failed to create directories: {}", e),
                     });
@@ -2847,7 +2871,7 @@ pub async fn save_pending_edits(
 
             // Move file from staging to target (with cross-filesystem support)
             if let Err(e) = move_file_cross_fs(&staging_path, &target_path).await {
-                errors.push(SaveError {
+                errors.push(SessionSaveError {
                     track_id: track_id.clone(),
                     error: format!("Failed to move file: {}", e),
                 });
@@ -2883,14 +2907,14 @@ pub async fn save_pending_edits(
             let song = match queries::get_song_by_id(&state.pool, track_id).await {
                 Ok(Some(song)) => song,
                 Ok(None) => {
-                    errors.push(SaveError {
+                    errors.push(SessionSaveError {
                         track_id: track_id.clone(),
                         error: "Song not found in library".to_string(),
                     });
                     continue;
                 }
                 Err(e) => {
-                    errors.push(SaveError {
+                    errors.push(SessionSaveError {
                         track_id: track_id.clone(),
                         error: format!("Database error: {}", e),
                     });
@@ -2913,7 +2937,7 @@ pub async fn save_pending_edits(
             let (current_path, folder) = match (full_path, folder_path) {
                 (Some(p), Some(f)) => (p, f),
                 _ => {
-                    errors.push(SaveError {
+                    errors.push(SessionSaveError {
                         track_id: track_id.clone(),
                         error: "File not found on disk".to_string(),
                     });
@@ -3082,7 +3106,7 @@ pub async fn save_pending_edits(
                                         target_path.display(),
                                         e
                                     );
-                                    errors.push(SaveError {
+                                    errors.push(SessionSaveError {
                                         track_id: track_id.clone(),
                                         error: format!(
                                             "Failed to rename replacement audio to {}: {}",
@@ -3103,7 +3127,7 @@ pub async fn save_pending_edits(
                                 temp_path.display(),
                                 e
                             );
-                            errors.push(SaveError {
+                            errors.push(SessionSaveError {
                                 track_id: track_id.clone(),
                                 error: format!(
                                     "Failed to copy replacement audio from {} to {}: {}",
@@ -3144,7 +3168,7 @@ pub async fn save_pending_edits(
                         super::tags::CoverArtAction::Set(data, mime_type.to_string())
                     }
                     Err(e) => {
-                        errors.push(SaveError {
+                        errors.push(SessionSaveError {
                             track_id: track_id.clone(),
                             error: format!("Failed to read cover art: {}", e),
                         });
@@ -3198,7 +3222,7 @@ pub async fn save_pending_edits(
             )
             .await
             {
-                errors.push(SaveError {
+                errors.push(SessionSaveError {
                     track_id: track_id.clone(),
                     error: e,
                 });
@@ -3237,7 +3261,7 @@ pub async fn save_pending_edits(
                     }) {
                         Ok(canonical) => {
                             if !canonical.starts_with(&folder) {
-                                errors.push(SaveError {
+                                errors.push(SessionSaveError {
                                     track_id: track_id.clone(),
                                     error: "New path must be within music folder".to_string(),
                                 });
@@ -3249,7 +3273,7 @@ pub async fn save_pending_edits(
                                 .to_string_lossy()
                                 .starts_with(folder.to_string_lossy().as_ref())
                             {
-                                errors.push(SaveError {
+                                errors.push(SessionSaveError {
                                     track_id: track_id.clone(),
                                     error: "New path must be within music folder".to_string(),
                                 });
@@ -3261,7 +3285,7 @@ pub async fn save_pending_edits(
                     // Create parent directories if needed
                     if let Some(parent) = new_path.parent() {
                         if let Err(e) = fs::create_dir_all(parent).await {
-                            errors.push(SaveError {
+                            errors.push(SessionSaveError {
                                 track_id: track_id.clone(),
                                 error: format!("Failed to create directory: {}", e),
                             });
@@ -3271,7 +3295,7 @@ pub async fn save_pending_edits(
 
                     // Move the file (with cross-filesystem support)
                     if let Err(e) = move_file_cross_fs(&current_path, &new_path).await {
-                        errors.push(SaveError {
+                        errors.push(SessionSaveError {
                             track_id: track_id.clone(),
                             error: format!("Failed to move file: {}", e),
                         });
@@ -3284,7 +3308,7 @@ pub async fn save_pending_edits(
                     {
                         // Try to move back on failure
                         let _ = move_file_cross_fs(&new_path, &current_path).await;
-                        errors.push(SaveError {
+                        errors.push(SessionSaveError {
                             track_id: track_id.clone(),
                             error: format!("Failed to update database: {}", e),
                         });
@@ -3405,4 +3429,695 @@ pub async fn get_session_track_ids(
     .await?;
 
     Ok(tracks.into_iter().map(|(id,)| id).collect())
+}
+
+/// POST /ferrotune/tagger/session/save-stream
+///
+/// Stream save progress for pending edits using Server-Sent Events.
+/// Each track is saved and progress is streamed back to the client.
+/// This allows the server to parallelize saves in the future while
+/// providing real-time progress feedback.
+pub async fn save_pending_edits_stream(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<SavePendingEditsRequest>,
+) -> impl IntoResponse {
+    use axum::response::sse::{Event, Sse};
+    use std::convert::Infallible;
+
+    let stream = async_stream::stream! {
+        let result = save_pending_edits_internal(user, state, request).await;
+
+        for event in result {
+            let data = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
+            yield Ok::<_, Infallible>(Event::default().data(data));
+        }
+    };
+
+    Sse::new(stream).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(std::time::Duration::from_secs(15))
+            .text("keep-alive"),
+    )
+}
+
+/// Internal implementation that yields progress events
+async fn save_pending_edits_internal(
+    user: FerrotuneAuthenticatedUser,
+    state: Arc<AppState>,
+    request: SavePendingEditsRequest,
+) -> Vec<SaveProgressEvent> {
+    use crate::db::queries;
+
+    let mut events = Vec::new();
+    let total = request.track_ids.len() as i32;
+
+    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
+        Ok(id) => id,
+        Err(e) => {
+            events.push(SaveProgressEvent {
+                event_type: "complete".to_string(),
+                current: 0,
+                total,
+                track_id: None,
+                error: Some(format!("Failed to get session: {}", e)),
+                result: Some(SavePendingEditsResponse {
+                    success: false,
+                    saved_count: 0,
+                    errors: vec![],
+                    rescan_recommended: false,
+                    new_song_paths: vec![],
+                }),
+            });
+            return events;
+        }
+    };
+
+    let cover_art_dir = get_cover_art_dir(&user.username);
+    let staging_dir = super::tagger::get_staging_dir(&state, &user.username);
+
+    let mut saved_count = 0i32;
+    let mut errors = Vec::<SessionSaveError>::new();
+    let mut rescan_recommended = false;
+    let mut new_song_ids = Vec::<String>::new();
+    let mut saved_library_song_ids = Vec::<String>::new();
+
+    // Tags that affect library organization
+    let rescan_keys = [
+        "ARTIST",
+        "ALBUM",
+        "ALBUMARTIST",
+        "TITLE",
+        "TRACKNUMBER",
+        "DISCNUMBER",
+        "YEAR",
+        "GENRE",
+    ];
+
+    // Get music folders once for all tracks
+    let music_folders = match queries::get_music_folders(&state.pool).await {
+        Ok(folders) => folders,
+        Err(e) => {
+            events.push(SaveProgressEvent {
+                event_type: "complete".to_string(),
+                current: 0,
+                total,
+                track_id: None,
+                error: Some(format!("Failed to get music folders: {}", e)),
+                result: Some(SavePendingEditsResponse {
+                    success: false,
+                    saved_count: 0,
+                    errors: vec![],
+                    rescan_recommended: false,
+                    new_song_paths: vec![],
+                }),
+            });
+            return events;
+        }
+    };
+
+    for (index, track_id) in request.track_ids.iter().enumerate() {
+        // Emit progress event for starting this track
+        events.push(SaveProgressEvent {
+            event_type: "progress".to_string(),
+            current: index as i32,
+            total,
+            track_id: Some(track_id.clone()),
+            error: None,
+            result: None,
+        });
+
+        // Process this track using the same logic as save_pending_edits
+        let track_result = save_single_track(
+            &state.pool,
+            session_id,
+            track_id,
+            &request.path_overrides,
+            request.target_music_folder_id,
+            &music_folders,
+            &cover_art_dir,
+            &staging_dir,
+            &rescan_keys,
+            &user.username,
+        )
+        .await;
+
+        match track_result {
+            Ok(result) => {
+                if result.needs_rescan {
+                    rescan_recommended = true;
+                }
+                if let Some(path) = result.new_song_path {
+                    new_song_ids.push(path);
+                }
+                if let Some(song_id) = result.library_song_id {
+                    saved_library_song_ids.push(song_id);
+                }
+                saved_count += 1;
+            }
+            Err(error) => {
+                errors.push(SessionSaveError {
+                    track_id: track_id.clone(),
+                    error,
+                });
+            }
+        }
+    }
+
+    // Rescan library songs if needed
+    if !saved_library_song_ids.is_empty() {
+        let mut files_by_folder: std::collections::HashMap<i64, Vec<PathBuf>> =
+            std::collections::HashMap::new();
+
+        for song_id in &saved_library_song_ids {
+            if let Ok(Some(song)) = queries::get_song_by_id(&state.pool, song_id).await {
+                for folder in &music_folders {
+                    let candidate = PathBuf::from(&folder.path).join(&song.file_path);
+                    if candidate.exists() {
+                        files_by_folder
+                            .entry(folder.id)
+                            .or_default()
+                            .push(candidate);
+                        break;
+                    }
+                }
+            }
+        }
+
+        for (folder_id, file_paths) in files_by_folder {
+            if let Err(e) =
+                crate::scanner::scan_specific_files(&state.pool, folder_id, file_paths.clone())
+                    .await
+            {
+                tracing::warn!("Failed to rescan files for folder {}: {}", folder_id, e);
+            }
+        }
+    }
+
+    // Rescan new files (staged -> library)
+    if !new_song_ids.is_empty() {
+        if let Some(folder_id) = request.target_music_folder_id {
+            if let Some(folder) = music_folders.iter().find(|f| f.id == folder_id) {
+                let file_paths: Vec<PathBuf> = new_song_ids
+                    .iter()
+                    .map(|rel_path| PathBuf::from(&folder.path).join(rel_path))
+                    .collect();
+
+                if let Err(e) =
+                    crate::scanner::scan_specific_files(&state.pool, folder_id, file_paths).await
+                {
+                    tracing::warn!("Failed to rescan new files: {}", e);
+                }
+            }
+        }
+    }
+
+    // Log summary
+    if !errors.is_empty() {
+        tracing::warn!(
+            "Save completed with {} errors out of {} tracks",
+            errors.len(),
+            saved_count as usize + errors.len()
+        );
+        for error in &errors {
+            tracing::warn!("  - {}: {}", error.track_id, error.error);
+        }
+    }
+
+    // Emit completion event
+    events.push(SaveProgressEvent {
+        event_type: "complete".to_string(),
+        current: total,
+        total,
+        track_id: None,
+        error: None,
+        result: Some(SavePendingEditsResponse {
+            success: errors.is_empty(),
+            saved_count,
+            errors,
+            rescan_recommended,
+            new_song_paths: new_song_ids,
+        }),
+    });
+
+    events
+}
+
+/// Result of saving a single track
+struct SaveSingleTrackResult {
+    needs_rescan: bool,
+    new_song_path: Option<String>,
+    library_song_id: Option<String>,
+}
+
+/// Save a single track - extracted from save_pending_edits for reuse
+#[allow(clippy::too_many_arguments)]
+async fn save_single_track(
+    pool: &sqlx::SqlitePool,
+    session_id: i64,
+    track_id: &str,
+    path_overrides: &HashMap<String, String>,
+    target_music_folder_id: Option<i64>,
+    music_folders: &[crate::db::models::MusicFolder],
+    cover_art_dir: &std::path::Path,
+    staging_dir: &std::path::Path,
+    rescan_keys: &[&str],
+    username: &str,
+) -> Result<SaveSingleTrackResult, String> {
+    use crate::db::queries;
+
+    let mut result = SaveSingleTrackResult {
+        needs_rescan: false,
+        new_song_path: None,
+        library_song_id: None,
+    };
+
+    // First, determine if this is a staged or library track
+    let track_type: Option<(String,)> = sqlx::query_as(
+        "SELECT track_type FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
+    )
+    .bind(session_id)
+    .bind(track_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("Database error: {}", e))?;
+
+    let track_type = match track_type {
+        Some((t,)) => t,
+        None => return Err("Track not in session".to_string()),
+    };
+
+    let is_staged = track_type == "staged";
+
+    // Get the pending edit from database
+    let pending: Option<PendingEditRow> = sqlx::query_as(
+        r#"SELECT id, session_id, track_id, edited_tags, computed_path, 
+                  cover_art_removed, cover_art_filename, replacement_audio_filename,
+                  replacement_audio_original_name, created_at, updated_at
+           FROM tagger_pending_edits 
+           WHERE session_id = ? AND track_id = ?"#,
+    )
+    .bind(session_id)
+    .bind(track_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("Database error: {}", e))?;
+
+    // For library tracks, pending edit is required. For staged tracks, it's optional.
+    let pending = match pending {
+        Some(p) => Some(p),
+        None => {
+            if !is_staged {
+                // Library tracks must have pending edits
+                return Err("No pending edits for this track".to_string());
+            }
+            // Staged files without pending edits can still be saved (just moved to library)
+            None
+        }
+    };
+
+    // Parse edited tags (empty if no pending edit)
+    let edited_tags: HashMap<String, String> = pending
+        .as_ref()
+        .and_then(|p| serde_json::from_str(&p.edited_tags).ok())
+        .unwrap_or_default();
+
+    // Check if this update requires rescan
+    if edited_tags
+        .keys()
+        .any(|k| rescan_keys.contains(&k.to_uppercase().as_str()))
+    {
+        result.needs_rescan = true;
+    }
+
+    if is_staged {
+        // === STAGED FILE HANDLING ===
+        let target_folder = match target_music_folder_id {
+            Some(id) => match music_folders.iter().find(|f| f.id == id) {
+                Some(f) => f,
+                None => return Err("Target music folder not found".to_string()),
+            },
+            None => return Err("Target music folder required for staged files".to_string()),
+        };
+
+        let original_filename = if track_id.len() > 37 && track_id.chars().nth(36) == Some('_') {
+            track_id[37..].to_string()
+        } else {
+            track_id.to_string()
+        };
+
+        let staging_path = staging_dir.join(track_id);
+        if !staging_path.exists() {
+            return Err("Staged file not found".to_string());
+        }
+
+        // Determine cover art action
+        let cover_art_action = if pending.as_ref().is_some_and(|p| p.cover_art_removed) {
+            super::tags::CoverArtAction::Remove
+        } else if let Some(ref filename) =
+            pending.as_ref().and_then(|p| p.cover_art_filename.as_ref())
+        {
+            let cover_art_path = cover_art_dir.join(filename);
+            match fs::read(&cover_art_path).await {
+                Ok(data) => {
+                    let mime_type = match filename.rsplit('.').next() {
+                        Some("jpg") | Some("jpeg") => "image/jpeg",
+                        Some("png") => "image/png",
+                        Some("gif") => "image/gif",
+                        Some("webp") => "image/webp",
+                        _ => "image/jpeg",
+                    };
+                    super::tags::CoverArtAction::Set(data, mime_type.to_string())
+                }
+                Err(e) => return Err(format!("Failed to read cover art: {}", e)),
+            }
+        } else {
+            super::tags::CoverArtAction::Keep
+        };
+
+        // Build update request for tags
+        let update_request = super::tags::UpdateTagsRequest {
+            set: edited_tags
+                .iter()
+                .map(|(k, v)| super::tags::TagEntry {
+                    key: k.clone(),
+                    value: v.clone(),
+                })
+                .collect(),
+            delete: vec![],
+        };
+
+        // Apply tags and cover art to the staged file (only if there are changes)
+        if !update_request.set.is_empty()
+            || !matches!(cover_art_action, super::tags::CoverArtAction::Keep)
+        {
+            super::tags::update_tags_with_cover_art(
+                &staging_path,
+                &update_request,
+                cover_art_action,
+            )
+            .await?;
+        }
+
+        // Clean up cover art staging file
+        if let Some(filename) = pending.as_ref().and_then(|p| p.cover_art_filename.as_ref()) {
+            let cover_art_path = cover_art_dir.join(filename);
+            let _ = fs::remove_file(&cover_art_path).await;
+        }
+
+        // Determine target path
+        let target_rel_path = path_overrides
+            .get(track_id)
+            .cloned()
+            .or(pending.as_ref().and_then(|p| p.computed_path.clone()))
+            .unwrap_or(original_filename);
+
+        let target_path = PathBuf::from(&target_folder.path).join(&target_rel_path);
+
+        // Security check
+        if !target_path.starts_with(&target_folder.path) {
+            return Err("Target path must be within music folder".to_string());
+        }
+
+        // Create parent directories
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("Failed to create directories: {}", e))?;
+        }
+
+        // Move file from staging to target
+        move_file_cross_fs(&staging_path, &target_path)
+            .await
+            .map_err(|e| format!("Failed to move file: {}", e))?;
+
+        // Remove from session tracks
+        let _ =
+            sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?")
+                .bind(session_id)
+                .bind(track_id)
+                .execute(pool)
+                .await;
+
+        // Clear the pending edit
+        let _ =
+            sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?")
+                .bind(session_id)
+                .bind(track_id)
+                .execute(pool)
+                .await;
+
+        result.new_song_path = Some(target_rel_path);
+        result.needs_rescan = true;
+    } else {
+        // === LIBRARY FILE HANDLING ===
+        let song = match queries::get_song_by_id(pool, track_id).await {
+            Ok(Some(song)) => song,
+            Ok(None) => return Err("Song not found in library".to_string()),
+            Err(e) => return Err(format!("Database error: {}", e)),
+        };
+
+        // Find the file path and which music folder it's in
+        let mut full_path: Option<PathBuf> = None;
+        let mut folder_path: Option<PathBuf> = None;
+        for folder in music_folders {
+            let candidate = PathBuf::from(&folder.path).join(&song.file_path);
+            if candidate.exists() {
+                full_path = Some(candidate);
+                folder_path = Some(PathBuf::from(&folder.path));
+                break;
+            }
+        }
+
+        let (current_path, folder) = match (full_path, folder_path) {
+            (Some(p), Some(f)) => (p, f),
+            _ => return Err("File not found on disk".to_string()),
+        };
+
+        let mut working_path = current_path.clone();
+
+        // Handle replacement audio if present
+        // Note: For library tracks, pending is always Some (checked above)
+        let pending_ref = pending.as_ref().unwrap();
+        if let Some(ref replacement_filename) = pending_ref.replacement_audio_filename {
+            let replacement_dir = get_replacement_audio_dir(username);
+            let replacement_file_path = replacement_dir.join(replacement_filename);
+
+            if replacement_file_path.exists() {
+                // Read original file's tags and cover art for transfer
+                let original_path_clone = current_path.clone();
+                let original_data = tokio::task::spawn_blocking(move || {
+                    use lofty::prelude::*;
+                    use lofty::probe::Probe;
+
+                    let tagged_file =
+                        match Probe::open(&original_path_clone).and_then(|probe| probe.read()) {
+                            Ok(f) => f,
+                            Err(e) => {
+                                tracing::warn!("Failed to read original file tags: {}", e);
+                                return (Vec::new(), None);
+                            }
+                        };
+
+                    let tags = if let Some(tag) = tagged_file.primary_tag() {
+                        super::tags::extract_tags_from_tag(tag)
+                    } else {
+                        Vec::new()
+                    };
+
+                    let cover = tagged_file
+                        .primary_tag()
+                        .and_then(|tag| tag.pictures().first())
+                        .or_else(|| {
+                            tagged_file
+                                .tags()
+                                .iter()
+                                .find_map(|tag| tag.pictures().first())
+                        })
+                        .map(|pic| {
+                            let mime = pic
+                                .mime_type()
+                                .map_or_else(|| "image/jpeg".to_string(), |m| m.to_string());
+                            (pic.data().to_vec(), mime)
+                        });
+
+                    (tags, cover)
+                })
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!("Failed to spawn blocking task: {}", e);
+                    (Vec::new(), None)
+                });
+
+                let new_ext = replacement_filename
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or("")
+                    .to_lowercase();
+                let old_ext = current_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+
+                let target_path = if new_ext != old_ext {
+                    current_path.with_extension(&new_ext)
+                } else {
+                    current_path.clone()
+                };
+
+                let temp_path = target_path.with_extension(format!("{}.tmp", new_ext));
+
+                // Copy replacement file
+                let data = fs::read(&replacement_file_path)
+                    .await
+                    .map_err(|e| format!("Failed to read replacement audio: {}", e))?;
+                fs::write(&temp_path, &data)
+                    .await
+                    .map_err(|e| format!("Failed to write temp file: {}", e))?;
+
+                // Rename temp file to target
+                fs::rename(&temp_path, &target_path)
+                    .await
+                    .map_err(|e| format!("Failed to rename temp file: {}", e))?;
+
+                // Delete old file if extension changed
+                if new_ext != old_ext && current_path.exists() {
+                    let _ = fs::remove_file(&current_path).await;
+                }
+
+                working_path = target_path.clone();
+
+                // Update database path if extension changed
+                if new_ext != old_ext {
+                    let new_rel_path = if let Some(ext_pos) = song.file_path.rfind('.') {
+                        format!("{}.{}", &song.file_path[..ext_pos], new_ext)
+                    } else {
+                        format!("{}.{}", song.file_path, new_ext)
+                    };
+
+                    if let Err(e) = queries::update_song_path(pool, track_id, &new_rel_path).await {
+                        tracing::warn!("Failed to update song path in DB: {}", e);
+                    }
+                }
+
+                // Apply original tags to replacement file
+                if !original_data.0.is_empty() {
+                    let update_request = super::tags::UpdateTagsRequest {
+                        set: original_data.0,
+                        delete: vec![],
+                    };
+
+                    let cover_action = match original_data.1 {
+                        Some((data, mime)) => super::tags::CoverArtAction::Set(data, mime),
+                        None => super::tags::CoverArtAction::Keep,
+                    };
+
+                    if let Err(e) = super::tags::update_tags_with_cover_art(
+                        &working_path,
+                        &update_request,
+                        cover_action,
+                    )
+                    .await
+                    {
+                        tracing::warn!("Failed to transfer original tags to replacement: {}", e);
+                    }
+                }
+
+                // Clean up replacement audio staging file
+                let _ = fs::remove_file(&replacement_file_path).await;
+
+                result.needs_rescan = true;
+            }
+        }
+
+        // Determine cover art action for edited cover
+        let cover_art_action = if pending_ref.cover_art_removed {
+            super::tags::CoverArtAction::Remove
+        } else if let Some(ref filename) = pending_ref.cover_art_filename {
+            let cover_art_path = cover_art_dir.join(filename);
+            match fs::read(&cover_art_path).await {
+                Ok(data) => {
+                    let mime_type = match filename.rsplit('.').next() {
+                        Some("jpg") | Some("jpeg") => "image/jpeg",
+                        Some("png") => "image/png",
+                        Some("gif") => "image/gif",
+                        Some("webp") => "image/webp",
+                        _ => "image/jpeg",
+                    };
+                    super::tags::CoverArtAction::Set(data, mime_type.to_string())
+                }
+                Err(e) => return Err(format!("Failed to read cover art: {}", e)),
+            }
+        } else {
+            super::tags::CoverArtAction::Keep
+        };
+
+        // Build update request for tags
+        let update_request = super::tags::UpdateTagsRequest {
+            set: edited_tags
+                .iter()
+                .map(|(k, v)| super::tags::TagEntry {
+                    key: k.clone(),
+                    value: v.clone(),
+                })
+                .collect(),
+            delete: vec![],
+        };
+
+        // Apply tags and cover art
+        super::tags::update_tags_with_cover_art(&working_path, &update_request, cover_art_action)
+            .await?;
+
+        // Clean up cover art staging file
+        if let Some(ref filename) = pending_ref.cover_art_filename {
+            let cover_art_path = cover_art_dir.join(filename);
+            let _ = fs::remove_file(&cover_art_path).await;
+        }
+
+        // Handle file rename if computed_path is set
+        if let Some(new_rel_path) = path_overrides
+            .get(track_id)
+            .cloned()
+            .or(pending_ref.computed_path.clone())
+        {
+            let new_path = folder.join(&new_rel_path);
+
+            // Security check
+            if !new_path.starts_with(&folder) {
+                return Err("New path must be within music folder".to_string());
+            }
+
+            // Create parent directories
+            if let Some(parent) = new_path.parent() {
+                fs::create_dir_all(parent)
+                    .await
+                    .map_err(|e| format!("Failed to create directory: {}", e))?;
+            }
+
+            // Move the file
+            move_file_cross_fs(&working_path, &new_path)
+                .await
+                .map_err(|e| format!("Failed to move file: {}", e))?;
+
+            // Update database path
+            if let Err(e) = queries::update_song_path(pool, track_id, &new_rel_path).await {
+                // Try to rollback
+                let _ = move_file_cross_fs(&new_path, &working_path).await;
+                return Err(format!("Failed to update database: {}", e));
+            }
+        }
+
+        // Clear the pending edit (but keep track in session)
+        let _ =
+            sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?")
+                .bind(session_id)
+                .bind(track_id)
+                .execute(pool)
+                .await;
+
+        result.library_song_id = Some(track_id.to_string());
+    }
+
+    Ok(result)
 }

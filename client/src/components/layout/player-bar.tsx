@@ -132,7 +132,8 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
           key={track.id}
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="shrink-0 album-glow"
+          className="shrink-0 album-glow cursor-pointer"
+          onClick={() => setFullscreenOpen(true)}
         >
           <CoverImage
             src={coverArtUrl}

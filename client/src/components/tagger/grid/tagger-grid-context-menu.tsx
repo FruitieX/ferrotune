@@ -54,6 +54,8 @@ interface TaggerGridContextMenuProps {
   hasAnyReplacementAudio: boolean;
   importFromFileLabel: string;
   scripts: TaggerScript[];
+  /** Number of selected tracks for batch operations indicator */
+  selectedCount?: number;
 }
 
 export function TaggerGridContextMenu({
@@ -82,6 +84,7 @@ export function TaggerGridContextMenu({
   hasAnyReplacementAudio,
   importFromFileLabel,
   scripts,
+  selectedCount,
 }: TaggerGridContextMenuProps) {
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -113,6 +116,15 @@ export function TaggerGridContextMenu({
         }
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
+        {/* Show selection count header when multiple tracks selected */}
+        {selectedCount && selectedCount > 1 && (
+          <>
+            <div className="px-2 py-1.5 text-sm font-medium text-muted-foreground border-b border-border mb-1">
+              {selectedCount} tracks selected
+            </div>
+          </>
+        )}
+
         <DropdownMenuItem onClick={onCut}>
           <Scissors className="w-4 h-4" />
           <span>Cut</span>

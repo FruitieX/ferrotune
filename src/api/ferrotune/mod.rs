@@ -515,6 +515,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/tagger/session/save",
             post(tagger_session::save_pending_edits),
         )
+        // Save endpoint with streaming progress
+        .route(
+            "/ferrotune/tagger/session/save-stream",
+            post(tagger_session::save_pending_edits_stream),
+        )
         // Scripts endpoints
         .route(
             "/ferrotune/tagger/scripts",

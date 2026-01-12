@@ -9,6 +9,7 @@ import type {
   ArtistResponse,
 } from "@/lib/api/types";
 import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
@@ -118,6 +119,33 @@ export default function FavoritesPage() {
   );
 
   const PAGE_SIZE = 50;
+
+  // Fetch initial counts for all tabs in a single query
+  // This ensures we show accurate counts in tab labels even before visiting each tab
+  const { data: initialCounts } = useQuery({
+    queryKey: ["favorites-counts"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+
+      // Fetch minimal data (count only) for all three content types
+      const response = await client.search3({
+        query: "*",
+        songCount: 0,
+        albumCount: 0,
+        artistCount: 0,
+        starredOnly: true,
+      });
+
+      return {
+        songs: response.searchResult3.songTotal ?? 0,
+        albums: response.searchResult3.albumTotal ?? 0,
+        artists: response.searchResult3.artistTotal ?? 0,
+      };
+    },
+    enabled: isReady,
+    staleTime: 30000, // Cache for 30 seconds
+  });
 
   // Virtualized scroll restoration for each tab
   const songScrollRestoration = useVirtualizedScrollRestoration(
@@ -666,9 +694,15 @@ export default function FavoritesPage() {
       >
         <div className="px-4 lg:px-6 pt-4">
           <TabsList>
-            <TabsTrigger value="songs">Songs ({totalSongs})</TabsTrigger>
-            <TabsTrigger value="albums">Albums ({totalAlbums})</TabsTrigger>
-            <TabsTrigger value="artists">Artists ({totalArtists})</TabsTrigger>
+            <TabsTrigger value="songs">
+              Songs ({totalSongs || initialCounts?.songs || 0})
+            </TabsTrigger>
+            <TabsTrigger value="albums">
+              Albums ({totalAlbums || initialCounts?.albums || 0})
+            </TabsTrigger>
+            <TabsTrigger value="artists">
+              Artists ({totalArtists || initialCounts?.artists || 0})
+            </TabsTrigger>
           </TabsList>
         </div>
 

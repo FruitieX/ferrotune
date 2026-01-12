@@ -2092,6 +2092,7 @@ export function TaggerGrid({
         hasAnyReplacementAudio={getHasAnyReplacementAudio()}
         importFromFileLabel={getImportFromFileLabel()}
         scripts={scripts}
+        selectedCount={selectedIds.size}
       />
 
       {/* Import from file options dialog */}

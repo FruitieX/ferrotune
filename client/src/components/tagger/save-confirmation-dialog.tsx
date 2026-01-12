@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -13,6 +13,7 @@ import {
   X,
   FolderOpen,
   FileAudio,
+  FileCode,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -40,8 +41,15 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
 import { getClient } from "@/lib/api/client";
-import { taggerTracksAtom, taggerSessionAtom } from "@/lib/store/tagger";
+import {
+  taggerTracksAtom,
+  taggerSessionAtom,
+  taggerScriptsAtom,
+} from "@/lib/store/tagger";
+import { useRenameScript } from "@/lib/hooks/use-rename-script";
 import type { PathConflict } from "@/lib/api/generated/PathConflict";
 import type { MusicFolderInfo } from "@/lib/api/generated";
 
@@ -79,12 +87,21 @@ interface ConflictResolution {
   resolvedPath: string;
 }
 
+/** Progress state for saving tracks */
+export interface SaveProgress {
+  current: number;
+  total: number;
+  currentTrackName?: string;
+}
+
 interface SaveConfirmationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   dirtyTrackIds: string[];
   onSave: (pathOverrides: Map<string, string>) => Promise<void>;
   isSaving: boolean;
+  /** Progress information when saving */
+  saveProgress?: SaveProgress | null;
 }
 
 export function SaveConfirmationDialog({
@@ -93,9 +110,16 @@ export function SaveConfirmationDialog({
   dirtyTrackIds,
   onSave,
   isSaving,
+  saveProgress,
 }: SaveConfirmationDialogProps) {
   const tracks = useAtomValue(taggerTracksAtom);
   const [session, setSession] = useAtom(taggerSessionAtom);
+  const scripts = useAtomValue(taggerScriptsAtom);
+  const setTracks = useSetAtom(taggerTracksAtom);
+  const { runOnAllTracks } = useRenameScript();
+
+  // Get only rename scripts
+  const renameScripts = scripts.filter((s) => s.type === "rename");
 
   const [isCheckingConflicts, setIsCheckingConflicts] = useState(false);
   const [conflicts, setConflicts] = useState<PathConflict[]>([]);
@@ -388,49 +412,138 @@ export function SaveConfirmationDialog({
                 file{dirtyTrackIds.length !== 1 ? "s" : ""}:
               </p>
 
-              {/* Library selection for staged tracks */}
-              {hasStagedTracks && (
-                <div className="flex items-center gap-3 p-3 rounded-md bg-muted/50 border">
-                  <FolderOpen className="w-4 h-4 text-muted-foreground shrink-0" />
-                  <div className="flex items-center gap-2 flex-1">
-                    <Label
-                      htmlFor="target-library"
-                      className="text-sm font-medium shrink-0"
-                    >
-                      Save uploads to:
-                    </Label>
-                    <Select
-                      value={session.targetLibraryId ?? ""}
-                      onValueChange={(value) =>
+              {/* Save options row - Library selection, Rename Script, Show Library Paths */}
+              <div className="flex flex-wrap items-center gap-3 p-3 rounded-md bg-muted/50 border">
+                {/* Library selection for staged tracks */}
+                {hasStagedTracks && (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <FolderOpen className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <Label
+                        htmlFor="target-library"
+                        className="text-sm font-medium shrink-0"
+                      >
+                        Save to:
+                      </Label>
+                      <Select
+                        value={session.targetLibraryId ?? ""}
+                        onValueChange={(value) =>
+                          setSession((prev) => ({
+                            ...prev,
+                            targetLibraryId: value || null,
+                          }))
+                        }
+                      >
+                        <SelectTrigger
+                          id="target-library"
+                          className="w-[180px] h-8"
+                        >
+                          <SelectValue placeholder="Select library..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {musicFolders.map((folder) => (
+                            <SelectItem
+                              key={folder.id}
+                              value={String(folder.id)}
+                            >
+                              {folder.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {!session.targetLibraryId && (
+                        <span className="text-xs text-amber-500 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" />
+                          Required
+                        </span>
+                      )}
+                    </div>
+                    <div className="h-6 w-px bg-border hidden sm:block" />
+                  </>
+                )}
+
+                {/* Rename Script Selection */}
+                <div className="flex items-center gap-2">
+                  <FileCode className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <Label
+                    htmlFor="rename-script"
+                    className="text-sm font-medium shrink-0"
+                  >
+                    Rename:
+                  </Label>
+                  <Select
+                    value={session.activeRenameScriptId ?? "none"}
+                    onValueChange={(value) => {
+                      if (value === "none") {
+                        // Deactivate
                         setSession((prev) => ({
                           ...prev,
-                          targetLibraryId: value || null,
-                        }))
+                          activeRenameScriptId: null,
+                        }));
+                        // Clear computed paths
+                        setTracks((prevTracks) => {
+                          const newTracks = new Map(prevTracks);
+                          for (const [id, state] of newTracks) {
+                            if (state.computedPath) {
+                              newTracks.set(id, {
+                                ...state,
+                                computedPath: null,
+                              });
+                            }
+                          }
+                          return newTracks;
+                        });
+                      } else {
+                        // Activate new script
+                        setSession((prev) => ({
+                          ...prev,
+                          activeRenameScriptId: value,
+                        }));
+                        runOnAllTracks(value);
                       }
-                    >
-                      <SelectTrigger
-                        id="target-library"
-                        className="w-[250px] h-8"
-                      >
-                        <SelectValue placeholder="Select library..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {musicFolders.map((folder) => (
-                          <SelectItem key={folder.id} value={String(folder.id)}>
-                            {folder.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {!session.targetLibraryId && (
-                    <span className="text-xs text-amber-500 flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" />
-                      Required
-                    </span>
-                  )}
+                    }}
+                    disabled={renameScripts.length === 0}
+                  >
+                    <SelectTrigger id="rename-script" className="w-[160px] h-8">
+                      <SelectValue
+                        placeholder={
+                          renameScripts.length === 0 ? "No scripts" : "None"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {renameScripts.map((script) => (
+                        <SelectItem key={script.id} value={script.id}>
+                          {script.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
+
+                <div className="h-6 w-px bg-border hidden sm:block" />
+
+                {/* Show Library Paths Toggle */}
+                <div className="flex items-center gap-2">
+                  <Label
+                    htmlFor="show-library-prefix-save"
+                    className="text-sm cursor-pointer"
+                  >
+                    Show library paths
+                  </Label>
+                  <Switch
+                    id="show-library-prefix-save"
+                    checked={session.showLibraryPrefix ?? false}
+                    onCheckedChange={(checked) =>
+                      setSession((prev) => ({
+                        ...prev,
+                        showLibraryPrefix: checked,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
 
               {/* Move existing library files option */}
               {hasStagedTracks &&
@@ -789,82 +902,117 @@ export function SaveConfirmationDialog({
           </>
         )}
 
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span
-                  tabIndex={
-                    isTagEditingDisabled ||
-                    hasDuplicatePaths ||
-                    (hasStagedTracks && !session.targetLibraryId)
-                      ? 0
-                      : undefined
-                  }
-                >
-                  <Button
-                    onClick={handleSave}
-                    disabled={
-                      isSaving ||
-                      isCheckingConflicts ||
+        <AlertDialogFooter className="flex-col gap-3 sm:flex-col">
+          {/* Progress bar shown while saving */}
+          {isSaving && saveProgress && (
+            <div className="w-full space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  Saving {saveProgress.current} of {saveProgress.total}...
+                </span>
+                <span className="text-muted-foreground tabular-nums">
+                  {Math.round(
+                    (saveProgress.current / saveProgress.total) * 100,
+                  )}
+                  %
+                </span>
+              </div>
+              <Progress
+                value={(saveProgress.current / saveProgress.total) * 100}
+                className="h-2"
+              />
+              {saveProgress.currentTrackName && (
+                <p className="text-xs text-muted-foreground truncate">
+                  {saveProgress.currentTrackName}
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="flex w-full justify-end gap-2">
+            <AlertDialogCancel disabled={isSaving}>Cancel</AlertDialogCancel>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    tabIndex={
                       isTagEditingDisabled ||
                       hasDuplicatePaths ||
                       (hasStagedTracks && !session.targetLibraryId)
+                        ? 0
+                        : undefined
                     }
                   >
-                    {isSaving ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Saving...
-                      </>
-                    ) : isTagEditingDisabled ? (
-                      <>
-                        <Ban className="w-4 h-4 mr-2" />
-                        Tag Editing Disabled
-                      </>
-                    ) : hasDuplicatePaths ? (
-                      <>
-                        <AlertTriangle className="w-4 h-4 mr-2" />
-                        Resolve Collisions
-                      </>
-                    ) : (
-                      <>
-                        <Check className="w-4 h-4 mr-2" />
-                        Save Changes
-                      </>
-                    )}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {isTagEditingDisabled && (
-                <TooltipContent>
-                  <p>
-                    Tag editing is disabled in server settings.
-                    <br />
-                    Enable it in Administration → Server Configuration.
-                  </p>
-                </TooltipContent>
-              )}
-              {hasDuplicatePaths && !isTagEditingDisabled && (
-                <TooltipContent>
-                  <p>
-                    Multiple tracks are set to save to the same path.
-                    <br />
-                    Please resolve the collisions above.
-                  </p>
-                </TooltipContent>
-              )}
-              {hasStagedTracks &&
-                !session.targetLibraryId &&
-                !isTagEditingDisabled &&
-                !hasDuplicatePaths && (
+                    <Button
+                      onClick={handleSave}
+                      disabled={
+                        isSaving ||
+                        isCheckingConflicts ||
+                        isTagEditingDisabled ||
+                        hasDuplicatePaths ||
+                        (hasStagedTracks && !session.targetLibraryId)
+                      }
+                    >
+                      {isSaving ? (
+                        saveProgress ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Saving {saveProgress.current}/{saveProgress.total}
+                          </>
+                        ) : (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Saving...
+                          </>
+                        )
+                      ) : isTagEditingDisabled ? (
+                        <>
+                          <Ban className="w-4 h-4 mr-2" />
+                          Tag Editing Disabled
+                        </>
+                      ) : hasDuplicatePaths ? (
+                        <>
+                          <AlertTriangle className="w-4 h-4 mr-2" />
+                          Resolve Collisions
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-4 h-4 mr-2" />
+                          Save Changes
+                        </>
+                      )}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {isTagEditingDisabled && (
                   <TooltipContent>
-                    <p>Please select a target library for uploaded files.</p>
+                    <p>
+                      Tag editing is disabled in server settings.
+                      <br />
+                      Enable it in Administration → Server Configuration.
+                    </p>
                   </TooltipContent>
                 )}
-            </Tooltip>
-          </TooltipProvider>
+                {hasDuplicatePaths && !isTagEditingDisabled && (
+                  <TooltipContent>
+                    <p>
+                      Multiple tracks are set to save to the same path.
+                      <br />
+                      Please resolve the collisions above.
+                    </p>
+                  </TooltipContent>
+                )}
+                {hasStagedTracks &&
+                  !session.targetLibraryId &&
+                  !isTagEditingDisabled &&
+                  !hasDuplicatePaths && (
+                    <TooltipContent>
+                      <p>Please select a target library for uploaded files.</p>
+                    </TooltipContent>
+                  )}
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

@@ -34,7 +34,10 @@ import { ColumnSelector } from "@/components/tagger/column-selector";
 import { AddFromLibraryDialog } from "@/components/tagger/add-from-library-dialog";
 import { FilesDropdown } from "@/components/tagger/files-dropdown";
 import { TaggerOptionsDialog } from "@/components/tagger/tagger-options-dialog";
-import { SaveConfirmationDialog } from "@/components/tagger/save-confirmation-dialog";
+import {
+  SaveConfirmationDialog,
+  type SaveProgress,
+} from "@/components/tagger/save-confirmation-dialog";
 import { ScriptEditorDialog } from "@/components/tagger/script-editor-dialog";
 import { getClient } from "@/lib/api/client";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -81,6 +84,7 @@ export default function TaggerPage() {
 
   const [isAddFromLibraryOpen, setIsAddFromLibraryOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveProgress, setSaveProgress] = useState<SaveProgress | null>(null);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
   const [isSaveConfirmOpen, setIsSaveConfirmOpen] = useState(false);
   const [trackIdsToSave, setTrackIdsToSave] = useState<string[]>([]); // Specific tracks to save (empty = all dirty)
@@ -709,37 +713,70 @@ export default function TaggerPage() {
     }
 
     setIsSaving(true);
-    try {
-      // Convert path overrides to object for API call
-      const pathOverridesObj: Record<string, string> = {};
-      for (const [id, path] of pathOverrides) {
-        pathOverridesObj[id] = path;
-      }
+    setSaveProgress({ current: 0, total: tracksToSave.length });
 
-      // Save pending edits (both library and staged) via the database-driven endpoint
-      // The server handles:
-      // - Library tracks: tag updates, cover art, file renames
-      // - Staged files: apply tags/cover art, move to target library
-      const saveResult = await client.saveTaggerPendingEdits(
+    // Convert path overrides to object for API call
+    const pathOverridesObj: Record<string, string> = {};
+    for (const [id, path] of pathOverrides) {
+      pathOverridesObj[id] = path;
+    }
+
+    const errors: Array<{ trackId: string; error: string }> = [];
+    const savedTrackIds: string[] = [];
+
+    try {
+      // Use streaming save for progress reporting
+      for await (const event of client.saveTaggerPendingEditsStream(
         tracksToSave,
         pathOverridesObj,
         session.targetLibraryId ? Number(session.targetLibraryId) : undefined,
-      );
+      )) {
+        if (event.type === "progress") {
+          // Find the track name for display
+          const trackId = event.trackId;
+          const trackState = trackId ? tracks.get(trackId) : undefined;
+          const trackName =
+            trackState?.track.filePath.split("/").pop() ?? trackId ?? "";
 
-      if (!saveResult.success) {
-        console.error("Some saves failed:", saveResult.errors);
-        if (saveResult.errors.length > 0) {
-          toast.error(`Failed to save ${saveResult.errors.length} track(s)`, {
-            description: saveResult.errors[0]?.error,
+          setSaveProgress({
+            current: event.current,
+            total: event.total,
+            currentTrackName: trackName,
+          });
+        } else if (event.type === "complete" && event.result) {
+          // Final result
+          if (event.result.errors.length > 0) {
+            errors.push(...event.result.errors);
+          }
+          // Mark all tracks that were saved successfully
+          const errorTrackIds = new Set(
+            event.result.errors.map((e) => e.trackId),
+          );
+          for (const trackId of tracksToSave) {
+            if (!errorTrackIds.has(trackId)) {
+              savedTrackIds.push(trackId);
+            }
+          }
+
+          setSaveProgress({
+            current: event.total,
+            total: event.total,
           });
         }
+      }
+
+      if (errors.length > 0) {
+        console.error("Some saves failed:", errors);
+        toast.error(`Failed to save ${errors.length} track(s)`, {
+          description: errors[0]?.error,
+        });
       }
 
       // Note: server automatically rescans saved library tracks to update cover art/metadata
 
       // Clear edited state for saved tracks and update track data
       const newTracks = new Map(tracks);
-      for (const id of tracksToSave) {
+      for (const id of savedTrackIds) {
         const state = newTracks.get(id);
         if (!state) continue;
 
@@ -790,18 +827,29 @@ export default function TaggerPage() {
       }
 
       // Update session to remove saved staged tracks
+      const savedStagedIds = savedTrackIds.filter((id) =>
+        stagedDirtyIds.includes(id),
+      );
       setSession({
         ...session,
-        tracks: session.tracks.filter((t) => !stagedDirtyIds.includes(t.id)),
+        tracks: session.tracks.filter((t) => !savedStagedIds.includes(t.id)),
       });
 
       setTracks(newTracks);
-      toast.success("Changes saved");
+
+      if (savedTrackIds.length > 0) {
+        toast.success(
+          savedTrackIds.length === 1
+            ? "Changes saved"
+            : `Saved ${savedTrackIds.length} tracks`,
+        );
+      }
     } catch (error) {
       console.error("Save failed:", error);
       toast.error("Failed to save changes");
     } finally {
       setIsSaving(false);
+      setSaveProgress(null);
       setIsSaveConfirmOpen(false);
     }
   }
@@ -1366,6 +1414,7 @@ export default function TaggerPage() {
         }
         onSave={handleSave}
         isSaving={isSaving}
+        saveProgress={saveProgress}
       />
 
       {/* Upload progress dialog */}

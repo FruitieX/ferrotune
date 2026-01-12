@@ -345,3 +345,7 @@ Read these when working on specific areas:
 - Try to reuse code when feasible. If the user refers to replicating some other functionality, or if there are any existing implementations using similar logic, you should aim to share code between these functionalities/implementations by e.g. extracting code into utility functions.
 - **Before implementing new functionality, check the "Shared Utilities" section above** for existing helpers. Use `src/api/common/` for backend and `client/src/components/shared/` for frontend shared code.
 - When adding new shared functionality, update the "Shared Utilities" section in this file to document it for future agents.
+
+## TODO list files
+
+When asking to complete batches from a TODO list file, complete items from top to bottom regardless of complexity. Mark the items as done when progressing. After completing a batch, check if there are any new items in the referenced TODO file, and if so, begin working on those. Loop until there are no more items left to complete in the referenced TODO file batch.

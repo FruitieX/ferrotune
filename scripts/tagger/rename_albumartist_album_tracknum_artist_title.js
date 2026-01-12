@@ -1,4 +1,4 @@
-// AlbumArtist/Album/NN - Title rename script (Picard-style)
+// AlbumArtist/Album/NN. Artist - Title rename script
 //
 // Available: title, artist, albumartist, album, genre, year,
 // tracknumber, tracktotal, discnumber, disctotal, ext, filename
@@ -17,9 +17,10 @@ if (album) {
   segments.push(album);
 }
 
-// Add filename with track number: NN - Title
+// Add filename with track number: NN. Artist - Title
 const trackNum = String(tracknumber || 1).padStart(2, '0');
+const trackArtist = artist || 'Unknown Artist';
 const fileTitle = title || 'Unknown Title';
-segments.push(`${trackNum} - ${fileTitle}.${ext}`);
+segments.push(`${trackNum}. ${trackArtist} - ${fileTitle}.${ext}`);
 
 return segments;

@@ -150,6 +150,7 @@ export function BulkActionsBar(
 ) {
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteSongsConfirmOpen, setDeleteSongsConfirmOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
   const [_shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
 
@@ -342,6 +343,34 @@ export function BulkActionsBar(
     } catch (error) {
       console.error("Failed to mark for editing:", error);
       toast.error("Failed to mark tracks for editing");
+    }
+  };
+
+  // Handler for bulk mark for deletion (songs only)
+  const handleBulkMarkForDeletion = async () => {
+    const client = getClient();
+    if (!client || !canShuffleExclude) return;
+
+    const songIds = getSelectedIds();
+    if (songIds.length === 0) return;
+
+    try {
+      await client.markForDeletion(songIds);
+      setDeleteSongsConfirmOpen(false);
+      toast.success(
+        `${songIds.length} song${songIds.length > 1 ? "s" : ""} moved to recycle bin`,
+        {
+          description: "Files will be permanently deleted in 30 days",
+          action: {
+            label: "View Recycle Bin",
+            onClick: () => router.push("/admin/recycle-bin"),
+          },
+        },
+      );
+      props.onClear();
+    } catch (error) {
+      toast.error("Failed to mark for deletion");
+      console.error(error);
     }
   };
 
@@ -688,6 +717,14 @@ export function BulkActionsBar(
                           <Shuffle className="w-4 h-4 mr-2" />
                           Include in shuffle
                         </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => setDeleteSongsConfirmOpen(true)}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Mark for deletion
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </>
@@ -733,6 +770,34 @@ export function BulkActionsBar(
               className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Mark for deletion confirmation dialog for songs */}
+      <AlertDialog
+        open={deleteSongsConfirmOpen}
+        onOpenChange={setDeleteSongsConfirmOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Mark {props.selectedCount} {pluralLabel} for Deletion?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The selected songs will be moved to the recycle bin and
+              permanently deleted after 30 days. This action can be undone from
+              the Administration page.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkMarkForDeletion}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+            >
+              Mark for Deletion
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

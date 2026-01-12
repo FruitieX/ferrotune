@@ -16,5 +16,5 @@
 /client/e2e/.env.test
 /client/.org.chromium.*
 
-# /*TODO*.md
+/*TODO*.md
 *.py

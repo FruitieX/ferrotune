@@ -79,6 +79,7 @@ import type { DeleteSongFileResponse } from "./generated/DeleteSongFileResponse"
 import type { DeleteSongFilesRequest } from "./generated/DeleteSongFilesRequest";
 import type { MarkForDeletionRequest } from "./generated/MarkForDeletionRequest";
 import type { MarkForDeletionResponse } from "./generated/MarkForDeletionResponse";
+import type { SaveProgressEvent } from "./generated/SaveProgressEvent";
 import type { RestoreSongsRequest } from "./generated/RestoreSongsRequest";
 import type { RestoreSongsResponse } from "./generated/RestoreSongsResponse";
 import type { RecycleBinResponse } from "./generated/RecycleBinResponse";
@@ -2080,6 +2081,80 @@ export class FerrotuneClient {
         targetMusicFolderId: targetMusicFolderId ?? null,
       }),
     });
+  }
+
+  /**
+   * Save pending edits for tracks with streaming progress updates.
+   * Uses Server-Sent Events to stream progress as each track is saved.
+   * Returns an async generator that yields progress events.
+   */
+  async *saveTaggerPendingEditsStream(
+    trackIds: string[],
+    pathOverrides?: Record<string, string>,
+    targetMusicFolderId?: number,
+  ): AsyncGenerator<SaveProgressEvent> {
+    const url = this.buildAdminUrl("/ferrotune/tagger/session/save-stream");
+
+    // Build auth header
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    if (this.username && this.password) {
+      headers["Authorization"] =
+        `Basic ${btoa(`${this.username}:${this.password}`)}`;
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        trackIds,
+        pathOverrides: pathOverrides ?? {},
+        targetMusicFolderId: targetMusicFolderId ?? null,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to save: ${response.statusText}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("No response body");
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse SSE events from buffer
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            if (data && data !== "keep-alive") {
+              try {
+                const event = JSON.parse(data) as SaveProgressEvent;
+                yield event;
+              } catch {
+                // Ignore parsing errors
+              }
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   /**

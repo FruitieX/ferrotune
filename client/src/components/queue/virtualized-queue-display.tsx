@@ -585,8 +585,8 @@ export const VirtualizedQueueDisplay = forwardRef<
         {isPending && <Loader2 className="w-3 h-3 animate-spin" />}
       </div>
 
-      {/* Virtualized list */}
-      <div ref={parentRef} className="flex-1 overflow-auto">
+      {/* Virtualized list - touch-pan-y allows horizontal swipes to close mobile sheet */}
+      <div ref={parentRef} className="flex-1 overflow-auto touch-pan-y">
         <div
           className="relative px-2"
           style={{ height: virtualizer.getTotalSize() }}

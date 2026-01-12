@@ -324,9 +324,16 @@ export function SmartPlaylistDialog({
       queryClient.invalidateQueries({
         queryKey: ["smartPlaylist", editPlaylist?.id],
       });
-      // Also invalidate the songs query so the list refreshes
+      // Invalidate all songs queries for this playlist (with any filter/sort params)
       queryClient.invalidateQueries({
-        queryKey: ["smartPlaylistSongs", editPlaylist?.id],
+        predicate: (query) => {
+          const key = query.queryKey;
+          return (
+            Array.isArray(key) &&
+            key[0] === "smartPlaylistSongs" &&
+            key[1] === editPlaylist?.id
+          );
+        },
       });
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       onOpenChange(false);

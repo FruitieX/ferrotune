@@ -8,7 +8,8 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { PlayerBar } from "@/components/layout/player-bar";
 import { SwipeableFooter } from "@/components/layout/swipeable-footer";
-import { QueuePanel, QueueSidebar } from "@/components/queue/queue";
+import { QueueSidebar } from "@/components/queue/queue";
+import { MobileQueueSheet } from "@/components/queue/mobile-queue-sheet";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import { MainContent } from "@/components/layout/main-content";
 
@@ -185,10 +186,8 @@ export default function RootLayout({
                 {/* Queue sidebar - desktop only, fixed right side, spans full height of main container */}
                 <QueueSidebar />
 
-                {/* Queue panel - mobile/tablet only sheet/drawer */}
-                <div className="xl:hidden">
-                  <QueuePanel />
-                </div>
+                {/* Queue panel - mobile/tablet sheet that slides from right */}
+                <MobileQueueSheet />
               </div>
 
               {/* Footer section - player bar and mobile nav */}

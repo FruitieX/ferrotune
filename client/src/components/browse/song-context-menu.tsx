@@ -1,6 +1,21 @@
 "use client";
 
-import { MoreHorizontal } from "lucide-react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import {
+  MoreHorizontal,
+  Play,
+  ListPlus,
+  ListEnd,
+  Heart,
+  HeartOff,
+  FolderPlus,
+  Shuffle,
+  Pen,
+  Trash2,
+} from "lucide-react";
+import { toast } from "sonner";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -42,15 +57,19 @@ import {
 } from "@/components/shared/media-menu-items";
 import { useSongActions, type QueueSource } from "@/lib/hooks/use-song-actions";
 import type { Song } from "@/lib/api/types";
-import { useSetAtom, useAtom } from "jotai";
+import {
+  selectionStateAtom,
+  clearSelectionAtom,
+  selectedCountAtom,
+} from "@/lib/store/selection";
+import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
+import { starredItemsAtom, useInvalidateFavorites } from "@/lib/store/starred";
+import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
 import {
   taggerSessionAtom,
   taggerTracksAtom,
   createTrackState,
 } from "@/lib/store/tagger";
-import { useRouter } from "next/navigation";
-
-import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
 
 // Global function to dismiss any open context menu
@@ -152,6 +171,406 @@ function useMarkForEditing(song: Song) {
   }
 
   return handleMarkForEditing;
+}
+
+// ===================================
+// Hook for bulk song actions
+// ===================================
+
+function useBulkSongActions(songs: Song[]) {
+  const router = useRouter();
+  const selectionState = useAtomValue(selectionStateAtom);
+  const selectedCount = useAtomValue(selectedCountAtom);
+  const clearSelection = useSetAtom(clearSelectionAtom);
+  const startQueue = useSetAtom(startQueueAtom);
+  const addToQueue = useSetAtom(addToQueueAtom);
+  const setStarredItems = useSetAtom(starredItemsAtom);
+  const invalidateFavorites = useInvalidateFavorites();
+  const [_shuffleExcludes, setShuffleExcludes] = useAtom(shuffleExcludesAtom);
+  const [tracks, setTracks] = useAtom(taggerTracksAtom);
+  const setSession = useSetAtom(taggerSessionAtom);
+
+  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+
+  // Get selected song IDs
+  const selectedIds = Array.from(selectionState.selectedIds);
+
+  // Check if we should show bulk actions (multiple items selected and song is selected)
+  const shouldShowBulkActions = (songId: string) =>
+    selectedCount > 1 && selectionState.selectedIds.has(songId);
+
+  // Get selected songs that are in the current list
+  const getSelectedSongs = (): Song[] => {
+    return songs.filter((song) => selectionState.selectedIds.has(song.id));
+  };
+
+  // Play selected songs
+  const handlePlay = () => {
+    if (selectedIds.length === 0) return;
+    startQueue({
+      sourceType: "other",
+      sourceName: `${selectedCount} selected songs`,
+      songIds: selectedIds,
+      startIndex: 0,
+    });
+    clearSelection();
+  };
+
+  // Shuffle play selected songs
+  const handleShuffle = () => {
+    if (selectedIds.length === 0) return;
+    startQueue({
+      sourceType: "other",
+      sourceName: `${selectedCount} selected songs`,
+      songIds: selectedIds,
+      startIndex: 0,
+      shuffle: true,
+    });
+    clearSelection();
+  };
+
+  // Play next
+  const handlePlayNext = async () => {
+    if (selectedIds.length === 0) return;
+    const result = await addToQueue({ songIds: selectedIds, position: "next" });
+    if (result.success) {
+      toast.success(`Added ${selectedIds.length} songs to play next`);
+    } else {
+      toast.error("Failed to add songs to queue");
+    }
+    clearSelection();
+  };
+
+  // Add to queue
+  const handleAddToQueue = async () => {
+    if (selectedIds.length === 0) return;
+    const result = await addToQueue({ songIds: selectedIds, position: "end" });
+    if (result.success) {
+      toast.success(`Added ${selectedIds.length} songs to queue`);
+    } else {
+      toast.error("Failed to add songs to queue");
+    }
+    clearSelection();
+  };
+
+  // Star all selected
+  const handleStar = async () => {
+    const client = getClient();
+    if (!client || selectedIds.length === 0) return;
+
+    try {
+      // Star in batches
+      const batchSize = 50;
+      for (let i = 0; i < selectedIds.length; i += batchSize) {
+        const batch = selectedIds.slice(i, i + batchSize);
+        await Promise.all(batch.map((id) => client.star({ id })));
+      }
+
+      // Update local state
+      setStarredItems((current) => {
+        const updated = new Map(current);
+        for (const id of selectedIds) {
+          updated.set(`song:${id}`, true);
+        }
+        return updated;
+      });
+
+      toast.success(`Added ${selectedIds.length} songs to favorites`);
+      invalidateFavorites("song");
+      clearSelection();
+    } catch (error) {
+      toast.error("Failed to add to favorites");
+      console.error(error);
+    }
+  };
+
+  // Unstar all selected
+  const handleUnstar = async () => {
+    const client = getClient();
+    if (!client || selectedIds.length === 0) return;
+
+    try {
+      // Unstar in batches
+      const batchSize = 50;
+      for (let i = 0; i < selectedIds.length; i += batchSize) {
+        const batch = selectedIds.slice(i, i + batchSize);
+        await Promise.all(batch.map((id) => client.unstar({ id })));
+      }
+
+      // Update local state
+      setStarredItems((current) => {
+        const updated = new Map(current);
+        for (const id of selectedIds) {
+          updated.set(`song:${id}`, false);
+        }
+        return updated;
+      });
+
+      toast.success(`Removed ${selectedIds.length} songs from favorites`);
+      invalidateFavorites("song");
+      clearSelection();
+    } catch (error) {
+      toast.error("Failed to remove from favorites");
+      console.error(error);
+    }
+  };
+
+  // Exclude from shuffle
+  const handleExcludeFromShuffle = async () => {
+    const client = getClient();
+    if (!client || selectedIds.length === 0) return;
+
+    try {
+      await client.bulkSetShuffleExcludes(selectedIds, true);
+
+      setShuffleExcludes((prev: Set<string>) => {
+        const next = new Set(prev);
+        selectedIds.forEach((id) => next.add(id));
+        return next;
+      });
+
+      toast.success(`Excluded ${selectedIds.length} songs from shuffle`);
+      clearSelection();
+    } catch (error) {
+      toast.error("Failed to update shuffle settings");
+      console.error(error);
+    }
+  };
+
+  // Include in shuffle
+  const handleIncludeInShuffle = async () => {
+    const client = getClient();
+    if (!client || selectedIds.length === 0) return;
+
+    try {
+      await client.bulkSetShuffleExcludes(selectedIds, false);
+
+      setShuffleExcludes((prev: Set<string>) => {
+        const next = new Set(prev);
+        selectedIds.forEach((id) => next.delete(id));
+        return next;
+      });
+
+      toast.success(`Included ${selectedIds.length} songs in shuffle`);
+      clearSelection();
+    } catch (error) {
+      toast.error("Failed to update shuffle settings");
+      console.error(error);
+    }
+  };
+
+  // Mark for editing in tagger
+  const handleMarkForEditing = async () => {
+    const client = getClient();
+    if (!client || selectedIds.length === 0) return;
+
+    // Filter out already-added tracks
+    const newIds = selectedIds.filter((id) => !tracks.has(id));
+    if (newIds.length === 0) {
+      toast.info(
+        selectedIds.length === 1
+          ? "Track already marked for editing"
+          : "All tracks already marked for editing",
+        {
+          action: {
+            label: "Open Tagger",
+            onClick: () => router.push("/tagger"),
+          },
+        },
+      );
+      return;
+    }
+
+    try {
+      const response = await client.stageLibraryTracks(newIds);
+
+      // Add tracks to tracks atom
+      const newTracks = new Map(tracks);
+      for (const track of response.tracks) {
+        newTracks.set(track.id, createTrackState(track));
+      }
+      setTracks(newTracks);
+
+      // Add to session
+      setSession((prev) => {
+        const existingIds = new Set(prev.tracks.map((t) => t.id));
+        const tracksToAdd = response.tracks
+          .filter((t) => !existingIds.has(t.id))
+          .map((t) => ({ id: t.id, trackType: "library" as const }));
+        return {
+          ...prev,
+          tracks: [...prev.tracks, ...tracksToAdd],
+        };
+      });
+
+      const skippedCount = selectedIds.length - newIds.length;
+      const message =
+        skippedCount > 0
+          ? `${newIds.length} tracks marked for editing (${skippedCount} already added)`
+          : `${newIds.length} tracks marked for editing`;
+
+      toast.success(message, {
+        action: {
+          label: "Open Tagger",
+          onClick: () => router.push("/tagger"),
+        },
+      });
+      clearSelection();
+    } catch (error) {
+      console.error("Failed to mark for editing:", error);
+      toast.error("Failed to mark tracks for editing");
+    }
+  };
+
+  // State for deletion confirmation
+  const [confirmDeletionOpen, setConfirmDeletionOpen] = useState(false);
+
+  // Mark for deletion (move to recycle bin)
+  const handleConfirmDeletion = async () => {
+    const client = getClient();
+    if (!client || selectedIds.length === 0) return;
+
+    try {
+      await client.markForDeletion(selectedIds);
+      setConfirmDeletionOpen(false);
+      toast.success(
+        `${selectedIds.length} song${selectedIds.length > 1 ? "s" : ""} moved to recycle bin`,
+        {
+          description: "Files will be permanently deleted in 30 days",
+          action: {
+            label: "View Recycle Bin",
+            onClick: () => router.push("/admin/recycle-bin"),
+          },
+        },
+      );
+      clearSelection();
+    } catch (error) {
+      toast.error("Failed to mark for deletion");
+      console.error(error);
+    }
+  };
+
+  return {
+    selectedCount,
+    selectedIds,
+    shouldShowBulkActions,
+    getSelectedSongs,
+    handlePlay,
+    handleShuffle,
+    handlePlayNext,
+    handleAddToQueue,
+    handleStar,
+    handleUnstar,
+    handleExcludeFromShuffle,
+    handleIncludeInShuffle,
+    handleMarkForEditing,
+    confirmDeletionOpen,
+    setConfirmDeletionOpen,
+    handleConfirmDeletion,
+    addToPlaylistOpen,
+    setAddToPlaylistOpen,
+  };
+}
+
+// ===================================
+// Bulk song menu content component
+// ===================================
+
+interface BulkSongMenuContentProps {
+  components: MenuComponents;
+  selectedCount: number;
+  handlers: {
+    handlePlay: () => void;
+    handleShuffle: () => void;
+    handlePlayNext: () => void;
+    handleAddToQueue: () => void;
+    handleStar: () => void;
+    handleUnstar: () => void;
+    handleExcludeFromShuffle: () => void;
+    handleIncludeInShuffle: () => void;
+    handleMarkForEditing: () => void;
+    setConfirmDeletionOpen: (open: boolean) => void;
+    setAddToPlaylistOpen: (open: boolean) => void;
+  };
+}
+
+function BulkSongMenuContent({
+  components,
+  selectedCount,
+  handlers,
+}: BulkSongMenuContentProps) {
+  const { Item, Separator } = components;
+
+  return (
+    <>
+      {/* Header showing selection count */}
+      <div className="px-2 py-1.5 text-sm font-medium text-muted-foreground border-b border-border mb-1">
+        {selectedCount} songs selected
+      </div>
+
+      {/* Playback actions */}
+      <Item onClick={handlers.handlePlay}>
+        <Play className="w-4 h-4 mr-2" />
+        Play All
+      </Item>
+      <Item onClick={handlers.handleShuffle}>
+        <Shuffle className="w-4 h-4 mr-2" />
+        Shuffle All
+      </Item>
+      <Separator />
+
+      {/* Queue actions */}
+      <Item onClick={handlers.handlePlayNext}>
+        <ListPlus className="w-4 h-4 mr-2" />
+        Play Next
+      </Item>
+      <Item onClick={handlers.handleAddToQueue}>
+        <ListEnd className="w-4 h-4 mr-2" />
+        Add to Queue
+      </Item>
+      <Item onClick={() => handlers.setAddToPlaylistOpen(true)}>
+        <FolderPlus className="w-4 h-4 mr-2" />
+        Add to Playlist
+      </Item>
+      <Separator />
+
+      {/* Starring actions */}
+      <Item onClick={handlers.handleStar}>
+        <Heart className="w-4 h-4 mr-2" />
+        Add All to Favorites
+      </Item>
+      <Item onClick={handlers.handleUnstar}>
+        <HeartOff className="w-4 h-4 mr-2" />
+        Remove All from Favorites
+      </Item>
+      <Separator />
+
+      {/* Additional actions (flattened from More Actions submenu) */}
+      <Item onClick={handlers.handleMarkForEditing}>
+        <Pen className="w-4 h-4 mr-2" />
+        Mark for Editing
+      </Item>
+      <Separator />
+      <Item onClick={handlers.handleExcludeFromShuffle}>
+        <Shuffle className="w-4 h-4 mr-2 text-muted-foreground line-through" />
+        Exclude from Shuffle
+      </Item>
+      <Item onClick={handlers.handleIncludeInShuffle}>
+        <Shuffle className="w-4 h-4 mr-2" />
+        Include in Shuffle
+      </Item>
+      <Separator />
+
+      {/* Destructive action */}
+      <Item
+        onClick={() => handlers.setConfirmDeletionOpen(true)}
+        className="text-destructive focus:text-destructive"
+      >
+        <Trash2 className="w-4 h-4 mr-2" />
+        Mark for Deletion
+      </Item>
+    </>
+  );
 }
 
 // ===================================
@@ -267,6 +686,7 @@ export function SongContextMenu({
   onUnmatch,
   collisionPadding,
 }: SongContextMenuProps) {
+  // Single song actions
   const {
     isStarred,
     toggleStar,
@@ -281,13 +701,19 @@ export function SongContextMenu({
     confirmDeletionOpen,
     setConfirmDeletionOpen,
     handleConfirmDeletion,
-    addToPlaylistOpen,
-    setAddToPlaylistOpen,
+    addToPlaylistOpen: singleAddToPlaylistOpen,
+    setAddToPlaylistOpen: setSingleAddToPlaylistOpen,
     detailsOpen,
     setDetailsOpen,
   } = useSongActions({ song, queueSongs, songIndex, queueSource });
 
   const handleMarkForEditing = useMarkForEditing(song);
+
+  // Bulk actions - use queueSongs for finding selected songs
+  const bulkActions = useBulkSongActions(queueSongs ?? [song]);
+
+  // Determine if we should show bulk actions
+  const showBulkMenu = bulkActions.shouldShowBulkActions(song.id);
 
   return (
     <>
@@ -298,78 +724,143 @@ export function SongContextMenu({
           onDoubleClick={(e) => e.stopPropagation()}
           collisionPadding={collisionPadding}
         >
-          <SongMenuItemsQueue
-            components={contextMenuComponents}
-            handlers={{
-              handlePlay,
-              handlePlayNext,
-              handleAddToQueue,
-              setAddToPlaylistOpen,
-            }}
-            options={{
-              hideQueueActions,
-              showRemoveFromQueue,
-              onRemoveFromQueue,
-              showRemoveFromPlaylist,
-              onRemoveFromPlaylist: onRemoveFromPlaylist
-                ? () => onRemoveFromPlaylist(song.id)
-                : undefined,
-              showMoveToPosition: showMoveToPosition && songIndex !== undefined,
-              onMoveToPosition:
-                onMoveToPosition && songIndex !== undefined
-                  ? () => onMoveToPosition(song, songIndex)
-                  : undefined,
-              moveToPositionLabel,
-              showRefineMatch: showRefineMatch && songIndex !== undefined,
-              onRefineMatch:
-                onRefineMatch && songIndex !== undefined
-                  ? () => onRefineMatch(song, songIndex)
-                  : undefined,
-              showUnmatch: showUnmatch && songIndex !== undefined,
-              onUnmatch:
-                onUnmatch && songIndex !== undefined
-                  ? () => onUnmatch(song, songIndex)
-                  : undefined,
-            }}
-          />
-          <SongMenuItemsStarring
-            components={contextMenuComponents}
-            handlers={{
-              toggleStar,
-              handleToggleShuffleExclude,
-              handleRate,
-            }}
-            state={{
-              isStarred,
-              isExcludedFromShuffle,
-              currentRating,
-            }}
-          />
-          <SongMenuItemsNavigation
-            components={contextMenuComponents}
-            handlers={{
-              handleDownload,
-              handleMarkForEditing,
-              setDetailsOpen,
-              setConfirmDeletionOpen,
-            }}
-            song={{
-              artistId: song.artistId,
-              albumId: song.albumId,
-            }}
-          />
+          {showBulkMenu ? (
+            <BulkSongMenuContent
+              components={contextMenuComponents}
+              selectedCount={bulkActions.selectedCount}
+              handlers={{
+                handlePlay: bulkActions.handlePlay,
+                handleShuffle: bulkActions.handleShuffle,
+                handlePlayNext: bulkActions.handlePlayNext,
+                handleAddToQueue: bulkActions.handleAddToQueue,
+                handleStar: bulkActions.handleStar,
+                handleUnstar: bulkActions.handleUnstar,
+                handleExcludeFromShuffle: bulkActions.handleExcludeFromShuffle,
+                handleIncludeInShuffle: bulkActions.handleIncludeInShuffle,
+                handleMarkForEditing: bulkActions.handleMarkForEditing,
+                setConfirmDeletionOpen: bulkActions.setConfirmDeletionOpen,
+                setAddToPlaylistOpen: bulkActions.setAddToPlaylistOpen,
+              }}
+            />
+          ) : (
+            <>
+              <SongMenuItemsQueue
+                components={contextMenuComponents}
+                handlers={{
+                  handlePlay,
+                  handlePlayNext,
+                  handleAddToQueue,
+                  setAddToPlaylistOpen: setSingleAddToPlaylistOpen,
+                }}
+                options={{
+                  hideQueueActions,
+                  showRemoveFromQueue,
+                  onRemoveFromQueue,
+                  showRemoveFromPlaylist,
+                  onRemoveFromPlaylist: onRemoveFromPlaylist
+                    ? () => onRemoveFromPlaylist(song.id)
+                    : undefined,
+                  showMoveToPosition:
+                    showMoveToPosition && songIndex !== undefined,
+                  onMoveToPosition:
+                    onMoveToPosition && songIndex !== undefined
+                      ? () => onMoveToPosition(song, songIndex)
+                      : undefined,
+                  moveToPositionLabel,
+                  showRefineMatch: showRefineMatch && songIndex !== undefined,
+                  onRefineMatch:
+                    onRefineMatch && songIndex !== undefined
+                      ? () => onRefineMatch(song, songIndex)
+                      : undefined,
+                  showUnmatch: showUnmatch && songIndex !== undefined,
+                  onUnmatch:
+                    onUnmatch && songIndex !== undefined
+                      ? () => onUnmatch(song, songIndex)
+                      : undefined,
+                }}
+              />
+              <SongMenuItemsStarring
+                components={contextMenuComponents}
+                handlers={{
+                  toggleStar,
+                  handleToggleShuffleExclude,
+                  handleRate,
+                }}
+                state={{
+                  isStarred,
+                  isExcludedFromShuffle,
+                  currentRating,
+                }}
+              />
+              <SongMenuItemsNavigation
+                components={contextMenuComponents}
+                handlers={{
+                  handleDownload,
+                  handleMarkForEditing,
+                  setDetailsOpen,
+                  setConfirmDeletionOpen,
+                }}
+                song={{
+                  artistId: song.artistId,
+                  albumId: song.albumId,
+                }}
+              />
+            </>
+          )}
         </ContextMenuContent>
       </ContextMenu>
+
+      {/* Dialogs for single song actions */}
       <SongDialogs
         song={song}
-        addToPlaylistOpen={addToPlaylistOpen}
-        setAddToPlaylistOpen={setAddToPlaylistOpen}
+        addToPlaylistOpen={singleAddToPlaylistOpen}
+        setAddToPlaylistOpen={setSingleAddToPlaylistOpen}
         detailsOpen={detailsOpen}
         setDetailsOpen={setDetailsOpen}
         confirmDeletionOpen={confirmDeletionOpen}
         setConfirmDeletionOpen={setConfirmDeletionOpen}
         handleConfirmDeletion={handleConfirmDeletion}
       />
+
+      {/* Dialog for bulk add to playlist */}
+      <AddToPlaylistDialog
+        open={bulkActions.addToPlaylistOpen}
+        onOpenChange={bulkActions.setAddToPlaylistOpen}
+        songs={
+          bulkActions.addToPlaylistOpen ? bulkActions.getSelectedSongs() : []
+        }
+        songIds={
+          bulkActions.addToPlaylistOpen ? bulkActions.selectedIds : undefined
+        }
+      />
+
+      {/* Dialog for bulk deletion confirmation */}
+      <AlertDialog
+        open={bulkActions.confirmDeletionOpen}
+        onOpenChange={bulkActions.setConfirmDeletionOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Mark {bulkActions.selectedCount} Songs for Deletion?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The selected songs will be moved to the recycle bin and
+              permanently deleted after 30 days. This action can be undone from
+              the Administration page.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={bulkActions.handleConfirmDeletion}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Mark for Deletion
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
