@@ -2,15 +2,9 @@
 
 A self-hosted music server written in Rust with a Next.js web client.
 
-## Disclaimer #1
+⚠️ Note on AI usage: Claude Opus 4.5 was used during development of this project.
 
-> ⚠️ **Note on AI usage**: This project was developed with extensive use of AI-assisted programming tools. Due to limited spare time, this project would not have been possible otherwise.
-
-## Disclaimer #2
-
-> ⚠️ **Experimental Software**: Ferrotune is under active development and not yet ready for production use. **Please backup your music library before installing.** It is advised to take regular backups of the database as well.
-
-## Features
+⚠️ **Experimental Software**: Ferrotune is under active development and not yet ready for production use. **Please backup your music library before installing.** It is advised to take regular backups of the database as well.
 
 - **Modern web client**
   - Built-in web UI for administration, library curation and playback on desktop
