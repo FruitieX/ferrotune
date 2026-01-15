@@ -46,6 +46,22 @@ import {
 import { serverConnectionAtom, isHydratedAtom } from "@/lib/store/auth";
 import { getClient } from "@/lib/api/client";
 import { invalidatePlayCountQueries as invalidatePlayCounts } from "@/lib/api/cache-invalidation";
+import { hasNativeAudio } from "@/lib/tauri";
+import {
+  initNativeAudioEngine,
+  cleanupNativeAudioEngine,
+  nativePlay,
+  nativePause,
+  nativeStop,
+  nativeSeek,
+  nativeSetTrack,
+  nativeSetVolume,
+  nativeNextTrack,
+  nativePreviousTrack,
+} from "@/lib/audio/native-engine";
+
+// Flag to track if we're using native audio
+let usingNativeAudio = false;
 
 // ============================================================================
 // Dual Audio Element System for Gapless Playback
@@ -517,9 +533,100 @@ export function useAudioEngineInit() {
     if (initializedRef.current) return;
     initializedRef.current = true;
 
-    const audio = getGlobalAudio();
-    if (!audio) return;
-    setAudioElement(audio);
+    // Check if we should use native audio (Tauri mobile)
+    if (hasNativeAudio()) {
+      console.log("[Audio] Using native audio engine (Tauri mobile)");
+      usingNativeAudio = true;
+
+      // Initialize native audio with callbacks
+      initNativeAudioEngine({
+        onStateChange: (state) => {
+          settersRef.current.setPlaybackState(state);
+
+          // Handle listening time tracking
+          const currentSongId = stateRef.current.currentSong?.id;
+          if (state === "playing" && currentSongId) {
+            if (currentSongId !== playbackStartSongId) {
+              playbackStartSongId = currentSongId;
+              accumulatedPlayTime = 0;
+              currentListeningSessionId = null;
+            }
+            playbackStartTime = Date.now();
+            startListeningUpdateInterval();
+          } else if (state === "paused" && playbackStartTime !== null) {
+            stopListeningUpdateInterval();
+            accumulatedPlayTime += (Date.now() - playbackStartTime) / 1000;
+            playbackStartTime = null;
+            updateListeningSession();
+          }
+        },
+        onProgress: (currentTime, duration, buffered) => {
+          settersRef.current.setCurrentTime(currentTime);
+          settersRef.current.setDuration(duration);
+          settersRef.current.setBuffered(buffered);
+
+          // Handle scrobbling
+          const state = stateRef.current;
+          if (
+            !state.hasScrobbled &&
+            duration > 0 &&
+            currentTime / duration >= state.scrobbleThreshold
+          ) {
+            settersRef.current.setHasScrobbled(true);
+            if (state.currentSong) {
+              getClient()
+                ?.scrobble(state.currentSong.id)
+                .then(() => {
+                  settersRef.current.invalidatePlayCountQueries();
+                })
+                .catch(console.error);
+            }
+          }
+        },
+        onError: (message, trackId) => {
+          console.error("[NativeAudio] Error:", message, trackId);
+          settersRef.current.setPlaybackError({
+            message,
+            trackId,
+            trackTitle: stateRef.current.currentSong?.title,
+            timestamp: Date.now(),
+          });
+          settersRef.current.setPlaybackState("error");
+
+          const trackName = stateRef.current.currentSong?.title || "Unknown track";
+          toast.error(`Playback failed: ${trackName}`, {
+            description: message,
+            duration: 5000,
+          });
+        },
+        onTrackChange: (_track, queueIndex) => {
+          // Track changes are handled by the server queue
+          // Just reset scrobble state
+          settersRef.current.setHasScrobbled(false);
+          console.log("[NativeAudio] Track changed to index:", queueIndex);
+        },
+      }).catch((error) => {
+        console.error("[Audio] Failed to initialize native audio:", error);
+        // Fall back to web audio
+        usingNativeAudio = false;
+        initializeWebAudio();
+      });
+
+      return () => {
+        cleanupNativeAudioEngine();
+        stopListeningUpdateInterval();
+        initializedRef.current = false;
+        usingNativeAudio = false;
+      };
+    }
+
+    // Web audio initialization
+    initializeWebAudio();
+
+    function initializeWebAudio() {
+      const audio = getGlobalAudio();
+      if (!audio) return;
+      setAudioElement(audio);
 
     // Also ensure secondary element exists
     const audio1 = audioElements[1];
@@ -986,8 +1093,12 @@ export function useAudioEngineInit() {
 
   // Update volume on both elements
   useEffect(() => {
-    for (const el of audioElements) {
-      if (el) el.volume = effectiveVolume;
+    if (usingNativeAudio) {
+      nativeSetVolume(effectiveVolume).catch(console.error);
+    } else {
+      for (const el of audioElements) {
+        if (el) el.volume = effectiveVolume;
+      }
     }
   }, [effectiveVolume]);
 
@@ -1028,6 +1139,70 @@ export function useAudioEngineInit() {
   useEffect(() => {
     const audio = getActiveAudio();
     const client = getClient();
+
+    // Native audio path
+    if (usingNativeAudio) {
+      console.log("[Audio] Native audio effect triggered, currentSong:", currentSong?.id, currentSong?.title);
+      console.log("[Audio] currentLoadedTrackId:", currentLoadedTrackId, "isRestoringQueue:", isRestoringQueue);
+      
+      if (!currentSong || !client) {
+        if (currentSong === null && currentLoadedTrackId !== null) {
+          // Queue cleared
+          console.log("[Audio] Queue cleared, stopping native audio");
+          nativeStop().catch(console.error);
+          setPlaybackState("idle");
+          currentLoadedTrackId = null;
+        }
+        return;
+      }
+
+      // Skip if same track is already loaded AND signal hasn't changed
+      const signalChanged = trackChangeSignal !== lastProcessedSignalRef.current;
+      console.log("[Audio] signalChanged:", signalChanged, "trackChangeSignal:", trackChangeSignal, "lastProcessedSignal:", lastProcessedSignalRef.current);
+      if (currentSong.id === currentLoadedTrackId && !signalChanged) {
+        console.log("[Audio] Skipping - same track already loaded");
+        return;
+      }
+      lastProcessedSignalRef.current = trackChangeSignal;
+
+      // Log listening time for the track we're leaving
+      if (currentLoadedTrackId && currentSong.id !== currentLoadedTrackId) {
+        logListeningTimeAndReset();
+      }
+
+      currentLoadedTrackId = currentSong.id;
+      console.log("[Audio] Setting currentLoadedTrackId to:", currentLoadedTrackId);
+
+      if (isRestoringQueue) {
+        // During restore: set track but don't play
+        console.log("[Audio] Restoring queue - setting track without playing");
+        setPlaybackState("paused");
+        setHasScrobbled(false);
+        setCurrentTime(0);
+        setDuration(currentSong.duration || 0);
+        nativeSetTrack(currentSong, client).catch(console.error);
+      } else {
+        // Normal playback: set track and play
+        console.log("[Audio] Normal playback - setting track and playing");
+        setPlaybackState("loading");
+        setHasScrobbled(false);
+        setCurrentTime(0);
+        setDuration(currentSong.duration || 0);
+        nativeSetTrack(currentSong, client)
+          .then(() => {
+            console.log("[Audio] Track set, now calling nativePlay");
+            return nativePlay();
+          })
+          .catch((err) => {
+            console.error("[Audio] Failed to play:", err);
+            setPlaybackState("paused");
+          });
+      }
+      return;
+    }
+
+    // Web audio path
+    const audio = globalAudio;
 
     if (!audio || !currentSong || !client) {
       if (audio && audio.src && !currentSong) {
@@ -1284,6 +1459,7 @@ export function useAudioEngine() {
   const setPlaybackError = useSetAtom(playbackErrorAtom);
   const setCurrentTime = useSetAtom(currentTimeAtom);
   const setBuffered = useSetAtom(bufferedAtom);
+  const duration = useAtomValue(durationAtom);
 
   const currentSong = useAtomValue(currentSongAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
@@ -1299,8 +1475,7 @@ export function useAudioEngine() {
 
   // Retry playback by forcing a fresh load of the current track
   const retryPlayback = () => {
-    const audio = getActiveAudio();
-    if (!audio || !currentSong) return;
+    if (!currentSong) return;
 
     const client = getClient();
     if (!client) return;
@@ -1313,39 +1488,57 @@ export function useAudioEngine() {
     currentLoadedTrackId = null;
     invalidatePreBuffer();
 
-    // Get fresh stream URL and load
-    const streamUrl = client.getStreamUrl(currentSong.id);
-    audio.src = streamUrl;
-    currentStreamTimeOffset = 0;
-    isLoadingNewTrack = true;
-
-    resumeAudioContext().then((contextRunning) => {
-      if (!contextRunning) {
-        console.error("[Audio] Cannot retry: AudioContext not running");
+    if (usingNativeAudio) {
+      nativeSetTrack(currentSong, client)
+        .then(() => nativePlay())
+        .catch((err) => {
+          console.error("[NativeAudio] Retry playback failed:", err);
+          setPlaybackState("error");
+        });
+    } else {
+      const audio = getActiveAudio();
+      if (audio) {
+        // Get fresh stream URL and load
+        const streamUrl = client.getStreamUrl(currentSong.id);
+        audio.src = streamUrl;
+        currentStreamTimeOffset = 0;
+        isLoadingNewTrack = true;
+        resumeAudioContext().then((contextRunning) => {
+          if (!contextRunning) {
+            console.error("[Audio] Cannot retry: AudioContext not running");
+          }
+          audio.play().catch((err) => {
+            console.error("[Audio] Retry playback failed:", err);
+            setPlaybackState("error");
+          });
+        });
       }
-      audio.play().catch((err) => {
-        console.error("[Audio] Retry playback failed:", err);
-        setPlaybackState("error");
-      });
-    });
+    }
   };
 
   const play = async () => {
     setIsRestoring(false);
-    const contextRunning = await resumeAudioContext();
-    if (!contextRunning) {
-      console.error("[Audio] Cannot play: AudioContext not running");
+    if (usingNativeAudio) {
+      nativePlay().catch(console.error);
+    } else {
+      const contextRunning = await resumeAudioContext();
+      if (!contextRunning) {
+        console.error("[Audio] Cannot play: AudioContext not running");
+      }
+      getActiveAudio()?.play().catch(console.error);
     }
-    getActiveAudio()?.play().catch(console.error);
   };
 
   const pause = () => {
-    getActiveAudio()?.pause();
+    if (usingNativeAudio) {
+      nativePause().catch(console.error);
+    } else {
+      getActiveAudio()?.pause();
+    }
   };
 
   const togglePlayPause = () => {
-    const audio = getActiveAudio();
-    if (!audio) return;
+    if (!usingNativeAudio && !getActiveAudio()) return;
 
     if (playbackState === "playing") {
       pause();
@@ -1417,6 +1610,11 @@ export function useAudioEngine() {
 
   // General seek function that chooses the right strategy
   const seek = (time: number) => {
+    if (usingNativeAudio) {
+      nativeSeek(time).catch(console.error);
+      setCurrentTime(time);
+      return;
+    }
     const audio = getActiveAudio();
     if (!audio) return;
 
@@ -1448,13 +1646,20 @@ export function useAudioEngine() {
   };
 
   const seekPercent = (percent: number) => {
+    if (usingNativeAudio) {
+      if (duration > 0) {
+        const time = (percent / 100) * duration;
+        seek(time);
+      }
+      return;
+    }
     const audio = getActiveAudio();
     if (!audio) return;
 
-    const duration = currentSong?.duration ?? audio.duration;
-    if (!duration || duration <= 0) return;
+    const audioDuration = currentSong?.duration ?? audio.duration;
+    if (!audioDuration || audioDuration <= 0) return;
 
-    const targetTime = (percent / 100) * duration;
+    const targetTime = (percent / 100) * audioDuration;
     const streamRelativeTime = targetTime - currentStreamTimeOffset;
 
     const isBuffered = (() => {
@@ -1525,11 +1730,21 @@ export function useAudioEngine() {
     invalidatePreBuffer();
     isGaplessHandoff = false;
     gaplessHandoffExpectedTrackId = null;
+    if (usingNativeAudio) {
+      nativeNextTrack().catch(console.error);
+    }
     goToNextAction();
   };
 
   const previous = () => {
     setIsRestoring(false);
+
+    // Check current position to decide whether to restart or go to previous
+    if (usingNativeAudio) {
+      // For native audio, we rely on the native implementation's 3-second rule
+      nativePreviousTrack().catch(console.error);
+      return;
+    }
 
     const audio = getActiveAudio();
     if (audio && audio.currentTime > 3) {
@@ -1553,6 +1768,11 @@ export function useAudioEngine() {
     logListeningTimeAndReset(true);
     isGaplessHandoff = false;
     gaplessHandoffExpectedTrackId = null;
+    if (usingNativeAudio) {
+      // For force previous, we need to go to previous track regardless of position
+      // The native implementation handles the 3-second rule, so we seek to 0 first
+      nativeSeek(0).then(() => nativePreviousTrack()).catch(console.error);
+    }
     goToPreviousAction();
   };
 

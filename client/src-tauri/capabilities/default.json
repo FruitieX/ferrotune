@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default",
+  "description": "enables the default permissions for all platforms",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "native-audio:allow-play",
+    "native-audio:allow-pause",
+    "native-audio:allow-stop",
+    "native-audio:allow-seek",
+    "native-audio:allow-set-track",
+    "native-audio:allow-get-state",
+    "native-audio:allow-set-volume",
+    "native-audio:allow-set-queue",
+    "native-audio:allow-next-track",
+    "native-audio:allow-previous-track"
+  ]
+}

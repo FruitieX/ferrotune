@@ -1,0 +1,67 @@
+"$schema" = "schemas/schema.json"
+
+[[permission]]
+identifier = "allow-play"
+description = "Allows starting or resuming audio playback"
+commands.allow = ["play"]
+
+[[permission]]
+identifier = "allow-pause"
+description = "Allows pausing audio playback"
+commands.allow = ["pause"]
+
+[[permission]]
+identifier = "allow-stop"
+description = "Allows stopping audio playback"
+commands.allow = ["stop"]
+
+[[permission]]
+identifier = "allow-seek"
+description = "Allows seeking to a position in the audio"
+commands.allow = ["seek"]
+
+[[permission]]
+identifier = "allow-set-track"
+description = "Allows setting the current track"
+commands.allow = ["set_track"]
+
+[[permission]]
+identifier = "allow-get-state"
+description = "Allows getting the current playback state"
+commands.allow = ["get_state"]
+
+[[permission]]
+identifier = "allow-set-volume"
+description = "Allows setting the playback volume"
+commands.allow = ["set_volume"]
+
+[[permission]]
+identifier = "allow-set-queue"
+description = "Allows setting the playback queue"
+commands.allow = ["set_queue"]
+
+[[permission]]
+identifier = "allow-next-track"
+description = "Allows skipping to the next track"
+commands.allow = ["next_track"]
+
+[[permission]]
+identifier = "allow-previous-track"
+description = "Allows skipping to the previous track"
+commands.allow = ["previous_track"]
+
+[[set]]
+identifier = "default"
+description = "Default permissions for native audio playback"
+permissions = [
+  "allow-play",
+  "allow-pause",
+  "allow-stop",
+  "allow-seek",
+  "allow-set-track",
+  "allow-get-state",
+  "allow-set-volume",
+  "allow-set-queue",
+  "allow-next-track",
+  "allow-previous-track"
+]
