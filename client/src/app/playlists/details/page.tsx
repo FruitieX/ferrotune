@@ -190,6 +190,7 @@ function PlaylistDetailContent() {
     metadata: playlist,
     isLoading,
     ensureRange,
+    reset: resetPlaylistData,
   } = usePlaylistSparsePagination({
     queryKey: [
       "playlistSongs",
@@ -496,6 +497,8 @@ function PlaylistDetailContent() {
 
     try {
       await client.unmatchEntry(playlistId, pendingUnmatch.entryId);
+      // Reset the sparse pagination cache to refetch data
+      resetPlaylistData();
       await queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
       });
@@ -1379,6 +1382,7 @@ function PlaylistDetailContent() {
           entryId={refineMatchItem.entryId}
           position={refineMatchItem.position}
           missing={refineMatchItem.missing}
+          onMatched={resetPlaylistData}
         />
       )}
 

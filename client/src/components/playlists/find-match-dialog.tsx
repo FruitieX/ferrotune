@@ -22,6 +22,8 @@ export interface FindMatchDialogProps {
   missing: MissingEntryDataResponse;
   /** Unique ID prefix for form element IDs to avoid conflicts */
   idPrefix?: string;
+  /** Callback when a match is successfully saved */
+  onMatched?: () => void;
 }
 
 export function FindMatchDialog({
@@ -32,6 +34,7 @@ export function FindMatchDialog({
   position,
   missing,
   idPrefix = "",
+  onMatched,
 }: FindMatchDialogProps) {
   const queryClient = useQueryClient();
 
@@ -44,6 +47,7 @@ export function FindMatchDialog({
     },
     onSuccess: () => {
       toast.success("Entry matched successfully");
+      onMatched?.();
       queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
       });

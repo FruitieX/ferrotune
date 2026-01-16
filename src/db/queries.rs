@@ -1443,17 +1443,33 @@ pub async fn add_to_queue(
     let insert_pos = if position < 0 { queue_len } else { position };
 
     // Shift existing entries if inserting in the middle
+    // We need to update from highest to lowest to avoid UNIQUE constraint conflicts
     if insert_pos < queue_len {
-        sqlx::query(
-            "UPDATE play_queue_entries 
-             SET queue_position = queue_position + ? 
-             WHERE user_id = ? AND queue_position >= ?",
+        // Get all positions that need to shift, ordered from highest to lowest
+        let positions: Vec<(i64,)> = sqlx::query_as(
+            "SELECT queue_position FROM play_queue_entries 
+             WHERE user_id = ? AND queue_position >= ?
+             ORDER BY queue_position DESC",
         )
-        .bind(song_ids.len() as i64)
         .bind(user_id)
         .bind(insert_pos)
-        .execute(&mut *tx)
+        .fetch_all(&mut *tx)
         .await?;
+
+        // Update each position individually from highest to lowest
+        let shift_amount = song_ids.len() as i64;
+        for (pos,) in positions {
+            sqlx::query(
+                "UPDATE play_queue_entries 
+                 SET queue_position = queue_position + ? 
+                 WHERE user_id = ? AND queue_position = ?",
+            )
+            .bind(shift_amount)
+            .bind(user_id)
+            .bind(pos)
+            .execute(&mut *tx)
+            .await?;
+        }
     }
 
     // Insert new entries

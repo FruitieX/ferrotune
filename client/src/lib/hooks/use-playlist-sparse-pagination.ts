@@ -54,6 +54,8 @@ export interface PlaylistSparsePaginationResult {
   isFetching: boolean;
   /** Request loading of items in a range (called by virtualizer) */
   ensureRange: (startIndex: number, endIndex: number) => void;
+  /** Reset all cached data and refetch from the beginning */
+  reset: () => void;
 }
 
 /**
@@ -206,6 +208,17 @@ export function usePlaylistSparsePagination({
     }
   };
 
+  // Function to reset all cached data and refetch from the beginning
+  const reset = () => {
+    setPages(new Map());
+    setMetadata(null);
+    setTotalCount(0);
+    setHasLoadedOnce(false);
+    fetchingPages.current.clear();
+    // Trigger a refetch of the first page
+    setPendingRange({ start: 0, end: pageSize - 1 });
+  };
+
   // Build flat entries array from loaded pages
   const entries: PlaylistSongEntry[] = [];
   if (totalCount > 0) {
@@ -238,5 +251,6 @@ export function usePlaylistSparsePagination({
     isLoading: !hasLoadedOnce,
     isFetching,
     ensureRange,
+    reset,
   };
 }
