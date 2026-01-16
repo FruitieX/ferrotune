@@ -311,3 +311,211 @@ jsonpath "$.results" count == 1
 jsonpath "$.results[0].song" != null
 # With matching duration, score should get a bonus
 jsonpath "$.results[0].score" >= 0.9
+
+# ============================================================================
+# POST /ferrotune/albums/match
+# ============================================================================
+
+# Test: Match albums with exact name and artist
+POST {{base_url}}/ferrotune/albums/match
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "albums": [
+    {
+      "name": "Test Album",
+      "artist": "Test Artist"
+    }
+  ],
+  "useArtist": true
+}
+HTTP 200
+[Asserts]
+jsonpath "$.results" isCollection
+jsonpath "$.results" count == 1
+jsonpath "$.results[0].album" != null
+jsonpath "$.results[0].album.name" == "Test Album"
+jsonpath "$.results[0].album.artist" == "Test Artist"
+jsonpath "$.results[0].score" >= 0.9
+
+# Test: Match empty albums returns empty results
+POST {{base_url}}/ferrotune/albums/match
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "albums": [],
+  "useArtist": true
+}
+HTTP 200
+[Asserts]
+jsonpath "$.results" isCollection
+jsonpath "$.results" count == 0
+
+# Test: Match album with only name (no artist)
+POST {{base_url}}/ferrotune/albums/match
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "albums": [
+    {
+      "name": "Another Album",
+      "artist": null
+    }
+  ],
+  "useArtist": false
+}
+HTTP 200
+[Asserts]
+jsonpath "$.results" isCollection
+jsonpath "$.results" count == 1
+jsonpath "$.results[0].album" != null
+jsonpath "$.results[0].album.name" == "Another Album"
+
+# Test: Match album with no usable search terms returns score 0
+POST {{base_url}}/ferrotune/albums/match
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "albums": [
+    {
+      "name": null,
+      "artist": null
+    }
+  ],
+  "useArtist": true
+}
+HTTP 200
+[Asserts]
+jsonpath "$.results" isCollection
+jsonpath "$.results" count == 1
+jsonpath "$.results[0].score" == 0.0
+jsonpath "$.results[0].album" not exists
+
+# Test: Match multiple albums in batch
+POST {{base_url}}/ferrotune/albums/match
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "albums": [
+    {
+      "name": "Test Album",
+      "artist": "Test Artist"
+    },
+    {
+      "name": "Another Album",
+      "artist": "Another Artist"
+    },
+    {
+      "name": "NonexistentAlbum12345",
+      "artist": "NonexistentArtist67890"
+    }
+  ],
+  "useArtist": true
+}
+HTTP 200
+[Asserts]
+jsonpath "$.results" isCollection
+jsonpath "$.results" count == 3
+
+# Test: Unauthorized request returns 401
+POST {{base_url}}/ferrotune/albums/match
+Content-Type: application/json
+{
+  "albums": [],
+  "useArtist": true
+}
+HTTP 401
+
+# ============================================================================
+# POST /ferrotune/artists/match
+# ============================================================================
+
+# Test: Match artists with exact name
+POST {{base_url}}/ferrotune/artists/match
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "artists": [
+    {
+      "name": "Test Artist"
+    }
+  ]
+}
+HTTP 200
+[Asserts]
+jsonpath "$.results" isCollection
+jsonpath "$.results" count == 1
+jsonpath "$.results[0].artist" != null
+jsonpath "$.results[0].artist.name" == "Test Artist"
+jsonpath "$.results[0].score" >= 0.9
+
+# Test: Match empty artists returns empty results
+POST {{base_url}}/ferrotune/artists/match
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "artists": []
+}
+HTTP 200
+[Asserts]
+jsonpath "$.results" isCollection
+jsonpath "$.results" count == 0
+
+# Test: Match artist with no name returns score 0
+POST {{base_url}}/ferrotune/artists/match
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "artists": [
+    {
+      "name": null
+    }
+  ]
+}
+HTTP 200
+[Asserts]
+jsonpath "$.results" isCollection
+jsonpath "$.results" count == 1
+jsonpath "$.results[0].score" == 0.0
+jsonpath "$.results[0].artist" not exists
+
+# Test: Match multiple artists in batch
+POST {{base_url}}/ferrotune/artists/match
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "artists": [
+    {
+      "name": "Test Artist"
+    },
+    {
+      "name": "Another Artist"
+    },
+    {
+      "name": "NonexistentArtist12345"
+    }
+  ]
+}
+HTTP 200
+[Asserts]
+jsonpath "$.results" isCollection
+jsonpath "$.results" count == 3
+
+# Test: Unauthorized request returns 401
+POST {{base_url}}/ferrotune/artists/match
+Content-Type: application/json
+{
+  "artists": []
+}
+HTTP 401
+
+# ============================================================================
+# GET /ferrotune/match-dictionary
+# ============================================================================
+
+# Test: Get match dictionary
+GET {{base_url}}/ferrotune/match-dictionary
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.entries" isCollection

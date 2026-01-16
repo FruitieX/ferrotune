@@ -148,6 +148,11 @@ generate_audio "${MUSIC_DIR}/Various Artists/Compilation Album/02 - Another Comp
     "Another Compilation" "Different Artist" "Compilation Album" "2" "392" "3" \
     "${MUSIC_DIR}/Various Artists/Compilation Album/cover.jpg" "2022" "Pop"
 
+# Standalone file for upload tests (tagger-extended)
+generate_audio "${MUSIC_DIR}/simple.mp3" \
+    "Unique Imported Song" "Unique Artist" "Unique Album" "1" "1000" "1" \
+    "${FIXTURES_DIR}/cover.png" "2024" "Test"
+
 echo ""
 echo "=== Test fixtures generated ==="
 echo "Music directory: ${MUSIC_DIR}"

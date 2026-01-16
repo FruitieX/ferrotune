@@ -339,7 +339,11 @@ pub async fn upload_files(
     // Process each file in the multipart form
     while let Ok(Some(field)) = multipart.next_field().await {
         let filename = match field.file_name() {
-            Some(name) => name.to_string(),
+            Some(name) => std::path::Path::new(name)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
             None => {
                 errors.push(UploadError {
                     filename: "unknown".to_string(),

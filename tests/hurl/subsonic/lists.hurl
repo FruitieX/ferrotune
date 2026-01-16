@@ -95,9 +95,9 @@ HTTP 200
 [Asserts]
 header "Content-Type" contains "application/xml"
 xpath "string(//*[local-name()='subsonic-response']/@status)" == "ok"
-xpath "count(//*[local-name()='album'])" == 1
-xpath "string(//*[local-name()='album']/@name)" == "Test Album"
-xpath "string(//*[local-name()='album']/@artist)" == "Test Artist"
+xpath "count(//*[local-name()='album'])" >= 1
+xpath "count(//*[local-name()='album'][@name='Test Album'])" == 1
+xpath "count(//*[local-name()='album'][@name='Test Album' and @artist='Test Artist'])" == 1
 
 # Test: getAlbumList2 - by year 2024 (JSON)
 GET {{base_url}}/rest/getAlbumList2?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&type=byYear&fromYear=2024&toYear=2024&size=10
@@ -105,10 +105,10 @@ HTTP 200
 [Asserts]
 header "Content-Type" contains "application/json"
 jsonpath "$.subsonic-response.status" == "ok"
-jsonpath "$.subsonic-response.albumList2.album" count == 1
-jsonpath "$.subsonic-response.albumList2.album[0].name" == "Test Album"
-jsonpath "$.subsonic-response.albumList2.album[0].artist" == "Test Artist"
-jsonpath "$.subsonic-response.albumList2.album[0].year" == 2024
+jsonpath "$.subsonic-response.albumList2.album" count >= 1
+jsonpath "$.subsonic-response.albumList2.album[?(@.name=='Test Album')]" count == 1
+jsonpath "$.subsonic-response.albumList2.album[?(@.name=='Test Album')].artist" nth 0 == "Test Artist"
+jsonpath "$.subsonic-response.albumList2.album[?(@.name=='Test Album')].year" nth 0 == 2024
 
 # ============================================================================
 # GET ALBUM LIST 2 - BY YEAR (2022-2023) - should return at least 2 albums

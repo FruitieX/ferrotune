@@ -102,3 +102,41 @@ HTTP 200
 jsonpath "$.success" == true
 jsonpath "$.renamedCount" == 1
 jsonpath "$.errors" count == 0
+
+# 8. Single Song Get Tags
+GET {{base_url}}/ferrotune/songs/{{first_song_id}}/tags
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.tags" isCollection
+
+# 9. Single Song Update Tags
+PATCH {{base_url}}/ferrotune/songs/{{first_song_id}}/tags
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+    "set": [
+        { "key": "GENRE", "value": "Test Genre" }
+    ],
+    "delete": []
+}
+HTTP 200
+[Asserts]
+jsonpath "$.success" == true
+
+# Verify
+GET {{base_url}}/ferrotune/songs/{{first_song_id}}/tags
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.tags[?(@.key=='GENRE')].value" nth 0 == "Test Genre"
+
+# Cleanup
+PATCH {{base_url}}/ferrotune/songs/{{first_song_id}}/tags
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+    "set": [],
+    "delete": ["GENRE"]
+}
+HTTP 200

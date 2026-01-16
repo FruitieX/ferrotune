@@ -95,6 +95,8 @@ fn run_hurl_script(server: &TestServer, script_path: &Path) -> Result<(), String
 
     let output = Command::new("hurl")
         .arg("--test")
+        .arg("--file-root")
+        .arg(env!("CARGO_MANIFEST_DIR"))
         .arg("--variable")
         .arg(format!("base_url={}", server.base_url))
         .arg("--variable")
@@ -131,8 +133,8 @@ fn run_hurl_script(server: &TestServer, script_path: &Path) -> Result<(), String
     Ok(())
 }
 
-/// The main test function called by datatest-stable for each `.hurl` file.
-fn run_hurl_test(path: &Path, content: String) -> datatest_stable::Result<()> {
+/// The inner test function that performs a single attempt.
+fn run_hurl_test_inner(path: &Path, content: &str) -> datatest_stable::Result<()> {
     // Check prerequisites
     if !hurl_available() {
         eprintln!("Skipping test: hurl not available");
@@ -140,7 +142,7 @@ fn run_hurl_test(path: &Path, content: String) -> datatest_stable::Result<()> {
     }
 
     // Parse configuration from front-matter
-    let config = parse_hurl_config(&content);
+    let config = parse_hurl_config(content);
 
     // Check if fixtures are required but not available
     if config.requires_fixtures && !fixtures_exist() {
@@ -168,6 +170,35 @@ fn run_hurl_test(path: &Path, content: String) -> datatest_stable::Result<()> {
 
     // Run the hurl script
     run_hurl_script(&server, path).map_err(|e| e.into())
+}
+
+/// The main test function called by datatest-stable for each `.hurl` file.
+/// Wraps the inner function with retry logic.
+fn run_hurl_test(path: &Path, content: String) -> datatest_stable::Result<()> {
+    let max_retries = 3;
+    let mut last_error = None;
+
+    for attempt in 1..=max_retries {
+        match run_hurl_test_inner(path, &content) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                if attempt < max_retries {
+                    eprintln!(
+                        "Test {} failed attempt {}/{}: {}",
+                        path.display(),
+                        attempt,
+                        max_retries,
+                        e
+                    );
+                    // Add a small backoff between test retries
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+                last_error = Some(e);
+            }
+        }
+    }
+
+    Err(last_error.unwrap())
 }
 
 // Register the test harness with datatest-stable

@@ -72,15 +72,12 @@ impl TestServer {
         // even when tests run in parallel across multiple processes
         let pid = std::process::id();
 
-        // Reserve ports by keeping the listeners alive until after writing config
-        // This prevents the race condition where another test grabs the same port
-        let (listener, port) = reserve_port()?;
-        let (admin_listener, admin_port) = reserve_port()?;
-
         // Create temporary directory structure with process ID to avoid collisions
         let temp_dir = std::env::temp_dir().join(format!("ferrotune_test_{}_{}", pid, instance_id));
         if temp_dir.exists() {
-            std::fs::remove_dir_all(&temp_dir)?;
+            if let Err(e) = std::fs::remove_dir_all(&temp_dir) {
+                eprintln!("[test] Warning: failed to clear existing temp dir: {}", e);
+            }
         }
         std::fs::create_dir_all(&temp_dir)?;
 
@@ -105,182 +102,137 @@ impl TestServer {
             fixtures_dir().join("music")
         };
 
-        let admin_user = config.admin_user.unwrap_or_else(|| "testadmin".to_string());
+        // Use unique credentials for each test instance to prevent cross-talk
+        // if a port collision accidentally connects to another test's server.
+        let admin_user = config
+            .admin_user
+            .unwrap_or_else(|| format!("testadmin_{}", instance_id));
         let admin_password = config
             .admin_password
-            .unwrap_or_else(|| "testpass".to_string());
+            .unwrap_or_else(|| format!("testpass_{}", instance_id));
 
-        // Generate config file
-        let config_content = generate_config(
-            port,
-            admin_port,
-            &db_path,
-            &music_dir,
-            &cache_dir,
-            &admin_user,
-            &admin_password,
-            config.extra_config.as_deref(),
-            config.readonly_tags.unwrap_or(true),
-        );
-        std::fs::write(&config_path, &config_content)?;
-
-        let base_url = format!("http://127.0.0.1:{}", port);
-
-        let mut server = TestServer {
-            process: None,
-            port,
-            admin_port,
-            temp_dir,
-            db_path,
-            config_path,
-            music_dir,
-            cache_dir,
-            admin_user,
-            admin_password,
-            base_url,
-        };
-
-        // Drop the listeners just before starting the server to minimize the race window
-        // The server will bind to these ports immediately after
-        drop(listener);
-        drop(admin_listener);
-
-        server.start()?;
-
-        Ok(server)
-    }
-
-    /// Start the server process.
-    fn start(&mut self) -> Result<(), TestServerError> {
         let binary = find_binary()?;
-
-        eprintln!(
-            "[test] Starting server: {:?} --config {:?} serve",
-            binary, self.config_path
-        );
+        let mut process: Option<Child> = None;
+        let mut final_port = 0;
+        let mut final_admin_port = 0;
+        let mut final_base_url = String::new();
 
         // Retry loop to handle port race conditions
-        // Sometimes another process grabs the port between when we release it and when the server binds
-        let max_retries = 3;
+        let max_retries = 5;
         for attempt in 0..max_retries {
             if attempt > 0 {
                 eprintln!("[test] Retry attempt {} of {}", attempt + 1, max_retries);
-                // Brief delay before retry
-                std::thread::sleep(Duration::from_millis(100));
+                std::thread::sleep(Duration::from_millis(100 * (attempt as u64 + 1)));
             }
 
-            let child = Command::new(&binary)
+            // Reserve ports by keeping the listeners alive until after writing config
+            let (listener, port) = reserve_port()?;
+            let (admin_listener, admin_port) = reserve_port()?;
+
+            // Generate config file
+            let config_content = generate_config(
+                port,
+                admin_port,
+                &db_path,
+                &music_dir,
+                &cache_dir,
+                &admin_user,
+                &admin_password,
+                config.extra_config.as_deref(),
+                config.readonly_tags.unwrap_or(true),
+            );
+
+            if let Err(e) = std::fs::write(&config_path, &config_content) {
+                return Err(TestServerError::Io(e));
+            }
+
+            // Drop the listeners just before starting the server to minimize the race window
+            drop(listener);
+            drop(admin_listener);
+
+            /*
+            eprintln!(
+                "[test] Starting server (attempt {}): {:?} --config {:?} serve",
+                attempt + 1,
+                binary,
+                config_path
+            );
+            */
+
+            let mut child = match Command::new(&binary)
                 .arg("--config")
-                .arg(&self.config_path)
+                .arg(&config_path)
                 .arg("serve")
                 .stdout(Stdio::null())
-                .stderr(Stdio::piped()) // Capture stderr to see why server failed
+                .stderr(Stdio::piped())
                 .spawn()
-                .map_err(|e| TestServerError::ProcessStart(e.to_string()))?;
-
-            self.process = Some(child);
-
-            // Poll the ping endpoint to confirm server is ready
-            let timeout = Duration::from_secs(30);
-            match self.wait_for_ready(timeout) {
-                Ok(()) => {
-                    eprintln!("[test] Server ready at {}", self.base_url);
-                    return Ok(());
-                }
-                Err(TestServerError::ProcessStart(msg)) if attempt < max_retries - 1 => {
-                    eprintln!("[test] Server failed to start: {}", msg);
-                    // Try to get stderr for debugging
-                    if let Some(mut process) = self.process.take() {
-                        if let Some(stderr) = process.stderr.take() {
-                            let mut stderr_content = String::new();
-                            use std::io::Read;
-                            if let Ok(bytes) = std::io::BufReader::new(stderr)
-                                .take(4096)
-                                .read_to_string(&mut stderr_content)
-                            {
-                                if bytes > 0 {
-                                    eprintln!("[test] Server stderr: {}", stderr_content);
-                                }
-                            }
-                        }
-                        let _ = process.kill();
-                        let _ = process.wait();
-                    }
+            {
+                Ok(child) => child,
+                Err(e) => {
+                    eprintln!("[test] Failed to spawn process: {}", e);
                     continue;
                 }
+            };
+
+            let base_url = format!("http://127.0.0.1:{}", port);
+            let timeout = Duration::from_secs(10); // Reduced timeout for retries
+
+            match wait_for_ready(&mut child, &base_url, &admin_user, &admin_password, timeout) {
+                Ok(()) => {
+                    // Success!
+                    // eprintln!("[test] Server ready at {}", base_url);
+                    process = Some(child);
+                    final_port = port;
+                    final_admin_port = admin_port;
+                    final_base_url = base_url;
+                    break;
+                }
                 Err(e) => {
-                    // Try to get stderr for debugging on final failure
-                    if let Some(mut process) = self.process.take() {
-                        if let Some(stderr) = process.stderr.take() {
-                            let mut stderr_content = String::new();
-                            use std::io::Read;
-                            if let Ok(bytes_read) = std::io::BufReader::new(stderr)
-                                .take(4096)
-                                .read_to_string(&mut stderr_content)
-                            {
-                                if bytes_read > 0 {
-                                    eprintln!("[test] Server stderr: {}", stderr_content);
-                                }
+                    eprintln!(
+                        "[test] Server failed to start on attempt {}: {}",
+                        attempt + 1,
+                        e
+                    );
+                    // Extract stderr
+                    if let Some(stderr) = child.stderr.take() {
+                        let mut stderr_content = String::new();
+                        use std::io::Read;
+                        if let Ok(bytes) = std::io::BufReader::new(stderr)
+                            .take(4096)
+                            .read_to_string(&mut stderr_content)
+                        {
+                            if bytes > 0 {
+                                eprintln!("[test] Server stderr: {}", stderr_content);
                             }
                         }
-                        let _ = process.kill();
-                        let _ = process.wait();
                     }
-                    return Err(e);
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    // Continue to next attempt
                 }
             }
         }
 
-        Err(TestServerError::ProcessStart(
-            "Failed to start server after max retries".to_string(),
-        ))
-    }
-
-    /// Wait for the server to become ready by polling the ping endpoint.
-    fn wait_for_ready(&mut self, timeout: Duration) -> Result<(), TestServerError> {
-        let start_time = Instant::now();
-        let ping_url = format!(
-            "{}/rest/ping?u={}&p={}&v=1.16.1&c=test",
-            self.base_url, self.admin_user, self.admin_password
-        );
-
-        loop {
-            if start_time.elapsed() > timeout {
-                return Err(TestServerError::Timeout(
-                    "Server did not become ready within timeout".to_string(),
-                ));
-            }
-
-            // Check if process is still running
-            if let Some(ref mut process) = self.process {
-                match process.try_wait() {
-                    Ok(Some(status)) => {
-                        return Err(TestServerError::ProcessStart(format!(
-                            "Server process exited unexpectedly with status: {}",
-                            status
-                        )));
-                    }
-                    Ok(None) => {
-                        // Process still running, continue
-                    }
-                    Err(e) => {
-                        return Err(TestServerError::ProcessStart(format!(
-                            "Failed to check process status: {}",
-                            e
-                        )));
-                    }
-                }
-            }
-
-            // Try to connect
-            match reqwest::blocking::get(&ping_url) {
-                Ok(response) if response.status().is_success() => {
-                    return Ok(());
-                }
-                _ => {
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-            }
+        if let Some(child) = process {
+            Ok(TestServer {
+                process: Some(child),
+                port: final_port,
+                admin_port: final_admin_port,
+                temp_dir,
+                db_path,
+                config_path,
+                music_dir,
+                cache_dir,
+                admin_user,
+                admin_password,
+                base_url: final_base_url,
+            })
+        } else {
+            // Cleanup temp dir if we failed to start
+            let _ = std::fs::remove_dir_all(&temp_dir);
+            Err(TestServerError::ProcessStart(
+                "Failed to start server after max retries".to_string(),
+            ))
         }
     }
 
@@ -341,6 +293,58 @@ impl TestServer {
         Err(TestServerError::NotImplemented(
             "API key creation not yet implemented".to_string(),
         ))
+    }
+}
+
+/// Wait for the server to become ready by polling the ping endpoint.
+fn wait_for_ready(
+    child: &mut Child,
+    base_url: &str,
+    user: &str,
+    pass: &str,
+    timeout: Duration,
+) -> Result<(), TestServerError> {
+    let start_time = Instant::now();
+    let ping_url = format!(
+        "{}/rest/ping?u={}&p={}&v=1.16.1&c=test",
+        base_url, user, pass
+    );
+
+    loop {
+        if start_time.elapsed() > timeout {
+            return Err(TestServerError::Timeout(
+                "Server did not become ready within timeout".to_string(),
+            ));
+        }
+
+        // Check if process is still running
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return Err(TestServerError::ProcessStart(format!(
+                    "Server process exited unexpectedly with status: {}",
+                    status
+                )));
+            }
+            Ok(None) => {
+                // Process still running, continue
+            }
+            Err(e) => {
+                return Err(TestServerError::ProcessStart(format!(
+                    "Failed to check process status: {}",
+                    e
+                )));
+            }
+        }
+
+        // Try to connect
+        match reqwest::blocking::get(&ping_url) {
+            Ok(response) if response.status().is_success() => {
+                return Ok(());
+            }
+            _ => {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
     }
 }
 

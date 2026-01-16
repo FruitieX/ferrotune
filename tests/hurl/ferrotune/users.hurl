@@ -4,6 +4,24 @@
 # Test Configuration:
 
 # ============================================================================
+# GET CURRENT USER (/me)
+# ============================================================================
+
+# Get current user info - any authenticated user can access this
+GET {{base_url}}/ferrotune/users/me
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.id" exists
+jsonpath "$.username" == "{{username}}"
+jsonpath "$.isAdmin" exists
+jsonpath "$.libraryAccess" exists
+
+# Unauthenticated request should fail
+GET {{base_url}}/ferrotune/users/me
+HTTP 401
+
+# ============================================================================
 # LIST USERS
 # ============================================================================
 
