@@ -10,7 +10,7 @@
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::User;
-use crate::error::{Error, Result};
+use crate::error::{Error, FerrotuneApiResult, Result};
 use crate::password;
 use axum::{
     extract::{Path, State},
@@ -171,7 +171,7 @@ fn require_admin(user: &FerrotuneAuthenticatedUser) -> Result<()> {
 pub async fn get_current_user(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<UserInfo>> {
+) -> FerrotuneApiResult<Json<UserInfo>> {
     // Fetch the full user record from database to get all fields
     let u: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
         .bind(user.user_id)
@@ -194,7 +194,7 @@ pub async fn get_current_user(
 pub async fn list_users(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<UsersResponse>> {
+) -> FerrotuneApiResult<Json<UsersResponse>> {
     require_admin(&user)?;
 
     let users: Vec<User> = sqlx::query_as("SELECT * FROM users ORDER BY id")
@@ -222,7 +222,7 @@ pub async fn get_user(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-) -> Result<Json<UserInfo>> {
+) -> FerrotuneApiResult<Json<UserInfo>> {
     require_admin(&user)?;
 
     let u: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
@@ -248,26 +248,24 @@ pub async fn create_user(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreateUserRequest>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<impl IntoResponse> {
     require_admin(&user)?;
 
     // Validate username
     if request.username.is_empty() {
-        return Err(Error::InvalidRequest(
-            "Username cannot be empty".to_string(),
-        ));
+        return Err(Error::InvalidRequest("Username cannot be empty".to_string()).into());
     }
     if request.username.len() < 3 {
-        return Err(Error::InvalidRequest(
-            "Username must be at least 3 characters".to_string(),
-        ));
+        return Err(
+            Error::InvalidRequest("Username must be at least 3 characters".to_string()).into(),
+        );
     }
 
     // Validate password
     if request.password.len() < 8 {
-        return Err(Error::InvalidRequest(
-            "Password must be at least 8 characters".to_string(),
-        ));
+        return Err(
+            Error::InvalidRequest("Password must be at least 8 characters".to_string()).into(),
+        );
     }
 
     // Check if username already exists
@@ -280,7 +278,8 @@ pub async fn create_user(
         return Err(Error::InvalidRequest(format!(
             "Username '{}' is already taken",
             request.username
-        )));
+        ))
+        .into());
     }
 
     // Hash the password using argon2
@@ -337,7 +336,7 @@ pub async fn update_user(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(request): Json<UpdateUserRequest>,
-) -> Result<Json<UserInfo>> {
+) -> FerrotuneApiResult<Json<UserInfo>> {
     require_admin(&user)?;
 
     // Check if user exists
@@ -347,7 +346,7 @@ pub async fn update_user(
         .await?;
 
     if existing.is_none() {
-        return Err(Error::NotFound(format!("User {} not found", id)));
+        return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
     // Build update query dynamically
@@ -357,7 +356,8 @@ pub async fn update_user(
         if username.len() < 3 {
             return Err(Error::InvalidRequest(
                 "Username must be at least 3 characters".to_string(),
-            ));
+            )
+            .into());
         }
         // Check if username is taken by another user
         let exists: Option<(i64,)> =
@@ -367,10 +367,9 @@ pub async fn update_user(
                 .fetch_optional(&state.pool)
                 .await?;
         if exists.is_some() {
-            return Err(Error::InvalidRequest(format!(
-                "Username '{}' is already taken",
-                username
-            )));
+            return Err(
+                Error::InvalidRequest(format!("Username '{}' is already taken", username)).into(),
+            );
         }
         updates.push(("username", username.clone()));
     }
@@ -380,7 +379,8 @@ pub async fn update_user(
         if password.len() < 8 {
             return Err(Error::InvalidRequest(
                 "Password must be at least 8 characters".to_string(),
-            ));
+            )
+            .into());
         }
         // Hash the password using argon2
         let password_hash = password::hash_password(password)
@@ -406,7 +406,8 @@ pub async fn update_user(
         if id == user.user_id && !is_admin {
             return Err(Error::InvalidRequest(
                 "Cannot remove your own admin privileges".to_string(),
-            ));
+            )
+            .into());
         }
         updates.push(("is_admin", if is_admin { "1" } else { "0" }.to_string()));
     }
@@ -464,12 +465,12 @@ pub async fn delete_user(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<impl IntoResponse> {
     require_admin(&user)?;
 
     // Prevent deleting self
     if id == user.user_id {
-        return Err(Error::InvalidRequest("Cannot delete yourself".to_string()));
+        return Err(Error::InvalidRequest("Cannot delete yourself".to_string()).into());
     }
 
     // Check if user exists
@@ -479,7 +480,7 @@ pub async fn delete_user(
         .await?;
 
     if existing.is_none() {
-        return Err(Error::NotFound(format!("User {} not found", id)));
+        return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
     // Delete the user (cascades to api_keys, user_library_access, playlists, etc.)
@@ -500,7 +501,7 @@ pub async fn get_library_access(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-) -> Result<Json<LibraryAccessResponse>> {
+) -> FerrotuneApiResult<Json<LibraryAccessResponse>> {
     require_admin(&user)?;
 
     // Check if user exists
@@ -510,7 +511,7 @@ pub async fn get_library_access(
         .await?;
 
     if existing.is_none() {
-        return Err(Error::NotFound(format!("User {} not found", id)));
+        return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
     let access = get_user_library_access(&state, id).await?;
@@ -526,7 +527,7 @@ pub async fn set_library_access(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(request): Json<SetLibraryAccessRequest>,
-) -> Result<Json<LibraryAccessResponse>> {
+) -> FerrotuneApiResult<Json<LibraryAccessResponse>> {
     require_admin(&user)?;
 
     // Check if user exists
@@ -536,7 +537,7 @@ pub async fn set_library_access(
         .await?;
 
     if existing.is_none() {
-        return Err(Error::NotFound(format!("User {} not found", id)));
+        return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
     // Replace existing access
@@ -568,7 +569,7 @@ pub async fn list_api_keys(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-) -> Result<Json<ApiKeysResponse>> {
+) -> FerrotuneApiResult<Json<ApiKeysResponse>> {
     // Allow users to view their own keys, or admin can view anyone's
     if id != user.user_id {
         require_admin(&user)?;
@@ -581,7 +582,7 @@ pub async fn list_api_keys(
         .await?;
 
     if existing.is_none() {
-        return Err(Error::NotFound(format!("User {} not found", id)));
+        return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
     let keys: Vec<(String, DateTime<Utc>, Option<DateTime<Utc>>)> =
@@ -611,7 +612,7 @@ pub async fn create_api_key(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(request): Json<CreateApiKeyRequest>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<impl IntoResponse> {
     // Allow users to create their own keys, or admin can create for anyone
     if id != user.user_id {
         require_admin(&user)?;
@@ -624,7 +625,7 @@ pub async fn create_api_key(
         .await?;
 
     if existing.is_none() {
-        return Err(Error::NotFound(format!("User {} not found", id)));
+        return Err(Error::NotFound(format!("User {} not found", id)).into());
     }
 
     // Generate a secure random token
@@ -652,7 +653,7 @@ pub async fn delete_api_key(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path((id, name)): Path<(i64, String)>,
-) -> Result<impl IntoResponse> {
+) -> FerrotuneApiResult<impl IntoResponse> {
     // Allow users to delete their own keys, or admin can delete anyone's
     if id != user.user_id {
         require_admin(&user)?;
@@ -667,10 +668,9 @@ pub async fn delete_api_key(
             .await?;
 
     if existing.is_none() {
-        return Err(Error::NotFound(format!(
-            "API key '{}' not found for user {}",
-            name, id
-        )));
+        return Err(
+            Error::NotFound(format!("API key '{}' not found for user {}", name, id)).into(),
+        );
     }
 
     sqlx::query("DELETE FROM api_keys WHERE user_id = ? AND name = ?")

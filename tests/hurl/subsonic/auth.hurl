@@ -1,4 +1,6 @@
 # Authentication Tests
+#
+# Test Configuration:
 # Tests various authentication methods and error cases
 # Note: Per the Subsonic API spec, errors are returned with HTTP 200 and error details in the body
 

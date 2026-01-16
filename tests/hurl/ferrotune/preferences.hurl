@@ -1,5 +1,7 @@
 # Ferrotune Admin API - User Preferences Tests
 # Tests for GET/PUT /ferrotune/preferences and individual preference endpoints
+#
+# Test Configuration:
 
 # Test 1: Get default preferences (no preferences set yet)
 GET {{base_url}}/ferrotune/preferences

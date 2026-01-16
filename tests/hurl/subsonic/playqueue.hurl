@@ -1,6 +1,9 @@
 # Play Queue API Tests
 # Tests play queue endpoints: savePlayQueue, getPlayQueue
-# Note: Play queue persistence is not yet fully implemented - these tests verify endpoint parsing works
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
 
 # ============================================================================
 # SETUP - GET SONGS FOR QUEUE

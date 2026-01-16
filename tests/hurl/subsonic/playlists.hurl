@@ -1,6 +1,9 @@
 # Playlist API Tests
 # Tests playlist endpoints: getPlaylists, createPlaylist (stub), getPlaylist, updatePlaylist, deletePlaylist
-# Note: Playlist CRUD is not yet fully implemented - these tests verify endpoint parsing works
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
 
 # ============================================================================
 # GET PLAYLISTS - INITIAL STATE

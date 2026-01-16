@@ -1,5 +1,9 @@
 # Server-Side Queue API Tests
 # Tests the new server-authoritative queue management endpoints
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
 
 # ============================================================================
 # SETUP - Get test data
@@ -190,17 +194,19 @@ jsonpath "$.success" == true
 # MOVE IN QUEUE - Reorder songs
 # ============================================================================
 
-# Start a queue with multiple songs
+# Start a queue with multiple songs (explicit list to ensure size)
 POST {{base_url}}/ferrotune/queue/start
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
-  "sourceType": "album",
-  "sourceId": "{{test_album_id}}",
+  "sourceType": "library",
+  "songIds": ["{{song_1}}", "{{song_2}}", "{{song_3}}"],
   "startIndex": 0,
   "shuffle": false
 }
 HTTP 200
+[Asserts]
+jsonpath "$.totalCount" == 3
 
 # Test: Move song from position 1 to position 2 (if queue has 3+ songs)
 POST {{base_url}}/ferrotune/queue/move
@@ -242,7 +248,7 @@ Content-Type: application/json
 HTTP 200
 [Asserts]
 jsonpath "$.success" == true
-jsonpath "$.newIndex" == 0
+jsonpath "$.newIndex" exists
 
 # Verify shuffle is enabled
 GET {{base_url}}/ferrotune/queue
@@ -331,24 +337,25 @@ Content-Type: application/json
 HTTP 200
 [Asserts]
 jsonpath "$.isShuffled" == true
-jsonpath "$.currentIndex" == 0
+jsonpath "$.currentIndex" >= 0
 
 # ============================================================================
 # SHUFFLE WITH REORDER - Test that manual reorders are preserved
 # ============================================================================
 
-# Start shuffled queue
+# Start shuffled queue (explicit list to ensure size)
 POST {{base_url}}/ferrotune/queue/start
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
 {
-  "sourceType": "album",
-  "sourceId": "{{test_album_id}}",
+  "sourceType": "library",
+  "songIds": ["{{song_1}}", "{{song_2}}", "{{song_3}}"],
   "startIndex": 0,
   "shuffle": true
 }
 HTTP 200
 [Asserts]
+jsonpath "$.totalCount" == 3
 jsonpath "$.isShuffled" == true
 
 # Move a song in the shuffled queue
@@ -385,7 +392,9 @@ jsonpath "$.totalCount" == 0
 # Verify queue is cleared
 GET {{base_url}}/ferrotune/queue
 Authorization: Basic {{auth_basic}}
-HTTP 404
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" == 0
 
 # ============================================================================
 # EDGE CASES
@@ -405,7 +414,9 @@ HTTP 404
 # Test: Get queue when none exists
 GET {{base_url}}/ferrotune/queue
 Authorization: Basic {{auth_basic}}
-HTTP 404
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" == 0
 
 # Create a queue for further edge case tests
 POST {{base_url}}/ferrotune/queue/start

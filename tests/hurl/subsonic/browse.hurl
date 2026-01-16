@@ -1,7 +1,10 @@
 # Browse API Tests
 # Tests browsing endpoints after library scan: getArtists, getArtist, getAlbum, getSong, getGenres
-# Prerequisites: Library must be scanned before running these tests
 # Fixture data: Test Artist, Another Artist, Various Artists with albums and songs
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
 
 # ============================================================================
 # GET ARTISTS

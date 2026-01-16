@@ -1,6 +1,10 @@
 # List API Tests
 # Tests list endpoints: getAlbumList2, getRandomSongs, scrobble
 # Fixture data: Test Album (Rock, 2024), Another Album (Electronic, 2023), Compilation Album (Pop, 2022)
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
 
 # ============================================================================
 # GET ALBUM LIST 2 - BY NEWEST

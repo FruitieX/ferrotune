@@ -1,5 +1,9 @@
 # Song Matching API Tests
 # Tests server-side fuzzy matching for playlist import
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
 
 # ============================================================================
 # GET /ferrotune/songs/match-list (legacy endpoint)

@@ -1,7 +1,10 @@
 # Streaming and Download Tests
 # Tests media streaming endpoints: stream, download, getCoverArt
-# Prerequisites: Library must be scanned, need a valid song ID
 # Fixture data: Test Artist, Another Artist, Various Artists with albums and songs
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
 
 # ============================================================================
 # GET RANDOM SONGS (to get a song ID for streaming)

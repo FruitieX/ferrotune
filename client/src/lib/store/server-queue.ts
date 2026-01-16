@@ -411,7 +411,7 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
     set(serverQueueStateAtom, {
       ...state,
       isShuffled: newShuffleState,
-      currentIndex: response.new_index ?? state.currentIndex,
+      currentIndex: response.newIndex ?? state.currentIndex,
     });
 
     // Fetch new window since order may have changed
@@ -507,19 +507,19 @@ export const addToQueueAtom = atom(
       // Update total count
       if (
         state &&
-        response.total_count !== undefined &&
-        response.total_count !== null
+        response.totalCount !== undefined &&
+        response.totalCount !== null
       ) {
         set(serverQueueStateAtom, {
           ...state,
-          totalCount: response.total_count,
+          totalCount: response.totalCount,
         });
       }
 
       // Refresh window
       const queueResponse = await client.getQueueCurrentWindow(20, "small");
       set(queueWindowAtom, queueResponse.window);
-      return { success: true, addedCount: response.added_count ?? 0 };
+      return { success: true, addedCount: response.addedCount ?? 0 };
     } catch (error) {
       console.error("Failed to add to queue:", error);
       return { success: false, addedCount: 0 };
@@ -546,8 +546,8 @@ export const removeFromQueueAtom = atom(
       if (state) {
         set(serverQueueStateAtom, {
           ...state,
-          currentIndex: response.new_index ?? state.currentIndex,
-          totalCount: response.total_count ?? state.totalCount,
+          currentIndex: response.newIndex ?? state.currentIndex,
+          totalCount: response.totalCount ?? state.totalCount,
         });
       }
 
@@ -640,12 +640,12 @@ export const moveInQueueAtom = atom(
       // Update current index from server response (authoritative)
       if (
         currentState &&
-        response.new_index !== undefined &&
-        response.new_index !== null
+        response.newIndex !== undefined &&
+        response.newIndex !== null
       ) {
         set(serverQueueStateAtom, {
           ...currentState,
-          currentIndex: response.new_index,
+          currentIndex: response.newIndex,
         });
       }
 

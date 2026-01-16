@@ -108,5 +108,10 @@ notify-debouncer-mini = "0.4"
 
 # Testing
 [dev-dependencies]
+datatest-stable = "0.3"
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 which = "7.0"
+
+[[test]]
+name = "integration"
+harness = false

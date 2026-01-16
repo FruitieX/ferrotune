@@ -1,6 +1,10 @@
 # Search API Tests
 # Tests search endpoints: search3
 # Fixture data: Test Artist, Another Artist, Various Artists with albums and songs
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
 
 # First ensure we have data
 GET {{base_url}}/rest/getArtists?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json

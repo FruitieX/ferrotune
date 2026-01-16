@@ -1,5 +1,7 @@
 # User Management API Tests
 # Tests CRUD operations for users, library access, and API keys
+#
+# Test Configuration:
 
 # ============================================================================
 # LIST USERS
@@ -57,10 +59,9 @@ jsonpath "$.libraryAccess" exists
 # Get nonexistent user
 GET {{base_url}}/ferrotune/users/99999
 Authorization: Basic {{auth_basic}}
-HTTP 200
+HTTP 404
 [Asserts]
-jsonpath "$.subsonic-response.status" == "failed"
-jsonpath "$.subsonic-response.error.code" == 70
+jsonpath "$.error" contains "User 99999 not found"
 
 # ============================================================================
 # UPDATE USER
@@ -184,10 +185,9 @@ HTTP 204
 # Verify deletion
 GET {{base_url}}/ferrotune/users/{{new_user_id}}
 Authorization: Basic {{auth_basic}}
-HTTP 200
+HTTP 404
 [Asserts]
-jsonpath "$.subsonic-response.status" == "failed"
-jsonpath "$.subsonic-response.error.code" == 70
+jsonpath "$.error" contains "User {{new_user_id}} not found"
 
 # ============================================================================
 # ERROR CASES
@@ -202,10 +202,9 @@ Content-Type: application/json
   "password": "test12345678",
   "isAdmin": false
 }
-HTTP 200
+HTTP 400
 [Asserts]
-jsonpath "$.subsonic-response.status" == "failed"
-jsonpath "$.subsonic-response.error.code" == 10
+jsonpath "$.error" contains "already taken"
 
 # Unauthorized access (no auth)
 GET {{base_url}}/ferrotune/users

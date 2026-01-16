@@ -1,5 +1,9 @@
 # Music Folder Management API Tests
 # Tests the /ferrotune/music-folders endpoints
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
 
 # ============================================================================
 # LIST MUSIC FOLDERS

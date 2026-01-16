@@ -246,6 +246,7 @@ pub struct RepeatModeRequest {
 
 /// Generic success response
 #[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct QueueSuccessResponse {
     pub success: bool,

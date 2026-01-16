@@ -1,5 +1,9 @@
 # Song IDs API Tests
 # Tests the /ferrotune/songs/ids endpoint for bulk selection support
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
 
 # First ensure we have songs in the database
 GET {{base_url}}/rest/search3?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&query=*&songCount=1

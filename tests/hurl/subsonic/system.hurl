@@ -1,5 +1,7 @@
 # System API Tests
 # Tests basic system endpoints: ping, getLicense, getOpenSubsonicExtensions, getMusicFolders
+#
+# Test Configuration:
 
 # ============================================================================
 # PING

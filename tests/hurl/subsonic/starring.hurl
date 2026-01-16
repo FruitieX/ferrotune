@@ -1,6 +1,10 @@
 # Starring/Favorites API Tests
 # Tests annotation endpoints: star, unstar, getStarred, getStarred2
 # Fixture data: Test Artist, Another Artist, Various Artists with albums and songs
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
 
 # ============================================================================
 # SETUP - GET IDS TO STAR

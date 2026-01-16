@@ -1,12 +1,17 @@
 # Admin Media API Tests
 # Tests administrative media endpoints like song deletion
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
+# @copy_fixtures
 
 # ============================================================================
 # DELETE SONG FROM DATABASE
 # ============================================================================
 
 # Test: Delete non-existent song returns 404
-DELETE {{admin_url}}/api/songs/nonexistent-song-id
+DELETE {{base_url}}/ferrotune/songs/nonexistent-song-id
 Authorization: Basic {{auth_basic}}
 HTTP 404
 [Asserts]
@@ -20,7 +25,7 @@ song_id: jsonpath "$.subsonic-response.searchResult3.song[0].id"
 song_title: jsonpath "$.subsonic-response.searchResult3.song[0].title"
 
 # Test: Delete existing song returns success
-DELETE {{admin_url}}/api/songs/{{song_id}}
+DELETE {{base_url}}/ferrotune/songs/{{song_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
@@ -28,7 +33,7 @@ jsonpath "$.success" == true
 jsonpath "$.message" contains "Successfully deleted"
 
 # Test: Trying to delete same song again returns 404
-DELETE {{admin_url}}/api/songs/{{song_id}}
+DELETE {{base_url}}/ferrotune/songs/{{song_id}}
 Authorization: Basic {{auth_basic}}
 HTTP 404
 [Asserts]

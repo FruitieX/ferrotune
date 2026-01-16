@@ -1,5 +1,9 @@
 # Duplicate Detection API Tests
 # Tests the /ferrotune/duplicates endpoint
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
 
 # ============================================================================
 # GET DUPLICATES - Empty Result

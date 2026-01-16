@@ -1,21 +1,21 @@
 # Scrobbles Import API Tests
 # Tests for importing play counts from external sources
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
 
 # ============================================================================
 # Setup: Capture test song IDs
 # ============================================================================
 
 # Get first song ID for testing
-GET {{base_url}}/rest/getAlbumList2?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&type=random&size=1
+# Get some test songs
+GET {{base_url}}/rest/getRandomSongs?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&size=2
 HTTP 200
 [Captures]
-test_album_id: jsonpath "$.subsonic-response.albumList2.album[0].id"
-
-GET {{base_url}}/rest/getAlbum?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&id={{test_album_id}}
-HTTP 200
-[Captures]
-test_song_id: jsonpath "$.subsonic-response.album.song[0].id"
-test_song_id_2: jsonpath "$.subsonic-response.album.song[1].id"
+test_song_id: jsonpath "$.subsonic-response.randomSongs.song[0].id"
+test_song_id_2: jsonpath "$.subsonic-response.randomSongs.song[1].id"
 
 # ============================================================================
 # POST /ferrotune/scrobbles/import
@@ -103,10 +103,9 @@ Content-Type: application/json
   ],
   "mode": "append"
 }
-HTTP 200
+HTTP 400
 [Asserts]
-jsonpath "$.subsonic-response.status" == "failed"
-jsonpath "$.subsonic-response.error.code" == 10
+jsonpath "$.error" contains "No valid song IDs found"
 
 # Test: Import with multiple songs
 POST {{base_url}}/ferrotune/scrobbles/import
@@ -174,3 +173,35 @@ Content-Type: application/json
   "songIds": []
 }
 HTTP 401
+
+# ============================================================================
+# POST /ferrotune/scrobbles - Single Scrobble
+# ============================================================================
+
+# Scrobble a song
+POST {{base_url}}/ferrotune/scrobbles
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "id": "{{test_song_id}}",
+  "submission": true
+}
+HTTP 204
+
+# ============================================================================
+# Check Duplicates
+# ============================================================================
+
+# Check non-duplicate
+GET {{base_url}}/ferrotune/scrobbles/check-duplicate?description=NonExistent
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.exists" == false
+
+# Check duplicate (use description from previous import "Replace import")
+GET {{base_url}}/ferrotune/scrobbles/check-duplicate?description=Replace%20import
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.exists" == true

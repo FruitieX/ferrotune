@@ -46,7 +46,7 @@ pub struct LibraryInfo {
 pub async fn get_libraries(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> crate::error::Result<Json<LibrariesResponse>> {
+) -> crate::error::FerrotuneApiResult<Json<LibrariesResponse>> {
     // Get all enabled music folders
     // TODO: Filter by user access when user library access is implemented
     let folders = crate::db::queries::get_music_folders(&state.pool).await?;
@@ -214,7 +214,7 @@ pub async fn get_directory_paged(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<GetDirectoryPagedParams>,
-) -> crate::error::Result<Json<DirectoryPagedResponse>> {
+) -> crate::error::FerrotuneApiResult<Json<DirectoryPagedResponse>> {
     let count = params.count.unwrap_or(100).min(500) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
     let inline_size = params.inline_images.get_size();

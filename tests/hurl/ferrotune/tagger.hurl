@@ -1,3 +1,12 @@
+# Tagger API Tests
+# Tests the tag editing endpoints
+#
+# Test Configuration:
+# @requires_fixtures
+# @requires_scan
+# @copy_fixtures
+# @readonly_tags: false
+
 # Authenticate
 GET {{base_url}}/rest/ping.view?u={{username}}&p={{password}}&v=1.16.1&c=test&f=json
 HTTP 200
