@@ -4,6 +4,7 @@
 //! needs initial setup. The frontend uses this to redirect to the setup wizard.
 
 use crate::api::AppState;
+use crate::error::{Error, FerrotuneApiResult};
 use axum::extract::State;
 use axum::response::Json;
 use serde::Serialize;
@@ -27,7 +28,9 @@ pub struct SetupStatusResponse {
 
 /// Check if the server needs initial setup.
 /// This endpoint is unauthenticated so the frontend can redirect appropriately.
-pub async fn get_setup_status(State(state): State<Arc<AppState>>) -> Json<SetupStatusResponse> {
+pub async fn get_setup_status(
+    State(state): State<Arc<AppState>>,
+) -> FerrotuneApiResult<Json<SetupStatusResponse>> {
     let pool = &state.pool;
 
     // Check if initial_setup_complete is true in server_config
@@ -36,8 +39,7 @@ pub async fn get_setup_status(State(state): State<Arc<AppState>>) -> Json<SetupS
     )
     .fetch_optional(pool)
     .await
-    .ok()
-    .flatten()
+    .map_err(|e| Error::Internal(format!("Database error checking setup status: {}", e)))?
     .and_then(|v| serde_json::from_str(&v).ok())
     .unwrap_or(false);
 
@@ -45,26 +47,26 @@ pub async fn get_setup_status(State(state): State<Arc<AppState>>) -> Json<SetupS
     let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
         .fetch_one(pool)
         .await
-        .unwrap_or(0);
+        .map_err(|e| Error::Internal(format!("Database error counting users: {}", e)))?;
 
     // Check if there are any music folders
     let folder_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_folders")
         .fetch_one(pool)
         .await
-        .unwrap_or(0);
+        .map_err(|e| Error::Internal(format!("Database error counting music folders: {}", e)))?;
 
-    Json(SetupStatusResponse {
+    Ok(Json(SetupStatusResponse {
         setup_complete,
         has_users: user_count > 0,
         has_music_folders: folder_count > 0,
         version: env!("CARGO_PKG_VERSION").to_string(),
-    })
+    }))
 }
 
 /// Mark setup as complete
 pub async fn complete_setup(
     State(state): State<Arc<AppState>>,
-) -> Result<Json<SetupStatusResponse>, (axum::http::StatusCode, String)> {
+) -> FerrotuneApiResult<Json<SetupStatusResponse>> {
     let pool = &state.pool;
 
     // Set initial_setup_complete to true
@@ -73,8 +75,8 @@ pub async fn complete_setup(
     )
     .execute(pool)
     .await
-    .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .map_err(|e| Error::Internal(format!("Failed to update setup status: {}", e)))?;
 
     // Return updated status
-    Ok(get_setup_status(State(state)).await)
+    get_setup_status(State(state)).await
 }

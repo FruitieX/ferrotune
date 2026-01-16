@@ -7,18 +7,16 @@ use crate::api::subsonic::auth::{AuthenticatedUser, FerrotuneAuthenticatedUser};
 use crate::api::subsonic::xml::ResponseFormat;
 use crate::api::AppState;
 use crate::db::queries;
-use crate::error::FerrotuneApiError;
+use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    http::HeaderMap,
+    response::Response,
     Json,
 };
 use serde::Serialize;
 use std::sync::Arc;
 use ts_rs::TS;
-
-use super::ErrorResponse;
 
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -44,46 +42,27 @@ pub async fn delete_song(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<DeleteSongResponse>> {
     // First verify the song exists
-    let song = match queries::get_song_by_id(&state.pool, &id).await {
-        Ok(Some(song)) => song,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new(format!("Song not found: {}", id))),
-            )
-                .into_response();
-        }
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details("Database error", e.to_string())),
-            )
-                .into_response();
-        }
-    };
+    let song = queries::get_song_by_id(&state.pool, &id)
+        .await
+        .map_err(|e| Error::Internal(format!("Database error: {}", e)))?
+        .ok_or_else(|| Error::NotFound(format!("Song not found: {}", id)))?;
 
     // Delete the song
-    match queries::delete_song(&state.pool, &id).await {
-        Ok(true) => Json(DeleteSongResponse {
+    let deleted = queries::delete_song(&state.pool, &id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to delete song: {}", e)))?;
+
+    if deleted {
+        Ok(Json(DeleteSongResponse {
             success: true,
             message: format!("Successfully deleted song: {}", song.title),
-        })
-        .into_response(),
-        Ok(false) => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("Song not found or already deleted")),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to delete song",
-                e.to_string(),
-            )),
-        )
-            .into_response(),
+        }))
+    } else {
+        Err(FerrotuneApiError::from(Error::NotFound(
+            "Song not found or already deleted".to_string(),
+        )))
     }
 }
 
@@ -118,24 +97,19 @@ pub async fn delete_song_files(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<DeleteSongFilesRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<DeleteSongFileResponse>> {
     // Check if file deletion is enabled
     if !super::server_config::is_file_deletion_enabled(&state).await {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new(
-                "File deletion is disabled. Enable 'Allow file deletion' in server settings.",
-            )),
-        )
-            .into_response();
+        return Err(FerrotuneApiError::from(Error::Forbidden(
+            "File deletion is disabled. Enable 'Allow file deletion' in server settings."
+                .to_string(),
+        )));
     }
 
     if request.song_ids.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("No song IDs provided")),
-        )
-            .into_response();
+        return Err(FerrotuneApiError::from(Error::InvalidRequest(
+            "No song IDs provided".to_string(),
+        )));
     }
 
     let mut deleted_count = 0;
@@ -213,12 +187,11 @@ pub async fn delete_song_files(
         tracing::warn!("File deletion errors: {:?}", errors);
     }
 
-    Json(DeleteSongFileResponse {
+    Ok(Json(DeleteSongFileResponse {
         success: errors.is_empty(),
         deleted_count,
         message,
-    })
-    .into_response()
+    }))
 }
 
 /// Response for getting song IDs matching a search/filter query.
@@ -240,7 +213,7 @@ pub async fn get_song_ids(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<SearchParams>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<SongIdsResponse>> {
     // Determine if this is a wildcard/all-songs query
     let is_wildcard = params.query.is_empty() || params.query == "*";
 
@@ -307,21 +280,11 @@ pub async fn get_song_ids(
         Ok(vec![])
     };
 
-    match result {
-        Ok(rows) => {
-            let ids: Vec<String> = rows.into_iter().map(|(id,)| id).collect();
-            let total = ids.len() as i64;
-            Json(SongIdsResponse { ids, total }).into_response()
-        }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to fetch song IDs",
-                e.to_string(),
-            )),
-        )
-            .into_response(),
-    }
+    let rows = result.map_err(|e| Error::Internal(format!("Failed to fetch song IDs: {}", e)))?;
+
+    let ids: Vec<String> = rows.into_iter().map(|(id,)| id).collect();
+    let total = ids.len() as i64;
+    Ok(Json(SongIdsResponse { ids, total }))
 }
 
 // Media Streaming Endpoints (Wrapped from Subsonic)
@@ -332,7 +295,7 @@ pub async fn stream(
     state: State<Arc<AppState>>,
     headers: HeaderMap,
     query: Query<crate::api::subsonic::stream::StreamParams>,
-) -> Result<Response, FerrotuneApiError> {
+) -> FerrotuneApiResult<Response> {
     let sub_user = AuthenticatedUser {
         user_id: user.user_id,
         username: user.username,
@@ -351,7 +314,7 @@ pub async fn get_cover_art(
     user: FerrotuneAuthenticatedUser,
     state: State<Arc<AppState>>,
     query: Query<crate::api::subsonic::coverart::CoverArtParams>,
-) -> Result<Response, FerrotuneApiError> {
+) -> FerrotuneApiResult<Response> {
     let sub_user = AuthenticatedUser {
         user_id: user.user_id,
         username: user.username,
@@ -371,7 +334,7 @@ pub async fn download(
     state: State<Arc<AppState>>,
     headers: HeaderMap,
     query: Query<crate::api::subsonic::stream::StreamParams>,
-) -> Result<Response, FerrotuneApiError> {
+) -> FerrotuneApiResult<Response> {
     let sub_user = AuthenticatedUser {
         user_id: user.user_id,
         username: user.username,

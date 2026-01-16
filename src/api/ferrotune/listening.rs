@@ -6,9 +6,9 @@ use crate::api::subsonic::inline_thumbnails::{
     InlineImagesParam,
 };
 use crate::api::AppState;
+use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
     response::{IntoResponse, Json},
 };
 use serde::{Deserialize, Serialize};
@@ -80,7 +80,7 @@ pub async fn log_listening(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<LogListeningRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<impl IntoResponse> {
     // Validate that the song exists
     let song_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM songs WHERE id = ?)")
         .bind(&request.song_id)
@@ -89,11 +89,7 @@ pub async fn log_listening(
         .unwrap_or(false);
 
     if !song_exists {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(super::ErrorResponse::new("Song not found")),
-        )
-            .into_response();
+        return Err(Error::NotFound("Song not found".to_string()).into());
     }
 
     // If session_id is provided, update the existing session
@@ -114,11 +110,10 @@ pub async fn log_listening(
 
         match result {
             Ok(rows) if rows.rows_affected() > 0 => {
-                return Json(LogListeningResponse {
+                return Ok(Json(LogListeningResponse {
                     success: true,
                     session_id,
-                })
-                .into_response();
+                }));
             }
             Ok(_) => {
                 // Session not found or wrong user/song - create a new one instead
@@ -129,13 +124,9 @@ pub async fn log_listening(
             }
             Err(e) => {
                 tracing::error!("Failed to update listening session: {}", e);
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::new(
-                        "Failed to update listening session",
-                    )),
-                )
-                    .into_response();
+                return Err(
+                    Error::Internal("Failed to update listening session".to_string()).into(),
+                );
             }
         }
     }
@@ -155,18 +146,13 @@ pub async fn log_listening(
     .await;
 
     match result {
-        Ok(session_id) => Json(LogListeningResponse {
+        Ok(session_id) => Ok(Json(LogListeningResponse {
             success: true,
             session_id,
-        })
-        .into_response(),
+        })),
         Err(e) => {
             tracing::error!("Failed to log listening session: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::new("Failed to log listening session")),
-            )
-                .into_response()
+            Err(Error::Internal("Failed to log listening session".to_string()).into())
         }
     }
 }
@@ -177,7 +163,7 @@ pub async fn log_listening(
 pub async fn get_listening_stats(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<impl IntoResponse> {
     // Helper to get stats for a date filter
     async fn get_stats_for_period(
         db: &sqlx::SqlitePool,
@@ -209,41 +195,30 @@ pub async fn get_listening_stats(
         user.user_id,
         "AND listened_at >= datetime('now', '-7 days')",
     )
-    .await;
+    .await?;
 
     let last_30_days = get_stats_for_period(
         &state.pool,
         user.user_id,
         "AND listened_at >= datetime('now', '-30 days')",
     )
-    .await;
+    .await?;
 
     let this_year = get_stats_for_period(
         &state.pool,
         user.user_id,
         "AND strftime('%Y', listened_at) = strftime('%Y', 'now')",
     )
-    .await;
+    .await?;
 
-    let all_time = get_stats_for_period(&state.pool, user.user_id, "").await;
+    let all_time = get_stats_for_period(&state.pool, user.user_id, "").await?;
 
-    // Check for errors
-    match (last_7_days, last_30_days, this_year, all_time) {
-        (Ok(last_7_days), Ok(last_30_days), Ok(this_year), Ok(all_time)) => {
-            Json(ListeningStatsResponse {
-                last_7_days,
-                last_30_days,
-                this_year,
-                all_time,
-            })
-            .into_response()
-        }
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::new("Failed to fetch listening stats")),
-        )
-            .into_response(),
-    }
+    Ok(Json(ListeningStatsResponse {
+        last_7_days,
+        last_30_days,
+        this_year,
+        all_time,
+    }))
 }
 
 // ============ Period Review Types ============
@@ -354,7 +329,7 @@ pub async fn get_period_review(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(query): Query<PeriodReviewQuery>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<impl IntoResponse> {
     // Default to current year if not specified
     let now = chrono::Utc::now();
     let year = query.year.unwrap_or(now.year());
@@ -397,11 +372,7 @@ pub async fn get_period_review(
             Ok(None) => (0, 0, 0, 0, 0),
             Err(e) => {
                 tracing::error!("Failed to fetch period stats: {}", e);
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(super::ErrorResponse::new("Failed to fetch period review")),
-                )
-                    .into_response();
+                return Err(Error::Internal("Failed to fetch period review".to_string()).into());
             }
         };
 
@@ -428,8 +399,7 @@ pub async fn get_period_review(
     let mut top_artists: Vec<TopArtist> = sqlx::query_as(&top_artists_query)
         .bind(user.user_id)
         .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
+        .await?;
 
     // Get top albums
     let top_albums_query = format!(
@@ -456,8 +426,7 @@ pub async fn get_period_review(
     let mut top_albums: Vec<TopAlbum> = sqlx::query_as(&top_albums_query)
         .bind(user.user_id)
         .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
+        .await?;
 
     // Get top tracks
     let top_tracks_query = format!(
@@ -485,8 +454,7 @@ pub async fn get_period_review(
     let mut top_tracks: Vec<TopTrack> = sqlx::query_as(&top_tracks_query)
         .bind(user.user_id)
         .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
+        .await?;
 
     // Get inline thumbnails if requested
     let inline_size = query.inline_images.get_size();
@@ -530,8 +498,7 @@ pub async fn get_period_review(
     let period_rows: Vec<(i32, i32)> = sqlx::query_as(available_periods_query)
         .bind(user.user_id)
         .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
+        .await?;
 
     // Build available periods list - include both year summaries and monthly breakdowns
     let mut available_periods = Vec::new();
@@ -579,11 +546,10 @@ pub async fn get_period_review(
         top_tracks,
     };
 
-    Json(PeriodReviewResponse {
+    Ok(Json(PeriodReviewResponse {
         review,
         available_periods,
-    })
-    .into_response()
+    }))
 }
 
 use chrono::Datelike;

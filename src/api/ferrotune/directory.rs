@@ -9,6 +9,7 @@ use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::AppState;
 use crate::db::models::ItemType;
+use crate::error::{Error, FerrotuneApiResult};
 use axum::extract::{Query, State};
 use axum::response::Json;
 use serde::{Deserialize, Serialize};
@@ -46,7 +47,7 @@ pub struct LibraryInfo {
 pub async fn get_libraries(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> crate::error::FerrotuneApiResult<Json<LibrariesResponse>> {
+) -> FerrotuneApiResult<Json<LibrariesResponse>> {
     // Get all enabled music folders
     // TODO: Filter by user access when user library access is implemented
     let folders = crate::db::queries::get_music_folders(&state.pool).await?;
@@ -214,7 +215,7 @@ pub async fn get_directory_paged(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<GetDirectoryPagedParams>,
-) -> crate::error::FerrotuneApiResult<Json<DirectoryPagedResponse>> {
+) -> FerrotuneApiResult<Json<DirectoryPagedResponse>> {
     let count = params.count.unwrap_or(100).min(500) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
     let inline_size = params.inline_images.get_size();
@@ -222,7 +223,7 @@ pub async fn get_directory_paged(
     // Library ID is required
     let library_id = params
         .library_id
-        .ok_or_else(|| crate::error::Error::InvalidRequest("libraryId is required".to_string()))?;
+        .ok_or_else(|| Error::InvalidRequest("libraryId is required".to_string()))?;
 
     // Get the music folder
     let folder: crate::db::models::MusicFolder =
@@ -230,7 +231,7 @@ pub async fn get_directory_paged(
             .bind(library_id)
             .fetch_optional(&state.pool)
             .await?
-            .ok_or_else(|| crate::error::Error::NotFound("Library not found".to_string()))?;
+            .ok_or_else(|| Error::NotFound("Library not found".to_string()))?;
 
     // Get the relative path (empty string means library root)
     let relative_path = params.path.clone().unwrap_or_default();
@@ -358,7 +359,7 @@ async fn get_directory_contents_for_library(
     folders_only: bool,
     files_only: bool,
     inline_size: Option<crate::thumbnails::ThumbnailSize>,
-) -> crate::error::Result<(Vec<DirectoryChildPaged>, DirectoryStats)> {
+) -> FerrotuneApiResult<(Vec<DirectoryChildPaged>, DirectoryStats)> {
     // Path prefix for finding files in this directory
     // file_path in DB is relative to library root, so we use relative_path
     let path_prefix = if relative_path.is_empty() {

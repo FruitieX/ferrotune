@@ -9,7 +9,7 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
-use crate::error::{Error, FerrotuneApiResult, Result};
+use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, Query, State},
     response::sse::{Event, KeepAlive, Sse},
@@ -156,7 +156,7 @@ fn generate_waveform_streaming(
     path: &std::path::Path,
     resolution: usize,
     tx: mpsc::Sender<WaveformChunk>,
-) -> Result<()> {
+) -> FerrotuneApiResult<()> {
     // Fixed chunk size: 30 seconds of audio per chunk
     const CHUNK_DURATION_SECS: u64 = 30;
 

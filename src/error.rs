@@ -20,7 +20,20 @@ pub type FerrotuneApiResult<T> = std::result::Result<T, FerrotuneApiError>;
 /// Error wrapper for Ferrotune Admin API that uses proper HTTP status codes.
 /// The inner Error type is used for error details, but IntoResponse
 /// returns proper HTTP status codes instead of HTTP 200.
+#[derive(Debug)]
 pub struct FerrotuneApiError(pub Error);
+
+impl std::fmt::Display for FerrotuneApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for FerrotuneApiError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
 
 impl From<Error> for FerrotuneApiError {
     fn from(e: Error) -> Self {
@@ -37,6 +50,12 @@ impl From<sqlx::Error> for FerrotuneApiError {
 impl From<std::io::Error> for FerrotuneApiError {
     fn from(e: std::io::Error) -> Self {
         FerrotuneApiError(Error::Io(e))
+    }
+}
+
+impl From<FerrotuneApiError> for Error {
+    fn from(e: FerrotuneApiError) -> Self {
+        e.0
     }
 }
 
@@ -116,6 +135,9 @@ pub enum Error {
 
     #[error("Internal error: {0}")]
     Internal(String),
+
+    #[error("Conflict: {0}")]
+    Conflict(String),
 }
 
 #[derive(Serialize)]
@@ -174,6 +196,7 @@ impl Error {
             Error::Config(ref e) => (0, format!("Configuration error: {}", e)),
             Error::Internal(msg) => (0, msg.clone()),
             Error::Migration(ref msg) => (0, format!("Migration error: {}", msg)),
+            Error::Conflict(msg) => (0, msg.clone()),
         }
     }
 
@@ -186,6 +209,7 @@ impl Error {
             | Error::InvalidApiKey => StatusCode::UNAUTHORIZED,
             Error::ConflictingAuthParams | Error::InvalidRequest(_) => StatusCode::BAD_REQUEST,
             Error::NotFound(_) => StatusCode::NOT_FOUND,
+            Error::Conflict(_) => StatusCode::CONFLICT,
             Error::Forbidden(_) => StatusCode::FORBIDDEN,
             Error::Database(_)
             | Error::Io(_)

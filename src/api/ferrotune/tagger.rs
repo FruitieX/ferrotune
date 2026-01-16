@@ -8,6 +8,7 @@ use crate::api::common::utils::get_content_type_for_format;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::queries;
+use crate::error::{Error, FerrotuneApiResult};
 use async_walkdir::WalkDir;
 use axum::{
     body::Bytes,
@@ -32,7 +33,6 @@ use uuid::Uuid;
 
 use super::server_config::is_tag_editing_enabled;
 use super::tags::{extract_tags_from_file, GetTagsResponse, TagEntry, UpdateTagsRequest};
-use super::ErrorResponse;
 
 /// Response for listing staged files
 #[derive(Debug, Serialize, TS)]
@@ -325,19 +325,12 @@ pub async fn upload_files(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<UploadResponse>> {
     let staging_dir = get_staging_dir(&state, &user.username);
 
     // Ensure staging directory exists
     if let Err(e) = fs::create_dir_all(&staging_dir).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to create staging directory",
-                e.to_string(),
-            )),
-        )
-            .into_response();
+        return Err(Error::Internal(format!("Failed to create staging directory: {}", e)).into());
     }
 
     let mut uploaded_files = Vec::new();
@@ -422,12 +415,11 @@ pub async fn upload_files(
         });
     }
 
-    Json(UploadResponse {
+    Ok(Json(UploadResponse {
         success: errors.is_empty(),
         files: uploaded_files,
         errors,
-    })
-    .into_response()
+    }))
 }
 
 async fn save_file_to_staging(path: &PathBuf, data: &Bytes) -> Result<(), String> {
@@ -478,12 +470,12 @@ async fn extract_file_metadata(path: &std::path::Path) -> Result<FileMetadata, S
 pub async fn list_staged_files(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<StagedFilesResponse>> {
     let staging_dir = get_staging_dir(&state, &user.username);
 
     // Ensure directory exists
     if !staging_dir.exists() {
-        return Json(StagedFilesResponse { files: vec![] }).into_response();
+        return Ok(Json(StagedFilesResponse { files: vec![] }));
     }
 
     let mut files = Vec::new();
@@ -556,7 +548,7 @@ pub async fn list_staged_files(
         }
     }
 
-    Json(StagedFilesResponse { files }).into_response()
+    Ok(Json(StagedFilesResponse { files }))
 }
 
 /// Response for orphaned files discovery
@@ -577,16 +569,15 @@ pub struct OrphanedFilesResponse {
 pub async fn discover_orphaned_files(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<OrphanedFilesResponse>> {
     let staging_dir = get_staging_dir(&state, &user.username);
 
     // If staging dir doesn't exist, no orphaned files
     if !staging_dir.exists() {
-        return Json(OrphanedFilesResponse {
+        return Ok(Json(OrphanedFilesResponse {
             count: 0,
             file_ids: vec![],
-        })
-        .into_response();
+        }));
     }
 
     // Get current session track IDs (staged tracks only)
@@ -636,11 +627,10 @@ pub async fn discover_orphaned_files(
     }
 
     let count = orphaned_ids.len() as i64;
-    Json(OrphanedFilesResponse {
+    Ok(Json(OrphanedFilesResponse {
         count,
         file_ids: orphaned_ids,
-    })
-    .into_response()
+    }))
 }
 
 /// DELETE /ferrotune/tagger/staged/:id
@@ -650,7 +640,7 @@ pub async fn delete_staged_file(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<StatusCode> {
     let staging_dir = get_staging_dir(&state, &user.username);
 
     // Sanitize ID (which is filename) to prevent directory traversal
@@ -659,39 +649,21 @@ pub async fn delete_staged_file(
         || filename.to_string_lossy().contains('/')
         || filename.to_string_lossy().contains('\\')
     {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::with_details(
-                "Invalid filename",
-                "Path navigation not allowed",
-            )),
+        return Err(Error::InvalidRequest(
+            "Invalid filename: Path navigation not allowed".to_string(),
         )
-            .into_response();
+        .into());
     }
 
     let file_path = staging_dir.join(&id);
 
     if !file_path.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::with_details(
-                "File not found",
-                "The file does not exist on disk",
-            )),
-        )
-            .into_response();
+        return Err(Error::NotFound("File not found on disk".to_string()).into());
     }
 
     // Delete the staged file
     if let Err(e) = fs::remove_file(&file_path).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to delete file",
-                e.to_string(),
-            )),
-        )
-            .into_response();
+        return Err(Error::Internal(format!("Failed to delete file: {}", e)).into());
     }
 
     // Clean up any associated cover art and pending edits
@@ -740,7 +712,7 @@ pub async fn delete_staged_file(
     }
 
     // Success (No Content)
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// GET /ferrotune/tagger/staged/:id/stream
@@ -751,7 +723,7 @@ pub async fn stream_staged_file(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     headers: HeaderMap,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<impl IntoResponse> {
     use axum::http::header;
     use tokio::io::AsyncReadExt;
 
@@ -763,41 +735,23 @@ pub async fn stream_staged_file(
         || filename.to_string_lossy().contains('/')
         || filename.to_string_lossy().contains('\\')
     {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::with_details(
-                "Invalid filename",
-                "Path navigation not allowed",
-            )),
+        return Err(Error::InvalidRequest(
+            "Invalid filename: Path navigation not allowed".to_string(),
         )
-            .into_response();
+        .into());
     }
 
     let file_path = staging_dir.join(&id);
 
     if !file_path.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::with_details(
-                "File not found",
-                "The file does not exist on disk",
-            )),
-        )
-            .into_response();
+        return Err(Error::NotFound("File not found on disk".to_string()).into());
     }
 
     // Get file metadata
     let metadata = match fs::metadata(&file_path).await {
         Ok(m) => m,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to read file metadata",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
+            return Err(Error::Internal(format!("Failed to read file metadata: {}", e)).into());
         }
     };
 
@@ -834,14 +788,7 @@ pub async fn stream_staged_file(
     let mut file = match tokio::fs::File::open(&file_path).await {
         Ok(f) => f,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to open file",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
+            return Err(Error::Internal(format!("Failed to open file: {}", e)).into());
         }
     };
 
@@ -849,28 +796,14 @@ pub async fn stream_staged_file(
     if start > 0 {
         use tokio::io::AsyncSeekExt;
         if let Err(e) = file.seek(std::io::SeekFrom::Start(start)).await {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to seek in file",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
+            return Err(Error::Internal(format!("Failed to seek in file: {}", e)).into());
         }
     }
 
     // Read the requested range
     let mut buffer = vec![0u8; length as usize];
     if let Err(e) = file.read_exact(&mut buffer).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to read file",
-                e.to_string(),
-            )),
-        )
-            .into_response();
+        return Err(Error::Internal(format!("Failed to read file: {}", e)).into());
     }
 
     // Build response headers
@@ -892,7 +825,7 @@ pub async fn stream_staged_file(
         StatusCode::OK
     };
 
-    (status, response_headers, buffer).into_response()
+    Ok((status, response_headers, buffer).into_response())
 }
 
 /// GET /ferrotune/tagger/staged/:id/cover
@@ -902,7 +835,7 @@ pub async fn get_staged_cover_art(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<impl IntoResponse> {
     let staging_dir = get_staging_dir(&state, &user.username);
 
     // Sanitize ID (which is filename) to prevent directory traversal
@@ -911,20 +844,16 @@ pub async fn get_staged_cover_art(
         || filename.to_string_lossy().contains('/')
         || filename.to_string_lossy().contains('\\')
     {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::with_details(
-                "Invalid filename",
-                "Path navigation not allowed",
-            )),
+        return Err(Error::InvalidRequest(
+            "Invalid filename: Path navigation not allowed".to_string(),
         )
-            .into_response();
+        .into());
     }
 
     let file_path = staging_dir.join(&id);
 
     if !file_path.exists() {
-        return StatusCode::NOT_FOUND.into_response();
+        return Err(Error::NotFound("File not found on disk".to_string()).into());
     }
 
     // Extract embedded cover art using thumbnails module
@@ -941,7 +870,7 @@ pub async fn get_staged_cover_art(
                 "image/jpeg"
             };
 
-            (
+            Ok((
                 [
                     (axum::http::header::CONTENT_TYPE, content_type.to_string()),
                     (
@@ -951,9 +880,9 @@ pub async fn get_staged_cover_art(
                 ],
                 data,
             )
-                .into_response()
+                .into_response())
         }
-        Err(_) => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => Err(Error::NotFound("No cover art found".to_string()).into()),
     }
 }
 
@@ -964,13 +893,13 @@ pub async fn stage_library_tracks(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<StageLibraryTracksRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<StageLibraryTracksResponse>> {
     let mut tracks = Vec::new();
 
     // Get music folders once
     let music_folders = match queries::get_music_folders(&state.pool).await {
         Ok(folders) => folders,
-        Err(_) => return Json(StageLibraryTracksResponse { tracks }).into_response(),
+        Err(e) => return Err(Error::Database(e).into()),
     };
 
     for song_id in &request.song_ids {
@@ -1018,7 +947,7 @@ pub async fn stage_library_tracks(
         });
     }
 
-    Json(StageLibraryTracksResponse { tracks }).into_response()
+    Ok(Json(StageLibraryTracksResponse { tracks }))
 }
 
 /// POST /ferrotune/tagger/batch-tags
@@ -1028,7 +957,7 @@ pub async fn batch_get_tags(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(request): Query<BatchGetTagsRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<BatchGetTagsResponse>> {
     let mut results = Vec::new();
 
     for song_id in &request.song_ids {
@@ -1115,7 +1044,7 @@ pub async fn batch_get_tags(
         });
     }
 
-    Json(BatchGetTagsResponse { results }).into_response()
+    Ok(Json(BatchGetTagsResponse { results }))
 }
 
 /// PATCH /ferrotune/tagger/batch-tags
@@ -1125,17 +1054,10 @@ pub async fn batch_update_tags(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<BatchUpdateTagsRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<BatchUpdateTagsResponse>> {
     // Check if editing is enabled
     if !is_tag_editing_enabled(&state).await {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::with_details(
-                "Tag editing is disabled",
-                "Enable tag editing in server configuration",
-            )),
-        )
-            .into_response();
+        return Err(Error::Forbidden("Tag editing is disabled".to_string()).into());
     }
 
     let mut updated_count = 0;
@@ -1269,13 +1191,12 @@ pub async fn batch_update_tags(
         }
     }
 
-    Json(BatchUpdateTagsResponse {
+    Ok(Json(BatchUpdateTagsResponse {
         success: errors.is_empty(),
         updated_count,
         errors,
         rescan_recommended,
-    })
-    .into_response()
+    }))
 }
 
 /// POST /ferrotune/tagger/save
@@ -1285,7 +1206,7 @@ pub async fn save_staged_files(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<SaveStagedFilesRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<SaveStagedFilesResponse>> {
     let mut saved_count = 0;
     let mut errors = Vec::new();
     let mut new_song_ids = Vec::new();
@@ -1366,13 +1287,12 @@ pub async fn save_staged_files(
         // For now, we just return success and the client can trigger a scan
     }
 
-    Json(SaveStagedFilesResponse {
+    Ok(Json(SaveStagedFilesResponse {
         success: errors.is_empty(),
         saved_count,
         errors,
         new_song_ids,
-    })
-    .into_response()
+    }))
 }
 
 /// POST /ferrotune/tagger/rescan
@@ -1382,7 +1302,7 @@ pub async fn rescan_files(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<RescanFilesRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<RescanFilesResponse>> {
     // Group files by folder for efficient scanning
     let mut files_by_folder: std::collections::HashMap<i64, Vec<PathBuf>> =
         std::collections::HashMap::new();
@@ -1391,14 +1311,7 @@ pub async fn rescan_files(
     let music_folders = match queries::get_music_folders(&state.pool).await {
         Ok(folders) => folders,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get music folders",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
+            return Err(Error::Internal(format!("Failed to get music folders: {}", e)).into())
         }
     };
 
@@ -1423,11 +1336,10 @@ pub async fn rescan_files(
     }
 
     if files_by_folder.is_empty() {
-        return Json(RescanFilesResponse {
+        return Ok(Json(RescanFilesResponse {
             success: true,
             rescanned_count: 0,
-        })
-        .into_response();
+        }));
     }
 
     let mut rescanned_count = 0;
@@ -1445,11 +1357,10 @@ pub async fn rescan_files(
         }
     }
 
-    Json(RescanFilesResponse {
+    Ok(Json(RescanFilesResponse {
         success: true,
         rescanned_count,
-    })
-    .into_response()
+    }))
 }
 
 /// POST /ferrotune/tagger/rename
@@ -1459,17 +1370,13 @@ pub async fn rename_files(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<RenameFilesRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<RenameFilesResponse>> {
     // Check if editing is enabled
     if !is_tag_editing_enabled(&state).await {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::with_details(
-                "Library editing is disabled",
-                "Enable tag editing in server configuration",
-            )),
+        return Err(Error::Forbidden(
+            "Library editing is disabled: Enable tag editing in server configuration".to_string(),
         )
-            .into_response();
+        .into());
     }
 
     let mut errors: Vec<RenameError> = Vec::new();
@@ -1479,14 +1386,7 @@ pub async fn rename_files(
     let music_folders = match queries::get_music_folders(&state.pool).await {
         Ok(folders) => folders,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get music folders",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
+            return Err(Error::Internal(format!("Failed to get music folders: {}", e)).into())
         }
     };
 
@@ -1582,12 +1482,11 @@ pub async fn rename_files(
         renamed_count += 1;
     }
 
-    Json(RenameFilesResponse {
+    Ok(Json(RenameFilesResponse {
         success: errors.is_empty(),
         renamed_count,
         errors,
-    })
-    .into_response()
+    }))
 }
 
 /// POST /ferrotune/tagger/check-conflicts
@@ -1599,21 +1498,14 @@ pub async fn check_path_conflicts(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<CheckPathConflictsRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<CheckPathConflictsResponse>> {
     let mut conflicts: Vec<PathConflict> = Vec::new();
 
     // Get music folders for path resolution
     let music_folders = match queries::get_music_folders(&state.pool).await {
         Ok(folders) => folders,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get music folders",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
+            return Err(Error::Internal(format!("Failed to get music folders: {}", e)).into())
         }
     };
 
@@ -1682,7 +1574,7 @@ pub async fn check_path_conflicts(
         }
     }
 
-    Json(CheckPathConflictsResponse { conflicts }).into_response()
+    Ok(Json(CheckPathConflictsResponse { conflicts }))
 }
 
 /// Find a non-conflicting path by appending (1), (2), etc. before the extension

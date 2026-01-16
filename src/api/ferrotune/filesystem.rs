@@ -4,7 +4,7 @@
 //! users select music folder paths during setup.
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
-use crate::error::{Error, FerrotuneApiResult, Result};
+use crate::error::{Error, FerrotuneApiResult};
 use axum::extract::Query;
 use axum::response::Json;
 use serde::{Deserialize, Serialize};
@@ -248,7 +248,7 @@ fn build_breadcrumbs(path: &std::path::Path) -> Vec<BreadcrumbEntry> {
 }
 
 /// Get common root directories for browsing
-fn browse_roots() -> Result<BrowseFilesystemResponse> {
+fn browse_roots() -> FerrotuneApiResult<BrowseFilesystemResponse> {
     let mut directories = Vec::new();
 
     // On Unix systems, just return the root directory

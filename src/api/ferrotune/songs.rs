@@ -5,9 +5,9 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
+use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
     Json,
 };
 use rayon::prelude::*;
@@ -16,8 +16,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use strsim::normalized_levenshtein;
 use ts_rs::TS;
-
-type ApiError = (StatusCode, Json<super::ErrorResponse>);
 
 /// A minimal song entry optimized for client-side matching.
 /// Contains only the fields needed for matching algorithms.
@@ -72,7 +70,7 @@ pub async fn get_song_match_list(
     State(state): State<Arc<AppState>>,
     _user: FerrotuneAuthenticatedUser,
     Query(params): Query<GetSongMatchListParams>,
-) -> Result<Json<SongMatchListResponse>, ApiError> {
+) -> FerrotuneApiResult<Json<SongMatchListResponse>> {
     // Build query based on whether we're filtering by library
     // Always filter by enabled music folders
     let songs: Vec<SongMatchEntry> = if let Some(music_folder_id) = params.library_id {
@@ -95,15 +93,7 @@ pub async fn get_song_match_list(
         .bind(music_folder_id)
         .fetch_all(&state.pool)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details(
-                    "Database error",
-                    e.to_string(),
-                )),
-            )
-        })?
+        .map_err(|e| Error::Internal(format!("Database error: {}", e)))?
     } else {
         sqlx::query_as::<_, SongMatchEntry>(
             r#"
@@ -123,15 +113,7 @@ pub async fn get_song_match_list(
         )
         .fetch_all(&state.pool)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details(
-                    "Database error",
-                    e.to_string(),
-                )),
-            )
-        })?
+        .map_err(|e| Error::Internal(format!("Database error: {}", e)))?
     };
 
     let total = songs.len() as i64;
@@ -360,7 +342,7 @@ pub async fn match_tracks(
     user: FerrotuneAuthenticatedUser,
     Query(params): Query<MatchTracksParams>,
     Json(request): Json<MatchTracksRequest>,
-) -> Result<Json<MatchTracksResponse>, (StatusCode, Json<super::ErrorResponse>)> {
+) -> FerrotuneApiResult<Json<MatchTracksResponse>> {
     use super::match_dictionary::{MatchDictionary, MatchDictionaryEntry};
 
     // Load match dictionary if requested
@@ -381,15 +363,7 @@ pub async fn match_tracks(
         .bind(user.user_id)
         .fetch_all(&state.pool)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::with_details(
-                    "Database error loading match dictionary",
-                    e.to_string(),
-                )),
-            )
-        })?;
+        .map_err(|e| Error::Internal(format!("Database error loading match dictionary: {}", e)))?;
 
         // Parse and build dictionary
         let entries: Vec<MatchDictionaryEntry> = rows
@@ -451,15 +425,7 @@ pub async fn match_tracks(
         .fetch_all(&state.pool)
         .await
     }
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .map_err(|e| Error::Internal(format!("Database error: {}", e)))?;
 
     // Build a map from song_id to SongMatchEntry for dictionary lookups
     let song_map: std::collections::HashMap<&str, &SongMatchEntry> =
@@ -856,7 +822,7 @@ pub async fn match_albums(
     _user: FerrotuneAuthenticatedUser,
     Query(params): Query<MatchTracksParams>,
     Json(request): Json<MatchAlbumsRequest>,
-) -> Result<Json<MatchAlbumsResponse>, (StatusCode, Json<super::ErrorResponse>)> {
+) -> FerrotuneApiResult<Json<MatchAlbumsResponse>> {
     // Fetch all albums from enabled music folders
     let albums: Vec<AlbumMatchEntry> = if let Some(music_folder_id) = params.library_id {
         sqlx::query_as::<_, AlbumMatchEntry>(
@@ -894,15 +860,7 @@ pub async fn match_albums(
         .fetch_all(&state.pool)
         .await
     }
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .map_err(|e| Error::Internal(format!("Database error: {}", e)))?;
 
     // Pre-tokenize all albums for efficient matching
     let tokenized_albums: Vec<TokenizedAlbum> = albums
@@ -1020,7 +978,7 @@ pub async fn match_artists(
     _user: FerrotuneAuthenticatedUser,
     Query(params): Query<MatchTracksParams>,
     Json(request): Json<MatchArtistsRequest>,
-) -> Result<Json<MatchArtistsResponse>, (StatusCode, Json<super::ErrorResponse>)> {
+) -> FerrotuneApiResult<Json<MatchArtistsResponse>> {
     // Fetch all artists from enabled music folders
     let artists: Vec<ArtistMatchEntry> = if let Some(music_folder_id) = params.library_id {
         sqlx::query_as::<_, ArtistMatchEntry>(
@@ -1052,15 +1010,7 @@ pub async fn match_artists(
         .fetch_all(&state.pool)
         .await
     }
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse::with_details(
-                "Database error",
-                e.to_string(),
-            )),
-        )
-    })?;
+    .map_err(|e| Error::Internal(format!("Database error: {}", e)))?;
 
     // Pre-tokenize all artists for efficient matching
     let tokenized_artists: Vec<TokenizedArtist> = artists

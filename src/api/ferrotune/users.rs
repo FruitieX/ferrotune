@@ -10,7 +10,7 @@
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::User;
-use crate::error::{Error, FerrotuneApiResult, Result};
+use crate::error::{Error, FerrotuneApiResult};
 use crate::password;
 use axum::{
     extract::{Path, State},
@@ -156,9 +156,9 @@ pub struct ApiKeysResponse {
 // Helper: Check admin permission
 // ============================================================================
 
-fn require_admin(user: &FerrotuneAuthenticatedUser) -> Result<()> {
+fn require_admin(user: &FerrotuneAuthenticatedUser) -> FerrotuneApiResult<()> {
     if !user.is_admin {
-        return Err(Error::Auth("Admin privileges required".to_string()));
+        return Err(Error::Auth("Admin privileges required".to_string()).into());
     }
     Ok(())
 }
@@ -686,7 +686,7 @@ pub async fn delete_api_key(
 // Helper Functions
 // ============================================================================
 
-async fn get_user_library_access(state: &AppState, user_id: i64) -> Result<Vec<i64>> {
+async fn get_user_library_access(state: &AppState, user_id: i64) -> FerrotuneApiResult<Vec<i64>> {
     let access: Vec<(i64,)> =
         sqlx::query_as("SELECT music_folder_id FROM user_library_access WHERE user_id = ?")
             .bind(user_id)
@@ -713,7 +713,7 @@ pub async fn user_has_folder_access(
     pool: &sqlx::SqlitePool,
     user_id: i64,
     folder_id: i64,
-) -> Result<bool> {
+) -> FerrotuneApiResult<bool> {
     let access: Option<(i64,)> = sqlx::query_as(
         "SELECT 1 FROM user_library_access WHERE user_id = ? AND music_folder_id = ?",
     )
@@ -730,7 +730,7 @@ pub async fn user_has_song_access(
     pool: &sqlx::SqlitePool,
     user_id: i64,
     song_id: &str,
-) -> Result<bool> {
+) -> FerrotuneApiResult<bool> {
     let access: Option<(i64,)> = sqlx::query_as(
         "SELECT 1 FROM songs s
          JOIN user_library_access ula ON s.music_folder_id = ula.music_folder_id
@@ -749,7 +749,7 @@ pub async fn user_has_song_access(
 pub async fn get_user_accessible_folders(
     pool: &sqlx::SqlitePool,
     user_id: i64,
-) -> Result<Vec<i64>> {
+) -> FerrotuneApiResult<Vec<i64>> {
     let access: Vec<(i64,)> =
         sqlx::query_as("SELECT music_folder_id FROM user_library_access WHERE user_id = ?")
             .bind(user_id)

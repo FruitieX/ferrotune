@@ -1,10 +1,8 @@
 //! Duplicate file detection API endpoint.
 
 use crate::api::AppState;
-use axum::{
-    extract::State,
-    response::{IntoResponse, Json},
-};
+use crate::error::{Error, FerrotuneApiResult};
+use axum::{extract::State, Json};
 use serde::Serialize;
 use std::sync::Arc;
 use ts_rs::TS;
@@ -98,7 +96,9 @@ pub struct DuplicatesResponse {
 /// }
 /// ```
 #[allow(clippy::type_complexity)]
-pub async fn get_duplicates(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn get_duplicates(
+    State(state): State<Arc<AppState>>,
+) -> FerrotuneApiResult<Json<DuplicatesResponse>> {
     // Query for all songs with non-null full_file_hash, grouped by hash
     let rows: Vec<(
         String,
@@ -109,7 +109,7 @@ pub async fn get_duplicates(State(state): State<Arc<AppState>>) -> impl IntoResp
         Option<String>,
         Option<String>,
         String,
-    )> = match sqlx::query_as(
+    )> = sqlx::query_as(
         "SELECT 
                 s.full_file_hash,
                 s.id,
@@ -128,18 +128,7 @@ pub async fn get_duplicates(State(state): State<Arc<AppState>>) -> impl IntoResp
     )
     .fetch_all(&state.pool)
     .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!("Failed to query duplicates: {}", e);
-            return Json(DuplicatesResponse {
-                group_count: 0,
-                total_duplicates: 0,
-                total_wasted_bytes: 0,
-                groups: vec![],
-            });
-        }
-    };
+    .map_err(|e| Error::Internal(format!("Failed to query duplicates: {}", e)))?;
 
     // Group by hash
     let mut groups: std::collections::HashMap<String, Vec<DuplicateFile>> =
@@ -184,10 +173,10 @@ pub async fn get_duplicates(State(state): State<Arc<AppState>>) -> impl IntoResp
     let total_duplicates: i64 = duplicate_groups.iter().map(|g| g.count).sum();
     let total_wasted_bytes: i64 = duplicate_groups.iter().map(|g| g.wasted_bytes).sum();
 
-    Json(DuplicatesResponse {
+    Ok(Json(DuplicatesResponse {
         group_count,
         total_duplicates,
         total_wasted_bytes,
         groups: duplicate_groups,
-    })
+    }))
 }

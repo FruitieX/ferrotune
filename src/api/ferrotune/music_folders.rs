@@ -3,10 +3,10 @@
 //! These endpoints allow managing multiple music libraries (music folders).
 //! Each music folder can be independently enabled/disabled and scanned.
 
-use crate::api::subsonic::auth::AuthenticatedUser;
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser as AuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::MusicFolder;
-use crate::error::{Error, FerrotuneApiResult, Result};
+use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -569,7 +569,9 @@ pub async fn get_music_folder_stats(
 }
 
 /// Helper: Get all music folders with their stats
-async fn get_all_music_folders_with_stats(state: &AppState) -> Result<Vec<MusicFolderInfo>> {
+async fn get_all_music_folders_with_stats(
+    state: &AppState,
+) -> FerrotuneApiResult<Vec<MusicFolderInfo>> {
     let folders: Vec<MusicFolder> = sqlx::query_as(
         "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders ORDER BY id"
     )
@@ -595,7 +597,10 @@ async fn get_all_music_folders_with_stats(state: &AppState) -> Result<Vec<MusicF
 }
 
 /// Helper: Get a single music folder with stats
-async fn get_music_folder_with_stats(state: &AppState, id: i64) -> Result<Option<MusicFolderInfo>> {
+async fn get_music_folder_with_stats(
+    state: &AppState,
+    id: i64,
+) -> FerrotuneApiResult<Option<MusicFolderInfo>> {
     let folder: Option<MusicFolder> = sqlx::query_as(
         "SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?"
     )
@@ -622,7 +627,10 @@ async fn get_music_folder_with_stats(state: &AppState, id: i64) -> Result<Option
 }
 
 /// Helper: Get statistics for a specific folder
-async fn get_folder_stats(pool: &sqlx::SqlitePool, folder_id: i64) -> Result<MusicFolderStats> {
+async fn get_folder_stats(
+    pool: &sqlx::SqlitePool,
+    folder_id: i64,
+) -> FerrotuneApiResult<MusicFolderStats> {
     let (song_count,): (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM songs WHERE music_folder_id = ?")
             .bind(folder_id)
@@ -659,7 +667,10 @@ async fn get_folder_stats(pool: &sqlx::SqlitePool, folder_id: i64) -> Result<Mus
 }
 
 /// Update the last_scanned_at timestamp for a folder after a successful scan.
-pub async fn update_folder_scan_timestamp(pool: &sqlx::SqlitePool, folder_id: i64) -> Result<()> {
+pub async fn update_folder_scan_timestamp(
+    pool: &sqlx::SqlitePool,
+    folder_id: i64,
+) -> FerrotuneApiResult<()> {
     sqlx::query("UPDATE music_folders SET last_scanned_at = ?, scan_error = NULL WHERE id = ?")
         .bind(Utc::now())
         .bind(folder_id)
@@ -673,7 +684,7 @@ pub async fn update_folder_scan_error(
     pool: &sqlx::SqlitePool,
     folder_id: i64,
     error: &str,
-) -> Result<()> {
+) -> FerrotuneApiResult<()> {
     sqlx::query("UPDATE music_folders SET scan_error = ? WHERE id = ?")
         .bind(error)
         .bind(folder_id)

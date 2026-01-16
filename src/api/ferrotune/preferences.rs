@@ -3,10 +3,10 @@
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::queries;
+use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    response::IntoResponse,
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -63,40 +63,34 @@ pub struct GetPreferenceResponse {
 pub async fn get_preferences(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    match queries::get_user_preferences(&state.pool, user.user_id).await {
-        Ok(Some(prefs)) => {
+) -> FerrotuneApiResult<Json<PreferencesResponse>> {
+    let prefs = queries::get_user_preferences(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get user preferences: {}", e)))?;
+
+    match prefs {
+        Some(prefs) => {
             // Parse preferences_json
             let preferences: HashMap<String, Value> =
                 serde_json::from_str(&prefs.preferences_json).unwrap_or_default();
 
-            Json(PreferencesResponse {
+            Ok(Json(PreferencesResponse {
                 accent_color: prefs.accent_color,
                 custom_accent_hue: prefs.custom_accent_hue,
                 custom_accent_lightness: prefs.custom_accent_lightness,
                 custom_accent_chroma: prefs.custom_accent_chroma,
                 preferences,
-            })
-            .into_response()
+            }))
         }
-        Ok(None) => {
+        None => {
             // Return defaults if no preferences set
-            Json(PreferencesResponse {
+            Ok(Json(PreferencesResponse {
                 accent_color: "rust".to_string(),
                 custom_accent_hue: None,
                 custom_accent_lightness: None,
                 custom_accent_chroma: None,
                 preferences: HashMap::new(),
-            })
-            .into_response()
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "Failed to get user preferences");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::new("Failed to get preferences")),
-            )
-                .into_response()
+            }))
         }
     }
 }
@@ -106,7 +100,7 @@ pub async fn update_preferences(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<UpdatePreferencesRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<PreferencesResponse>> {
     // Validate accent_color is a valid preset or "custom"
     let valid_colors = [
         "rust", "gold", "lime", "emerald", "teal", "ocean", "indigo", "violet", "rose", "crimson",
@@ -114,52 +108,40 @@ pub async fn update_preferences(
     ];
 
     if !valid_colors.contains(&request.accent_color.as_str()) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(super::ErrorResponse::new(format!(
-                "Invalid accent color: {}",
-                request.accent_color
-            ))),
-        )
-            .into_response();
+        return Err(Error::InvalidRequest(format!(
+            "Invalid accent color: {}",
+            request.accent_color
+        ))
+        .into());
     }
 
     // Validate custom_accent_hue if provided
     if let Some(hue) = request.custom_accent_hue {
         if !(0.0..=360.0).contains(&hue) {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(super::ErrorResponse::new(
-                    "custom_accent_hue must be between 0 and 360",
-                )),
+            return Err(Error::InvalidRequest(
+                "custom_accent_hue must be between 0 and 360".to_string(),
             )
-                .into_response();
+            .into());
         }
     }
 
     // Validate custom_accent_lightness if provided
     if let Some(lightness) = request.custom_accent_lightness {
         if !(0.0..=1.0).contains(&lightness) {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(super::ErrorResponse::new(
-                    "custom_accent_lightness must be between 0 and 1",
-                )),
+            return Err(Error::InvalidRequest(
+                "custom_accent_lightness must be between 0 and 1".to_string(),
             )
-                .into_response();
+            .into());
         }
     }
 
     // Validate custom_accent_chroma if provided
     if let Some(chroma) = request.custom_accent_chroma {
         if !(0.0..=0.5).contains(&chroma) {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(super::ErrorResponse::new(
-                    "custom_accent_chroma must be between 0 and 0.5",
-                )),
+            return Err(Error::InvalidRequest(
+                "custom_accent_chroma must be between 0 and 0.5".to_string(),
             )
-                .into_response();
+            .into());
         }
     }
 
@@ -173,7 +155,7 @@ pub async fn update_preferences(
         .and_then(|p| serde_json::from_str(&p.preferences_json).ok())
         .unwrap_or_default();
 
-    match queries::upsert_user_preferences(
+    queries::upsert_user_preferences(
         &state.pool,
         user.user_id,
         &request.accent_color,
@@ -186,24 +168,15 @@ pub async fn update_preferences(
             .unwrap_or("{}"),
     )
     .await
-    {
-        Ok(()) => Json(PreferencesResponse {
-            accent_color: request.accent_color,
-            custom_accent_hue: request.custom_accent_hue,
-            custom_accent_lightness: request.custom_accent_lightness,
-            custom_accent_chroma: request.custom_accent_chroma,
-            preferences,
-        })
-        .into_response(),
-        Err(e) => {
-            tracing::error!(error = %e, "Failed to update user preferences");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::new("Failed to update preferences")),
-            )
-                .into_response()
-        }
-    }
+    .map_err(|e| Error::Internal(format!("Failed to update user preferences: {}", e)))?;
+
+    Ok(Json(PreferencesResponse {
+        accent_color: request.accent_color,
+        custom_accent_hue: request.custom_accent_hue,
+        custom_accent_lightness: request.custom_accent_lightness,
+        custom_accent_chroma: request.custom_accent_chroma,
+        preferences,
+    }))
 }
 
 /// Get a single preference by key
@@ -211,24 +184,20 @@ pub async fn get_preference(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(key): Path<String>,
-) -> impl IntoResponse {
-    match queries::get_user_preferences(&state.pool, user.user_id).await {
-        Ok(Some(prefs)) => {
+) -> FerrotuneApiResult<Json<GetPreferenceResponse>> {
+    let prefs = queries::get_user_preferences(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get preference: {}", e)))?;
+
+    match prefs {
+        Some(prefs) => {
             let preferences: HashMap<String, Value> =
                 serde_json::from_str(&prefs.preferences_json).unwrap_or_default();
             let value = preferences.get(&key).cloned();
 
-            Json(GetPreferenceResponse { key, value }).into_response()
+            Ok(Json(GetPreferenceResponse { key, value }))
         }
-        Ok(None) => Json(GetPreferenceResponse { key, value: None }).into_response(),
-        Err(e) => {
-            tracing::error!(error = %e, "Failed to get preference");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::new("Failed to get preference")),
-            )
-                .into_response()
-        }
+        None => Ok(Json(GetPreferenceResponse { key, value: None })),
     }
 }
 
@@ -238,7 +207,7 @@ pub async fn set_preference(
     State(state): State<Arc<AppState>>,
     Path(key): Path<String>,
     Json(request): Json<SetPreferenceRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<GetPreferenceResponse>> {
     // Get existing preferences
     let existing = queries::get_user_preferences(&state.pool, user.user_id)
         .await
@@ -264,7 +233,7 @@ pub async fn set_preference(
     let custom_accent_lightness = existing.as_ref().and_then(|p| p.custom_accent_lightness);
     let custom_accent_chroma = existing.as_ref().and_then(|p| p.custom_accent_chroma);
 
-    match queries::upsert_user_preferences(
+    queries::upsert_user_preferences(
         &state.pool,
         user.user_id,
         &accent_color,
@@ -274,21 +243,12 @@ pub async fn set_preference(
         &preferences_json,
     )
     .await
-    {
-        Ok(()) => Json(GetPreferenceResponse {
-            key,
-            value: Some(request.value),
-        })
-        .into_response(),
-        Err(e) => {
-            tracing::error!(error = %e, "Failed to set preference");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::new("Failed to set preference")),
-            )
-                .into_response()
-        }
-    }
+    .map_err(|e| Error::Internal(format!("Failed to set preference: {}", e)))?;
+
+    Ok(Json(GetPreferenceResponse {
+        key,
+        value: Some(request.value),
+    }))
 }
 
 /// Delete a single preference by key
@@ -296,7 +256,7 @@ pub async fn delete_preference(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(key): Path<String>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<StatusCode> {
     // Get existing preferences
     let existing = queries::get_user_preferences(&state.pool, user.user_id)
         .await
@@ -312,7 +272,7 @@ pub async fn delete_preference(
     let removed = preferences.remove(&key);
 
     if removed.is_none() {
-        return StatusCode::NO_CONTENT.into_response();
+        return Ok(StatusCode::NO_CONTENT);
     }
 
     let preferences_json = serde_json::to_string(&preferences).unwrap_or_else(|_| "{}".to_string());
@@ -326,7 +286,7 @@ pub async fn delete_preference(
     let custom_accent_lightness = existing.as_ref().and_then(|p| p.custom_accent_lightness);
     let custom_accent_chroma = existing.as_ref().and_then(|p| p.custom_accent_chroma);
 
-    match queries::upsert_user_preferences(
+    queries::upsert_user_preferences(
         &state.pool,
         user.user_id,
         &accent_color,
@@ -336,15 +296,7 @@ pub async fn delete_preference(
         &preferences_json,
     )
     .await
-    {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => {
-            tracing::error!(error = %e, "Failed to delete preference");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse::new("Failed to delete preference")),
-            )
-                .into_response()
-        }
-    }
+    .map_err(|e| Error::Internal(format!("Failed to delete preference: {}", e)))?;
+
+    Ok(StatusCode::NO_CONTENT)
 }

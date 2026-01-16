@@ -22,7 +22,7 @@ use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, Inline
 use crate::api::AppState;
 use crate::db::models::{ItemType, QueueSourceType, RepeatMode};
 use crate::db::queries;
-use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult, Result};
+use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -1205,7 +1205,7 @@ pub async fn clear_queue(
 async fn get_disabled_song_ids(
     pool: &sqlx::SqlitePool,
     user_id: i64,
-) -> Result<std::collections::HashSet<String>> {
+) -> FerrotuneApiResult<std::collections::HashSet<String>> {
     let rows: Vec<(String,)> =
         sqlx::query_as("SELECT song_id FROM disabled_songs WHERE user_id = ?")
             .bind(user_id)
@@ -1223,7 +1223,7 @@ async fn materialize_queue_songs(
     source_id: Option<&str>,
     filters: Option<&serde_json::Value>,
     sort: Option<&serde_json::Value>,
-) -> Result<Vec<crate::db::models::Song>> {
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
     // Parse sort params from JSON for use with non-search sources
     let (sort_field, sort_dir) = sorting::parse_sort_from_json(sort);
 
@@ -1348,9 +1348,10 @@ async fn materialize_queue_songs(
         }
         QueueSourceType::History => {
             // History requires explicit song IDs from the client
-            Err(Error::InvalidRequest(
-                "History source requires explicit song IDs".to_string(),
-            ))
+            Err(
+                Error::InvalidRequest("History source requires explicit song IDs".to_string())
+                    .into(),
+            )
         }
         QueueSourceType::Other => {
             // For "other" source with no song IDs, treat as library
@@ -1481,7 +1482,7 @@ pub async fn materialize_lazy_queue_page(
     user_id: i64,
     offset: usize,
     limit: usize,
-) -> Result<Vec<crate::db::models::Song>> {
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
     // If we have explicit song IDs, use those
     if let Some(ref song_ids) = queue.parse_song_ids() {
         // Get the slice we need
@@ -1564,7 +1565,7 @@ pub async fn get_queue_total_count(
     pool: &sqlx::SqlitePool,
     queue: &crate::db::models::PlayQueue,
     user_id: i64,
-) -> Result<usize> {
+) -> FerrotuneApiResult<usize> {
     if queue.is_lazy {
         get_lazy_queue_count(pool, queue, user_id).await
     } else {
@@ -1578,7 +1579,7 @@ pub async fn get_lazy_queue_count(
     pool: &sqlx::SqlitePool,
     queue: &crate::db::models::PlayQueue,
     user_id: i64,
-) -> Result<usize> {
+) -> FerrotuneApiResult<usize> {
     // If we have a cached total_count, use it
     if let Some(count) = queue.total_count {
         return Ok(count as usize);
@@ -1652,7 +1653,7 @@ async fn build_queue_window(
     is_shuffled: bool,
     shuffle_indices_json: Option<&str>,
     inline_size: Option<crate::thumbnails::ThumbnailSize>,
-) -> Result<QueueWindow> {
+) -> FerrotuneApiResult<QueueWindow> {
     let total = all_entries.len();
     if total == 0 {
         return Ok(QueueWindow {
@@ -1688,7 +1689,7 @@ async fn build_queue_window_range(
     is_shuffled: bool,
     shuffle_indices_json: Option<&str>,
     inline_size: Option<crate::thumbnails::ThumbnailSize>,
-) -> Result<QueueWindow> {
+) -> FerrotuneApiResult<QueueWindow> {
     let total = all_entries.len();
     if total == 0 {
         return Ok(QueueWindow {
@@ -1789,7 +1790,7 @@ async fn build_lazy_queue_window(
     songs: &[crate::db::models::Song],
     offset: usize,
     inline_size: Option<crate::thumbnails::ThumbnailSize>,
-) -> Result<QueueWindow> {
+) -> FerrotuneApiResult<QueueWindow> {
     if songs.is_empty() {
         return Ok(QueueWindow {
             offset,

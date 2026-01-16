@@ -6,8 +6,8 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
+use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::extract::State;
-use axum::http::StatusCode;
 use axum::response::Json;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -66,9 +66,6 @@ pub struct UpdateServerConfigRequest {
     pub configured: Option<bool>,
 }
 
-/// Error response type for config endpoints
-type ConfigError = (StatusCode, String);
-
 /// Get server configuration from database
 async fn get_config_value(pool: &sqlx::SqlitePool, key: &str) -> Option<String> {
     sqlx::query_scalar::<_, String>("SELECT value FROM server_config WHERE key = ?")
@@ -84,7 +81,7 @@ async fn set_config_value(
     pool: &sqlx::SqlitePool,
     key: &str,
     value: &str,
-) -> Result<(), ConfigError> {
+) -> FerrotuneApiResult<()> {
     sqlx::query(
         "INSERT OR REPLACE INTO server_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)"
     )
@@ -92,7 +89,7 @@ async fn set_config_value(
     .bind(value)
     .execute(pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .map_err(|e| Error::Internal(format!("Failed to set config value: {}", e)))?;
     Ok(())
 }
 
@@ -128,10 +125,12 @@ pub async fn is_file_deletion_enabled(state: &AppState) -> bool {
 pub async fn get_server_config(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<ServerConfigResponse>, ConfigError> {
+) -> FerrotuneApiResult<Json<ServerConfigResponse>> {
     // Only admin users can view server config
     if !user.is_admin {
-        return Err((StatusCode::FORBIDDEN, "Admin access required".to_string()));
+        return Err(FerrotuneApiError::from(Error::Forbidden(
+            "Admin access required".to_string(),
+        )));
     }
 
     let pool = &state.pool;
@@ -181,10 +180,12 @@ pub async fn update_server_config(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<UpdateServerConfigRequest>,
-) -> Result<Json<ServerConfigResponse>, ConfigError> {
+) -> FerrotuneApiResult<Json<ServerConfigResponse>> {
     // Only admin users can update server config
     if !user.is_admin {
-        return Err((StatusCode::FORBIDDEN, "Admin access required".to_string()));
+        return Err(FerrotuneApiError::from(Error::Forbidden(
+            "Admin access required".to_string(),
+        )));
     }
 
     let pool = &state.pool;
@@ -241,16 +242,18 @@ pub async fn update_server_config(
 pub async fn get_all_config(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<HashMap<String, serde_json::Value>>, ConfigError> {
+) -> FerrotuneApiResult<Json<HashMap<String, serde_json::Value>>> {
     // Only admin users can view config
     if !user.is_admin {
-        return Err((StatusCode::FORBIDDEN, "Admin access required".to_string()));
+        return Err(FerrotuneApiError::from(Error::Forbidden(
+            "Admin access required".to_string(),
+        )));
     }
 
     let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM server_config")
         .fetch_all(&state.pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| Error::Internal(format!("Failed to get config: {}", e)))?;
 
     let config: HashMap<String, serde_json::Value> = rows
         .into_iter()

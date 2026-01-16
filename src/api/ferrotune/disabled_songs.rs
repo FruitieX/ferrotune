@@ -6,17 +6,14 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
+use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
-    response::IntoResponse,
     Json,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
-
-use super::ErrorResponse;
 
 /// Response for getting disabled status
 #[derive(Serialize, TS)]
@@ -67,19 +64,18 @@ pub async fn get_disabled(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(song_id): Path<String>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<DisabledStatusResponse>> {
     let result: Option<(i64,)> =
         sqlx::query_as("SELECT id FROM disabled_songs WHERE user_id = ? AND song_id = ?")
             .bind(user.user_id)
             .bind(&song_id)
             .fetch_optional(&state.pool)
-            .await
-            .unwrap_or(None);
+            .await?;
 
-    Json(DisabledStatusResponse {
+    Ok(Json(DisabledStatusResponse {
         song_id,
         disabled: result.is_some(),
-    })
+    }))
 }
 
 /// Set disabled status for a song.
@@ -90,54 +86,33 @@ pub async fn set_disabled(
     State(state): State<Arc<AppState>>,
     Path(song_id): Path<String>,
     Json(body): Json<SetDisabledRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<DisabledStatusResponse>> {
     if body.disabled {
         // Add to disabled list
-        let result =
-            sqlx::query("INSERT OR IGNORE INTO disabled_songs (user_id, song_id) VALUES (?, ?)")
-                .bind(user.user_id)
-                .bind(&song_id)
-                .execute(&state.pool)
-                .await;
-
-        match result {
-            Ok(_) => Json(DisabledStatusResponse {
-                song_id,
-                disabled: true,
-            })
-            .into_response(),
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to disable song",
-                    e.to_string(),
-                )),
-            )
-                .into_response(),
-        }
-    } else {
-        // Remove from disabled list
-        let result = sqlx::query("DELETE FROM disabled_songs WHERE user_id = ? AND song_id = ?")
+        sqlx::query("INSERT OR IGNORE INTO disabled_songs (user_id, song_id) VALUES (?, ?)")
             .bind(user.user_id)
             .bind(&song_id)
             .execute(&state.pool)
-            .await;
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to disable song: {}", e)))?;
 
-        match result {
-            Ok(_) => Json(DisabledStatusResponse {
-                song_id,
-                disabled: false,
-            })
-            .into_response(),
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to enable song",
-                    e.to_string(),
-                )),
-            )
-                .into_response(),
-        }
+        Ok(Json(DisabledStatusResponse {
+            song_id,
+            disabled: true,
+        }))
+    } else {
+        // Remove from disabled list
+        sqlx::query("DELETE FROM disabled_songs WHERE user_id = ? AND song_id = ?")
+            .bind(user.user_id)
+            .bind(&song_id)
+            .execute(&state.pool)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to enable song: {}", e)))?;
+
+        Ok(Json(DisabledStatusResponse {
+            song_id,
+            disabled: false,
+        }))
     }
 }
 
@@ -147,27 +122,17 @@ pub async fn set_disabled(
 pub async fn get_all_disabled(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    let result: Result<Vec<(String,)>, _> =
+) -> FerrotuneApiResult<Json<DisabledSongsResponse>> {
+    let rows: Vec<(String,)> =
         sqlx::query_as("SELECT song_id FROM disabled_songs WHERE user_id = ?")
             .bind(user.user_id)
             .fetch_all(&state.pool)
-            .await;
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to get disabled songs: {}", e)))?;
 
-    match result {
-        Ok(rows) => Json(DisabledSongsResponse {
-            song_ids: rows.into_iter().map(|(id,)| id).collect(),
-        })
-        .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to get disabled songs",
-                e.to_string(),
-            )),
-        )
-            .into_response(),
-    }
+    Ok(Json(DisabledSongsResponse {
+        song_ids: rows.into_iter().map(|(id,)| id).collect(),
+    }))
 }
 
 /// Bulk set disabled status for multiple songs.
@@ -177,33 +142,31 @@ pub async fn bulk_set_disabled(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(body): Json<BulkSetDisabledRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<BulkDisabledResponse>> {
     let count = body.song_ids.len();
 
     if body.disabled {
         // Add all to disabled list
         for song_id in &body.song_ids {
-            let _ = sqlx::query(
-                "INSERT OR IGNORE INTO disabled_songs (user_id, song_id) VALUES (?, ?)",
-            )
-            .bind(user.user_id)
-            .bind(song_id)
-            .execute(&state.pool)
-            .await;
+            sqlx::query("INSERT OR IGNORE INTO disabled_songs (user_id, song_id) VALUES (?, ?)")
+                .bind(user.user_id)
+                .bind(song_id)
+                .execute(&state.pool)
+                .await?;
         }
     } else {
         // Remove all from disabled list
         for song_id in &body.song_ids {
-            let _ = sqlx::query("DELETE FROM disabled_songs WHERE user_id = ? AND song_id = ?")
+            sqlx::query("DELETE FROM disabled_songs WHERE user_id = ? AND song_id = ?")
                 .bind(user.user_id)
                 .bind(song_id)
                 .execute(&state.pool)
-                .await;
+                .await?;
         }
     }
 
-    Json(BulkDisabledResponse {
+    Ok(Json(BulkDisabledResponse {
         count,
         disabled: body.disabled,
-    })
+    }))
 }

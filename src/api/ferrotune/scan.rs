@@ -1,8 +1,8 @@
 //! Library scanning endpoints.
 
 use super::scan_state::ScanProgressUpdate;
-use crate::api::ferrotune::ErrorResponse;
 use crate::api::AppState;
+use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -74,7 +74,7 @@ pub struct ScanResponse {
 pub async fn start_scan(
     State(state): State<Arc<AppState>>,
     Json(request): Json<ScanRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<impl IntoResponse> {
     let mode = if request.dry_run {
         "dry-run"
     } else if request.full {
@@ -85,11 +85,7 @@ pub async fn start_scan(
 
     // Try to start the scan
     if !state.scan_state.start(mode.to_string()).await {
-        return (
-            StatusCode::CONFLICT,
-            Json(ErrorResponse::new("A scan is already in progress")),
-        )
-            .into_response();
+        return Err(Error::Conflict("A scan is already in progress".to_string()).into());
     }
 
     tracing::info!(
@@ -142,7 +138,7 @@ pub async fn start_scan(
 
     // Return immediately with acknowledgement
     let message = format!("{} scan started", mode);
-    (
+    Ok((
         StatusCode::ACCEPTED,
         Json(ScanResponse {
             status: "started",
@@ -153,30 +149,26 @@ pub async fn start_scan(
             removed: None,
             errors: None,
         }),
-    )
-        .into_response()
+    ))
 }
 
 /// Cancel an in-progress scan.
-pub async fn cancel_scan(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn cancel_scan(
+    State(state): State<Arc<AppState>>,
+) -> FerrotuneApiResult<impl IntoResponse> {
     if !state.scan_state.is_scanning() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("No scan is currently in progress")),
-        )
-            .into_response();
+        return Err(Error::NotFound("No scan is currently in progress".to_string()).into());
     }
 
     state.scan_state.cancel().await;
 
-    (
+    Ok((
         StatusCode::OK,
         Json(serde_json::json!({
             "status": "cancelled",
             "message": "Scan cancellation requested"
         })),
-    )
-        .into_response()
+    ))
 }
 
 /// Scan status response.
@@ -202,10 +194,12 @@ pub struct ScanProgress {
 }
 
 /// Get the current scan status.
-pub async fn scan_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn scan_status(
+    State(state): State<Arc<AppState>>,
+) -> FerrotuneApiResult<impl IntoResponse> {
     let progress = state.scan_state.get_progress().await;
 
-    Json(ScanStatusResponse {
+    Ok(Json(ScanStatusResponse {
         scanning: progress.scanning,
         progress: if progress.scanning || progress.finished {
             Some(ScanProgress {
@@ -216,13 +210,13 @@ pub async fn scan_status(State(state): State<Arc<AppState>>) -> impl IntoRespons
         } else {
             None
         },
-    })
+    }))
 }
 
 /// Stream scan progress updates via Server-Sent Events.
 pub async fn scan_progress_stream(
     State(state): State<Arc<AppState>>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> FerrotuneApiResult<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
     // Get a receiver for progress updates
     let mut rx = state.scan_state.subscribe();
 
@@ -260,11 +254,11 @@ pub async fn scan_progress_stream(
         }
     };
 
-    Sse::new(stream).keep_alive(
+    Ok(Sse::new(stream).keep_alive(
         axum::response::sse::KeepAlive::new()
             .interval(Duration::from_secs(15))
             .text("keep-alive"),
-    )
+    ))
 }
 
 /// Response with scan logs.
@@ -276,9 +270,11 @@ pub struct ScanLogsResponse {
 }
 
 /// Get recent scan logs.
-pub async fn scan_logs(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn scan_logs(
+    State(state): State<Arc<AppState>>,
+) -> FerrotuneApiResult<impl IntoResponse> {
     let logs = state.scan_state.get_logs().await;
-    Json(ScanLogsResponse { logs })
+    Ok(Json(ScanLogsResponse { logs }))
 }
 
 /// Full scan progress response (combines status and logs).
@@ -291,14 +287,18 @@ pub struct FullScanStatusResponse {
 }
 
 /// Get full scan status including progress and logs.
-pub async fn full_scan_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn full_scan_status(
+    State(state): State<Arc<AppState>>,
+) -> FerrotuneApiResult<impl IntoResponse> {
     let progress = state.scan_state.get_progress().await;
 
-    Json(FullScanStatusResponse { progress })
+    Ok(Json(FullScanStatusResponse { progress }))
 }
 
 /// Get scan details (lists of affected files).
-pub async fn scan_details(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn scan_details(
+    State(state): State<Arc<AppState>>,
+) -> FerrotuneApiResult<impl IntoResponse> {
     let details = state.scan_state.get_details().await;
-    Json(details)
+    Ok(Json(details))
 }

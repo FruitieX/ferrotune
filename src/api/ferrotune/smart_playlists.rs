@@ -7,7 +7,7 @@ use crate::api::common::utils::format_datetime_iso_ms;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::SmartPlaylist;
-use crate::error::{Error, FerrotuneApiResult, Result};
+use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -650,7 +650,7 @@ async fn count_matching_songs(
     rules: &SmartPlaylistRulesApi,
     user_id: i64,
     max_songs: Option<i64>,
-) -> Result<i64> {
+) -> FerrotuneApiResult<i64> {
     let where_clause = build_where_clause(rules, user_id)?;
 
     // Always filter by enabled music folders
@@ -700,7 +700,7 @@ async fn materialize_smart_playlist_songs(
     max_songs: Option<i64>,
     offset: Option<i64>,
     limit: Option<i64>,
-) -> Result<Vec<crate::db::models::Song>> {
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
     let where_clause = build_where_clause(rules, user_id)?;
 
     // Always filter by enabled music folders
@@ -787,7 +787,7 @@ async fn count_matching_songs_filtered(
     user_id: i64,
     filter: Option<&str>,
     max_songs: Option<i64>,
-) -> Result<i64> {
+) -> FerrotuneApiResult<i64> {
     let where_clause = build_where_clause(rules, user_id)?;
 
     // Add filter clause if provided
@@ -853,7 +853,7 @@ async fn sum_matching_songs_duration_filtered(
     max_songs: Option<i64>,
     sort_field: Option<&str>,
     sort_direction: Option<&str>,
-) -> Result<i64> {
+) -> FerrotuneApiResult<i64> {
     let where_clause = build_where_clause(rules, user_id)?;
 
     // Add filter clause if provided
@@ -955,7 +955,7 @@ async fn materialize_smart_playlist_songs_filtered(
     offset: Option<i64>,
     limit: Option<i64>,
     filter: Option<&str>,
-) -> Result<Vec<crate::db::models::Song>> {
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
     let where_clause = build_where_clause(rules, user_id)?;
 
     // Add filter clause if provided
@@ -1062,7 +1062,7 @@ pub async fn get_smart_playlist_songs_by_id(
     user_id: i64,
     sort_field_override: Option<&str>,
     sort_direction_override: Option<&str>,
-) -> Result<Vec<crate::db::models::Song>> {
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
     // Fetch the smart playlist
     let playlist: SmartPlaylist =
         sqlx::query_as("SELECT * FROM smart_playlists WHERE id = ? AND owner_id = ?")
@@ -1095,7 +1095,7 @@ pub async fn get_smart_playlist_songs_by_id(
 }
 
 /// Build WHERE clause from filter rules
-fn build_where_clause(rules: &SmartPlaylistRulesApi, user_id: i64) -> Result<String> {
+fn build_where_clause(rules: &SmartPlaylistRulesApi, user_id: i64) -> FerrotuneApiResult<String> {
     if rules.conditions.is_empty() {
         return Ok(String::new());
     }

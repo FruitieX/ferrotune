@@ -7,16 +7,13 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
+use crate::error::{Error, FerrotuneApiResult};
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use axum::Json;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
-
-use super::ErrorResponse;
 
 /// Request to mark songs for deletion
 #[derive(Deserialize, TS)]
@@ -130,13 +127,9 @@ pub async fn mark_for_deletion(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<MarkForDeletionRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<MarkForDeletionResponse>> {
     if request.song_ids.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("No song IDs provided")),
-        )
-            .into_response();
+        return Err(Error::InvalidRequest("No song IDs provided".to_string()).into());
     }
 
     let now = Utc::now();
@@ -158,7 +151,7 @@ pub async fn mark_for_deletion(
         }
     }
 
-    Json(MarkForDeletionResponse {
+    Ok(Json(MarkForDeletionResponse {
         success: true,
         marked_count,
         message: format!(
@@ -166,8 +159,7 @@ pub async fn mark_for_deletion(
             marked_count,
             if marked_count == 1 { "" } else { "s" }
         ),
-    })
-    .into_response()
+    }))
 }
 
 /// Restore songs from recycle bin
@@ -176,13 +168,9 @@ pub async fn restore_songs(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<RestoreSongsRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<RestoreSongsResponse>> {
     if request.song_ids.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("No song IDs provided")),
-        )
-            .into_response();
+        return Err(Error::InvalidRequest("No song IDs provided".to_string()).into());
     }
 
     let mut restored_count = 0;
@@ -202,7 +190,7 @@ pub async fn restore_songs(
         }
     }
 
-    Json(RestoreSongsResponse {
+    Ok(Json(RestoreSongsResponse {
         success: true,
         restored_count,
         message: format!(
@@ -210,8 +198,7 @@ pub async fn restore_songs(
             restored_count,
             if restored_count == 1 { "" } else { "s" }
         ),
-    })
-    .into_response()
+    }))
 }
 
 /// List songs in recycle bin
@@ -220,28 +207,18 @@ pub async fn list_recycle_bin(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<RecycleBinParams>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<RecycleBinResponse>> {
     let limit = params.limit.unwrap_or(100).min(500);
     let offset = params.offset.unwrap_or(0);
 
     // Get total count
     let total_count: (i64,) =
-        match sqlx::query_as("SELECT COUNT(*) FROM songs WHERE marked_for_deletion_at IS NOT NULL")
+        sqlx::query_as("SELECT COUNT(*) FROM songs WHERE marked_for_deletion_at IS NOT NULL")
             .fetch_one(&state.pool)
-            .await
-        {
-            Ok(count) => count,
-            Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::with_details("Database error", e.to_string())),
-                )
-                    .into_response();
-            }
-        };
+            .await?;
 
     // Get songs
-    let songs: Vec<RecycleBinSong> = match sqlx::query_as(
+    let songs: Vec<RecycleBinSong> = sqlx::query_as(
         "SELECT s.id, s.title, ar.name as artist_name, al.name as album_name, \
          s.duration, s.file_path, s.file_size, s.cover_art_hash, s.marked_for_deletion_at \
          FROM songs s \
@@ -254,17 +231,7 @@ pub async fn list_recycle_bin(
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.pool)
-    .await
-    {
-        Ok(s) => s,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details("Database error", e.to_string())),
-            )
-                .into_response();
-        }
-    };
+    .await?;
 
     // Calculate days remaining for each song
     let now = Utc::now();
@@ -278,11 +245,10 @@ pub async fn list_recycle_bin(
         })
         .collect();
 
-    Json(RecycleBinResponse {
+    Ok(Json(RecycleBinResponse {
         songs: songs_with_days,
         total_count: total_count.0,
-    })
-    .into_response()
+    }))
 }
 
 /// Internal helper to delete songs - returns the response data
@@ -385,28 +351,22 @@ pub async fn delete_permanently(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<PermanentDeleteRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<PermanentDeleteResponse>> {
     // Check if file deletion is enabled
     if !super::server_config::is_file_deletion_enabled(&state).await {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new(
-                "File deletion is disabled. Enable 'Allow file deletion' in server settings.",
-            )),
+        return Err(Error::Forbidden(
+            "File deletion is disabled. Enable 'Allow file deletion' in server settings."
+                .to_string(),
         )
-            .into_response();
+        .into());
     }
 
     if request.song_ids.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("No song IDs provided")),
-        )
-            .into_response();
+        return Err(Error::InvalidRequest("No song IDs provided".to_string()).into());
     }
 
     let response = delete_songs_internal(&state, &request.song_ids, true).await;
-    Json(response).into_response()
+    Ok(Json(response))
 }
 
 /// Empty the recycle bin - delete all songs marked for deletion
@@ -414,47 +374,34 @@ pub async fn delete_permanently(
 pub async fn empty_recycle_bin(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<PermanentDeleteResponse>> {
     // Check if file deletion is enabled
     if !super::server_config::is_file_deletion_enabled(&state).await {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new(
-                "File deletion is disabled. Enable 'Allow file deletion' in server settings.",
-            )),
+        return Err(Error::Forbidden(
+            "File deletion is disabled. Enable 'Allow file deletion' in server settings."
+                .to_string(),
         )
-            .into_response();
+        .into());
     }
 
     // Get all songs in recycle bin
     let song_ids: Vec<(String,)> =
-        match sqlx::query_as("SELECT id FROM songs WHERE marked_for_deletion_at IS NOT NULL")
+        sqlx::query_as("SELECT id FROM songs WHERE marked_for_deletion_at IS NOT NULL")
             .fetch_all(&state.pool)
-            .await
-        {
-            Ok(ids) => ids,
-            Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::with_details("Database error", e.to_string())),
-                )
-                    .into_response();
-            }
-        };
+            .await?;
 
     if song_ids.is_empty() {
-        return Json(PermanentDeleteResponse {
+        return Ok(Json(PermanentDeleteResponse {
             success: true,
             deleted_count: 0,
             message: "Recycle bin is already empty".to_string(),
             errors: vec![],
-        })
-        .into_response();
+        }));
     }
 
     let ids: Vec<String> = song_ids.into_iter().map(|(id,)| id).collect();
     let response = delete_songs_internal(&state, &ids, true).await;
-    Json(response).into_response()
+    Ok(Json(response))
 }
 
 /// Purge expired songs (older than 30 days) - called periodically or on startup
@@ -462,51 +409,38 @@ pub async fn empty_recycle_bin(
 pub async fn purge_expired(
     _user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<Json<PermanentDeleteResponse>> {
     // Check if file deletion is enabled
     if !super::server_config::is_file_deletion_enabled(&state).await {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new(
-                "File deletion is disabled. Enable 'Allow file deletion' in server settings.",
-            )),
+        return Err(Error::Forbidden(
+            "File deletion is disabled. Enable 'Allow file deletion' in server settings."
+                .to_string(),
         )
-            .into_response();
+        .into());
     }
 
     let cutoff = Utc::now() - Duration::days(RETENTION_DAYS);
 
     // Get all expired songs
-    let song_ids: Vec<(String,)> = match sqlx::query_as(
+    let song_ids: Vec<(String,)> = sqlx::query_as(
         "SELECT id FROM songs WHERE marked_for_deletion_at IS NOT NULL AND marked_for_deletion_at < ?",
     )
     .bind(cutoff)
     .fetch_all(&state.pool)
-    .await
-    {
-        Ok(ids) => ids,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details("Database error", e.to_string())),
-            )
-                .into_response();
-        }
-    };
+    .await?;
 
     if song_ids.is_empty() {
-        return Json(PermanentDeleteResponse {
+        return Ok(Json(PermanentDeleteResponse {
             success: true,
             deleted_count: 0,
             message: "No expired songs to purge".to_string(),
             errors: vec![],
-        })
-        .into_response();
+        }));
     }
 
     tracing::info!("Purging {} expired songs from recycle bin", song_ids.len());
 
     let ids: Vec<String> = song_ids.into_iter().map(|(id,)| id).collect();
     let response = delete_songs_internal(&state, &ids, true).await;
-    Json(response).into_response()
+    Ok(Json(response))
 }

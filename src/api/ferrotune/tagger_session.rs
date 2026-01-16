@@ -22,6 +22,8 @@ use ts_rs::TS;
 
 use super::ErrorResponse;
 
+use crate::error::{Error, FerrotuneApiResult};
+
 // =============================================================================
 // Default Tagger Scripts (embedded at compile time)
 // =============================================================================
@@ -489,23 +491,13 @@ pub async fn get_or_create_session(
 pub async fn get_session(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<Json<TaggerSessionResponse>> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Get session data
-    let session: Option<crate::db::models::TaggerSession> = match sqlx::query_as(
+    let session: crate::db::models::TaggerSession = sqlx::query_as(
         r#"
         SELECT id, user_id, active_rename_script_id, active_tag_script_id,
                target_library_id, visible_columns, column_widths, file_column_width,
@@ -518,51 +510,18 @@ pub async fn get_session(
     .bind(session_id)
     .fetch_optional(&state.pool)
     .await
-    {
-        Ok(s) => s,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to fetch session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
-
-    let session = match session {
-        Some(s) => s,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Session not found")),
-            )
-                .into_response();
-        }
-    };
+    .map_err(|e| Error::Internal(format!("Failed to fetch session: {}", e)))?
+    .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
 
     // Get tracks with types
-    let track_rows: Vec<(String, String)> = match sqlx::query_as(
+    // Get tracks with types
+    let track_rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT track_id, track_type FROM tagger_session_tracks WHERE session_id = ? ORDER BY position",
     )
     .bind(session_id)
     .fetch_all(&state.pool)
     .await
-    {
-        Ok(t) => t,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to fetch tracks",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+    .map_err(|e| Error::Internal(format!("Failed to fetch tracks: {}", e)))?;
 
     let tracks: Vec<TaggerTrackEntry> = track_rows
         .into_iter()
@@ -587,7 +546,7 @@ pub async fn get_session(
     let column_widths: HashMap<String, i64> =
         serde_json::from_str(&session.column_widths).unwrap_or_default();
 
-    Json(TaggerSessionResponse {
+    Ok(Json(TaggerSessionResponse {
         tracks,
         visible_columns,
         active_rename_script_id: session.active_rename_script_id,
@@ -600,8 +559,7 @@ pub async fn get_session(
         details_panel_open: session.details_panel_open,
         dangerous_char_mode: session.dangerous_char_mode,
         dangerous_char_replacement: session.dangerous_char_replacement,
-    })
-    .into_response()
+    }))
 }
 
 /// PATCH /ferrotune/tagger/session
@@ -611,20 +569,10 @@ pub async fn update_session(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<UpdateTaggerSessionRequest>,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<StatusCode> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Build dynamic update query
     let mut updates = Vec::new();
@@ -676,7 +624,7 @@ pub async fn update_session(
     }
 
     if updates.is_empty() {
-        return StatusCode::NO_CONTENT.into_response();
+        return Ok(StatusCode::NO_CONTENT);
     }
 
     updates.push("updated_at = ?");
@@ -771,7 +719,7 @@ pub async fn update_session(
             .await;
     }
 
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// PUT /ferrotune/tagger/session/tracks
@@ -781,20 +729,10 @@ pub async fn set_session_tracks(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<SetTaggerTracksRequest>,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<StatusCode> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Delete existing tracks
     if let Err(e) = sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ?")
@@ -802,14 +740,7 @@ pub async fn set_session_tracks(
         .execute(&state.pool)
         .await
     {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to clear tracks",
-                e.to_string(),
-            )),
-        )
-            .into_response();
+        return Err(Error::Internal(format!("Failed to clear tracks: {}", e)).into());
     }
 
     // Insert new tracks
@@ -824,18 +755,11 @@ pub async fn set_session_tracks(
         .execute(&state.pool)
         .await
         {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to add track",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
+            return Err(Error::Internal(format!("Failed to add track: {}", e)).into());
         }
     }
 
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // =============================================================================
@@ -925,20 +849,10 @@ pub async fn get_pending_edits(
 pub async fn clear_pending_edits(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<StatusCode> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Get cover art filenames before deleting
     let cover_art_filenames: Vec<(Option<String>,)> = sqlx::query_as(
@@ -955,14 +869,7 @@ pub async fn clear_pending_edits(
         .execute(&state.pool)
         .await
     {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to clear edits",
-                e.to_string(),
-            )),
-        )
-            .into_response();
+        return Err(Error::Internal(format!("Failed to clear edits: {}", e)).into());
     }
 
     // Clean up cover art files
@@ -973,7 +880,7 @@ pub async fn clear_pending_edits(
         }
     }
 
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// PUT /ferrotune/tagger/session/edits/:track_id
@@ -984,46 +891,24 @@ pub async fn update_edit(
     State(state): State<Arc<AppState>>,
     Path(track_id): Path<String>,
     Json(request): Json<UpdatePendingEditRequest>,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<StatusCode> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     let edited_tags_json = serde_json::to_string(&request.edited_tags).unwrap_or_default();
     let now = Utc::now().to_rfc3339();
 
     // Look up the track_type from tagger_session_tracks
-    let track_type: String = match sqlx::query_scalar(
+    let track_type: String = sqlx::query_scalar(
         "SELECT track_type FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?",
     )
     .bind(session_id)
     .bind(&track_id)
     .fetch_optional(&state.pool)
     .await
-    {
-        Ok(Some(t)) => t,
-        Ok(None) => "library".to_string(), // Default to library if track not found
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to lookup track type",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+    .map_err(|e| Error::Internal(format!("Failed to lookup track type: {}", e)))?
+    .unwrap_or_else(|| "library".to_string()); // Default to library if track not found
 
     // Upsert the edit (INSERT OR REPLACE)
     if let Err(e) = sqlx::query(
@@ -1047,16 +932,11 @@ pub async fn update_edit(
     .bind(&now)
     .bind(&now)
     .execute(&state.pool)
-    .await
-    {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details("Failed to save edit", e.to_string())),
-        )
-            .into_response();
+    .await {
+        return Err(Error::Internal(format!("Failed to save edit: {}", e)).into());
     }
 
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// DELETE /ferrotune/tagger/session/edits/:track_id
@@ -1066,20 +946,10 @@ pub async fn delete_edit(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(track_id): Path<String>,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<StatusCode> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     if let Err(e) =
         sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?")
@@ -1088,17 +958,10 @@ pub async fn delete_edit(
             .execute(&state.pool)
             .await
     {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to delete edit",
-                e.to_string(),
-            )),
-        )
-            .into_response();
+        return Err(Error::Internal(format!("Failed to delete edit: {}", e)).into());
     }
 
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// POST /ferrotune/tagger/session/tracks
@@ -1108,20 +971,10 @@ pub async fn add_tracks(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<AddTracksRequest>,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<StatusCode> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Get current max position
     let max_pos: (i64,) = sqlx::query_as(
@@ -1152,16 +1005,14 @@ pub async fn add_tracks(
                 }
             }
             Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::with_details("Failed to add track", e.to_string())),
-                )
-                    .into_response();
+                return Err(
+                    Error::Internal(format!("Failed to add track: {}", e)).into()
+                );
             }
         }
     }
 
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// DELETE /ferrotune/tagger/session/tracks/:track_id
@@ -1171,20 +1022,10 @@ pub async fn remove_track(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(track_id): Path<String>,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<StatusCode> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Delete the track
     if let Err(e) =
@@ -1194,14 +1035,7 @@ pub async fn remove_track(
             .execute(&state.pool)
             .await
     {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to remove track",
-                e.to_string(),
-            )),
-        )
-            .into_response();
+        return Err(Error::Internal(format!("Failed to remove track: {}", e)).into());
     }
 
     // Also delete any pending edit for this track
@@ -1211,7 +1045,7 @@ pub async fn remove_track(
         .execute(&state.pool)
         .await;
 
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// POST /ferrotune/tagger/session/tracks/remove
@@ -1221,20 +1055,10 @@ pub async fn remove_tracks(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<RemoveTracksRequest>,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<StatusCode> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     let cover_art_dir = get_cover_art_dir(&user.username);
     let staging_dir = crate::config::get_data_dir()
@@ -1287,7 +1111,7 @@ pub async fn remove_tracks(
                 .await;
     }
 
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// PUT /ferrotune/tagger/session/edits/:track_id/cover
@@ -1299,20 +1123,10 @@ pub async fn upload_cover_art(
     State(state): State<Arc<AppState>>,
     Path(track_id): Path<String>,
     mut multipart: axum::extract::Multipart,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<Json<CoverArtUploadResponse>> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Extract the file from multipart
     let (data, mime_type) = match multipart.next_field().await {
@@ -1325,47 +1139,22 @@ pub async fn upload_cover_art(
             match field.bytes().await {
                 Ok(bytes) => (bytes.to_vec(), content_type),
                 Err(e) => {
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        Json(ErrorResponse::with_details(
-                            "Failed to read file",
-                            e.to_string(),
-                        )),
-                    )
-                        .into_response();
+                    return Err(Error::InvalidRequest(format!("Failed to read file: {}", e)).into());
                 }
             }
         }
         Ok(None) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse::new("No file provided")),
-            )
-                .into_response();
+            return Err(Error::InvalidRequest("No file provided".to_string()).into());
         }
         Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse::with_details(
-                    "Failed to parse multipart",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
+            return Err(Error::InvalidRequest(format!("Failed to parse multipart: {}", e)).into());
         }
     };
 
     // Ensure cover art directory exists
     let cover_art_dir = get_cover_art_dir(&user.username);
     if let Err(e) = fs::create_dir_all(&cover_art_dir).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to create cover art directory",
-                e.to_string(),
-            )),
-        )
-            .into_response();
+        return Err(Error::Internal(format!("Failed to create cover art directory: {}", e)).into());
     }
 
     // Get existing cover art filename to clean up
@@ -1395,25 +1184,13 @@ pub async fn upload_cover_art(
     match fs::File::create(&cover_art_path).await {
         Ok(mut file) => {
             if let Err(e) = file.write_all(&data).await {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::with_details(
-                        "Failed to write cover art file",
-                        e.to_string(),
-                    )),
-                )
-                    .into_response();
+                return Err(
+                    Error::Internal(format!("Failed to write cover art file: {}", e)).into(),
+                );
             }
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to create cover art file",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
+            return Err(Error::Internal(format!("Failed to create cover art file: {}", e)).into());
         }
     }
 
@@ -1453,14 +1230,10 @@ pub async fn upload_cover_art(
     {
         // Clean up the file we just wrote
         let _ = fs::remove_file(&cover_art_path).await;
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details("Failed to update cover art metadata", e.to_string())),
-        )
-            .into_response();
+        return Err(Error::Internal(format!("Failed to update cover art metadata: {}", e)).into());
     }
 
-    Json(CoverArtUploadResponse { success: true }).into_response()
+    Ok(Json(CoverArtUploadResponse { success: true }))
 }
 
 /// DELETE /ferrotune/tagger/session/edits/:track_id/cover
@@ -1470,20 +1243,10 @@ pub async fn delete_cover_art(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(track_id): Path<String>,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<StatusCode> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Get and delete the cover art file
     let existing: Option<(Option<String>,)> = sqlx::query_as(
@@ -1493,8 +1256,7 @@ pub async fn delete_cover_art(
     .bind(&track_id)
     .fetch_optional(&state.pool)
     .await
-    .ok()
-    .flatten();
+    .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
 
     if let Some((Some(filename),)) = existing {
         let cover_art_dir = get_cover_art_dir(&user.username);
@@ -1509,8 +1271,7 @@ pub async fn delete_cover_art(
     .bind(&track_id)
     .fetch_optional(&state.pool)
     .await
-    .ok()
-    .flatten()
+    .map_err(|e| Error::Internal(format!("Failed to lookup track type: {}", e)))?
     .unwrap_or_else(|| "library".to_string());
 
     let now = Utc::now().to_rfc3339();
@@ -1535,14 +1296,10 @@ pub async fn delete_cover_art(
     .execute(&state.pool)
     .await
     {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details("Failed to remove cover art", e.to_string())),
-        )
-            .into_response();
+        return Err(Error::Internal(format!("Failed to remove cover art: {}", e)).into());
     }
 
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// GET /ferrotune/tagger/session/edits/:track_id/cover
@@ -1552,20 +1309,10 @@ pub async fn get_cover_art(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(track_id): Path<String>,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<impl IntoResponse> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Get cover art filename from database
     let result: Option<(Option<String>,)> = sqlx::query_as(
@@ -1575,12 +1322,11 @@ pub async fn get_cover_art(
     .bind(&track_id)
     .fetch_optional(&state.pool)
     .await
-    .ok()
-    .flatten();
+    .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
 
     let filename = match result {
         Some((Some(f),)) => f,
-        _ => return StatusCode::NOT_FOUND.into_response(),
+        _ => return Err(Error::NotFound("Cover art not found".to_string()).into()),
     };
 
     // Determine mime type from extension
@@ -1597,15 +1343,15 @@ pub async fn get_cover_art(
     // Read the file
     let cover_art_path = get_cover_art_dir(&user.username).join(&filename);
     match fs::read(&cover_art_path).await {
-        Ok(data) => (
+        Ok(data) => Ok((
             [
                 (axum::http::header::CONTENT_TYPE, mime_type.to_string()),
                 (axum::http::header::CACHE_CONTROL, "no-cache".to_string()),
             ],
             data,
         )
-            .into_response(),
-        Err(_) => StatusCode::NOT_FOUND.into_response(),
+            .into_response()),
+        Err(_) => Err(Error::NotFound("Cover art file missing".to_string()).into()),
     }
 }
 
@@ -1674,20 +1420,10 @@ pub async fn upload_replacement_audio(
     State(state): State<Arc<AppState>>,
     Path(track_id): Path<String>,
     mut multipart: axum::extract::Multipart,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<Json<ReplacementAudioUploadResponse>> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Check that this is a library track (not staged)
     let track_type: Option<(String,)> = sqlx::query_as(
@@ -1697,23 +1433,16 @@ pub async fn upload_replacement_audio(
     .bind(&track_id)
     .fetch_optional(&state.pool)
     .await
-    .ok()
-    .flatten();
+    .map_err(|e| Error::Internal(format!("Failed to lookup track type: {}", e)))?;
 
     match track_type {
         Some((t,)) if t == "staged" => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse::new("Cannot replace audio for staged files")),
-            )
-                .into_response();
+            return Err(
+                Error::InvalidRequest("Cannot replace audio for staged files".to_string()).into(),
+            );
         }
         None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Track not found in session")),
-            )
-                .into_response();
+            return Err(Error::NotFound("Track not found in session".to_string()).into());
         }
         _ => {} // library track, proceed
     }
@@ -1740,14 +1469,7 @@ pub async fn upload_replacement_audio(
                     file_data = Some((bytes.to_vec(), filename));
                 }
                 Err(e) => {
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        Json(ErrorResponse::with_details(
-                            "Failed to read file",
-                            e.to_string(),
-                        )),
-                    )
-                        .into_response();
+                    return Err(Error::InvalidRequest(format!("Failed to read file: {}", e)).into());
                 }
             }
         } else if name == "options" {
@@ -1769,11 +1491,7 @@ pub async fn upload_replacement_audio(
     let (data, original_filename) = match file_data {
         Some(d) => d,
         None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse::new("No file provided")),
-            )
-                .into_response();
+            return Err(Error::InvalidRequest("No file provided".to_string()).into());
         }
     };
 
@@ -1785,25 +1503,15 @@ pub async fn upload_replacement_audio(
         .to_lowercase();
     let valid_extensions = ["mp3", "flac", "ogg", "m4a", "opus", "wav", "aac", "wma"];
     if !valid_extensions.contains(&ext.as_str()) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::with_details(
-                "Unsupported file type",
-                format!("Extension '{}' is not supported", ext),
-            )),
-        )
-            .into_response();
+        return Err(Error::InvalidRequest(format!("Extension '{}' is not supported", ext)).into());
     }
 
     // At least one import option must be enabled
     if !options.import_audio && !options.import_tags && !options.import_cover_art {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new(
-                "At least one import option must be enabled",
-            )),
+        return Err(Error::InvalidRequest(
+            "At least one import option must be enabled".to_string(),
         )
-            .into_response();
+        .into());
     }
 
     // Write to a temporary file so we can parse it with lofty
@@ -1812,14 +1520,7 @@ pub async fn upload_replacement_audio(
     let temp_path = temp_dir.join(&temp_filename);
 
     if let Err(e) = fs::write(&temp_path, &data).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to write temporary file",
-                e.to_string(),
-            )),
-        )
-            .into_response();
+        return Err(Error::Internal(format!("Failed to write temporary file: {}", e)).into());
     }
 
     // Extract tags and cover art from the file if needed
@@ -1916,22 +1617,13 @@ pub async fn upload_replacement_audio(
             }
             Ok(Err(e)) => {
                 let _ = fs::remove_file(&temp_path).await;
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(ErrorResponse::with_details("Failed to extract metadata", e)),
-                )
-                    .into_response();
+                return Err(
+                    Error::InvalidRequest(format!("Failed to extract metadata: {}", e)).into(),
+                );
             }
             Err(e) => {
                 let _ = fs::remove_file(&temp_path).await;
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::with_details(
-                        "Failed to process file",
-                        e.to_string(),
-                    )),
-                )
-                    .into_response();
+                return Err(Error::Internal(format!("Failed to process file: {}", e)).into());
             }
         }
     }
@@ -1946,14 +1638,11 @@ pub async fn upload_replacement_audio(
     if options.import_audio {
         let replacement_dir = get_replacement_audio_dir(&user.username);
         if let Err(e) = fs::create_dir_all(&replacement_dir).await {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to create replacement audio directory",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
+            return Err(Error::Internal(format!(
+                "Failed to create replacement audio directory: {}",
+                e
+            ))
+            .into());
         }
 
         // Get existing replacement audio filename to clean up
@@ -1964,8 +1653,7 @@ pub async fn upload_replacement_audio(
         .bind(&track_id)
         .fetch_optional(&state.pool)
         .await
-        .ok()
-        .flatten();
+        .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
 
         // Delete old replacement audio file if exists
         if let Some((Some(old_filename),)) = existing_filename {
@@ -1980,14 +1668,9 @@ pub async fn upload_replacement_audio(
 
         // Write the new replacement audio file
         if let Err(e) = fs::write(&replacement_path, &data).await {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to write replacement audio file",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
+            return Err(
+                Error::Internal(format!("Failed to write replacement audio file: {}", e)).into(),
+            );
         }
 
         replacement_audio_filename = Some(filename);
@@ -1999,14 +1682,11 @@ pub async fn upload_replacement_audio(
         if let Some(cover_data) = cover_art_data {
             let cover_art_dir = get_cover_art_dir(&user.username);
             if let Err(e) = fs::create_dir_all(&cover_art_dir).await {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::with_details(
-                        "Failed to create cover art directory",
-                        e.to_string(),
-                    )),
-                )
-                    .into_response();
+                return Err(Error::Internal(format!(
+                    "Failed to create cover art directory: {}",
+                    e
+                ))
+                .into());
             }
 
             // Get existing cover art filename to clean up
@@ -2017,8 +1697,7 @@ pub async fn upload_replacement_audio(
             .bind(&track_id)
             .fetch_optional(&state.pool)
             .await
-            .ok()
-            .flatten();
+            .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
 
             // Delete old cover art file if exists
             if let Some((Some(old_filename),)) = existing_cover {
@@ -2045,14 +1724,9 @@ pub async fn upload_replacement_audio(
             let cover_path = cover_art_dir.join(&filename);
 
             if let Err(e) = fs::write(&cover_path, &cover_data).await {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::with_details(
-                        "Failed to write cover art file",
-                        e.to_string(),
-                    )),
-                )
-                    .into_response();
+                return Err(
+                    Error::Internal(format!("Failed to write cover art file: {}", e)).into(),
+                );
             }
 
             cover_art_filename = Some(filename);
@@ -2076,8 +1750,7 @@ pub async fn upload_replacement_audio(
     .bind(&track_id)
     .fetch_optional(&state.pool)
     .await
-    .ok()
-    .flatten();
+    .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
 
     // Replace edited tags if importing tags (no merging - clear all existing and replace with imported)
     let final_edited_tags = if let Some(ref new_tags) = imported_tags {
@@ -2149,25 +1822,17 @@ pub async fn upload_replacement_audio(
     .execute(&state.pool)
     .await
     {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to update pending edits",
-                e.to_string(),
-            )),
-        )
-            .into_response();
+        return Err(Error::Internal(format!("Failed to update pending edits: {}", e)).into());
     }
 
-    Json(ReplacementAudioUploadResponse {
+    Ok(Json(ReplacementAudioUploadResponse {
         success: true,
         file_format: ext,
         original_name: original_filename,
         audio_imported: options.import_audio,
         imported_tags,
         cover_art_imported,
-    })
-    .into_response()
+    }))
 }
 
 /// DELETE /ferrotune/tagger/session/edits/:track_id/replacement-audio
@@ -2177,20 +1842,10 @@ pub async fn delete_replacement_audio(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(track_id): Path<String>,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<StatusCode> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Get and delete the replacement audio file
     let existing: Option<(Option<String>,)> = sqlx::query_as(
@@ -2200,8 +1855,7 @@ pub async fn delete_replacement_audio(
     .bind(&track_id)
     .fetch_optional(&state.pool)
     .await
-    .ok()
-    .flatten();
+    .map_err(|e| Error::Internal(format!("Failed to fetch pending edit: {}", e)))?;
 
     if let Some((Some(filename),)) = existing {
         let replacement_dir = get_replacement_audio_dir(&user.username);
@@ -2219,7 +1873,7 @@ pub async fn delete_replacement_audio(
     .execute(&state.pool)
     .await;
 
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// GET /ferrotune/tagger/session/edits/:track_id/replacement-audio/stream
@@ -2230,7 +1884,7 @@ pub async fn stream_replacement_audio(
     State(state): State<Arc<AppState>>,
     Path(track_id): Path<String>,
     headers: HeaderMap,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<axum::response::Response> {
     use axum::http::header;
     use tokio::io::AsyncReadExt;
 
@@ -2240,21 +1894,12 @@ pub async fn stream_replacement_audio(
     )
     .bind(user.user_id)
     .fetch_optional(&state.pool)
-    .await
-    .ok()
-    .flatten();
+    .await?;
 
     let session_id = match session_id {
         Some((id,)) => id,
         None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::with_details(
-                    "No tagger session found",
-                    "Session does not exist",
-                )),
-            )
-                .into_response();
+            return Err(Error::NotFound("Tagger session not found".to_string()).into());
         }
     };
 
@@ -2265,21 +1910,12 @@ pub async fn stream_replacement_audio(
     .bind(session_id)
     .bind(&track_id)
     .fetch_optional(&state.pool)
-    .await
-    .ok()
-    .flatten();
+    .await?;
 
     let filename = match filename {
         Some((Some(f),)) => f,
         _ => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::with_details(
-                    "No replacement audio found",
-                    "No replacement audio staged for this track",
-                )),
-            )
-                .into_response();
+            return Err(Error::NotFound("No replacement audio found".to_string()).into());
         }
     };
 
@@ -2287,30 +1923,16 @@ pub async fn stream_replacement_audio(
     let file_path = replacement_dir.join(&filename);
 
     if !file_path.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::with_details(
-                "File not found",
-                "The replacement audio file does not exist on disk",
-            )),
+        return Err(Error::NotFound(
+            "The replacement audio file does not exist on disk".to_string(),
         )
-            .into_response();
+        .into());
     }
 
     // Get file metadata
-    let metadata = match fs::metadata(&file_path).await {
-        Ok(m) => m,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to read file metadata",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+    let metadata = fs::metadata(&file_path)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to read file metadata: {}", e)))?;
 
     let file_size = metadata.len();
 
@@ -2346,50 +1968,26 @@ pub async fn stream_replacement_audio(
         });
 
     // Read file content
-    let mut file = match fs::File::open(&file_path).await {
-        Ok(f) => f,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to open file",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+    let mut file = fs::File::open(&file_path)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to open file: {}", e)))?;
 
     match range {
         Some((start, end)) => {
             // Partial content response
             use tokio::io::AsyncSeekExt;
 
-            if let Err(e) = file.seek(std::io::SeekFrom::Start(start)).await {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::with_details(
-                        "Failed to seek in file",
-                        e.to_string(),
-                    )),
-                )
-                    .into_response();
-            }
+            file.seek(std::io::SeekFrom::Start(start))
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to seek in file: {}", e)))?;
 
             let content_length = end - start + 1;
             let mut buffer = vec![0u8; content_length as usize];
-            if let Err(e) = file.read_exact(&mut buffer).await {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::with_details(
-                        "Failed to read file",
-                        e.to_string(),
-                    )),
-                )
-                    .into_response();
-            }
+            file.read_exact(&mut buffer)
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to read file: {}", e)))?;
 
-            (
+            Ok((
                 StatusCode::PARTIAL_CONTENT,
                 [
                     (header::CONTENT_TYPE, content_type.to_string()),
@@ -2398,36 +1996,31 @@ pub async fn stream_replacement_audio(
                         header::CONTENT_RANGE,
                         format!("bytes {}-{}/{}", start, end, file_size),
                     ),
+                    (header::CACHE_CONTROL, "no-cache".to_string()),
                     (header::ACCEPT_RANGES, "bytes".to_string()),
                 ],
                 buffer,
             )
-                .into_response()
+                .into_response())
         }
         None => {
             // Full content response
             let mut buffer = Vec::new();
-            if let Err(e) = file.read_to_end(&mut buffer).await {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::with_details(
-                        "Failed to read file",
-                        e.to_string(),
-                    )),
-                )
-                    .into_response();
-            }
+            file.read_to_end(&mut buffer)
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to read file: {}", e)))?;
 
-            (
+            Ok((
                 StatusCode::OK,
                 [
                     (header::CONTENT_TYPE, content_type.to_string()),
                     (header::CONTENT_LENGTH, file_size.to_string()),
+                    (header::CACHE_CONTROL, "no-cache".to_string()),
                     (header::ACCEPT_RANGES, "bytes".to_string()),
                 ],
                 buffer,
             )
-                .into_response()
+                .into_response())
         }
     }
 }
@@ -2489,27 +2082,18 @@ pub async fn save_scripts(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(scripts): Json<Vec<TaggerScriptData>>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<StatusCode> {
     // Delete existing scripts
-    if let Err(e) = sqlx::query("DELETE FROM tagger_scripts WHERE user_id = ?")
+    sqlx::query("DELETE FROM tagger_scripts WHERE user_id = ?")
         .bind(user.user_id)
         .execute(&state.pool)
         .await
-    {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to clear scripts",
-                e.to_string(),
-            )),
-        )
-            .into_response();
-    }
+        .map_err(|e| Error::Internal(format!("Failed to clear scripts: {}", e)))?;
 
     // Insert new scripts
     let now = Utc::now().to_rfc3339();
     for (position, script) in scripts.iter().enumerate() {
-        if let Err(e) = sqlx::query(
+        sqlx::query(
             r#"
             INSERT INTO tagger_scripts (id, user_id, name, type, script, position, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -2525,16 +2109,10 @@ pub async fn save_scripts(
         .bind(&now)
         .execute(&state.pool)
         .await
-        {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details("Failed to save script", e.to_string())),
-            )
-                .into_response();
-        }
+        .map_err(|e| Error::Internal(format!("Failed to save script: {}", e)))?;
     }
 
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// DELETE /ferrotune/tagger/scripts/:id
@@ -2544,24 +2122,15 @@ pub async fn delete_script(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(script_id): Path<String>,
-) -> impl IntoResponse {
-    if let Err(e) = sqlx::query("DELETE FROM tagger_scripts WHERE id = ? AND user_id = ?")
+) -> FerrotuneApiResult<StatusCode> {
+    sqlx::query("DELETE FROM tagger_scripts WHERE id = ? AND user_id = ?")
         .bind(&script_id)
         .bind(user.user_id)
         .execute(&state.pool)
         .await
-    {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::with_details(
-                "Failed to delete script",
-                e.to_string(),
-            )),
-        )
-            .into_response();
-    }
+        .map_err(|e| Error::Internal(format!("Failed to delete script: {}", e)))?;
 
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// DELETE /ferrotune/tagger/session
@@ -2570,34 +2139,26 @@ pub async fn delete_script(
 pub async fn clear_session(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+) -> FerrotuneApiResult<StatusCode> {
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     // Delete tracks
-    let _ = sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ?")
+    sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ?")
         .bind(session_id)
         .execute(&state.pool)
-        .await;
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to delete tracks: {}", e)))?;
 
     // Delete edits
-    let _ = sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ?")
+    sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ?")
         .bind(session_id)
         .execute(&state.pool)
-        .await;
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to delete edits: {}", e)))?;
 
-    StatusCode::NO_CONTENT.into_response()
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// POST /ferrotune/tagger/session/save
@@ -2611,22 +2172,12 @@ pub async fn save_pending_edits(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<SavePendingEditsRequest>,
-) -> impl IntoResponse {
+) -> FerrotuneApiResult<axum::response::Response> {
     use crate::db::queries;
 
-    let session_id = match get_or_create_session(&state.pool, user.user_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get session",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+    let session_id = get_or_create_session(&state.pool, user.user_id)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
     let cover_art_dir = get_cover_art_dir(&user.username);
     let staging_dir = super::tagger::get_staging_dir(&state, &user.username);
@@ -2650,19 +2201,9 @@ pub async fn save_pending_edits(
     ];
 
     // Get music folders once for all tracks
-    let music_folders = match queries::get_music_folders(&state.pool).await {
-        Ok(folders) => folders,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::with_details(
-                    "Failed to get music folders",
-                    e.to_string(),
-                )),
-            )
-                .into_response();
-        }
-    };
+    let music_folders = queries::get_music_folders(&state.pool)
+        .await
+        .map_err(|e| Error::Internal(format!("Failed to get music folders: {}", e)))?;
 
     for track_id in &request.track_ids {
         // First, determine if this is a staged or library track
@@ -3381,6 +2922,7 @@ pub async fn save_pending_edits(
     }
 
     // Return appropriate status code based on results
+    // Return appropriate status code based on results
     let status = if errors.is_empty() {
         StatusCode::OK
     } else if saved_count == 0 {
@@ -3390,7 +2932,7 @@ pub async fn save_pending_edits(
         StatusCode::MULTI_STATUS
     };
 
-    (
+    Ok((
         status,
         Json(SavePendingEditsResponse {
             success: errors.is_empty(),
@@ -3400,7 +2942,7 @@ pub async fn save_pending_edits(
             new_song_paths: new_song_ids,
         }),
     )
-        .into_response()
+        .into_response())
 }
 
 /// Helper function to get track IDs for a user's session (for orphaned files detection)
