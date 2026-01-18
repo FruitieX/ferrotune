@@ -78,6 +78,17 @@ pub fn sort_songs(mut songs: Vec<Song>, sort: Option<&str>, sort_dir: Option<&st
             "lastPlayed" => a.last_played.cmp(&b.last_played),
             "duration" => a.duration.cmp(&b.duration),
             "size" => a.file_size.cmp(&b.file_size),
+            // Track number sort: by disc number first, then track number
+            "trackNumber" => {
+                let disc_cmp = a.disc_number.cmp(&b.disc_number);
+                if disc_cmp != std::cmp::Ordering::Equal {
+                    disc_cmp
+                } else {
+                    a.track_number
+                        .unwrap_or(0)
+                        .cmp(&b.track_number.unwrap_or(0))
+                }
+            }
             _ => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
         };
         cmp

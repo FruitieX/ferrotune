@@ -89,6 +89,7 @@ interface VirtualQueueItemProps {
   onRemove: () => void;
   onTogglePlayPause: () => void;
   onMoveToPosition: (song: QueueSongEntry["song"], index: number) => void;
+  onNavigate?: () => void;
 }
 
 /**
@@ -104,6 +105,7 @@ function VirtualQueueItem({
   onRemove,
   onTogglePlayPause,
   onMoveToPosition,
+  onNavigate,
 }: VirtualQueueItemProps) {
   const song = entry.song;
 
@@ -173,7 +175,10 @@ function VirtualQueueItem({
             <Link
               href={`/library/artists/details?id=${song.artistId}`}
               className="hover:underline hover:text-foreground transition-colors"
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onNavigate?.();
+              }}
               prefetch={false}
             >
               {song.artist}
@@ -184,7 +189,10 @@ function VirtualQueueItem({
                 <Link
                   href={`/library/albums/details?id=${song.albumId}`}
                   className="hover:underline hover:text-foreground transition-colors"
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNavigate?.();
+                  }}
                   prefetch={false}
                 >
                   {song.album}
@@ -227,6 +235,8 @@ function VirtualQueueItem({
 
 interface VirtualizedQueueDisplayProps {
   variant?: "mobile" | "desktop";
+  /** Called when user navigates away via a link (for closing fullscreen etc.) */
+  onNavigate?: () => void;
 }
 
 /** Handle exposed by VirtualizedQueueDisplay for imperative control */
@@ -246,7 +256,10 @@ export interface VirtualizedQueueDisplayHandle {
 export const VirtualizedQueueDisplay = forwardRef<
   VirtualizedQueueDisplayHandle,
   VirtualizedQueueDisplayProps
->(function VirtualizedQueueDisplay({ variant: _variant = "desktop" }, ref) {
+>(function VirtualizedQueueDisplay(
+  { variant: _variant = "desktop", onNavigate },
+  ref,
+) {
   const parentRef = useRef<HTMLDivElement>(null);
 
   const queueState = useAtomValue(serverQueueStateAtom);
@@ -618,6 +631,7 @@ export const VirtualizedQueueDisplay = forwardRef<
                     onRemove={() => removeFromQueue(virtualItem.index)}
                     onTogglePlayPause={togglePlayPause}
                     onMoveToPosition={handleMoveToPosition}
+                    onNavigate={onNavigate}
                   />
                 ) : (
                   <QueueItemPlaceholder />

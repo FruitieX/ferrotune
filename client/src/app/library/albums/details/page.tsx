@@ -301,6 +301,7 @@ function AlbumDetailContent() {
             onColumnVisibilityChange={setColumnVisibility}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
+            showTrackNumber
           />
         }
         mobileFilter={
@@ -318,6 +319,7 @@ function AlbumDetailContent() {
             onViewModeChange={setViewMode}
             columnVisibility={columnVisibility}
             onColumnVisibilityChange={setColumnVisibility}
+            showTrackNumber
           />
         }
       >

@@ -50,6 +50,7 @@ export interface SortConfig {
 
 const sortOptions: { value: SortField; label: string }[] = [
   { value: "custom", label: "Custom" },
+  { value: "trackNumber", label: "Track Number" },
   { value: "name", label: "Name" },
   { value: "artist", label: "Artist" },
   { value: "year", label: "Year" },
@@ -96,6 +97,8 @@ interface SongListToolbarProps {
   showAdvancedFilters?: boolean;
   /** Show the "Custom" sort option (for playlist reordering) */
   showCustomSort?: boolean;
+  /** Show "Track Number" sort option (for album views) */
+  showTrackNumber?: boolean;
   /** Show the "Added to Playlist" sort option (for playlist views) */
   showAddedToPlaylist?: boolean;
 }
@@ -116,6 +119,7 @@ export function SongListToolbar({
   showViewMode = true,
   showAdvancedFilters = false,
   showCustomSort = false,
+  showTrackNumber = false,
   showAddedToPlaylist = false,
 }: SongListToolbarProps) {
   const handleSort = (field: SortField) => {
@@ -194,6 +198,7 @@ export function SongListToolbar({
                 .filter(
                   (option) =>
                     (showCustomSort || option.value !== "custom") &&
+                    (showTrackNumber || option.value !== "trackNumber") &&
                     (showAddedToPlaylist || option.value !== "addedToPlaylist"),
                 )
                 .map((option) => (
@@ -545,6 +550,8 @@ interface AlbumDetailMobileMenuProps {
   // Sort
   sortConfig: SortConfig;
   onSortChange: (config: SortConfig) => void;
+  /** Show "Track Number" sort option (for album views) */
+  showTrackNumber?: boolean;
 
   // View mode
   viewMode: ViewMode;
@@ -558,12 +565,18 @@ interface AlbumDetailMobileMenuProps {
 export function AlbumDetailMobileMenu({
   sortConfig,
   onSortChange,
+  showTrackNumber = false,
   viewMode,
   onViewModeChange,
   columnVisibility,
   onColumnVisibilityChange,
 }: AlbumDetailMobileMenuProps) {
   const handleSort = (field: SortField) => {
+    // For "custom" sort (playlist order), don't toggle direction
+    if (field === "custom") {
+      onSortChange({ field, direction: "asc" });
+      return;
+    }
     if (sortConfig.field === field) {
       onSortChange({
         field,
@@ -608,6 +621,7 @@ export function AlbumDetailMobileMenu({
               {sortOptions
                 .filter(
                   (option) =>
+                    (showTrackNumber || option.value !== "trackNumber") &&
                     option.value !== "custom" &&
                     option.value !== "addedToPlaylist",
                 )

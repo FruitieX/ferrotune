@@ -159,7 +159,7 @@ export default function HomePage() {
       if (!client) throw new Error("Not connected");
       const response = await client.getAlbumList2({
         type: "newest",
-        size: 10,
+        size: 50,
         inlineImages: "medium",
       });
       return response.albumList2.album;
@@ -175,7 +175,7 @@ export default function HomePage() {
       if (!client) throw new Error("Not connected");
       const response = await client.getAlbumList2({
         type: "random",
-        size: 10,
+        size: 50,
         inlineImages: "medium",
       });
       return response.albumList2.album;
@@ -191,7 +191,7 @@ export default function HomePage() {
       if (!client) throw new Error("Not connected");
       const response = await client.getAlbumList2({
         type: "frequent",
-        size: 10,
+        size: 50,
         inlineImages: "medium",
       });
       return response.albumList2.album;
@@ -207,7 +207,7 @@ export default function HomePage() {
       if (!client) throw new Error("Not connected");
       const response = await client.getAlbumList2({
         type: "recent",
-        size: 10,
+        size: 50,
         inlineImages: "medium",
       });
       return response.albumList2.album;

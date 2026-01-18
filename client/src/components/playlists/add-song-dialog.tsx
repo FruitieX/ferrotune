@@ -126,7 +126,8 @@ export function AddSongToPlaylistDialog({
     onSuccess: () => {
       const songTitle = selectedSong?.title || "Song";
       toast.success(`Added "${songTitle}" to ${playlistName}`);
-      // Invalidate both playlist and playlistSongs queries
+      // Invalidate playlist queries to update counts and song lists
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
       queryClient.invalidateQueries({ queryKey: ["playlist", playlistId] });
       queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],

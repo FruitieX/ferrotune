@@ -98,7 +98,7 @@ function getQueueSourceLink(source: QueueSourceInfo): string | null {
 }
 
 // Queue source display component
-function QueueSourceDisplay() {
+function QueueSourceDisplay({ onNavigate }: { onNavigate?: () => void }) {
   const queueState = useAtomValue(serverQueueStateAtom);
 
   // Don't show if queue is empty or no meaningful source
@@ -133,6 +133,7 @@ function QueueSourceDisplay() {
       <Link
         href={link}
         className="block px-4 py-2 border-b border-border hover:bg-muted/50 transition-colors"
+        onClick={onNavigate}
       >
         {content}
       </Link>
@@ -148,7 +149,7 @@ function QueueSourceDisplay() {
  */
 export function MobileQueueSheet() {
   const [isOpen, setIsOpen] = useAtom(queuePanelOpenAtom);
-  const isFullscreen = useAtomValue(fullscreenPlayerOpenAtom);
+  const [isFullscreen, setIsFullscreen] = useAtom(fullscreenPlayerOpenAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
@@ -317,7 +318,7 @@ export function MobileQueueSheet() {
               // Disable pointer events during close animation
               pointerEvents: closeAnimationComplete ? "none" : "auto",
             }}
-            className="fixed inset-0 z-[60] bg-black/50"
+            className="fixed inset-0 z-60 bg-black/50"
             onClick={() => setIsOpen(false)}
           />
 
@@ -350,7 +351,7 @@ export function MobileQueueSheet() {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
             className={cn(
-              "fixed top-0 right-0 bottom-0 z-[60] w-full sm:w-[400px] bg-background border-l border-border flex flex-col",
+              "fixed top-0 right-0 bottom-0 z-60 w-full sm:w-[400px] bg-background border-l border-border flex flex-col",
               // Disable text selection during swipe
               "select-none",
               // Allow vertical scroll gestures to pass through, horizontal gestures control sheet
@@ -398,8 +399,20 @@ export function MobileQueueSheet() {
               </div>
             </div>
 
-            <QueueSourceDisplay />
-            <VirtualizedQueueDisplay ref={queueDisplayRef} />
+            <QueueSourceDisplay
+              onNavigate={() => {
+                setIsOpen(false);
+                setIsFullscreen(false);
+              }}
+            />
+            <VirtualizedQueueDisplay
+              ref={queueDisplayRef}
+              onNavigate={() => {
+                // Close both the queue sheet and fullscreen player when navigating
+                setIsOpen(false);
+                setIsFullscreen(false);
+              }}
+            />
           </motion.div>
         </>
       )}

@@ -48,6 +48,7 @@ export const artistViewModeAtom = atomWithServerStorage<ViewMode>(
 // Library sorting
 export type SortField =
   | "custom"
+  | "trackNumber"
   | "name"
   | "artist"
   | "year"
@@ -234,7 +235,7 @@ export const albumDetailViewModeAtom = atomWithServerStorage<ViewMode>(
 export const albumDetailSortAtom = atomWithServerStorage<SortConfig>(
   "album-detail-sort",
   {
-    field: "custom", // Custom means track order
+    field: "trackNumber", // Track number sort with direction support
     direction: "asc",
   },
 );
