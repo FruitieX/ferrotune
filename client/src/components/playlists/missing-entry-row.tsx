@@ -50,6 +50,8 @@ interface MissingEntryRowProps {
   onRemove?: (entryId: string) => void;
   showMoveToPosition?: boolean;
   onMoveToPosition?: (name: string, entryId: string) => void;
+  /** Callback when an entry is successfully matched */
+  onMatched?: () => void;
 }
 
 export function MissingEntryRow({
@@ -65,6 +67,7 @@ export function MissingEntryRow({
   onRemove,
   showMoveToPosition,
   onMoveToPosition,
+  onMatched,
 }: MissingEntryRowProps) {
   const [refineDialogOpen, setRefineDialogOpen] = useState(false);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
@@ -278,6 +281,7 @@ export function MissingEntryRow({
           position={position}
           missing={effectiveMissing}
           idPrefix="row-"
+          onMatched={onMatched}
         />
       )}
 
@@ -336,6 +340,8 @@ interface MissingEntryCardProps {
   onRemove?: (entryId: string) => void;
   showMoveToPosition?: boolean;
   onMoveToPosition?: (name: string, entryId: string) => void;
+  /** Callback when an entry is successfully matched */
+  onMatched?: () => void;
 }
 
 export function MissingEntryCard({
@@ -351,6 +357,7 @@ export function MissingEntryCard({
   onRemove,
   showMoveToPosition,
   onMoveToPosition,
+  onMatched,
 }: MissingEntryCardProps) {
   const [refineDialogOpen, setRefineDialogOpen] = useState(false);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
@@ -555,6 +562,7 @@ export function MissingEntryCard({
           position={position}
           missing={effectiveMissing}
           idPrefix="card-"
+          onMatched={onMatched}
         />
       )}
 

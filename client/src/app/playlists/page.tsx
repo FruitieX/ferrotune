@@ -1219,6 +1219,12 @@ function SmartPlaylistGridCard({
   smartPlaylist,
   onPlay,
 }: SmartPlaylistGridCardProps) {
+  // Get cover art URL for smart playlist (uses sp- prefix for tiled cover generation)
+  const coverArtUrl = getClient()?.getCoverArtUrl(
+    `sp-${smartPlaylist.id}`,
+    "medium",
+  );
+
   return (
     <SmartPlaylistContextMenu smartPlaylist={smartPlaylist}>
       <div className="group relative">
@@ -1229,6 +1235,7 @@ function SmartPlaylistGridCard({
           }
           subtitle={`${smartPlaylist.songCount} songs`}
           href={`/playlists/smart?id=${encodeURIComponent(smartPlaylist.id)}`}
+          coverArt={coverArtUrl}
           coverType="smartPlaylist"
           colorSeed={`smart-${smartPlaylist.id}`}
           onPlay={onPlay}
@@ -1257,6 +1264,12 @@ function SmartPlaylistListRow({
   isSelectionMode,
   onSelect,
 }: SmartPlaylistListRowProps) {
+  // Get cover art URL for smart playlist (uses sp- prefix for tiled cover generation)
+  const coverArtUrl = getClient()?.getCoverArtUrl(
+    `sp-${smartPlaylist.id}`,
+    "small",
+  );
+
   return (
     <SmartPlaylistContextMenu smartPlaylist={smartPlaylist}>
       <div className="group relative">
@@ -1268,6 +1281,7 @@ function SmartPlaylistListRow({
           }
           subtitle={`${smartPlaylist.songCount} songs`}
           href={`/playlists/smart?id=${encodeURIComponent(smartPlaylist.id)}`}
+          coverArt={coverArtUrl}
           coverType="smartPlaylist"
           colorSeed={`smart-${smartPlaylist.id}`}
           onPlay={onPlay}

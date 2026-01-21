@@ -389,20 +389,23 @@ export function useAudioEngineInit() {
 
       const state = stateRef.current;
       const duration = audio.duration || 0;
-      if (
-        !state.hasScrobbled &&
-        duration > 0 &&
-        audio.currentTime / duration >= state.scrobbleThreshold
-      ) {
-        settersRef.current.setHasScrobbled(true);
-        if (state.currentSong) {
-          getClient()
-            ?.scrobble(state.currentSong.id)
-            .then(() => {
-              // Invalidate queries that display play counts so they update in real-time
-              settersRef.current.invalidatePlayCountQueries();
-            })
-            .catch(console.error);
+      if (!state.hasScrobbled && duration > 0) {
+        // Calculate actual accumulated listening time (not just current position)
+        // This ensures seeking past 50% doesn't immediately trigger a scrobble
+        const totalListenedSeconds = calculateTotalListeningSeconds();
+        const thresholdSeconds = duration * state.scrobbleThreshold;
+
+        if (totalListenedSeconds >= thresholdSeconds) {
+          settersRef.current.setHasScrobbled(true);
+          if (state.currentSong) {
+            getClient()
+              ?.scrobble(state.currentSong.id)
+              .then(() => {
+                // Invalidate queries that display play counts so they update in real-time
+                settersRef.current.invalidatePlayCountQueries();
+              })
+              .catch(console.error);
+          }
         }
       }
     };

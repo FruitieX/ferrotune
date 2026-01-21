@@ -80,7 +80,7 @@ pub async fn get_album_list_logic(
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
                  WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
-                 ORDER BY a.name 
+                 ORDER BY a.name COLLATE NOCASE 
                  LIMIT ? OFFSET ?"
             )
             .bind(size)
@@ -171,7 +171,7 @@ pub async fn get_album_list_logic(
                  INNER JOIN artists ar ON a.artist_id = ar.id 
                  WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
                    AND (? IS NULL OR a.year >= ?) AND (? IS NULL OR a.year <= ?)
-                 ORDER BY a.year DESC, a.name 
+                 ORDER BY a.year DESC, a.name COLLATE NOCASE 
                  LIMIT ? OFFSET ?"
             )
             .bind(from_year)
@@ -191,7 +191,7 @@ pub async fn get_album_list_logic(
                      INNER JOIN artists ar ON a.artist_id = ar.id 
                      WHERE a.genre = ? 
                        AND EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
-                     ORDER BY a.name 
+                     ORDER BY a.name COLLATE NOCASE 
                      LIMIT ? OFFSET ?"
                 )
                 .bind(g)

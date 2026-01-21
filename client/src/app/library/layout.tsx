@@ -73,8 +73,9 @@ const tabs = [
 ];
 
 const sortOptions: { value: SortField; label: string }[] = [
-  { value: "name", label: "Name" },
+  { value: "name", label: "Title" },
   { value: "artist", label: "Artist" },
+  { value: "album", label: "Album" },
   { value: "year", label: "Year" },
   { value: "dateAdded", label: "Date Added" },
   { value: "playCount", label: "Play Count" },

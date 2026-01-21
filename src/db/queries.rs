@@ -203,7 +203,7 @@ pub async fn get_albums_by_artist(pool: &SqlitePool, artist_id: &str) -> sqlx::R
                INNER JOIN music_folders mf ON s.music_folder_id = mf.id 
                WHERE s.album_id = a.id AND mf.enabled = 1
            )
-         ORDER BY a.year, a.name",
+         ORDER BY a.year, a.name COLLATE NOCASE",
     )
     .bind(artist_id)
     .fetch_all(pool)
@@ -321,13 +321,16 @@ pub async fn get_songs_by_ids_with_library_status(
     let placeholders: Vec<&str> = ids.iter().map(|_| "?").collect();
     let placeholder_str = placeholders.join(", ");
 
-    // Include library_enabled status from music_folders
+    // Include library_enabled status from music_folders and scrobble stats
     let query = format!(
-        "SELECT s.*, ar.name as artist_name, al.name as album_name, mf.enabled as library_enabled
+        "SELECT s.*, ar.name as artist_name, al.name as album_name, mf.enabled as library_enabled,
+                pc.play_count, pc.last_played, NULL as starred_at
          FROM songs s
          INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played 
+                    FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
          WHERE s.id IN ({})",
         placeholder_str
     );

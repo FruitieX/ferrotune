@@ -46,6 +46,8 @@ interface MassResolveDialogProps {
   sortField?: string;
   /** Sort direction */
   sortDir?: string;
+  /** Callback when entries are successfully resolved */
+  onResolved?: () => void;
 }
 
 type ResolveStep = "loading" | "options" | "matching" | "preview" | "saving";
@@ -69,6 +71,7 @@ export function MassResolveDialog({
   filter,
   sortField,
   sortDir,
+  onResolved,
 }: MassResolveDialogProps) {
   const queryClient = useQueryClient();
   const { matchTracks, cancel: cancelMatching } = useTrackMatcher();
@@ -260,6 +263,7 @@ export function MassResolveDialog({
         );
       }
 
+      onResolved?.();
       resetAndClose();
     },
     onError: () => {

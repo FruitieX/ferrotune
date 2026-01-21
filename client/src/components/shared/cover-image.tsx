@@ -35,6 +35,8 @@ interface CoverImageProps {
   lazy?: boolean;
   /** If true, shows placeholder while image is loading (default: false - shows skeleton) */
   showPlaceholderWhileLoading?: boolean;
+  /** If true, shows a small type icon badge in the corner (e.g., sparkle for smart playlists) */
+  showTypeOverlay?: boolean;
 }
 
 const sizeClasses = {
@@ -77,6 +79,7 @@ export function CoverImage({
   priority = true,
   lazy = !priority,
   showPlaceholderWhileLoading = false,
+  showTypeOverlay = false,
 }: CoverImageProps) {
   // Helper to check if an image is cached (synchronous check)
   const isImageCached = (imgSrc: string | null | undefined): boolean => {
@@ -251,6 +254,16 @@ export function CoverImage({
           <Icon className={cn("text-white/70", iconSizes[size])} />
         </div>
       )}
+
+      {/* Type overlay badge - shows icon in corner for special types like smart playlists */}
+      {showTypeOverlay &&
+        isImageLoaded &&
+        !hasError &&
+        type === "smartPlaylist" && (
+          <div className="absolute bottom-1 right-1 bg-purple-600/90 rounded-full p-1 shadow-md">
+            <Sparkles className="w-3 h-3 text-white" />
+          </div>
+        )}
     </div>
   );
 }

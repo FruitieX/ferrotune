@@ -173,6 +173,7 @@ export function MediaRow({
         type={coverType}
         size="sm"
         className={coverShape === "circle" ? "rounded-full" : undefined}
+        showTypeOverlay={coverType === "smartPlaylist"}
       />
       {/* Play button overlay on cover art - only shows on cover hover */}
       {onPlay && (

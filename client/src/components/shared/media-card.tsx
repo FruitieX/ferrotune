@@ -168,6 +168,7 @@ export function MediaCard({
               type={coverType}
               size="full"
               className={coverShape === "circle" ? "rounded-full" : undefined}
+              showTypeOverlay={coverType === "smartPlaylist"}
             />
 
             {/* Play button overlay - only shows on cover hover */}

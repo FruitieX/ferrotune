@@ -264,6 +264,73 @@ pub async fn delete_playlist_folder(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Upload cover art for a playlist folder.
+pub async fn upload_playlist_folder_cover(
+    State(state): State<Arc<AppState>>,
+    user: FerrotuneAuthenticatedUser,
+    Path(folder_id): Path<String>,
+    body: axum::body::Bytes,
+) -> FerrotuneApiResult<StatusCode> {
+    // Validate it's an image by checking magic bytes
+    if body.len() < 4 {
+        return Err(Error::InvalidRequest("Invalid image data".to_string()).into());
+    }
+
+    let is_valid_image = body.starts_with(&[0xFF, 0xD8, 0xFF]) // JPEG
+        || body.starts_with(&[0x89, 0x50, 0x4E, 0x47]) // PNG
+        || body.starts_with(b"GIF8") // GIF
+        || (body.starts_with(b"RIFF") && body.len() > 11 && &body[8..12] == b"WEBP"); // WebP
+
+    if !is_valid_image {
+        return Err(Error::InvalidRequest(
+            "Invalid image format. Supported: JPEG, PNG, GIF, WebP".to_string(),
+        )
+        .into());
+    }
+
+    // Check folder exists and belongs to user
+    let folder: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM playlist_folders WHERE id = ? AND owner_id = ?")
+            .bind(&folder_id)
+            .bind(user.user_id)
+            .fetch_optional(&state.pool)
+            .await?;
+
+    if folder.is_none() {
+        return Err(Error::NotFound("Folder not found".to_string()).into());
+    }
+
+    // Update the cover_art blob
+    sqlx::query("UPDATE playlist_folders SET cover_art = ? WHERE id = ?")
+        .bind(body.as_ref())
+        .bind(&folder_id)
+        .execute(&state.pool)
+        .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Delete cover art for a playlist folder.
+pub async fn delete_playlist_folder_cover(
+    State(state): State<Arc<AppState>>,
+    user: FerrotuneAuthenticatedUser,
+    Path(folder_id): Path<String>,
+) -> FerrotuneApiResult<StatusCode> {
+    // Check folder exists and belongs to user
+    let result =
+        sqlx::query("UPDATE playlist_folders SET cover_art = NULL WHERE id = ? AND owner_id = ?")
+            .bind(&folder_id)
+            .bind(user.user_id)
+            .execute(&state.pool)
+            .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(Error::NotFound("Folder not found".to_string()).into());
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Request to move a playlist to a folder.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

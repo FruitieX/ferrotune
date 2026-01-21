@@ -1084,6 +1084,7 @@ function PlaylistDetailContent() {
                       onRemove={handleRemoveMissingEntry}
                       showMoveToPosition={sortConfig.field === "custom"}
                       onMoveToPosition={handleMissingMoveToPosition}
+                      onMatched={resetPlaylistData}
                     />
                   );
                 }
@@ -1161,6 +1162,7 @@ function PlaylistDetailContent() {
                         onRemove={handleRemoveMissingEntry}
                         showMoveToPosition={sortConfig.field === "custom"}
                         onMoveToPosition={handleMissingMoveToPosition}
+                        onMatched={resetPlaylistData}
                       />
                     );
                   }
@@ -1346,6 +1348,7 @@ function PlaylistDetailContent() {
           onOpenChange={setAddSongDialogOpen}
           playlistId={playlist.id}
           playlistName={getPlaylistDisplayName(playlist.name)}
+          onAdded={resetPlaylistData}
         />
       )}
 
@@ -1358,6 +1361,7 @@ function PlaylistDetailContent() {
           filter={debouncedFilter.trim() || undefined}
           sortField={sortConfig.field}
           sortDir={sortConfig.direction}
+          onResolved={resetPlaylistData}
         />
       )}
 

@@ -87,7 +87,7 @@ pub async fn get_song_match_list(
             LEFT JOIN albums al ON s.album_id = al.id
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
             WHERE s.music_folder_id = ? AND mf.enabled = 1
-            ORDER BY ar.name, al.name, s.disc_number, s.track_number, s.title
+            ORDER BY ar.name COLLATE NOCASE, al.name COLLATE NOCASE, s.disc_number, s.track_number, s.title COLLATE NOCASE
             "#,
         )
         .bind(music_folder_id)
@@ -108,7 +108,7 @@ pub async fn get_song_match_list(
             LEFT JOIN albums al ON s.album_id = al.id
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
             WHERE mf.enabled = 1
-            ORDER BY ar.name, al.name, s.disc_number, s.track_number, s.title
+            ORDER BY ar.name COLLATE NOCASE, al.name COLLATE NOCASE, s.disc_number, s.track_number, s.title COLLATE NOCASE
             "#,
         )
         .fetch_all(&state.pool)

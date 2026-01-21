@@ -38,6 +38,8 @@ interface AddSongToPlaylistDialogProps {
   playlistName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Callback when a song is successfully added */
+  onAdded?: () => void;
 }
 
 export function AddSongToPlaylistDialog({
@@ -45,6 +47,7 @@ export function AddSongToPlaylistDialog({
   playlistName,
   open,
   onOpenChange,
+  onAdded,
 }: AddSongToPlaylistDialogProps) {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
@@ -132,7 +135,7 @@ export function AddSongToPlaylistDialog({
       queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
       });
-
+      onAdded?.();
       // Reset and close
       handleClose();
     },

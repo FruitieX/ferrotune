@@ -207,7 +207,7 @@ pub async fn list_smart_playlists(
         "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, created_at, updated_at
          FROM smart_playlists
          WHERE owner_id = ? OR is_public = 1
-         ORDER BY name",
+         ORDER BY name COLLATE NOCASE",
     )
     .bind(user.user_id)
     .fetch_all(&state.pool)
@@ -691,7 +691,7 @@ async fn count_matching_songs(
 
 /// Materialize songs matching the smart playlist rules
 #[allow(clippy::too_many_arguments)]
-async fn materialize_smart_playlist_songs(
+pub async fn materialize_smart_playlist_songs(
     pool: &sqlx::SqlitePool,
     rules: &SmartPlaylistRulesApi,
     user_id: i64,
@@ -711,11 +711,11 @@ async fn materialize_smart_playlist_songs(
         format!("WHERE {} AND {}", enabled_filter, where_clause)
     };
 
-    // Build ORDER BY clause
+    // Build ORDER BY clause (text fields use COLLATE NOCASE for case-insensitive sorting)
     let order_by = match sort_field {
-        Some("title") | Some("name") => "s.title",
-        Some("artist") => "ar.name",
-        Some("album") => "al.name",
+        Some("title") | Some("name") => "s.title COLLATE NOCASE",
+        Some("artist") => "ar.name COLLATE NOCASE",
+        Some("album") => "al.name COLLATE NOCASE",
         Some("year") => "s.year",
         Some("playCount") => "pc.play_count",
         Some("dateAdded") | Some("createdAt") => "s.created_at",

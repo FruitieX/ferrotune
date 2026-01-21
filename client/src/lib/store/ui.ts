@@ -51,6 +51,7 @@ export type SortField =
   | "trackNumber"
   | "name"
   | "artist"
+  | "album"
   | "year"
   | "dateAdded"
   | "addedToPlaylist"

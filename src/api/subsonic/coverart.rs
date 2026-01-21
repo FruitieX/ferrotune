@@ -71,7 +71,7 @@ pub async fn get_cover_art(
     let requested_size = params.get_thumbnail_size();
 
     // For albums, try to use pre-generated thumbnails
-    // IDs can have prefixes (al-, so-, ar-, pl-) or be plain UUIDs
+    // IDs can have prefixes (al-, so-, ar-, pl-, sp-, pf-) or be plain UUIDs
     let image_data = if params.id.starts_with("al-") {
         get_album_cover_with_thumbnails(&state, &params.id, requested_size).await?
     } else if params.id.starts_with("so-") {
@@ -83,6 +83,12 @@ pub async fn get_cover_art(
     } else if params.id.starts_with("pl-") {
         // Playlist - generate tiled cover art
         get_playlist_cover_art(&state, &params.id, requested_size).await?
+    } else if params.id.starts_with("sp-") {
+        // Smart playlist - generate tiled cover art from matching songs
+        get_smart_playlist_cover_art(&state, &params.id, requested_size).await?
+    } else if params.id.starts_with("pf-") {
+        // Playlist folder - use custom uploaded cover art
+        get_playlist_folder_cover_art(&state, &params.id, requested_size).await?
     } else {
         // No prefix - try to infer entity type by checking if ID exists
         // Try album first (most common for cover art), then song
@@ -441,4 +447,165 @@ fn detect_image_content_type(data: &[u8]) -> &'static str {
         // Default to JPEG as it's most common for cover art
         "image/jpeg"
     }
+}
+
+/// Generate smart playlist cover art (2x2 tiled from album covers of matching songs)
+async fn get_smart_playlist_cover_art(
+    state: &AppState,
+    smart_playlist_id: &str,
+    size: ThumbnailSize,
+) -> Result<Vec<u8>> {
+    use crate::api::ferrotune::smart_playlists::{
+        materialize_smart_playlist_songs, SmartPlaylistRulesApi,
+    };
+
+    // Strip the sp- prefix if present (smart playlist IDs are stored without prefix)
+    let id = smart_playlist_id
+        .strip_prefix("sp-")
+        .unwrap_or(smart_playlist_id);
+
+    // Fetch the smart playlist (no user filter - cover art is public)
+    let playlist: Option<(String, i64, Option<i64>)> =
+        sqlx::query_as("SELECT rules_json, owner_id, max_songs FROM smart_playlists WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await?;
+
+    let (rules_json, owner_id, max_songs) =
+        playlist.ok_or_else(|| Error::NotFound("Smart playlist not found".to_string()))?;
+
+    // Parse rules
+    let rules: SmartPlaylistRulesApi = serde_json::from_str(&rules_json)
+        .map_err(|e| Error::Internal(format!("Failed to parse rules: {}", e)))?;
+
+    // Materialize songs to get cover art hashes (limit to get enough for 4 unique covers)
+    let songs = materialize_smart_playlist_songs(
+        &state.pool,
+        &rules,
+        owner_id,
+        None,                    // No sort override
+        None,                    // No sort direction override
+        max_songs.or(Some(100)), // Limit to 100 songs max for efficiency
+        None,                    // No offset
+        None,                    // No limit
+    )
+    .await
+    .map_err(|_| Error::NotFound("Smart playlist not found".to_string()))?;
+
+    if songs.is_empty() {
+        return Err(Error::NotFound(
+            "No songs in smart playlist for cover art".to_string(),
+        ));
+    }
+
+    // Collect up to 4 unique cover art hashes from songs
+    let mut hashes: Vec<String> = Vec::new();
+    let mut seen_hashes = std::collections::HashSet::new();
+    for song in songs {
+        if let Some(hash) = song.cover_art_hash {
+            if !seen_hashes.contains(&hash) {
+                seen_hashes.insert(hash.clone());
+                hashes.push(hash);
+                if hashes.len() >= 4 {
+                    break;
+                }
+            }
+        }
+    }
+
+    if hashes.is_empty() {
+        return Err(Error::NotFound(
+            "No cover art found for smart playlist".to_string(),
+        ));
+    }
+
+    // For small/medium smart playlist covers, use small/medium album thumbnails
+    let album_size = match size {
+        ThumbnailSize::Small => ThumbnailSize::Small,
+        ThumbnailSize::Medium => ThumbnailSize::Medium,
+        ThumbnailSize::Large => ThumbnailSize::Medium, // Use medium for tiling efficiency
+    };
+
+    let mut covers: Vec<Vec<u8>> = Vec::new();
+    for hash in hashes {
+        if let Ok(Some(cover_data)) =
+            crate::thumbnails::get_thumbnail(&state.pool, &hash, album_size).await
+        {
+            covers.push(cover_data);
+        }
+    }
+
+    if covers.is_empty() {
+        return Err(Error::NotFound(
+            "No cover art found for smart playlist".to_string(),
+        ));
+    }
+
+    // If only one cover, return it directly (already at correct size)
+    if covers.len() == 1 {
+        return Ok(covers.remove(0));
+    }
+
+    // Target size based on requested size
+    let target_size = match size {
+        ThumbnailSize::Small => crate::thumbnails::THUMBNAIL_SMALL * 2, // 128px total
+        ThumbnailSize::Medium => crate::thumbnails::THUMBNAIL_MEDIUM * 2, // 512px total
+        ThumbnailSize::Large => state.config.cache.max_cover_size.min(600),
+    };
+
+    // Generate tiled image
+    let tiled_image =
+        tokio::task::spawn_blocking(move || generate_tiled_cover(covers, target_size))
+            .await
+            .map_err(|e| Error::Internal(e.to_string()))??;
+
+    Ok(tiled_image)
+}
+
+/// Get playlist folder cover art from database
+async fn get_playlist_folder_cover_art(
+    state: &AppState,
+    folder_id: &str,
+    size: ThumbnailSize,
+) -> Result<Vec<u8>> {
+    // Strip the pf- prefix if present (folder IDs are stored without prefix)
+    let id = folder_id.strip_prefix("pf-").unwrap_or(folder_id);
+
+    // Fetch the cover_art blob from the database
+    let cover_data: Option<(Vec<u8>,)> = sqlx::query_as(
+        "SELECT cover_art FROM playlist_folders WHERE id = ? AND cover_art IS NOT NULL",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let (data,) = cover_data
+        .ok_or_else(|| Error::NotFound("No cover art found for playlist folder".to_string()))?;
+
+    // If small/medium size requested, resize the image
+    if matches!(size, ThumbnailSize::Small | ThumbnailSize::Medium) {
+        let target_size = match size {
+            ThumbnailSize::Small => crate::thumbnails::THUMBNAIL_SMALL,
+            ThumbnailSize::Medium => crate::thumbnails::THUMBNAIL_MEDIUM,
+            ThumbnailSize::Large => unreachable!(),
+        };
+
+        let resized = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+            let img = image::load_from_memory(&data)
+                .map_err(|e| Error::Internal(format!("Failed to decode image: {}", e)))?;
+            let resized = img.resize_to_fill(target_size, target_size, FilterType::Triangle);
+            let mut buffer = Cursor::new(Vec::new());
+            resized
+                .write_to(&mut buffer, ImageFormat::Jpeg)
+                .map_err(Error::Image)?;
+            Ok(buffer.into_inner())
+        })
+        .await
+        .map_err(|e| Error::Internal(e.to_string()))??;
+
+        return Ok(resized);
+    }
+
+    // Return original for large size
+    Ok(data)
 }

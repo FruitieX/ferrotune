@@ -104,7 +104,7 @@ mod search;
 mod server_config;
 mod setup;
 mod shuffle_exclude;
-mod smart_playlists;
+pub mod smart_playlists;
 mod songs;
 mod starring;
 mod stats;
@@ -207,6 +207,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/ferrotune/playlist-folders/{id}",
             delete(playlists::delete_playlist_folder),
+        )
+        .route(
+            "/ferrotune/playlist-folders/{id}/cover",
+            axum::routing::put(playlists::upload_playlist_folder_cover)
+                .delete(playlists::delete_playlist_folder_cover),
         )
         .route(
             "/ferrotune/playlists/{id}/move",

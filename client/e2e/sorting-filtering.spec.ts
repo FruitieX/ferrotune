@@ -50,16 +50,16 @@ test.describe("Sorting and Filtering", () => {
       return titles;
     }
 
-    // Click sort dropdown and select "Name"
+    // Click sort dropdown and select "Title"
     const sortButton = page.getByRole("button", { name: /sort options/i });
     await sortButton.click();
 
     const dropdown = page.locator('[data-slot="dropdown-menu-content"]');
     await expect(dropdown).toBeVisible();
-    await dropdown.getByRole("menuitem", { name: /name/i }).click();
+    await dropdown.getByRole("menuitem", { name: /title/i }).click();
     await page.waitForTimeout(500);
 
-    // Get titles after sorting by name
+    // Get titles after sorting by title
     const titlesAfterNameSort = await getSongTitles();
     expect(titlesAfterNameSort.length).toBeGreaterThan(1);
 

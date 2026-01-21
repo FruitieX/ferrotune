@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, ListMusic, Loader2, Check, AlertTriangle } from "lucide-react";
@@ -39,6 +40,8 @@ interface AddToPlaylistDialogProps {
   songs?: Song[];
   /** Alternative: just song IDs when full song data isn't loaded */
   songIds?: string[];
+  /** Callback when songs are successfully added to a playlist */
+  onAdded?: (playlistId: string) => void;
 }
 
 interface DuplicateInfo {
@@ -53,6 +56,7 @@ export function AddToPlaylistDialog({
   onOpenChange,
   songs = [],
   songIds,
+  onAdded,
 }: AddToPlaylistDialogProps) {
   // Determine the IDs and count to use
   const idsToAdd = songIds ?? songs.map((s) => s.id);
@@ -73,6 +77,7 @@ export function AddToPlaylistDialog({
   );
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
   const queryClient = useQueryClient();
+  const router = useRouter();
   const isMobile = useIsMobile();
 
   // Fetch playlists
@@ -144,9 +149,11 @@ export function AddToPlaylistDialog({
   const addToPlaylistMutation = useMutation({
     mutationFn: async ({
       playlistId,
+      playlistName,
       songIdsToAdd,
     }: {
       playlistId: string;
+      playlistName: string;
       songIdsToAdd: string[];
     }) => {
       const client = getClient();
@@ -155,15 +162,27 @@ export function AddToPlaylistDialog({
         playlistId,
         songIdToAdd: songIdsToAdd,
       });
+      return { playlistId, playlistName };
     },
-    onSuccess: (_, { songIdsToAdd }) => {
+    onSuccess: (
+      { playlistId, playlistName: _playlistName },
+      { songIdsToAdd },
+    ) => {
       const songText =
         songIdsToAdd.length === 1 && songs.length === 1
           ? `"${songs[0].title}"`
           : `${songIdsToAdd.length} songs`;
-      toast.success(`Added ${songText} to playlist`);
+      toast.success(`Added ${songText} to playlist`, {
+        action: {
+          label: "Go to playlist",
+          onClick: () => {
+            router.push(`/playlists/details?id=${playlistId}`);
+          },
+        },
+      });
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       queryClient.invalidateQueries({ queryKey: ["playlistSongs"] });
+      onAdded?.(playlistId);
       onOpenChange(false);
       setSelectedPlaylistId(null);
       setDuplicateInfo(null);
@@ -233,6 +252,7 @@ export function AddToPlaylistDialog({
       // No duplicates, add all songs directly
       addToPlaylistMutation.mutate({
         playlistId,
+        playlistName,
         songIdsToAdd: idsToAdd,
       });
     }
@@ -245,6 +265,7 @@ export function AddToPlaylistDialog({
       if (duplicateInfo.nonDuplicateIds.length > 0) {
         addToPlaylistMutation.mutate({
           playlistId: duplicateInfo.playlistId,
+          playlistName: duplicateInfo.playlistName,
           songIdsToAdd: duplicateInfo.nonDuplicateIds,
         });
       } else {
@@ -256,6 +277,7 @@ export function AddToPlaylistDialog({
       // Add all songs including duplicates
       addToPlaylistMutation.mutate({
         playlistId: duplicateInfo.playlistId,
+        playlistName: duplicateInfo.playlistName,
         songIdsToAdd: idsToAdd,
       });
     }

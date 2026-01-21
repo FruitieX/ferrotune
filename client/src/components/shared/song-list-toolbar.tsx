@@ -51,8 +51,9 @@ export interface SortConfig {
 const sortOptions: { value: SortField; label: string }[] = [
   { value: "custom", label: "Custom" },
   { value: "trackNumber", label: "Track Number" },
-  { value: "name", label: "Name" },
+  { value: "name", label: "Title" },
   { value: "artist", label: "Artist" },
+  { value: "album", label: "Album" },
   { value: "year", label: "Year" },
   { value: "dateAdded", label: "Date Added" },
   { value: "addedToPlaylist", label: "Added to Playlist" },
