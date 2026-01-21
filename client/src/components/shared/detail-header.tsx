@@ -184,6 +184,7 @@ export function DetailHeader({
               size="full"
               priority
               className={circular ? "rounded-full" : "rounded-lg"}
+              showTypeOverlay={coverType === "smartPlaylist"}
             />
           ) : Icon ? (
             <div
@@ -204,6 +205,7 @@ export function DetailHeader({
               size="full"
               priority
               className={circular ? "rounded-full" : "rounded-lg"}
+              showTypeOverlay={coverType === "smartPlaylist"}
             />
           )}
         </motion.div>

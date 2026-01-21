@@ -30,6 +30,9 @@ use std::sync::Arc;
 /// Cover art is content-addressable (hash-based), so aggressive caching is safe.
 const COVER_ART_CACHE_HEADER: &str = "public, max-age=2592000";
 
+/// Type alias for smart playlist query result: (rules_json, owner_id, max_songs, sort_field, sort_direction)
+type SmartPlaylistCoverRow = (String, i64, Option<i64>, Option<String>, Option<String>);
+
 #[derive(Deserialize)]
 pub struct CoverArtParams {
     id: String,
@@ -464,14 +467,14 @@ async fn get_smart_playlist_cover_art(
         .strip_prefix("sp-")
         .unwrap_or(smart_playlist_id);
 
-    // Fetch the smart playlist (no user filter - cover art is public)
-    let playlist: Option<(String, i64, Option<i64>)> =
-        sqlx::query_as("SELECT rules_json, owner_id, max_songs FROM smart_playlists WHERE id = ?")
+    // Fetch the smart playlist with its sort settings (no user filter - cover art is public)
+    let playlist: Option<SmartPlaylistCoverRow> =
+        sqlx::query_as("SELECT rules_json, owner_id, max_songs, sort_field, sort_direction FROM smart_playlists WHERE id = ?")
             .bind(id)
             .fetch_optional(&state.pool)
             .await?;
 
-    let (rules_json, owner_id, max_songs) =
+    let (rules_json, owner_id, max_songs, sort_field, sort_direction) =
         playlist.ok_or_else(|| Error::NotFound("Smart playlist not found".to_string()))?;
 
     // Parse rules
@@ -479,15 +482,16 @@ async fn get_smart_playlist_cover_art(
         .map_err(|e| Error::Internal(format!("Failed to parse rules: {}", e)))?;
 
     // Materialize songs to get cover art hashes (limit to get enough for 4 unique covers)
+    // Use the smart playlist's custom sort settings for consistency
     let songs = materialize_smart_playlist_songs(
         &state.pool,
         &rules,
         owner_id,
-        None,                    // No sort override
-        None,                    // No sort direction override
-        max_songs.or(Some(100)), // Limit to 100 songs max for efficiency
-        None,                    // No offset
-        None,                    // No limit
+        sort_field.as_deref(),     // Use playlist's sort field
+        sort_direction.as_deref(), // Use playlist's sort direction
+        max_songs.or(Some(100)),   // Limit to 100 songs max for efficiency
+        None,                      // No offset
+        None,                      // No limit
     )
     .await
     .map_err(|_| Error::NotFound("Smart playlist not found".to_string()))?;

@@ -326,7 +326,14 @@ function SmartPlaylistPageContent() {
         showBackButton
         icon={Sparkles}
         iconClassName="bg-linear-to-br from-purple-500 to-purple-800"
+        coverUrl={
+          id ? getClient()?.getCoverArtUrl(`sp-${id}`, "large") : undefined
+        }
+        coverAlt={displayName}
+        colorSeed={`smart-${id}`}
+        coverType="smartPlaylist"
         gradientColor="rgba(168,85,247,0.2)"
+        useBlurredBackground
         label="Smart Playlist"
         title={displayName}
         subtitle={

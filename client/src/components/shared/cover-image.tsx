@@ -244,6 +244,7 @@ export function CoverImage({
       )}
 
       {/* Placeholder - shown when no src, or after error, or while loading if showPlaceholderWhileLoading */}
+      {/* For smart playlists with overlay, we skip the icon since the overlay shows the sparkle */}
       {showPlaceholder && !showSkeleton && (
         <div
           className="absolute inset-0 flex items-center justify-center"
@@ -251,19 +252,32 @@ export function CoverImage({
             background: `linear-gradient(135deg, hsl(${placeholderHue}, 50%, 25%) 0%, hsl(${(placeholderHue + 40) % 360}, 45%, 18%) 100%)`,
           }}
         >
-          <Icon className={cn("text-white/70", iconSizes[size])} />
+          {/* Don't show icon if we're showing the type overlay (avoids duplicate sparkles) */}
+          {!(showTypeOverlay && type === "smartPlaylist") && (
+            <Icon className={cn("text-white/70", iconSizes[size])} />
+          )}
         </div>
       )}
 
-      {/* Type overlay badge - shows icon in corner for special types like smart playlists */}
-      {showTypeOverlay &&
-        isImageLoaded &&
-        !hasError &&
-        type === "smartPlaylist" && (
-          <div className="absolute bottom-1 right-1 bg-purple-600/90 rounded-full p-1 shadow-md">
-            <Sparkles className="w-3 h-3 text-white" />
+      {/* Type overlay badge - shows sparkle icon centered for smart playlists */}
+      {showTypeOverlay && type === "smartPlaylist" && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div
+            className={cn(
+              "bg-purple-600/75 rounded-full",
+              size === "sm" ? "p-1" : "p-2",
+            )}
+          >
+            {/* Size-responsive sparkle: smaller for row view (sm), larger for grid (md+) */}
+            <Sparkles
+              className={cn(
+                "text-white/90",
+                size === "sm" ? "w-4 h-4" : "w-8 h-8",
+              )}
+            />
           </div>
-        )}
+        </div>
+      )}
     </div>
   );
 }

@@ -2462,6 +2462,71 @@ export class FerrotuneClient {
 
     return `${this.serverUrl}/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/replacement-audio/stream?${params.toString()}`;
   }
+
+  // === Playlist Folder Cover Art ===
+
+  /**
+   * Upload cover art for a playlist folder (binary image data)
+   */
+  async uploadPlaylistFolderCover(
+    folderId: string,
+    file: File | Blob,
+  ): Promise<void> {
+    const url = this.buildAdminUrl(
+      `/ferrotune/playlist-folders/${encodeURIComponent(folderId)}/cover`,
+    );
+
+    // Add auth header
+    const headers: Record<string, string> = {};
+    if (this.username && this.password) {
+      headers["Authorization"] =
+        `Basic ${btoa(`${this.username}:${this.password}`)}`;
+    }
+
+    // Send raw binary data (not FormData)
+    const response = await fetch(url, {
+      method: "PUT",
+      headers: {
+        ...headers,
+        "Content-Type": file.type || "application/octet-stream",
+      },
+      body: file,
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(
+        data.error || `Failed to upload cover art: ${response.statusText}`,
+      );
+    }
+  }
+
+  /**
+   * Delete cover art for a playlist folder
+   */
+  async deletePlaylistFolderCover(folderId: string): Promise<void> {
+    await this.request(
+      `/ferrotune/playlist-folders/${encodeURIComponent(folderId)}/cover`,
+      {
+        method: "DELETE",
+      },
+    );
+  }
+
+  /**
+   * Get the URL for playlist folder cover art
+   * @param folderId - The folder ID (without pf- prefix - we add it)
+   * @param size - Optional size tier
+   * @param cacheBuster - Optional cache buster to force browser refresh
+   */
+  getPlaylistFolderCoverUrl(
+    folderId: string,
+    size?: "small" | "medium" | "large",
+    cacheBuster?: string,
+  ): string {
+    // Use pf- prefix for playlist folder cover art
+    return this.getCoverArtUrl(`pf-${folderId}`, size, cacheBuster);
+  }
 }
 
 // Singleton instance - will be initialized when user connects
