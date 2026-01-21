@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import os from "os";
 
 /**
  * Playwright configuration for Ferrotune client E2E tests.
@@ -28,8 +29,10 @@ export default defineConfig({
   /* Retry on failure - helps with flaky tests due to timing/virtualization */
   retries: process.env.CI ? 3 : 1,
 
-  /* Use 50% of available CPUs for parallel execution */
-  workers: process.env.CI ? "100%" : "50%",
+  /* Use 50% of available CPUs for parallel execution (max 8 locally to prevent resource exhaustion) */
+  workers: process.env.CI
+    ? "100%"
+    : Math.min(Math.ceil(os.cpus().length / 2), 8),
 
   /* Global timeout per test */
   timeout: 60_000,

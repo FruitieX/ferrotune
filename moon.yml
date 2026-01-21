@@ -109,7 +109,8 @@ tasks:
       mutex: 'cargo'
 
   test-unit:
-    command: 'cargo test --lib'
+    # Run actual unit tests only (exclude integration tests and ts-rs binding generation)
+    command: 'cargo test -- --skip run_hurl_test --skip export_bindings'
     inputs:
       - '@group(sources)'
     deps:
@@ -136,7 +137,9 @@ tasks:
   # ============================================================================
 
   test-integration:
-    command: 'cargo test --test integration'
+    # Use half of available CPUs (max 8) to prevent resource exhaustion
+    # Each test spawns a full ferrotune server with tokio runtime + SQLite
+    command: 'bash -c "cargo test --test integration -- --test-threads=$(($(nproc)/2>8?8:$(nproc)/2<1?1:$(nproc)/2))"'
     inputs:
       - '@group(sources)'
       - '@group(tests)'
@@ -265,7 +268,7 @@ tasks:
     deps:
       - 'fmt-check'
       - 'lint'
-      - 'test'
+      - 'test-unit'
       - 'test-integration'
 
   # ============================================================================
@@ -288,7 +291,7 @@ tasks:
     deps:
       - 'fmt'
       - 'lint'
-      - 'test'
+      - 'test-unit'
       - 'test-integration'
       - 'client:pre-ci'
     options:
