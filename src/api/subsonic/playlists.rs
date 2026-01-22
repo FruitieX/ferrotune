@@ -5,7 +5,7 @@ use crate::api::AppState;
 use crate::api::QsQuery;
 use crate::api::{first_string, first_string_or_none, string_or_seq};
 use crate::db::models::Playlist;
-use crate::db::queries;
+use crate::db::queries::{self, resolve_or_create_folder_path};
 use crate::error::{Error, Result};
 use axum::extract::State;
 use serde::{Deserialize, Serialize};
@@ -317,10 +317,30 @@ pub async fn create_playlist(
     // Generate playlist ID
     let playlist_id = format!("pl-{}", Uuid::new_v4());
 
-    // Create the playlist
-    queries::create_playlist(&state.pool, &playlist_id, &name, user.user_id, None, false)
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))?;
+    // Create the playlist (OpenSubsonic API - goes to root, or parse path from name)
+    // Parse name to extract folder path if it contains "/"
+    let (folder_id, final_name) = if name.contains('/') {
+        // Parse the path and create folders
+        let path_result = resolve_or_create_folder_path(&state.pool, &name, user.user_id).await;
+        match path_result {
+            Ok((folder_id, playlist_name)) => (folder_id, playlist_name),
+            Err(_) => (None, name.clone()), // Fall back to using full name at root
+        }
+    } else {
+        (None, name.clone())
+    };
+
+    queries::create_playlist(
+        &state.pool,
+        &playlist_id,
+        &final_name,
+        user.user_id,
+        None,
+        false,
+        folder_id.as_deref(),
+    )
+    .await
+    .map_err(|e| Error::Internal(e.to_string()))?;
 
     // Add songs if provided
     if !params.song_id.is_empty() {

@@ -24,7 +24,6 @@ import {
   User,
   Music,
   Tag,
-  Sparkles,
   Import,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -45,18 +44,50 @@ import {
   playlistsSidebarExpandedAtom,
   librarySidebarExpandedAtom,
   expandedPlaylistFoldersAtom,
+  sidebarItemSizeAtom,
+  type SidebarItemSize,
 } from "@/lib/store/ui";
 import { isConnectedAtom } from "@/lib/store/auth";
 import { getClient } from "@/lib/api/client";
 import { ScanStatusIndicator } from "@/components/admin/scan-status-indicator";
 import { ScanDialog } from "@/components/admin/scan-dialog";
+import { CoverImage } from "@/components/shared/cover-image";
 import {
   organizePlaylistsIntoFolders,
+  buildFolderTreeFromApi,
   getPlaylistDisplayName,
   parsePlaylistPath,
   type PlaylistFolder,
 } from "@/lib/utils/playlist-folders";
 import type { Playlist } from "@/lib/api/types";
+
+// Height classes for sidebar list items
+const SIDEBAR_ITEM_HEIGHTS: Record<SidebarItemSize, string> = {
+  small: "h-7",
+  medium: "h-9",
+  large: "h-11",
+};
+
+// Icon container sizes for sidebar list items (matches cover sizes for consistency)
+const SIDEBAR_ICON_CONTAINER_SIZES: Record<SidebarItemSize, string> = {
+  small: "w-4 h-4",
+  medium: "w-7 h-7",
+  large: "w-10 h-10",
+};
+
+// Icon sizes within the container (smaller than container)
+const SIDEBAR_ICON_SIZES: Record<SidebarItemSize, string> = {
+  small: "w-3 h-3",
+  medium: "w-4 h-4",
+  large: "w-5 h-5",
+};
+
+// Cover image sizes for sidebar list items
+const SIDEBAR_COVER_SIZES: Record<SidebarItemSize, string> = {
+  small: "w-4 h-4",
+  medium: "w-7 h-7",
+  large: "w-10 h-10",
+};
 
 const discoverItems = [
   { href: "/", icon: Home, label: "Home" },
@@ -77,6 +108,7 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useAtom(sidebarCollapsedAtom);
   const sidebarWidth = useAtomValue(sidebarWidthAtom);
   const isConnected = useAtomValue(isConnectedAtom);
+  const itemSize = useAtomValue(sidebarItemSizeAtom);
   const [playlistsExpanded, setPlaylistsExpanded] = useAtom(
     playlistsSidebarExpandedAtom,
   );
@@ -87,14 +119,19 @@ export function Sidebar() {
     expandedPlaylistFoldersAtom,
   );
 
-  // Fetch playlists
-  const { data: playlists, isLoading: playlistsLoading } = useQuery({
-    queryKey: ["playlists"],
+  // Compute height and icon classes based on item size
+  const itemHeight = SIDEBAR_ITEM_HEIGHTS[itemSize];
+  const iconContainerSize = SIDEBAR_ICON_CONTAINER_SIZES[itemSize];
+  const iconSize = SIDEBAR_ICON_SIZES[itemSize];
+  const coverSize = SIDEBAR_COVER_SIZES[itemSize];
+
+  // Fetch playlist folders from new API
+  const { data: playlistFoldersData, isLoading: playlistsLoading } = useQuery({
+    queryKey: ["playlistFolders"],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getPlaylists();
-      return response.playlists.playlist ?? [];
+      return client.getPlaylistFoldersWithStructure();
     },
     enabled: isConnected,
   });
@@ -111,9 +148,32 @@ export function Sidebar() {
     enabled: isConnected,
   });
 
-  // Organize playlists into folder structure
-  const playlistTree = playlists
-    ? organizePlaylistsIntoFolders(playlists, smartPlaylists)
+  // Build folder tree from API data
+  // Use the new API-based folder tree if we have folder entities,
+  // otherwise fall back to the legacy name-based parsing
+  const playlistTree = playlistFoldersData
+    ? playlistFoldersData.folders.length > 0 ||
+      playlistFoldersData.playlists.some((p) => p.folderId)
+      ? buildFolderTreeFromApi(
+          playlistFoldersData.folders,
+          playlistFoldersData.playlists,
+          smartPlaylists,
+        )
+      : organizePlaylistsIntoFolders(
+          playlistFoldersData.playlists.map((p) => ({
+            id: p.id,
+            name: p.name,
+            comment: null,
+            owner: "admin",
+            public: false,
+            songCount: p.songCount,
+            duration: 0,
+            created: new Date().toISOString(),
+            changed: new Date().toISOString(),
+            coverArt: null,
+          })),
+          smartPlaylists,
+        )
     : null;
 
   const toggleFolder = (path: string) => {
@@ -516,6 +576,10 @@ export function Sidebar() {
                               expandedFolders={expandedFolders}
                               toggleFolder={toggleFolder}
                               depth={0}
+                              itemHeight={itemHeight}
+                              iconContainerSize={iconContainerSize}
+                              iconSize={iconSize}
+                              coverSize={coverSize}
                             />
                           </Suspense>
                         ) : null}
@@ -721,6 +785,10 @@ interface PlaylistFolderTreeProps {
   expandedFolders: string[];
   toggleFolder: (path: string) => void;
   depth: number;
+  itemHeight: string;
+  iconContainerSize: string;
+  iconSize: string;
+  coverSize: string;
 }
 
 function PlaylistFolderTree({
@@ -730,6 +798,10 @@ function PlaylistFolderTree({
   expandedFolders,
   toggleFolder,
   depth,
+  itemHeight,
+  iconContainerSize,
+  iconSize,
+  coverSize,
 }: PlaylistFolderTreeProps) {
   return (
     <>
@@ -739,6 +811,12 @@ function PlaylistFolderTree({
         const isFolderActive =
           pathname === "/playlists" &&
           searchParams.get("folder") === subfolder.path;
+
+        // Get cover art URL for folder (uses pf- prefix)
+        const folderCoverArtUrl =
+          subfolder.id && subfolder.hasCoverArt
+            ? getClient()?.getCoverArtUrl(`pf-${subfolder.id}`, "small")
+            : undefined;
 
         return (
           <Collapsible
@@ -755,15 +833,39 @@ function PlaylistFolderTree({
                   variant="ghost"
                   size="sm"
                   className={cn(
-                    "w-full justify-start gap-2 h-8 px-2 pr-8 hover:bg-sidebar-accent",
+                    "w-full justify-start gap-2 px-2 pr-8 hover:bg-sidebar-accent",
+                    itemHeight,
                     isFolderActive && "bg-sidebar-accent text-sidebar-primary",
                   )}
                   style={{ paddingLeft: `${depth * 12 + 8}px` }}
                 >
-                  {isExpanded ? (
-                    <FolderOpen className="w-4 h-4 shrink-0 text-muted-foreground" />
+                  {folderCoverArtUrl ? (
+                    <CoverImage
+                      src={folderCoverArtUrl}
+                      alt={subfolder.name}
+                      type="folder"
+                      size="sm"
+                      colorSeed={subfolder.path}
+                      showTypeOverlay
+                      className={cn(coverSize, "rounded-[3px]")}
+                    />
                   ) : (
-                    <Folder className="w-4 h-4 shrink-0 text-muted-foreground" />
+                    <div
+                      className={cn(
+                        iconContainerSize,
+                        "shrink-0 flex items-center justify-center",
+                      )}
+                    >
+                      {isExpanded ? (
+                        <FolderOpen
+                          className={cn(iconSize, "text-muted-foreground")}
+                        />
+                      ) : (
+                        <Folder
+                          className={cn(iconSize, "text-muted-foreground")}
+                        />
+                      )}
+                    </div>
                   )}
                   <span className="truncate text-sm">{subfolder.name}</span>
                 </Button>
@@ -772,7 +874,10 @@ function PlaylistFolderTree({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="absolute right-0 h-8 w-8 hover:bg-sidebar-accent/80"
+                  className={cn(
+                    "absolute right-0 w-8 hover:bg-sidebar-accent/80",
+                    itemHeight,
+                  )}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <ChevronDown
@@ -792,6 +897,10 @@ function PlaylistFolderTree({
                 expandedFolders={expandedFolders}
                 toggleFolder={toggleFolder}
                 depth={depth + 1}
+                itemHeight={itemHeight}
+                iconContainerSize={iconContainerSize}
+                iconSize={iconSize}
+                coverSize={coverSize}
               />
             </CollapsibleContent>
           </Collapsible>
@@ -823,6 +932,10 @@ function PlaylistFolderTree({
               pathname === `/playlists/details` &&
               searchParams.get("id") === playlist.id;
 
+            // Get cover art URL for playlist (uses playlist ID for tiled cover)
+            const artId = playlist.coverArt || playlist.id;
+            const coverArtUrl = getClient()?.getCoverArtUrl(artId, "small");
+
             return (
               <Link
                 key={playlist.id}
@@ -832,12 +945,20 @@ function PlaylistFolderTree({
                   variant="ghost"
                   size="sm"
                   className={cn(
-                    "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
+                    "w-full justify-start gap-2 px-2 hover:bg-sidebar-accent",
+                    itemHeight,
                     isActive && "bg-sidebar-accent text-sidebar-primary",
                   )}
                   style={{ paddingLeft: `${depth * 12 + 8}px` }}
                 >
-                  <ListMusic className="w-4 h-4 shrink-0 text-muted-foreground" />
+                  <CoverImage
+                    src={coverArtUrl}
+                    alt={item.name}
+                    type="playlist"
+                    size="sm"
+                    colorSeed={playlist.id}
+                    className={cn(coverSize, "rounded-[3px]")}
+                  />
                   <span className="truncate text-sm">{item.name}</span>
                 </Button>
               </Link>
@@ -849,18 +970,33 @@ function PlaylistFolderTree({
               pathname === "/playlists/smart" &&
               searchParams.get("id") === sp.id;
 
+            // Get cover art URL for smart playlist (uses sp- prefix)
+            const coverArtUrl = getClient()?.getCoverArtUrl(
+              `sp-${sp.id}`,
+              "small",
+            );
+
             return (
               <Link key={sp.id} href={`/playlists/smart?id=${sp.id}`}>
                 <Button
                   variant="ghost"
                   size="sm"
                   className={cn(
-                    "w-full justify-start gap-2 h-8 px-2 hover:bg-sidebar-accent",
+                    "w-full justify-start gap-2 px-2 hover:bg-sidebar-accent",
+                    itemHeight,
                     isActive && "bg-sidebar-accent text-sidebar-primary",
                   )}
                   style={{ paddingLeft: `${depth * 12 + 8}px` }}
                 >
-                  <Sparkles className="w-4 h-4 shrink-0 text-muted-foreground" />
+                  <CoverImage
+                    src={coverArtUrl}
+                    alt={item.name}
+                    type="smartPlaylist"
+                    size="sm"
+                    colorSeed={`smart-${sp.id}`}
+                    showTypeOverlay
+                    className={cn(coverSize, "rounded-[3px]")}
+                  />
                   <span className="truncate text-sm">{item.name}</span>
                 </Button>
               </Link>
@@ -873,14 +1009,16 @@ function PlaylistFolderTree({
 
 // Wrapper component that uses useSearchParams - isolated in its own Suspense boundary
 // This prevents the entire Sidebar from suspending during SSR
-// Wrapper component that uses useSearchParams - isolated in its own Suspense boundary
-// This prevents the entire Sidebar from suspending during SSR
 interface PlaylistFolderTreeWithSearchParamsProps {
   folder: PlaylistFolder;
   pathname: string;
   expandedFolders: string[];
   toggleFolder: (path: string) => void;
   depth: number;
+  itemHeight: string;
+  iconContainerSize: string;
+  iconSize: string;
+  coverSize: string;
 }
 
 function PlaylistFolderTreeWithSearchParams({
@@ -889,6 +1027,10 @@ function PlaylistFolderTreeWithSearchParams({
   expandedFolders,
   toggleFolder,
   depth,
+  itemHeight,
+  iconContainerSize,
+  iconSize,
+  coverSize,
 }: PlaylistFolderTreeWithSearchParamsProps) {
   const searchParams = useSearchParams();
 
@@ -900,6 +1042,10 @@ function PlaylistFolderTreeWithSearchParams({
       expandedFolders={expandedFolders}
       toggleFolder={toggleFolder}
       depth={depth}
+      itemHeight={itemHeight}
+      iconContainerSize={iconContainerSize}
+      iconSize={iconSize}
+      coverSize={coverSize}
     />
   );
 }

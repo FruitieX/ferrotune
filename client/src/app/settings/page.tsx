@@ -29,6 +29,7 @@ import {
   Activity,
   Shield,
   Tag,
+  Rows3,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
@@ -45,6 +46,8 @@ import {
   ACCENT_PRESETS,
   type AccentColor,
   progressBarStyleAtom,
+  sidebarItemSizeAtom,
+  type SidebarItemSize,
 } from "@/lib/store/ui";
 import { useEffect, useState } from "react";
 import {
@@ -82,6 +85,7 @@ export default function SettingsPage() {
   const [connection] = useAtom(serverConnectionAtom);
   const [volume, setVolume] = useAtom(volumeAtom);
   const [progressBarStyle, setProgressBarStyle] = useAtom(progressBarStyleAtom);
+  const [sidebarItemSize, setSidebarItemSize] = useAtom(sidebarItemSizeAtom);
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
@@ -726,6 +730,36 @@ export default function SettingsPage() {
                       </span>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Sidebar Item Size */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label className="flex items-center gap-2 text-sm font-medium">
+                    <Rows3 className="w-4 h-4" />
+                    Sidebar Item Size
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Adjust the density of playlist items in the sidebar
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {(["small", "medium", "large"] as const).map((size) => (
+                    <Button
+                      key={size}
+                      variant={sidebarItemSize === size ? "default" : "outline"}
+                      size="sm"
+                      onClick={() =>
+                        setSidebarItemSize(size as SidebarItemSize)
+                      }
+                      className="capitalize"
+                    >
+                      {size}
+                    </Button>
+                  ))}
                 </div>
               </div>
 

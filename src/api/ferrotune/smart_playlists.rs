@@ -46,6 +46,8 @@ pub struct SmartPlaylistInfo {
     pub sort_direction: Option<String>,
     #[ts(type = "number | null")]
     pub max_songs: Option<i64>,
+    /// Optional folder ID for organizing smart playlists
+    pub folder_id: Option<String>,
     /// Materialized song count (computed on request)
     #[ts(type = "number")]
     pub song_count: i64,
@@ -96,6 +98,8 @@ pub struct CreateSmartPlaylistRequest {
     pub sort_direction: Option<String>,
     #[ts(type = "number | null")]
     pub max_songs: Option<i64>,
+    /// Optional folder ID to place the smart playlist in
+    pub folder_id: Option<String>,
 }
 
 /// Request to update a smart playlist
@@ -111,6 +115,9 @@ pub struct UpdateSmartPlaylistRequest {
     pub sort_direction: Option<String>,
     #[ts(type = "number | null | undefined")]
     pub max_songs: Option<Option<i64>>,
+    /// Optional folder ID to move the smart playlist to (use null to move to root)
+    #[ts(type = "string | null | undefined")]
+    pub folder_id: Option<Option<String>>,
 }
 
 /// Response after creating a smart playlist
@@ -204,7 +211,7 @@ pub async fn list_smart_playlists(
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<SmartPlaylistsResponse>> {
     let playlists: Vec<SmartPlaylist> = sqlx::query_as(
-        "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, created_at, updated_at
+        "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id, created_at, updated_at
          FROM smart_playlists
          WHERE owner_id = ? OR is_public = 1
          ORDER BY name COLLATE NOCASE",
@@ -234,6 +241,7 @@ pub async fn list_smart_playlists(
             sort_field: playlist.sort_field,
             sort_direction: playlist.sort_direction,
             max_songs: playlist.max_songs,
+            folder_id: playlist.folder_id,
             song_count,
             created_at: playlist.created_at,
             updated_at: playlist.updated_at,
@@ -252,7 +260,7 @@ pub async fn get_smart_playlist(
     Path(id): Path<String>,
 ) -> FerrotuneApiResult<Json<SmartPlaylistInfo>> {
     let playlist: Option<SmartPlaylist> = sqlx::query_as(
-        "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, created_at, updated_at
+        "SELECT id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id, created_at, updated_at
          FROM smart_playlists
          WHERE id = ? AND (owner_id = ? OR is_public = 1)",
     )
@@ -281,6 +289,7 @@ pub async fn get_smart_playlist(
                 sort_field: playlist.sort_field,
                 sort_direction: playlist.sort_direction,
                 max_songs: playlist.max_songs,
+                folder_id: playlist.folder_id,
                 song_count,
                 created_at: playlist.created_at,
                 updated_at: playlist.updated_at,
@@ -301,8 +310,8 @@ pub async fn create_smart_playlist(
         .map_err(|e| Error::InvalidRequest(format!("Invalid rules: {}", e)))?;
 
     sqlx::query(
-        "INSERT INTO smart_playlists (id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO smart_playlists (id, name, comment, owner_id, is_public, rules_json, sort_field, sort_direction, max_songs, folder_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&request.name)
@@ -313,6 +322,7 @@ pub async fn create_smart_playlist(
     .bind(&request.sort_field)
     .bind(&request.sort_direction)
     .bind(request.max_songs)
+    .bind(&request.folder_id)
     .execute(&state.pool)
     .await?;
 
@@ -384,12 +394,28 @@ pub async fn update_smart_playlist(
     }
     // Handle max_songs which can be Some(Some(N)), Some(None), or None
     if let Some(max_songs) = request.max_songs {
-        updates.push("max_songs = ?");
-        bindings.push(
-            max_songs
-                .map(|n| n.to_string())
-                .unwrap_or("NULL".to_string()),
-        );
+        match max_songs {
+            Some(n) => {
+                updates.push("max_songs = ?");
+                bindings.push(n.to_string());
+            }
+            None => {
+                updates.push("max_songs = NULL");
+            }
+        }
+    }
+
+    // Handle folder_id which can be Some(Some(id)), Some(None) to move to root, or None to leave unchanged
+    if let Some(folder_id) = &request.folder_id {
+        match folder_id {
+            Some(id) => {
+                updates.push("folder_id = ?");
+                bindings.push(id.clone());
+            }
+            None => {
+                updates.push("folder_id = NULL");
+            }
+        }
     }
 
     if updates.is_empty() {
@@ -618,6 +644,7 @@ pub async fn materialize_smart_playlist(
         user.user_id,
         request.comment.as_deref(),
         false, // Not public by default
+        None,  // Materialized playlists go to root for now
     )
     .await
     .map_err(|e| Error::Internal(e.to_string()))?;

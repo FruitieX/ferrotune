@@ -216,6 +216,7 @@ export function ImportPlaylistDialog({
           name: playlistName.trim(),
           comment: null,
           entries,
+          folderId: null,
         });
 
         return {

@@ -1,3 +1,4 @@
+pub mod migrations;
 pub mod models;
 pub mod queries;
 
@@ -122,11 +123,14 @@ pub async fn create_pool(database_path: &Path) -> crate::error::Result<SqlitePoo
 
     let pool = pool_options.connect_with(options).await?;
 
-    // Run migrations
+    // Run schema migrations
     sqlx::migrate!("./migrations")
         .run(&pool)
         .await
         .map_err(|e| crate::error::Error::Migration(e.to_string()))?;
+
+    // Run data migrations (Rust-based)
+    migrations::run_data_migrations(&pool).await?;
 
     Ok(pool)
 }

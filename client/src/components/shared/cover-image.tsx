@@ -244,7 +244,7 @@ export function CoverImage({
       )}
 
       {/* Placeholder - shown when no src, or after error, or while loading if showPlaceholderWhileLoading */}
-      {/* For smart playlists with overlay, we skip the icon since the overlay shows the sparkle */}
+      {/* For smart playlists and folders with overlay, we skip the icon since the overlay shows the type icon */}
       {showPlaceholder && !showSkeleton && (
         <div
           className="absolute inset-0 flex items-center justify-center"
@@ -252,10 +252,11 @@ export function CoverImage({
             background: `linear-gradient(135deg, hsl(${placeholderHue}, 50%, 25%) 0%, hsl(${(placeholderHue + 40) % 360}, 45%, 18%) 100%)`,
           }}
         >
-          {/* Don't show icon if we're showing the type overlay (avoids duplicate sparkles) */}
-          {!(showTypeOverlay && type === "smartPlaylist") && (
-            <Icon className={cn("text-white/70", iconSizes[size])} />
-          )}
+          {/* Don't show icon if we're showing the type overlay (avoids duplicate icons) */}
+          {!(
+            showTypeOverlay &&
+            (type === "smartPlaylist" || type === "folder")
+          ) && <Icon className={cn("text-white/70", iconSizes[size])} />}
         </div>
       )}
 
@@ -270,6 +271,26 @@ export function CoverImage({
           >
             {/* Size-responsive sparkle: smaller for row view (sm), larger for grid (md+) */}
             <Sparkles
+              className={cn(
+                "text-white/90",
+                size === "sm" ? "w-4 h-4" : "w-8 h-8",
+              )}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Type overlay badge - shows folder icon centered for playlist folders */}
+      {showTypeOverlay && type === "folder" && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div
+            className={cn(
+              "bg-amber-600/75 rounded-full",
+              size === "sm" ? "p-1" : "p-2",
+            )}
+          >
+            {/* Size-responsive folder icon: smaller for row view (sm), larger for grid (md+) */}
+            <Folder
               className={cn(
                 "text-white/90",
                 size === "sm" ? "w-4 h-4" : "w-8 h-8",

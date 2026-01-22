@@ -318,7 +318,7 @@ export function MobileQueueSheet() {
               // Disable pointer events during close animation
               pointerEvents: closeAnimationComplete ? "none" : "auto",
             }}
-            className="fixed inset-0 z-60 bg-black/50"
+            className="fixed inset-0 z-[60] bg-black/50"
             onClick={() => setIsOpen(false)}
           />
 
@@ -351,7 +351,7 @@ export function MobileQueueSheet() {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
             className={cn(
-              "fixed top-0 right-0 bottom-0 z-60 w-full sm:w-[400px] bg-background border-l border-border flex flex-col",
+              "fixed top-0 right-0 bottom-0 z-[60] w-full sm:w-[400px] bg-background border-l border-border flex flex-col",
               // Disable text selection during swipe
               "select-none",
               // Allow vertical scroll gestures to pass through, horizontal gestures control sheet

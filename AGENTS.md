@@ -349,3 +349,7 @@ Read these when working on specific areas:
 ## TODO list files
 
 When asking to complete batches from a TODO list file, complete items from top to bottom regardless of complexity. Mark the items as done when progressing. After completing a batch, check if there are any new items in the referenced TODO file, and if so, begin working on those. Loop until there are no more items left to complete in the referenced TODO file batch.
+
+## After task completion
+
+- Read the TODO.md file, see if any tasks are present. If so, continue working on these tasks before handing control back to the user. If at the end of completing these tasks there are still more tasks, continue working on these until no tasks remain. Mark the tasks as done (by ticking the checkbox, not deleting the TODO entry) when progressing.

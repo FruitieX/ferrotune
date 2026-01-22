@@ -1,10 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ListMusic, Folder, Loader2 } from "lucide-react";
+import {
+  ListMusic,
+  Folder,
+  Loader2,
+  ChevronDown,
+  Home,
+  Upload,
+  X,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -16,102 +25,156 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { getClient } from "@/lib/api/client";
-import { findFolderPlaceholder } from "@/lib/utils/playlist-folders";
+import { cn } from "@/lib/utils";
 
 interface CreatePlaylistDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Optional folder path to create the playlist in */
+  /** Optional folder ID to create the playlist in (new API) */
+  folderId?: string | null;
+  /** Optional folder path for display purposes */
   folderPath?: string;
-  /** If true, creates a folder (by creating an empty playlist with folder name) */
+  /** If true, creates a folder using the new folder API */
   createFolder?: boolean;
 }
 
 export function CreatePlaylistDialog({
   open,
   onOpenChange,
-  folderPath = "",
+  folderId: initialFolderId = null,
+  folderPath: initialFolderPath = "",
   createFolder = false,
 }: CreatePlaylistDialogProps) {
   const [name, setName] = useState("");
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(
+    initialFolderId,
+  );
   const [prevOpen, setPrevOpen] = useState(open);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const router = useRouter();
 
-  // Fetch playlists to check for folder placeholders
-  const { data: playlists } = useQuery({
-    queryKey: ["playlists"],
+  // Fetch folders for the folder picker
+  const { data: foldersData } = useQuery({
+    queryKey: ["playlistFolders"],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getPlaylists();
-      return response.playlists.playlist ?? [];
+      return client.getPlaylistFoldersWithStructure();
     },
-    enabled: open && !createFolder, // Only need this when creating a playlist (not a folder)
+    enabled: open,
   });
 
-  // Reset name when dialog opens (React-recommended pattern for adjusting state when props change)
+  const folders = foldersData?.folders ?? [];
+
+  // Reset state when dialog opens
   if (open !== prevOpen) {
     setPrevOpen(open);
     if (open) {
       setName("");
+      setSelectedFolderId(initialFolderId);
+      setCoverPreview(null);
+      setSelectedFile(null);
     }
   }
 
+  // Get the selected folder name for display
+  const selectedFolder = folders.find((f) => f.id === selectedFolderId);
+  const selectedFolderName =
+    selectedFolder?.name ?? initialFolderPath ?? "Root";
+
+  // Handle file selection for folder cover
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith("image/")) {
+        toast.error("Please select an image file");
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error("Image too large (max 10MB)");
+        return;
+      }
+      setSelectedFile(file);
+      // Create preview URL
+      const url = URL.createObjectURL(file);
+      setCoverPreview(url);
+    }
+  };
+
+  const clearCoverSelection = () => {
+    if (coverPreview) {
+      URL.revokeObjectURL(coverPreview);
+    }
+    setCoverPreview(null);
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const createPlaylist = useMutation({
-    mutationFn: async (playlistName: string) => {
+    mutationFn: async ({
+      playlistName,
+      coverFile,
+    }: {
+      playlistName: string;
+      coverFile: File | null;
+    }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
 
-      // Build the full playlist name with folder path prefix
-      let fullName: string;
       if (createFolder) {
-        // Creating a folder: create a placeholder with trailing /
-        // e.g., "Rock/" or "Music/Rock/" to indicate an empty folder
-        // This placeholder will be deleted when the first real playlist is added
-        const folderFullPath = folderPath
-          ? `${folderPath}/${playlistName}`
-          : playlistName;
-        fullName = `${folderFullPath}/`;
-      } else {
-        // Creating a regular playlist in a folder
-        fullName = folderPath ? `${folderPath}/${playlistName}` : playlistName;
-      }
+        // Create folder using new API
+        const folder = await client.createPlaylistFolder(
+          playlistName,
+          selectedFolderId,
+        );
 
-      // Create the new playlist
-      const result = await client.createPlaylist({ name: fullName });
-
-      // If creating a real playlist in a folder, delete the folder placeholder if it exists
-      if (!createFolder && folderPath && playlists) {
-        const placeholder = findFolderPlaceholder(playlists, folderPath);
-        if (placeholder) {
-          try {
-            await client.deletePlaylist(placeholder.id);
-          } catch (err) {
-            // Ignore errors deleting placeholder - the folder will still work
-            console.warn("Failed to delete folder placeholder:", err);
-          }
+        // Upload cover art if selected
+        if (coverFile && folder.id) {
+          await client.uploadPlaylistFolderCover(folder.id, coverFile);
         }
-      }
 
-      return result;
+        return { type: "folder" as const, folder };
+      } else {
+        // Create playlist directly in the selected folder
+        const result = await client.createPlaylist({
+          name: playlistName,
+          folderId: selectedFolderId,
+        });
+
+        return { type: "playlist" as const, playlist: result };
+      }
     },
     onSuccess: async (result) => {
       const displayName = name.trim();
-      if (createFolder) {
+      if (result.type === "folder") {
         toast.success(`Folder "${displayName}" created successfully`);
+        await queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       } else {
         toast.success(`Playlist "${displayName}" created successfully`);
-      }
-      await queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      setName("");
-      onOpenChange(false);
+        await queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
+        await queryClient.invalidateQueries({ queryKey: ["playlists"] });
 
-      // Navigate to the new playlist (only for regular playlists, not folders)
-      if (!createFolder && result.playlist?.id) {
-        router.push(`/playlists/details?id=${result.playlist.id}`);
+        // Navigate to the new playlist
+        if (result.playlist.playlist?.id) {
+          router.push(`/playlists/details?id=${result.playlist.playlist.id}`);
+        }
       }
+      setName("");
+      clearCoverSelection();
+      onOpenChange(false);
     },
     onError: (error) => {
       const entityType = createFolder ? "folder" : "playlist";
@@ -123,17 +186,18 @@ export function CreatePlaylistDialog({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim()) {
-      createPlaylist.mutate(name.trim());
+      createPlaylist.mutate({
+        playlistName: name.trim(),
+        coverFile: selectedFile,
+      });
     }
   };
 
   const Icon = createFolder ? Folder : ListMusic;
   const title = createFolder ? "Create Folder" : "Create Playlist";
   const description = createFolder
-    ? "Create a new folder to organize your playlists. This will create a playlist in the folder to establish it."
-    : folderPath
-      ? `Create a new playlist in "${folderPath}".`
-      : "Give your playlist a name to get started.";
+    ? "Create a new folder to organize your playlists."
+    : "Give your playlist a name to get started.";
   const placeholder = createFolder ? "New Folder" : "My Playlist";
   const buttonText = createFolder ? "Create Folder" : "Create";
   const loadingText = "Creating...";
@@ -160,6 +224,118 @@ export function CreatePlaylistDialog({
                 autoFocus
               />
             </div>
+
+            {/* Folder picker */}
+            <div className="grid gap-2">
+              <Label>Location</Label>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="justify-between">
+                    <span className="flex items-center gap-2">
+                      {selectedFolderId ? (
+                        <Folder className="w-4 h-4" />
+                      ) : (
+                        <Home className="w-4 h-4" />
+                      )}
+                      {selectedFolderId ? selectedFolderName : "Root"}
+                    </span>
+                    <ChevronDown className="w-4 h-4 opacity-50" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-[200px]">
+                  <DropdownMenuItem onClick={() => setSelectedFolderId(null)}>
+                    <Home className="w-4 h-4 mr-2" />
+                    Root
+                    {!selectedFolderId && (
+                      <span className="ml-auto text-xs text-muted-foreground">
+                        Current
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                  {folders.length > 0 && <DropdownMenuSeparator />}
+                  {folders.map((folder) => (
+                    <DropdownMenuItem
+                      key={folder.id}
+                      onClick={() => setSelectedFolderId(folder.id)}
+                    >
+                      <Folder className="w-4 h-4 mr-2" />
+                      <span className="truncate">{folder.name}</span>
+                      {selectedFolderId === folder.id && (
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          Current
+                        </span>
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            {/* Cover art picker - only for folders */}
+            {createFolder && (
+              <div className="grid gap-2">
+                <Label>Cover Art (Optional)</Label>
+                <div className="flex items-start gap-4">
+                  {/* Cover Preview */}
+                  <div
+                    className={cn(
+                      "relative w-20 h-20 rounded-lg overflow-hidden",
+                      "bg-muted flex items-center justify-center",
+                      "border border-border",
+                    )}
+                  >
+                    {coverPreview ? (
+                      <Image
+                        src={coverPreview}
+                        alt="Folder cover preview"
+                        fill
+                        unoptimized
+                        className="object-cover"
+                      />
+                    ) : (
+                      <Folder className="w-8 h-8 text-muted-foreground" />
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex flex-col gap-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      {coverPreview ? "Change" : "Upload"}
+                    </Button>
+                    {coverPreview && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={clearCoverSelection}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <X className="w-4 h-4 mr-2" />
+                        Remove
+                      </Button>
+                    )}
+                    {selectedFile && (
+                      <p className="text-xs text-muted-foreground max-w-[140px] truncate">
+                        {selectedFile.name}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button

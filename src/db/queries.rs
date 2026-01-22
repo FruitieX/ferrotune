@@ -502,16 +502,18 @@ pub async fn create_playlist(
     owner_id: i64,
     comment: Option<&str>,
     is_public: bool,
+    folder_id: Option<&str>,
 ) -> sqlx::Result<()> {
     sqlx::query(
-        "INSERT INTO playlists (id, name, comment, owner_id, is_public, song_count, duration, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 0, 0, datetime('now'), datetime('now'))"
+        "INSERT INTO playlists (id, name, comment, owner_id, is_public, folder_id, song_count, duration, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, 0, datetime('now'), datetime('now'))"
     )
     .bind(id)
     .bind(name)
     .bind(comment)
     .bind(owner_id)
     .bind(is_public)
+    .bind(folder_id)
     .execute(pool)
     .await?;
 
@@ -1872,4 +1874,98 @@ pub async fn get_songs_by_directory_flat(
 
     // Legacy format not supported for flat directory queries
     Ok(vec![])
+}
+
+// ============================================================================
+// Playlist Folder Helpers
+// ============================================================================
+
+/// Parses a path string like "Folder1/Folder2/Playlist Name" and:
+/// 1. Creates any missing folders in the hierarchy
+/// 2. Returns (folder_id, playlist_name) where folder_id is the deepest folder
+///
+/// If the path has no slashes, returns (None, full_path) for root placement.
+pub async fn resolve_or_create_folder_path(
+    pool: &SqlitePool,
+    path: &str,
+    owner_id: i64,
+) -> sqlx::Result<(Option<String>, String)> {
+    // If no slashes, return as-is (root placement)
+    if !path.contains('/') {
+        return Ok((None, path.to_string()));
+    }
+
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts.is_empty() {
+        return Ok((None, path.to_string()));
+    }
+
+    // Last part is the playlist name, rest are folders
+    let playlist_name = parts.last().unwrap().to_string();
+    let folder_parts = &parts[..parts.len() - 1];
+
+    if folder_parts.is_empty() {
+        return Ok((None, playlist_name));
+    }
+
+    // Create folder hierarchy
+    let mut parent_id: Option<String> = None;
+
+    for folder_name in folder_parts {
+        if folder_name.is_empty() {
+            continue;
+        }
+
+        // Check if folder already exists
+        let existing: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT id FROM playlist_folders 
+            WHERE owner_id = ? AND name = ? AND 
+                  (parent_id IS NULL AND ? IS NULL OR parent_id = ?)
+            "#,
+        )
+        .bind(owner_id)
+        .bind(folder_name)
+        .bind(&parent_id)
+        .bind(&parent_id)
+        .fetch_optional(pool)
+        .await?;
+
+        let folder_id = if let Some((id,)) = existing {
+            id
+        } else {
+            // Create new folder
+            let new_id = format!("pf-{}", Uuid::new_v4());
+
+            // Get next position
+            let (max_pos,): (i64,) = sqlx::query_as(
+                "SELECT COALESCE(MAX(position), -1) FROM playlist_folders WHERE owner_id = ? AND (parent_id IS NULL AND ? IS NULL OR parent_id = ?)",
+            )
+            .bind(owner_id)
+            .bind(&parent_id)
+            .bind(&parent_id)
+            .fetch_one(pool)
+            .await?;
+
+            sqlx::query(
+                r#"
+                INSERT INTO playlist_folders (id, name, parent_id, owner_id, position)
+                VALUES (?, ?, ?, ?, ?)
+                "#,
+            )
+            .bind(&new_id)
+            .bind(folder_name)
+            .bind(&parent_id)
+            .bind(owner_id)
+            .bind(max_pos + 1)
+            .execute(pool)
+            .await?;
+
+            new_id
+        };
+
+        parent_id = Some(folder_id);
+    }
+
+    Ok((parent_id, playlist_name))
 }

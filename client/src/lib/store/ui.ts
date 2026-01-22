@@ -10,6 +10,13 @@ export const sidebarCollapsedAtom = atomWithServerStorage(
 );
 export const sidebarWidthAtom = atomWithServerStorage("sidebar-width", 280);
 
+// Sidebar list item size
+export type SidebarItemSize = "small" | "medium" | "large";
+export const sidebarItemSizeAtom = atomWithServerStorage<SidebarItemSize>(
+  "sidebar-item-size",
+  "medium",
+);
+
 // Mobile menu state
 export const mobileMenuOpenAtom = atom<boolean>(false);
 

@@ -27,6 +27,8 @@ import {
   Home,
   Sparkles,
   Check,
+  MoreHorizontal,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -63,6 +65,7 @@ import {
 } from "@/components/shared/virtualized-grid";
 import { MediaCard, MediaCardSkeleton } from "@/components/shared/media-card";
 import { MediaRow, MediaRowSkeleton } from "@/components/shared/media-row";
+import { CoverImage } from "@/components/shared/cover-image";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { CreatePlaylistDialog } from "@/components/playlists/create-playlist-dialog";
 import { SmartPlaylistDialog } from "@/components/playlists/smart-playlist-dialog";
@@ -79,6 +82,7 @@ import {
   FolderContextMenu,
   FolderDropdownMenu,
 } from "@/components/playlists/folder-context-menu";
+import { EditFolderDialog } from "@/components/playlists/edit-folder-dialog";
 import {
   formatDuration,
   formatCount,
@@ -88,6 +92,7 @@ import {
 import { filterPlaylists, sortPlaylists } from "@/lib/utils/sort-playlists";
 import {
   organizePlaylistsIntoFolders,
+  buildFolderTreeFromApi,
   getPlaylistDisplayName,
   parsePlaylistPath,
   type PlaylistFolder,
@@ -107,8 +112,11 @@ function PlaylistsPageContent() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
   const [smartPlaylistDialogOpen, setSmartPlaylistDialogOpen] = useState(false);
+  const [createInFolderId, setCreateInFolderId] = useState<string | null>(null);
   const [createInFolderPath, setCreateInFolderPath] = useState<string>("");
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [editCurrentFolderDialogOpen, setEditCurrentFolderDialogOpen] =
+    useState(false);
   const [activeDragPlaylist, setActiveDragPlaylist] = useState<Playlist | null>(
     null,
   );
@@ -141,17 +149,30 @@ function PlaylistsPageContent() {
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
 
-  // Fetch playlists
-  const { data: playlists, isLoading } = useQuery({
-    queryKey: ["playlists"],
+  // Fetch playlist folders with structure from API
+  const { data: playlistFoldersData, isLoading } = useQuery({
+    queryKey: ["playlistFolders"],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getPlaylists();
-      return response.playlists.playlist ?? [];
+      return client.getPlaylistFoldersWithStructure();
     },
     enabled: isReady,
   });
+
+  // Also fetch legacy playlists for compatibility (used by move mutation, etc.)
+  const playlists = playlistFoldersData?.playlists?.map((p) => ({
+    id: p.id,
+    name: p.name,
+    comment: null,
+    owner: "admin",
+    public: false,
+    songCount: p.songCount,
+    duration: 0,
+    created: new Date().toISOString(),
+    changed: new Date().toISOString(),
+    coverArt: null,
+  })) as Playlist[] | undefined;
 
   // Fetch smart playlists
   const { data: smartPlaylists } = useQuery({
@@ -165,34 +186,32 @@ function PlaylistsPageContent() {
     enabled: isReady,
   });
 
-  // Mutation to move playlist to a folder
+  // Mutation to move playlist to a folder using the new folder API
   const movePlaylistMutation = useMutation({
     mutationFn: async ({
-      playlist,
-      targetFolderPath,
+      playlistId,
+      targetFolderId,
     }: {
-      playlist: Playlist;
-      targetFolderPath: string;
+      playlistId: string;
+      targetFolderId: string | null;
     }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-
-      // Get just the playlist name without any folder prefix
-      const displayName = getPlaylistDisplayName(playlist);
-
-      // Build new name with folder path
-      const newName = targetFolderPath
-        ? `${targetFolderPath}/${displayName}`
-        : displayName;
-
-      await client.updatePlaylist({ playlistId: playlist.id, name: newName });
-      return { playlist, newName, targetFolderPath };
+      await client.movePlaylistToFolder(playlistId, targetFolderId);
+      return { playlistId, targetFolderId };
     },
-    onSuccess: ({ playlist, targetFolderPath }) => {
+    onSuccess: ({ playlistId, targetFolderId }) => {
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      const displayName = getPlaylistDisplayName(playlist);
-      if (targetFolderPath) {
-        toast.success(`Moved "${displayName}" to ${targetFolderPath}`);
+      const playlist = playlists?.find((p) => p.id === playlistId);
+      const displayName = playlist
+        ? getPlaylistDisplayName(playlist)
+        : "Playlist";
+      const targetFolder = playlistFoldersData?.folders.find(
+        (f) => f.id === targetFolderId,
+      );
+      if (targetFolderId && targetFolder) {
+        toast.success(`Moved "${displayName}" to ${targetFolder.name}`);
       } else {
         toast.success(`Moved "${displayName}" to root`);
       }
@@ -224,38 +243,92 @@ function PlaylistsPageContent() {
 
     const overId = String(over.id);
 
-    // Determine target folder path
-    let targetFolderPath: string;
+    // Get playlist's current folder ID from API data
+    const currentFolderId =
+      playlistFoldersData?.playlists.find((p) => p.id === playlistId)
+        ?.folderId ?? null;
+
+    // Determine target folder ID
+    let targetFolderId: string | null;
     if (overId === "drop-root") {
       // Moving to root
-      targetFolderPath = "";
+      targetFolderId = null;
+    } else if (overId.startsWith("folder-id-")) {
+      // Moving to a folder by ID
+      targetFolderId = overId.replace("folder-id-", "");
     } else if (overId.startsWith("folder-")) {
-      // Moving to a folder
-      targetFolderPath = overId.replace("folder-", "");
+      // Legacy: moving to a folder by path - find the folder ID
+      const folderPath = overId.replace("folder-", "");
+      // Find folder by path in the tree
+      const findFolderByPath = (
+        folder: PlaylistFolder,
+        targetPath: string,
+      ): PlaylistFolder | null => {
+        if (folder.path === targetPath) return folder;
+        for (const subfolder of folder.subfolders) {
+          const found = findFolderByPath(subfolder, targetPath);
+          if (found) return found;
+        }
+        return null;
+      };
+      const targetFolder = playlistTree
+        ? findFolderByPath(playlistTree, folderPath)
+        : null;
+      targetFolderId = targetFolder?.id ?? null;
+      if (!targetFolder?.id && folderPath) {
+        // Folder doesn't have an ID (legacy path-based folder), can't move
+        toast.error(
+          "Cannot move to legacy folder. Please recreate the folder.",
+        );
+        return;
+      }
+    } else if (overId.startsWith("breadcrumb-id-")) {
+      // Moving to a breadcrumb level by folder ID
+      targetFolderId = overId.replace("breadcrumb-id-", "");
     } else if (overId.startsWith("breadcrumb-")) {
-      // Moving to a breadcrumb level
-      targetFolderPath = overId.replace("breadcrumb-", "");
+      // Legacy: breadcrumb by path - find the folder ID
+      const folderPath = overId.replace("breadcrumb-", "");
+      if (!folderPath) {
+        targetFolderId = null; // Root
+      } else {
+        const findFolderByPath = (
+          folder: PlaylistFolder,
+          targetPath: string,
+        ): PlaylistFolder | null => {
+          if (folder.path === targetPath) return folder;
+          for (const subfolder of folder.subfolders) {
+            const found = findFolderByPath(subfolder, targetPath);
+            if (found) return found;
+          }
+          return null;
+        };
+        const targetFolder = playlistTree
+          ? findFolderByPath(playlistTree, folderPath)
+          : null;
+        targetFolderId = targetFolder?.id ?? null;
+      }
     } else {
       return; // Unknown drop target
     }
 
-    // Get the current folder path of the playlist
-    const currentPlaylistPath = playlist.name.includes("/")
-      ? playlist.name.substring(0, playlist.name.lastIndexOf("/"))
-      : "";
-
     // Don't do anything if dropping on the same folder
-    if (targetFolderPath === currentPlaylistPath) return;
+    if (targetFolderId === currentFolderId) return;
 
-    // Don't allow dropping a playlist into a subfolder that doesn't exist yet
-    // (folders are created by naming convention)
-
-    movePlaylistMutation.mutate({ playlist, targetFolderPath });
+    movePlaylistMutation.mutate({ playlistId, targetFolderId });
   };
 
-  // Organize playlists into folder tree
-  const playlistTree = playlists
-    ? organizePlaylistsIntoFolders(playlists, smartPlaylists)
+  // Build folder tree from API data
+  // Use the new API-based folder tree if we have folder entities,
+  // otherwise fall back to the legacy name-based parsing
+  const playlistTree = playlistFoldersData
+    ? playlistFoldersData.folders.length > 0 ||
+      playlistFoldersData.playlists.some((p) => p.folderId)
+      ? buildFolderTreeFromApi(
+          playlistFoldersData.folders,
+          playlistFoldersData.playlists,
+          smartPlaylists,
+        )
+      : organizePlaylistsIntoFolders(playlists ?? [], smartPlaylists)
     : null;
 
   // Get current folder from path
@@ -432,25 +505,49 @@ function PlaylistsPageContent() {
   };
 
   // Handlers for creating playlist/folder in a specific folder via context menu
-  const handleCreatePlaylistInFolder = (folderPath: string) => {
+  const handleCreatePlaylistInFolder = (
+    folderPath: string,
+    folderId?: string,
+  ) => {
     setCreateInFolderPath(folderPath);
+    setCreateInFolderId(folderId ?? null);
     setCreateDialogOpen(true);
   };
 
-  const handleCreateSubfolder = (parentPath: string) => {
+  const handleCreateSubfolder = (
+    parentPath: string,
+    parentFolderId?: string,
+  ) => {
     setCreateInFolderPath(parentPath);
+    setCreateInFolderId(parentFolderId ?? null);
     setCreateFolderDialogOpen(true);
   };
 
-  // Build breadcrumb items
+  // Build breadcrumb items with folder IDs
   const breadcrumbItems = (() => {
-    const items = [{ label: "Playlists", path: "" }];
+    const items: { label: string; path: string; folderId?: string }[] = [
+      { label: "Playlists", path: "" },
+    ];
+
+    // Walk the folder tree to get folder IDs for each path segment
+    let currentFolder = playlistTree;
     let currentPathBuilt = "";
+
     for (const part of pathParts) {
       currentPathBuilt = currentPathBuilt
         ? `${currentPathBuilt}/${part}`
         : part;
-      items.push({ label: part, path: currentPathBuilt });
+
+      // Find the subfolder by name
+      const subfolder = currentFolder?.subfolders.find((f) => f.name === part);
+      items.push({
+        label: part,
+        path: currentPathBuilt,
+        folderId: subfolder?.id,
+      });
+      if (subfolder) {
+        currentFolder = subfolder;
+      }
     }
     return items;
   })();
@@ -534,6 +631,7 @@ function PlaylistsPageContent() {
                 ) : (
                   <DroppableBreadcrumb
                     path={item.path}
+                    folderId={item.folderId}
                     onClick={() => navigateToFolder(item.path)}
                   >
                     {index === 0 ? <Home className="w-4 h-4" /> : item.label}
@@ -620,7 +718,26 @@ function PlaylistsPageContent() {
               placeholder="Filter playlists..."
             />
           }
-        />
+        >
+          {/* Folder options dropdown - only shown when viewing a folder */}
+          {currentPath && currentFolder && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon">
+                  <MoreHorizontal className="w-5 h-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => setEditCurrentFolderDialogOpen(true)}
+                >
+                  <Pencil className="w-4 h-4 mr-2" />
+                  Edit Folder
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </ActionBar>
 
         {/* Content */}
         <div className={cn("px-4 lg:px-6 py-4", hasSelection && "select-none")}>
@@ -805,8 +922,12 @@ function PlaylistsPageContent() {
           open={createDialogOpen}
           onOpenChange={(open) => {
             setCreateDialogOpen(open);
-            if (!open) setCreateInFolderPath("");
+            if (!open) {
+              setCreateInFolderPath("");
+              setCreateInFolderId(null);
+            }
           }}
+          folderId={createInFolderId ?? currentFolder?.id}
           folderPath={createInFolderPath || currentPath}
         />
 
@@ -815,8 +936,12 @@ function PlaylistsPageContent() {
           open={createFolderDialogOpen}
           onOpenChange={(open) => {
             setCreateFolderDialogOpen(open);
-            if (!open) setCreateInFolderPath("");
+            if (!open) {
+              setCreateInFolderPath("");
+              setCreateInFolderId(null);
+            }
           }}
+          folderId={createInFolderId ?? currentFolder?.id}
           folderPath={createInFolderPath || currentPath}
           createFolder
         />
@@ -832,8 +957,17 @@ function PlaylistsPageContent() {
         <SmartPlaylistDialog
           open={smartPlaylistDialogOpen}
           onOpenChange={setSmartPlaylistDialogOpen}
-          folderPath={currentPath}
+          folderId={currentFolder?.id}
         />
+
+        {/* Edit Current Folder Dialog */}
+        {currentFolder && (
+          <EditFolderDialog
+            folder={currentFolder}
+            open={editCurrentFolderDialogOpen}
+            onOpenChange={setEditCurrentFolderDialogOpen}
+          />
+        )}
 
         {/* Spacer for player bar */}
         <div className="h-24" />
@@ -857,17 +991,26 @@ function PlaylistsPageContent() {
 // Droppable breadcrumb for drag targets
 interface DroppableBreadcrumbProps {
   path: string;
+  folderId?: string;
   onClick: () => void;
   children: React.ReactNode;
 }
 
 function DroppableBreadcrumb({
   path,
+  folderId,
   onClick,
   children,
 }: DroppableBreadcrumbProps) {
+  // Use folder ID if available, otherwise fall back to path
+  const droppableId =
+    path === ""
+      ? "drop-root"
+      : folderId
+        ? `breadcrumb-id-${folderId}`
+        : `breadcrumb-${path}`;
   const { setNodeRef, isOver } = useDroppable({
-    id: path === "" ? "drop-root" : `breadcrumb-${path}`,
+    id: droppableId,
   });
 
   return (
@@ -889,8 +1032,8 @@ interface DroppableFolderGridCardProps {
   folder: PlaylistFolder;
   currentPath: string;
   onNavigate: (path: string) => void;
-  onCreateSubfolder: (parentPath: string) => void;
-  onCreatePlaylist: (folderPath: string) => void;
+  onCreateSubfolder: (parentPath: string, parentFolderId?: string) => void;
+  onCreatePlaylist: (folderPath: string, folderId?: string) => void;
 }
 
 function DroppableFolderGridCard({
@@ -899,16 +1042,26 @@ function DroppableFolderGridCard({
   onCreateSubfolder,
   onCreatePlaylist,
 }: DroppableFolderGridCardProps) {
+  // Use folder ID if available, otherwise fall back to path for legacy folders
+  const droppableId = folder.id
+    ? `folder-id-${folder.id}`
+    : `folder-${folder.path}`;
   const { setNodeRef, isOver } = useDroppable({
-    id: `folder-${folder.path}`,
+    id: droppableId,
   });
   const playlistCount = countPlaylistsInFolder(folder);
+
+  // Get cover art URL if folder has cover art
+  const folderCoverArtUrl =
+    folder.id && folder.hasCoverArt
+      ? getClient()?.getPlaylistFolderCoverUrl(folder.id, "medium")
+      : undefined;
 
   return (
     <FolderContextMenu
       folder={folder}
-      onCreateSubfolder={onCreateSubfolder}
-      onCreatePlaylist={onCreatePlaylist}
+      onCreateSubfolder={(path) => onCreateSubfolder(path, folder.id)}
+      onCreatePlaylist={(path) => onCreatePlaylist(path, folder.id)}
     >
       <div
         ref={setNodeRef}
@@ -928,21 +1081,37 @@ function DroppableFolderGridCard({
       >
         <FolderDropdownMenu
           folder={folder}
-          onCreateSubfolder={onCreateSubfolder}
-          onCreatePlaylist={onCreatePlaylist}
+          onCreateSubfolder={(path) => onCreateSubfolder(path, folder.id)}
+          onCreatePlaylist={(path) => onCreatePlaylist(path, folder.id)}
         />
         <div
           className={cn(
-            "w-full aspect-square rounded-lg bg-linear-to-br from-amber-500/20 to-amber-700/20 flex items-center justify-center mb-3",
-            isOver && "from-emerald-500/30 to-emerald-700/30",
+            "w-full aspect-square rounded-lg overflow-hidden flex items-center justify-center mb-3",
+            !folderCoverArtUrl &&
+              "bg-linear-to-br from-amber-500/20 to-amber-700/20",
+            isOver &&
+              !folderCoverArtUrl &&
+              "from-emerald-500/30 to-emerald-700/30",
           )}
         >
-          <Folder
-            className={cn(
-              "w-16 h-16 text-amber-500",
-              isOver && "text-emerald-500",
-            )}
-          />
+          {folderCoverArtUrl ? (
+            <CoverImage
+              src={folderCoverArtUrl}
+              alt={folder.name}
+              type="folder"
+              size="md"
+              colorSeed={folder.path}
+              showTypeOverlay
+              className="w-full h-full"
+            />
+          ) : (
+            <Folder
+              className={cn(
+                "w-16 h-16 text-amber-500",
+                isOver && "text-emerald-500",
+              )}
+            />
+          )}
         </div>
         <div className="w-full">
           <h3 className="font-medium truncate">{folder.name}</h3>
@@ -965,8 +1134,8 @@ interface DroppableFolderListRowProps {
   index: number;
   currentPath: string;
   onNavigate: (path: string) => void;
-  onCreateSubfolder: (parentPath: string) => void;
-  onCreatePlaylist: (folderPath: string) => void;
+  onCreateSubfolder: (parentPath: string, parentFolderId?: string) => void;
+  onCreatePlaylist: (folderPath: string, folderId?: string) => void;
   isSelected?: boolean;
   isSelectionMode?: boolean;
   onSelect?: (e: React.MouseEvent) => void;
@@ -982,10 +1151,20 @@ function DroppableFolderListRow({
   isSelectionMode,
   onSelect,
 }: DroppableFolderListRowProps) {
+  // Use folder ID if available, otherwise fall back to path for legacy folders
+  const droppableId = folder.id
+    ? `folder-id-${folder.id}`
+    : `folder-${folder.path}`;
   const { setNodeRef, isOver } = useDroppable({
-    id: `folder-${folder.path}`,
+    id: droppableId,
   });
   const playlistCount = countPlaylistsInFolder(folder);
+
+  // Get cover art URL if folder has cover art
+  const folderCoverArtUrl =
+    folder.id && folder.hasCoverArt
+      ? getClient()?.getPlaylistFolderCoverUrl(folder.id, "small")
+      : undefined;
 
   const handleClick = (e: React.MouseEvent) => {
     if (isSelectionMode && onSelect) {
@@ -1000,8 +1179,8 @@ function DroppableFolderListRow({
   return (
     <FolderContextMenu
       folder={folder}
-      onCreateSubfolder={onCreateSubfolder}
-      onCreatePlaylist={onCreatePlaylist}
+      onCreateSubfolder={(path) => onCreateSubfolder(path, folder.id)}
+      onCreatePlaylist={(path) => onCreatePlaylist(path, folder.id)}
     >
       <div
         ref={setNodeRef}
@@ -1035,19 +1214,31 @@ function DroppableFolderListRow({
             </span>
           )}
         </div>
-        <div
-          className={cn(
-            "w-10 h-10 rounded bg-linear-to-br from-amber-500/20 to-amber-700/20 flex items-center justify-center shrink-0",
-            isOver && "from-emerald-500/30 to-emerald-700/30",
-          )}
-        >
-          <Folder
-            className={cn(
-              "w-5 h-5 text-amber-500",
-              isOver && "text-emerald-500",
-            )}
+        {folderCoverArtUrl ? (
+          <CoverImage
+            src={folderCoverArtUrl}
+            alt={folder.name}
+            type="folder"
+            size="sm"
+            colorSeed={folder.path}
+            showTypeOverlay
+            className="w-10 h-10 rounded shrink-0"
           />
-        </div>
+        ) : (
+          <div
+            className={cn(
+              "w-10 h-10 rounded bg-linear-to-br from-amber-500/20 to-amber-700/20 flex items-center justify-center shrink-0",
+              isOver && "from-emerald-500/30 to-emerald-700/30",
+            )}
+          >
+            <Folder
+              className={cn(
+                "w-5 h-5 text-amber-500",
+                isOver && "text-emerald-500",
+              )}
+            />
+          </div>
+        )}
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-medium truncate hover:underline">
             {folder.name}
@@ -1063,8 +1254,8 @@ function DroppableFolderListRow({
         <FolderDropdownMenu
           folder={folder}
           inline
-          onCreateSubfolder={onCreateSubfolder}
-          onCreatePlaylist={onCreatePlaylist}
+          onCreateSubfolder={(path) => onCreateSubfolder(path, folder.id)}
+          onCreatePlaylist={(path) => onCreatePlaylist(path, folder.id)}
         />
       </div>
     </FolderContextMenu>

@@ -312,6 +312,9 @@ function SmartPlaylistPageContent() {
   // Use server-provided total duration
   const totalDuration = metadata?.totalDuration ?? 0;
 
+  // Get cover art URL for smart playlist (uses sp- prefix for tiled cover generation)
+  const coverUrl = id ? getClient()?.getCoverArtUrl(`sp-${id}`, 400) : null;
+
   if (!id) {
     return (
       <div className="min-h-dvh flex items-center justify-center">
@@ -324,16 +327,14 @@ function SmartPlaylistPageContent() {
     <div className="min-h-dvh">
       <DetailHeader
         showBackButton
+        coverUrl={coverUrl}
+        coverAlt={displayName}
+        coverType="smartPlaylist"
+        coverSize="lg"
+        useBlurredBackground={!!coverUrl}
         icon={Sparkles}
         iconClassName="bg-linear-to-br from-purple-500 to-purple-800"
-        coverUrl={
-          id ? getClient()?.getCoverArtUrl(`sp-${id}`, "large") : undefined
-        }
-        coverAlt={displayName}
-        colorSeed={`smart-${id}`}
-        coverType="smartPlaylist"
         gradientColor="rgba(168,85,247,0.2)"
-        useBlurredBackground
         label="Smart Playlist"
         title={displayName}
         subtitle={

@@ -4,12 +4,13 @@
  * This script:
  * 1. Checks that test fixtures exist
  * 2. Builds the Next.js app (if not already built)
- * 3. Starts the Next.js production server (shared by all workers)
+ * 3. Kills any stale process on port 13000
+ * 4. Starts the Next.js production server (shared by all workers)
  *
  * Each test worker spawns its own Ferrotune server via fixtures.ts
  */
 
-import { spawn, ChildProcess } from "child_process";
+import { spawn, execSync, ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -65,6 +66,33 @@ function buildExists(clientDir: string): boolean {
   return fs.existsSync(buildManifest);
 }
 
+/** Kill any process using the specified port */
+function killProcessOnPort(port: number): void {
+  try {
+    // Try to find and kill any process using the port (Linux/macOS)
+    // Using fuser which is commonly available
+    try {
+      execSync(`fuser -k ${port}/tcp 2>/dev/null`, { stdio: "ignore" });
+      console.log(`   Killed stale process on port ${port}`);
+    } catch {
+      // fuser not available or no process found, try lsof + kill
+      try {
+        const pid = execSync(`lsof -t -i:${port} 2>/dev/null`)
+          .toString()
+          .trim();
+        if (pid) {
+          execSync(`kill -9 ${pid} 2>/dev/null`, { stdio: "ignore" });
+          console.log(`   Killed stale process (PID ${pid}) on port ${port}`);
+        }
+      } catch {
+        // No process found or lsof not available - port is likely free
+      }
+    }
+  } catch {
+    // Ignore errors - port is probably free
+  }
+}
+
 export default async function globalSetup() {
   console.log("\n🔧 Setting up E2E test environment...\n");
 
@@ -101,6 +129,13 @@ export default async function globalSetup() {
     );
   }
   console.log("✅ Using existing Next.js build\n");
+
+  // Kill any stale process on the Next.js port before starting
+  console.log(`Checking for stale processes on port ${nextPort}...`);
+  killProcessOnPort(nextPort);
+
+  // Small delay to ensure port is released
+  await new Promise((resolve) => setTimeout(resolve, 500));
 
   // Start Next.js production server (faster than dev server)
   console.log(`Starting Next.js production server on port ${nextPort}...`);

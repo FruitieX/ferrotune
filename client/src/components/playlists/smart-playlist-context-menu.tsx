@@ -52,12 +52,8 @@ import { Button } from "@/components/ui/button";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { SmartPlaylistDialog } from "./smart-playlist-dialog";
-import {
-  parsePlaylistPath,
-  getUniqueFolderPaths,
-} from "@/lib/utils/playlist-folders";
+import { parsePlaylistPath } from "@/lib/utils/playlist-folders";
 import type { SmartPlaylistInfo } from "@/lib/api/generated/SmartPlaylistInfo";
-import type { Playlist } from "@/lib/api/types";
 
 // Get display name for a smart playlist (last part of path)
 function getSmartPlaylistDisplayName(smartPlaylist: SmartPlaylistInfo): string {
@@ -82,56 +78,46 @@ export function SmartPlaylistContextMenu({
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  // Get current folder path for this smart playlist
-  const { folderPath: currentFolderPath } = parsePlaylistPath(
-    smartPlaylist.name,
-  );
-  const currentFolder = currentFolderPath.join("/");
-
-  // Fetch all playlists to get available folders
-  const { data: allPlaylists } = useQuery({
-    queryKey: ["playlists"],
+  // Fetch playlist folders for the "Move to" menu
+  const { data: playlistFoldersData } = useQuery({
+    queryKey: ["playlistFolders"],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getPlaylists();
-      return response.playlists.playlist ?? [];
+      return client.getPlaylistFoldersWithStructure();
     },
   });
 
-  // Get unique folder paths from all playlists
-  const folderPaths = allPlaylists
-    ? getUniqueFolderPaths(allPlaylists as Playlist[])
-    : [];
+  // Get all folders as a flat list for the menu
+  const allFolders = playlistFoldersData?.folders ?? [];
 
   // Move smart playlist mutation
   const moveSmartPlaylist = useMutation({
-    mutationFn: async (targetFolder: string) => {
+    mutationFn: async (targetFolderId: string | null) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
 
-      const displayName = getSmartPlaylistDisplayName(smartPlaylist);
-      const newName = targetFolder
-        ? `${targetFolder}/${displayName}`
-        : displayName;
-
       await client.updateSmartPlaylist(smartPlaylist.id, {
-        name: newName,
+        name: null,
         comment: null,
         isPublic: null,
         rules: null,
         sortField: null,
         sortDirection: null,
         maxSongs: undefined,
+        folderId: targetFolderId, // Use actual folder ID
       });
-      return { displayName, targetFolder };
+
+      const targetFolder = allFolders.find((f) => f.id === targetFolderId);
+      return { targetFolderId, targetFolderName: targetFolder?.name ?? "root" };
     },
-    onSuccess: ({ displayName, targetFolder }) => {
+    onSuccess: ({ targetFolderId, targetFolderName }) => {
       queryClient.invalidateQueries({ queryKey: ["smartPlaylists"] });
-      if (targetFolder) {
-        toast.success(`Moved "${displayName}" to ${targetFolder}`);
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
+      if (targetFolderId) {
+        toast.success(`Moved "${smartPlaylist.name}" to ${targetFolderName}`);
       } else {
-        toast.success(`Moved "${displayName}" to root`);
+        toast.success(`Moved "${smartPlaylist.name}" to root`);
       }
     },
     onError: (error) => {
@@ -278,37 +264,38 @@ export function SmartPlaylistContextMenu({
         <ContextMenuSubContent className="w-48">
           {/* Move to root option */}
           <ContextMenuItem
-            onClick={() => moveSmartPlaylist.mutate("")}
-            disabled={currentFolder === "" || moveSmartPlaylist.isPending}
+            onClick={() => moveSmartPlaylist.mutate(null)}
+            disabled={!smartPlaylist.folderId || moveSmartPlaylist.isPending}
           >
             <Home className="w-4 h-4 mr-2" />
             Root
-            {currentFolder === "" && (
+            {!smartPlaylist.folderId && (
               <span className="ml-auto text-xs text-muted-foreground">
                 Current
               </span>
             )}
           </ContextMenuItem>
-          {folderPaths.length > 0 && <ContextMenuSeparator />}
+          {allFolders.length > 0 && <ContextMenuSeparator />}
           {/* Folder options */}
-          {folderPaths.map((folderPath) => (
+          {allFolders.map((folder) => (
             <ContextMenuItem
-              key={folderPath}
-              onClick={() => moveSmartPlaylist.mutate(folderPath)}
+              key={folder.id}
+              onClick={() => moveSmartPlaylist.mutate(folder.id)}
               disabled={
-                currentFolder === folderPath || moveSmartPlaylist.isPending
+                smartPlaylist.folderId === folder.id ||
+                moveSmartPlaylist.isPending
               }
             >
               <Folder className="w-4 h-4 mr-2" />
-              <span className="truncate">{folderPath}</span>
-              {currentFolder === folderPath && (
+              <span className="truncate">{folder.name}</span>
+              {smartPlaylist.folderId === folder.id && (
                 <span className="ml-auto text-xs text-muted-foreground">
                   Current
                 </span>
               )}
             </ContextMenuItem>
           ))}
-          {folderPaths.length === 0 && currentFolder !== "" && (
+          {allFolders.length === 0 && smartPlaylist.folderId && (
             <ContextMenuItem disabled className="text-muted-foreground text-xs">
               No other folders
             </ContextMenuItem>
@@ -393,56 +380,46 @@ export function SmartPlaylistDropdownMenu({
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  // Get current folder path for this smart playlist
-  const { folderPath: currentFolderPath } = parsePlaylistPath(
-    smartPlaylist.name,
-  );
-  const currentFolder = currentFolderPath.join("/");
-
-  // Fetch all playlists to get available folders
-  const { data: allPlaylists } = useQuery({
-    queryKey: ["playlists"],
+  // Fetch playlist folders for the "Move to" menu
+  const { data: playlistFoldersData } = useQuery({
+    queryKey: ["playlistFolders"],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getPlaylists();
-      return response.playlists.playlist ?? [];
+      return client.getPlaylistFoldersWithStructure();
     },
   });
 
-  // Get unique folder paths from all playlists
-  const folderPaths = allPlaylists
-    ? getUniqueFolderPaths(allPlaylists as Playlist[])
-    : [];
+  // Get all folders as a flat list for the menu
+  const allFolders = playlistFoldersData?.folders ?? [];
 
   // Move smart playlist mutation
   const moveSmartPlaylist = useMutation({
-    mutationFn: async (targetFolder: string) => {
+    mutationFn: async (targetFolderId: string | null) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
 
-      const displayName = getSmartPlaylistDisplayName(smartPlaylist);
-      const newName = targetFolder
-        ? `${targetFolder}/${displayName}`
-        : displayName;
-
       await client.updateSmartPlaylist(smartPlaylist.id, {
-        name: newName,
+        name: null,
         comment: null,
         isPublic: null,
         rules: null,
         sortField: null,
         sortDirection: null,
         maxSongs: undefined,
+        folderId: targetFolderId, // Use actual folder ID
       });
-      return { displayName, targetFolder };
+
+      const targetFolder = allFolders.find((f) => f.id === targetFolderId);
+      return { targetFolderId, targetFolderName: targetFolder?.name ?? "root" };
     },
-    onSuccess: ({ displayName, targetFolder }) => {
+    onSuccess: ({ targetFolderId, targetFolderName }) => {
       queryClient.invalidateQueries({ queryKey: ["smartPlaylists"] });
-      if (targetFolder) {
-        toast.success(`Moved "${displayName}" to ${targetFolder}`);
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
+      if (targetFolderId) {
+        toast.success(`Moved "${smartPlaylist.name}" to ${targetFolderName}`);
       } else {
-        toast.success(`Moved "${displayName}" to root`);
+        toast.success(`Moved "${smartPlaylist.name}" to root`);
       }
     },
     onError: (error) => {
@@ -613,37 +590,40 @@ export function SmartPlaylistDropdownMenu({
             <DropdownMenuSubContent className="w-48">
               {/* Move to root option */}
               <DropdownMenuItem
-                onClick={() => moveSmartPlaylist.mutate("")}
-                disabled={currentFolder === "" || moveSmartPlaylist.isPending}
+                onClick={() => moveSmartPlaylist.mutate(null)}
+                disabled={
+                  !smartPlaylist.folderId || moveSmartPlaylist.isPending
+                }
               >
                 <Home className="w-4 h-4 mr-2" />
                 Root
-                {currentFolder === "" && (
+                {!smartPlaylist.folderId && (
                   <span className="ml-auto text-xs text-muted-foreground">
                     Current
                   </span>
                 )}
               </DropdownMenuItem>
-              {folderPaths.length > 0 && <DropdownMenuSeparator />}
+              {allFolders.length > 0 && <DropdownMenuSeparator />}
               {/* Folder options */}
-              {folderPaths.map((folderPath) => (
+              {allFolders.map((folder) => (
                 <DropdownMenuItem
-                  key={folderPath}
-                  onClick={() => moveSmartPlaylist.mutate(folderPath)}
+                  key={folder.id}
+                  onClick={() => moveSmartPlaylist.mutate(folder.id)}
                   disabled={
-                    currentFolder === folderPath || moveSmartPlaylist.isPending
+                    smartPlaylist.folderId === folder.id ||
+                    moveSmartPlaylist.isPending
                   }
                 >
                   <Folder className="w-4 h-4 mr-2" />
-                  <span className="truncate">{folderPath}</span>
-                  {currentFolder === folderPath && (
+                  <span className="truncate">{folder.name}</span>
+                  {smartPlaylist.folderId === folder.id && (
                     <span className="ml-auto text-xs text-muted-foreground">
                       Current
                     </span>
                   )}
                 </DropdownMenuItem>
               ))}
-              {folderPaths.length === 0 && currentFolder !== "" && (
+              {allFolders.length === 0 && smartPlaylist.folderId && (
                 <DropdownMenuItem
                   disabled
                   className="text-muted-foreground text-xs"

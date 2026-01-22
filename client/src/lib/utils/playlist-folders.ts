@@ -1,11 +1,19 @@
 import type { Playlist, SmartPlaylist } from "@/lib/api/types";
+import type { PlaylistFolderResponse } from "@/lib/api/generated/PlaylistFolderResponse";
+import type { PlaylistInFolder } from "@/lib/api/generated/PlaylistInFolder";
 
 export interface PlaylistFolder {
+  /** Folder entity ID from database (if exists) */
+  id?: string;
   name: string;
   path: string;
   playlists: Playlist[];
   smartPlaylists: SmartPlaylist[];
   subfolders: PlaylistFolder[];
+  /** Whether this folder has custom cover art */
+  hasCoverArt?: boolean;
+  /** Parent folder ID (for API folders) */
+  parentId?: string | null;
 }
 
 export interface PlaylistWithPath extends Playlist {
@@ -14,6 +22,121 @@ export interface PlaylistWithPath extends Playlist {
 }
 
 const FOLDER_SEPARATOR = "/";
+
+/**
+ * Build a folder tree from API-provided folder entities and playlists.
+ * This is the preferred method after the folder migration is complete.
+ */
+export function buildFolderTreeFromApi(
+  folders: PlaylistFolderResponse[],
+  playlists: PlaylistInFolder[],
+  smartPlaylists: SmartPlaylist[] = [],
+): PlaylistFolder {
+  const root: PlaylistFolder = {
+    name: "root",
+    path: "",
+    playlists: [],
+    smartPlaylists: [],
+    subfolders: [],
+  };
+
+  // Build a map of folder ID -> folder for quick lookup
+  const folderMap = new Map<string, PlaylistFolder>();
+
+  // Create PlaylistFolder objects for each API folder
+  for (const apiFolder of folders) {
+    const folder: PlaylistFolder = {
+      id: apiFolder.id,
+      name: apiFolder.name,
+      path: "", // Will be computed after tree is built
+      playlists: [],
+      smartPlaylists: [],
+      subfolders: [],
+      hasCoverArt: apiFolder.hasCoverArt,
+      parentId: apiFolder.parentId,
+    };
+    folderMap.set(apiFolder.id, folder);
+  }
+
+  // Build the tree structure by connecting parents and children
+  for (const apiFolder of folders) {
+    const folder = folderMap.get(apiFolder.id)!;
+    if (apiFolder.parentId) {
+      const parent = folderMap.get(apiFolder.parentId);
+      if (parent) {
+        parent.subfolders.push(folder);
+      } else {
+        // Parent not found (shouldn't happen), add to root
+        root.subfolders.push(folder);
+      }
+    } else {
+      // No parent, add to root
+      root.subfolders.push(folder);
+    }
+  }
+
+  // Compute paths for all folders
+  function computePaths(folder: PlaylistFolder, parentPath: string) {
+    folder.path = parentPath ? `${parentPath}/${folder.name}` : folder.name;
+    for (const subfolder of folder.subfolders) {
+      computePaths(subfolder, folder.path);
+    }
+  }
+  for (const folder of root.subfolders) {
+    computePaths(folder, "");
+  }
+
+  // Add playlists to their folders
+  for (const apiPlaylist of playlists) {
+    // Convert to full Playlist type
+    const playlist: Playlist = {
+      id: apiPlaylist.id,
+      name: apiPlaylist.name,
+      comment: null,
+      owner: "admin",
+      public: false,
+      songCount: apiPlaylist.songCount,
+      duration: 0,
+      created: new Date().toISOString(),
+      changed: new Date().toISOString(),
+      coverArt: null,
+    };
+
+    if (apiPlaylist.folderId) {
+      const folder = folderMap.get(apiPlaylist.folderId);
+      if (folder) {
+        folder.playlists.push(playlist);
+      } else {
+        // Folder not found, add to root
+        root.playlists.push(playlist);
+      }
+    } else {
+      // No folder, add to root
+      root.playlists.push(playlist);
+    }
+  }
+
+  // Add smart playlists to their folders based on folderId
+  for (const smartPlaylist of smartPlaylists) {
+    if (smartPlaylist.folderId) {
+      const folder = folderMap.get(smartPlaylist.folderId);
+      if (folder) {
+        folder.smartPlaylists.push(smartPlaylist);
+      } else {
+        // Folder not found, add to root
+        root.smartPlaylists.push(smartPlaylist);
+      }
+    } else {
+      // No folder, add to root
+      root.smartPlaylists.push(smartPlaylist);
+    }
+  }
+
+  // Sort folders and playlists alphabetically
+  sortFolderContents(root);
+
+  return root;
+}
 
 /**
  * Check if a playlist is a folder placeholder (ends with /)
@@ -243,34 +366,4 @@ export function getUniqueFolderPaths(playlists: Playlist[]): string[] {
   }
 
   return Array.from(paths).sort();
-}
-
-/**
- * Find the folder placeholder playlist for a given folder path
- * Returns the playlist if it exists and is an empty folder placeholder
- */
-export function findFolderPlaceholder(
-  playlists: Playlist[],
-  folderPath: string,
-): Playlist | undefined {
-  const placeholderName = `${folderPath}/`;
-  return playlists.find((p) => p.name === placeholderName);
-}
-
-/**
- * Check if a folder has only a placeholder (is empty)
- * Returns true if the only playlist in this folder path is the placeholder itself
- */
-export function isFolderEmpty(
-  playlists: Playlist[],
-  folderPath: string,
-): boolean {
-  const prefix = `${folderPath}/`;
-  const playlistsInFolder = playlists.filter((p) => p.name.startsWith(prefix));
-
-  // Empty if no playlists or only the placeholder exists
-  return (
-    playlistsInFolder.length === 0 ||
-    (playlistsInFolder.length === 1 && playlistsInFolder[0].name === prefix)
-  );
 }

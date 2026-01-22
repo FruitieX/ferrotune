@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import type { PlaylistFoldersResponse } from "./generated/PlaylistFoldersResponse";
+import type { PlaylistFolderResponse } from "./generated/PlaylistFolderResponse";
 import type {
   ServerConnection,
   MusicFoldersResponse,
@@ -445,6 +446,14 @@ export class FerrotuneClient {
     } as unknown as PlaylistsResponse;
   }
 
+  /**
+   * Get playlist folders with their full structure for tree display.
+   * Returns both folder entities and playlists with their folder references.
+   */
+  async getPlaylistFoldersWithStructure(): Promise<PlaylistFoldersResponse> {
+    return this.request<PlaylistFoldersResponse>("/ferrotune/playlist-folders");
+  }
+
   async getPlaylist(
     id: string,
     options?: {
@@ -487,6 +496,7 @@ export class FerrotuneClient {
   async createPlaylist(params: {
     name: string;
     songId?: string[];
+    folderId?: string | null;
   }): Promise<PlaylistWithSongsResponse> {
     // Map songId[] to entries
     const entries = params.songId?.map((id) => ({ songId: id })) || [];
@@ -499,6 +509,7 @@ export class FerrotuneClient {
         body: JSON.stringify({
           name: params.name,
           entries,
+          folderId: params.folderId ?? undefined,
         }),
       },
     );
@@ -2461,6 +2472,99 @@ export class FerrotuneClient {
     params.set("c", CLIENT_NAME);
 
     return `${this.serverUrl}/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/replacement-audio/stream?${params.toString()}`;
+  }
+
+  // === Playlist Folder Management ===
+
+  /**
+   * Create a new playlist folder
+   * @param name - Name for the new folder
+   * @param parentId - Optional parent folder ID (null/undefined = root level)
+   */
+  async createPlaylistFolder(
+    name: string,
+    parentId?: string | null,
+  ): Promise<PlaylistFolderResponse> {
+    return this.request<PlaylistFolderResponse>("/ferrotune/playlist-folders", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        parentId: parentId ?? null,
+      }),
+    });
+  }
+
+  /**
+   * Move a playlist to a folder
+   * @param playlistId - The playlist ID to move
+   * @param folderId - Target folder ID (null to move to root)
+   */
+  async movePlaylistToFolder(
+    playlistId: string,
+    folderId: string | null,
+  ): Promise<void> {
+    await this.request(
+      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/move`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ folderId }),
+      },
+    );
+  }
+
+  /**
+   * Delete a playlist folder
+   * @param folderId - The folder ID to delete
+   */
+  async deletePlaylistFolder(folderId: string): Promise<void> {
+    await this.request(
+      `/ferrotune/playlist-folders/${encodeURIComponent(folderId)}`,
+      {
+        method: "DELETE",
+      },
+    );
+  }
+
+  /**
+   * Update a playlist folder (rename or move to different parent)
+   * @param folderId - The folder ID to update
+   * @param options.name - New name for the folder
+   * @param options.parentId - New parent folder ID (null to move to root, undefined to not change)
+   */
+  async updatePlaylistFolder(
+    folderId: string,
+    options: {
+      name?: string;
+      parentId?: string | null; // null = move to root, undefined = don't change
+    },
+  ): Promise<PlaylistFolderResponse> {
+    // Build the request body - only include fields that are being changed
+    const body: { name?: string; parentId?: string | null } = {};
+    if (options.name !== undefined) {
+      body.name = options.name;
+    }
+    if (options.parentId !== undefined) {
+      // Wrap in double-option for the Rust API convention
+      body.parentId = options.parentId;
+    }
+
+    return this.request<PlaylistFolderResponse>(
+      `/ferrotune/playlist-folders/${encodeURIComponent(folderId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      },
+    );
+  }
+
+  /**
+   * Move a playlist folder to a different parent folder
+   */
+  async movePlaylistFolder(
+    folderId: string,
+    targetParentId: string | null,
+  ): Promise<PlaylistFolderResponse> {
+    return this.updatePlaylistFolder(folderId, { parentId: targetParentId });
   }
 
   // === Playlist Folder Cover Art ===

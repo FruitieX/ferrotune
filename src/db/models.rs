@@ -329,6 +329,8 @@ pub struct SmartPlaylist {
     pub sort_direction: Option<String>,
     /// Optional limit on number of songs
     pub max_songs: Option<i64>,
+    /// Optional folder ID for organizing smart playlists
+    pub folder_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

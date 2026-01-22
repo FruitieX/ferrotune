@@ -27,6 +27,8 @@ pub struct PlaylistFolderResponse {
     #[ts(type = "number")]
     pub position: i64,
     pub created_at: String,
+    /// Whether this folder has custom cover art
+    pub has_cover_art: bool,
 }
 
 /// A playlist in the folder response.
@@ -60,7 +62,8 @@ pub async fn get_playlist_folders(
     let folders: Vec<PlaylistFolderResponse> = sqlx::query_as(
         r#"
         SELECT id, name, parent_id, position, 
-               strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at
+               strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at,
+               (cover_art IS NOT NULL) as has_cover_art
         FROM playlist_folders
         WHERE owner_id = ?
         ORDER BY position, name
@@ -148,7 +151,8 @@ pub async fn create_playlist_folder(
     let folder: PlaylistFolderResponse = sqlx::query_as(
         r#"
         SELECT id, name, parent_id, position, 
-               strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at
+               strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at,
+               (cover_art IS NOT NULL) as has_cover_art
         FROM playlist_folders
         WHERE id = ?
         "#,
@@ -230,7 +234,8 @@ pub async fn update_playlist_folder(
     let folder: PlaylistFolderResponse = sqlx::query_as(
         r#"
         SELECT id, name, parent_id, position, 
-               strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at
+               strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at,
+               (cover_art IS NOT NULL) as has_cover_art
         FROM playlist_folders
         WHERE id = ?
         "#,
@@ -827,6 +832,8 @@ pub struct ImportPlaylistRequest {
     pub comment: Option<String>,
     /// Entries in the playlist (can include missing entries)
     pub entries: Vec<ImportPlaylistEntry>,
+    /// Optional folder ID to create the playlist in
+    pub folder_id: Option<String>,
 }
 
 /// Response from importing a playlist
@@ -892,6 +899,7 @@ pub async fn import_playlist(
         user.user_id,
         request.comment.as_deref(),
         false,
+        request.folder_id.as_deref(),
     )
     .await?;
 

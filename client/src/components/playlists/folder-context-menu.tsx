@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQueryClient, useMutation } from "@tanstack/react-query";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Pencil,
@@ -9,6 +9,9 @@ import {
   MoreHorizontal,
   FolderPlus,
   ListPlus,
+  FolderInput,
+  Folder,
+  Home,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -16,6 +19,9 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
@@ -23,6 +29,9 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
@@ -34,18 +43,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { getClient } from "@/lib/api/client";
+import { EditFolderDialog } from "@/components/playlists/edit-folder-dialog";
 import { type PlaylistFolder } from "@/lib/utils/playlist-folders";
 import type { Playlist } from "@/lib/api/types";
 
@@ -65,6 +65,20 @@ function getPlaylistsInFolder(folder: PlaylistFolder): Playlist[] {
   return playlists;
 }
 
+// Get all descendant folder IDs (including the folder itself)
+function getDescendantFolderIds(folder: PlaylistFolder): Set<string> {
+  const ids = new Set<string>();
+  if (folder.id) {
+    ids.add(folder.id);
+  }
+  for (const subfolder of folder.subfolders) {
+    for (const id of getDescendantFolderIds(subfolder)) {
+      ids.add(id);
+    }
+  }
+  return ids;
+}
+
 export function FolderContextMenu({
   folder,
   children,
@@ -73,61 +87,71 @@ export function FolderContextMenu({
 }: FolderContextMenuProps) {
   const queryClient = useQueryClient();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
-  const [newFolderName, setNewFolderName] = useState(folder.name);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
 
-  // Get all playlists in this folder (for deletion/rename)
+  // Get all playlists in this folder (for deletion)
   const playlistsInFolder = getPlaylistsInFolder(folder);
 
-  // Rename folder mutation (renames all playlists in the folder)
-  const renameFolderMutation = useMutation({
-    mutationFn: async (newName: string) => {
+  // Get all descendant folder IDs (folders that cannot be move targets)
+  const descendantIds = getDescendantFolderIds(folder);
+
+  // Fetch folder structure from API for "Move to" menu
+  const { data: foldersData } = useQuery({
+    queryKey: ["playlistFolders"],
+    queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-
-      // Calculate old and new prefixes
-      const oldPrefix = folder.path;
-      const pathParts = folder.path.split("/");
-      pathParts[pathParts.length - 1] = newName;
-      const newPrefix = pathParts.join("/");
-
-      // Rename all playlists in the folder
-      const renamePromises = playlistsInFolder.map(async (playlist) => {
-        const newPlaylistName = playlist.name.replace(oldPrefix, newPrefix);
-        await client.updatePlaylist({
-          playlistId: playlist.id,
-          name: newPlaylistName,
-        });
-      });
-
-      await Promise.all(renamePromises);
-      return newName;
-    },
-    onSuccess: (newName) => {
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      toast.success(`Renamed folder to "${newName}"`);
-      setRenameDialogOpen(false);
-    },
-    onError: (error) => {
-      toast.error("Failed to rename folder", { description: String(error) });
+      return client.getPlaylistFoldersWithStructure();
     },
   });
 
-  // Delete folder mutation (deletes all playlists in the folder)
+  const allFolders = foldersData?.folders ?? [];
+
+  // Filter out folders that cannot be move targets (self and descendants)
+  const availableFolders = allFolders.filter((f) => !descendantIds.has(f.id));
+
+  // Move folder mutation
+  const moveFolderMutation = useMutation({
+    mutationFn: async (targetParentId: string | null) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      if (!folder.id) throw new Error("Cannot move folder without ID");
+      await client.movePlaylistFolder(folder.id, targetParentId);
+      return { targetParentId };
+    },
+    onSuccess: ({ targetParentId }) => {
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
+      const targetFolder = allFolders.find((f) => f.id === targetParentId);
+      if (targetParentId && targetFolder) {
+        toast.success(`Moved "${folder.name}" to ${targetFolder.name}`);
+      } else {
+        toast.success(`Moved "${folder.name}" to root`);
+      }
+    },
+    onError: (error) => {
+      toast.error("Failed to move folder", { description: String(error) });
+    },
+  });
+
+  // Delete folder mutation (deletes folder and all playlists in it)
   const deleteFolderMutation = useMutation({
     mutationFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
 
-      // Delete all playlists in the folder
-      const deletePromises = playlistsInFolder.map(async (playlist) => {
-        await client.deletePlaylist(playlist.id);
-      });
-
-      await Promise.all(deletePromises);
+      // If folder has a database ID, delete it via API
+      if (folder.id) {
+        await client.deletePlaylistFolder(folder.id);
+      } else {
+        // Legacy: delete all playlists in the folder
+        const deletePromises = playlistsInFolder.map(async (playlist) => {
+          await client.deletePlaylist(playlist.id);
+        });
+        await Promise.all(deletePromises);
+      }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       toast.success(
         `Deleted folder "${folder.name}" and ${playlistsInFolder.length} playlist(s)`,
       );
@@ -138,21 +162,8 @@ export function FolderContextMenu({
     },
   });
 
-  const handleRename = () => {
-    if (!newFolderName.trim()) {
-      toast.error("Folder name cannot be empty");
-      return;
-    }
-    if (newFolderName.includes("/")) {
-      toast.error("Folder name cannot contain /");
-      return;
-    }
-    if (newFolderName === folder.name) {
-      setRenameDialogOpen(false);
-      return;
-    }
-    renameFolderMutation.mutate(newFolderName.trim());
-  };
+  // Current parent folder ID
+  const currentParentId = folder.parentId ?? null;
 
   const menuItems = (
     <>
@@ -165,14 +176,62 @@ export function FolderContextMenu({
         New Subfolder
       </ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem
-        onClick={() => {
-          setNewFolderName(folder.name);
-          setRenameDialogOpen(true);
-        }}
-      >
+      {folder.id && (
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            <FolderInput className="w-4 h-4 mr-2" />
+            Move to
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className="w-48">
+            {/* Move to root option */}
+            <ContextMenuItem
+              onClick={() => moveFolderMutation.mutate(null)}
+              disabled={
+                currentParentId === null || moveFolderMutation.isPending
+              }
+            >
+              <Home className="w-4 h-4 mr-2" />
+              Root
+              {currentParentId === null && (
+                <span className="ml-auto text-xs text-muted-foreground">
+                  Current
+                </span>
+              )}
+            </ContextMenuItem>
+            {availableFolders.length > 0 && <ContextMenuSeparator />}
+            {/* Folder options */}
+            {availableFolders.map((targetFolder) => (
+              <ContextMenuItem
+                key={targetFolder.id}
+                onClick={() => moveFolderMutation.mutate(targetFolder.id)}
+                disabled={
+                  currentParentId === targetFolder.id ||
+                  moveFolderMutation.isPending
+                }
+              >
+                <Folder className="w-4 h-4 mr-2" />
+                <span className="truncate">{targetFolder.name}</span>
+                {currentParentId === targetFolder.id && (
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    Current
+                  </span>
+                )}
+              </ContextMenuItem>
+            ))}
+            {availableFolders.length === 0 && currentParentId != null && (
+              <ContextMenuItem
+                disabled
+                className="text-muted-foreground text-xs"
+              >
+                No available folders
+              </ContextMenuItem>
+            )}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+      )}
+      <ContextMenuItem onClick={() => setEditDialogOpen(true)}>
         <Pencil className="w-4 h-4 mr-2" />
-        Rename Folder
+        Edit Folder
       </ContextMenuItem>
       <ContextMenuItem
         onClick={() => setDeleteDialogOpen(true)}
@@ -196,50 +255,12 @@ export function FolderContextMenu({
         </ContextMenuContent>
       </ContextMenu>
 
-      {/* Rename Dialog */}
-      <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rename Folder</DialogTitle>
-            <DialogDescription>
-              This will rename the folder and update all{" "}
-              {playlistsInFolder.length} playlist(s) inside.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="folder-name">Folder Name</Label>
-              <Input
-                id="folder-name"
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleRename();
-                  }
-                }}
-                placeholder="Folder name"
-                autoFocus
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setRenameDialogOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleRename}
-              disabled={renameFolderMutation.isPending}
-            >
-              {renameFolderMutation.isPending ? "Renaming..." : "Rename"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Edit Folder Dialog */}
+      <EditFolderDialog
+        folder={folder}
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+      />
 
       {/* Delete Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -290,61 +311,71 @@ export function FolderDropdownMenu({
 }: FolderDropdownMenuProps) {
   const queryClient = useQueryClient();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
-  const [newFolderName, setNewFolderName] = useState(folder.name);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
 
-  // Get all playlists in this folder (for deletion/rename)
+  // Get all playlists in this folder (for deletion)
   const playlistsInFolder = getPlaylistsInFolder(folder);
 
-  // Rename folder mutation (renames all playlists in the folder)
-  const renameFolderMutation = useMutation({
-    mutationFn: async (newName: string) => {
+  // Get all descendant folder IDs (folders that cannot be move targets)
+  const descendantIds = getDescendantFolderIds(folder);
+
+  // Fetch folder structure from API for "Move to" menu
+  const { data: foldersData } = useQuery({
+    queryKey: ["playlistFolders"],
+    queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-
-      // Calculate old and new prefixes
-      const oldPrefix = folder.path;
-      const pathParts = folder.path.split("/");
-      pathParts[pathParts.length - 1] = newName;
-      const newPrefix = pathParts.join("/");
-
-      // Rename all playlists in the folder
-      const renamePromises = playlistsInFolder.map(async (playlist) => {
-        const newPlaylistName = playlist.name.replace(oldPrefix, newPrefix);
-        await client.updatePlaylist({
-          playlistId: playlist.id,
-          name: newPlaylistName,
-        });
-      });
-
-      await Promise.all(renamePromises);
-      return newName;
-    },
-    onSuccess: (newName) => {
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      toast.success(`Renamed folder to "${newName}"`);
-      setRenameDialogOpen(false);
-    },
-    onError: (error) => {
-      toast.error("Failed to rename folder", { description: String(error) });
+      return client.getPlaylistFoldersWithStructure();
     },
   });
 
-  // Delete folder mutation (deletes all playlists in the folder)
+  const allFolders = foldersData?.folders ?? [];
+
+  // Filter out folders that cannot be move targets (self and descendants)
+  const availableFolders = allFolders.filter((f) => !descendantIds.has(f.id));
+
+  // Move folder mutation
+  const moveFolderMutation = useMutation({
+    mutationFn: async (targetParentId: string | null) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      if (!folder.id) throw new Error("Cannot move folder without ID");
+      await client.movePlaylistFolder(folder.id, targetParentId);
+      return { targetParentId };
+    },
+    onSuccess: ({ targetParentId }) => {
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
+      const targetFolder = allFolders.find((f) => f.id === targetParentId);
+      if (targetParentId && targetFolder) {
+        toast.success(`Moved "${folder.name}" to ${targetFolder.name}`);
+      } else {
+        toast.success(`Moved "${folder.name}" to root`);
+      }
+    },
+    onError: (error) => {
+      toast.error("Failed to move folder", { description: String(error) });
+    },
+  });
+
+  // Delete folder mutation (deletes folder and all playlists in it)
   const deleteFolderMutation = useMutation({
     mutationFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
 
-      // Delete all playlists in the folder
-      const deletePromises = playlistsInFolder.map(async (playlist) => {
-        await client.deletePlaylist(playlist.id);
-      });
-
-      await Promise.all(deletePromises);
+      // If folder has a database ID, delete it via API
+      if (folder.id) {
+        await client.deletePlaylistFolder(folder.id);
+      } else {
+        // Legacy: delete all playlists in the folder
+        const deletePromises = playlistsInFolder.map(async (playlist) => {
+          await client.deletePlaylist(playlist.id);
+        });
+        await Promise.all(deletePromises);
+      }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       toast.success(
         `Deleted folder "${folder.name}" and ${playlistsInFolder.length} playlist(s)`,
       );
@@ -355,21 +386,8 @@ export function FolderDropdownMenu({
     },
   });
 
-  const handleRename = () => {
-    if (!newFolderName.trim()) {
-      toast.error("Folder name cannot be empty");
-      return;
-    }
-    if (newFolderName.includes("/")) {
-      toast.error("Folder name cannot contain /");
-      return;
-    }
-    if (newFolderName === folder.name) {
-      setRenameDialogOpen(false);
-      return;
-    }
-    renameFolderMutation.mutate(newFolderName.trim());
-  };
+  // Current parent folder ID
+  const currentParentId = folder.parentId ?? null;
 
   return (
     <div onClick={(e) => e.stopPropagation()}>
@@ -406,14 +424,62 @@ export function FolderDropdownMenu({
             New Subfolder
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => {
-              setNewFolderName(folder.name);
-              setRenameDialogOpen(true);
-            }}
-          >
+          {folder.id && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <FolderInput className="w-4 h-4 mr-2" />
+                Move to
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-48">
+                {/* Move to root option */}
+                <DropdownMenuItem
+                  onClick={() => moveFolderMutation.mutate(null)}
+                  disabled={
+                    currentParentId === null || moveFolderMutation.isPending
+                  }
+                >
+                  <Home className="w-4 h-4 mr-2" />
+                  Root
+                  {currentParentId === null && (
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      Current
+                    </span>
+                  )}
+                </DropdownMenuItem>
+                {availableFolders.length > 0 && <DropdownMenuSeparator />}
+                {/* Folder options */}
+                {availableFolders.map((targetFolder) => (
+                  <DropdownMenuItem
+                    key={targetFolder.id}
+                    onClick={() => moveFolderMutation.mutate(targetFolder.id)}
+                    disabled={
+                      currentParentId === targetFolder.id ||
+                      moveFolderMutation.isPending
+                    }
+                  >
+                    <Folder className="w-4 h-4 mr-2" />
+                    <span className="truncate">{targetFolder.name}</span>
+                    {currentParentId === targetFolder.id && (
+                      <span className="ml-auto text-xs text-muted-foreground">
+                        Current
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                ))}
+                {availableFolders.length === 0 && currentParentId != null && (
+                  <DropdownMenuItem
+                    disabled
+                    className="text-muted-foreground text-xs"
+                  >
+                    No available folders
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
+          <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
             <Pencil className="w-4 h-4 mr-2" />
-            Rename Folder
+            Edit Folder
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => setDeleteDialogOpen(true)}
@@ -425,50 +491,12 @@ export function FolderDropdownMenu({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Rename Dialog */}
-      <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
-        <DialogContent onClick={(e) => e.stopPropagation()}>
-          <DialogHeader>
-            <DialogTitle>Rename Folder</DialogTitle>
-            <DialogDescription>
-              This will rename the folder and update all{" "}
-              {playlistsInFolder.length} playlist(s) inside.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="folder-name-dropdown">Folder Name</Label>
-              <Input
-                id="folder-name-dropdown"
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleRename();
-                  }
-                }}
-                placeholder="Folder name"
-                autoFocus
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setRenameDialogOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleRename}
-              disabled={renameFolderMutation.isPending}
-            >
-              {renameFolderMutation.isPending ? "Renaming..." : "Rename"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Edit Folder Dialog */}
+      <EditFolderDialog
+        folder={folder}
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+      />
 
       {/* Delete Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

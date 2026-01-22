@@ -172,8 +172,8 @@ interface SmartPlaylistDialogProps {
   onOpenChange: (open: boolean) => void;
   /** If provided, edit this playlist instead of creating a new one */
   editPlaylist?: SmartPlaylistInfo;
-  /** If provided, create the smart playlist in this folder */
-  folderPath?: string;
+  /** If provided, create the smart playlist in this folder (folder ID) */
+  folderId?: string | null;
 }
 
 function generateId() {
@@ -193,7 +193,7 @@ export function SmartPlaylistDialog({
   open,
   onOpenChange,
   editPlaylist,
-  folderPath,
+  folderId,
 }: SmartPlaylistDialogProps) {
   const queryClient = useQueryClient();
   const isEditing = !!editPlaylist;
@@ -273,17 +273,15 @@ export function SmartPlaylistDialog({
         value: c.value,
       }));
 
-      // Prepend folder path if provided
-      const fullName = folderPath ? `${folderPath}/${name}` : name;
-
       return client.createSmartPlaylist({
-        name: fullName,
+        name,
         comment: comment || null,
         isPublic,
         rules: { conditions: apiConditions, logic },
         sortField: sortField === "random" ? null : sortField,
         sortDirection: sortDirection || null,
         maxSongs: maxSongs ? parseInt(maxSongs, 10) : null,
+        folderId: folderId ?? null,
       });
     },
     onSuccess: () => {
@@ -316,6 +314,7 @@ export function SmartPlaylistDialog({
         sortField: sortField === "random" ? null : sortField,
         sortDirection: sortDirection || null,
         maxSongs: maxSongs ? parseInt(maxSongs, 10) : null,
+        folderId: undefined, // Don't change folder - handled via name path convention
       });
     },
     onSuccess: () => {
