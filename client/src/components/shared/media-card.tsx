@@ -14,6 +14,8 @@ interface MediaCardProps {
   coverArtData?: string | null;
   /** Primary text (title) */
   title: string;
+  /** Icon to show before the title */
+  titleIcon?: React.ReactNode;
   /** Secondary text (subtitle) - simple string */
   subtitle?: string;
   /** Custom subtitle content (overrides subtitle) - for complex subtitles with links */
@@ -55,6 +57,7 @@ export function MediaCard({
   coverArt,
   coverArtData,
   title,
+  titleIcon,
   subtitle,
   subtitleContent,
   href,
@@ -202,7 +205,8 @@ export function MediaCard({
         className={cn("space-y-1", coverShape === "circle" && "text-center")}
       >
         <Link href={href} prefetch={false}>
-          <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+          <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors flex items-center gap-1.5">
+            {titleIcon}
             {title}
           </h3>
         </Link>

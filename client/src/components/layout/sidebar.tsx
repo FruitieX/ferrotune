@@ -4,8 +4,9 @@ import { Suspense, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   Home,
   Search,
@@ -25,6 +26,8 @@ import {
   Music,
   Tag,
   Import,
+  Play,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useHydrated } from "@/lib/hooks/use-hydrated";
@@ -59,6 +62,7 @@ import {
   parsePlaylistPath,
   type PlaylistFolder,
 } from "@/lib/utils/playlist-folders";
+import { startQueueAtom } from "@/lib/store/server-queue";
 import type { Playlist } from "@/lib/api/types";
 
 // Height classes for sidebar list items
@@ -180,6 +184,39 @@ export function Sidebar() {
     setExpandedFolders((prev) =>
       prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path],
     );
+  };
+
+  // Queue management for sidebar play buttons
+  const startQueue = useSetAtom(startQueueAtom);
+
+  // Play regular playlist handler
+  const handlePlayPlaylist = (playlist: Playlist) => {
+    startQueue({
+      sourceType: "playlist",
+      sourceId: playlist.id,
+      sourceName: getPlaylistDisplayName(playlist),
+    });
+  };
+
+  // Play smart playlist handler
+  const handlePlaySmartPlaylist = async (id: string, name: string) => {
+    const client = getClient();
+    if (!client) return;
+    try {
+      const response = await client.getSmartPlaylistSongs(id);
+      if (response.songs.length === 0) {
+        toast.info("Smart playlist has no matching songs");
+        return;
+      }
+      startQueue({
+        sourceType: "other",
+        sourceName: `Smart: ${name}`,
+        songIds: response.songs.map((s) => s.id),
+      });
+    } catch (error) {
+      toast.error("Failed to play smart playlist");
+      console.error(error);
+    }
   };
 
   // Update CSS variable when collapsed state changes (after hydration)
@@ -580,6 +617,8 @@ export function Sidebar() {
                               iconContainerSize={iconContainerSize}
                               iconSize={iconSize}
                               coverSize={coverSize}
+                              onPlayPlaylist={handlePlayPlaylist}
+                              onPlaySmartPlaylist={handlePlaySmartPlaylist}
                             />
                           </Suspense>
                         ) : null}
@@ -789,6 +828,8 @@ interface PlaylistFolderTreeProps {
   iconContainerSize: string;
   iconSize: string;
   coverSize: string;
+  onPlayPlaylist: (playlist: Playlist) => void;
+  onPlaySmartPlaylist: (id: string, name: string) => void;
 }
 
 function PlaylistFolderTree({
@@ -802,6 +843,8 @@ function PlaylistFolderTree({
   iconContainerSize,
   iconSize,
   coverSize,
+  onPlayPlaylist,
+  onPlaySmartPlaylist,
 }: PlaylistFolderTreeProps) {
   return (
     <>
@@ -839,33 +882,33 @@ function PlaylistFolderTree({
                   )}
                   style={{ paddingLeft: `${depth * 12 + 8}px` }}
                 >
-                  {folderCoverArtUrl ? (
+                  {/* Always show folder icon */}
+                  <div
+                    className={cn(
+                      iconContainerSize,
+                      "shrink-0 flex items-center justify-center",
+                    )}
+                  >
+                    {isExpanded ? (
+                      <FolderOpen
+                        className={cn(iconSize, "text-muted-foreground")}
+                      />
+                    ) : (
+                      <Folder
+                        className={cn(iconSize, "text-muted-foreground")}
+                      />
+                    )}
+                  </div>
+                  {/* Show cover art to the right of folder icon if available */}
+                  {folderCoverArtUrl && (
                     <CoverImage
                       src={folderCoverArtUrl}
                       alt={subfolder.name}
                       type="folder"
                       size="sm"
                       colorSeed={subfolder.path}
-                      showTypeOverlay
                       className={cn(coverSize, "rounded-[3px]")}
                     />
-                  ) : (
-                    <div
-                      className={cn(
-                        iconContainerSize,
-                        "shrink-0 flex items-center justify-center",
-                      )}
-                    >
-                      {isExpanded ? (
-                        <FolderOpen
-                          className={cn(iconSize, "text-muted-foreground")}
-                        />
-                      ) : (
-                        <Folder
-                          className={cn(iconSize, "text-muted-foreground")}
-                        />
-                      )}
-                    </div>
                   )}
                   <span className="truncate text-sm">{subfolder.name}</span>
                 </Button>
@@ -901,6 +944,8 @@ function PlaylistFolderTree({
                 iconContainerSize={iconContainerSize}
                 iconSize={iconSize}
                 coverSize={coverSize}
+                onPlayPlaylist={onPlayPlaylist}
+                onPlaySmartPlaylist={onPlaySmartPlaylist}
               />
             </CollapsibleContent>
           </Collapsible>
@@ -937,19 +982,35 @@ function PlaylistFolderTree({
             const coverArtUrl = getClient()?.getCoverArtUrl(artId, "small");
 
             return (
-              <Link
+              <div
                 key={playlist.id}
-                href={`/playlists/details?id=${playlist.id}`}
+                className={cn(
+                  "group/item flex items-center gap-2 px-2 rounded-sm hover:bg-sidebar-accent transition-colors",
+                  itemHeight,
+                  isActive && "bg-sidebar-accent text-sidebar-primary",
+                )}
+                style={{ paddingLeft: `${depth * 12 + 8}px` }}
               >
-                <Button
-                  variant="ghost"
-                  size="sm"
+                {/* Playlist icon */}
+                <div
                   className={cn(
-                    "w-full justify-start gap-2 px-2 hover:bg-sidebar-accent",
-                    itemHeight,
-                    isActive && "bg-sidebar-accent text-sidebar-primary",
+                    iconContainerSize,
+                    "shrink-0 flex items-center justify-center",
                   )}
-                  style={{ paddingLeft: `${depth * 12 + 8}px` }}
+                >
+                  <ListMusic
+                    className={cn(iconSize, "text-muted-foreground")}
+                  />
+                </div>
+                {/* Playable cover art */}
+                <button
+                  type="button"
+                  className="relative shrink-0 group/cover"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onPlayPlaylist(playlist);
+                  }}
                 >
                   <CoverImage
                     src={coverArtUrl}
@@ -959,9 +1020,26 @@ function PlaylistFolderTree({
                     colorSeed={playlist.id}
                     className={cn(coverSize, "rounded-[3px]")}
                   />
-                  <span className="truncate text-sm">{item.name}</span>
-                </Button>
-              </Link>
+                  {/* Play overlay on hover */}
+                  <div
+                    className={cn(
+                      "absolute inset-0 flex items-center justify-center",
+                      "bg-black/60 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded-[3px]",
+                    )}
+                  >
+                    <Play className="w-3 h-3 text-white fill-white" />
+                  </div>
+                </button>
+                {/* Playlist name links to details */}
+                <Link
+                  href={`/playlists/details?id=${playlist.id}`}
+                  className="flex-1 min-w-0"
+                >
+                  <span className="truncate text-sm block hover:underline">
+                    {item.name}
+                  </span>
+                </Link>
+              </div>
             );
           } else {
             // Smart Playlist
@@ -977,16 +1055,33 @@ function PlaylistFolderTree({
             );
 
             return (
-              <Link key={sp.id} href={`/playlists/smart?id=${sp.id}`}>
-                <Button
-                  variant="ghost"
-                  size="sm"
+              <div
+                key={sp.id}
+                className={cn(
+                  "group/item flex items-center gap-2 px-2 rounded-sm hover:bg-sidebar-accent transition-colors",
+                  itemHeight,
+                  isActive && "bg-sidebar-accent text-sidebar-primary",
+                )}
+                style={{ paddingLeft: `${depth * 12 + 8}px` }}
+              >
+                {/* Sparkle icon to indicate smart playlist */}
+                <div
                   className={cn(
-                    "w-full justify-start gap-2 px-2 hover:bg-sidebar-accent",
-                    itemHeight,
-                    isActive && "bg-sidebar-accent text-sidebar-primary",
+                    iconContainerSize,
+                    "shrink-0 flex items-center justify-center",
                   )}
-                  style={{ paddingLeft: `${depth * 12 + 8}px` }}
+                >
+                  <Sparkles className={cn(iconSize, "text-purple-500")} />
+                </div>
+                {/* Playable cover art */}
+                <button
+                  type="button"
+                  className="relative shrink-0 group/cover"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onPlaySmartPlaylist(sp.id, item.name);
+                  }}
                 >
                   <CoverImage
                     src={coverArtUrl}
@@ -994,12 +1089,28 @@ function PlaylistFolderTree({
                     type="smartPlaylist"
                     size="sm"
                     colorSeed={`smart-${sp.id}`}
-                    showTypeOverlay
                     className={cn(coverSize, "rounded-[3px]")}
                   />
-                  <span className="truncate text-sm">{item.name}</span>
-                </Button>
-              </Link>
+                  {/* Play overlay on hover */}
+                  <div
+                    className={cn(
+                      "absolute inset-0 flex items-center justify-center",
+                      "bg-black/60 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded-[3px]",
+                    )}
+                  >
+                    <Play className="w-3 h-3 text-white fill-white" />
+                  </div>
+                </button>
+                {/* Playlist name links to details */}
+                <Link
+                  href={`/playlists/smart?id=${sp.id}`}
+                  className="flex-1 min-w-0"
+                >
+                  <span className="truncate text-sm block hover:underline">
+                    {item.name}
+                  </span>
+                </Link>
+              </div>
             );
           }
         })}
@@ -1019,6 +1130,8 @@ interface PlaylistFolderTreeWithSearchParamsProps {
   iconContainerSize: string;
   iconSize: string;
   coverSize: string;
+  onPlayPlaylist: (playlist: Playlist) => void;
+  onPlaySmartPlaylist: (id: string, name: string) => void;
 }
 
 function PlaylistFolderTreeWithSearchParams({
@@ -1031,6 +1144,8 @@ function PlaylistFolderTreeWithSearchParams({
   iconContainerSize,
   iconSize,
   coverSize,
+  onPlayPlaylist,
+  onPlaySmartPlaylist,
 }: PlaylistFolderTreeWithSearchParamsProps) {
   const searchParams = useSearchParams();
 
@@ -1046,6 +1161,8 @@ function PlaylistFolderTreeWithSearchParams({
       iconContainerSize={iconContainerSize}
       iconSize={iconSize}
       coverSize={coverSize}
+      onPlayPlaylist={onPlayPlaylist}
+      onPlaySmartPlaylist={onPlaySmartPlaylist}
     />
   );
 }

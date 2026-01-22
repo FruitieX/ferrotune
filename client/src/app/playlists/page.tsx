@@ -168,7 +168,7 @@ function PlaylistsPageContent() {
     owner: "admin",
     public: false,
     songCount: p.songCount,
-    duration: 0,
+    duration: p.duration,
     created: new Date().toISOString(),
     changed: new Date().toISOString(),
     coverArt: null,
@@ -614,7 +614,7 @@ function PlaylistsPageContent() {
           isLoading={isLoading}
           subtitle={
             !isLoading &&
-            `${formatCount(displayFolders.length, "folder")} • ${formatCount(displayPlaylists.length, "playlist")} • ${formatTotalDuration(totalDuration)}`
+            `${formatCount(displayFolders.length, "folder")} • ${formatCount(displayPlaylists.length + displaySmartPlaylists.length, "playlist")} • ${formatTotalDuration(totalDuration)}`
           }
         />
 
@@ -1101,7 +1101,6 @@ function DroppableFolderGridCard({
               type="folder"
               size="md"
               colorSeed={folder.path}
-              showTypeOverlay
               className="w-full h-full"
             />
           ) : (
@@ -1114,7 +1113,15 @@ function DroppableFolderGridCard({
           )}
         </div>
         <div className="w-full">
-          <h3 className="font-medium truncate">{folder.name}</h3>
+          <h3 className="font-medium truncate flex items-center gap-1.5">
+            <Folder
+              className={cn(
+                "w-4 h-4 shrink-0 text-amber-500",
+                isOver && "text-emerald-500",
+              )}
+            />
+            {folder.name}
+          </h3>
           <p className="text-sm text-muted-foreground truncate">
             {folder.subfolders.length > 0 &&
               `${formatCount(folder.subfolders.length, "folder")} • `}
@@ -1221,7 +1228,6 @@ function DroppableFolderListRow({
             type="folder"
             size="sm"
             colorSeed={folder.path}
-            showTypeOverlay
             className="w-10 h-10 rounded shrink-0"
           />
         ) : (
@@ -1240,7 +1246,13 @@ function DroppableFolderListRow({
           </div>
         )}
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-medium truncate hover:underline">
+          <h3 className="text-sm font-medium truncate hover:underline flex items-center gap-1.5">
+            <Folder
+              className={cn(
+                "w-4 h-4 shrink-0 text-amber-500",
+                isOver && "text-emerald-500",
+              )}
+            />
             {folder.name}
           </h3>
           <p className="text-xs text-muted-foreground truncate">
@@ -1301,6 +1313,7 @@ function DraggablePlaylistGridCard({
       <MediaCard
         coverArt={coverArtUrl}
         title={getPlaylistDisplayName(playlist)}
+        titleIcon={<ListMusic className="w-4 h-4 shrink-0 text-emerald-500" />}
         subtitleContent={
           <span className="flex items-center gap-1">
             {formatCount(playlist.songCount, "song")} •{" "}
@@ -1380,6 +1393,7 @@ function DraggablePlaylistListRow({
       <MediaRow
         coverArt={coverArtUrl}
         title={getPlaylistDisplayName(playlist)}
+        titleIcon={<ListMusic className="w-4 h-4 shrink-0 text-emerald-500" />}
         subtitle={subtitle || undefined}
         href={`/playlists/details?id=${playlist.id}`}
         coverType="playlist"
@@ -1424,6 +1438,7 @@ function SmartPlaylistGridCard({
             parsePlaylistPath(smartPlaylist.name).displayName ||
             smartPlaylist.name
           }
+          titleIcon={<Sparkles className="w-4 h-4 shrink-0 text-purple-500" />}
           subtitle={`${smartPlaylist.songCount} songs`}
           href={`/playlists/smart?id=${encodeURIComponent(smartPlaylist.id)}`}
           coverArt={coverArtUrl}
@@ -1470,6 +1485,7 @@ function SmartPlaylistListRow({
             parsePlaylistPath(smartPlaylist.name).displayName ||
             smartPlaylist.name
           }
+          titleIcon={<Sparkles className="w-4 h-4 shrink-0 text-purple-500" />}
           subtitle={`${smartPlaylist.songCount} songs`}
           href={`/playlists/smart?id=${encodeURIComponent(smartPlaylist.id)}`}
           coverArt={coverArtUrl}

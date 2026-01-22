@@ -96,7 +96,7 @@ export function buildFolderTreeFromApi(
       owner: "admin",
       public: false,
       songCount: apiPlaylist.songCount,
-      duration: 0,
+      duration: apiPlaylist.duration,
       created: new Date().toISOString(),
       changed: new Date().toISOString(),
       coverArt: null,

@@ -431,7 +431,7 @@ export class FerrotuneClient {
       owner: "admin", // default
       public: false,
       songCount: p.songCount || 0,
-      duration: 0,
+      duration: p.duration || 0,
       created: new Date().toISOString(),
       changed: new Date().toISOString(),
       coverArt: null,

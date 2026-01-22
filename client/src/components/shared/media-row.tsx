@@ -31,6 +31,8 @@ interface MediaRowProps {
   coverArtData?: string | null;
   /** Primary text (title) */
   title: string;
+  /** Icon to show before the title */
+  titleIcon?: React.ReactNode;
   /** Secondary text (subtitle) - simple string */
   subtitle?: string;
   /** Custom subtitle content (overrides subtitle) - for complex subtitles with links */
@@ -87,6 +89,7 @@ export function MediaRow({
   coverArt,
   coverArtData,
   title,
+  titleIcon,
   subtitle,
   subtitleContent,
   href,
@@ -206,21 +209,22 @@ export function MediaRow({
     <div className="min-w-0 flex-1">
       <p
         className={cn(
-          "font-medium text-sm truncate",
+          "font-medium text-sm truncate flex items-center gap-1.5",
           isActive && "text-primary",
         )}
       >
+        {titleIcon}
         {href ? (
           <Link
             href={href}
             prefetch={false}
-            className="hover:underline"
+            className="hover:underline truncate"
             onClick={(e) => e.stopPropagation()}
           >
             {title}
           </Link>
         ) : (
-          title
+          <span className="truncate">{title}</span>
         )}
       </p>
       {(subtitleContent || subtitle) && (

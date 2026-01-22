@@ -261,42 +261,18 @@ export function CoverImage({
       )}
 
       {/* Type overlay badge - shows sparkle icon centered for smart playlists */}
-      {showTypeOverlay && type === "smartPlaylist" && (
+      {/* Only show when placeholder is displayed (no cover art), not over actual images */}
+      {showTypeOverlay && type === "smartPlaylist" && showPlaceholder && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div
-            className={cn(
-              "bg-purple-600/75 rounded-full",
-              size === "sm" ? "p-1" : "p-2",
-            )}
-          >
-            {/* Size-responsive sparkle: smaller for row view (sm), larger for grid (md+) */}
-            <Sparkles
-              className={cn(
-                "text-white/90",
-                size === "sm" ? "w-4 h-4" : "w-8 h-8",
-              )}
-            />
-          </div>
+          <Sparkles className={cn("text-white/70", iconSizes[size])} />
         </div>
       )}
 
       {/* Type overlay badge - shows folder icon centered for playlist folders */}
-      {showTypeOverlay && type === "folder" && (
+      {/* Only show when placeholder is displayed (no cover art), not over actual images */}
+      {showTypeOverlay && type === "folder" && showPlaceholder && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div
-            className={cn(
-              "bg-amber-600/75 rounded-full",
-              size === "sm" ? "p-1" : "p-2",
-            )}
-          >
-            {/* Size-responsive folder icon: smaller for row view (sm), larger for grid (md+) */}
-            <Folder
-              className={cn(
-                "text-white/90",
-                size === "sm" ? "w-4 h-4" : "w-8 h-8",
-              )}
-            />
-          </div>
+          <Folder className={cn("text-white/70", iconSizes[size])} />
         </div>
       )}
     </div>

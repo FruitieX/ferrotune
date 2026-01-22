@@ -43,6 +43,9 @@ pub struct PlaylistInFolder {
     pub position: i64,
     #[ts(type = "number")]
     pub song_count: i64,
+    /// Total duration of all songs in the playlist (seconds)
+    #[ts(type = "number")]
+    pub duration: i64,
 }
 
 /// Response containing all folders and playlists.
@@ -76,10 +79,16 @@ pub async fn get_playlist_folders(
     // Get playlists with folder info
     let playlists: Vec<PlaylistInFolder> = sqlx::query_as(
         r#"
-        SELECT id, name, folder_id, position, song_count
-        FROM playlists
-        WHERE owner_id = ?
-        ORDER BY position, name
+        SELECT p.id, p.name, p.folder_id, p.position, p.song_count,
+               COALESCE((
+                   SELECT SUM(s.duration)
+                   FROM playlist_songs ps
+                   JOIN songs s ON s.id = ps.song_id
+                   WHERE ps.playlist_id = p.id
+               ), 0) as duration
+        FROM playlists p
+        WHERE p.owner_id = ?
+        ORDER BY p.position, p.name
         "#,
     )
     .bind(user.user_id)
