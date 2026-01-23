@@ -205,7 +205,12 @@ export function MediaCard({
         className={cn("space-y-1", coverShape === "circle" && "text-center")}
       >
         <Link href={href} prefetch={false}>
-          <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors flex items-center gap-1.5">
+          <h3
+            className={cn(
+              "font-semibold text-foreground truncate group-hover:text-primary transition-colors flex items-center gap-1.5",
+              coverShape === "circle" && "justify-center",
+            )}
+          >
             {titleIcon}
             {title}
           </h3>
