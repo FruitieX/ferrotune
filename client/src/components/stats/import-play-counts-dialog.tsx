@@ -10,6 +10,8 @@ import {
   FileSpreadsheet,
   ArrowUpDown,
   Download,
+  Clock,
+  Calendar,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,6 +44,7 @@ import {
 } from "@/components/ui/select";
 import { getClient } from "@/lib/api/client";
 import type { ImportMode } from "@/lib/api/generated/ImportMode";
+import type { PlayEvent } from "@/lib/api/generated/PlayEvent";
 import {
   MatchableTrack,
   SearchOptions,
@@ -61,13 +64,31 @@ interface ImportPlayCountsDialogProps {
 }
 
 type ImportStep = "upload" | "matching" | "preview" | "importing";
+type FileType = "csv" | "json";
 
-interface ParsedCsvRow {
+// Individual play event with timestamp (used when timestamps are present)
+interface PlayEventData {
+  playedAt: string; // ISO 8601 timestamp
+  durationSeconds: number;
+  isScrobble: boolean; // Whether this counts as a scrobble
+}
+
+// Unified parsed track - works for both CSV and JSON
+// If plays array is present, timestamps are available; otherwise just play counts
+interface ParsedImportTrack {
   title: string | null;
   artist: string | null;
   album: string | null;
-  duration: number | null;
+  duration: number | null; // Track duration for matching (not listening time)
+  // Play count mode (no timestamps)
   playCount: number;
+  // Timestamp mode (individual play events)
+  plays?: PlayEventData[];
+  totalDurationSeconds?: number;
+  scrobbleCount?: number;
+  firstPlayed?: string | null;
+  lastPlayed?: string | null;
+  // Original raw data for export
   raw: string;
 }
 
@@ -75,18 +96,46 @@ interface ParsedCsvRow {
 interface PlayCountTrack extends MatchableTrack {
   importPlayCount: number;
   existingPlayCount?: number;
-  // Index into csvRows for original line export
-  csvRowIndex: number;
+  // Index into parsed tracks
+  rowIndex: number;
+  // Timestamp data (if available)
+  plays?: PlayEventData[];
+  totalDurationSeconds?: number;
+  scrobbleCount?: number;
+  firstPlayed?: string | null;
+  lastPlayed?: string | null;
 }
 
-type SortOption = "playCount" | "title" | "artist" | "previewTotal";
+type SortOption =
+  | "playCount"
+  | "title"
+  | "artist"
+  | "previewTotal"
+  | "duration"
+  | "lastPlayed";
 
-function parseCSV(csvText: string): ParsedCsvRow[] {
+// ============================================================================
+// CSV Parsing Result
+// ============================================================================
+
+interface CsvParseResult {
+  tracks: ParsedImportTrack[];
+  headerLine: string;
+  hasTimestamps: boolean;
+}
+
+// ============================================================================
+// CSV Parsing
+// ============================================================================
+
+function parseCSV(csvText: string): CsvParseResult {
   const lines = csvText.trim().split(/\r?\n/);
-  if (lines.length < 2) return [];
+  if (lines.length < 2)
+    return { tracks: [], headerLine: "", hasTimestamps: false };
 
   // Parse header using proper CSV parser
   const headers = parseCSVLine(lines[0]).map((h) => h.trim().toLowerCase());
+  const headerLine = lines[0];
 
   // Find column indices
   const titleIdx = headers.findIndex((h) =>
@@ -95,56 +144,495 @@ function parseCSV(csvText: string): ParsedCsvRow[] {
   const artistIdx = headers.findIndex((h) => ["artist", "artists"].includes(h));
   const albumIdx = headers.findIndex((h) => ["album"].includes(h));
   const durationIdx = headers.findIndex((h) =>
-    ["duration", "length", "time", "duration_ms"].includes(h),
+    ["duration", "length", "time", "duration_ms", "ms_played"].includes(h),
   );
-  const durationIsMillis = headers[durationIdx] === "duration_ms";
+  const durationIsMillis = ["duration_ms", "ms_played"].includes(
+    headers[durationIdx],
+  );
   const playCountIdx = headers.findIndex((h) =>
     ["play_count", "playcount", "plays", "count", "scrobbles"].includes(h),
   );
+  const timestampIdx = headers.findIndex((h) =>
+    [
+      "timestamp",
+      "played_at",
+      "ts",
+      "datetime",
+      "date",
+      "time_played",
+      "listened_at",
+    ].includes(h),
+  );
 
-  if (titleIdx === -1 || playCountIdx === -1) {
+  const hasTimestamps = timestampIdx !== -1;
+
+  if (titleIdx === -1) {
+    throw new Error("CSV must have a 'title' column");
+  }
+
+  // If no timestamps, we need a play count column
+  if (!hasTimestamps && playCountIdx === -1) {
     throw new Error(
-      "CSV must have 'title' and 'play_count' (or 'plays') columns",
+      "CSV must have either a 'timestamp' column (for per-play data) or 'play_count' column (for aggregated counts)",
     );
   }
 
-  const rows: ParsedCsvRow[] = [];
+  if (hasTimestamps) {
+    // Parse as individual play events, then aggregate
+    const trackMap = new Map<string, ParsedImportTrack>();
 
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
 
-    // Use proper CSV parser that handles quoted fields
-    const values = parseCSVLine(line);
+      const values = parseCSVLine(line);
 
-    const playCount = parseInt(values[playCountIdx] || "0", 10);
-    if (isNaN(playCount) || playCount <= 0) continue;
+      const title = titleIdx >= 0 ? values[titleIdx] || null : null;
+      if (!title) continue;
 
-    const title = titleIdx >= 0 ? values[titleIdx] || null : null;
-    const artist = artistIdx >= 0 ? values[artistIdx] || null : null;
-    const album = albumIdx >= 0 ? values[albumIdx] || null : null;
+      const artist = artistIdx >= 0 ? values[artistIdx] || null : null;
+      const album = albumIdx >= 0 ? values[albumIdx] || null : null;
 
-    let duration: number | null = null;
-    if (durationIdx >= 0 && values[durationIdx]) {
-      const dur = parseInt(values[durationIdx], 10);
-      if (!isNaN(dur)) {
-        // Convert milliseconds to seconds if needed
-        duration = durationIsMillis ? Math.round(dur / 1000) : dur;
+      // Parse timestamp
+      const timestampStr = values[timestampIdx] || "";
+      if (!timestampStr) continue;
+
+      // Parse duration if available
+      let durationSeconds = 0;
+      if (durationIdx >= 0 && values[durationIdx]) {
+        const dur = parseFloat(values[durationIdx]);
+        if (!isNaN(dur)) {
+          durationSeconds = durationIsMillis
+            ? Math.round(dur / 1000)
+            : Math.round(dur);
+        }
+      }
+
+      // Determine if this is a scrobble (duration >= 30s or assume full play if no duration)
+      const isScrobble = durationSeconds >= 30 || durationSeconds === 0;
+
+      // Parse timestamp to ISO format
+      let playedAt: string;
+      try {
+        const parsed = new Date(timestampStr);
+        if (isNaN(parsed.getTime())) {
+          continue; // Skip invalid timestamps
+        }
+        playedAt = parsed.toISOString();
+      } catch {
+        continue;
+      }
+
+      // Aggregate by (artist, album, title)
+      const key = `${(artist ?? "").toLowerCase()}|||${(album ?? "").toLowerCase()}|||${title.toLowerCase()}`;
+
+      const existing = trackMap.get(key);
+      if (existing) {
+        existing.plays!.push({
+          playedAt,
+          durationSeconds,
+          isScrobble,
+        });
+        existing.totalDurationSeconds! += durationSeconds;
+        if (isScrobble) {
+          existing.scrobbleCount!++;
+        }
+        existing.playCount++;
+        // Update date range
+        if (!existing.firstPlayed || playedAt < existing.firstPlayed) {
+          existing.firstPlayed = playedAt;
+        }
+        if (!existing.lastPlayed || playedAt > existing.lastPlayed) {
+          existing.lastPlayed = playedAt;
+        }
+      } else {
+        trackMap.set(key, {
+          title,
+          artist,
+          album,
+          duration: null, // Not used for matching when we have play events
+          playCount: 1,
+          plays: [
+            {
+              playedAt,
+              durationSeconds,
+              isScrobble,
+            },
+          ],
+          totalDurationSeconds: durationSeconds,
+          scrobbleCount: isScrobble ? 1 : 0,
+          firstPlayed: playedAt,
+          lastPlayed: playedAt,
+          raw: line,
+        });
       }
     }
 
-    rows.push({
-      title,
-      artist,
-      album,
-      duration,
-      playCount,
-      raw: line,
-    });
+    return {
+      tracks: Array.from(trackMap.values()),
+      headerLine,
+      hasTimestamps: true,
+    };
+  } else {
+    // Parse as aggregated play counts (no timestamps)
+    const tracks: ParsedImportTrack[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      const values = parseCSVLine(line);
+
+      const playCount = parseInt(values[playCountIdx] || "0", 10);
+      if (isNaN(playCount) || playCount <= 0) continue;
+
+      const title = titleIdx >= 0 ? values[titleIdx] || null : null;
+      if (!title) continue;
+
+      const artist = artistIdx >= 0 ? values[artistIdx] || null : null;
+      const album = albumIdx >= 0 ? values[albumIdx] || null : null;
+
+      let duration: number | null = null;
+      if (durationIdx >= 0 && values[durationIdx]) {
+        const dur = parseInt(values[durationIdx], 10);
+        if (!isNaN(dur)) {
+          duration = durationIsMillis ? Math.round(dur / 1000) : dur;
+        }
+      }
+
+      tracks.push({
+        title,
+        artist,
+        album,
+        duration,
+        playCount,
+        raw: line,
+      });
+    }
+
+    return { tracks, headerLine, hasTimestamps: false };
+  }
+}
+
+// ============================================================================
+// JSON Parsing Result
+// ============================================================================
+
+interface JsonParseResult {
+  tracks: ParsedImportTrack[];
+  hasTimestamps: boolean;
+}
+
+// ============================================================================
+// JSON Parsing (Spotify Extended Streaming History and similar formats)
+// ============================================================================
+
+interface JsonEntry {
+  // Spotify Extended Streaming History fields
+  ts?: string;
+  ms_played?: number;
+  master_metadata_track_name?: string | null;
+  master_metadata_album_artist_name?: string | null;
+  master_metadata_album_album_name?: string | null;
+  reason_end?: string;
+  skipped?: boolean;
+  // Alternative field names
+  timestamp?: string;
+  played_at?: string;
+  datetime?: string;
+  date?: string;
+  duration_ms?: number;
+  duration?: number;
+  duration_seconds?: number;
+  track_name?: string;
+  title?: string;
+  track?: string;
+  name?: string;
+  song?: string;
+  artist_name?: string;
+  artist?: string;
+  artists?: string;
+  album_name?: string;
+  album?: string;
+  // Aggregated format fields (no timestamps)
+  play_count?: number;
+  playcount?: number;
+  plays?: number;
+  count?: number;
+  scrobbles?: number;
+  // Episode fields (for filtering)
+  episode_name?: string | null;
+  episode_show_name?: string | null;
+}
+
+function getFieldValue<T>(
+  entry: JsonEntry,
+  ...keys: (keyof JsonEntry)[]
+): T | null {
+  for (const key of keys) {
+    const value = entry[key];
+    if (value !== undefined && value !== null && value !== "") {
+      return value as T;
+    }
+  }
+  return null;
+}
+
+function parseJsonEntries(jsonText: string): JsonParseResult {
+  let entries: JsonEntry[];
+
+  try {
+    const parsed = JSON.parse(jsonText);
+    // Handle both array and single object
+    entries = Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    throw new Error("Invalid JSON format");
   }
 
-  return rows;
+  if (entries.length === 0) {
+    throw new Error("No entries found in JSON");
+  }
+
+  // Check if entries have timestamps (streaming history format)
+  // vs aggregated format (pre-aggregated play counts)
+  const firstValidEntry = entries.find(
+    (e) => !e.episode_name && !e.episode_show_name,
+  );
+  const hasTimestampField =
+    firstValidEntry &&
+    getFieldValue<string>(
+      firstValidEntry,
+      "ts",
+      "timestamp",
+      "played_at",
+      "datetime",
+      "date",
+    ) !== null;
+
+  const hasPlayCountField =
+    firstValidEntry &&
+    getFieldValue<number>(
+      firstValidEntry,
+      "play_count",
+      "playcount",
+      "plays",
+      "count",
+      "scrobbles",
+    ) !== null;
+
+  // If has play_count but no timestamp, treat as aggregated format
+  if (hasPlayCountField && !hasTimestampField) {
+    // Aggregated format - each entry is already a unique track with play count
+    const tracks: ParsedImportTrack[] = [];
+
+    for (const entry of entries) {
+      if (entry.episode_name || entry.episode_show_name) continue;
+
+      const title = getFieldValue<string>(
+        entry,
+        "master_metadata_track_name",
+        "track_name",
+        "title",
+        "track",
+        "name",
+        "song",
+      );
+      if (!title) continue;
+
+      const artist = getFieldValue<string>(
+        entry,
+        "master_metadata_album_artist_name",
+        "artist_name",
+        "artist",
+        "artists",
+      );
+      const album = getFieldValue<string>(
+        entry,
+        "master_metadata_album_album_name",
+        "album_name",
+        "album",
+      );
+
+      const playCount =
+        getFieldValue<number>(
+          entry,
+          "play_count",
+          "playcount",
+          "plays",
+          "count",
+          "scrobbles",
+        ) ?? 0;
+
+      if (playCount <= 0) continue;
+
+      tracks.push({
+        title,
+        artist,
+        album,
+        duration: null,
+        playCount,
+        raw: JSON.stringify(entry),
+      });
+    }
+
+    return { tracks, hasTimestamps: false };
+  }
+
+  // Streaming history format - individual play events with timestamps
+  // Group by (artist, album, title) key
+  const trackMap = new Map<string, ParsedImportTrack>();
+
+  for (const entry of entries) {
+    // Skip podcast episodes
+    if (entry.episode_name || entry.episode_show_name) {
+      continue;
+    }
+
+    // Extract fields using common field name variations
+    const title = getFieldValue<string>(
+      entry,
+      "master_metadata_track_name",
+      "track_name",
+      "title",
+      "track",
+      "name",
+      "song",
+    );
+    const artist = getFieldValue<string>(
+      entry,
+      "master_metadata_album_artist_name",
+      "artist_name",
+      "artist",
+      "artists",
+    );
+    const album = getFieldValue<string>(
+      entry,
+      "master_metadata_album_album_name",
+      "album_name",
+      "album",
+    );
+
+    // Skip entries without title
+    if (!title) continue;
+
+    // Extract timestamp
+    const timestamp = getFieldValue<string>(
+      entry,
+      "ts",
+      "timestamp",
+      "played_at",
+      "datetime",
+      "date",
+    );
+
+    // Extract duration
+    let durationSeconds = 0;
+    const msPlayed = entry.ms_played ?? entry.duration_ms;
+    if (msPlayed !== undefined) {
+      durationSeconds = Math.round(msPlayed / 1000);
+    } else if (entry.duration !== undefined) {
+      // Heuristic: if duration > 10000, assume milliseconds
+      durationSeconds =
+        entry.duration > 10000
+          ? Math.round(entry.duration / 1000)
+          : entry.duration;
+    } else if (entry.duration_seconds !== undefined) {
+      durationSeconds = entry.duration_seconds;
+    }
+
+    // Determine if this play counts as a scrobble:
+    // - reason_end === "trackdone" (completed the track), OR
+    // - duration >= 30 seconds (listened to significant portion)
+    const isScrobble =
+      entry.reason_end === "trackdone" || durationSeconds >= 30;
+
+    // Skip entries with no duration at all (probably invalid)
+    if (durationSeconds <= 0) continue;
+
+    // Create aggregation key
+    const key = `${(artist ?? "").toLowerCase()}|||${(album ?? "").toLowerCase()}|||${title.toLowerCase()}`;
+
+    const existing = trackMap.get(key);
+    if (existing) {
+      existing.plays!.push({
+        playedAt: timestamp || new Date().toISOString(),
+        durationSeconds,
+        isScrobble,
+      });
+      existing.totalDurationSeconds! += durationSeconds;
+      if (isScrobble) {
+        existing.scrobbleCount!++;
+      }
+      existing.playCount++;
+      // Update date range
+      if (timestamp) {
+        if (!existing.firstPlayed || timestamp < existing.firstPlayed) {
+          existing.firstPlayed = timestamp;
+        }
+        if (!existing.lastPlayed || timestamp > existing.lastPlayed) {
+          existing.lastPlayed = timestamp;
+        }
+      }
+    } else {
+      trackMap.set(key, {
+        title,
+        artist,
+        album,
+        duration: null,
+        playCount: 1,
+        plays: [
+          {
+            playedAt: timestamp || new Date().toISOString(),
+            durationSeconds,
+            isScrobble,
+          },
+        ],
+        totalDurationSeconds: durationSeconds,
+        scrobbleCount: isScrobble ? 1 : 0,
+        firstPlayed: timestamp || null,
+        lastPlayed: timestamp || null,
+        raw: JSON.stringify(entry),
+      });
+    }
+  }
+
+  return { tracks: Array.from(trackMap.values()), hasTimestamps: true };
 }
+
+// ============================================================================
+// Utility functions
+// ============================================================================
+
+function formatDuration(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+}
+
+function formatDateRange(first: string | null, last: string | null): string {
+  if (!first || !last) return "";
+  const firstDate = new Date(first);
+  const lastDate = new Date(last);
+  const formatDate = (d: Date) =>
+    d.toLocaleDateString(undefined, {
+      month: "short",
+      year: "numeric",
+    });
+  if (
+    firstDate.getFullYear() === lastDate.getFullYear() &&
+    firstDate.getMonth() === lastDate.getMonth()
+  ) {
+    return formatDate(firstDate);
+  }
+  return `${formatDate(firstDate)} – ${formatDate(lastDate)}`;
+}
+
+// ============================================================================
+// Component
+// ============================================================================
 
 export function ImportPlayCountsDialog({
   open,
@@ -154,8 +642,13 @@ export function ImportPlayCountsDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState<ImportStep>("upload");
-  const [csvRows, setCsvRows] = useState<ParsedCsvRow[]>([]);
-  const [csvHeaderLine, setCsvHeaderLine] = useState<string>("");
+  const [fileType, setFileType] = useState<FileType>("csv");
+
+  // Unified parsed tracks (works for both CSV and JSON)
+  const [parsedTracks, setParsedTracks] = useState<ParsedImportTrack[]>([]);
+  const [headerLine, setHeaderLine] = useState<string>(""); // For CSV export
+  const [hasTimestamps, setHasTimestamps] = useState(false);
+
   const [parseError, setParseError] = useState<string | null>(null);
   const [matchedTracks, setMatchedTracks] = useState<PlayCountTrack[]>([]);
   const [matchingProgress, setMatchingProgress] = useState(0);
@@ -177,9 +670,23 @@ export function ImportPlayCountsDialog({
     (t) => t.match && t.selected !== false,
   ).length;
   const unmatchedCount = matchedTracks.filter((t) => !t.match).length;
+
+  // For timestamp imports, count scrobbles; for play count imports, count plays
   const totalPlaysToImport = matchedTracks
     .filter((t) => t.match && t.selected !== false)
-    .reduce((sum, t) => sum + t.importPlayCount, 0);
+    .reduce((sum, t) => sum + (t.scrobbleCount ?? t.importPlayCount), 0);
+
+  const totalSessionsToImport = hasTimestamps
+    ? matchedTracks
+        .filter((t) => t.match && t.selected !== false)
+        .reduce((sum, t) => sum + (t.plays?.length ?? 0), 0)
+    : 0;
+
+  const totalDurationToImport = hasTimestamps
+    ? matchedTracks
+        .filter((t) => t.match && t.selected !== false)
+        .reduce((sum, t) => sum + (t.totalDurationSeconds ?? 0), 0)
+    : 0;
 
   const hasUnsavedChanges = step === "preview" && selectedCount > 0;
 
@@ -208,22 +715,38 @@ export function ImportPlayCountsDialog({
     reader.onload = (event) => {
       const text = event.target?.result as string;
       try {
-        // Store the original header line for export
-        const lines = text.trim().split(/\r?\n/);
-        if (lines.length > 0) {
-          setCsvHeaderLine(lines[0]);
-        }
+        // Detect file type from extension or content
+        const isJson =
+          file.name.endsWith(".json") ||
+          text.trim().startsWith("[") ||
+          text.trim().startsWith("{");
 
-        const rows = parseCSV(text);
-        if (rows.length === 0) {
-          setParseError("No valid rows found in CSV");
-          return;
+        if (isJson) {
+          setFileType("json");
+          const result = parseJsonEntries(text);
+          if (result.tracks.length === 0) {
+            setParseError("No valid tracks found in JSON");
+            return;
+          }
+          setParsedTracks(result.tracks);
+          setHeaderLine("");
+          setHasTimestamps(result.hasTimestamps);
+          setParseError(null);
+        } else {
+          setFileType("csv");
+          const result = parseCSV(text);
+          if (result.tracks.length === 0) {
+            setParseError("No valid rows found in CSV");
+            return;
+          }
+          setParsedTracks(result.tracks);
+          setHeaderLine(result.headerLine);
+          setHasTimestamps(result.hasTimestamps);
+          setParseError(null);
         }
-        setCsvRows(rows);
-        setParseError(null);
       } catch (err) {
         setParseError(
-          err instanceof Error ? err.message : "Failed to parse CSV",
+          err instanceof Error ? err.message : "Failed to parse file",
         );
       }
     };
@@ -235,12 +758,12 @@ export function ImportPlayCountsDialog({
     setStep("matching");
     setMatchingProgress(0);
 
-    const tracksToMatch: ParsedTrackInfo[] = csvRows.map((row) => ({
-      title: row.title,
-      artist: row.artist,
-      album: row.album,
-      duration: row.duration,
-      raw: row.raw,
+    const tracksToMatch: ParsedTrackInfo[] = parsedTracks.map((track) => ({
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      duration: track.duration,
+      raw: track.raw,
     }));
 
     const result = await matchTracks(
@@ -269,14 +792,22 @@ export function ImportPlayCountsDialog({
       }
 
       // Combine match results with play counts
-      const tracksWithCounts: PlayCountTrack[] = result.map((track, index) => ({
-        ...track,
-        importPlayCount: csvRows[index].playCount,
-        existingPlayCount: track.match
-          ? (existingCounts[track.match.id] ?? 0)
-          : undefined,
-        csvRowIndex: index,
-      }));
+      const tracksWithCounts: PlayCountTrack[] = result.map((track, index) => {
+        const parsed = parsedTracks[index];
+        return {
+          ...track,
+          importPlayCount: parsed.playCount,
+          scrobbleCount: parsed.scrobbleCount,
+          existingPlayCount: track.match
+            ? (existingCounts[track.match.id] ?? 0)
+            : undefined,
+          rowIndex: index,
+          plays: parsed.plays,
+          totalDurationSeconds: parsed.totalDurationSeconds,
+          firstPlayed: parsed.firstPlayed,
+          lastPlayed: parsed.lastPlayed,
+        };
+      });
 
       setMatchedTracks(tracksWithCounts);
       setStep("preview");
@@ -290,12 +821,29 @@ export function ImportPlayCountsDialog({
     const tracks = [...matchedTracks];
     switch (sortBy) {
       case "playCount":
-        return tracks.sort((a, b) => b.importPlayCount - a.importPlayCount);
+        return tracks.sort(
+          (a, b) =>
+            (b.scrobbleCount ?? b.importPlayCount) -
+            (a.scrobbleCount ?? a.importPlayCount),
+        );
       case "previewTotal":
         return tracks.sort((a, b) => {
-          const totalA = (a.existingPlayCount ?? 0) + a.importPlayCount;
-          const totalB = (b.existingPlayCount ?? 0) + b.importPlayCount;
+          const totalA =
+            (a.existingPlayCount ?? 0) + (a.scrobbleCount ?? a.importPlayCount);
+          const totalB =
+            (b.existingPlayCount ?? 0) + (b.scrobbleCount ?? b.importPlayCount);
           return totalB - totalA;
+        });
+      case "duration":
+        return tracks.sort(
+          (a, b) =>
+            (b.totalDurationSeconds ?? 0) - (a.totalDurationSeconds ?? 0),
+        );
+      case "lastPlayed":
+        return tracks.sort((a, b) => {
+          const dateA = a.lastPlayed ? new Date(a.lastPlayed).getTime() : 0;
+          const dateB = b.lastPlayed ? new Date(b.lastPlayed).getTime() : 0;
+          return dateB - dateA;
         });
       case "title":
         return tracks.sort((a, b) =>
@@ -310,8 +858,8 @@ export function ImportPlayCountsDialog({
     }
   };
 
-  // Import mutation
-  const importMutation = useMutation({
+  // Import mutation for play counts only (no timestamps)
+  const playCountsImportMutation = useMutation({
     mutationFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
@@ -320,7 +868,7 @@ export function ImportPlayCountsDialog({
         .filter((t) => t.match && t.selected !== false)
         .map((t) => ({
           songId: t.match!.id,
-          playCount: t.importPlayCount,
+          playCount: t.scrobbleCount ?? t.importPlayCount,
         }));
 
       return client.importScrobbles({
@@ -343,6 +891,49 @@ export function ImportPlayCountsDialog({
     },
   });
 
+  // Import mutation for timestamps (listening sessions + scrobbles)
+  const timestampsImportMutation = useMutation({
+    mutationFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+
+      const songs = matchedTracks
+        .filter((t) => t.match && t.selected !== false && t.plays)
+        .map((t) => ({
+          songId: t.match!.id,
+          plays: t.plays!.map(
+            (p): PlayEvent => ({
+              playedAt: p.playedAt,
+              durationSeconds: p.durationSeconds,
+              isScrobble: p.isScrobble,
+            }),
+          ),
+        }));
+
+      return client.importWithTimestamps({
+        songs,
+        mode: importMode,
+        description: description.trim() || null,
+      });
+    },
+    onSuccess: (result) => {
+      toast.success(
+        `Imported ${result.scrobblesImported} scrobbles and ${result.sessionsImported} listening sessions for ${result.songsImported} songs`,
+      );
+      resetAndClose();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to import play counts",
+      );
+      setStep("preview");
+    },
+  });
+
+  const importMutation = hasTimestamps
+    ? timestampsImportMutation
+    : playCountsImportMutation;
+
   const handleImport = () => {
     if (importMode === "replace") {
       setConfirmReplaceOpen(true);
@@ -361,8 +952,9 @@ export function ImportPlayCountsDialog({
   const resetAndClose = () => {
     cancelMatching();
     setStep("upload");
-    setCsvRows([]);
-    setCsvHeaderLine("");
+    setParsedTracks([]);
+    setHeaderLine("");
+    setHasTimestamps(false);
     setParseError(null);
     setMatchedTracks([]);
     setMatchingProgress(0);
@@ -392,32 +984,92 @@ export function ImportPlayCountsDialog({
     }
   };
 
-  // Download unmatched tracks in the same CSV format
+  // Download unmatched tracks
   const downloadUnmatched = () => {
     const unmatchedTracks = matchedTracks.filter((t) => !t.match);
     if (unmatchedTracks.length === 0) return;
 
-    // Build CSV with header and original lines
-    const lines: string[] = [];
-    if (csvHeaderLine) {
-      lines.push(csvHeaderLine);
-    }
-    for (const track of unmatchedTracks) {
-      // Get the original row from csvRows using the stored index
-      const row = csvRows[track.csvRowIndex];
-      if (row) {
-        lines.push(row.raw);
+    if (fileType === "csv") {
+      // Build CSV with header and original lines
+      const lines: string[] = [];
+      if (headerLine) {
+        lines.push(headerLine);
       }
-    }
+      for (const track of unmatchedTracks) {
+        const parsed = parsedTracks[track.rowIndex];
+        if (parsed) {
+          lines.push(parsed.raw);
+        }
+      }
 
-    const content = lines.join("\n") + "\n";
-    const blob = new Blob([content], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "unmatched_play_counts.csv";
-    a.click();
-    URL.revokeObjectURL(url);
+      const content = lines.join("\n") + "\n";
+      const blob = new Blob([content], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "unmatched_play_counts.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      // Export as JSON
+      const unmatchedData = unmatchedTracks.map((track) => {
+        const parsed = parsedTracks[track.rowIndex];
+        return {
+          title: parsed.title,
+          artist: parsed.artist,
+          album: parsed.album,
+          playCount: parsed.scrobbleCount ?? parsed.playCount,
+          totalDurationSeconds: parsed.totalDurationSeconds,
+        };
+      });
+
+      const content = JSON.stringify(unmatchedData, null, 2);
+      const blob = new Blob([content], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "unmatched_play_counts.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  // Upload summary stats
+  const getUploadSummary = () => {
+    if (!hasTimestamps) {
+      // Play counts only mode
+      const totalPlays = parsedTracks.reduce((sum, t) => sum + t.playCount, 0);
+      return (
+        <p className="text-sm">
+          <strong>{parsedTracks.length}</strong> tracks loaded with{" "}
+          <strong>{totalPlays}</strong> total plays
+        </p>
+      );
+    } else {
+      // Timestamp mode - show play events, scrobbles, and duration
+      const totalPlays = parsedTracks.reduce((sum, t) => sum + t.playCount, 0);
+      const totalScrobbles = parsedTracks.reduce(
+        (sum, t) => sum + (t.scrobbleCount ?? 0),
+        0,
+      );
+      const totalDuration = parsedTracks.reduce(
+        (sum, t) => sum + (t.totalDurationSeconds ?? 0),
+        0,
+      );
+      return (
+        <div className="text-sm space-y-1">
+          <p>
+            <strong>{parsedTracks.length}</strong> unique tracks from{" "}
+            <strong>{totalPlays}</strong> play events
+          </p>
+          <p className="text-muted-foreground">
+            <strong>{totalScrobbles}</strong> scrobbles •{" "}
+            <strong>{formatDuration(totalDuration)}</strong> total listening
+            time
+          </p>
+        </div>
+      );
+    }
   };
 
   return (
@@ -437,8 +1089,8 @@ export function ImportPlayCountsDialog({
               Import Play Counts
             </DialogTitle>
             <DialogDescription>
-              Import play counts from a CSV file and match tracks to your
-              library.
+              Import play counts from CSV or JSON files (including Spotify
+              Extended Streaming History).
             </DialogDescription>
           </DialogHeader>
 
@@ -447,16 +1099,20 @@ export function ImportPlayCountsDialog({
             <div className="py-4 space-y-4 flex-1">
               <div className="border-2 border-dashed rounded-lg p-8 text-center">
                 <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                <p className="text-lg font-medium mb-2">Upload CSV File</p>
+                <p className="text-lg font-medium mb-2">
+                  Upload CSV or JSON File
+                </p>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Required columns: title, play_count (or plays)
+                  <strong>CSV:</strong> Required columns: title, play_count (or
+                  plays)
                   <br />
-                  Optional: artist, album, duration
+                  <strong>JSON:</strong> Spotify Extended Streaming History or
+                  similar formats
                 </p>
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".csv,.tsv,.txt"
+                  accept=".csv,.tsv,.txt,.json"
                   onChange={handleFileChange}
                   className="hidden"
                   id="csv-upload"
@@ -476,15 +1132,15 @@ export function ImportPlayCountsDialog({
                 </div>
               )}
 
-              {csvRows.length > 0 && (
+              {parsedTracks.length > 0 && (
                 <div className="p-4 bg-muted/30 rounded-lg space-y-4">
-                  <p className="text-sm">
-                    <strong>{csvRows.length}</strong> tracks loaded with{" "}
-                    <strong>
-                      {csvRows.reduce((sum, r) => sum + r.playCount, 0)}
-                    </strong>{" "}
-                    total plays
-                  </p>
+                  {getUploadSummary()}
+                  {hasTimestamps && (
+                    <p className="text-xs text-muted-foreground">
+                      <Clock className="w-3 h-3 inline mr-1" />
+                      Timestamps will be preserved for Year in Review stats
+                    </p>
+                  )}
                   <SearchOptionsControl
                     options={searchOptions}
                     onChange={setSearchOptions}
@@ -497,7 +1153,7 @@ export function ImportPlayCountsDialog({
           {/* Matching Step */}
           {step === "matching" && (
             <MatchingProgress
-              tracksCount={csvRows.length}
+              tracksCount={parsedTracks.length}
               progress={matchingProgress}
             />
           )}
@@ -534,11 +1190,21 @@ export function ImportPlayCountsDialog({
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="playCount">
-                            Import Count
+                            {hasTimestamps ? "Scrobbles" : "Import Count"}
                           </SelectItem>
                           <SelectItem value="previewTotal">
                             Preview Total
                           </SelectItem>
+                          {hasTimestamps && (
+                            <>
+                              <SelectItem value="duration">
+                                Listening Time
+                              </SelectItem>
+                              <SelectItem value="lastPlayed">
+                                Last Played
+                              </SelectItem>
+                            </>
+                          )}
                           <SelectItem value="title">Title</SelectItem>
                           <SelectItem value="artist">Artist</SelectItem>
                         </SelectContent>
@@ -568,7 +1234,11 @@ export function ImportPlayCountsDialog({
                   </Label>
                   <Input
                     id="import-description"
-                    placeholder="e.g., CSV import Dec 2024"
+                    placeholder={
+                      hasTimestamps
+                        ? "e.g., Spotify history 2019-2026"
+                        : "e.g., CSV import Dec 2024"
+                    }
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     className={`flex-1 ${hasDuplicateWarning ? "border-yellow-500" : ""}`}
@@ -584,6 +1254,21 @@ export function ImportPlayCountsDialog({
                       {duplicateCheck.data.songCount} songs,{" "}
                       {duplicateCheck.data.totalPlays} plays). This may be a
                       duplicate import.
+                    </span>
+                  </div>
+                )}
+
+                {/* Timestamp import summary */}
+                {hasTimestamps && selectedCount > 0 && (
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-4 h-4" />
+                      {formatDuration(totalDurationToImport)} listening time
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-4 h-4" />
+                      {totalSessionsToImport} sessions → {totalPlaysToImport}{" "}
+                      scrobbles
                     </span>
                   </div>
                 )}
@@ -641,31 +1326,83 @@ export function ImportPlayCountsDialog({
                 }}
                 showMatchFilter
                 showCheckboxes
-                renderTrackExtra={
-                  sortBy === "playCount" || sortBy === "previewTotal"
-                    ? (track) => {
-                        const t = track as PlayCountTrack;
-                        if (sortBy === "playCount") {
-                          return (
-                            <span className="text-xs font-medium">
-                              +{t.importPlayCount}
-                            </span>
-                          );
-                        }
-                        // previewTotal
-                        const existing = t.existingPlayCount ?? 0;
-                        const total = existing + t.importPlayCount;
-                        return (
-                          <span className="text-xs">
+                renderTrackExtra={(track) => {
+                  const t = track as PlayCountTrack;
+                  if (hasTimestamps && t.plays) {
+                    // Timestamp mode: show scrobbles, duration, and date range
+                    const scrobbles = t.scrobbleCount ?? 0;
+                    const existing = t.existingPlayCount ?? 0;
+                    const duration = t.totalDurationSeconds ?? 0;
+                    const dateRange = formatDateRange(
+                      t.firstPlayed ?? null,
+                      t.lastPlayed ?? null,
+                    );
+
+                    if (sortBy === "duration" || sortBy === "lastPlayed") {
+                      return (
+                        <div className="text-xs text-right">
+                          <div className="font-medium">
+                            {formatDuration(duration)}
+                          </div>
+                          <div className="text-muted-foreground">
+                            {scrobbles} scrobbles • {dateRange}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (sortBy === "previewTotal") {
+                      return (
+                        <div className="text-xs text-right">
+                          <div>
                             <span className="text-muted-foreground">
-                              {existing} + {t.importPlayCount} ={" "}
+                              {existing} + {scrobbles} ={" "}
                             </span>
-                            <span className="font-medium">{total}</span>
+                            <span className="font-medium">
+                              {existing + scrobbles}
+                            </span>
+                          </div>
+                          <div className="text-muted-foreground">
+                            {formatDuration(duration)}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="text-xs text-right">
+                        <div className="font-medium">+{scrobbles}</div>
+                        <div className="text-muted-foreground">
+                          {formatDuration(duration)}
+                          {dateRange && ` • ${dateRange}`}
+                        </div>
+                      </div>
+                    );
+                  } else {
+                    // Play count mode: show play count
+                    const playCount = t.scrobbleCount ?? t.importPlayCount;
+                    if (sortBy === "playCount") {
+                      return (
+                        <span className="text-xs font-medium">
+                          +{playCount}
+                        </span>
+                      );
+                    }
+                    if (sortBy === "previewTotal") {
+                      const existing = t.existingPlayCount ?? 0;
+                      const total = existing + playCount;
+                      return (
+                        <span className="text-xs">
+                          <span className="text-muted-foreground">
+                            {existing} + {playCount} ={" "}
                           </span>
-                        );
-                      }
-                    : undefined
-                }
+                          <span className="font-medium">{total}</span>
+                        </span>
+                      );
+                    }
+                    return null;
+                  }
+                }}
               />
             </div>
           )}
@@ -675,6 +1412,11 @@ export function ImportPlayCountsDialog({
             <div className="py-8 text-center">
               <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-primary" />
               <p className="text-lg font-medium">Importing play counts...</p>
+              {hasTimestamps && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  Creating {totalSessionsToImport} listening sessions...
+                </p>
+              )}
             </div>
           )}
 
@@ -694,7 +1436,7 @@ export function ImportPlayCountsDialog({
               Cancel
             </Button>
 
-            {step === "upload" && csvRows.length > 0 && (
+            {step === "upload" && parsedTracks.length > 0 && (
               <Button onClick={doMatchTracks}>Start Matching</Button>
             )}
 
@@ -708,6 +1450,8 @@ export function ImportPlayCountsDialog({
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     Importing...
                   </>
+                ) : hasTimestamps ? (
+                  `Import ${totalPlaysToImport} scrobbles for ${selectedCount} songs`
                 ) : (
                   `Import ${totalPlaysToImport} plays for ${selectedCount} songs`
                 )}
@@ -726,8 +1470,10 @@ export function ImportPlayCountsDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>Replace existing play counts?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will delete all existing play counts for the {selectedCount}{" "}
-              selected songs before importing. This action cannot be undone.
+              This will delete all existing play counts{" "}
+              {hasTimestamps && "and listening sessions "}
+              for the {selectedCount} selected songs before importing. This
+              action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

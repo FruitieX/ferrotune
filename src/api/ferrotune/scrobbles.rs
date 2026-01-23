@@ -385,3 +385,232 @@ pub async fn get_play_counts(
         .collect();
     Ok(Json(GetPlayCountsResponse { counts }))
 }
+
+// ============================================================================
+// Import Scrobbles with Timestamps (for JSON imports like Spotify)
+// ============================================================================
+
+/// A single play event with timestamp and duration.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PlayEvent {
+    /// ISO 8601 timestamp when the song was played
+    pub played_at: String,
+    /// Duration listened in seconds
+    pub duration_seconds: i32,
+    /// Whether this play counts as a scrobble (listened to completion or >= 30s)
+    pub is_scrobble: bool,
+}
+
+/// A song with its play events to import.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ImportSongWithPlays {
+    /// The song ID to import plays for
+    pub song_id: String,
+    /// Individual play events with timestamps
+    pub plays: Vec<PlayEvent>,
+}
+
+/// Request body for importing scrobbles with timestamps.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ImportWithTimestampsRequest {
+    /// Songs with their play events
+    pub songs: Vec<ImportSongWithPlays>,
+    /// Import mode (append or replace)
+    #[serde(default)]
+    pub mode: ImportMode,
+    /// Optional description for this import batch
+    pub description: Option<String>,
+}
+
+/// Response for importing scrobbles with timestamps.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ImportWithTimestampsResponse {
+    /// Number of songs that had plays imported
+    pub songs_imported: i32,
+    /// Total number of scrobbles imported (listening sessions that count as plays)
+    pub scrobbles_imported: i32,
+    /// Total number of listening sessions imported (all play events)
+    pub sessions_imported: i32,
+}
+
+/// Import play events with individual timestamps.
+///
+/// POST /ferrotune/scrobbles/import-with-timestamps
+///
+/// Imports play events into both `scrobbles` (for play counts) and
+/// `listening_sessions` (for Year in Review duration stats).
+///
+/// Each play event includes:
+/// - `played_at`: ISO 8601 timestamp
+/// - `duration_seconds`: How long the song was listened to
+/// - `is_scrobble`: Whether this counts as a scrobble (completed or >= 30s)
+///
+/// Play events where `is_scrobble` is true are inserted into `scrobbles`.
+/// All play events are inserted into `listening_sessions` for duration tracking.
+pub async fn import_with_timestamps(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ImportWithTimestampsRequest>,
+) -> FerrotuneApiResult<Json<ImportWithTimestampsResponse>> {
+    // Handle empty entries
+    if request.songs.is_empty() {
+        return Ok(Json(ImportWithTimestampsResponse {
+            songs_imported: 0,
+            scrobbles_imported: 0,
+            sessions_imported: 0,
+        }));
+    }
+
+    // Collect all song IDs for validation
+    let song_ids: Vec<&str> = request.songs.iter().map(|s| s.song_id.as_str()).collect();
+
+    // Validate that all song IDs exist
+    let placeholders: Vec<&str> = song_ids.iter().map(|_| "?").collect();
+    let validation_query = format!(
+        "SELECT id FROM songs WHERE id IN ({})",
+        placeholders.join(", ")
+    );
+
+    let mut query = sqlx::query_scalar::<_, String>(&validation_query);
+    for id in &song_ids {
+        query = query.bind(*id);
+    }
+
+    let existing_ids: Vec<String> = query.fetch_all(&state.pool).await?;
+    let existing_set: std::collections::HashSet<&str> =
+        existing_ids.iter().map(|s| s.as_str()).collect();
+
+    // Filter to only valid songs
+    let valid_songs: Vec<&ImportSongWithPlays> = request
+        .songs
+        .iter()
+        .filter(|s| existing_set.contains(s.song_id.as_str()))
+        .collect();
+
+    if valid_songs.is_empty() {
+        return Err(FerrotuneApiError::from(Error::InvalidRequest(
+            "No valid song IDs found".to_string(),
+        )));
+    }
+
+    // If replace mode, delete existing data for the affected songs
+    if request.mode == ImportMode::Replace {
+        let valid_song_ids: Vec<&str> = valid_songs.iter().map(|s| s.song_id.as_str()).collect();
+        let delete_placeholders: Vec<&str> = valid_song_ids.iter().map(|_| "?").collect();
+
+        // Delete from scrobbles
+        let delete_scrobbles_query = format!(
+            "DELETE FROM scrobbles WHERE user_id = ? AND song_id IN ({})",
+            delete_placeholders.join(", ")
+        );
+        let mut delete_stmt = sqlx::query(&delete_scrobbles_query).bind(user.user_id);
+        for id in &valid_song_ids {
+            delete_stmt = delete_stmt.bind(*id);
+        }
+        delete_stmt.execute(&state.pool).await?;
+
+        // Delete from listening_sessions
+        let delete_sessions_query = format!(
+            "DELETE FROM listening_sessions WHERE user_id = ? AND song_id IN ({})",
+            delete_placeholders.join(", ")
+        );
+        let mut delete_stmt = sqlx::query(&delete_sessions_query).bind(user.user_id);
+        for id in &valid_song_ids {
+            delete_stmt = delete_stmt.bind(*id);
+        }
+        delete_stmt.execute(&state.pool).await?;
+    }
+
+    let mut songs_imported = 0i32;
+    let mut scrobbles_imported = 0i32;
+    let mut sessions_imported = 0i32;
+
+    for song in &valid_songs {
+        if song.plays.is_empty() {
+            continue;
+        }
+
+        let mut song_had_imports = false;
+
+        for play in &song.plays {
+            // Parse the timestamp
+            let played_at = match chrono::DateTime::parse_from_rfc3339(&play.played_at) {
+                Ok(dt) => dt.to_utc(),
+                Err(_) => {
+                    // Try parsing without timezone (assume UTC)
+                    match chrono::NaiveDateTime::parse_from_str(
+                        &play.played_at,
+                        "%Y-%m-%dT%H:%M:%SZ",
+                    ) {
+                        Ok(ndt) => ndt.and_utc(),
+                        Err(_) => {
+                            tracing::warn!(
+                                "Failed to parse timestamp: {} for song {}",
+                                play.played_at,
+                                song.song_id
+                            );
+                            continue;
+                        }
+                    }
+                }
+            };
+
+            // Insert into listening_sessions (all plays for duration tracking)
+            let session_result = sqlx::query(
+                r#"
+                INSERT INTO listening_sessions (user_id, song_id, duration_seconds, listened_at)
+                VALUES (?, ?, ?, ?)
+                "#,
+            )
+            .bind(user.user_id)
+            .bind(&song.song_id)
+            .bind(play.duration_seconds)
+            .bind(played_at)
+            .execute(&state.pool)
+            .await;
+
+            if session_result.is_ok() {
+                sessions_imported += 1;
+                song_had_imports = true;
+            }
+
+            // Insert into scrobbles only if this is a scrobble
+            if play.is_scrobble {
+                let scrobble_result = sqlx::query(
+                    r#"
+                    INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
+                    VALUES (?, ?, ?, 1, 1, ?)
+                    "#,
+                )
+                .bind(user.user_id)
+                .bind(&song.song_id)
+                .bind(played_at)
+                .bind(&request.description)
+                .execute(&state.pool)
+                .await;
+
+                if scrobble_result.is_ok() {
+                    scrobbles_imported += 1;
+                }
+            }
+        }
+
+        if song_had_imports {
+            songs_imported += 1;
+        }
+    }
+
+    Ok(Json(ImportWithTimestampsResponse {
+        songs_imported,
+        scrobbles_imported,
+        sessions_imported,
+    }))
+}

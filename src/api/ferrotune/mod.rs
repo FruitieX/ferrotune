@@ -320,6 +320,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(scrobbles::import_scrobbles),
         )
         .route(
+            "/ferrotune/scrobbles/import-with-timestamps",
+            post(scrobbles::import_with_timestamps),
+        )
+        .route(
             "/ferrotune/scrobbles/counts",
             post(scrobbles::get_play_counts),
         )

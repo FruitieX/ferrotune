@@ -73,6 +73,8 @@ import type { MatchArtistsRequest } from "./generated/MatchArtistsRequest";
 import type { MatchArtistsResponse } from "./generated/MatchArtistsResponse";
 import type { ImportScrobblesRequest } from "./generated/ImportScrobblesRequest";
 import type { ImportScrobblesResponse } from "./generated/ImportScrobblesResponse";
+import type { ImportWithTimestampsRequest } from "./generated/ImportWithTimestampsRequest";
+import type { ImportWithTimestampsResponse } from "./generated/ImportWithTimestampsResponse";
 import type { GetPlayCountsRequest } from "./generated/GetPlayCountsRequest";
 import type { GetPlayCountsResponse } from "./generated/GetPlayCountsResponse";
 import type { CheckImportDuplicateResponse } from "./generated/CheckImportDuplicateResponse";
@@ -1093,6 +1095,19 @@ export class FerrotuneClient {
     request: ImportScrobblesRequest,
   ): Promise<ImportScrobblesResponse> {
     return this.request("/ferrotune/scrobbles/import", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * Import play events with individual timestamps (for JSON imports like Spotify).
+   * Inserts into both scrobbles (for play counts) and listening_sessions (for Year in Review).
+   */
+  async importWithTimestamps(
+    request: ImportWithTimestampsRequest,
+  ): Promise<ImportWithTimestampsResponse> {
+    return this.request("/ferrotune/scrobbles/import-with-timestamps", {
       method: "POST",
       body: JSON.stringify(request),
     });

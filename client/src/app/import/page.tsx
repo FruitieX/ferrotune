@@ -194,12 +194,12 @@ export default function ImportPage() {
             </p>
             <ul className="text-sm text-muted-foreground space-y-1">
               <li className="flex items-center gap-2">
-                <Music className="w-4 h-4" />
-                Songs, albums, and artists
+                <FileSpreadsheet className="w-4 h-4" />
+                Supports CSV format
               </li>
               <li className="flex items-center gap-2">
-                <FileSpreadsheet className="w-4 h-4" />
-                Standard CSV format
+                <Music className="w-4 h-4" />
+                Songs, albums, and artists
               </li>
             </ul>
             <Button
@@ -238,7 +238,7 @@ export default function ImportPage() {
             <ul className="text-sm text-muted-foreground space-y-1">
               <li className="flex items-center gap-2">
                 <FileSpreadsheet className="w-4 h-4" />
-                CSV scrobble exports
+                Supports CSV and JSON imports
               </li>
               <li className="flex items-center gap-2">
                 <BarChart3 className="w-4 h-4" />
