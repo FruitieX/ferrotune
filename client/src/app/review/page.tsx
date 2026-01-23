@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Calendar,
   Clock,
@@ -89,7 +89,7 @@ function TopArtistCard({
     <motion.div
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: rank * 0.05 }}
+      transition={{ delay: Math.min(rank * 0.02, 0.3) }}
       className="flex items-center gap-4 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
     >
       <div className="text-2xl font-bold text-muted-foreground w-8 text-center">
@@ -167,7 +167,7 @@ function TopAlbumCard({
     <motion.div
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: rank * 0.05 }}
+      transition={{ delay: Math.min(rank * 0.02, 0.3) }}
       className="flex items-center gap-4 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
     >
       <div className="text-2xl font-bold text-muted-foreground w-8 text-center">
@@ -257,7 +257,7 @@ function TopTrackCard({
     <motion.div
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: rank * 0.05 }}
+      transition={{ delay: Math.min(rank * 0.02, 0.3) }}
       className="flex items-center gap-4 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
     >
       <div className="text-2xl font-bold text-muted-foreground w-8 text-center">
@@ -331,6 +331,21 @@ function TopTrackCard({
         />
       )}
     </motion.div>
+  );
+}
+
+function TopListSkeleton({ rank }: { rank: number }) {
+  return (
+    <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/30">
+      <div className="text-2xl font-bold text-muted-foreground w-8 text-center">
+        {rank}
+      </div>
+      <Skeleton className="w-10 h-10 rounded" />
+      <div className="flex-1 min-w-0 space-y-2">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-3 w-48" />
+      </div>
+    </div>
   );
 }
 
@@ -703,154 +718,122 @@ export default function ReviewPage() {
         </motion.div>
 
         {/* Top Lists */}
-        {review &&
-          (review.topArtists.length > 0 ||
-            review.topAlbums.length > 0 ||
-            review.topTracks.length > 0) && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-            >
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <div>
-                    <CardTitle>Your Top Picks</CardTitle>
-                    <CardDescription>
-                      Most played artists, albums, and tracks
-                    </CardDescription>
+        <div>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Your Top Picks</CardTitle>
+                <CardDescription>
+                  Most played artists, albums, and tracks
+                </CardDescription>
+              </div>
+              {review && review.topTracks.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCreatePlaylist}
+                  className="gap-2"
+                >
+                  <ListPlus className="w-4 h-4" />
+                  Create Playlist
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="tracks" className="w-full">
+                <TabsList className="w-full grid grid-cols-3 mb-4">
+                  <TabsTrigger value="tracks" className="gap-2">
+                    <Music2 className="w-4 h-4 hidden sm:block" />
+                    Tracks
+                  </TabsTrigger>
+                  <TabsTrigger value="artists" className="gap-2">
+                    <User2 className="w-4 h-4 hidden sm:block" />
+                    Artists
+                  </TabsTrigger>
+                  <TabsTrigger value="albums" className="gap-2">
+                    <Disc3 className="w-4 h-4 hidden sm:block" />
+                    Albums
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="tracks" className="mt-0">
+                  <div className="space-y-2">
+                    {reviewLoading ? (
+                      Array.from({ length: 10 }).map((_, i) => (
+                        <TopListSkeleton key={i} rank={i + 1} />
+                      ))
+                    ) : review && review.topTracks.length > 0 ? (
+                      review.topTracks.map((track, i) => (
+                        <TopTrackCard
+                          key={track.trackId}
+                          track={track}
+                          rank={i + 1}
+                          onPlay={() =>
+                            handlePlayTrack(track.trackId, track.trackTitle)
+                          }
+                        />
+                      ))
+                    ) : (
+                      <p className="text-muted-foreground text-sm py-4 text-center">
+                        No track data for this period
+                      </p>
+                    )}
                   </div>
-                  {review.topTracks.length > 0 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCreatePlaylist}
-                      className="gap-2"
-                    >
-                      <ListPlus className="w-4 h-4" />
-                      Create Playlist
-                    </Button>
-                  )}
-                </CardHeader>
-                <CardContent>
-                  <Tabs defaultValue="tracks" className="w-full">
-                    <TabsList className="w-full grid grid-cols-3 mb-4">
-                      <TabsTrigger value="tracks" className="gap-2">
-                        <Music2 className="w-4 h-4 hidden sm:block" />
-                        Tracks
-                      </TabsTrigger>
-                      <TabsTrigger value="artists" className="gap-2">
-                        <User2 className="w-4 h-4 hidden sm:block" />
-                        Artists
-                      </TabsTrigger>
-                      <TabsTrigger value="albums" className="gap-2">
-                        <Disc3 className="w-4 h-4 hidden sm:block" />
-                        Albums
-                      </TabsTrigger>
-                    </TabsList>
+                </TabsContent>
 
-                    <AnimatePresence mode="wait">
-                      <TabsContent value="tracks" className="mt-0">
-                        <div className="space-y-2">
-                          {review.topTracks.length > 0 ? (
-                            review.topTracks.map((track, i) => (
-                              <TopTrackCard
-                                key={track.trackId}
-                                track={track}
-                                rank={i + 1}
-                                onPlay={() =>
-                                  handlePlayTrack(
-                                    track.trackId,
-                                    track.trackTitle,
-                                  )
-                                }
-                              />
-                            ))
-                          ) : (
-                            <p className="text-muted-foreground text-sm py-4 text-center">
-                              No track data for this period
-                            </p>
-                          )}
-                        </div>
-                      </TabsContent>
+                <TabsContent value="artists" className="mt-0">
+                  <div className="space-y-2">
+                    {reviewLoading ? (
+                      Array.from({ length: 10 }).map((_, i) => (
+                        <TopListSkeleton key={i} rank={i + 1} />
+                      ))
+                    ) : review && review.topArtists.length > 0 ? (
+                      review.topArtists.map((artist, i) => (
+                        <TopArtistCard
+                          key={artist.artistId}
+                          artist={artist}
+                          rank={i + 1}
+                          onPlay={() =>
+                            handlePlayArtist(artist.artistId, artist.artistName)
+                          }
+                        />
+                      ))
+                    ) : (
+                      <p className="text-muted-foreground text-sm py-4 text-center">
+                        No artist data for this period
+                      </p>
+                    )}
+                  </div>
+                </TabsContent>
 
-                      <TabsContent value="artists" className="mt-0">
-                        <div className="space-y-2">
-                          {review.topArtists.length > 0 ? (
-                            review.topArtists.map((artist, i) => (
-                              <TopArtistCard
-                                key={artist.artistId}
-                                artist={artist}
-                                rank={i + 1}
-                                onPlay={() =>
-                                  handlePlayArtist(
-                                    artist.artistId,
-                                    artist.artistName,
-                                  )
-                                }
-                              />
-                            ))
-                          ) : (
-                            <p className="text-muted-foreground text-sm py-4 text-center">
-                              No artist data for this period
-                            </p>
-                          )}
-                        </div>
-                      </TabsContent>
-
-                      <TabsContent value="albums" className="mt-0">
-                        <div className="space-y-2">
-                          {review.topAlbums.length > 0 ? (
-                            review.topAlbums.map((album, i) => (
-                              <TopAlbumCard
-                                key={album.albumId}
-                                album={album}
-                                rank={i + 1}
-                                onPlay={() =>
-                                  handlePlayAlbum(
-                                    album.albumId,
-                                    album.albumName,
-                                  )
-                                }
-                              />
-                            ))
-                          ) : (
-                            <p className="text-muted-foreground text-sm py-4 text-center">
-                              No album data for this period
-                            </p>
-                          )}
-                        </div>
-                      </TabsContent>
-                    </AnimatePresence>
-                  </Tabs>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
-
-        {/* Empty state */}
-        {review &&
-          review.topArtists.length === 0 &&
-          review.topAlbums.length === 0 &&
-          review.topTracks.length === 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-            >
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <Music2 className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
-                  <h3 className="text-lg font-medium mb-2">
-                    No listening data yet
-                  </h3>
-                  <p className="text-muted-foreground text-sm">
-                    Start playing music to see your listening highlights here!
-                  </p>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
+                <TabsContent value="albums" className="mt-0">
+                  <div className="space-y-2">
+                    {reviewLoading ? (
+                      Array.from({ length: 10 }).map((_, i) => (
+                        <TopListSkeleton key={i} rank={i + 1} />
+                      ))
+                    ) : review && review.topAlbums.length > 0 ? (
+                      review.topAlbums.map((album, i) => (
+                        <TopAlbumCard
+                          key={album.albumId}
+                          album={album}
+                          rank={i + 1}
+                          onPlay={() =>
+                            handlePlayAlbum(album.albumId, album.albumName)
+                          }
+                        />
+                      ))
+                    ) : (
+                      <p className="text-muted-foreground text-sm py-4 text-center">
+                        No album data for this period
+                      </p>
+                    )}
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
