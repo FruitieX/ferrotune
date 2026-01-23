@@ -42,6 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Progress } from "@/components/ui/progress";
 import { getClient } from "@/lib/api/client";
 import type { ImportMode } from "@/lib/api/generated/ImportMode";
 import type { PlayEvent } from "@/lib/api/generated/PlayEvent";
@@ -663,6 +664,7 @@ export function ImportPlayCountsDialog({
   const [sortBy, setSortBy] = useState<SortOption>("playCount");
   const [confirmReplaceOpen, setConfirmReplaceOpen] = useState(false);
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
 
   // Counts
   const matchedCount = matchedTracks.filter((t) => t.match).length;
@@ -720,6 +722,10 @@ export function ImportPlayCountsDialog({
           file.name.endsWith(".json") ||
           text.trim().startsWith("[") ||
           text.trim().startsWith("{");
+
+        // Set initial description to filename (without extension)
+        const filenameWithoutExt = file.name.replace(/\.[^/.]+$/, "");
+        setDescription(filenameWithoutExt);
 
         if (isJson) {
           setFileType("json");
@@ -858,6 +864,9 @@ export function ImportPlayCountsDialog({
     }
   };
 
+  // Batch size for import operations
+  const IMPORT_BATCH_SIZE = 100;
+
   // Import mutation for play counts only (no timestamps)
   const playCountsImportMutation = useMutation({
     mutationFn: async () => {
@@ -871,11 +880,25 @@ export function ImportPlayCountsDialog({
           playCount: t.scrobbleCount ?? t.importPlayCount,
         }));
 
-      return client.importScrobbles({
-        entries,
-        mode: importMode,
-        description: description.trim() || null,
-      });
+      // Process in batches for progress tracking
+      let totalPlaysImported = 0;
+      let songsImported = 0;
+
+      for (let i = 0; i < entries.length; i += IMPORT_BATCH_SIZE) {
+        const batch = entries.slice(i, i + IMPORT_BATCH_SIZE);
+        const result = await client.importScrobbles({
+          entries: batch,
+          mode: i === 0 ? importMode : "append", // Only use replace mode on first batch
+          description: i === 0 ? description.trim() || null : null,
+        });
+        totalPlaysImported += result.totalPlaysImported;
+        songsImported += result.songsImported;
+        setImportProgress(
+          Math.round(((i + batch.length) / entries.length) * 100),
+        );
+      }
+
+      return { totalPlaysImported, songsImported };
     },
     onSuccess: (result) => {
       toast.success(
@@ -910,11 +933,27 @@ export function ImportPlayCountsDialog({
           ),
         }));
 
-      return client.importWithTimestamps({
-        songs,
-        mode: importMode,
-        description: description.trim() || null,
-      });
+      // Process in batches for progress tracking
+      let scrobblesImported = 0;
+      let sessionsImported = 0;
+      let songsImported = 0;
+
+      for (let i = 0; i < songs.length; i += IMPORT_BATCH_SIZE) {
+        const batch = songs.slice(i, i + IMPORT_BATCH_SIZE);
+        const result = await client.importWithTimestamps({
+          songs: batch,
+          mode: i === 0 ? importMode : "append", // Only use replace mode on first batch
+          description: i === 0 ? description.trim() || null : null,
+        });
+        scrobblesImported += result.scrobblesImported;
+        sessionsImported += result.sessionsImported;
+        songsImported += result.songsImported;
+        setImportProgress(
+          Math.round(((i + batch.length) / songs.length) * 100),
+        );
+      }
+
+      return { scrobblesImported, sessionsImported, songsImported };
     },
     onSuccess: (result) => {
       toast.success(
@@ -939,6 +978,7 @@ export function ImportPlayCountsDialog({
       setConfirmReplaceOpen(true);
     } else {
       setStep("importing");
+      setImportProgress(0);
       importMutation.mutate();
     }
   };
@@ -946,6 +986,7 @@ export function ImportPlayCountsDialog({
   const confirmAndImport = () => {
     setConfirmReplaceOpen(false);
     setStep("importing");
+    setImportProgress(0);
     importMutation.mutate();
   };
 
@@ -1328,6 +1369,7 @@ export function ImportPlayCountsDialog({
                 showCheckboxes
                 renderTrackExtra={(track) => {
                   const t = track as PlayCountTrack;
+                  const isReplace = importMode === "replace";
                   if (hasTimestamps && t.plays) {
                     // Timestamp mode: show scrobbles, duration, and date range
                     const scrobbles = t.scrobbleCount ?? 0;
@@ -1352,15 +1394,22 @@ export function ImportPlayCountsDialog({
                     }
 
                     if (sortBy === "previewTotal") {
+                      const total = isReplace
+                        ? scrobbles
+                        : existing + scrobbles;
                       return (
                         <div className="text-xs text-right">
                           <div>
-                            <span className="text-muted-foreground">
-                              {existing} + {scrobbles} ={" "}
-                            </span>
-                            <span className="font-medium">
-                              {existing + scrobbles}
-                            </span>
+                            {isReplace ? (
+                              <span className="font-medium">{total}</span>
+                            ) : (
+                              <>
+                                <span className="text-muted-foreground">
+                                  {existing} + {scrobbles} ={" "}
+                                </span>
+                                <span className="font-medium">{total}</span>
+                              </>
+                            )}
                           </div>
                           <div className="text-muted-foreground">
                             {formatDuration(duration)}
@@ -1390,13 +1439,21 @@ export function ImportPlayCountsDialog({
                     }
                     if (sortBy === "previewTotal") {
                       const existing = t.existingPlayCount ?? 0;
-                      const total = existing + playCount;
+                      const total = isReplace
+                        ? playCount
+                        : existing + playCount;
                       return (
                         <span className="text-xs">
-                          <span className="text-muted-foreground">
-                            {existing} + {playCount} ={" "}
-                          </span>
-                          <span className="font-medium">{total}</span>
+                          {isReplace ? (
+                            <span className="font-medium">{total}</span>
+                          ) : (
+                            <>
+                              <span className="text-muted-foreground">
+                                {existing} + {playCount} ={" "}
+                              </span>
+                              <span className="font-medium">{total}</span>
+                            </>
+                          )}
                         </span>
                       );
                     }
@@ -1411,12 +1468,20 @@ export function ImportPlayCountsDialog({
           {step === "importing" && (
             <div className="py-8 text-center">
               <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-primary" />
-              <p className="text-lg font-medium">Importing play counts...</p>
-              {hasTimestamps && (
-                <p className="text-sm text-muted-foreground mt-2">
-                  Creating {totalSessionsToImport} listening sessions...
-                </p>
-              )}
+              <p className="text-lg font-medium mb-2">
+                Importing play counts...
+              </p>
+              <p className="text-sm text-muted-foreground mb-4">
+                {hasTimestamps
+                  ? `Creating ${totalSessionsToImport} listening sessions with ${totalPlaysToImport} scrobbles`
+                  : `Importing ${totalPlaysToImport} plays for ${selectedCount} songs`}
+              </p>
+              <div className="relative w-full">
+                <Progress value={importProgress} />
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                {importProgress}%
+              </p>
             </div>
           )}
 

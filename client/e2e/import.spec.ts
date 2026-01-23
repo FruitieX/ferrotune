@@ -446,4 +446,81 @@ Second Song,Test Artist,Test Album
       cleanupTempFile(tempFile);
     }
   });
+
+  test("import favorites from JSON", async ({ authenticatedPage: page }) => {
+    // Create JSON with tracks in a format similar to Spotify's YourLibrary.json
+    const jsonContent = JSON.stringify({
+      tracks: [
+        { track: "First Song", artist: "Test Artist", album: "Test Album" },
+        { track: "Third Song", artist: "Test Artist", album: "Test Album" },
+      ],
+    });
+    const tempFile = createTempFile(jsonContent, ".json");
+
+    try {
+      await page.goto("/import");
+      await page.waitForLoadState("domcontentloaded");
+
+      // Click on Import Favorites card
+      const favoritesCard = page.locator("text=Import Favorites").first();
+      await expect(favoritesCard).toBeVisible({ timeout: 10000 });
+      await favoritesCard.click();
+
+      // Wait for dialog to open
+      await expect(
+        page.getByRole("heading", { name: "Import Favorites" }),
+      ).toBeVisible({ timeout: 5000 });
+
+      // Should default to Songs tab
+      await expect(
+        page.getByRole("tab", { name: /songs/i, selected: true }),
+      ).toBeVisible();
+
+      // Upload the JSON file
+      const fileInput = page.locator('input[type="file"]');
+      await fileInput.setInputFiles(tempFile);
+
+      // Wait for parsing to complete
+      await expect(page.getByText(/2.*songs loaded/)).toBeVisible({
+        timeout: 5000,
+      });
+
+      // Click Start Matching
+      await page.getByRole("button", { name: /start matching/i }).click();
+
+      // Wait for matching to complete
+      await expect(page.getByText(/\d+ matched/)).toBeVisible({
+        timeout: 15000,
+      });
+
+      // Click add to favorites button
+      const addButton = page.getByRole("button", {
+        name: /add.*to favorites/i,
+      });
+      await expect(addButton).toBeEnabled();
+      await addButton.click();
+
+      // Wait for success toast
+      const toast = page.locator("[data-sonner-toast]");
+      await expect(toast.filter({ hasText: /added.*favorites/i })).toBeVisible({
+        timeout: 10000,
+      });
+
+      // Verify by going to favorites page
+      await page.goto("/favorites");
+      await page.waitForLoadState("domcontentloaded");
+
+      // Should see our favorited songs
+      await expect(
+        page.getByRole("tab", { name: /songs/i, selected: true }),
+      ).toBeVisible({ timeout: 10000 });
+
+      // Check that at least one of our songs appears in favorites
+      await expect(
+        page.getByText("First Song").or(page.getByText("Third Song")).first(),
+      ).toBeVisible({ timeout: 10000 });
+    } finally {
+      cleanupTempFile(tempFile);
+    }
+  });
 });

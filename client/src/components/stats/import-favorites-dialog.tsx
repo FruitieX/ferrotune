@@ -33,6 +33,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
 import { getClient } from "@/lib/api/client";
 import {
   MatchableTrack,
@@ -57,6 +58,7 @@ interface ImportFavoritesDialogProps {
 
 type ImportStep = "upload" | "matching" | "preview" | "importing";
 type FavoriteType = "songs" | "albums" | "artists";
+type FileType = "csv" | "json";
 
 interface ParsedFavorite {
   title: string | null;
@@ -189,6 +191,128 @@ function parseCSV(csvText: string, type: FavoriteType): ParsedFavorite[] {
   return rows;
 }
 
+function parseJSON(jsonText: string, type: FavoriteType): ParsedFavorite[] {
+  const data = JSON.parse(jsonText);
+
+  // Determine the array to parse based on type
+  // First look for keys in the root object, then fall back to type-specific top-level keys
+  let items: unknown[];
+
+  if (type === "songs") {
+    // Look for tracks/songs in root or top-level 'tracks' key
+    if (Array.isArray(data)) {
+      items = data;
+    } else if (Array.isArray(data.tracks)) {
+      items = data.tracks;
+    } else if (Array.isArray(data.songs)) {
+      items = data.songs;
+    } else {
+      throw new Error(
+        "JSON must contain an array of tracks, or have a 'tracks' or 'songs' property",
+      );
+    }
+  } else if (type === "albums") {
+    if (Array.isArray(data)) {
+      items = data;
+    } else if (Array.isArray(data.albums)) {
+      items = data.albums;
+    } else {
+      throw new Error(
+        "JSON must contain an array of albums, or have an 'albums' property",
+      );
+    }
+  } else {
+    // artists
+    if (Array.isArray(data)) {
+      items = data;
+    } else if (Array.isArray(data.artists)) {
+      items = data.artists;
+    } else {
+      throw new Error(
+        "JSON must contain an array of artists, or have an 'artists' property",
+      );
+    }
+  }
+
+  const rows: ParsedFavorite[] = [];
+
+  for (const item of items) {
+    if (typeof item !== "object" || item === null) continue;
+
+    const obj = item as Record<string, unknown>;
+
+    // Extract fields flexibly based on type
+    let title: string | null = null;
+    let artist: string | null = null;
+    let album: string | null = null;
+    let duration: number | null = null;
+
+    if (type === "songs") {
+      // Title: track, title, name, song
+      title =
+        (obj.track as string) ??
+        (obj.title as string) ??
+        (obj.name as string) ??
+        (obj.song as string) ??
+        null;
+      // Artist: artist, artists
+      artist =
+        (obj.artist as string) ??
+        (Array.isArray(obj.artists)
+          ? (obj.artists as string[]).join(", ")
+          : null) ??
+        null;
+      // Album: album
+      album = (obj.album as string) ?? null;
+      // Duration: duration, duration_ms, length
+      if (typeof obj.duration_ms === "number") {
+        duration = Math.round(obj.duration_ms / 1000);
+      } else if (typeof obj.duration === "number") {
+        duration = obj.duration;
+      } else if (typeof obj.length === "number") {
+        duration = obj.length;
+      }
+    } else if (type === "albums") {
+      // Album name: album, name, title
+      album =
+        (obj.album as string) ??
+        (obj.name as string) ??
+        (obj.title as string) ??
+        null;
+      // Artist: artist, artists
+      artist =
+        (obj.artist as string) ??
+        (Array.isArray(obj.artists)
+          ? (obj.artists as string[]).join(", ")
+          : null) ??
+        null;
+    } else {
+      // artists
+      // Artist name: name, artist, title
+      artist =
+        (obj.name as string) ??
+        (obj.artist as string) ??
+        (obj.title as string) ??
+        null;
+    }
+
+    // For albums, use album as "title" for matching display
+    // For artists, use artist as "title"
+    const displayTitle =
+      type === "albums" ? album : type === "artists" ? artist : title;
+
+    rows.push({
+      title: displayTitle,
+      artist: type === "artists" ? null : artist,
+      album: type === "songs" ? album : null,
+      duration,
+      raw: JSON.stringify(obj),
+    });
+  }
+
+  return rows;
+}
+
 export function ImportFavoritesDialog({
   open,
   onOpenChange,
@@ -200,6 +324,7 @@ export function ImportFavoritesDialog({
 
   const [step, setStep] = useState<ImportStep>("upload");
   const [favoriteType, setFavoriteType] = useState<FavoriteType>("songs");
+  const [fileType, setFileType] = useState<FileType>("csv");
   const [csvRows, setCsvRows] = useState<ParsedFavorite[]>([]);
   const [csvHeaderLine, setCsvHeaderLine] = useState<string>("");
   const [parseError, setParseError] = useState<string | null>(null);
@@ -212,6 +337,7 @@ export function ImportFavoritesDialog({
   const [matchedArtists, setMatchedArtists] = useState<MatchedArtist[]>([]);
 
   const [matchingProgress, setMatchingProgress] = useState(0);
+  const [importProgress, setImportProgress] = useState(0);
   const [searchOptions, setSearchOptions] = useState<SearchOptions>({
     useTitle: true,
     useArtist: true,
@@ -251,21 +377,40 @@ export function ImportFavoritesDialog({
     reader.onload = (event) => {
       const text = event.target?.result as string;
       try {
-        const lines = text.trim().split(/\r?\n/);
-        if (lines.length > 0) {
-          setCsvHeaderLine(lines[0]);
-        }
+        // Detect JSON by extension or content
+        const isJson =
+          file.name.toLowerCase().endsWith(".json") ||
+          text.trimStart().startsWith("{") ||
+          text.trimStart().startsWith("[");
 
-        const rows = parseCSV(text, favoriteType);
-        if (rows.length === 0) {
-          setParseError("No valid rows found in CSV");
-          return;
+        if (isJson) {
+          setFileType("json");
+          setCsvHeaderLine(""); // No header line for JSON
+          const rows = parseJSON(text, favoriteType);
+          if (rows.length === 0) {
+            setParseError("No valid items found in JSON");
+            return;
+          }
+          setCsvRows(rows);
+          setParseError(null);
+        } else {
+          setFileType("csv");
+          const lines = text.trim().split(/\r?\n/);
+          if (lines.length > 0) {
+            setCsvHeaderLine(lines[0]);
+          }
+
+          const rows = parseCSV(text, favoriteType);
+          if (rows.length === 0) {
+            setParseError("No valid rows found in CSV");
+            return;
+          }
+          setCsvRows(rows);
+          setParseError(null);
         }
-        setCsvRows(rows);
-        setParseError(null);
       } catch (err) {
         setParseError(
-          err instanceof Error ? err.message : "Failed to parse CSV",
+          err instanceof Error ? err.message : "Failed to parse file",
         );
       }
     };
@@ -275,6 +420,7 @@ export function ImportFavoritesDialog({
   // Reset csv rows when favorite type changes
   const handleTypeChange = (type: FavoriteType) => {
     setFavoriteType(type);
+    setFileType("csv");
     setCsvRows([]);
     setCsvHeaderLine("");
     setParseError(null);
@@ -443,6 +589,9 @@ export function ImportFavoritesDialog({
     }
   };
 
+  // Batch size for import operations
+  const IMPORT_BATCH_SIZE = 100;
+
   // Import mutation - uses directly matched IDs for albums/artists
   const importMutation = useMutation({
     mutationFn: async () => {
@@ -454,7 +603,15 @@ export function ImportFavoritesDialog({
           (t) => t.match && t.selected !== false,
         );
         const ids = selectedTracks.map((t) => t.match!.id);
-        await client.star({ id: ids });
+
+        // Process in batches for progress tracking
+        for (let i = 0; i < ids.length; i += IMPORT_BATCH_SIZE) {
+          const batch = ids.slice(i, i + IMPORT_BATCH_SIZE);
+          await client.star({ id: batch });
+          setImportProgress(
+            Math.round(((i + batch.length) / ids.length) * 100),
+          );
+        }
         return { count: ids.length };
       } else if (favoriteType === "albums") {
         // For albums, now we have direct album IDs from matching
@@ -464,7 +621,14 @@ export function ImportFavoritesDialog({
         const albumIds = selectedAlbums.map((a) => a.match!.id);
 
         if (albumIds.length > 0) {
-          await client.star({ albumId: albumIds });
+          // Process in batches for progress tracking
+          for (let i = 0; i < albumIds.length; i += IMPORT_BATCH_SIZE) {
+            const batch = albumIds.slice(i, i + IMPORT_BATCH_SIZE);
+            await client.star({ albumId: batch });
+            setImportProgress(
+              Math.round(((i + batch.length) / albumIds.length) * 100),
+            );
+          }
         }
         return { count: albumIds.length };
       } else {
@@ -475,7 +639,14 @@ export function ImportFavoritesDialog({
         const artistIds = selectedArtists.map((a) => a.match!.id);
 
         if (artistIds.length > 0) {
-          await client.star({ artistId: artistIds });
+          // Process in batches for progress tracking
+          for (let i = 0; i < artistIds.length; i += IMPORT_BATCH_SIZE) {
+            const batch = artistIds.slice(i, i + IMPORT_BATCH_SIZE);
+            await client.star({ artistId: batch });
+            setImportProgress(
+              Math.round(((i + batch.length) / artistIds.length) * 100),
+            );
+          }
         }
         return { count: artistIds.length };
       }
@@ -498,6 +669,7 @@ export function ImportFavoritesDialog({
 
   const handleImport = () => {
     setStep("importing");
+    setImportProgress(0);
     importMutation.mutate();
   };
 
@@ -509,6 +681,7 @@ export function ImportFavoritesDialog({
     }
     setStep("upload");
     setFavoriteType("songs");
+    setFileType("csv");
     setCsvRows([]);
     setCsvHeaderLine("");
     setParseError(null);
@@ -539,30 +712,58 @@ export function ImportFavoritesDialog({
     }
   };
 
-  // Download unmatched tracks
+  // Download unmatched items
   const downloadUnmatched = () => {
-    const unmatchedTracks = matchedTracks.filter((t) => !t.match);
-    if (unmatchedTracks.length === 0) return;
-
-    const lines: string[] = [];
-    if (csvHeaderLine) {
-      lines.push(csvHeaderLine);
+    // Get unmatched items based on type
+    let unmatchedItems: { csvRowIndex: number }[];
+    if (favoriteType === "songs") {
+      unmatchedItems = matchedTracks.filter((t) => !t.match);
+    } else if (favoriteType === "albums") {
+      unmatchedItems = matchedAlbums.filter((a) => !a.match);
+    } else {
+      unmatchedItems = matchedArtists.filter((a) => !a.match);
     }
-    for (const track of unmatchedTracks) {
-      const row = csvRows[track.csvRowIndex];
-      if (row) {
-        lines.push(row.raw);
+    if (unmatchedItems.length === 0) return;
+
+    if (fileType === "json") {
+      // Export as JSON array
+      const jsonItems = unmatchedItems
+        .map((item) => {
+          const row = csvRows[item.csvRowIndex];
+          return row ? JSON.parse(row.raw) : null;
+        })
+        .filter(Boolean);
+
+      const content = JSON.stringify(jsonItems, null, 2);
+      const blob = new Blob([content], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `unmatched_${favoriteType}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      // Export as CSV
+      const lines: string[] = [];
+      if (csvHeaderLine) {
+        lines.push(csvHeaderLine);
       }
-    }
+      for (const item of unmatchedItems) {
+        const row = csvRows[item.csvRowIndex];
+        if (row) {
+          lines.push(row.raw);
+        }
+      }
 
-    const content = lines.join("\n") + "\n";
-    const blob = new Blob([content], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `unmatched_${favoriteType}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+      const content = lines.join("\n") + "\n";
+      const blob = new Blob([content], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `unmatched_${favoriteType}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   };
 
   const getTypeIcon = () => {
@@ -604,8 +805,8 @@ export function ImportFavoritesDialog({
               Import Favorites
             </DialogTitle>
             <DialogDescription>
-              Import {getTypeLabel()} from a CSV file and match them to your
-              library.
+              Import {getTypeLabel()} from a CSV or JSON file and match them to
+              your library.
             </DialogDescription>
           </DialogHeader>
 
@@ -636,17 +837,19 @@ export function ImportFavoritesDialog({
                   <div className="border-2 border-dashed rounded-lg p-8 text-center">
                     <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                     <p className="text-lg font-medium mb-2">
-                      Upload Liked Tracks CSV
+                      Upload Liked Tracks
                     </p>
                     <p className="text-sm text-muted-foreground mb-4">
-                      Required columns: title (or name, track, song)
+                      CSV or JSON file with track information
+                      <br />
+                      Required fields: title (or name, track, song)
                       <br />
                       Optional: artist, album, duration
                     </p>
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".csv,.tsv,.txt"
+                      accept=".csv,.tsv,.txt,.json"
                       onChange={handleFileChange}
                       className="hidden"
                       id="favorites-csv-upload"
@@ -667,17 +870,19 @@ export function ImportFavoritesDialog({
                   <div className="border-2 border-dashed rounded-lg p-8 text-center">
                     <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                     <p className="text-lg font-medium mb-2">
-                      Upload Liked Albums CSV
+                      Upload Liked Albums
                     </p>
                     <p className="text-sm text-muted-foreground mb-4">
-                      Required columns: album (or name, title)
+                      CSV or JSON file with album information
+                      <br />
+                      Required fields: album (or name, title)
                       <br />
                       Optional: artist
                     </p>
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".csv,.tsv,.txt"
+                      accept=".csv,.tsv,.txt,.json"
                       onChange={handleFileChange}
                       className="hidden"
                       id="favorites-csv-upload"
@@ -698,15 +903,17 @@ export function ImportFavoritesDialog({
                   <div className="border-2 border-dashed rounded-lg p-8 text-center">
                     <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                     <p className="text-lg font-medium mb-2">
-                      Upload Liked Artists CSV
+                      Upload Liked Artists
                     </p>
                     <p className="text-sm text-muted-foreground mb-4">
-                      Required columns: artist (or name, title)
+                      CSV or JSON file with artist information
+                      <br />
+                      Required fields: artist (or name, title)
                     </p>
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".csv,.tsv,.txt"
+                      accept=".csv,.tsv,.txt,.json"
                       onChange={handleFileChange}
                       className="hidden"
                       id="favorites-csv-upload"
@@ -959,7 +1166,16 @@ export function ImportFavoritesDialog({
           {step === "importing" && (
             <div className="py-8 text-center">
               <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-primary" />
-              <p className="text-lg font-medium">Adding to favorites...</p>
+              <p className="text-lg font-medium mb-2">Adding to favorites...</p>
+              <p className="text-sm text-muted-foreground mb-4">
+                Adding {selectedCount} {favoriteType} to your favorites
+              </p>
+              <div className="relative w-full">
+                <Progress value={importProgress} />
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                {importProgress}%
+              </p>
             </div>
           )}
 
