@@ -394,7 +394,7 @@ pub async fn get_period_review(
         WHERE ls.user_id = ? {}
         GROUP BY s.artist_id
         ORDER BY play_count DESC
-        LIMIT 10
+        LIMIT 100
         "#,
         date_filter
     );
@@ -422,7 +422,7 @@ pub async fn get_period_review(
         WHERE ls.user_id = ? {}
         GROUP BY s.album_id
         ORDER BY play_count DESC
-        LIMIT 10
+        LIMIT 100
         "#,
         date_filter
     );
@@ -452,7 +452,7 @@ pub async fn get_period_review(
         WHERE ls.user_id = ? {}
         GROUP BY s.id
         ORDER BY play_count DESC
-        LIMIT 10
+        LIMIT 100
         "#,
         date_filter
     );

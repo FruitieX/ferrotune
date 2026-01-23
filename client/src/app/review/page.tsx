@@ -13,12 +13,17 @@ import {
   Award,
   TrendingUp,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ListPlus,
+  Play,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useSetAtom } from "jotai";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { getClient } from "@/lib/api/client";
+import { startQueueAtom } from "@/lib/store/server-queue";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -65,7 +70,15 @@ function formatPeriodLabel(period: AvailablePeriod): string {
   return `${period.year} Year in Review`;
 }
 
-function TopArtistCard({ artist, rank }: { artist: TopArtist; rank: number }) {
+function TopArtistCard({
+  artist,
+  rank,
+  onPlay,
+}: {
+  artist: TopArtist;
+  rank: number;
+  onPlay?: () => void;
+}) {
   // Use inline data if available, otherwise fall back to getCoverArtUrl
   const coverArtUrl =
     artist.coverArt && !artist.coverArtData
@@ -82,14 +95,31 @@ function TopArtistCard({ artist, rank }: { artist: TopArtist; rank: number }) {
       <div className="text-2xl font-bold text-muted-foreground w-8 text-center">
         {rank}
       </div>
-      <CoverImage
-        src={coverArtUrl}
-        inlineData={artist.coverArtData}
-        alt={artist.artistName}
-        colorSeed={artist.artistName}
-        type="artist"
-        size="sm"
-      />
+      <div className="group/cover relative w-10 h-10 overflow-hidden shrink-0 rounded-full">
+        <CoverImage
+          src={coverArtUrl}
+          inlineData={artist.coverArtData}
+          alt={artist.artistName}
+          colorSeed={artist.artistName}
+          type="artist"
+          size="sm"
+          className="rounded-full"
+        />
+        {onPlay && (
+          <button
+            type="button"
+            aria-label="Play"
+            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity cursor-pointer rounded-full"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onPlay();
+            }}
+          >
+            <Play className="w-4 h-4 ml-0.5 text-white" />
+          </button>
+        )}
+      </div>
       <div className="flex-1 min-w-0">
         <Link
           href={`/library/artists/details?id=${artist.artistId}`}
@@ -118,7 +148,15 @@ function TopArtistCard({ artist, rank }: { artist: TopArtist; rank: number }) {
   );
 }
 
-function TopAlbumCard({ album, rank }: { album: TopAlbum; rank: number }) {
+function TopAlbumCard({
+  album,
+  rank,
+  onPlay,
+}: {
+  album: TopAlbum;
+  rank: number;
+  onPlay?: () => void;
+}) {
   // Use inline data if available, otherwise fall back to getCoverArtUrl
   const coverArtUrl =
     album.coverArt && !album.coverArtData
@@ -135,14 +173,30 @@ function TopAlbumCard({ album, rank }: { album: TopAlbum; rank: number }) {
       <div className="text-2xl font-bold text-muted-foreground w-8 text-center">
         {rank}
       </div>
-      <CoverImage
-        src={coverArtUrl}
-        inlineData={album.coverArtData}
-        alt={album.albumName}
-        colorSeed={album.albumName}
-        type="album"
-        size="sm"
-      />
+      <div className="group/cover relative w-10 h-10 overflow-hidden shrink-0 rounded">
+        <CoverImage
+          src={coverArtUrl}
+          inlineData={album.coverArtData}
+          alt={album.albumName}
+          colorSeed={album.albumName}
+          type="album"
+          size="sm"
+        />
+        {onPlay && (
+          <button
+            type="button"
+            aria-label="Play"
+            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity cursor-pointer rounded"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onPlay();
+            }}
+          >
+            <Play className="w-4 h-4 ml-0.5 text-white" />
+          </button>
+        )}
+      </div>
       <div className="flex-1 min-w-0">
         <Link
           href={`/library/albums/details?id=${album.albumId}`}
@@ -184,7 +238,15 @@ function TopAlbumCard({ album, rank }: { album: TopAlbum; rank: number }) {
   );
 }
 
-function TopTrackCard({ track, rank }: { track: TopTrack; rank: number }) {
+function TopTrackCard({
+  track,
+  rank,
+  onPlay,
+}: {
+  track: TopTrack;
+  rank: number;
+  onPlay?: () => void;
+}) {
   // Use inline data if available, otherwise fall back to getCoverArtUrl
   const coverArtUrl =
     track.coverArt && !track.coverArtData
@@ -201,14 +263,30 @@ function TopTrackCard({ track, rank }: { track: TopTrack; rank: number }) {
       <div className="text-2xl font-bold text-muted-foreground w-8 text-center">
         {rank}
       </div>
-      <CoverImage
-        src={coverArtUrl}
-        inlineData={track.coverArtData}
-        alt={track.trackTitle}
-        colorSeed={track.trackTitle}
-        type="song"
-        size="sm"
-      />
+      <div className="group/cover relative w-10 h-10 overflow-hidden shrink-0 rounded">
+        <CoverImage
+          src={coverArtUrl}
+          inlineData={track.coverArtData}
+          alt={track.trackTitle}
+          colorSeed={track.trackTitle}
+          type="song"
+          size="sm"
+        />
+        {onPlay && (
+          <button
+            type="button"
+            aria-label="Play"
+            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity cursor-pointer rounded"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onPlay();
+            }}
+          >
+            <Play className="w-4 h-4 ml-0.5 text-white" />
+          </button>
+        )}
+      </div>
       <div className="flex-1 min-w-0">
         <p className="font-medium truncate">{track.trackTitle}</p>
         <div className="text-sm text-muted-foreground truncate flex items-center gap-1">
@@ -261,6 +339,7 @@ export default function ReviewPage() {
     redirectToLogin: true,
   });
   const isMounted = useIsMounted();
+  const startQueue = useSetAtom(startQueueAtom);
 
   // Selected period - null means "current year"
   const [selectedPeriod, setSelectedPeriod] = useState<{
@@ -313,6 +392,50 @@ export default function ReviewPage() {
     }
   };
 
+  // Playback handlers
+  const handlePlayArtist = (artistId: string, artistName: string) => {
+    startQueue({
+      sourceType: "artist",
+      sourceId: artistId,
+      sourceName: artistName,
+      startIndex: 0,
+      shuffle: false,
+    });
+    toast.success(`Playing "${artistName}"`);
+  };
+
+  const handlePlayAlbum = (albumId: string, albumName: string) => {
+    startQueue({
+      sourceType: "album",
+      sourceId: albumId,
+      sourceName: albumName,
+      startIndex: 0,
+      shuffle: false,
+    });
+    toast.success(`Playing "${albumName}"`);
+  };
+
+  const handlePlayTrack = (trackId: string, trackTitle: string) => {
+    if (!reviewData?.review.topTracks.length) return;
+
+    const trackIds = reviewData.review.topTracks.map((t) => t.trackId);
+    const startIndex = trackIds.indexOf(trackId);
+
+    const period = selectedPeriod?.month
+      ? `${MONTH_NAMES[selectedPeriod.month - 1]} ${selectedPeriod.year}`
+      : `${reviewData.review.year}`;
+
+    startQueue({
+      sourceType: "history",
+      sourceName: `Top Tracks - ${period}`,
+      songIds: trackIds,
+      startIndex: startIndex >= 0 ? startIndex : 0,
+      startSongId: trackId,
+      shuffle: false,
+    });
+    toast.success(`Playing "${trackTitle}"`);
+  };
+
   // Always render the same loading state on server and during hydration
   if (!isMounted || authLoading) {
     return (
@@ -328,6 +451,40 @@ export default function ReviewPage() {
   const availablePeriods = reviewData?.availablePeriods ?? [];
   const yearPeriods = availablePeriods.filter((p) => !p.month);
   const monthPeriods = availablePeriods.filter((p) => p.month);
+
+  // Sort years and months separately (newest first), then combine
+  // This matches the dropdown order: all years first, then all months
+  const sortedYears = [...yearPeriods].sort((a, b) => b.year - a.year);
+  const sortedMonths = [...monthPeriods].sort((a, b) => {
+    if (a.year !== b.year) return b.year - a.year;
+    return (b.month ?? 0) - (a.month ?? 0);
+  });
+  const allPeriodsSorted = [...sortedYears, ...sortedMonths];
+
+  // Find current period index
+  const currentPeriodIndex = allPeriodsSorted.findIndex((p) => {
+    if (review?.month) {
+      return p.year === review.year && p.month === review.month;
+    }
+    return p.year === review?.year && !p.month;
+  });
+
+  const handlePreviousPeriod = () => {
+    if (currentPeriodIndex < allPeriodsSorted.length - 1) {
+      const prev = allPeriodsSorted[currentPeriodIndex + 1];
+      setSelectedPeriod({ year: prev.year, month: prev.month ?? undefined });
+    }
+  };
+
+  const handleNextPeriod = () => {
+    if (currentPeriodIndex > 0) {
+      const next = allPeriodsSorted[currentPeriodIndex - 1];
+      setSelectedPeriod({ year: next.year, month: next.month ?? undefined });
+    }
+  };
+
+  const hasPreviousPeriod = currentPeriodIndex < allPeriodsSorted.length - 1;
+  const hasNextPeriod = currentPeriodIndex > 0;
 
   const currentPeriodLabel = review
     ? review.month
@@ -356,77 +513,94 @@ export default function ReviewPage() {
             </div>
           </div>
 
-          {/* Period selector */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                className="min-w-[200px] justify-between"
-              >
-                <Calendar className="w-4 h-4 mr-2" />
-                {currentPeriodLabel}
-                <ChevronDown className="w-4 h-4 ml-2" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="w-[220px] max-h-[400px] overflow-y-auto"
+          {/* Period selector with navigation */}
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handlePreviousPeriod}
+              disabled={!hasPreviousPeriod}
+              className="h-9 w-9"
             >
-              {yearPeriods.length > 0 && (
-                <>
-                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                    Year in Review
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="w-[220px] justify-between">
+                  <Calendar className="w-4 h-4 mr-2" />
+                  {currentPeriodLabel}
+                  <ChevronDown className="w-4 h-4 ml-2" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="w-[220px] max-h-[400px] overflow-y-auto"
+              >
+                {yearPeriods.length > 0 && (
+                  <>
+                    <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                      Year in Review
+                    </div>
+                    {yearPeriods.map((period) => (
+                      <DropdownMenuItem
+                        key={`year-${period.year}`}
+                        onClick={() => setSelectedPeriod({ year: period.year })}
+                        className={
+                          selectedPeriod?.year === period.year &&
+                          !selectedPeriod?.month
+                            ? "bg-muted"
+                            : ""
+                        }
+                      >
+                        {period.year}
+                      </DropdownMenuItem>
+                    ))}
+                    {monthPeriods.length > 0 && <DropdownMenuSeparator />}
+                  </>
+                )}
+                {monthPeriods.length > 0 && (
+                  <>
+                    <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                      Month in Review
+                    </div>
+                    {monthPeriods.map((period) => (
+                      <DropdownMenuItem
+                        key={`month-${period.year}-${period.month}`}
+                        onClick={() =>
+                          setSelectedPeriod({
+                            year: period.year,
+                            month: period.month!,
+                          })
+                        }
+                        className={
+                          selectedPeriod?.year === period.year &&
+                          selectedPeriod?.month === period.month
+                            ? "bg-muted"
+                            : ""
+                        }
+                      >
+                        {formatPeriodLabel(period)}
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                )}
+                {availablePeriods.length === 0 && (
+                  <div className="px-2 py-4 text-sm text-muted-foreground text-center">
+                    No listening data yet
                   </div>
-                  {yearPeriods.map((period) => (
-                    <DropdownMenuItem
-                      key={`year-${period.year}`}
-                      onClick={() => setSelectedPeriod({ year: period.year })}
-                      className={
-                        selectedPeriod?.year === period.year &&
-                        !selectedPeriod?.month
-                          ? "bg-muted"
-                          : ""
-                      }
-                    >
-                      {period.year}
-                    </DropdownMenuItem>
-                  ))}
-                  {monthPeriods.length > 0 && <DropdownMenuSeparator />}
-                </>
-              )}
-              {monthPeriods.length > 0 && (
-                <>
-                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                    Month in Review
-                  </div>
-                  {monthPeriods.map((period) => (
-                    <DropdownMenuItem
-                      key={`month-${period.year}-${period.month}`}
-                      onClick={() =>
-                        setSelectedPeriod({
-                          year: period.year,
-                          month: period.month!,
-                        })
-                      }
-                      className={
-                        selectedPeriod?.year === period.year &&
-                        selectedPeriod?.month === period.month
-                          ? "bg-muted"
-                          : ""
-                      }
-                    >
-                      {formatPeriodLabel(period)}
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              )}
-              {availablePeriods.length === 0 && (
-                <div className="px-2 py-4 text-sm text-muted-foreground text-center">
-                  No listening data yet
-                </div>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleNextPeriod}
+              disabled={!hasNextPeriod}
+              className="h-9 w-9"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
         </motion.div>
       </div>
 
@@ -584,6 +758,12 @@ export default function ReviewPage() {
                                 key={track.trackId}
                                 track={track}
                                 rank={i + 1}
+                                onPlay={() =>
+                                  handlePlayTrack(
+                                    track.trackId,
+                                    track.trackTitle,
+                                  )
+                                }
                               />
                             ))
                           ) : (
@@ -602,6 +782,12 @@ export default function ReviewPage() {
                                 key={artist.artistId}
                                 artist={artist}
                                 rank={i + 1}
+                                onPlay={() =>
+                                  handlePlayArtist(
+                                    artist.artistId,
+                                    artist.artistName,
+                                  )
+                                }
                               />
                             ))
                           ) : (
@@ -620,6 +806,12 @@ export default function ReviewPage() {
                                 key={album.albumId}
                                 album={album}
                                 rank={i + 1}
+                                onPlay={() =>
+                                  handlePlayAlbum(
+                                    album.albumId,
+                                    album.albumName,
+                                  )
+                                }
                               />
                             ))
                           ) : (
