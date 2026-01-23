@@ -2540,7 +2540,7 @@ export class FerrotuneClient {
     await this.request(
       `/ferrotune/playlists/${encodeURIComponent(playlistId)}/move`,
       {
-        method: "PUT",
+        method: "PATCH",
         body: JSON.stringify({ folderId }),
       },
     );

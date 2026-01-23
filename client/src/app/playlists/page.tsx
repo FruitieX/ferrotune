@@ -950,7 +950,7 @@ function PlaylistsPageContent() {
         <ImportPlaylistDialog
           open={importDialogOpen}
           onOpenChange={setImportDialogOpen}
-          folderPath={currentPath}
+          folderId={currentFolder?.id}
         />
 
         {/* Smart Playlist Dialog */}
