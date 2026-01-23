@@ -1025,9 +1025,11 @@ export function ImportPlayCountsDialog({
     }
   };
 
-  // Download unmatched tracks
+  // Download unmatched or unselected tracks
   const downloadUnmatched = () => {
-    const unmatchedTracks = matchedTracks.filter((t) => !t.match);
+    const unmatchedTracks = matchedTracks.filter(
+      (t) => !t.match || t.selected === false,
+    );
     if (unmatchedTracks.length === 0) return;
 
     if (fileType === "csv") {

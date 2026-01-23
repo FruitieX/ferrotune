@@ -287,10 +287,10 @@ export function ImportPlaylistDialog({
     return parts.join(" - ").trim() || parsed.raw || "";
   };
 
-  // Download unmatched tracks in the same format as the original file
+  // Download unmatched or unselected tracks in the same format as the original file
   const downloadUnmatched = () => {
     const unmatchedIndices = matchedTracks
-      .map((t, i) => (t.match ? -1 : i))
+      .map((t, i) => (!t.match || t.selected === false ? i : -1))
       .filter((i) => i >= 0);
     if (unmatchedIndices.length === 0) return;
 

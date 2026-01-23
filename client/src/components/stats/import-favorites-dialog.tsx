@@ -712,16 +712,22 @@ export function ImportFavoritesDialog({
     }
   };
 
-  // Download unmatched items
+  // Download unmatched or unselected items
   const downloadUnmatched = () => {
-    // Get unmatched items based on type
+    // Get unmatched or unselected items based on type
     let unmatchedItems: { csvRowIndex: number }[];
     if (favoriteType === "songs") {
-      unmatchedItems = matchedTracks.filter((t) => !t.match);
+      unmatchedItems = matchedTracks.filter(
+        (t) => !t.match || t.selected === false,
+      );
     } else if (favoriteType === "albums") {
-      unmatchedItems = matchedAlbums.filter((a) => !a.match);
+      unmatchedItems = matchedAlbums.filter(
+        (a) => !a.match || a.selected === false,
+      );
     } else {
-      unmatchedItems = matchedArtists.filter((a) => !a.match);
+      unmatchedItems = matchedArtists.filter(
+        (a) => !a.match || a.selected === false,
+      );
     }
     if (unmatchedItems.length === 0) return;
 
