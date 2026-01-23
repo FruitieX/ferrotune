@@ -71,6 +71,8 @@ import type { MatchAlbumsRequest } from "./generated/MatchAlbumsRequest";
 import type { MatchAlbumsResponse } from "./generated/MatchAlbumsResponse";
 import type { MatchArtistsRequest } from "./generated/MatchArtistsRequest";
 import type { MatchArtistsResponse } from "./generated/MatchArtistsResponse";
+import type { SaveMatchDictionaryRequest } from "./generated/SaveMatchDictionaryRequest";
+import type { SaveMatchDictionaryResponse } from "./generated/SaveMatchDictionaryResponse";
 import type { ImportScrobblesRequest } from "./generated/ImportScrobblesRequest";
 import type { ImportScrobblesResponse } from "./generated/ImportScrobblesResponse";
 import type { ImportWithTimestampsRequest } from "./generated/ImportWithTimestampsRequest";
@@ -1530,6 +1532,23 @@ export class FerrotuneClient {
     if (libraryId !== undefined) params.set("libraryId", libraryId.toString());
     const query = params.toString();
     return this.request(`/ferrotune/artists/match${query ? `?${query}` : ""}`, {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * Save matches to the user's match dictionary for reuse in future imports.
+   * This stores the mapping between original track info and matched song IDs
+   * so they can be reused across all import types (playlists, favorites, play counts).
+   *
+   * @param request The entries to save
+   * @returns Number of entries saved
+   */
+  async saveMatchDictionary(
+    request: SaveMatchDictionaryRequest,
+  ): Promise<SaveMatchDictionaryResponse> {
+    return this.request("/ferrotune/match-dictionary", {
       method: "POST",
       body: JSON.stringify(request),
     });

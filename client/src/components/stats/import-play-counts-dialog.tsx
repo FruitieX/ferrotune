@@ -867,6 +867,34 @@ export function ImportPlayCountsDialog({
   // Batch size for import operations
   const IMPORT_BATCH_SIZE = 100;
 
+  // Helper to save matched tracks to dictionary for future reuse
+  const saveMatchesToDictionary = async (tracks: PlayCountTrack[]) => {
+    const client = getClient();
+    if (!client) return;
+
+    // Build dictionary entries from matched tracks
+    const entries = tracks
+      .filter((t) => t.match && t.selected !== false)
+      .map((t) => ({
+        title: t.parsed.title ?? null,
+        artist: t.parsed.artist ?? null,
+        album: t.parsed.album ?? null,
+        duration: t.parsed.duration
+          ? Math.round(t.parsed.duration * 1000)
+          : undefined,
+        songId: t.match!.id,
+      }));
+
+    if (entries.length === 0) return;
+
+    try {
+      await client.saveMatchDictionary({ entries });
+    } catch {
+      // Silently fail - this is a background enhancement
+      console.warn("Failed to save matches to dictionary");
+    }
+  };
+
   // Import mutation for play counts only (no timestamps)
   const playCountsImportMutation = useMutation({
     mutationFn: async () => {
@@ -900,7 +928,9 @@ export function ImportPlayCountsDialog({
 
       return { totalPlaysImported, songsImported };
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
+      // Save matches to dictionary for future reuse
+      await saveMatchesToDictionary(matchedTracks);
       toast.success(
         `Imported ${result.totalPlaysImported} plays for ${result.songsImported} songs`,
       );
@@ -955,7 +985,9 @@ export function ImportPlayCountsDialog({
 
       return { scrobblesImported, sessionsImported, songsImported };
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
+      // Save matches to dictionary for future reuse
+      await saveMatchesToDictionary(matchedTracks);
       toast.success(
         `Imported ${result.scrobblesImported} scrobbles and ${result.sessionsImported} listening sessions for ${result.songsImported} songs`,
       );

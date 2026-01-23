@@ -179,6 +179,34 @@ export function ImportPlaylistDialog({
     }
   };
 
+  // Helper to save matched tracks to dictionary for future reuse
+  const saveMatchesToDictionary = async (tracks: MatchableTrack[]) => {
+    const client = getClient();
+    if (!client) return;
+
+    // Build dictionary entries from matched tracks
+    const entries = tracks
+      .filter((t) => t.match && t.selected !== false)
+      .map((t) => ({
+        title: t.parsed.title ?? null,
+        artist: t.parsed.artist ?? null,
+        album: t.parsed.album ?? null,
+        duration: t.parsed.duration
+          ? Math.round(t.parsed.duration * 1000)
+          : undefined,
+        songId: t.match!.id,
+      }));
+
+    if (entries.length === 0) return;
+
+    try {
+      await client.saveMatchDictionary({ entries });
+    } catch {
+      // Silently fail - this is a background enhancement
+      console.warn("Failed to save matches to dictionary");
+    }
+  };
+
   // Create playlist mutation
   const createPlaylist = useMutation({
     mutationFn: async () => {
@@ -254,6 +282,8 @@ export function ImportPlaylistDialog({
       return { matchedCount: matchedSongIds.length, missingCount: 0 };
     },
     onSuccess: async (data) => {
+      // Save matches to dictionary for future reuse
+      await saveMatchesToDictionary(matchedTracks);
       if (data.missingCount > 0) {
         toast.success(
           `Playlist "${playlistName}" created with ${data.matchedCount} matched tracks and ${data.missingCount} missing entries`,

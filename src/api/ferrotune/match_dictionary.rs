@@ -1,20 +1,31 @@
 //! Match Dictionary API
 //!
-//! Provides endpoints for retrieving the user's match dictionary — a collection of
-//! previously matched playlist entries that can be reused for future imports.
+//! Provides endpoints for retrieving and saving the user's match dictionary — a collection of
+//! previously matched track entries that can be reused for future imports across all import types
+//! (playlists, favorites, play counts).
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::MissingEntryData;
-use axum::{extract::State, Json};
-use serde::Serialize;
+use crate::db::retry::with_retry;
+use axum::{extract::State, http::StatusCode, Json};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use ts_rs::TS;
 
 use crate::error::FerrotuneApiResult;
 
+/// Row type for match dictionary entries from the database.
+type DictRow = (
+    Option<String>, // original_title
+    Option<String>, // original_artist
+    Option<String>, // original_album
+    Option<i32>,    // original_duration_ms
+    String,         // song_id
+);
+
 /// An entry in the match dictionary representing a previously matched track.
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct MatchDictionaryEntry {
@@ -44,20 +55,55 @@ pub struct MatchDictionaryResponse {
     pub entries: Vec<MatchDictionaryEntry>,
 }
 
+/// Request to save matches to the dictionary.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct SaveMatchDictionaryRequest {
+    /// Entries to save to the dictionary
+    pub entries: Vec<MatchDictionaryEntry>,
+}
+
+/// Response after saving matches.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct SaveMatchDictionaryResponse {
+    /// Number of entries saved (new or updated)
+    pub saved: usize,
+}
+
 /// Get the current user's match dictionary.
 ///
-/// Returns all previously matched playlist entries owned by the user.
-/// This can be used to quickly match tracks in new imports without
-/// requiring fuzzy matching.
+/// Returns all previously matched entries from:
+/// 1. The dedicated match_dictionary table (from all import types)
+/// 2. Legacy playlist entries (for backward compatibility)
 ///
 /// GET /ferrotune/match-dictionary
 pub async fn get_match_dictionary(
     State(state): State<Arc<AppState>>,
     user: FerrotuneAuthenticatedUser,
 ) -> FerrotuneApiResult<Json<MatchDictionaryResponse>> {
-    // Query all matched entries from playlists owned by the user
+    // Query entries from the dedicated match_dictionary table
+    let dict_rows: Vec<DictRow> = sqlx::query_as(
+        r#"
+            SELECT
+                original_title,
+                original_artist,
+                original_album,
+                original_duration_ms,
+                song_id
+            FROM match_dictionary
+            WHERE user_id = ?
+            "#,
+    )
+    .bind(user.user_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    // Query legacy entries from playlists owned by the user
     // An entry is "matched" if it has both missing_entry_data (from import) and song_id (matched)
-    let rows: Vec<(String, String)> = sqlx::query_as(
+    let legacy_rows: Vec<(String, String)> = sqlx::query_as(
         r#"
         SELECT DISTINCT
             ps.missing_entry_data,
@@ -73,22 +119,119 @@ pub async fn get_match_dictionary(
     .fetch_all(&state.pool)
     .await?;
 
-    // Parse the JSON and build entries
-    let entries: Vec<MatchDictionaryEntry> = rows
+    // Build entries from the dedicated table
+    let mut entries: Vec<MatchDictionaryEntry> = dict_rows
         .into_iter()
-        .filter_map(|(missing_data_json, song_id)| {
-            let data: MissingEntryData = serde_json::from_str(&missing_data_json).ok()?;
-            Some(MatchDictionaryEntry {
+        .map(
+            |(title, artist, album, duration, song_id)| MatchDictionaryEntry {
+                title,
+                artist,
+                album,
+                duration,
+                song_id,
+            },
+        )
+        .collect();
+
+    // Parse and add legacy entries (deduplicating by normalized key)
+    let existing_keys: std::collections::HashSet<_> = entries
+        .iter()
+        .filter_map(|e| {
+            DictionaryKey::new(e.title.as_deref(), e.artist.as_deref(), e.album.as_deref())
+        })
+        .collect();
+
+    for (missing_data_json, song_id) in legacy_rows {
+        if let Ok(data) = serde_json::from_str::<MissingEntryData>(&missing_data_json) {
+            // Skip if we already have this entry from the dedicated table
+            if let Some(key) = DictionaryKey::new(
+                data.title.as_deref(),
+                data.artist.as_deref(),
+                data.album.as_deref(),
+            ) {
+                if existing_keys.contains(&key) {
+                    continue;
+                }
+            }
+
+            entries.push(MatchDictionaryEntry {
                 title: data.title,
                 artist: data.artist,
                 album: data.album,
                 duration: data.duration,
                 song_id,
-            })
-        })
-        .collect();
+            });
+        }
+    }
 
     Ok(Json(MatchDictionaryResponse { entries }))
+}
+
+/// Create a lookup key for the match dictionary table.
+fn create_lookup_key(title: Option<&str>, artist: Option<&str>) -> Option<String> {
+    let title_norm = title.map(normalize_for_dictionary).unwrap_or_default();
+    let artist_norm = artist.map(normalize_for_dictionary).unwrap_or_default();
+
+    if title_norm.is_empty() || artist_norm.is_empty() {
+        return None;
+    }
+
+    Some(format!("{}|{}", title_norm, artist_norm))
+}
+
+/// Save matches to the user's dictionary.
+///
+/// Stores or updates match entries for future reuse across all import types.
+/// Uses UPSERT to handle duplicates — newer matches overwrite older ones.
+///
+/// POST /ferrotune/match-dictionary
+pub async fn save_match_dictionary(
+    State(state): State<Arc<AppState>>,
+    user: FerrotuneAuthenticatedUser,
+    Json(request): Json<SaveMatchDictionaryRequest>,
+) -> FerrotuneApiResult<(StatusCode, Json<SaveMatchDictionaryResponse>)> {
+    let mut saved = 0;
+
+    for entry in request.entries {
+        // Create lookup key from title + artist
+        let lookup_key = match create_lookup_key(entry.title.as_deref(), entry.artist.as_deref()) {
+            Some(key) => key,
+            None => continue, // Skip entries without title/artist
+        };
+
+        // Use UPSERT to insert or update
+        let result = with_retry(|| async {
+            sqlx::query(
+                r#"
+                INSERT INTO match_dictionary (user_id, lookup_key, original_title, original_artist, original_album, original_duration_ms, song_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (user_id, lookup_key) DO UPDATE SET
+                    original_title = excluded.original_title,
+                    original_artist = excluded.original_artist,
+                    original_album = excluded.original_album,
+                    original_duration_ms = excluded.original_duration_ms,
+                    song_id = excluded.song_id,
+                    updated_at = CURRENT_TIMESTAMP
+                "#,
+            )
+            .bind(user.user_id)
+            .bind(&lookup_key)
+            .bind(&entry.title)
+            .bind(&entry.artist)
+            .bind(&entry.album)
+            .bind(entry.duration)
+            .bind(&entry.song_id)
+            .execute(&state.pool)
+            .await
+        }, None)
+        .await?;
+
+        if result.rows_affected() > 0 {
+            saved += 1;
+        }
+    }
+
+    Ok((StatusCode::OK, Json(SaveMatchDictionaryResponse { saved })))
 }
 
 // =============================================================================

@@ -270,7 +270,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Match dictionary endpoint (for reusing prior matches)
         .route(
             "/ferrotune/match-dictionary",
-            get(match_dictionary::get_match_dictionary),
+            get(match_dictionary::get_match_dictionary)
+                .post(match_dictionary::save_match_dictionary),
         )
         // Album and artist matching endpoints (for favorites import)
         .route("/ferrotune/albums/match", post(songs::match_albums))

@@ -592,6 +592,34 @@ export function ImportFavoritesDialog({
   // Batch size for import operations
   const IMPORT_BATCH_SIZE = 100;
 
+  // Helper to save matched song tracks to dictionary for future reuse
+  const saveMatchesToDictionary = async (tracks: FavoriteTrack[]) => {
+    const client = getClient();
+    if (!client) return;
+
+    // Build dictionary entries from matched tracks
+    const entries = tracks
+      .filter((t) => t.match && t.selected !== false)
+      .map((t) => ({
+        title: t.parsed.title ?? null,
+        artist: t.parsed.artist ?? null,
+        album: t.parsed.album ?? null,
+        duration: t.parsed.duration
+          ? Math.round(t.parsed.duration * 1000)
+          : undefined,
+        songId: t.match!.id,
+      }));
+
+    if (entries.length === 0) return;
+
+    try {
+      await client.saveMatchDictionary({ entries });
+    } catch {
+      // Silently fail - this is a background enhancement
+      console.warn("Failed to save matches to dictionary");
+    }
+  };
+
   // Import mutation - uses directly matched IDs for albums/artists
   const importMutation = useMutation({
     mutationFn: async () => {
@@ -651,7 +679,11 @@ export function ImportFavoritesDialog({
         return { count: artistIds.length };
       }
     },
-    onSuccess: ({ count }) => {
+    onSuccess: async ({ count }) => {
+      // Save matches to dictionary for future reuse (only for songs)
+      if (favoriteType === "songs") {
+        await saveMatchesToDictionary(matchedTracks);
+      }
       toast.success(`Added ${count} ${favoriteType} to favorites`);
       queryClient.invalidateQueries({ queryKey: ["starred"] });
       queryClient.invalidateQueries({ queryKey: ["starred-songs"] });
