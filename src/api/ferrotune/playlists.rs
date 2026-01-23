@@ -70,7 +70,7 @@ pub async fn get_playlist_folders(
                (cover_art IS NOT NULL) as has_cover_art
         FROM playlist_folders
         WHERE owner_id = ?
-        ORDER BY position, name
+        ORDER BY position, name COLLATE NOCASE
         "#,
     )
     .bind(user.user_id)
@@ -89,7 +89,7 @@ pub async fn get_playlist_folders(
                ), 0) as duration
         FROM playlists p
         WHERE p.owner_id = ?
-        ORDER BY p.position, p.name
+        ORDER BY p.position, p.name COLLATE NOCASE
         "#,
     )
     .bind(user.user_id)
@@ -1900,7 +1900,7 @@ pub async fn get_playlists_for_songs(
         WHERE ps.song_id IN ({})
           AND p.owner_id = ?
           AND ps.song_id IS NOT NULL
-        ORDER BY p.name
+        ORDER BY p.name COLLATE NOCASE
         "#,
         placeholders
     );

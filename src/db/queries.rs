@@ -225,7 +225,7 @@ pub async fn get_album_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option
 // Song queries
 pub async fn get_songs_by_album(pool: &SqlitePool, album_id: &str) -> sqlx::Result<Vec<Song>> {
     let query = format!(
-        "{} AND s.album_id = ? ORDER BY s.disc_number, s.track_number, s.title",
+        "{} AND s.album_id = ? ORDER BY s.disc_number, s.track_number, s.title COLLATE NOCASE",
         SONG_BASE_QUERY_WITH_SCROBBLES
     );
     sqlx::query_as::<_, Song>(&query)
@@ -247,7 +247,7 @@ pub async fn get_songs_by_artist(pool: &SqlitePool, artist_id: &str) -> sqlx::Re
          LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
                     FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
          WHERE s.marked_for_deletion_at IS NULL AND (s.artist_id = ? OR al.artist_id = ?)
-         ORDER BY s.album_id, s.disc_number, s.track_number, s.title";
+         ORDER BY s.album_id, s.disc_number, s.track_number, s.title COLLATE NOCASE";
     sqlx::query_as::<_, Song>(query)
         .bind(artist_id)
         .bind(artist_id)

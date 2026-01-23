@@ -913,10 +913,11 @@ async fn sum_matching_songs_duration_filtered(
     // The duration sum should only include the songs that would actually be shown
     let query = if let Some(max) = max_songs {
         // Build ORDER BY clause for the subquery (needed for correct LIMIT)
+        // Text fields use COLLATE NOCASE for case-insensitive sorting
         let order_by = match sort_field {
-            Some("title") | Some("name") => "s.title",
-            Some("artist") => "ar.name",
-            Some("album") => "al.name",
+            Some("title") | Some("name") => "s.title COLLATE NOCASE",
+            Some("artist") => "ar.name COLLATE NOCASE",
+            Some("album") => "al.name COLLATE NOCASE",
             Some("year") => "s.year",
             Some("playCount") => "pc.play_count",
             Some("dateAdded") | Some("createdAt") => "s.created_at",
@@ -1011,17 +1012,16 @@ async fn materialize_smart_playlist_songs_filtered(
         )
     };
 
-    // Build ORDER BY clause
+    // Build ORDER BY clause (text fields use COLLATE NOCASE for case-insensitive sorting)
     let order_by = match sort_field {
-        Some("title") => "s.title",
-        Some("artist") => "ar.name",
-        Some("album") => "al.name",
+        Some("title") | Some("name") => "s.title COLLATE NOCASE",
+        Some("artist") => "ar.name COLLATE NOCASE",
+        Some("album") => "al.name COLLATE NOCASE",
         Some("year") => "s.year",
         Some("playCount") => "pc.play_count",
         Some("dateAdded") | Some("createdAt") => "s.created_at",
         Some("lastPlayed") => "pc.last_played",
         Some("duration") => "s.duration",
-        Some("name") => "s.title", // Alias for title
         _ => "RANDOM()",
     };
 

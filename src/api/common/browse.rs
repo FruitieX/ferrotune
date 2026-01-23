@@ -323,7 +323,7 @@ pub async fn get_indexes_logic(
             FROM songs s
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
             WHERE mf.enabled = 1 AND mf.id = ? AND instr(s.file_path, '/') > 0
-            ORDER BY name
+            ORDER BY name COLLATE NOCASE
             "#,
         )
         .bind(fid)
@@ -337,7 +337,7 @@ pub async fn get_indexes_logic(
             FROM songs s
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
             WHERE mf.enabled = 1 AND instr(s.file_path, '/') > 0
-            ORDER BY name
+            ORDER BY name COLLATE NOCASE
             "#,
         )
         .fetch_all(pool)

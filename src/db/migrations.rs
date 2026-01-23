@@ -43,7 +43,7 @@ async fn migrate_virtual_folders(pool: &SqlitePool) -> crate::error::Result<()> 
         SELECT id, name, owner_id 
         FROM playlists 
         WHERE name LIKE '%/%' AND folder_id IS NULL
-        ORDER BY name
+        ORDER BY name COLLATE NOCASE
         "#,
     )
     .fetch_all(pool)
@@ -55,7 +55,7 @@ async fn migrate_virtual_folders(pool: &SqlitePool) -> crate::error::Result<()> 
         SELECT id, name, owner_id 
         FROM smart_playlists 
         WHERE name LIKE '%/%'
-        ORDER BY name
+        ORDER BY name COLLATE NOCASE
         "#,
     )
     .fetch_all(pool)
