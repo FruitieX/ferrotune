@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -90,7 +91,13 @@ function TopArtistCard({ artist, rank }: { artist: TopArtist; rank: number }) {
         size="sm"
       />
       <div className="flex-1 min-w-0">
-        <p className="font-medium truncate">{artist.artistName}</p>
+        <Link
+          href={`/library/artists/details?id=${artist.artistId}`}
+          prefetch={false}
+          className="font-medium truncate block hover:underline"
+        >
+          {artist.artistName}
+        </Link>
         <p className="text-sm text-muted-foreground">
           {artist.playCount} plays •{" "}
           {formatListeningTime(Number(artist.totalDurationSecs))}
@@ -137,10 +144,26 @@ function TopAlbumCard({ album, rank }: { album: TopAlbum; rank: number }) {
         size="sm"
       />
       <div className="flex-1 min-w-0">
-        <p className="font-medium truncate">{album.albumName}</p>
-        <p className="text-sm text-muted-foreground truncate">
-          {album.artistName}
-        </p>
+        <Link
+          href={`/library/albums/details?id=${album.albumId}`}
+          prefetch={false}
+          className="font-medium truncate block hover:underline"
+        >
+          {album.albumName}
+        </Link>
+        {album.artistId ? (
+          <Link
+            href={`/library/artists/details?id=${album.artistId}`}
+            prefetch={false}
+            className="text-sm text-muted-foreground truncate block hover:underline hover:text-foreground"
+          >
+            {album.artistName}
+          </Link>
+        ) : (
+          <p className="text-sm text-muted-foreground truncate">
+            {album.artistName}
+          </p>
+        )}
         <p className="text-xs text-muted-foreground">
           {album.playCount} plays •{" "}
           {formatListeningTime(Number(album.totalDurationSecs))}
@@ -188,9 +211,31 @@ function TopTrackCard({ track, rank }: { track: TopTrack; rank: number }) {
       />
       <div className="flex-1 min-w-0">
         <p className="font-medium truncate">{track.trackTitle}</p>
-        <p className="text-sm text-muted-foreground truncate">
-          {track.artistName} • {track.albumName}
-        </p>
+        <div className="text-sm text-muted-foreground truncate flex items-center gap-1">
+          {track.artistId ? (
+            <Link
+              href={`/library/artists/details?id=${track.artistId}`}
+              prefetch={false}
+              className="hover:underline hover:text-foreground shrink-0"
+            >
+              {track.artistName}
+            </Link>
+          ) : (
+            <span className="shrink-0">{track.artistName}</span>
+          )}
+          <span className="shrink-0">•</span>
+          {track.albumId ? (
+            <Link
+              href={`/library/albums/details?id=${track.albumId}`}
+              prefetch={false}
+              className="hover:underline hover:text-foreground truncate"
+            >
+              {track.albumName}
+            </Link>
+          ) : (
+            <span className="truncate">{track.albumName}</span>
+          )}
+        </div>
         <p className="text-xs text-muted-foreground">
           {track.playCount} plays •{" "}
           {formatListeningTime(Number(track.totalDurationSecs))}

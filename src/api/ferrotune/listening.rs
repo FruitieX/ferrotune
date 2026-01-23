@@ -246,6 +246,7 @@ pub struct TopArtist {
 pub struct TopAlbum {
     pub album_id: String,
     pub album_name: String,
+    pub artist_id: Option<String>,
     pub artist_name: Option<String>,
     #[ts(type = "number")]
     pub play_count: i64,
@@ -264,7 +265,9 @@ pub struct TopAlbum {
 pub struct TopTrack {
     pub track_id: String,
     pub track_title: String,
+    pub artist_id: Option<String>,
     pub artist_name: Option<String>,
+    pub album_id: Option<String>,
     pub album_name: Option<String>,
     #[ts(type = "number")]
     pub play_count: i64,
@@ -407,6 +410,7 @@ pub async fn get_period_review(
         SELECT 
             COALESCE(s.album_id, 'unknown') as album_id,
             COALESCE(al.name, 'Unknown Album') as album_name,
+            s.artist_id as artist_id,
             COALESCE(a.name, 'Unknown Artist') as artist_name,
             COUNT(*) as play_count,
             COALESCE(SUM(ls.duration_seconds), 0) as total_duration_secs,
@@ -434,7 +438,9 @@ pub async fn get_period_review(
         SELECT 
             s.id as track_id,
             COALESCE(s.title, 'Unknown Track') as track_title,
+            s.artist_id as artist_id,
             COALESCE(a.name, 'Unknown Artist') as artist_name,
+            s.album_id as album_id,
             COALESCE(al.name, 'Unknown Album') as album_name,
             COUNT(*) as play_count,
             COALESCE(SUM(ls.duration_seconds), 0) as total_duration_secs,
