@@ -7,6 +7,7 @@ use crate::api::common::browse::song_to_response_with_stats;
 use crate::api::common::models::{AlbumResponse, ArtistResponse, SongPlayStats, SongResponse};
 use crate::api::common::utils::format_datetime_iso;
 use crate::db::models::ItemType;
+use crate::db::retry::with_retry;
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -92,40 +93,76 @@ pub async fn star_items(
 
     // Star songs
     for id in song_ids {
-        sqlx::query(
-            "INSERT OR IGNORE INTO starred (user_id, item_type, item_id, starred_at) 
-             VALUES (?, 'song', ?, ?)",
+        let pool = pool.clone();
+        let id = id.clone();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let id = id.clone();
+                async move {
+                    sqlx::query(
+                        "INSERT OR IGNORE INTO starred (user_id, item_type, item_id, starred_at) 
+                         VALUES (?, 'song', ?, ?)",
+                    )
+                    .bind(user_id)
+                    .bind(&id)
+                    .bind(now)
+                    .execute(&pool)
+                    .await
+                }
+            },
+            None,
         )
-        .bind(user_id)
-        .bind(id)
-        .bind(now)
-        .execute(pool)
         .await?;
     }
 
     // Star albums
     for id in album_ids {
-        sqlx::query(
-            "INSERT OR IGNORE INTO starred (user_id, item_type, item_id, starred_at) 
-             VALUES (?, 'album', ?, ?)",
+        let pool = pool.clone();
+        let id = id.clone();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let id = id.clone();
+                async move {
+                    sqlx::query(
+                        "INSERT OR IGNORE INTO starred (user_id, item_type, item_id, starred_at) 
+                         VALUES (?, 'album', ?, ?)",
+                    )
+                    .bind(user_id)
+                    .bind(&id)
+                    .bind(now)
+                    .execute(&pool)
+                    .await
+                }
+            },
+            None,
         )
-        .bind(user_id)
-        .bind(id)
-        .bind(now)
-        .execute(pool)
         .await?;
     }
 
     // Star artists
     for id in artist_ids {
-        sqlx::query(
-            "INSERT OR IGNORE INTO starred (user_id, item_type, item_id, starred_at) 
-             VALUES (?, 'artist', ?, ?)",
+        let pool = pool.clone();
+        let id = id.clone();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let id = id.clone();
+                async move {
+                    sqlx::query(
+                        "INSERT OR IGNORE INTO starred (user_id, item_type, item_id, starred_at) 
+                         VALUES (?, 'artist', ?, ?)",
+                    )
+                    .bind(user_id)
+                    .bind(&id)
+                    .bind(now)
+                    .execute(&pool)
+                    .await
+                }
+            },
+            None,
         )
-        .bind(user_id)
-        .bind(id)
-        .bind(now)
-        .execute(pool)
         .await?;
     }
 
@@ -142,32 +179,70 @@ pub async fn unstar_items(
 ) -> crate::error::Result<()> {
     // Unstar songs
     for id in song_ids {
-        sqlx::query("DELETE FROM starred WHERE user_id = ? AND item_type = 'song' AND item_id = ?")
-            .bind(user_id)
-            .bind(id)
-            .execute(pool)
-            .await?;
+        let pool = pool.clone();
+        let id = id.clone();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let id = id.clone();
+                async move {
+                    sqlx::query(
+                        "DELETE FROM starred WHERE user_id = ? AND item_type = 'song' AND item_id = ?",
+                    )
+                    .bind(user_id)
+                    .bind(&id)
+                    .execute(&pool)
+                    .await
+                }
+            },
+            None,
+        )
+        .await?;
     }
 
     // Unstar albums
     for id in album_ids {
-        sqlx::query(
-            "DELETE FROM starred WHERE user_id = ? AND item_type = 'album' AND item_id = ?",
+        let pool = pool.clone();
+        let id = id.clone();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let id = id.clone();
+                async move {
+                    sqlx::query(
+                        "DELETE FROM starred WHERE user_id = ? AND item_type = 'album' AND item_id = ?",
+                    )
+                    .bind(user_id)
+                    .bind(&id)
+                    .execute(&pool)
+                    .await
+                }
+            },
+            None,
         )
-        .bind(user_id)
-        .bind(id)
-        .execute(pool)
         .await?;
     }
 
     // Unstar artists
     for id in artist_ids {
-        sqlx::query(
-            "DELETE FROM starred WHERE user_id = ? AND item_type = 'artist' AND item_id = ?",
+        let pool = pool.clone();
+        let id = id.clone();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let id = id.clone();
+                async move {
+                    sqlx::query(
+                        "DELETE FROM starred WHERE user_id = ? AND item_type = 'artist' AND item_id = ?",
+                    )
+                    .bind(user_id)
+                    .bind(&id)
+                    .execute(&pool)
+                    .await
+                }
+            },
+            None,
         )
-        .bind(user_id)
-        .bind(id)
-        .execute(pool)
         .await?;
     }
 

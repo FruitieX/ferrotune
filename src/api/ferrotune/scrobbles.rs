@@ -4,6 +4,7 @@
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
+use crate::db::retry::with_retry;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
     extract::{Query, State},
@@ -190,12 +191,25 @@ pub async fn import_scrobbles(
             delete_placeholders.join(", ")
         );
 
-        let mut delete_stmt = sqlx::query(&delete_query).bind(user.user_id);
-        for id in &valid_song_ids {
-            delete_stmt = delete_stmt.bind(*id);
-        }
-
-        delete_stmt.execute(&state.pool).await?;
+        let pool = state.pool.clone();
+        let uid = user.user_id;
+        let song_ids_owned: Vec<String> = valid_song_ids.iter().map(|s| s.to_string()).collect();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let delete_query = delete_query.clone();
+                let song_ids = song_ids_owned.clone();
+                async move {
+                    let mut delete_stmt = sqlx::query(&delete_query).bind(uid);
+                    for id in &song_ids {
+                        delete_stmt = delete_stmt.bind(id.as_str());
+                    }
+                    delete_stmt.execute(&pool).await
+                }
+            },
+            None,
+        )
+        .await?;
     }
 
     // Insert new scrobbles - one row per song with play_count
@@ -207,17 +221,34 @@ pub async fn import_scrobbles(
             continue;
         }
 
-        let result = sqlx::query(
-            r#"
-            INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
-            VALUES (?, ?, NULL, 1, ?, ?)
-            "#,
+        let pool = state.pool.clone();
+        let uid = user.user_id;
+        let song_id = entry.song_id.clone();
+        let play_count = entry.play_count;
+        let description = request.description.clone();
+
+        let result = with_retry(
+            || {
+                let pool = pool.clone();
+                let song_id = song_id.clone();
+                let description = description.clone();
+                async move {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
+                        VALUES (?, ?, NULL, 1, ?, ?)
+                        "#,
+                    )
+                    .bind(uid)
+                    .bind(&song_id)
+                    .bind(play_count)
+                    .bind(&description)
+                    .execute(&pool)
+                    .await
+                }
+            },
+            None,
         )
-        .bind(user.user_id)
-        .bind(&entry.song_id)
-        .bind(entry.play_count)
-        .bind(&request.description)
-        .execute(&state.pool)
         .await;
 
         match result {
@@ -511,22 +542,49 @@ pub async fn import_with_timestamps(
             "DELETE FROM scrobbles WHERE user_id = ? AND song_id IN ({})",
             delete_placeholders.join(", ")
         );
-        let mut delete_stmt = sqlx::query(&delete_scrobbles_query).bind(user.user_id);
-        for id in &valid_song_ids {
-            delete_stmt = delete_stmt.bind(*id);
-        }
-        delete_stmt.execute(&state.pool).await?;
+        let pool = state.pool.clone();
+        let uid = user.user_id;
+        let song_ids_owned: Vec<String> = valid_song_ids.iter().map(|s| s.to_string()).collect();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let delete_query = delete_scrobbles_query.clone();
+                let song_ids = song_ids_owned.clone();
+                async move {
+                    let mut delete_stmt = sqlx::query(&delete_query).bind(uid);
+                    for id in &song_ids {
+                        delete_stmt = delete_stmt.bind(id.as_str());
+                    }
+                    delete_stmt.execute(&pool).await
+                }
+            },
+            None,
+        )
+        .await?;
 
         // Delete from listening_sessions
         let delete_sessions_query = format!(
             "DELETE FROM listening_sessions WHERE user_id = ? AND song_id IN ({})",
             delete_placeholders.join(", ")
         );
-        let mut delete_stmt = sqlx::query(&delete_sessions_query).bind(user.user_id);
-        for id in &valid_song_ids {
-            delete_stmt = delete_stmt.bind(*id);
-        }
-        delete_stmt.execute(&state.pool).await?;
+        let pool = state.pool.clone();
+        let song_ids_owned: Vec<String> = valid_song_ids.iter().map(|s| s.to_string()).collect();
+        with_retry(
+            || {
+                let pool = pool.clone();
+                let delete_query = delete_sessions_query.clone();
+                let song_ids = song_ids_owned.clone();
+                async move {
+                    let mut delete_stmt = sqlx::query(&delete_query).bind(uid);
+                    for id in &song_ids {
+                        delete_stmt = delete_stmt.bind(id.as_str());
+                    }
+                    delete_stmt.execute(&pool).await
+                }
+            },
+            None,
+        )
+        .await?;
     }
 
     let mut songs_imported = 0i32;
@@ -564,17 +622,32 @@ pub async fn import_with_timestamps(
             };
 
             // Insert into listening_sessions (all plays for duration tracking)
-            let session_result = sqlx::query(
-                r#"
-                INSERT INTO listening_sessions (user_id, song_id, duration_seconds, listened_at)
-                VALUES (?, ?, ?, ?)
-                "#,
+            let pool = state.pool.clone();
+            let uid = user.user_id;
+            let song_id = song.song_id.clone();
+            let duration = play.duration_seconds;
+
+            let session_result = with_retry(
+                || {
+                    let pool = pool.clone();
+                    let song_id = song_id.clone();
+                    async move {
+                        sqlx::query(
+                            r#"
+                            INSERT INTO listening_sessions (user_id, song_id, duration_seconds, listened_at)
+                            VALUES (?, ?, ?, ?)
+                            "#,
+                        )
+                        .bind(uid)
+                        .bind(&song_id)
+                        .bind(duration)
+                        .bind(played_at)
+                        .execute(&pool)
+                        .await
+                    }
+                },
+                None,
             )
-            .bind(user.user_id)
-            .bind(&song.song_id)
-            .bind(play.duration_seconds)
-            .bind(played_at)
-            .execute(&state.pool)
             .await;
 
             if session_result.is_ok() {
@@ -584,17 +657,32 @@ pub async fn import_with_timestamps(
 
             // Insert into scrobbles only if this is a scrobble
             if play.is_scrobble {
-                let scrobble_result = sqlx::query(
-                    r#"
-                    INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
-                    VALUES (?, ?, ?, 1, 1, ?)
-                    "#,
+                let pool = state.pool.clone();
+                let song_id = song.song_id.clone();
+                let description = request.description.clone();
+
+                let scrobble_result = with_retry(
+                    || {
+                        let pool = pool.clone();
+                        let song_id = song_id.clone();
+                        let description = description.clone();
+                        async move {
+                            sqlx::query(
+                                r#"
+                                INSERT INTO scrobbles (user_id, song_id, played_at, submission, play_count, description)
+                                VALUES (?, ?, ?, 1, 1, ?)
+                                "#,
+                            )
+                            .bind(uid)
+                            .bind(&song_id)
+                            .bind(played_at)
+                            .bind(&description)
+                            .execute(&pool)
+                            .await
+                        }
+                    },
+                    None,
                 )
-                .bind(user.user_id)
-                .bind(&song.song_id)
-                .bind(played_at)
-                .bind(&request.description)
-                .execute(&state.pool)
                 .await;
 
                 if scrobble_result.is_ok() {
