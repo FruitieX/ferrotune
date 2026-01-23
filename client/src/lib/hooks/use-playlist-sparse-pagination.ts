@@ -97,13 +97,18 @@ export function usePlaylistSparsePagination({
     if (keyChanged) {
       queryKeyRef.current = queryKey;
       setPages(new Map());
-      setMetadata(null);
+      // Don't reset metadata - keep previous values to prevent header flicker
+      // Metadata will be updated when new data arrives
       setTotalCount(0);
-      setHasLoadedOnce(false);
+      // Only reset hasLoadedOnce if we don't have any metadata yet
+      // This prevents the header from showing loading state during filter changes
+      if (!metadata) {
+        setHasLoadedOnce(false);
+      }
       fetchingPages.current.clear();
       setPendingRange(null);
     }
-  }, [queryKey]);
+  }, [queryKey, metadata]);
 
   // Calculate which pages need to be loaded for a given range
   const getRequiredPages = (startIndex: number, endIndex: number): number[] => {
@@ -164,24 +169,23 @@ export function usePlaylistSparsePagination({
           setTotalCount(firstResponse.filteredCount);
           setHasLoadedOnce(true);
 
-          // Extract metadata if not already set
-          if (!metadata) {
-            setMetadata({
-              id: firstResponse.id,
-              name: firstResponse.name,
-              comment: firstResponse.comment,
-              owner: firstResponse.owner,
-              public: firstResponse.public,
-              totalEntries: firstResponse.totalEntries,
-              matchedCount: firstResponse.matchedCount,
-              missingCount: firstResponse.missingCount,
-              duration: firstResponse.duration,
-              filteredCount: firstResponse.filteredCount,
-              created: firstResponse.created,
-              changed: firstResponse.changed,
-              coverArt: firstResponse.coverArt,
-            });
-          }
+          // Update metadata from response
+          // Always update to get the current filteredCount, but keep stable fields if unchanged
+          setMetadata({
+            id: firstResponse.id,
+            name: firstResponse.name,
+            comment: firstResponse.comment,
+            owner: firstResponse.owner,
+            public: firstResponse.public,
+            totalEntries: firstResponse.totalEntries,
+            matchedCount: firstResponse.matchedCount,
+            missingCount: firstResponse.missingCount,
+            duration: firstResponse.duration,
+            filteredCount: firstResponse.filteredCount,
+            created: firstResponse.created,
+            changed: firstResponse.changed,
+            coverArt: firstResponse.coverArt,
+          });
         }
 
         return results;

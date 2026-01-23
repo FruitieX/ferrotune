@@ -101,13 +101,13 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     if (keyChanged) {
       queryKeyRef.current = queryKey;
       setPages(new Map());
-      setTotalCount(initialTotalCount ?? 0);
-      setMetadata(null);
-      setHasLoadedOnce(false);
+      // Don't reset totalCount or metadata - keep previous values to prevent header flicker
+      // They will be updated when new data arrives
       fetchingPages.current.clear();
-      setPendingRange(null);
+      // Trigger a new fetch for the first page immediately
+      setPendingRange({ start: 0, end: pageSize - 1 });
     }
-  }, [queryKey, initialTotalCount]);
+  }, [queryKey, pageSize]);
 
   // Calculate which pages need to be loaded for a given range
   const getRequiredPages = (startIndex: number, endIndex: number): number[] => {

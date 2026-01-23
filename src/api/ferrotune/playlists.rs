@@ -1,6 +1,7 @@
 //! Playlist folder management endpoints for the Ferrotune Admin API.
 
-use crate::api::common::utils::format_datetime_iso_ms;
+use crate::api::common::models::SongPlayStats;
+use crate::api::common::utils::{format_datetime_iso, format_datetime_iso_ms};
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::subsonic::query::QsQuery;
@@ -1447,6 +1448,10 @@ pub async fn get_playlist_songs(
                 entry_id,
             } => {
                 let cover_art_data = thumbnails.get(&song.id).cloned();
+                let play_stats = SongPlayStats {
+                    play_count: song.play_count,
+                    last_played: song.last_played.map(format_datetime_iso),
+                };
                 PlaylistSongEntry {
                     entry_id,
                     position: position as i32,
@@ -1458,7 +1463,7 @@ pub async fn get_playlist_songs(
                         None,
                         None,
                         None,
-                        None,
+                        Some(play_stats),
                         None,
                         cover_art_data,
                     )),
@@ -1525,6 +1530,10 @@ pub async fn get_playlist_songs(
                 // DisabledLibrary entries have full song data but library is disabled
                 // We return the song data so the UI can show title/artist/album
                 let cover_art_data = thumbnails.get(&song.id).cloned();
+                let play_stats = SongPlayStats {
+                    play_count: song.play_count,
+                    last_played: song.last_played.map(format_datetime_iso),
+                };
                 PlaylistSongEntry {
                     entry_id,
                     position: position as i32,
@@ -1536,7 +1545,7 @@ pub async fn get_playlist_songs(
                         None,
                         None,
                         None,
-                        None,
+                        Some(play_stats),
                         None,
                         cover_art_data,
                     )),
