@@ -55,12 +55,17 @@ test.describe("Playlists", () => {
 
     // Go to album and add song
     await page.goto("/library");
-    await page.waitForSelector('[data-testid="media-card"]', {
-      timeout: 10000,
-    });
+
+    // Switch to grid view
+    const gridViewButton = page.getByRole("button", { name: /grid view/i });
+    await expect(gridViewButton).toBeVisible({ timeout: 10000 });
+    await gridViewButton.click();
+
+    // Wait for media cards and click Test Album
     const testAlbum = page
       .locator('[data-testid="media-card"]')
       .filter({ hasText: "Test Album" });
+    await expect(testAlbum).toBeVisible({ timeout: 10000 });
     await testAlbum.click();
 
     await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });

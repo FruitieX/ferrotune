@@ -193,10 +193,14 @@ max_cover_size = 512
     encoding: "utf-8",
   });
 
-  // Start the server
+  // Start the server with FERROTUNE_TESTING enabled for test isolation
   const serverProcess = spawn(binary, ["--config", configPath, "serve"], {
     stdio: "pipe",
     detached: false,
+    env: {
+      ...process.env,
+      FERROTUNE_TESTING: "true",
+    },
   });
 
   let serverError = "";
@@ -536,4 +540,58 @@ export async function login(
   // Wait for redirect to home
   await page.waitForURL("/", { timeout: 20000 });
   await page.waitForSelector("h1:has-text('Home')", { timeout: 10000 });
+}
+
+/**
+ * Helper to reset all server state for test isolation.
+ *
+ * This calls the /ferrotune/testing/reset endpoint which clears:
+ * - Play queues and preferences
+ * - Starred items and ratings
+ * - Playlists and smart playlists
+ * - Scrobbles and listening history
+ * - Tagger sessions
+ *
+ * Requires the server to be started with FERROTUNE_TESTING=true.
+ */
+export async function resetServerState(
+  page: Page,
+  server: ServerInfo,
+): Promise<void> {
+  const authParams = `u=${server.username}&p=${server.password}&v=1.16.1&c=e2e-test`;
+  const response = await page.request.post(
+    `${server.url}/ferrotune/testing/reset?${authParams}`,
+  );
+
+  if (!response.ok()) {
+    const body = await response.text();
+    console.warn(`Failed to reset server state: ${response.status()} ${body}`);
+  }
+}
+
+/**
+ * Helper to clear browser state (localStorage, sessionStorage).
+ */
+export async function clearBrowserState(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    // Clear storage but keep auth state
+    const connection = localStorage.getItem("ferrotune-connection");
+    localStorage.clear();
+    sessionStorage.clear();
+    // Restore connection so page stays authenticated
+    if (connection) {
+      localStorage.setItem("ferrotune-connection", connection);
+    }
+  });
+}
+
+/**
+ * Helper to reset all state for test isolation.
+ */
+export async function resetState(
+  page: Page,
+  server: ServerInfo,
+): Promise<void> {
+  await clearBrowserState(page);
+  await resetServerState(page, server);
 }

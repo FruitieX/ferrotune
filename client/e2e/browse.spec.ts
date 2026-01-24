@@ -37,19 +37,37 @@ test.describe("Library Browsing", () => {
   test("can navigate to album and artist detail pages", async ({
     authenticatedPage: page,
   }) => {
-    // Navigate to album detail
+    // Navigate to album detail using grid view
     await page.goto("/library/albums");
+
+    // Switch to grid view
+    const gridViewButton = page.getByRole("button", { name: /grid view/i });
+    await expect(gridViewButton).toBeVisible({ timeout: 10000 });
+    await gridViewButton.click();
+
+    // Wait for media cards to load
     const albumCard = page.locator('[data-testid="media-card"]').first();
-    await albumCard.waitFor({ state: "visible", timeout: 10000 });
+    await expect(albumCard).toBeVisible({ timeout: 10000 });
     await albumCard.click();
+
     await expect(page).toHaveURL(/\/library\/albums\/details/);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
-    // Navigate to artist detail
+    // Navigate to artist detail using grid view
     await page.goto("/library/artists");
+
+    // Switch to grid view
+    const artistGridViewButton = page.getByRole("button", {
+      name: /grid view/i,
+    });
+    await expect(artistGridViewButton).toBeVisible({ timeout: 10000 });
+    await artistGridViewButton.click();
+
+    // Wait for media cards to load
     const artistCard = page.locator('[data-testid="media-card"]').first();
-    await artistCard.waitFor({ state: "visible", timeout: 10000 });
+    await expect(artistCard).toBeVisible({ timeout: 10000 });
     await artistCard.click();
+
     await expect(page).toHaveURL(/\/library\/artists\/details/);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   });

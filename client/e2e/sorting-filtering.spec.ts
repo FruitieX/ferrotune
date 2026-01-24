@@ -2,9 +2,14 @@
  * Sorting and filtering tests - List controls and view modes
  */
 
-import { test, expect, waitForPageReady } from "./fixtures";
+import { test, expect, waitForPageReady, resetState } from "./fixtures";
 
 test.describe("Sorting and Filtering", () => {
+  // Reset all server state before each test for isolation
+  test.beforeEach(async ({ authenticatedPage: page, server }) => {
+    await resetState(page, server);
+  });
+
   test("can filter songs by name", async ({ authenticatedPage: page }) => {
     await page.goto("/library/songs");
     await waitForPageReady(page);
@@ -14,7 +19,7 @@ test.describe("Sorting and Filtering", () => {
     await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 
     const filterInput = page.getByRole("textbox", { name: /filter/i });
-    await filterInput.fill("First");
+    await filterInput.fill("First Song");
     await page.waitForTimeout(500);
 
     const songRows = page.locator('[data-testid="song-row"]');

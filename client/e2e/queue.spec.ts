@@ -2,7 +2,13 @@
  * Queue management tests - Queue panel and interactions
  */
 
-import { test, expect, playFirstSong, waitForPlayerReady } from "./fixtures";
+import {
+  test,
+  expect,
+  playFirstSong,
+  waitForPlayerReady,
+  resetState,
+} from "./fixtures";
 
 async function waitForQueuePanel(page: import("@playwright/test").Page) {
   // Wait for the queue heading to be visible
@@ -25,14 +31,10 @@ async function waitForQueuePanel(page: import("@playwright/test").Page) {
   });
 }
 
-test.describe("Queue Management", () => {
-  test.beforeEach(async ({ authenticatedPage: page }) => {
-    await page.evaluate(() => {
-      const keysToRemove = Object.keys(localStorage).filter(
-        (key) => key.includes("queue") || key.includes("shuffle"),
-      );
-      keysToRemove.forEach((key) => localStorage.removeItem(key));
-    });
+test.describe.serial("Queue Management", () => {
+  // Reset all server state before each test for isolation
+  test.beforeEach(async ({ authenticatedPage: page, server }) => {
+    await resetState(page, server);
     await page.reload();
   });
 

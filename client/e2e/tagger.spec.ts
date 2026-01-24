@@ -2,10 +2,18 @@
  * Tagger tests - Tag editing functionality
  */
 
-import { test, expect } from "./fixtures";
+import { test, expect, resetState } from "./fixtures";
 import * as path from "path";
 
 test.describe("Tagger", () => {
+  // Run tagger tests sequentially to avoid interference
+  test.describe.configure({ mode: "serial" });
+
+  // Reset all server state before each test for isolation
+  test.beforeEach(async ({ authenticatedPage: page, server }) => {
+    await resetState(page, server);
+  });
+
   test("tagger page loads with empty state", async ({
     authenticatedPage: page,
   }) => {

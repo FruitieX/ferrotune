@@ -2,35 +2,35 @@
  * Search tests - Search functionality
  */
 
-import { test, expect } from "./fixtures";
+import { test, expect, resetState } from "./fixtures";
 
 test.describe("Search", () => {
+  // Reset all server state before each test for isolation
+  test.beforeEach(async ({ authenticatedPage: page, server }) => {
+    await resetState(page, server);
+  });
+
   test("search finds results and updates URL", async ({
     authenticatedPage: page,
   }) => {
-    // First get an artist name from the library
-    await page.goto("/library/artists");
-    const artistCard = page.locator('[data-testid="media-card"]').first();
-    await expect(artistCard).toBeVisible({ timeout: 10000 });
-    const artistName = await page
-      .locator("h3")
-      .filter({ hasText: /\w+/ })
-      .first()
-      .textContent();
+    // Use a known artist name from the test fixtures
+    const searchQuery = "Test Artist";
 
     // Search for the artist
     await page.goto("/search");
     const searchInput = page.getByPlaceholder(/search/i);
-    await searchInput.fill(artistName!.trim());
+    await expect(searchInput).toBeVisible({ timeout: 5000 });
 
-    await page.waitForTimeout(1500); // Wait for debounce
+    // Click to focus and type the search query
+    await searchInput.click();
+    await searchInput.pressSequentially(searchQuery, { delay: 50 });
 
-    // URL should contain query
-    expect(page.url()).toContain("q=");
+    // Wait for search results to appear
+    const result = page.getByText(searchQuery).first();
+    await expect(result).toBeVisible({ timeout: 10000 });
 
-    // Should show matching result
-    const result = page.getByText(artistName!.trim()).first();
-    await expect(result).toBeVisible();
+    // Now verify URL was updated
+    await expect(page).toHaveURL(/q=/, { timeout: 5000 });
   });
 
   test("search query populates from URL", async ({

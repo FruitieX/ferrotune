@@ -111,6 +111,7 @@ mod stats;
 mod tagger;
 mod tagger_session;
 pub mod tags;
+mod testing;
 pub mod users;
 mod waveform;
 
@@ -158,6 +159,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Setup endpoint (unauthenticated - for first-run detection)
         .route("/ferrotune/setup/status", get(setup::get_setup_status))
         .route("/ferrotune/setup/complete", post(setup::complete_setup))
+        // Testing endpoint (requires FERROTUNE_TESTING=true env var)
+        .route("/ferrotune/testing/reset", post(testing::reset_state))
         .route("/ferrotune/stats", get(stats::get_stats))
         .route("/ferrotune/scan", post(scan::start_scan))
         .route("/ferrotune/scan/status", get(scan::scan_status))

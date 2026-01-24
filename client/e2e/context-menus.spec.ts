@@ -52,6 +52,12 @@ test.describe("Context Menus", () => {
     authenticatedPage: page,
   }) => {
     await page.goto("/library/albums");
+
+    // Switch to grid view to get media cards
+    const gridViewButton = page.getByRole("button", { name: /grid view/i });
+    await expect(gridViewButton).toBeVisible({ timeout: 10000 });
+    await gridViewButton.click();
+
     await page.waitForSelector('[data-testid="media-card"]', {
       timeout: 10000,
     });

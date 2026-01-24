@@ -102,6 +102,15 @@ test.describe("Mobile Tests", () => {
   test("can navigate to album detail", async ({ authenticatedPage: page }) => {
     await page.goto("/library/albums");
 
+    // On mobile, open the view options menu and switch to grid view
+    const moreOptionsButton = page.getByRole("button", {
+      name: /view options/i,
+    });
+    await moreOptionsButton.click();
+    const gridMenuItem = page.getByRole("menuitem", { name: /^grid$/i });
+    await gridMenuItem.click();
+
+    // Wait for media cards and click the first album
     const albumCard = page.locator('[data-testid="media-card"]').first();
     await expect(albumCard).toBeVisible({ timeout: 10000 });
     await albumCard.click();

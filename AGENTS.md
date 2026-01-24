@@ -345,6 +345,8 @@ Read these when working on specific areas:
 - Try to reuse code when feasible. If the user refers to replicating some other functionality, or if there are any existing implementations using similar logic, you should aim to share code between these functionalities/implementations by e.g. extracting code into utility functions.
 - **Before implementing new functionality, check the "Shared Utilities" section above** for existing helpers. Use `src/api/common/` for backend and `client/src/components/shared/` for frontend shared code.
 - When adding new shared functionality, update the "Shared Utilities" section in this file to document it for future agents.
+- Avoid Promise.race in e2e tests, instead write the test for specific expected behavior.
+- Avoid timeouts in tests, instead use proper waiting for elements or network requests.
 
 ## TODO list files
 
@@ -352,4 +354,4 @@ When asking to complete batches from a TODO list file, complete items from top t
 
 ## After task completion
 
-- Read the TODO.md file, see if any tasks are present. If so, continue working on these tasks before handing control back to the user. If at the end of completing these tasks there are still more tasks, continue working on these until no tasks remain. Mark the tasks as done (by ticking the checkbox, not deleting the TODO entry) when progressing.
+- Read the TODO.md file, see if any tasks are present. If so, continue working on these tasks before handing control back to the user. Each time after completing a task (even if the last one), check the TODO.md file again and loop until no tasks remain. Mark the tasks as done (by ticking the checkbox, not deleting the TODO entry) when progressing.

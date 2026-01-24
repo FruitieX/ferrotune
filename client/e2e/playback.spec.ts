@@ -2,19 +2,19 @@
  * Playback tests - Player controls and queue behavior
  */
 
-import { test, expect, playFirstSong, waitForPlayerReady } from "./fixtures";
+import {
+  test,
+  expect,
+  playFirstSong,
+  waitForPlayerReady,
+  resetState,
+} from "./fixtures";
 
-test.describe("Playback", () => {
-  test.beforeEach(async ({ authenticatedPage: page }) => {
-    await page.evaluate(() => {
-      const keysToRemove = Object.keys(localStorage).filter(
-        (key) =>
-          key.includes("queue") ||
-          key.includes("shuffle") ||
-          key.includes("volume"),
-      );
-      keysToRemove.forEach((key) => localStorage.removeItem(key));
-    });
+test.describe.serial("Playback", () => {
+  // Reset all server state before each test for isolation
+  test.beforeEach(async ({ authenticatedPage: page, server }) => {
+    await resetState(page, server);
+    // Reload to ensure fresh state is loaded
     await page.reload();
   });
 

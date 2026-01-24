@@ -7,13 +7,17 @@ import { test, expect, waitForPlayerReady } from "./fixtures";
 test.describe("Bulk Actions", () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
     await page.goto("/library");
-    await page.waitForSelector('[data-testid="media-card"], article', {
-      timeout: 10000,
-    });
 
+    // Switch to grid view
+    const gridViewButton = page.getByRole("button", { name: /grid view/i });
+    await expect(gridViewButton).toBeVisible({ timeout: 10000 });
+    await gridViewButton.click();
+
+    // Wait for media cards and click Test Album
     const testAlbum = page
-      .locator('[data-testid="media-card"], article')
+      .locator('[data-testid="media-card"]')
       .filter({ hasText: "Test Album" });
+    await expect(testAlbum).toBeVisible({ timeout: 10000 });
     await testAlbum.click();
 
     await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
@@ -95,12 +99,17 @@ test.describe("Bulk Actions", () => {
 
     // Go back to album
     await page.goto("/library");
-    await page.waitForSelector('[data-testid="media-card"], article', {
-      timeout: 10000,
-    });
+
+    // Switch to grid view
+    const gridViewButton = page.getByRole("button", { name: /grid view/i });
+    await expect(gridViewButton).toBeVisible({ timeout: 10000 });
+    await gridViewButton.click();
+
+    // Wait for media cards and click Test Album
     const testAlbum = page
-      .locator('[data-testid="media-card"], article')
+      .locator('[data-testid="media-card"]')
       .filter({ hasText: "Test Album" });
+    await expect(testAlbum).toBeVisible({ timeout: 10000 });
     await testAlbum.click();
     await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 

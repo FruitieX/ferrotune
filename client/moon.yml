@@ -136,6 +136,7 @@ tasks:
     deps:
       - "install"
       - "build"
+      - "playwright-install"
       - "ferrotune:build"
       - "ferrotune:generate-fixtures"
     env:
@@ -151,6 +152,7 @@ tasks:
     deps:
       - "install"
       - "build"
+      - "playwright-install"
       - "ferrotune:build"
       - "ferrotune:generate-fixtures"
     options:
@@ -164,6 +166,7 @@ tasks:
     deps:
       - "install"
       - "build"
+      - "playwright-install"
       - "ferrotune:build"
       - "ferrotune:generate-fixtures"
     options:
@@ -178,6 +181,7 @@ tasks:
     deps:
       - "install"
       - "build"
+      - "playwright-install"
       - "ferrotune:build"
       - "ferrotune:generate-fixtures"
     options:
@@ -192,6 +196,7 @@ tasks:
     deps:
       - "install"
       - "build"
+      - "playwright-install"
       - "ferrotune:build"
       - "ferrotune:generate-fixtures"
     options:
@@ -208,6 +213,7 @@ tasks:
     deps:
       - "install"
       - "build"
+      - "playwright-install"
       - "ferrotune:build"
       - "ferrotune:generate-fixtures"
 
@@ -220,6 +226,7 @@ tasks:
     deps:
       - "install"
       - "build"
+      - "playwright-install"
       - "ferrotune:build"
       - "ferrotune:generate-fixtures"
 
@@ -232,6 +239,7 @@ tasks:
     deps:
       - "install"
       - "build"
+      - "playwright-install"
       - "ferrotune:build"
       - "ferrotune:generate-fixtures"
 
@@ -244,6 +252,7 @@ tasks:
     deps:
       - "install"
       - "build"
+      - "playwright-install"
       - "ferrotune:build"
       - "ferrotune:generate-fixtures"
 
@@ -256,6 +265,7 @@ tasks:
     deps:
       - "install"
       - "build"
+      - "playwright-install"
       - "ferrotune:build"
       - "ferrotune:generate-fixtures"
 
@@ -268,6 +278,7 @@ tasks:
     deps:
       - "install"
       - "build"
+      - "playwright-install"
       - "ferrotune:build"
       - "ferrotune:generate-fixtures"
 
@@ -280,6 +291,7 @@ tasks:
     deps:
       - "install"
       - "build"
+      - "playwright-install"
       - "ferrotune:build"
       - "ferrotune:generate-fixtures"
 
