@@ -105,12 +105,11 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
   const itemAtom = starredItemAtomFamily(key);
   const [starredValue, setStarredValue] = useAtom(itemAtom);
 
-  // Initialize lazily - only set if undefined (not yet in the map)
-  // This avoids the useEffect that was causing cascading re-renders
+  // Use server value as source of truth when atom is not yet initialized.
+  // Once initialized, the atom value takes precedence (for optimistic updates).
   const isStarred = starredValue ?? initialStarred;
 
-  // If we haven't stored this value yet and it differs from undefined,
-  // store it on first access (during render is fine for initialization)
+  // Initialize the atom with server value if not yet set
   if (starredValue === undefined) {
     // Use queueMicrotask to avoid setting state during render
     queueMicrotask(() => {

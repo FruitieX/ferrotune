@@ -1,11 +1,13 @@
 //! Playlist folder management endpoints for the Ferrotune Admin API.
 
 use crate::api::common::models::SongPlayStats;
+use crate::api::common::starring::{get_ratings_map, get_starred_map};
 use crate::api::common::utils::{format_datetime_iso, format_datetime_iso_ms};
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::subsonic::query::QsQuery;
 use crate::api::AppState;
+use crate::db::models::ItemType;
 use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, State},
@@ -1436,6 +1438,23 @@ pub async fn get_playlist_songs(
         std::collections::HashMap::new()
     };
 
+    // Get starred status and ratings for songs in this page
+    let page_song_ids: Vec<String> = page_entries
+        .iter()
+        .filter_map(|(entry, _)| match entry {
+            EntryData::Song { song, .. } | EntryData::DisabledLibrary { song, .. } => {
+                Some(song.id.clone())
+            }
+            EntryData::Missing { .. } | EntryData::NotFound { .. } => None,
+        })
+        .collect();
+    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &page_song_ids)
+        .await
+        .unwrap_or_default();
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &page_song_ids)
+        .await
+        .unwrap_or_default();
+
     // Convert to response format
     let entries: Vec<PlaylistSongEntry> = page_entries
         .into_iter()
@@ -1448,6 +1467,8 @@ pub async fn get_playlist_songs(
                 entry_id,
             } => {
                 let cover_art_data = thumbnails.get(&song.id).cloned();
+                let starred = starred_map.get(&song.id).cloned();
+                let user_rating = ratings_map.get(&song.id).copied();
                 let play_stats = SongPlayStats {
                     play_count: song.play_count,
                     last_played: song.last_played.map(format_datetime_iso),
@@ -1461,8 +1482,8 @@ pub async fn get_playlist_songs(
                     song: Some(song_to_response_with_stats(
                         song,
                         None,
-                        None,
-                        None,
+                        starred,
+                        user_rating,
                         Some(play_stats),
                         None,
                         cover_art_data,
@@ -1530,6 +1551,8 @@ pub async fn get_playlist_songs(
                 // DisabledLibrary entries have full song data but library is disabled
                 // We return the song data so the UI can show title/artist/album
                 let cover_art_data = thumbnails.get(&song.id).cloned();
+                let starred = starred_map.get(&song.id).cloned();
+                let user_rating = ratings_map.get(&song.id).copied();
                 let play_stats = SongPlayStats {
                     play_count: song.play_count,
                     last_played: song.last_played.map(format_datetime_iso),
@@ -1543,8 +1566,8 @@ pub async fn get_playlist_songs(
                     song: Some(song_to_response_with_stats(
                         song,
                         None,
-                        None,
-                        None,
+                        starred,
+                        user_rating,
                         Some(play_stats),
                         None,
                         cover_art_data,

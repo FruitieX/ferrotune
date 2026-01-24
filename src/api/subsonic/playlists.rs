@@ -1,14 +1,16 @@
+use crate::api::common::starring::{get_ratings_map, get_starred_map};
 use crate::api::common::utils::format_datetime_iso_ms;
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::response::{FormatEmptyResponse, FormatResponse};
 use crate::api::AppState;
 use crate::api::QsQuery;
 use crate::api::{first_string, first_string_or_none, string_or_seq};
-use crate::db::models::Playlist;
+use crate::db::models::{ItemType, Playlist};
 use crate::db::queries::{self, resolve_or_create_folder_path};
 use crate::error::{Error, Result};
 use axum::extract::State;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -159,11 +161,18 @@ fn playlist_to_response(playlist: &Playlist, owner_name: &str) -> PlaylistRespon
     }
 }
 
-/// Convert a Song to SongResponse with defaults for playlist context
+/// Convert a Song to SongResponse with starred and rating info for playlist context
 fn song_to_playlist_response(
     song: &crate::db::models::Song,
+    starred_map: &HashMap<String, String>,
+    ratings_map: &HashMap<String, i32>,
 ) -> crate::api::common::models::SongResponse {
-    crate::api::common::browse::song_to_response(song.clone(), None, None, None)
+    crate::api::common::browse::song_to_response(
+        song.clone(),
+        None,
+        starred_map.get(&song.id).cloned(),
+        ratings_map.get(&song.id).copied(),
+    )
 }
 
 /// GET /rest/getPlaylists - Get all playlists
@@ -240,8 +249,19 @@ pub async fn get_playlist(
         songs
     };
 
-    let song_responses: Vec<crate::api::common::models::SongResponse> =
-        songs.iter().map(song_to_playlist_response).collect();
+    // Get starred status and ratings for songs
+    let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
+    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids)
+        .await
+        .map_err(|e| Error::Internal(e.to_string()))?;
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids)
+        .await
+        .map_err(|e| Error::Internal(e.to_string()))?;
+
+    let song_responses: Vec<crate::api::common::models::SongResponse> = songs
+        .iter()
+        .map(|song| song_to_playlist_response(song, &starred_map, &ratings_map))
+        .collect();
 
     // Use playlist ID as cover art reference
     let cover_art = if playlist.song_count > 0 {
@@ -368,8 +388,19 @@ async fn get_playlist_response(
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let song_responses: Vec<crate::api::common::models::SongResponse> =
-        songs.iter().map(song_to_playlist_response).collect();
+    // Get starred status and ratings for songs
+    let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
+    let starred_map = get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids)
+        .await
+        .map_err(|e| Error::Internal(e.to_string()))?;
+    let ratings_map = get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids)
+        .await
+        .map_err(|e| Error::Internal(e.to_string()))?;
+
+    let song_responses: Vec<crate::api::common::models::SongResponse> = songs
+        .iter()
+        .map(|song| song_to_playlist_response(song, &starred_map, &ratings_map))
+        .collect();
 
     let cover_art = if playlist.song_count > 0 {
         Some(playlist.id.clone())
