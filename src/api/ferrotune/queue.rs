@@ -307,19 +307,28 @@ pub async fn start_queue(
             .as_deref()
             .ok_or_else(|| Error::InvalidRequest("Playlist ID required".to_string()))?;
         let songs_with_positions =
-            queries::get_playlist_songs_with_positions(&state.pool, playlist_id).await?;
+            queries::get_playlist_songs_with_positions(&state.pool, playlist_id, user.user_id)
+                .await?;
 
-        // Check if custom sorting is requested
+        // Extract text filter from filters JSON
+        let text_filter = request
+            .filters
+            .as_ref()
+            .and_then(|f| f.get("filter"))
+            .and_then(|v| v.as_str());
+
+        // Check if custom sorting or filtering is requested
         let has_custom_sort = request
             .sort
             .as_ref()
             .and_then(|s| s.get("field"))
             .and_then(|v| v.as_str())
             .is_some();
+        let has_filter = text_filter.is_some();
 
         // Build position-to-index mapping for start_index translation
-        // Only useful when using playlist's natural order (no custom sort)
-        if !has_custom_sort {
+        // Only useful when using playlist's natural order (no custom sort or filter)
+        if !has_custom_sort && !has_filter {
             let mut mapping = std::collections::HashMap::new();
             for (idx, (position, _)) in songs_with_positions.iter().enumerate() {
                 mapping.insert(*position, idx);
@@ -327,24 +336,24 @@ pub async fn start_queue(
             position_to_index_map = Some(mapping);
         }
 
-        // Extract just the songs, apply sorting if needed
+        // Extract just the songs, apply filtering and sorting
         let songs: Vec<_> = songs_with_positions
             .into_iter()
             .map(|(_, song)| song)
             .collect();
-        sorting::sort_songs(
-            songs,
-            request
-                .sort
-                .as_ref()
-                .and_then(|s| s.get("field"))
-                .and_then(|v| v.as_str()),
-            request
-                .sort
-                .as_ref()
-                .and_then(|s| s.get("direction"))
-                .and_then(|v| v.as_str()),
-        )
+
+        let sort_field = request
+            .sort
+            .as_ref()
+            .and_then(|s| s.get("field"))
+            .and_then(|v| v.as_str());
+        let sort_dir = request
+            .sort
+            .as_ref()
+            .and_then(|s| s.get("direction"))
+            .and_then(|v| v.as_str());
+
+        sorting::filter_and_sort_songs(songs, text_filter, sort_field, sort_dir)
     } else {
         // Materialize songs from the source
         materialize_queue_songs(

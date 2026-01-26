@@ -312,6 +312,7 @@ pub async fn get_songs_by_ids(pool: &SqlitePool, ids: &[String]) -> sqlx::Result
 pub async fn get_songs_by_ids_with_library_status(
     pool: &SqlitePool,
     ids: &[String],
+    user_id: i64,
 ) -> sqlx::Result<Vec<SongWithLibraryStatus>> {
     if ids.is_empty() {
         return Ok(vec![]);
@@ -330,9 +331,9 @@ pub async fn get_songs_by_ids_with_library_status(
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
          LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played 
-                    FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+                    FROM scrobbles WHERE submission = 1 AND user_id = {} GROUP BY song_id) pc ON s.id = pc.song_id
          WHERE s.id IN ({})",
-        placeholder_str
+        user_id, placeholder_str
     );
 
     let mut query_builder = sqlx::query_as::<_, SongWithLibraryStatus>(&query);
@@ -420,6 +421,7 @@ pub async fn get_playlist_songs(pool: &SqlitePool, playlist_id: &str) -> sqlx::R
 pub async fn get_playlist_songs_with_positions(
     pool: &SqlitePool,
     playlist_id: &str,
+    user_id: i64,
 ) -> sqlx::Result<Vec<(i64, Song)>> {
     use sqlx::Row;
 
@@ -430,11 +432,12 @@ pub async fn get_playlist_songs_with_positions(
          INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN playlist_songs ps ON s.id = ps.song_id
-         LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
-                    FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+         LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played 
+                    FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
          WHERE ps.playlist_id = ? AND ps.song_id IS NOT NULL
          ORDER BY ps.position",
     )
+    .bind(user_id)
     .bind(playlist_id)
     .fetch_all(pool)
     .await?;

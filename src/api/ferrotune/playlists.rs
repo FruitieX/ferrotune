@@ -1145,7 +1145,12 @@ pub async fn get_playlist_songs(
 
     // Fetch all songs at once with their library enabled status
     let songs = if !song_ids.is_empty() {
-        crate::db::queries::get_songs_by_ids_with_library_status(&state.pool, &song_ids).await?
+        crate::db::queries::get_songs_by_ids_with_library_status(
+            &state.pool,
+            &song_ids,
+            user.user_id,
+        )
+        .await?
     } else {
         vec![]
     };
