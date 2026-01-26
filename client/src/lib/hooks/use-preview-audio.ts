@@ -12,7 +12,9 @@ import {
   audioElementAtom,
   playbackStateAtom,
   effectiveVolumeAtom,
+  volumeAtom,
 } from "@/lib/store/player";
+import { linearToLogVolume } from "@/lib/audio/volume";
 
 interface UsePreviewAudioReturn {
   // State
@@ -38,18 +40,21 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
   // Access main player to pause it when starting preview
   const mainAudioElement = useAtomValue(audioElementAtom);
   const mainPlaybackState = useAtomValue(playbackStateAtom);
-  const mainVolume = useAtomValue(effectiveVolumeAtom);
+  const mainEffectiveVolume = useAtomValue(effectiveVolumeAtom);
+  const mainLinearVolume = useAtomValue(volumeAtom);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  // Initialize volume from main player (mainVolume is 0-1, we store as 0-100)
-  const [volume, setVolumeState] = useState(() => Math.round(mainVolume * 100));
+  // Initialize volume from main player (mainLinearVolume is 0-1, we store as 0-100)
+  const [volume, setVolumeState] = useState(() =>
+    Math.round(mainLinearVolume * 100),
+  );
 
   // Sync initial volume to audio element when it's created
   useEffect(() => {
     if (audioRef.current) {
-      audioRef.current.volume = mainVolume;
+      audioRef.current.volume = mainEffectiveVolume;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Only sync on mount
   }, []);
@@ -58,8 +63,8 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
   useEffect(() => {
     const audio = new Audio();
     audio.preload = "metadata";
-    // Set initial volume from main player
-    audio.volume = mainVolume;
+    // Set initial volume from main player (already log-scaled)
+    audio.volume = mainEffectiveVolume;
     audioRef.current = audio;
 
     // Event listeners
@@ -218,7 +223,8 @@ export function usePreviewAudio(): UsePreviewAudioReturn {
     if (!audio) return;
 
     const clampedVolume = Math.max(0, Math.min(100, newVolume));
-    audio.volume = clampedVolume / 100;
+    // Apply logarithmic curve for natural-feeling volume control
+    audio.volume = linearToLogVolume(clampedVolume / 100);
     setVolumeState(clampedVolume);
   };
 

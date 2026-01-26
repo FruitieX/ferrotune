@@ -1,5 +1,6 @@
 import { atom } from "jotai";
 import { atomWithServerStorage } from "./server-storage";
+import { linearToLogVolume } from "@/lib/audio/volume";
 
 // Playback state
 export type PlaybackState =
@@ -36,11 +37,11 @@ export const progressAtom = atom((get) => {
 export const volumeAtom = atomWithServerStorage("volume", 1);
 export const isMutedAtom = atomWithServerStorage("muted", false);
 
-// Effective volume (considering mute state)
+// Effective volume (considering mute state, with logarithmic curve for natural perception)
 export const effectiveVolumeAtom = atom((get) => {
   const volume = get(volumeAtom);
   const isMuted = get(isMutedAtom);
-  return isMuted ? 0 : volume;
+  return isMuted ? 0 : linearToLogVolume(volume);
 });
 
 // Repeat mode
