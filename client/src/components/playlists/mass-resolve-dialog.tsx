@@ -40,12 +40,6 @@ interface MassResolveDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   playlistId: string;
-  /** Filter text to apply when fetching entries (matches current playlist view filter) */
-  filter?: string;
-  /** Sort field to apply when fetching entries */
-  sortField?: string;
-  /** Sort direction */
-  sortDir?: string;
   /** Callback when entries are successfully resolved */
   onResolved?: () => void;
 }
@@ -68,9 +62,6 @@ export function MassResolveDialog({
   open,
   onOpenChange,
   playlistId,
-  filter,
-  sortField,
-  sortDir,
   onResolved,
 }: MassResolveDialogProps) {
   const queryClient = useQueryClient();
@@ -117,12 +108,12 @@ export function MassResolveDialog({
       try {
         // Fetch only missing entries using the entryType filter
         // This is much more efficient than fetching all entries and filtering client-side
-        // Apply the same filter/sort as the current playlist view
+        // Always use "custom" sort since missing entries are filtered out with other sorts
+        // (they don't have sortable fields like play count, artist name, etc.)
         const response = await client.getPlaylistSongs(playlistId, {
           count: 10000,
-          sort: sortField || "custom",
-          sortDir: sortDir || "asc",
-          filter: filter || undefined,
+          sort: "custom",
+          sortDir: "asc",
           entryType: "missing", // Only fetch missing entries
         });
 
@@ -152,7 +143,7 @@ export function MassResolveDialog({
     };
 
     fetchMissingEntries();
-  }, [open, playlistId, filter, sortField, sortDir]);
+  }, [open, playlistId]);
 
   // Reset state and close dialog (internal helper)
   const resetAndClose = () => {
@@ -294,12 +285,6 @@ export function MassResolveDialog({
                 <span className="block mt-1">
                   {missingEntries.length} missing{" "}
                   {missingEntries.length === 1 ? "entry" : "entries"} to resolve
-                  {filter && (
-                    <span className="text-muted-foreground">
-                      {" "}
-                      (filtered by &quot;{filter}&quot;)
-                    </span>
-                  )}
                 </span>
               )}
             </DialogDescription>

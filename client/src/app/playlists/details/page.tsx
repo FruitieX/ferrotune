@@ -1358,9 +1358,6 @@ function PlaylistDetailContent() {
           open={massResolveDialogOpen}
           onOpenChange={setMassResolveDialogOpen}
           playlistId={playlistId!}
-          filter={debouncedFilter.trim() || undefined}
-          sortField={sortConfig.field}
-          sortDir={sortConfig.direction}
           onResolved={resetPlaylistData}
         />
       )}
