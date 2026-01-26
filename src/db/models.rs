@@ -490,6 +490,8 @@ pub struct PlayQueue {
     pub is_lazy: bool,
     /// Explicit song IDs for non-reconstructable queues (history, custom)
     pub song_ids_json: Option<String>,
+    /// Unique identifier for this queue instance (UUID, generated on each queue start)
+    pub instance_id: Option<String>,
 }
 
 impl PlayQueue {

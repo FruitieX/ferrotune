@@ -284,12 +284,10 @@ export const VirtualizedQueueDisplay = forwardRef<
 
   // Track previous current index to detect track changes
   const prevCurrentIndexRef = useRef<number | null>(null);
-  // Track previous queue source to detect new queue starts
-  const prevQueueSourceRef = useRef<string | null>(null);
+  // Track previous queue instanceId to detect new queue instances
+  const prevQueueInstanceIdRef = useRef<string | null>(null);
   // AbortController for cancelling pending fetch requests
   const fetchAbortControllerRef = useRef<AbortController | null>(null);
-  // Flag to track if we're waiting for initial queue data after source change
-  const waitingForInitialDataRef = useRef(false);
 
   const totalCount = queueState?.totalCount ?? 0;
   const currentIndex = queueState?.currentIndex ?? 0;
@@ -416,23 +414,27 @@ export const VirtualizedQueueDisplay = forwardRef<
     }
   }, [currentIndex, isRestoring]);
 
-  // When a new queue starts (source changes), reset scroll and prepare for initial data
+  // When a new queue starts (detected by instanceId changing), reset state
+  // The instanceId field uniquely identifies each queue instance on the server (UUID)
   useEffect(() => {
     // Skip during queue restoration (page load)
     if (isRestoring) return;
 
-    // Get the current queue source identifier
-    const currentSource = queueState?.source?.id ?? null;
+    // Get the queue's instance ID (unique identifier for this queue instance)
+    const currentInstanceId = queueState?.source?.instanceId ?? null;
 
     // Skip on initial mount
-    if (prevQueueSourceRef.current === null) {
-      prevQueueSourceRef.current = currentSource;
+    if (prevQueueInstanceIdRef.current === null) {
+      prevQueueInstanceIdRef.current = currentInstanceId;
       return;
     }
 
-    // Queue source changed - new queue started
-    if (prevQueueSourceRef.current !== currentSource) {
-      prevQueueSourceRef.current = currentSource;
+    // Queue instance changed - a new queue was started
+    if (
+      prevQueueInstanceIdRef.current !== currentInstanceId &&
+      currentInstanceId
+    ) {
+      prevQueueInstanceIdRef.current = currentInstanceId;
 
       // Abort any pending fetch requests
       if (fetchAbortControllerRef.current) {
@@ -440,32 +442,18 @@ export const VirtualizedQueueDisplay = forwardRef<
         fetchAbortControllerRef.current = null;
       }
 
-      // Reset scroll to top immediately
-      const scrollElement = parentRef.current;
-      if (scrollElement) {
-        scrollElement.scrollTop = 0;
-      }
-
       // Clear fetched ranges since we have a new queue
       fetchedRangesRef.current.clear();
       isFetchingRef.current = false;
 
-      // Mark that we're waiting for initial data to scroll to correct position
-      waitingForInitialDataRef.current = true;
-    }
-  }, [queueState?.source?.id, isRestoring]);
-
-  // After queue data loads, scroll to now playing if we were waiting
-  useEffect(() => {
-    if (waitingForInitialDataRef.current && songs && songs.length > 0) {
-      waitingForInitialDataRef.current = false;
-      // Scroll immediately without animation
+      // Scroll to the current track position using virtualizer API
+      // This ensures the virtualizer properly updates its internal state
       virtualizer.scrollToIndex(currentIndex, {
         align: "start",
         behavior: "auto",
       });
     }
-  }, [songs, currentIndex, virtualizer]);
+  }, [queueState?.source?.instanceId, isRestoring, virtualizer, currentIndex]);
 
   // Check for more data to fetch when scroll position changes
   // Uses debouncing to prevent request spam during rapid scrolling
@@ -549,10 +537,11 @@ export const VirtualizedQueueDisplay = forwardRef<
     };
   }, [firstVisible, lastVisible, totalCount, fetchQueueRange]);
 
-  // Reset fetched ranges when queue changes
+  // Reset fetched ranges when shuffle state changes
+  // Note: queue source changes are handled in the source change effect above
   useEffect(() => {
     fetchedRangesRef.current.clear();
-  }, [queueState?.source?.id, queueState?.isShuffled]);
+  }, [queueState?.isShuffled]);
 
   // Handle move to position
   const handleMoveToPosition = (

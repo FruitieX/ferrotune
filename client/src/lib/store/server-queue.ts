@@ -165,13 +165,7 @@ export const startQueueAtom = atom(
         positionMs: 0,
         isShuffled: response.isShuffled,
         repeatMode: response.repeatMode as RepeatMode,
-        source: {
-          type: params.sourceType,
-          id: params.sourceId ?? null,
-          name: params.sourceName ?? null,
-          filters: params.filters ?? null,
-          sort: params.sort ?? null,
-        },
+        source: response.source,
       });
 
       set(queueWindowAtom, response.window);
@@ -483,13 +477,7 @@ export const addToQueueAtom = atom(
           positionMs: 0,
           isShuffled: response.isShuffled,
           repeatMode: response.repeatMode as RepeatMode,
-          source: {
-            type: "other",
-            id: null,
-            name: null,
-            filters: null,
-            sort: null,
-          },
+          source: response.source,
         });
         set(queueWindowAtom, response.window);
         set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
@@ -724,13 +712,7 @@ export const previewSongAtom = atom(null, async (get, set, song: Song) => {
       positionMs: Math.floor((song.duration || 0) * 1000 * 0.3),
       isShuffled: response.isShuffled,
       repeatMode: response.repeatMode as RepeatMode,
-      source: {
-        type: "other",
-        id: null,
-        name: `Preview: ${song.title}`,
-        filters: null,
-        sort: null,
-      },
+      source: response.source,
     });
 
     set(queueWindowAtom, response.window);

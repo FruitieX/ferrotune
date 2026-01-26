@@ -1226,6 +1226,9 @@ pub async fn create_queue(
 ) -> sqlx::Result<()> {
     let mut tx = pool.begin().await?;
 
+    // Generate a unique instance ID for this queue
+    let instance_id = Uuid::new_v4().to_string();
+
     // Delete existing queue entries
     sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ?")
         .bind(user_id)
@@ -1250,8 +1253,8 @@ pub async fn create_queue(
     sqlx::query(
         "INSERT INTO play_queues (user_id, source_type, source_id, source_name, current_index, 
          position_ms, is_shuffled, shuffle_seed, shuffle_indices_json, repeat_mode,
-         filters_json, sort_json, created_at, updated_at, changed_by, total_count, is_lazy, song_ids_json)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, 0, NULL)
+         filters_json, sort_json, created_at, updated_at, changed_by, total_count, is_lazy, song_ids_json, instance_id)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, 0, NULL, ?)
          ON CONFLICT(user_id) DO UPDATE SET
            source_type = excluded.source_type,
            source_id = excluded.source_id,
@@ -1268,7 +1271,8 @@ pub async fn create_queue(
            changed_by = excluded.changed_by,
            total_count = excluded.total_count,
            is_lazy = excluded.is_lazy,
-           song_ids_json = excluded.song_ids_json",
+           song_ids_json = excluded.song_ids_json,
+           instance_id = excluded.instance_id",
     )
     .bind(user_id)
     .bind(source_type)
@@ -1283,6 +1287,7 @@ pub async fn create_queue(
     .bind(sort_json)
     .bind(changed_by)
     .bind(song_ids.len() as i64) // total_count
+    .bind(&instance_id)
     .execute(&mut *tx)
     .await?;
 
@@ -1312,6 +1317,9 @@ pub async fn create_lazy_queue(
 ) -> sqlx::Result<()> {
     let mut tx = pool.begin().await?;
 
+    // Generate a unique instance ID for this queue
+    let instance_id = Uuid::new_v4().to_string();
+
     // Delete existing queue entries (lazy queues don't use entries table)
     sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ?")
         .bind(user_id)
@@ -1322,8 +1330,8 @@ pub async fn create_lazy_queue(
     sqlx::query(
         "INSERT INTO play_queues (user_id, source_type, source_id, source_name, current_index, 
          position_ms, is_shuffled, shuffle_seed, shuffle_indices_json, repeat_mode,
-         filters_json, sort_json, created_at, updated_at, changed_by, total_count, is_lazy, song_ids_json)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, 1, ?)
+         filters_json, sort_json, created_at, updated_at, changed_by, total_count, is_lazy, song_ids_json, instance_id)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, 1, ?, ?)
          ON CONFLICT(user_id) DO UPDATE SET
            source_type = excluded.source_type,
            source_id = excluded.source_id,
@@ -1340,7 +1348,8 @@ pub async fn create_lazy_queue(
            changed_by = excluded.changed_by,
            total_count = excluded.total_count,
            is_lazy = 1,
-           song_ids_json = excluded.song_ids_json",
+           song_ids_json = excluded.song_ids_json,
+           instance_id = excluded.instance_id",
     )
     .bind(user_id)
     .bind(source_type)
@@ -1356,6 +1365,7 @@ pub async fn create_lazy_queue(
     .bind(changed_by)
     .bind(total_count)
     .bind(song_ids_json)
+    .bind(&instance_id)
     .execute(&mut *tx)
     .await?;
 

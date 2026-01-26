@@ -84,6 +84,8 @@ pub struct StartQueueResponse {
     pub is_shuffled: bool,
     /// Repeat mode
     pub repeat_mode: String,
+    /// Queue source information
+    pub source: QueueSourceInfo,
     /// Initial window of songs around the current position
     pub window: QueueWindow,
 }
@@ -155,6 +157,8 @@ pub struct QueueSourceInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(type = "{ field: string; direction: string } | null")]
     pub sort: Option<serde_json::Value>,
+    /// Unique identifier for this queue instance (UUID, generated on each queue start)
+    pub instance_id: String,
 }
 
 /// Query parameters for paginated queue fetch
@@ -555,11 +559,30 @@ pub async fn start_queue(
         .await?
     };
 
+    // Fetch the queue to get the created_at timestamp
+    let queue = queries::get_play_queue(&state.pool, user.user_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Queue not found after creation".to_string()))?;
+
     Ok(Json(StartQueueResponse {
         total_count,
         current_index: current_index as usize,
         is_shuffled,
         repeat_mode: repeat_mode.to_string(),
+        source: QueueSourceInfo {
+            source_type: queue.source_type.clone(),
+            id: queue.source_id.clone(),
+            name: queue.source_name.clone(),
+            filters: queue
+                .filters_json
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok()),
+            sort: queue
+                .sort_json
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok()),
+            instance_id: queue.instance_id.clone().unwrap_or_default(),
+        },
         window,
     }))
 }
@@ -586,6 +609,7 @@ pub async fn get_queue(
                     name: None,
                     filters: None,
                     sort: None,
+                    instance_id: String::new(),
                 },
                 window: QueueWindow {
                     offset: 0,
@@ -652,6 +676,7 @@ pub async fn get_queue(
                 .sort_json
                 .as_ref()
                 .and_then(|s| serde_json::from_str(s).ok()),
+            instance_id: queue.instance_id.clone().unwrap_or_default(),
         },
         window,
     }))
@@ -679,6 +704,7 @@ pub async fn get_current_window(
                     name: None,
                     filters: None,
                     sort: None,
+                    instance_id: String::new(),
                 },
                 window: QueueWindow {
                     offset: 0,
@@ -750,6 +776,7 @@ pub async fn get_current_window(
                 .sort_json
                 .as_ref()
                 .and_then(|s| serde_json::from_str(s).ok()),
+            instance_id: queue.instance_id.clone().unwrap_or_default(),
         },
         window,
     }))
