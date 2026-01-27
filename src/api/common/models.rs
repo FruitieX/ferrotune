@@ -80,6 +80,12 @@ pub struct SongResponse {
     /// Base64-encoded JPEG thumbnail (Ferrotune extension, when inlineImages is requested)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art_data: Option<String>,
+    /// Cover art width in pixels (Ferrotune extension)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art_width: Option<i32>,
+    /// Cover art height in pixels (Ferrotune extension)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art_height: Option<i32>,
     #[ts(type = "number")]
     pub size: i64,
     pub content_type: String,

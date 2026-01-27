@@ -71,6 +71,8 @@ pub struct Song {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub cover_art_hash: Option<String>,
+    pub cover_art_width: Option<i32>,
+    pub cover_art_height: Option<i32>,
     // Optional fields populated via JOINs when needed
     /// Play count from scrobbles table (populated via JOIN)
     #[sqlx(default)]
@@ -105,6 +107,8 @@ pub struct SongWithLibraryStatus {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub cover_art_hash: Option<String>,
+    pub cover_art_width: Option<i32>,
+    pub cover_art_height: Option<i32>,
     /// Whether the music library this song belongs to is enabled
     pub library_enabled: bool,
     #[sqlx(default)]
@@ -137,6 +141,8 @@ impl SongWithLibraryStatus {
             created_at: self.created_at,
             updated_at: self.updated_at,
             cover_art_hash: self.cover_art_hash,
+            cover_art_width: self.cover_art_width,
+            cover_art_height: self.cover_art_height,
             play_count: self.play_count,
             last_played: self.last_played,
             starred_at: self.starred_at,
@@ -165,6 +171,8 @@ pub struct SongWithFolder {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub cover_art_hash: Option<String>,
+    pub cover_art_width: Option<i32>,
+    pub cover_art_height: Option<i32>,
     /// The base path of the music folder this song belongs to
     pub folder_path: Option<String>,
     // Optional fields populated via JOINs when needed
@@ -198,6 +206,8 @@ impl SongWithFolder {
             created_at: self.created_at,
             updated_at: self.updated_at,
             cover_art_hash: self.cover_art_hash,
+            cover_art_width: self.cover_art_width,
+            cover_art_height: self.cover_art_height,
             play_count: self.play_count,
             last_played: self.last_played,
             starred_at: self.starred_at,
@@ -562,6 +572,8 @@ pub struct QueueEntryWithSong {
     #[sqlx(default)]
     pub starred_at: Option<DateTime<Utc>>,
     pub cover_art_hash: Option<String>,
+    pub cover_art_width: Option<i32>,
+    pub cover_art_height: Option<i32>,
 }
 
 // ============================================================================

@@ -1273,6 +1273,56 @@ fn build_condition(cond: &SmartPlaylistConditionApi, user_id: i64) -> Option<Str
                 _ => None,
             };
         }
+        "coverArtResolution" => {
+            // Filter by cover art resolution (the smaller of width/height)
+            // Uses MIN(cover_art_width, cover_art_height) for comparison
+            // Falls back to album cover art if song doesn't have embedded cover
+            return match op.as_str() {
+                "eq" => value.as_i64().map(|n| {
+                    format!(
+                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) = {}",
+                        n
+                    )
+                }),
+                "neq" => value.as_i64().map(|n| {
+                    format!(
+                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) != {}",
+                        n
+                    )
+                }),
+                "gt" => value.as_i64().map(|n| {
+                    format!(
+                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) > {}",
+                        n
+                    )
+                }),
+                "gte" => value.as_i64().map(|n| {
+                    format!(
+                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) >= {}",
+                        n
+                    )
+                }),
+                "lt" => value.as_i64().map(|n| {
+                    format!(
+                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) < {}",
+                        n
+                    )
+                }),
+                "lte" => value.as_i64().map(|n| {
+                    format!(
+                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) <= {}",
+                        n
+                    )
+                }),
+                "empty" => Some(
+                    "(s.cover_art_width IS NULL AND s.cover_art_height IS NULL AND al.cover_art_width IS NULL AND al.cover_art_height IS NULL)".to_string()
+                ),
+                "notEmpty" => Some(
+                    "(s.cover_art_width IS NOT NULL OR al.cover_art_width IS NOT NULL)".to_string()
+                ),
+                _ => None,
+            };
+        }
         _ => {}
     }
 

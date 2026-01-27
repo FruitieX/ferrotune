@@ -468,6 +468,8 @@ pub async fn get_playlist_songs_with_positions(
                 last_played: row.get("last_played"),
                 starred_at: None,
                 cover_art_hash: row.get("cover_art_hash"),
+                cover_art_width: row.get("cover_art_width"),
+                cover_art_height: row.get("cover_art_height"),
             };
             (position, song)
         })

@@ -80,6 +80,8 @@ function directoryChildToSong(child: DirectoryChildPaged): Song | null {
     genre: child.genre ?? null,
     coverArt: child.coverArt ?? null,
     coverArtData: child.coverArtData ?? null, // Use inline thumbnail from API
+    coverArtWidth: null,
+    coverArtHeight: null,
     starred: child.starred ?? null,
     playCount: null,
     created: child.created ?? new Date().toISOString(),

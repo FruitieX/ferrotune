@@ -1798,6 +1798,8 @@ async fn build_queue_window_range(
                 last_played: entry.last_played,
                 starred_at: entry.starred_at,
                 cover_art_hash: entry.cover_art_hash.clone(),
+                cover_art_width: entry.cover_art_width,
+                cover_art_height: entry.cover_art_height,
             };
             let song_response = song_to_response_with_stats(
                 song,

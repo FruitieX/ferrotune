@@ -391,6 +391,7 @@ pub async fn fetch_starred_content(
                   s.track_number, s.disc_number, s.year, s.genre, s.duration,
                   s.bitrate, s.file_path, s.file_size, s.file_format, 
                   s.created_at, s.updated_at, s.cover_art_hash,
+                  s.cover_art_width, s.cover_art_height,
                   pc.play_count,
                   pc.last_played,
                   st.starred_at

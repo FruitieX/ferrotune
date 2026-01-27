@@ -61,6 +61,7 @@ pub async fn fetch_play_history(
                   s.track_number, s.disc_number, s.year, s.genre, s.duration,
                   s.bitrate, s.file_path, s.file_size, s.file_format, 
                   s.created_at, s.updated_at, s.cover_art_hash,
+                  s.cover_art_width, s.cover_art_height,
                   pc.play_count,
                   sc.played_at as last_played,
                   NULL as starred_at

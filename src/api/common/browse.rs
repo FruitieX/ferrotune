@@ -506,6 +506,8 @@ pub fn song_to_response_with_stats(
         genre: song.genre,
         cover_art: Some(cover_art),
         cover_art_data,
+        cover_art_width: song.cover_art_width,
+        cover_art_height: song.cover_art_height,
         size: song.file_size,
         content_type: content_type.to_string(),
         suffix: song.file_format.clone(),

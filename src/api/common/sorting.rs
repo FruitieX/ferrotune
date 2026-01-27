@@ -197,6 +197,8 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             cover_art_hash: None,
+            cover_art_width: None,
+            cover_art_height: None,
             play_count: Some(0),
             last_played: None,
             starred_at: None,

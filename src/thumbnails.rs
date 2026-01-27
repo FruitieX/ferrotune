@@ -57,12 +57,26 @@ impl ThumbnailSize {
     }
 }
 
+/// Result of processing cover art, including hash and dimensions
+#[derive(Debug, Clone)]
+pub struct CoverArtResult {
+    /// BLAKE3 hash of the original image content
+    pub hash: String,
+    /// Width of the original image in pixels
+    pub width: u32,
+    /// Height of the original image in pixels
+    pub height: u32,
+}
+
 /// Ensure cover art thumbnails exist for the given image data.
 ///
-/// Returns the BLAKE3 hash of the image content.
-/// If the hash already exists in `cover_art_thumbnails`, no work is done.
+/// Returns the BLAKE3 hash and dimensions of the image content.
+/// If the hash already exists in `cover_art_thumbnails`, dimensions are still computed.
 /// Otherwise, thumbnails are generated and inserted.
-pub async fn ensure_cover_art(pool: &SqlitePool, image_data: &[u8]) -> Result<String> {
+pub async fn ensure_cover_art_with_dimensions(
+    pool: &SqlitePool,
+    image_data: &[u8],
+) -> Result<CoverArtResult> {
     // 1. Compute hash
     let hash = blake3::hash(image_data).to_hex().to_string();
 
@@ -73,16 +87,27 @@ pub async fn ensure_cover_art(pool: &SqlitePool, image_data: &[u8]) -> Result<St
         .await?
         .is_some();
 
+    // Clone data for the blocking task
+    let data = image_data.to_vec();
+
     if exists {
-        return Ok(hash);
+        // Still need to get dimensions even if thumbnails exist
+        let (width, height) = tokio::task::spawn_blocking(move || get_image_dimensions(&data))
+            .await
+            .map_err(|e| Error::Internal(e.to_string()))??;
+
+        return Ok(CoverArtResult {
+            hash,
+            width,
+            height,
+        });
     }
 
-    // 3. Generate thumbnails
-    // We clone data to move into blocking task
-    let data = image_data.to_vec();
-    let (small, medium) = tokio::task::spawn_blocking(move || generate_thumbnail_pair(&data))
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))??;
+    // 3. Generate thumbnails and get dimensions
+    let (small, medium, width, height) =
+        tokio::task::spawn_blocking(move || generate_thumbnail_pair_with_dimensions(&data))
+            .await
+            .map_err(|e| Error::Internal(e.to_string()))??;
 
     // 4. Insert
     sqlx::query(
@@ -98,17 +123,30 @@ pub async fn ensure_cover_art(pool: &SqlitePool, image_data: &[u8]) -> Result<St
     .execute(pool)
     .await?;
 
-    Ok(hash)
+    Ok(CoverArtResult {
+        hash,
+        width,
+        height,
+    })
 }
 
-/// Generate both thumbnail sizes from cover art data
-fn generate_thumbnail_pair(data: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+/// Generate both thumbnail sizes from cover art data and return dimensions
+fn generate_thumbnail_pair_with_dimensions(data: &[u8]) -> Result<(Vec<u8>, Vec<u8>, u32, u32)> {
     let img = image::load_from_memory(data).map_err(Error::Image)?;
+
+    let width = img.width();
+    let height = img.height();
 
     let small = resize_and_encode(&img, THUMBNAIL_SMALL)?;
     let medium = resize_and_encode(&img, THUMBNAIL_MEDIUM)?;
 
-    Ok((small, medium))
+    Ok((small, medium, width, height))
+}
+
+/// Get image dimensions without generating thumbnails
+fn get_image_dimensions(data: &[u8]) -> Result<(u32, u32)> {
+    let img = image::load_from_memory(data).map_err(Error::Image)?;
+    Ok((img.width(), img.height()))
 }
 
 /// Get a thumbnail by hash and size

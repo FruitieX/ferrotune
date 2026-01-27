@@ -1228,6 +1228,8 @@ struct SongMetadata {
     file_mtime: Option<i64>,
     partial_hash: Option<String>,
     cover_art_hash: Option<String>,
+    cover_art_width: Option<u32>,
+    cover_art_height: Option<u32>,
 }
 
 async fn extract_metadata(
@@ -1256,16 +1258,26 @@ async fn extract_metadata(
     let bitrate = properties.audio_bitrate();
 
     // Extract cover art and generate thumbnails if needed
-    let cover_art_hash = {
+    let (cover_art_hash, cover_art_width, cover_art_height) = {
         let full_path = path.to_path_buf();
         // Try to extract cover art (external first, then embedded)
         // We use block_in_place or spawn_blocking if we needed heavy lifting,
         // but here we just call async functions that do I/O
         match crate::thumbnails::find_external_cover_art(&full_path).await {
-            Ok(data) => crate::thumbnails::ensure_cover_art(pool, &data).await.ok(),
+            Ok(data) => {
+                match crate::thumbnails::ensure_cover_art_with_dimensions(pool, &data).await {
+                    Ok(result) => (Some(result.hash), Some(result.width), Some(result.height)),
+                    Err(_) => (None, None, None),
+                }
+            }
             Err(_) => match crate::thumbnails::extract_embedded_cover_art(&full_path).await {
-                Ok(data) => crate::thumbnails::ensure_cover_art(pool, &data).await.ok(),
-                Err(_) => None,
+                Ok(data) => {
+                    match crate::thumbnails::ensure_cover_art_with_dimensions(pool, &data).await {
+                        Ok(result) => (Some(result.hash), Some(result.width), Some(result.height)),
+                        Err(_) => (None, None, None),
+                    }
+                }
+                Err(_) => (None, None, None),
             },
         }
     };
@@ -1367,6 +1379,8 @@ async fn extract_metadata(
         file_mtime,
         partial_hash,
         cover_art_hash,
+        cover_art_width,
+        cover_art_height,
     })
 }
 
@@ -1429,7 +1443,9 @@ async fn upsert_song(
                 title = ?, album_id = ?, artist_id = ?, track_number = ?, 
                 disc_number = ?, year = ?, genre = ?, duration = ?, 
                 bitrate = ?, file_size = ?, file_format = ?, music_folder_id = ?,
-                file_mtime = ?, partial_hash = ?, cover_art_hash = ?, full_file_hash = NULL, updated_at = datetime('now')
+                file_mtime = ?, partial_hash = ?, cover_art_hash = ?, 
+                cover_art_width = ?, cover_art_height = ?,
+                full_file_hash = NULL, updated_at = datetime('now')
              WHERE id = ?",
         )
         .bind(&metadata.title)
@@ -1447,6 +1463,8 @@ async fn upsert_song(
         .bind(metadata.file_mtime)
         .bind(&metadata.partial_hash)
         .bind(&metadata.cover_art_hash)
+        .bind(metadata.cover_art_width.map(|w| w as i32))
+        .bind(metadata.cover_art_height.map(|h| h as i32))
         .bind(&id)
         .execute(&mut *tx)
         .await?;
@@ -1460,8 +1478,9 @@ async fn upsert_song(
             "INSERT INTO songs (
                 id, title, album_id, artist_id, track_number, disc_number,
                 year, genre, duration, bitrate, file_path, file_size, 
-                file_format, music_folder_id, file_mtime, partial_hash, cover_art_hash, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+                file_format, music_folder_id, file_mtime, partial_hash, cover_art_hash,
+                cover_art_width, cover_art_height, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
         )
         .bind(&song_id)
         .bind(&metadata.title)
@@ -1480,6 +1499,8 @@ async fn upsert_song(
         .bind(metadata.file_mtime)
         .bind(&metadata.partial_hash)
         .bind(&metadata.cover_art_hash)
+        .bind(metadata.cover_art_width.map(|w| w as i32))
+        .bind(metadata.cover_art_height.map(|h| h as i32))
         .execute(&mut *tx)
         .await?;
 
@@ -1500,16 +1521,32 @@ async fn upsert_song(
         .execute(&mut *tx)
         .await?;
 
-        // Update album cover_art_hash to match the earliest track's cover art
+        // Update album cover_art_hash and dimensions to match the earliest track's cover art
         // This must happen AFTER the song is inserted/updated so the query sees the new data
         sqlx::query(
-            "UPDATE albums SET cover_art_hash = (
-                SELECT s.cover_art_hash FROM songs s 
-                WHERE s.album_id = ? 
-                ORDER BY COALESCE(s.disc_number, 1), COALESCE(s.track_number, 1)
-                LIMIT 1
-            ) WHERE id = ?",
+            "UPDATE albums SET 
+                cover_art_hash = (
+                    SELECT s.cover_art_hash FROM songs s 
+                    WHERE s.album_id = ? 
+                    ORDER BY COALESCE(s.disc_number, 1), COALESCE(s.track_number, 1)
+                    LIMIT 1
+                ),
+                cover_art_width = (
+                    SELECT s.cover_art_width FROM songs s 
+                    WHERE s.album_id = ? 
+                    ORDER BY COALESCE(s.disc_number, 1), COALESCE(s.track_number, 1)
+                    LIMIT 1
+                ),
+                cover_art_height = (
+                    SELECT s.cover_art_height FROM songs s 
+                    WHERE s.album_id = ? 
+                    ORDER BY COALESCE(s.disc_number, 1), COALESCE(s.track_number, 1)
+                    LIMIT 1
+                )
+             WHERE id = ?",
         )
+        .bind(album_id)
+        .bind(album_id)
         .bind(album_id)
         .bind(album_id)
         .execute(&mut *tx)

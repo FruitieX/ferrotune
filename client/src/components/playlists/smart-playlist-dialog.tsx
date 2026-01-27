@@ -69,6 +69,11 @@ const STATIC_FIELDS = [
     ],
   },
   {
+    value: "coverArtResolution",
+    label: "Cover Art Resolution",
+    type: "number" as const,
+  },
+  {
     value: "shuffleExcluded",
     label: "Shuffle Excluded",
     type: "boolean" as const,

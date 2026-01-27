@@ -21,6 +21,7 @@ import {
   Tag,
   Copy,
   Check,
+  Image,
 } from "lucide-react";
 import {
   Dialog,
@@ -311,6 +312,13 @@ function SongDetails({
             label="Size"
             value={formatFileSize(fullSong.size)}
           />
+          {fullSong.coverArtWidth && fullSong.coverArtHeight && (
+            <DetailRow
+              icon={Image}
+              label="Cover Art"
+              value={`${fullSong.coverArtWidth} × ${fullSong.coverArtHeight}`}
+            />
+          )}
           <DetailRow
             icon={Calendar}
             label="Added"
