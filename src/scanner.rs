@@ -71,20 +71,42 @@ fn compute_full_hash(path: &Path) -> Result<String> {
     Ok(hasher.finalize().to_hex().to_string())
 }
 
+/// Parse a ReplayGain value string into a floating point dB value.
+///
+/// ReplayGain tags can be in various formats:
+/// - "-6.50 dB" (with unit)
+/// - "-6.50" (without unit)
+/// - "+3.20 dB" (with plus sign)
+///
+/// Returns None if the string cannot be parsed.
+fn parse_replaygain_value(s: &str) -> Option<f64> {
+    // Remove " dB" suffix if present, and trim whitespace
+    let value_str = s
+        .trim()
+        .trim_end_matches(" dB")
+        .trim_end_matches("dB")
+        .trim();
+    value_str.parse::<f64>().ok()
+}
+
 pub async fn scan_library(
     pool: &SqlitePool,
     full: bool,
     folder_id: Option<i64>,
     dry_run: bool,
+    analyze_replaygain: bool,
 ) -> Result<()> {
-    scan_library_with_progress(pool, full, folder_id, dry_run, None).await
+    scan_library_with_progress(pool, full, folder_id, dry_run, analyze_replaygain, None).await
 }
 
 /// Scan specific files rather than walking entire directories.
-///
 /// This is optimized for the file watcher use case where we know exactly
 /// which files have changed. Skips directory enumeration and only processes
 /// the provided file paths.
+///
+/// Note: ReplayGain analysis is not performed on file watcher scans to avoid
+/// high CPU usage during normal operation. Users can run a full scan with
+/// ReplayGain analysis enabled to compute gain values.
 pub async fn scan_specific_files(
     pool: &SqlitePool,
     folder_id: i64,
@@ -137,7 +159,7 @@ pub async fn scan_specific_files(
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs() as i64);
 
-            match extract_metadata(pool, &path, file_mtime).await {
+            match extract_metadata(pool, &path, file_mtime, false).await {
                 Ok(metadata) => {
                     match upsert_song(pool, metadata, relative_path.clone(), folder_id).await {
                         Ok(is_new) => {
@@ -201,11 +223,16 @@ pub async fn scan_specific_files(
 ///    the total count is known before scanning starts.
 /// 2. **Scanning Phase**: Process the collected files, extracting metadata and
 ///    updating the database.
+///
+/// If `analyze_replaygain` is true, EBU R128 loudness analysis will be performed
+/// on each track to compute ReplayGain values. This is CPU-intensive and significantly
+/// increases scan time, as each file must be fully decoded.
 pub async fn scan_library_with_progress(
     pool: &SqlitePool,
     full: bool,
     folder_id: Option<i64>,
     dry_run: bool,
+    analyze_replaygain: bool,
     scan_state: Option<Arc<ScanState>>,
 ) -> Result<()> {
     let supported_extensions = ["mp3", "flac", "ogg", "opus", "m4a", "mp4", "aac", "wav"];
@@ -431,6 +458,7 @@ pub async fn scan_library_with_progress(
             files,
             full,
             dry_run,
+            analyze_replaygain,
             scan_state.clone(),
         )
         .await;
@@ -559,6 +587,7 @@ struct FolderMissingFiles {
 /// Returns information about files that were in the database but not found on disk.
 /// The caller should collect these from all folders and then call resolve_missing_songs
 /// to handle renames (including cross-library moves) and deletions.
+#[allow(clippy::too_many_arguments)]
 async fn scan_folder_files(
     pool: &SqlitePool,
     folder_id: i64,
@@ -566,6 +595,7 @@ async fn scan_folder_files(
     files: &[(PathBuf, PathBuf)],
     full: bool,
     dry_run: bool,
+    analyze_replaygain: bool,
     scan_state: Option<Arc<ScanState>>,
 ) -> Result<FolderMissingFiles> {
     let base_path = PathBuf::from(folder_path);
@@ -722,7 +752,7 @@ async fn scan_folder_files(
         }
 
         // Extract metadata (pass file_mtime to avoid re-reading it)
-        match extract_metadata(pool, path, file_mtime).await {
+        match extract_metadata(pool, path, file_mtime, analyze_replaygain).await {
             Ok(metadata) => {
                 match upsert_song(pool, metadata, relative_path.clone(), folder_id).await {
                     Ok(is_new) => {
@@ -1230,12 +1260,19 @@ struct SongMetadata {
     cover_art_hash: Option<String>,
     cover_art_width: Option<u32>,
     cover_art_height: Option<u32>,
+    // ReplayGain values - original from file tags
+    original_replaygain_track_gain: Option<f64>,
+    original_replaygain_track_peak: Option<f64>,
+    // ReplayGain values - computed by scanner via EBU R128 analysis
+    computed_replaygain_track_gain: Option<f64>,
+    computed_replaygain_track_peak: Option<f64>,
 }
 
 async fn extract_metadata(
     pool: &SqlitePool,
     path: &Path,
     file_mtime: Option<i64>,
+    analyze_replaygain: bool,
 ) -> Result<SongMetadata> {
     let tagged_file = Probe::open(path)
         .map_err(Error::Lofty)?
@@ -1295,73 +1332,123 @@ async fn extract_metadata(
         }
     };
 
-    // Extract tags
-    let (title, artist, album, album_artist, track_number, disc_number, year, genre) =
-        if let Some(tag) = tag {
-            let title = tag.title().map(|s| s.to_string()).unwrap_or_else(|| {
-                path.file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("Unknown")
-                    .to_string()
-            });
-
-            let artist = tag
-                .artist()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "Unknown Artist".to_string());
-
-            let album = tag.album().map(|s| s.to_string());
-
-            let album_artist = tag
-                .get_string(&lofty::tag::ItemKey::AlbumArtist)
-                .map(|s| s.to_string());
-
-            let track_number = tag.track().or_else(|| {
-                tag.get_string(&lofty::tag::ItemKey::TrackNumber)
-                    .and_then(|s| s.parse().ok())
-            });
-
-            let disc_number = tag.disk().or_else(|| {
-                tag.get_string(&lofty::tag::ItemKey::DiscNumber)
-                    .and_then(|s| s.parse().ok())
-            });
-
-            let year = tag.year().map(|y| y as i32).or_else(|| {
-                tag.get_string(&lofty::tag::ItemKey::Year)
-                    .and_then(|s| s.parse::<i32>().ok())
-            });
-
-            let genre = tag.genre().map(|s| s.to_string());
-
-            (
-                title,
-                artist,
-                album,
-                album_artist,
-                track_number,
-                disc_number,
-                year,
-                genre,
-            )
-        } else {
-            // No tags found, use filename
-            let title = path
-                .file_stem()
+    // Extract tags (including original ReplayGain values from file)
+    let (
+        title,
+        artist,
+        album,
+        album_artist,
+        track_number,
+        disc_number,
+        year,
+        genre,
+        original_replaygain_track_gain,
+        original_replaygain_track_peak,
+    ) = if let Some(tag) = tag {
+        let title = tag.title().map(|s| s.to_string()).unwrap_or_else(|| {
+            path.file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("Unknown")
-                .to_string();
+                .to_string()
+        });
 
-            (
-                title,
-                "Unknown Artist".to_string(),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-        };
+        let artist = tag
+            .artist()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "Unknown Artist".to_string());
+
+        let album = tag.album().map(|s| s.to_string());
+
+        let album_artist = tag
+            .get_string(&lofty::tag::ItemKey::AlbumArtist)
+            .map(|s| s.to_string());
+
+        let track_number = tag.track().or_else(|| {
+            tag.get_string(&lofty::tag::ItemKey::TrackNumber)
+                .and_then(|s| s.parse().ok())
+        });
+
+        let disc_number = tag.disk().or_else(|| {
+            tag.get_string(&lofty::tag::ItemKey::DiscNumber)
+                .and_then(|s| s.parse().ok())
+        });
+
+        let year = tag.year().map(|y| y as i32).or_else(|| {
+            tag.get_string(&lofty::tag::ItemKey::Year)
+                .and_then(|s| s.parse::<i32>().ok())
+        });
+
+        let genre = tag.genre().map(|s| s.to_string());
+
+        // Extract original ReplayGain tags from file
+        // Format is typically "-6.50 dB" or just "-6.50"
+        let original_replaygain_track_gain = tag
+            .get_string(&lofty::tag::ItemKey::ReplayGainTrackGain)
+            .and_then(parse_replaygain_value);
+
+        // Peak is typically stored as a linear value like "0.988831" or "1.0"
+        let original_replaygain_track_peak = tag
+            .get_string(&lofty::tag::ItemKey::ReplayGainTrackPeak)
+            .and_then(|s| s.trim().parse::<f64>().ok());
+
+        (
+            title,
+            artist,
+            album,
+            album_artist,
+            track_number,
+            disc_number,
+            year,
+            genre,
+            original_replaygain_track_gain,
+            original_replaygain_track_peak,
+        )
+    } else {
+        // No tags found, use filename
+        let title = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Unknown")
+            .to_string();
+
+        (
+            title,
+            "Unknown Artist".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+    };
+
+    // Compute ReplayGain values via EBU R128 analysis if requested
+    let (computed_replaygain_track_gain, computed_replaygain_track_peak) = if analyze_replaygain {
+        let path_clone = path.to_path_buf();
+        // Run CPU-intensive ReplayGain analysis on a blocking thread
+        match tokio::task::spawn_blocking(move || crate::replaygain::analyze_track(&path_clone))
+            .await
+        {
+            Ok(Ok(result)) => (Some(result.track_gain), Some(result.track_peak)),
+            Ok(Err(e)) => {
+                tracing::warn!("Failed to analyze ReplayGain for {}: {}", path.display(), e);
+                (None, None)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "ReplayGain analysis task panicked for {}: {}",
+                    path.display(),
+                    e
+                );
+                (None, None)
+            }
+        }
+    } else {
+        (None, None)
+    };
 
     Ok(SongMetadata {
         title,
@@ -1381,6 +1468,10 @@ async fn extract_metadata(
         cover_art_hash,
         cover_art_width,
         cover_art_height,
+        original_replaygain_track_gain,
+        original_replaygain_track_peak,
+        computed_replaygain_track_gain,
+        computed_replaygain_track_peak,
     })
 }
 
@@ -1438,6 +1529,7 @@ async fn upsert_song(
     let _song_id = if let Some((id,)) = existing {
         // Update existing song
         // Note: we clear full_file_hash since the file content may have changed
+        // ReplayGain values: always update original (from file tags), only update computed if provided
         sqlx::query(
             "UPDATE songs SET 
                 title = ?, album_id = ?, artist_id = ?, track_number = ?, 
@@ -1445,6 +1537,10 @@ async fn upsert_song(
                 bitrate = ?, file_size = ?, file_format = ?, music_folder_id = ?,
                 file_mtime = ?, partial_hash = ?, cover_art_hash = ?, 
                 cover_art_width = ?, cover_art_height = ?,
+                original_replaygain_track_gain = ?,
+                original_replaygain_track_peak = ?,
+                computed_replaygain_track_gain = COALESCE(?, computed_replaygain_track_gain),
+                computed_replaygain_track_peak = COALESCE(?, computed_replaygain_track_peak),
                 full_file_hash = NULL, updated_at = datetime('now')
              WHERE id = ?",
         )
@@ -1465,6 +1561,10 @@ async fn upsert_song(
         .bind(&metadata.cover_art_hash)
         .bind(metadata.cover_art_width.map(|w| w as i32))
         .bind(metadata.cover_art_height.map(|h| h as i32))
+        .bind(metadata.original_replaygain_track_gain)
+        .bind(metadata.original_replaygain_track_peak)
+        .bind(metadata.computed_replaygain_track_gain)
+        .bind(metadata.computed_replaygain_track_peak)
         .bind(&id)
         .execute(&mut *tx)
         .await?;
@@ -1479,8 +1579,11 @@ async fn upsert_song(
                 id, title, album_id, artist_id, track_number, disc_number,
                 year, genre, duration, bitrate, file_path, file_size, 
                 file_format, music_folder_id, file_mtime, partial_hash, cover_art_hash,
-                cover_art_width, cover_art_height, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+                cover_art_width, cover_art_height,
+                original_replaygain_track_gain, original_replaygain_track_peak,
+                computed_replaygain_track_gain, computed_replaygain_track_peak,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
         )
         .bind(&song_id)
         .bind(&metadata.title)
@@ -1501,6 +1604,10 @@ async fn upsert_song(
         .bind(&metadata.cover_art_hash)
         .bind(metadata.cover_art_width.map(|w| w as i32))
         .bind(metadata.cover_art_height.map(|h| h as i32))
+        .bind(metadata.original_replaygain_track_gain)
+        .bind(metadata.original_replaygain_track_peak)
+        .bind(metadata.computed_replaygain_track_gain)
+        .bind(metadata.computed_replaygain_track_peak)
         .execute(&mut *tx)
         .await?;
 

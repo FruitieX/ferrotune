@@ -31,6 +31,11 @@ pub struct ScanRequest {
     /// If true, only show what would be done without making changes.
     #[serde(default)]
     pub dry_run: bool,
+
+    /// If true, perform EBU R128 loudness analysis to compute ReplayGain values.
+    /// This is CPU-intensive as it requires fully decoding each audio file.
+    #[serde(default)]
+    pub analyze_replaygain: bool,
 }
 
 /// Response from a scan operation.
@@ -100,16 +105,23 @@ pub async fn start_scan(
     let full = request.full;
     let folder_id = request.folder_id;
     let dry_run = request.dry_run;
+    let analyze_replaygain = request.analyze_replaygain;
 
     // Spawn the scan in a background task
     tokio::spawn(async move {
         scan_state.log("INFO", "Starting library scan...").await;
+        if analyze_replaygain {
+            scan_state
+                .log("INFO", "ReplayGain analysis enabled (EBU R128)")
+                .await;
+        }
 
         match crate::scanner::scan_library_with_progress(
             &pool,
             full,
             folder_id,
             dry_run,
+            analyze_replaygain,
             Some(scan_state.clone()),
         )
         .await

@@ -230,6 +230,7 @@ export interface ScanRequest {
   full?: boolean;
   folderId?: number;
   dryRun?: boolean;
+  analyzeReplaygain?: boolean;
 }
 
 // ============================================================================

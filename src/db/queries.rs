@@ -470,6 +470,10 @@ pub async fn get_playlist_songs_with_positions(
                 cover_art_hash: row.get("cover_art_hash"),
                 cover_art_width: row.get("cover_art_width"),
                 cover_art_height: row.get("cover_art_height"),
+                original_replaygain_track_gain: row.get("original_replaygain_track_gain"),
+                original_replaygain_track_peak: row.get("original_replaygain_track_peak"),
+                computed_replaygain_track_gain: row.get("computed_replaygain_track_gain"),
+                computed_replaygain_track_peak: row.get("computed_replaygain_track_peak"),
             };
             (position, song)
         })

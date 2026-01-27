@@ -37,6 +37,19 @@ export const progressAtom = atom((get) => {
 export const volumeAtom = atomWithServerStorage("volume", 1);
 export const isMutedAtom = atomWithServerStorage("muted", false);
 
+// ReplayGain settings
+// Mode: "computed" uses server-computed EBU R128 values, "original" uses tags from files, "disabled" disables ReplayGain
+export type ReplayGainMode = "computed" | "original" | "disabled";
+export const replayGainModeAtom = atomWithServerStorage<ReplayGainMode>(
+  "replayGainMode",
+  "computed",
+);
+// Pre-amp offset in dB (default 0, can be positive or negative to adjust all tracks)
+export const replayGainOffsetAtom = atomWithServerStorage<number>(
+  "replayGainOffset",
+  0,
+);
+
 // Effective volume (considering mute state, with logarithmic curve for natural perception)
 export const effectiveVolumeAtom = atom((get) => {
   const volume = get(volumeAtom);

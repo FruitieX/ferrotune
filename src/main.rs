@@ -3,6 +3,7 @@ mod config;
 mod db;
 mod error;
 mod password;
+mod replaygain;
 mod scanner;
 mod thumbnails;
 mod watcher;
@@ -169,7 +170,7 @@ async fn main() -> Result<()> {
             } else {
                 tracing::info!("Starting music library scan...");
             }
-            scanner::scan_library(&pool, full, folder, dry_run).await?;
+            scanner::scan_library(&pool, full, folder, dry_run, false).await?;
             tracing::info!("Scan completed successfully");
             return Ok(());
         }

@@ -451,13 +451,28 @@ async fn get_transcode_stream_logic(
     // Create channel for streaming transcoded data
     let (tx, rx) = mpsc::channel::<Vec<u8>>(32);
 
+    // Build ReplayGain info from song data
+    // Prefer computed values over original tags (computed uses EBU R128 with -23 LUFS reference)
+    let replaygain_info = ReplayGainInfo {
+        track_gain: song
+            .computed_replaygain_track_gain
+            .or(song.original_replaygain_track_gain),
+        track_peak: song
+            .computed_replaygain_track_peak
+            .or(song.original_replaygain_track_peak),
+    };
+
     // Spawn blocking task to transcode
     let config_clone = config.clone();
     let offset_seconds = params.offset.unwrap_or(0) as f64;
     tokio::task::spawn_blocking(move || {
-        if let Err(e) =
-            transcode_to_opus_with_offset(&canonical_path, &config_clone, tx, offset_seconds)
-        {
+        if let Err(e) = transcode_to_opus_with_offset(
+            &canonical_path,
+            &config_clone,
+            tx,
+            offset_seconds,
+            replaygain_info,
+        ) {
             tracing::error!("Transcoding error: {}", e);
         }
     });
@@ -485,6 +500,7 @@ pub async fn transcode_with_offset(
     path: &std::path::Path,
     config: &TranscodeConfig,
     time_offset_seconds: f64,
+    replaygain_info: ReplayGainInfo,
 ) -> Result<Response> {
     let path = path.to_path_buf();
     let config = config.clone();
@@ -494,7 +510,9 @@ pub async fn transcode_with_offset(
 
     // Spawn blocking task to transcode
     tokio::task::spawn_blocking(move || {
-        if let Err(e) = transcode_to_opus_with_offset(&path, &config, tx, time_offset_seconds) {
+        if let Err(e) =
+            transcode_to_opus_with_offset(&path, &config, tx, time_offset_seconds, replaygain_info)
+        {
             tracing::error!("Transcoding error: {}", e);
         }
     });
@@ -519,13 +537,24 @@ pub async fn transcode_with_offset(
 /// Opus frame size: 20ms at 48kHz = 960 samples per channel.
 const OPUS_FRAME_SIZE: usize = 960;
 
+/// ReplayGain information for embedding in transcoded streams.
+#[derive(Debug, Clone, Default)]
+pub struct ReplayGainInfo {
+    /// Track gain in dB (relative to -23 LUFS for computed, -18 LUFS for most original tags)
+    pub track_gain: Option<f64>,
+    /// Track peak value (linear scale, 0.0 to 1.0+)
+    pub track_peak: Option<f64>,
+}
+
 /// Transcode an audio file to Opus, sending chunks via channel.
 /// Supports seeking to a specific time offset (in seconds) before starting transcoding.
+/// If replaygain_info is provided, it will be embedded in the Opus tags as R128 gain and Vorbis comments.
 fn transcode_to_opus_with_offset(
     path: &std::path::Path,
     config: &TranscodeConfig,
     tx: mpsc::Sender<Vec<u8>>,
     time_offset_seconds: f64,
+    replaygain_info: ReplayGainInfo,
 ) -> Result<()> {
     // Open source file
     let file = std::fs::File::open(path)
@@ -641,7 +670,13 @@ fn transcode_to_opus_with_offset(
 
     // Write Opus header packets
     let serial = rand::random::<u32>();
-    write_opus_header(&mut ogg_writer, serial, opus_channels, opus_sample_rate)?;
+    write_opus_header(
+        &mut ogg_writer,
+        serial,
+        opus_channels,
+        opus_sample_rate,
+        &replaygain_info,
+    )?;
 
     // Buffers for processing
     let mut resample_input: Vec<Vec<f32>> = vec![Vec::new(); source_channels];
@@ -793,11 +828,16 @@ fn transcode_to_opus_with_offset(
 }
 
 /// Write Opus ID and Comment headers to the Ogg stream.
+/// If replaygain_info contains values, they are embedded as Vorbis Comments:
+/// - REPLAYGAIN_TRACK_GAIN: "-6.50 dB" format
+/// - REPLAYGAIN_TRACK_PEAK: "0.988831" format
+/// - R128_TRACK_GAIN: For EBU R128 compliant players (in Q7.8 format)
 fn write_opus_header<W: std::io::Write>(
     writer: &mut PacketWriter<W>,
     serial: u32,
     channels: Channels,
     sample_rate: SampleRate,
+    replaygain_info: &ReplayGainInfo,
 ) -> Result<()> {
     // OpusHead packet (RFC 7845)
     let channel_count = match channels {
@@ -812,13 +852,18 @@ fn write_opus_header<W: std::io::Write>(
         SampleRate::Hz48000 => 48000,
     };
 
+    // Calculate R128 output gain for OpusHead (in Q7.8 format: gain_dB * 256)
+    // This is the native Opus way to apply gain. We set it to 0 and use tags instead
+    // for better compatibility with clients that read Vorbis Comments.
+    let output_gain: i16 = 0;
+
     let mut opus_head = Vec::new();
     opus_head.extend_from_slice(b"OpusHead");
     opus_head.push(1); // Version
     opus_head.push(channel_count);
     opus_head.extend_from_slice(&0u16.to_le_bytes()); // Pre-skip
     opus_head.extend_from_slice(&input_sample_rate.to_le_bytes()); // Input sample rate
-    opus_head.extend_from_slice(&0i16.to_le_bytes()); // Output gain
+    opus_head.extend_from_slice(&output_gain.to_le_bytes()); // Output gain (Q7.8)
     opus_head.push(0); // Channel mapping family
 
     writer
@@ -830,13 +875,43 @@ fn write_opus_header<W: std::io::Write>(
         )
         .map_err(|e| Error::Internal(format!("Could not write Opus header: {}", e)))?;
 
-    // OpusTags packet
+    // OpusTags packet - Vorbis Comments format
     let mut opus_tags = Vec::new();
     opus_tags.extend_from_slice(b"OpusTags");
     let vendor = b"Ferrotune";
     opus_tags.extend_from_slice(&(vendor.len() as u32).to_le_bytes());
     opus_tags.extend_from_slice(vendor);
-    opus_tags.extend_from_slice(&0u32.to_le_bytes()); // No user comments
+
+    // Build user comments list
+    let mut comments: Vec<String> = Vec::new();
+
+    // Add ReplayGain comments if available
+    if let Some(gain) = replaygain_info.track_gain {
+        // Standard ReplayGain format: "-6.50 dB"
+        comments.push(format!("REPLAYGAIN_TRACK_GAIN={:.2} dB", gain));
+
+        // R128_TRACK_GAIN for EBU R128 compliant players
+        // This is in Q7.8 fixed-point format: value * 256
+        // Note: R128 gain should be relative to -23 LUFS, but players
+        // may interpret it differently. We use the same value as REPLAYGAIN.
+        let r128_gain = (gain * 256.0).round() as i16;
+        comments.push(format!("R128_TRACK_GAIN={}", r128_gain));
+    }
+
+    if let Some(peak) = replaygain_info.track_peak {
+        // Peak is stored as linear value (not dB)
+        comments.push(format!("REPLAYGAIN_TRACK_PEAK={:.6}", peak));
+    }
+
+    // Write number of comments
+    opus_tags.extend_from_slice(&(comments.len() as u32).to_le_bytes());
+
+    // Write each comment as length-prefixed UTF-8 string
+    for comment in &comments {
+        let bytes = comment.as_bytes();
+        opus_tags.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        opus_tags.extend_from_slice(bytes);
+    }
 
     writer
         .write_packet(

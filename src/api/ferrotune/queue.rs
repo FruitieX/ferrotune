@@ -1800,6 +1800,10 @@ async fn build_queue_window_range(
                 cover_art_hash: entry.cover_art_hash.clone(),
                 cover_art_width: entry.cover_art_width,
                 cover_art_height: entry.cover_art_height,
+                original_replaygain_track_gain: entry.original_replaygain_track_gain,
+                original_replaygain_track_peak: entry.original_replaygain_track_peak,
+                computed_replaygain_track_gain: entry.computed_replaygain_track_gain,
+                computed_replaygain_track_peak: entry.computed_replaygain_track_peak,
             };
             let song_response = song_to_response_with_stats(
                 song,

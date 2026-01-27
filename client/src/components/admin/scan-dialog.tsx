@@ -285,6 +285,7 @@ export function ScanDialog() {
   // Local state for scan options
   const [fullScan, setFullScan] = useState(false);
   const [dryRun, setDryRun] = useState(false);
+  const [analyzeReplaygain, setAnalyzeReplaygain] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
 
   // State for stat details
@@ -341,6 +342,7 @@ export function ScanDialog() {
       const response = await client.startScan({
         full: fullScan,
         dryRun: dryRun,
+        analyzeReplaygain: analyzeReplaygain,
         folderId: folderId ?? undefined,
       });
 
@@ -454,6 +456,22 @@ export function ScanDialog() {
                     id="dry-run"
                     checked={dryRun}
                     onCheckedChange={setDryRun}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="analyze-replaygain">
+                      Analyze ReplayGain
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Compute loudness values using EBU R128 analysis (slower)
+                    </p>
+                  </div>
+                  <Switch
+                    id="analyze-replaygain"
+                    checked={analyzeReplaygain}
+                    onCheckedChange={setAnalyzeReplaygain}
                   />
                 </div>
               </div>

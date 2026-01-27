@@ -73,6 +73,12 @@ pub struct Song {
     pub cover_art_hash: Option<String>,
     pub cover_art_width: Option<i32>,
     pub cover_art_height: Option<i32>,
+    // ReplayGain values - original from file tags
+    pub original_replaygain_track_gain: Option<f64>,
+    pub original_replaygain_track_peak: Option<f64>,
+    // ReplayGain values - computed by scanner via EBU R128 analysis
+    pub computed_replaygain_track_gain: Option<f64>,
+    pub computed_replaygain_track_peak: Option<f64>,
     // Optional fields populated via JOINs when needed
     /// Play count from scrobbles table (populated via JOIN)
     #[sqlx(default)]
@@ -109,6 +115,12 @@ pub struct SongWithLibraryStatus {
     pub cover_art_hash: Option<String>,
     pub cover_art_width: Option<i32>,
     pub cover_art_height: Option<i32>,
+    // ReplayGain values - original from file tags
+    pub original_replaygain_track_gain: Option<f64>,
+    pub original_replaygain_track_peak: Option<f64>,
+    // ReplayGain values - computed by scanner via EBU R128 analysis
+    pub computed_replaygain_track_gain: Option<f64>,
+    pub computed_replaygain_track_peak: Option<f64>,
     /// Whether the music library this song belongs to is enabled
     pub library_enabled: bool,
     #[sqlx(default)]
@@ -143,6 +155,10 @@ impl SongWithLibraryStatus {
             cover_art_hash: self.cover_art_hash,
             cover_art_width: self.cover_art_width,
             cover_art_height: self.cover_art_height,
+            original_replaygain_track_gain: self.original_replaygain_track_gain,
+            original_replaygain_track_peak: self.original_replaygain_track_peak,
+            computed_replaygain_track_gain: self.computed_replaygain_track_gain,
+            computed_replaygain_track_peak: self.computed_replaygain_track_peak,
             play_count: self.play_count,
             last_played: self.last_played,
             starred_at: self.starred_at,
@@ -173,6 +189,12 @@ pub struct SongWithFolder {
     pub cover_art_hash: Option<String>,
     pub cover_art_width: Option<i32>,
     pub cover_art_height: Option<i32>,
+    // ReplayGain values - original from file tags
+    pub original_replaygain_track_gain: Option<f64>,
+    pub original_replaygain_track_peak: Option<f64>,
+    // ReplayGain values - computed by scanner via EBU R128 analysis
+    pub computed_replaygain_track_gain: Option<f64>,
+    pub computed_replaygain_track_peak: Option<f64>,
     /// The base path of the music folder this song belongs to
     pub folder_path: Option<String>,
     // Optional fields populated via JOINs when needed
@@ -208,6 +230,10 @@ impl SongWithFolder {
             cover_art_hash: self.cover_art_hash,
             cover_art_width: self.cover_art_width,
             cover_art_height: self.cover_art_height,
+            original_replaygain_track_gain: self.original_replaygain_track_gain,
+            original_replaygain_track_peak: self.original_replaygain_track_peak,
+            computed_replaygain_track_gain: self.computed_replaygain_track_gain,
+            computed_replaygain_track_peak: self.computed_replaygain_track_peak,
             play_count: self.play_count,
             last_played: self.last_played,
             starred_at: self.starred_at,
@@ -574,6 +600,12 @@ pub struct QueueEntryWithSong {
     pub cover_art_hash: Option<String>,
     pub cover_art_width: Option<i32>,
     pub cover_art_height: Option<i32>,
+    // ReplayGain values - original from file tags
+    pub original_replaygain_track_gain: Option<f64>,
+    pub original_replaygain_track_peak: Option<f64>,
+    // ReplayGain values - computed by scanner via EBU R128 analysis
+    pub computed_replaygain_track_gain: Option<f64>,
+    pub computed_replaygain_track_peak: Option<f64>,
 }
 
 // ============================================================================

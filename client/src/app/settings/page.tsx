@@ -36,7 +36,13 @@ import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useAccentColor } from "@/lib/hooks/use-preferences-sync";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { serverConnectionAtom } from "@/lib/store/auth";
-import { volumeAtom, repeatModeAtom } from "@/lib/store/player";
+import {
+  volumeAtom,
+  repeatModeAtom,
+  replayGainModeAtom,
+  replayGainOffsetAtom,
+  type ReplayGainMode,
+} from "@/lib/store/player";
 import {
   serverQueueStateAtom,
   toggleShuffleAtom,
@@ -87,6 +93,8 @@ export default function SettingsPage() {
   const [progressBarStyle, setProgressBarStyle] = useAtom(progressBarStyleAtom);
   const [sidebarItemSize, setSidebarItemSize] = useAtom(sidebarItemSizeAtom);
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
+  const [replayGainMode, setReplayGainMode] = useAtom(replayGainModeAtom);
+  const [replayGainOffset, setReplayGainOffset] = useAtom(replayGainOffsetAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const { theme, setTheme } = useTheme();
@@ -507,6 +515,65 @@ export default function SettingsPage() {
                   onCheckedChange={() => toggleShuffle()}
                 />
               </div>
+
+              <Separator />
+
+              {/* ReplayGain Mode */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <label className="flex items-center gap-2 font-medium">
+                    <Activity className="w-4 h-4" />
+                    ReplayGain
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    Normalize volume across tracks
+                  </p>
+                </div>
+                <Select
+                  value={replayGainMode}
+                  onValueChange={(v: string) =>
+                    setReplayGainMode(v as ReplayGainMode)
+                  }
+                >
+                  <SelectTrigger className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="computed">Computed</SelectItem>
+                    <SelectItem value="original">Original Tags</SelectItem>
+                    <SelectItem value="disabled">Disabled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* ReplayGain Offset - only show when ReplayGain is enabled */}
+              {replayGainMode !== "disabled" && (
+                <>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 font-medium">
+                        <Volume2 className="w-4 h-4" />
+                        ReplayGain Offset
+                      </label>
+                      <span className="text-sm text-muted-foreground tabular-nums">
+                        {replayGainOffset >= 0 ? "+" : ""}
+                        {replayGainOffset.toFixed(1)} dB
+                      </span>
+                    </div>
+                    <Slider
+                      value={[replayGainOffset]}
+                      onValueChange={([v]) => setReplayGainOffset(v)}
+                      min={-12}
+                      max={12}
+                      step={0.5}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Adjust all tracks up or down from their computed gain
+                    </p>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </motion.div>

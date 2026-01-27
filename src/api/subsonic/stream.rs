@@ -1,7 +1,7 @@
 use crate::api::common::utils::get_content_type_for_format;
 use crate::api::ferrotune::users::user_has_song_access;
 use crate::api::subsonic::auth::AuthenticatedUser;
-use crate::api::subsonic::transcoding::{transcode_with_offset, TranscodeConfig};
+use crate::api::subsonic::transcoding::{transcode_with_offset, ReplayGainInfo, TranscodeConfig};
 use crate::api::AppState;
 use crate::error::{Error, Result};
 use axum::{
@@ -111,7 +111,23 @@ pub async fn stream(
                 channels: 2, // Default stereo
             };
 
-            return transcode_with_offset(&canonical_path, &config, time_offset_seconds).await;
+            // Build ReplayGain info from song data
+            let replaygain_info = ReplayGainInfo {
+                track_gain: song
+                    .computed_replaygain_track_gain
+                    .or(song.original_replaygain_track_gain),
+                track_peak: song
+                    .computed_replaygain_track_peak
+                    .or(song.original_replaygain_track_peak),
+            };
+
+            return transcode_with_offset(
+                &canonical_path,
+                &config,
+                time_offset_seconds,
+                replaygain_info,
+            )
+            .await;
         }
     }
 

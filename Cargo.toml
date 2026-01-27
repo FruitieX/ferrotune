@@ -43,6 +43,9 @@ ogg = "0.9"
 # Audio resampling (for transcoding to 48kHz for Opus)
 rubato = "0.16"
 
+# Audio loudness measurement (EBU R128 for ReplayGain)
+ebur128 = "0.1"
+
 # Safe sample format conversion
 bytemuck = { version = "1.21", features = ["derive"] }
 
