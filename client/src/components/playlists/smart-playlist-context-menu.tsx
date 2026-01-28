@@ -136,6 +136,7 @@ export function SmartPlaylistContextMenu({
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       toast.success(
         `Created playlist "${result.name}" with ${result.songCount} songs`,
       );
@@ -228,6 +229,7 @@ export function SmartPlaylistContextMenu({
       await client.deleteSmartPlaylist(smartPlaylist.id);
       toast.success(`Deleted "${smartPlaylist.name}"`);
       queryClient.invalidateQueries({ queryKey: ["smartPlaylists"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       setDeleteDialogOpen(false);
       router.push("/playlists");
     } catch (error) {
@@ -438,6 +440,7 @@ export function SmartPlaylistDropdownMenu({
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       toast.success(
         `Created playlist "${result.name}" with ${result.songCount} songs`,
       );
@@ -530,6 +533,7 @@ export function SmartPlaylistDropdownMenu({
       await client.deleteSmartPlaylist(smartPlaylist.id);
       toast.success(`Deleted "${smartPlaylist.name}"`);
       queryClient.invalidateQueries({ queryKey: ["smartPlaylists"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       setDeleteDialogOpen(false);
       router.push("/playlists");
     } catch (error) {

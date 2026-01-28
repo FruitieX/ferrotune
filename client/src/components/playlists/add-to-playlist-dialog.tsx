@@ -210,6 +210,8 @@ export function AddToPlaylistDialog({
     onSuccess: (playlist) => {
       toast.success(`Created "${playlist.name}" and added ${displayText}`);
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistSongs"] });
       onOpenChange(false);
       setNewPlaylistName("");
       setShowCreateNew(false);

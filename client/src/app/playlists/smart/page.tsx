@@ -249,6 +249,8 @@ function SmartPlaylistPageContent() {
     try {
       await client.deleteSmartPlaylist(id);
       toast.success("Smart playlist deleted");
+      queryClient.invalidateQueries({ queryKey: ["smartPlaylists"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       router.push("/playlists");
     } catch {
       toast.error("Failed to delete smart playlist");

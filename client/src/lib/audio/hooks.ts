@@ -36,6 +36,7 @@ import {
 } from "@/lib/store/server-queue";
 import { serverConnectionAtom, isHydratedAtom } from "@/lib/store/auth";
 import { getClient } from "@/lib/api/client";
+import { invalidatePlayCountQueries as invalidatePlayCounts } from "@/lib/api/cache-invalidation";
 
 // Singleton audio element - only one instance across the entire app
 let globalAudio: HTMLAudioElement | null = null;
@@ -285,13 +286,7 @@ export function useAudioEngineInit() {
 
   // Callback to invalidate queries that contain play count data
   const invalidatePlayCountQueries = () => {
-    // Invalidate all queries that display play counts
-    queryClient.invalidateQueries({ queryKey: ["songs"] });
-    queryClient.invalidateQueries({ queryKey: ["starred-search"] });
-    queryClient.invalidateQueries({ queryKey: ["play-history"] });
-    queryClient.invalidateQueries({ queryKey: ["album"] });
-    queryClient.invalidateQueries({ queryKey: ["artist"] });
-    queryClient.invalidateQueries({ queryKey: ["playlistSongs"] });
+    invalidatePlayCounts(queryClient);
   };
 
   // Refs for setters to avoid stale closures

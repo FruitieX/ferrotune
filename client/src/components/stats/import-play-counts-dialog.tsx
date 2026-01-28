@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, ChangeEvent } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Loader2,
@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { getClient } from "@/lib/api/client";
+import { invalidatePlayCountQueries } from "@/lib/api/cache-invalidation";
 import type { ImportMode } from "@/lib/api/generated/ImportMode";
 import type { PlayEvent } from "@/lib/api/generated/PlayEvent";
 import {
@@ -639,6 +640,7 @@ export function ImportPlayCountsDialog({
   open,
   onOpenChange,
 }: ImportPlayCountsDialogProps) {
+  const queryClient = useQueryClient();
   const { matchTracks, cancel: cancelMatching } = useTrackMatcher();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -931,6 +933,8 @@ export function ImportPlayCountsDialog({
     onSuccess: async (result) => {
       // Save matches to dictionary for future reuse
       await saveMatchesToDictionary(matchedTracks);
+      // Invalidate queries that display play counts
+      invalidatePlayCountQueries(queryClient);
       toast.success(
         `Imported ${result.totalPlaysImported} plays for ${result.songsImported} songs`,
       );
@@ -988,6 +992,8 @@ export function ImportPlayCountsDialog({
     onSuccess: async (result) => {
       // Save matches to dictionary for future reuse
       await saveMatchesToDictionary(matchedTracks);
+      // Invalidate queries that display play counts and listening history
+      invalidatePlayCountQueries(queryClient);
       toast.success(
         `Imported ${result.scrobblesImported} scrobbles and ${result.sessionsImported} listening sessions for ${result.songsImported} songs`,
       );

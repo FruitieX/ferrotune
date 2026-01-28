@@ -243,6 +243,7 @@ export function MassResolveDialog({
       await queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
       });
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
 
       if (failCount === 0) {
         toast.success(

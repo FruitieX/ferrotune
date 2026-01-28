@@ -399,6 +399,7 @@ export default function ReviewPage() {
 
       // Invalidate playlists query so the new playlist shows up
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
 
       toast.success(`Created playlist "${name}"`);
     } catch (error) {

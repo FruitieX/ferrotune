@@ -141,6 +141,7 @@ export function usePlaylistSelection(playlists: Playlist[]) {
         `Deleted ${selected.length} playlist${selected.length > 1 ? "s" : ""}`,
       );
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       clearSelection();
     } catch (error) {
       console.error("Failed to delete playlists:", error);
@@ -167,6 +168,7 @@ export function usePlaylistSelection(playlists: Playlist[]) {
       });
       toast.success(`Created "${newPlaylistName}" with ${songs.length} songs`);
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       clearSelection();
     } catch (error) {
       console.error("Failed to merge playlists:", error);

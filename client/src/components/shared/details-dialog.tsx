@@ -44,6 +44,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { getClient } from "@/lib/api/client";
+import {
+  invalidateSongQueries,
+  invalidatePlaylistQueries,
+  invalidateRecycleBinQueries,
+} from "@/lib/api/cache-invalidation";
 import { formatDuration, formatDate, formatFileSize } from "@/lib/utils/format";
 import { toast } from "sonner";
 import { TagsEditor } from "./tags-editor";
@@ -204,14 +209,9 @@ function SongDetails({
     },
     onSuccess: (result) => {
       toast.success(result.message);
-      // Invalidate queries that might contain this song
-      queryClient.invalidateQueries({ queryKey: ["album"] });
-      queryClient.invalidateQueries({ queryKey: ["albums"] });
-      queryClient.invalidateQueries({ queryKey: ["artist"] });
-      queryClient.invalidateQueries({ queryKey: ["search"] });
-      queryClient.invalidateQueries({ queryKey: ["starred"] });
-      queryClient.invalidateQueries({ queryKey: ["randomSongs"] });
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      invalidateSongQueries(queryClient);
+      invalidatePlaylistQueries(queryClient);
+      invalidateRecycleBinQueries(queryClient);
       onDeleted?.();
     },
     onError: (error) => {

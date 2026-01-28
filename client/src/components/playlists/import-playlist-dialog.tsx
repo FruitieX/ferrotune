@@ -293,6 +293,7 @@ export function ImportPlaylistDialog({
         );
       }
       await queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      await queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
       resetAndClose();
     },
     onError: (error) => {

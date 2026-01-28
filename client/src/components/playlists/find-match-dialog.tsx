@@ -51,6 +51,7 @@ export function FindMatchDialog({
       queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
       });
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
       onOpenChange(false);
     },
     onError: (error) => {

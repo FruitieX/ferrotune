@@ -14,6 +14,11 @@ import { useStarred } from "@/lib/store/starred";
 import { shuffleExcludesAtom } from "@/lib/store/shuffle-excludes";
 import { disabledSongsAtom } from "@/lib/store/disabled-songs";
 import { getClient } from "@/lib/api/client";
+import {
+  invalidateSongQueries,
+  invalidatePlaylistQueries,
+  invalidateRecycleBinQueries,
+} from "@/lib/api/cache-invalidation";
 import type { Song } from "@/lib/api/types";
 
 export interface QueueSource {
@@ -208,6 +213,8 @@ export function useSongActions({
           ? `Rated "${song.title}" ${rating} stars`
           : `Removed rating from "${song.title}"`,
       );
+      // Invalidate queries that display ratings
+      invalidateSongQueries(queryClient);
     } catch (error) {
       toast.error("Failed to set rating");
       console.error(error);
@@ -237,20 +244,10 @@ export function useSongActions({
         },
       });
       // Invalidate all queries that might include this song
-      queryClient.invalidateQueries({ queryKey: ["songs"] });
-      queryClient.invalidateQueries({ queryKey: ["albums"] });
-      queryClient.invalidateQueries({ queryKey: ["album"] });
-      queryClient.invalidateQueries({ queryKey: ["artists"] });
-      queryClient.invalidateQueries({ queryKey: ["artist"] });
-      queryClient.invalidateQueries({ queryKey: ["genres"] });
-      queryClient.invalidateQueries({ queryKey: ["starred"] });
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      queryClient.invalidateQueries({ queryKey: ["playlist"] });
-      queryClient.invalidateQueries({ queryKey: ["search"] });
-      queryClient.invalidateQueries({ queryKey: ["random"] });
-      queryClient.invalidateQueries({ queryKey: ["recentAlbums"] });
+      invalidateSongQueries(queryClient);
+      invalidatePlaylistQueries(queryClient);
+      invalidateRecycleBinQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ["serverStats"] });
-      queryClient.invalidateQueries({ queryKey: ["recycleBin"] });
     } catch (error) {
       toast.error("Failed to mark for deletion");
       console.error(error);

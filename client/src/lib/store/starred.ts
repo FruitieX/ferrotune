@@ -37,19 +37,31 @@ export type { StarType };
 
 /**
  * Invalidate all favorites-related queries to ensure the favorites view
- * is updated when items are starred/unstarred elsewhere.
+ * and other views displaying starred status are updated when items are
+ * starred/unstarred elsewhere.
  */
 function invalidateFavoritesQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   type: StarType,
 ) {
-  // Invalidate the specific type's starred query
+  // Invalidate the global starred query (used by favorites overview)
+  queryClient.invalidateQueries({ queryKey: ["starred"] });
+  // Invalidate search results (shows star icons)
+  queryClient.invalidateQueries({ queryKey: ["search"] });
+
+  // Invalidate type-specific queries
   if (type === "song") {
     queryClient.invalidateQueries({ queryKey: ["starred-songs"] });
+    queryClient.invalidateQueries({ queryKey: ["songs"] });
+    queryClient.invalidateQueries({ queryKey: ["album"] });
+    queryClient.invalidateQueries({ queryKey: ["artist"] });
+    queryClient.invalidateQueries({ queryKey: ["playlistSongs"] });
   } else if (type === "album") {
     queryClient.invalidateQueries({ queryKey: ["starred-albums"] });
+    queryClient.invalidateQueries({ queryKey: ["albums"] });
   } else if (type === "artist") {
     queryClient.invalidateQueries({ queryKey: ["starred-artists"] });
+    queryClient.invalidateQueries({ queryKey: ["artists"] });
   }
 }
 

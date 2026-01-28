@@ -12,6 +12,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
+import {
+  invalidateSongQueries,
+  invalidateRecycleBinQueries,
+} from "@/lib/api/cache-invalidation";
 import { formatDuration } from "@/lib/utils/format";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -66,8 +70,8 @@ export function RecycleBin() {
     },
     onSuccess: (data) => {
       toast.success(data.message);
-      queryClient.invalidateQueries({ queryKey: ["recycleBin"] });
-      queryClient.invalidateQueries({ queryKey: ["songs"] });
+      invalidateRecycleBinQueries(queryClient);
+      invalidateSongQueries(queryClient);
       setSelectedIds(new Set());
     },
     onError: (error: Error) => {

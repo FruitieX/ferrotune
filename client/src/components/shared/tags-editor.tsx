@@ -44,6 +44,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { getClient } from "@/lib/api/client";
+import { invalidateSongQueries } from "@/lib/api/cache-invalidation";
 import { toast } from "sonner";
 import type {
   Song,
@@ -238,10 +239,9 @@ export function TagsEditor({ song, open, onOpenChange }: TagsEditorProps) {
           duration: 5000,
         });
       }
-      // Invalidate queries
+      // Invalidate queries that display song metadata
       queryClient.invalidateQueries({ queryKey: ["song", song.id] });
-      queryClient.invalidateQueries({ queryKey: ["album"] });
-      queryClient.invalidateQueries({ queryKey: ["artist"] });
+      invalidateSongQueries(queryClient);
       // Reset and reload
       setEditedTags(new Map());
       setDeletedTags(new Set());
