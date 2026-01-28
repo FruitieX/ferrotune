@@ -94,6 +94,12 @@ function directoryChildToSong(child: DirectoryChildPaged): Song | null {
     userRating: child.userRating ?? null,
     type: "music",
     lastPlayed: null,
+    replayGainTrackGain: null,
+    replayGainTrackPeak: null,
+    originalReplayGainTrackGain: null,
+    originalReplayGainTrackPeak: null,
+    computedReplayGainTrackGain: null,
+    computedReplayGainTrackPeak: null,
   };
 }
 

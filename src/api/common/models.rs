@@ -111,6 +111,25 @@ pub struct SongResponse {
     pub play_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_played: Option<String>,
+    // Ferrotune extensions for ReplayGain
+    /// ReplayGain track gain - prefers computed, falls back to original (in dB)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replay_gain_track_gain: Option<f64>,
+    /// ReplayGain track peak - prefers computed, falls back to original (linear, 0-1+)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replay_gain_track_peak: Option<f64>,
+    /// ReplayGain track gain from original file tags (in dB)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_replay_gain_track_gain: Option<f64>,
+    /// ReplayGain track peak from original file tags (linear, 0-1+)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_replay_gain_track_peak: Option<f64>,
+    /// ReplayGain track gain computed by scanner via EBU R128 (in dB)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub computed_replay_gain_track_gain: Option<f64>,
+    /// ReplayGain track peak computed by scanner via EBU R128 (linear, 0-1+)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub computed_replay_gain_track_peak: Option<f64>,
 }
 
 // ===================================

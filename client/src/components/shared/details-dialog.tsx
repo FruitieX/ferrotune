@@ -22,6 +22,7 @@ import {
   Copy,
   Check,
   Image,
+  Activity,
 } from "lucide-react";
 import {
   Dialog,
@@ -363,6 +364,50 @@ function SongDetails({
             />
           )}
         </div>
+
+        {/* ReplayGain - only show if any values exist */}
+        {(fullSong.originalReplayGainTrackGain != null ||
+          fullSong.computedReplayGainTrackGain != null) && (
+          <>
+            <Separator />
+            <div className="space-y-1">
+              <h4 className="text-sm font-medium flex items-center gap-2">
+                <Activity className="w-4 h-4" />
+                ReplayGain
+              </h4>
+              <div className="grid grid-cols-2 gap-x-4">
+                {fullSong.originalReplayGainTrackGain != null && (
+                  <DetailRow
+                    icon={Tag}
+                    label="Original Gain"
+                    value={`${fullSong.originalReplayGainTrackGain >= 0 ? "+" : ""}${fullSong.originalReplayGainTrackGain.toFixed(2)} dB`}
+                  />
+                )}
+                {fullSong.originalReplayGainTrackPeak != null && (
+                  <DetailRow
+                    icon={Tag}
+                    label="Original Peak"
+                    value={fullSong.originalReplayGainTrackPeak.toFixed(6)}
+                  />
+                )}
+                {fullSong.computedReplayGainTrackGain != null && (
+                  <DetailRow
+                    icon={Activity}
+                    label="Computed Gain"
+                    value={`${fullSong.computedReplayGainTrackGain >= 0 ? "+" : ""}${fullSong.computedReplayGainTrackGain.toFixed(2)} dB`}
+                  />
+                )}
+                {fullSong.computedReplayGainTrackPeak != null && (
+                  <DetailRow
+                    icon={Activity}
+                    label="Computed Peak"
+                    value={fullSong.computedReplayGainTrackPeak.toFixed(6)}
+                  />
+                )}
+              </div>
+            </div>
+          </>
+        )}
 
         <Separator />
 

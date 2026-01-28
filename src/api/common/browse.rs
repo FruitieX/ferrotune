@@ -492,6 +492,20 @@ pub fn song_to_response_with_stats(
         .map(|a| a.name.clone())
         .or_else(|| song.album_name.clone());
 
+    // For ReplayGain, prefer computed values if available, fall back to original tags
+    let replay_gain_track_gain = song
+        .computed_replaygain_track_gain
+        .or(song.original_replaygain_track_gain);
+    let replay_gain_track_peak = song
+        .computed_replaygain_track_peak
+        .or(song.original_replaygain_track_peak);
+
+    // Also expose original and computed values separately for detailed display
+    let original_replay_gain_track_gain = song.original_replaygain_track_gain;
+    let original_replay_gain_track_peak = song.original_replaygain_track_peak;
+    let computed_replay_gain_track_gain = song.computed_replaygain_track_gain;
+    let computed_replay_gain_track_peak = song.computed_replaygain_track_peak;
+
     SongResponse {
         id: song.id.clone(),
         parent: song.album_id.clone(),
@@ -521,5 +535,11 @@ pub fn song_to_response_with_stats(
         media_type: "music".to_string(),
         play_count,
         last_played,
+        replay_gain_track_gain,
+        replay_gain_track_peak,
+        original_replay_gain_track_gain,
+        original_replay_gain_track_peak,
+        computed_replay_gain_track_gain,
+        computed_replay_gain_track_peak,
     }
 }

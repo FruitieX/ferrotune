@@ -37,6 +37,18 @@ export const progressAtom = atom((get) => {
 export const volumeAtom = atomWithServerStorage("volume", 1);
 export const isMutedAtom = atomWithServerStorage("muted", false);
 
+// Transcoding settings
+// When enabled, streams are transcoded to Opus format with embedded ReplayGain tags
+export const transcodingEnabledAtom = atomWithServerStorage<boolean>(
+  "transcodingEnabled",
+  true,
+);
+// Transcoding bitrate in kbps (common values: 96, 128, 160, 192, 256, 320)
+export const transcodingBitrateAtom = atomWithServerStorage<number>(
+  "transcodingBitrate",
+  192,
+);
+
 // ReplayGain settings
 // Mode: "computed" uses server-computed EBU R128 values, "original" uses tags from files, "disabled" disables ReplayGain
 export type ReplayGainMode = "computed" | "original" | "disabled";

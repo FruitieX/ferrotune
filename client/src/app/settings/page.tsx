@@ -41,6 +41,8 @@ import {
   repeatModeAtom,
   replayGainModeAtom,
   replayGainOffsetAtom,
+  transcodingEnabledAtom,
+  transcodingBitrateAtom,
   type ReplayGainMode,
 } from "@/lib/store/player";
 import {
@@ -95,6 +97,12 @@ export default function SettingsPage() {
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
   const [replayGainMode, setReplayGainMode] = useAtom(replayGainModeAtom);
   const [replayGainOffset, setReplayGainOffset] = useAtom(replayGainOffsetAtom);
+  const [transcodingEnabled, setTranscodingEnabled] = useAtom(
+    transcodingEnabledAtom,
+  );
+  const [transcodingBitrate, setTranscodingBitrate] = useAtom(
+    transcodingBitrateAtom,
+  );
   const queueState = useAtomValue(serverQueueStateAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const { theme, setTheme } = useTheme();
@@ -515,6 +523,51 @@ export default function SettingsPage() {
                   onCheckedChange={() => toggleShuffle()}
                 />
               </div>
+
+              <Separator />
+
+              {/* Transcoding */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <label className="flex items-center gap-2 font-medium">
+                    <Activity className="w-4 h-4" />
+                    Audio Transcoding
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    Convert to Opus for lower bandwidth and embedded ReplayGain
+                  </p>
+                </div>
+                <Switch
+                  checked={transcodingEnabled}
+                  onCheckedChange={setTranscodingEnabled}
+                />
+              </div>
+
+              {/* Transcoding Bitrate - only show when transcoding is enabled */}
+              {transcodingEnabled && (
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 font-medium">
+                    <Volume2 className="w-4 h-4" />
+                    Transcode Bitrate
+                  </label>
+                  <Select
+                    value={String(transcodingBitrate)}
+                    onValueChange={(v) => setTranscodingBitrate(Number(v))}
+                  >
+                    <SelectTrigger className="w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="96">96 kbps</SelectItem>
+                      <SelectItem value="128">128 kbps</SelectItem>
+                      <SelectItem value="160">160 kbps</SelectItem>
+                      <SelectItem value="192">192 kbps</SelectItem>
+                      <SelectItem value="256">256 kbps</SelectItem>
+                      <SelectItem value="320">320 kbps</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <Separator />
 

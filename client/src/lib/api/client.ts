@@ -640,7 +640,13 @@ export class FerrotuneClient {
   }
 
   // Media URL builders (no fetch, returns URL string)
-  getStreamUrl(id: string, maxBitRate?: number): string {
+  getStreamUrl(
+    id: string,
+    options?: {
+      maxBitRate?: number;
+      format?: string;
+    },
+  ): string {
     const params = new URLSearchParams();
     // Add auth params manually
     if (this.username && this.password) {
@@ -658,7 +664,9 @@ export class FerrotuneClient {
     params.set("v", API_VERSION);
     params.set("c", CLIENT_NAME);
     params.set("id", id);
-    if (maxBitRate) params.set("maxBitRate", String(maxBitRate));
+    if (options?.maxBitRate)
+      params.set("maxBitRate", String(options.maxBitRate));
+    if (options?.format) params.set("format", options.format);
 
     return `${this.serverUrl}/ferrotune/stream?${params.toString()}`;
   }

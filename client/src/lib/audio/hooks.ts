@@ -16,6 +16,10 @@ import {
   hasScrobbledAtom,
   scrobbleThresholdAtom,
   audioElementAtom,
+  transcodingEnabledAtom,
+  transcodingBitrateAtom,
+  replayGainModeAtom,
+  replayGainOffsetAtom,
 } from "@/lib/store/player";
 import {
   serverQueueStateAtom,
@@ -36,6 +40,11 @@ import { getClient } from "@/lib/api/client";
 // Singleton audio element - only one instance across the entire app
 let globalAudio: HTMLAudioElement | null = null;
 
+// Web Audio API for ReplayGain volume adjustment
+let audioContext: AudioContext | null = null;
+let sourceNode: MediaElementAudioSourceNode | null = null;
+let gainNode: GainNode | null = null;
+
 // Track the currently loaded track ID to avoid unnecessary reloads when queue changes
 let currentLoadedTrackId: string | null = null;
 // Flag to prevent handlePause from overwriting "ended" state
@@ -53,6 +62,47 @@ let currentListeningSessionId: number | null = null;
 let listeningUpdateInterval: ReturnType<typeof setInterval> | null = null;
 
 const LISTENING_UPDATE_INTERVAL_MS = 60000; // Update every 60 seconds
+
+/**
+ * Convert ReplayGain dB value to linear gain factor.
+ * ReplayGain values are typically negative (e.g., -6.5 dB).
+ */
+function dbToLinear(db: number): number {
+  return Math.pow(10, db / 20);
+}
+
+/**
+ * Initialize Web Audio API for ReplayGain processing.
+ * This creates an AudioContext and routes the audio through a GainNode.
+ */
+function initializeWebAudio(audio: HTMLAudioElement): void {
+  if (audioContext) return; // Already initialized
+
+  try {
+    audioContext = new AudioContext();
+    sourceNode = audioContext.createMediaElementSource(audio);
+    gainNode = audioContext.createGain();
+
+    // Connect: audio element -> gain node -> speakers
+    sourceNode.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+  } catch (err) {
+    console.error("[Audio] Failed to initialize Web Audio API:", err);
+  }
+}
+
+/**
+ * Update the ReplayGain volume adjustment.
+ * @param gainDb - The gain in dB to apply (can be negative)
+ */
+function setReplayGain(gainDb: number): void {
+  if (!gainNode) return;
+
+  const linearGain = dbToLinear(gainDb);
+  // Clamp to prevent extreme values (max +12dB boost)
+  const clampedGain = Math.min(linearGain, dbToLinear(12));
+  gainNode.gain.value = clampedGain;
+}
 
 /**
  * Gets or creates the singleton audio element for playback.
@@ -206,6 +256,12 @@ export function useAudioEngineInit() {
   const scrobbleThreshold = useAtomValue(scrobbleThresholdAtom);
   const setAudioElement = useSetAtom(audioElementAtom);
 
+  // Transcoding and ReplayGain settings
+  const transcodingEnabled = useAtomValue(transcodingEnabledAtom);
+  const transcodingBitrate = useAtomValue(transcodingBitrateAtom);
+  const replayGainMode = useAtomValue(replayGainModeAtom);
+  const replayGainOffset = useAtomValue(replayGainOffsetAtom);
+
   // Server-side queue state
   const queueState = useAtomValue(serverQueueStateAtom);
   const currentSong = useAtomValue(currentSongAtom);
@@ -224,6 +280,8 @@ export function useAudioEngineInit() {
   const hasInitialFetchRef = useRef(false);
   // Track the last processed signal to detect restarts of the same track
   const lastProcessedSignalRef = useRef<number>(-1);
+  // Track the last stream URL to detect settings changes
+  const lastStreamUrlRef = useRef<string | null>(null);
 
   // Callback to invalidate queries that contain play count data
   const invalidatePlayCountQueries = () => {
@@ -272,6 +330,9 @@ export function useAudioEngineInit() {
     currentSong,
     queueState,
     isRestoringQueue,
+    transcodingEnabled,
+    replayGainMode,
+    replayGainOffset,
   });
 
   // Keep refs in sync
@@ -283,6 +344,9 @@ export function useAudioEngineInit() {
       currentSong,
       queueState,
       isRestoringQueue,
+      transcodingEnabled,
+      replayGainMode,
+      replayGainOffset,
     };
   });
 
@@ -592,6 +656,7 @@ export function useAudioEngineInit() {
   }, [playbackState]);
 
   // Load new track when current song changes (triggered by trackChangeSignal or currentSong)
+  // Also reload when transcoding settings change
   useEffect(() => {
     const audio = globalAudio;
     const client = getClient();
@@ -617,6 +682,7 @@ export function useAudioEngineInit() {
 
         setPlaybackState("idle");
         currentLoadedTrackId = null;
+        lastStreamUrlRef.current = null;
 
         // Reset flag after sufficient delay to allow all error events to process
         setTimeout(() => {
@@ -626,13 +692,26 @@ export function useAudioEngineInit() {
       return;
     }
 
-    // Skip if same track is already loaded AND signal hasn't changed
+    // Build the stream URL with current transcoding settings
+    const streamUrl = client.getStreamUrl(currentSong.id, {
+      maxBitRate: transcodingEnabled ? transcodingBitrate : undefined,
+      format: transcodingEnabled ? "opus" : undefined,
+    });
+
+    // Skip if same track is already loaded with same settings AND signal hasn't changed
     // (signal changes when user explicitly starts playback or repeat-all wraps around)
     const signalChanged = trackChangeSignal !== lastProcessedSignalRef.current;
-    if (currentSong.id === currentLoadedTrackId && !signalChanged) {
+    const urlChanged = streamUrl !== lastStreamUrlRef.current;
+
+    if (
+      currentSong.id === currentLoadedTrackId &&
+      !signalChanged &&
+      !urlChanged
+    ) {
       return;
     }
     lastProcessedSignalRef.current = trackChangeSignal;
+    lastStreamUrlRef.current = streamUrl;
 
     // Log listening time for the track we're leaving
     if (currentLoadedTrackId && currentSong.id !== currentLoadedTrackId) {
@@ -641,7 +720,24 @@ export function useAudioEngineInit() {
 
     currentLoadedTrackId = currentSong.id;
 
-    const streamUrl = client.getStreamUrl(currentSong.id);
+    // Initialize Web Audio API if not already done (needed for client-side ReplayGain)
+    if (!audioContext) {
+      initializeWebAudio(audio);
+    }
+
+    // Apply client-side ReplayGain
+    // Note: We always need to apply this client-side because:
+    // - When transcoding is disabled: browser ignores ReplayGain tags in original file
+    // - When transcoding is enabled: browser ignores ReplayGain tags embedded in Opus stream
+    //   (the server embeds R128_TRACK_GAIN but doesn't apply output_gain during transcoding)
+    if (replayGainMode !== "disabled") {
+      const trackGain = currentSong.replayGainTrackGain ?? 0;
+      const totalGain = trackGain + replayGainOffset;
+      setReplayGain(totalGain);
+    } else if (gainNode) {
+      // Reset gain to unity when ReplayGain is disabled
+      gainNode.gain.value = 1;
+    }
 
     // Stop current playback
     audio.pause();
@@ -673,6 +769,10 @@ export function useAudioEngineInit() {
     currentSong,
     trackChangeSignal,
     isRestoringQueue,
+    transcodingEnabled,
+    transcodingBitrate,
+    replayGainMode,
+    replayGainOffset,
     setPlaybackState,
     setHasScrobbled,
     setCurrentTime,

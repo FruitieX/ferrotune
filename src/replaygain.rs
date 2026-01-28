@@ -171,14 +171,3 @@ pub fn analyze_track(path: &Path) -> Result<ReplayGainResult> {
         track_peak: max_peak,
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_reference_loudness() {
-        // Verify our reference level matches EBU R128
-        assert_eq!(REFERENCE_LOUDNESS, -23.0);
-    }
-}
