@@ -3,6 +3,14 @@ name = "ferrotune"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "ferrotune"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ferrotune"
+path = "src/main.rs"
+
 [features]
 default = []
 # Enable embedded web UI - requires client/out to exist at compile time
@@ -17,6 +25,7 @@ tokio-stream = "0.1"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
 hyper = { version = "1.5", features = ["full"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "server-auto"] }
 
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "migrate", "chrono"] }

@@ -1110,6 +1110,7 @@ dependencies = [
  "futures-lite",
  "hex",
  "hyper",
+ "hyper-util",
  "ignore",
  "image",
  "lofty",

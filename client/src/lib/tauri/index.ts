@@ -7,8 +7,9 @@
  * - Providing fallbacks for browser environments
  */
 
-// Cache the detection result
+// Cache the detection results
 let _isTauri: boolean | null = null;
+let _isEmbeddedServer: boolean | null = null;
 
 /**
  * Check if we're running in a Tauri environment.
@@ -29,6 +30,29 @@ export function isTauri(): boolean {
   }
 
   return _isTauri;
+}
+
+/**
+ * Check if we're running on a desktop platform in Tauri.
+ * Desktop platforms have the embedded server.
+ *
+ * @returns true if running on desktop in Tauri
+ */
+export function isTauriDesktop(): boolean {
+  if (!isTauri()) {
+    return false;
+  }
+
+  // Check user agent for mobile platforms
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent.toLowerCase();
+  const isMobileUA =
+    /android/.test(userAgent) || /iphone|ipad|ipod/.test(userAgent);
+
+  return !isMobileUA;
 }
 
 /**
@@ -81,3 +105,82 @@ export function isTauriMobile(): boolean {
 export function hasNativeAudio(): boolean {
   return isTauriMobile();
 }
+
+/**
+ * Check if the embedded server is available.
+ * This is true on Tauri desktop platforms.
+ *
+ * @returns Promise that resolves to true if embedded server is available
+ */
+export async function hasEmbeddedServer(): Promise<boolean> {
+  if (_isEmbeddedServer !== null) {
+    return _isEmbeddedServer;
+  }
+
+  if (!isTauri()) {
+    _isEmbeddedServer = false;
+    return false;
+  }
+
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    _isEmbeddedServer = await invoke<boolean>("is_embedded_server");
+    return _isEmbeddedServer;
+  } catch {
+    _isEmbeddedServer = false;
+    return false;
+  }
+}
+
+/**
+ * Get the embedded server admin password.
+ * Only available on Tauri desktop platforms.
+ *
+ * @returns Promise that resolves to the admin password, or null if not available
+ */
+export async function getEmbeddedAdminPassword(): Promise<string | null> {
+  if (!isTauri()) {
+    return null;
+  }
+
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<string | null>("get_embedded_admin_password");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the base URL for API requests.
+ * On Tauri desktop, this returns the custom protocol URL.
+ * Otherwise, returns the provided server URL or empty string for same-origin.
+ *
+ * @param serverUrl - Optional server URL to use
+ * @returns The base URL to use for API requests
+ */
+export function getApiBaseUrl(serverUrl?: string): string {
+  // If a server URL is explicitly provided, use it
+  if (serverUrl) {
+    return serverUrl;
+  }
+
+  // On Tauri desktop, use the custom protocol
+  if (isTauriDesktop()) {
+    // Platform-specific URL format:
+    // - macOS/iOS/Linux: ferrotune://localhost
+    // - Windows/Android: http://ferrotune.localhost
+    const isWindowsOrAndroid =
+      typeof navigator !== "undefined" &&
+      (navigator.userAgent.includes("Windows") ||
+        navigator.userAgent.includes("Android"));
+
+    return isWindowsOrAndroid
+      ? "http://ferrotune.localhost"
+      : "ferrotune://localhost";
+  }
+
+  // Default: use same origin (empty string)
+  return "";
+}
+

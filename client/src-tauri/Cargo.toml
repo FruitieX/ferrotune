@@ -24,3 +24,13 @@ log = "0.4"
 tauri = { version = "2.9.5", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-native-audio = { path = "../tauri-plugin-native-audio" }
+
+# Embedded server dependencies (desktop only)
+[target.'cfg(not(target_os = "android"))'.dependencies]
+ferrotune = { path = "../.." }
+tokio = { version = "1", features = ["full"] }
+dirs = "5.0"
+rand = "0.8"
+tower = "0.5"
+http = "1.0"
+axum = { version = "0.8", default-features = false }

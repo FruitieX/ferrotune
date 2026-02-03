@@ -333,8 +333,18 @@ tasks:
       runInCI: false
 
   # ============================================================================
-  # TAURI (Mobile App)
+  # TAURI (Desktop App)
   # ============================================================================
+
+  tauri-check:
+    command: "cd src-tauri && cargo check"
+    inputs:
+      - "src-tauri/**/*"
+      - "tauri-plugin-native-audio/src/**/*"
+    deps:
+      - "install"
+    options:
+      runInCI: false
 
   tauri-dev:
     command: "npx tauri dev"
@@ -353,9 +363,40 @@ tasks:
       - "tauri-plugin-native-audio/**/*"
     deps:
       - "install"
+      - "build-export"
       - "ferrotune:generate-bindings"
     options:
       runInCI: false
+
+  tauri-build-debug:
+    command: "npx tauri build -- --debug"
+    inputs:
+      - "@group(sources)"
+      - "src-tauri/**/*"
+      - "tauri-plugin-native-audio/**/*"
+    deps:
+      - "install"
+      - "build-export"
+      - "ferrotune:generate-bindings"
+    options:
+      runInCI: false
+
+  tauri-build-release:
+    command: "npx tauri build"
+    inputs:
+      - "@group(sources)"
+      - "src-tauri/**/*"
+      - "tauri-plugin-native-audio/**/*"
+    deps:
+      - "install"
+      - "build-export"
+      - "ferrotune:generate-bindings"
+    options:
+      runInCI: false
+
+  # ============================================================================
+  # TAURI (Android App)
+  # ============================================================================
 
   tauri-android-init:
     command: "npx tauri android init"

@@ -54,6 +54,11 @@ import { initializeClient, getClient } from "@/lib/api/client";
 import { DirectoryBrowser } from "@/components/admin/directory-browser";
 import { ScanDialog } from "@/components/admin/scan-dialog";
 import type { SetupStatusResponse } from "@/lib/api/generated/SetupStatusResponse";
+import {
+  isTauriDesktop,
+  getApiBaseUrl,
+  getEmbeddedAdminPassword,
+} from "@/lib/tauri";
 
 type SetupStep = "welcome" | "credentials" | "folders" | "scan" | "complete";
 
@@ -75,6 +80,21 @@ export default function SetupPage() {
   const [newPassword, setNewPassword] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Embedded server mode (Tauri desktop only)
+  const [isEmbeddedMode, setIsEmbeddedMode] = useState(false);
+  const [embeddedLoading, setEmbeddedLoading] = useState(true);
+
+  // Check if embedded server is available on mount
+  useEffect(() => {
+    const checkEmbedded = async () => {
+      if (isTauriDesktop()) {
+        setIsEmbeddedMode(true);
+      }
+      setEmbeddedLoading(false);
+    };
+    checkEmbedded();
+  }, []);
 
   // Folder management state
   const [newFolderName, setNewFolderName] = useState("");
@@ -103,14 +123,15 @@ export default function SetupPage() {
     setScanDialogOpen(true);
   };
 
-  // Compute backend URL for API calls
-  const backendUrl =
-    serverUrl.trim() ||
-    (process.env.NODE_ENV === "development"
-      ? "http://localhost:4040"
-      : typeof window !== "undefined"
-        ? window.location.origin
-        : "");
+  // Compute backend URL for API calls - use embedded server URL in Tauri desktop mode
+  const backendUrl = isEmbeddedMode
+    ? getApiBaseUrl()
+    : serverUrl.trim() ||
+      (process.env.NODE_ENV === "development"
+        ? "http://localhost:4040"
+        : typeof window !== "undefined"
+          ? window.location.origin
+          : "");
 
   // Track if we've intentionally completed setup (to prevent redirect during completion screen)
   const [setupCompleted, setSetupCompleted] = useState(false);
@@ -126,8 +147,8 @@ export default function SetupPage() {
       return response.json() as Promise<SetupStatusResponse>;
     },
     retry: false,
-    // Don't refetch if we just completed setup
-    enabled: !setupCompleted,
+    // Don't refetch if we just completed setup, and wait for embedded check
+    enabled: !setupCompleted && !embeddedLoading,
   });
 
   // Redirect if setup was already complete when we loaded the page
@@ -197,6 +218,53 @@ export default function SetupPage() {
         }
       } else {
         setError("An unexpected error occurred");
+      }
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  // Auto-connect to embedded server (skips credentials step)
+  const handleEmbeddedConnect = async () => {
+    setIsConnecting(true);
+    setError(null);
+
+    try {
+      const embeddedUrl = getApiBaseUrl();
+      const embeddedPassword = await getEmbeddedAdminPassword();
+
+      if (!embeddedPassword) {
+        // Server might not be ready yet, wait a bit
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const retryPassword = await getEmbeddedAdminPassword();
+        if (!retryPassword) {
+          throw new Error("Embedded server not ready. Please try again.");
+        }
+      }
+
+      const connection = {
+        serverUrl: embeddedUrl,
+        username: "admin",
+        password: embeddedPassword || "",
+      };
+
+      const client = initializeClient(connection);
+      setClientInitialized(true);
+      setConnectionStatus("connecting");
+      await client.ping();
+
+      // Connection successful
+      setConnection(connection);
+      setConnectionStatus("connected");
+      // Skip credentials step, go directly to folders
+      setStep("folders");
+    } catch (err) {
+      console.error("Embedded connection error:", err);
+      setConnectionStatus("error");
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Failed to connect to embedded server");
       }
     } finally {
       setIsConnecting(false);
@@ -354,8 +422,8 @@ export default function SetupPage() {
         queryClient.invalidateQueries({ queryKey: ["adminMusicFolders"] });
       }
 
-      // Update password if changed
-      if (newPassword.trim() && newPassword !== password) {
+      // Update password if changed (only for non-embedded mode)
+      if (!isEmbeddedMode && newPassword.trim() && newPassword !== password) {
         await updatePasswordMutation.mutateAsync(newPassword);
         // Update the connection with new password
         const url =
@@ -445,7 +513,7 @@ export default function SetupPage() {
   };
 
   // Loading state
-  if (statusLoading) {
+  if (statusLoading || embeddedLoading) {
     return (
       <div className="min-h-dvh flex items-center justify-center p-4 bg-background">
         <div className="text-center">
@@ -578,16 +646,30 @@ export default function SetupPage() {
                   <div className="space-y-2">
                     <Button
                       className="w-full"
-                      onClick={() => setStep("credentials")}
+                      onClick={() =>
+                        isEmbeddedMode
+                          ? handleEmbeddedConnect()
+                          : setStep("credentials")
+                      }
+                      disabled={isConnecting}
                     >
-                      Get Started
-                      <ArrowRight className="w-4 h-4 ml-2" />
+                      {isConnecting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Connecting...
+                        </>
+                      ) : (
+                        <>
+                          Get Started
+                          <ArrowRight className="w-4 h-4 ml-2" />
+                        </>
+                      )}
                     </Button>
                     <Button
                       variant="outline"
                       className="w-full"
                       onClick={() => completeSetupMutation.mutate()}
-                      disabled={completeSetupMutation.isPending}
+                      disabled={completeSetupMutation.isPending || isConnecting}
                     >
                       {completeSetupMutation.isPending ? (
                         <>
@@ -599,6 +681,14 @@ export default function SetupPage() {
                       )}
                     </Button>
                   </div>
+
+                  {/* Error message for embedded mode connection */}
+                  {error && isEmbeddedMode && (
+                    <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{error}</span>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
@@ -851,7 +941,9 @@ export default function SetupPage() {
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
-                      onClick={() => setStep("credentials")}
+                      onClick={() =>
+                        setStep(isEmbeddedMode ? "welcome" : "credentials")
+                      }
                       disabled={continueMutation.isPending}
                     >
                       Back

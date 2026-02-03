@@ -1,13 +1,3 @@
-mod api;
-mod config;
-mod db;
-mod error;
-mod password;
-mod replaygain;
-mod scanner;
-mod thumbnails;
-mod watcher;
-
 use anyhow::Result;
 use axum::http::HeaderValue;
 use clap::{Parser, Subcommand};
@@ -16,6 +6,8 @@ use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+use ferrotune::{api, config, db, error, password, scanner, watcher};
 
 /// Ferrotune - OpenSubsonic-compatible music server
 #[derive(Parser)]

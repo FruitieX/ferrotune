@@ -31,6 +31,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   serverConnectionAtom,
   connectionStatusAtom,
@@ -39,6 +41,11 @@ import {
 import { initializeClient, FerrotuneApiError } from "@/lib/api/client";
 import type { ServerConnection } from "@/lib/api/types";
 import type { SetupStatusResponse } from "@/lib/api/generated/SetupStatusResponse";
+import {
+  isTauriDesktop,
+  getApiBaseUrl,
+  getEmbeddedAdminPassword,
+} from "@/lib/tauri";
 
 // Default server URL - empty means use current origin (works in dev with proxy)
 const DEFAULT_SERVER_URL = "";
@@ -57,9 +64,30 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  // Embedded server mode (Tauri desktop only)
+  const [useEmbeddedServer, setUseEmbeddedServer] = useState(false);
+  const [isEmbeddedAvailable, setIsEmbeddedAvailable] = useState(false);
+  const [embeddedLoading, setEmbeddedLoading] = useState(true);
+
+  // Check if embedded server is available on mount
+  useEffect(() => {
+    const checkEmbedded = async () => {
+      if (isTauriDesktop()) {
+        setIsEmbeddedAvailable(true);
+        setUseEmbeddedServer(true); // Default to embedded on desktop
+      }
+      setEmbeddedLoading(false);
+    };
+    checkEmbedded();
+  }, []);
+
   // Compute stable backend URL for setup check - uses current origin (works in dev with proxy)
   const setupCheckUrl =
-    typeof window !== "undefined" ? window.location.origin : "";
+    typeof window !== "undefined"
+      ? useEmbeddedServer && isEmbeddedAvailable
+        ? getApiBaseUrl()
+        : window.location.origin
+      : "";
 
   // Check setup status - redirect to setup if not complete
   const { data: setupStatus, isLoading: setupLoading } = useQuery({
@@ -89,6 +117,7 @@ export default function LoginPage() {
       }
     },
     retry: false,
+    enabled: !embeddedLoading,
   });
 
   // Redirect to setup if not complete
@@ -97,6 +126,67 @@ export default function LoginPage() {
       router.push("/setup");
     }
   }, [setupStatus, router]);
+
+  // Auto-connect to embedded server
+  useEffect(() => {
+    if (
+      !embeddedLoading &&
+      useEmbeddedServer &&
+      isEmbeddedAvailable &&
+      setupStatus?.setupComplete
+    ) {
+      handleEmbeddedConnect();
+    }
+    // Only run when embedded state is ready
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embeddedLoading, useEmbeddedServer, isEmbeddedAvailable, setupStatus]);
+
+  const handleEmbeddedConnect = async () => {
+    setIsConnecting(true);
+    setError(null);
+    setConnectionError(null);
+
+    try {
+      // Get the embedded server URL and password
+      const embeddedUrl = getApiBaseUrl();
+      const embeddedPassword = await getEmbeddedAdminPassword();
+
+      if (!embeddedPassword) {
+        // Server might not be ready yet, wait a bit
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const retryPassword = await getEmbeddedAdminPassword();
+        if (!retryPassword) {
+          throw new Error("Embedded server not ready. Please try again.");
+        }
+      }
+
+      const connection: ServerConnection = {
+        serverUrl: embeddedUrl,
+        username: "admin",
+        password: embeddedPassword || "",
+      };
+
+      const client = initializeClient(connection);
+      setConnectionStatus("connecting");
+
+      await client.ping();
+
+      setConnection(connection);
+      setConnectionStatus("connected");
+      router.push("/");
+    } catch (err) {
+      console.error("Embedded connection error:", err);
+      setConnectionStatus("error");
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Failed to connect to embedded server");
+      }
+      setConnectionError(error);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
 
   const handleConnect = async (authMethod: "apikey" | "password") => {
     setIsConnecting(true);
@@ -165,8 +255,8 @@ export default function LoginPage() {
     }
   };
 
-  // Show loading state while checking setup status
-  if (setupLoading) {
+  // Show loading state while checking setup status or embedded availability
+  if (setupLoading || embeddedLoading) {
     return (
       <div className="min-h-dvh flex items-center justify-center p-4 bg-background">
         <div className="text-center">
@@ -184,6 +274,20 @@ export default function LoginPage() {
         <div className="text-center">
           <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-muted-foreground" />
           <p className="text-muted-foreground">Redirecting to setup...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If using embedded server and connecting, show loading
+  if (useEmbeddedServer && isEmbeddedAvailable && isConnecting) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center p-4 bg-background">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-muted-foreground" />
+          <p className="text-muted-foreground">
+            Connecting to embedded server...
+          </p>
         </div>
       </div>
     );
@@ -208,124 +312,227 @@ export default function LoginPage() {
             </motion.div>
             <CardTitle className="text-2xl">Welcome to Ferrotune</CardTitle>
             <CardDescription>
-              Connect to your music server to get started
+              {isEmbeddedAvailable
+                ? "Choose to use the built-in server or connect to a remote one"
+                : "Connect to your music server to get started"}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
-              {/* Auth method tabs */}
-              <Tabs defaultValue="password" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="password">Password</TabsTrigger>
-                  <TabsTrigger value="apikey">API Key</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="password" className="space-y-4 mt-4">
-                  <div className="space-y-2">
-                    <label
-                      htmlFor="username"
-                      className="text-sm font-medium flex items-center gap-2"
-                    >
-                      <User className="w-4 h-4" />
-                      Username
-                    </label>
-                    <Input
-                      id="username"
-                      placeholder="admin"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      disabled={isConnecting}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label
-                      htmlFor="password"
-                      className="text-sm font-medium flex items-center gap-2"
-                    >
-                      <Lock className="w-4 h-4" />
-                      Password
-                    </label>
-                    <Input
-                      id="password"
-                      type="password"
-                      placeholder="Enter your password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (
-                          e.key === "Enter" &&
-                          username &&
-                          password &&
-                          !isConnecting
-                        ) {
-                          handleConnect("password");
-                        }
-                      }}
-                      disabled={isConnecting}
-                    />
-                  </div>
-
-                  <Button
-                    className="w-full"
-                    onClick={() => handleConnect("password")}
-                    disabled={isConnecting || !username || !password}
-                  >
-                    {isConnecting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Connecting...
-                      </>
-                    ) : (
-                      "Connect"
-                    )}
-                  </Button>
-                </TabsContent>
-
-                <TabsContent value="apikey" className="space-y-4 mt-4">
-                  <div className="space-y-2">
-                    <label
-                      htmlFor="api-key"
-                      className="text-sm font-medium flex items-center gap-2"
-                    >
-                      <Key className="w-4 h-4" />
-                      API Key
-                    </label>
-                    <Input
-                      id="api-key"
-                      type="password"
-                      placeholder="Enter your API key"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && apiKey && !isConnecting) {
-                          handleConnect("apikey");
-                        }
-                      }}
-                      disabled={isConnecting}
-                    />
+              {/* Embedded server toggle (Tauri desktop only) */}
+              {isEmbeddedAvailable && (
+                <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50 border">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="embedded-toggle" className="font-medium">
+                      Use Built-in Server
+                    </Label>
                     <p className="text-xs text-muted-foreground">
-                      API keys provide secure authentication without sending
-                      passwords
+                      Run the server locally within the app
                     </p>
                   </div>
+                  <Switch
+                    id="embedded-toggle"
+                    checked={useEmbeddedServer}
+                    onCheckedChange={setUseEmbeddedServer}
+                    disabled={isConnecting}
+                  />
+                </div>
+              )}
 
-                  <Button
-                    className="w-full"
-                    onClick={() => handleConnect("apikey")}
-                    disabled={isConnecting || !apiKey}
+              {/* Show remote server options when not using embedded */}
+              {(!isEmbeddedAvailable || !useEmbeddedServer) && (
+                <>
+                  {/* Auth method tabs */}
+                  <Tabs defaultValue="password" className="w-full">
+                    <TabsList className="grid w-full grid-cols-2">
+                      <TabsTrigger value="password">Password</TabsTrigger>
+                      <TabsTrigger value="apikey">API Key</TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="password" className="space-y-4 mt-4">
+                      <div className="space-y-2">
+                        <label
+                          htmlFor="username"
+                          className="text-sm font-medium flex items-center gap-2"
+                        >
+                          <User className="w-4 h-4" />
+                          Username
+                        </label>
+                        <Input
+                          id="username"
+                          placeholder="admin"
+                          value={username}
+                          onChange={(e) => setUsername(e.target.value)}
+                          disabled={isConnecting}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label
+                          htmlFor="password"
+                          className="text-sm font-medium flex items-center gap-2"
+                        >
+                          <Lock className="w-4 h-4" />
+                          Password
+                        </label>
+                        <Input
+                          id="password"
+                          type="password"
+                          placeholder="Enter your password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (
+                              e.key === "Enter" &&
+                              username &&
+                              password &&
+                              !isConnecting
+                            ) {
+                              handleConnect("password");
+                            }
+                          }}
+                          disabled={isConnecting}
+                        />
+                      </div>
+
+                      <Button
+                        className="w-full"
+                        onClick={() => handleConnect("password")}
+                        disabled={isConnecting || !username || !password}
+                      >
+                        {isConnecting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Connecting...
+                          </>
+                        ) : (
+                          "Connect"
+                        )}
+                      </Button>
+                    </TabsContent>
+
+                    <TabsContent value="apikey" className="space-y-4 mt-4">
+                      <div className="space-y-2">
+                        <label
+                          htmlFor="api-key"
+                          className="text-sm font-medium flex items-center gap-2"
+                        >
+                          <Key className="w-4 h-4" />
+                          API Key
+                        </label>
+                        <Input
+                          id="api-key"
+                          type="password"
+                          placeholder="Enter your API key"
+                          value={apiKey}
+                          onChange={(e) => setApiKey(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && apiKey && !isConnecting) {
+                              handleConnect("apikey");
+                            }
+                          }}
+                          disabled={isConnecting}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          API keys provide secure authentication without sending
+                          passwords
+                        </p>
+                      </div>
+
+                      <Button
+                        className="w-full"
+                        onClick={() => handleConnect("apikey")}
+                        disabled={isConnecting || !apiKey}
+                      >
+                        {isConnecting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Connecting...
+                          </>
+                        ) : (
+                          "Connect"
+                        )}
+                      </Button>
+                    </TabsContent>
+                  </Tabs>
+
+                  {/* Advanced Settings */}
+                  <Collapsible
+                    open={showAdvanced}
+                    onOpenChange={setShowAdvanced}
                   >
-                    {isConnecting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Connecting...
-                      </>
-                    ) : (
-                      "Connect"
-                    )}
-                  </Button>
-                </TabsContent>
-              </Tabs>
+                    <CollapsibleTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-between text-muted-foreground hover:text-foreground"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Settings className="w-4 h-4" />
+                          Advanced Settings
+                        </span>
+                        <motion.div
+                          animate={{ rotate: showAdvanced ? 180 : 0 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <ChevronDown className="w-4 h-4" />
+                        </motion.div>
+                      </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <AnimatePresence>
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="pt-2"
+                        >
+                          <div className="space-y-2">
+                            <label
+                              htmlFor="server-url"
+                              className="text-sm font-medium flex items-center gap-2"
+                            >
+                              <Server className="w-4 h-4" />
+                              Server URL
+                            </label>
+                            <Input
+                              id="server-url"
+                              placeholder="Leave empty to use current origin"
+                              value={serverUrl}
+                              onChange={(e) => setServerUrl(e.target.value)}
+                              disabled={isConnecting}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              {serverUrl
+                                ? `Will connect to: ${serverUrl}`
+                                : "Will connect to current page origin"}
+                            </p>
+                          </div>
+                        </motion.div>
+                      </AnimatePresence>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </>
+              )}
+
+              {/* Connect button for embedded mode */}
+              {isEmbeddedAvailable && useEmbeddedServer && (
+                <Button
+                  className="w-full"
+                  onClick={handleEmbeddedConnect}
+                  disabled={isConnecting}
+                >
+                  {isConnecting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Connecting...
+                    </>
+                  ) : (
+                    "Continue"
+                  )}
+                </Button>
+              )}
 
               {/* Error message */}
               {error && (
@@ -338,61 +545,6 @@ export default function LoginPage() {
                   <span>{error}</span>
                 </motion.div>
               )}
-
-              {/* Advanced Settings */}
-              <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
-                <CollapsibleTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-between text-muted-foreground hover:text-foreground"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Settings className="w-4 h-4" />
-                      Advanced Settings
-                    </span>
-                    <motion.div
-                      animate={{ rotate: showAdvanced ? 180 : 0 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <ChevronDown className="w-4 h-4" />
-                    </motion.div>
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <AnimatePresence>
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="pt-2"
-                    >
-                      <div className="space-y-2">
-                        <label
-                          htmlFor="server-url"
-                          className="text-sm font-medium flex items-center gap-2"
-                        >
-                          <Server className="w-4 h-4" />
-                          Server URL
-                        </label>
-                        <Input
-                          id="server-url"
-                          placeholder="Leave empty to use current origin"
-                          value={serverUrl}
-                          onChange={(e) => setServerUrl(e.target.value)}
-                          disabled={isConnecting}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          {serverUrl
-                            ? `Will connect to: ${serverUrl}`
-                            : "Will connect to current page origin"}
-                        </p>
-                      </div>
-                    </motion.div>
-                  </AnimatePresence>
-                </CollapsibleContent>
-              </Collapsible>
             </form>
           </CardContent>
         </Card>
