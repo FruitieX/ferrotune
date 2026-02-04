@@ -187,7 +187,9 @@ export function PlaylistContextMenu({
       toast.success(`Deleted "${playlist.name}"`);
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
-      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlist.id] });
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlist.id],
+      });
       setDeleteDialogOpen(false);
     } catch (error) {
       toast.error("Failed to delete playlist");
@@ -451,7 +453,9 @@ export function PlaylistDropdownMenu({
       toast.success(`Deleted "${playlist.name}"`);
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
       queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
-      queryClient.invalidateQueries({ queryKey: ["playlistSongs", playlist.id] });
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlist.id],
+      });
       setDeleteDialogOpen(false);
     } catch (error) {
       toast.error("Failed to delete playlist");

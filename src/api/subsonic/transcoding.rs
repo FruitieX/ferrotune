@@ -472,6 +472,7 @@ async fn get_transcode_stream_logic(
             tx,
             offset_seconds,
             replaygain_info,
+            false, // Use coarse seek by default for OpenSubsonic endpoint
         ) {
             tracing::error!("Transcoding error: {}", e);
         }
@@ -501,6 +502,7 @@ pub async fn transcode_with_offset(
     config: &TranscodeConfig,
     time_offset_seconds: f64,
     replaygain_info: ReplayGainInfo,
+    accurate_seek: bool,
 ) -> Result<Response> {
     let path = path.to_path_buf();
     let config = config.clone();
@@ -510,9 +512,14 @@ pub async fn transcode_with_offset(
 
     // Spawn blocking task to transcode
     tokio::task::spawn_blocking(move || {
-        if let Err(e) =
-            transcode_to_opus_with_offset(&path, &config, tx, time_offset_seconds, replaygain_info)
-        {
+        if let Err(e) = transcode_to_opus_with_offset(
+            &path,
+            &config,
+            tx,
+            time_offset_seconds,
+            replaygain_info,
+            accurate_seek,
+        ) {
             tracing::error!("Transcoding error: {}", e);
         }
     });
@@ -555,6 +562,7 @@ fn transcode_to_opus_with_offset(
     tx: mpsc::Sender<Vec<u8>>,
     time_offset_seconds: f64,
     replaygain_info: ReplayGainInfo,
+    accurate_seek: bool,
 ) -> Result<()> {
     // Open source file
     let file = std::fs::File::open(path)
@@ -598,8 +606,16 @@ fn transcode_to_opus_with_offset(
         // Convert seconds to TimeStamp
         let ts = Time::from(time_offset_seconds);
 
+        // Choose seek mode: Accurate is sample-precise but slower,
+        // Coarse is faster but may not land exactly on the requested time
+        let seek_mode = if accurate_seek {
+            SeekMode::Accurate
+        } else {
+            SeekMode::Coarse
+        };
+
         match format.seek(
-            SeekMode::Accurate,
+            seek_mode,
             symphonia::core::formats::SeekTo::Time {
                 time: ts,
                 track_id: Some(track_id),
@@ -607,9 +623,10 @@ fn transcode_to_opus_with_offset(
         ) {
             Ok(seeked_to) => {
                 tracing::debug!(
-                    "Seeked to timestamp {} (requested {}s)",
+                    "Seeked to timestamp {} (requested {}s, mode={:?})",
                     seeked_to.actual_ts,
-                    time_offset_seconds
+                    time_offset_seconds,
+                    seek_mode
                 );
             }
             Err(e) => {

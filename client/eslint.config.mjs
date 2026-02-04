@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Tauri build artifacts:
+    "src-tauri/**",
     // Test output directories:
     "playwright-report/**",
     "test-results/**",

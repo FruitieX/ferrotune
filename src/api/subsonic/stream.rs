@@ -25,6 +25,9 @@ pub struct StreamParams {
     format: Option<String>,
     #[serde(rename = "timeOffset")]
     time_offset: Option<u32>,
+    /// Seek mode: "accurate" for sample-accurate seeking (slower), "coarse" for fast seeking
+    #[serde(rename = "seekMode")]
+    seek_mode: Option<String>,
 }
 
 pub async fn stream(
@@ -126,6 +129,7 @@ pub async fn stream(
                 &config,
                 time_offset_seconds,
                 replaygain_info,
+                params.seek_mode.as_deref().unwrap_or("coarse") == "accurate",
             )
             .await;
         }

@@ -43,7 +43,9 @@ import {
   replayGainOffsetAtom,
   transcodingEnabledAtom,
   transcodingBitrateAtom,
+  transcodingSeekModeAtom,
   type ReplayGainMode,
+  type SeekMode,
 } from "@/lib/store/player";
 import {
   serverQueueStateAtom,
@@ -102,6 +104,9 @@ export default function SettingsPage() {
   );
   const [transcodingBitrate, setTranscodingBitrate] = useAtom(
     transcodingBitrateAtom,
+  );
+  const [transcodingSeekMode, setTranscodingSeekMode] = useAtom(
+    transcodingSeekModeAtom,
   );
   const queueState = useAtomValue(serverQueueStateAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
@@ -558,12 +563,42 @@ export default function SettingsPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="64">64 kbps</SelectItem>
                       <SelectItem value="96">96 kbps</SelectItem>
                       <SelectItem value="128">128 kbps</SelectItem>
                       <SelectItem value="160">160 kbps</SelectItem>
                       <SelectItem value="192">192 kbps</SelectItem>
                       <SelectItem value="256">256 kbps</SelectItem>
                       <SelectItem value="320">320 kbps</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Seek Mode - only show when transcoding is enabled */}
+              {transcodingEnabled && (
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <label className="flex items-center gap-2 font-medium">
+                      <Clock className="w-4 h-4" />
+                      Seek Mode
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      Accurate is slower but precise; Coarse is faster
+                    </p>
+                  </div>
+                  <Select
+                    value={transcodingSeekMode}
+                    onValueChange={(v: string) =>
+                      setTranscodingSeekMode(v as SeekMode)
+                    }
+                  >
+                    <SelectTrigger className="w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="coarse">Coarse</SelectItem>
+                      <SelectItem value="accurate">Accurate</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

@@ -12,7 +12,7 @@ import {
 import { currentSongAtom } from "@/lib/store/server-queue";
 import { accentColorRgbAtom } from "@/lib/store/ui";
 import { lastChunkInfoAtom } from "@/lib/store/waveform";
-import { useAudioEngine, getGlobalAudio } from "@/lib/audio/hooks";
+import { useAudioEngine } from "@/lib/audio/hooks";
 import { useWaveform } from "@/lib/hooks/use-waveform";
 import { FLAT_BAR_HEIGHT } from "@/lib/store/waveform";
 
@@ -572,18 +572,16 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   }, []);
 
   // Playback progress animation (separate from waveform height animation)
+  // Use requestAnimationFrame for smooth visual updates, but get the actual
+  // progress from atomProgress (which correctly handles transcoding time offsets)
   useEffect(() => {
     const isPlaying = playbackState === "playing";
 
     if (isPlaying) {
       const animateProgress = () => {
-        const audio = getGlobalAudio();
-        if (audio && audio.duration > 0) {
-          smoothProgressRef.current =
-            (audio.currentTime / audio.duration) * 100;
-        } else {
-          smoothProgressRef.current = atomProgress;
-        }
+        // Use atomProgress which correctly accounts for stream time offset
+        // when using timeOffset-based seeking with transcoding
+        smoothProgressRef.current = atomProgress;
         drawRef.current();
         progressRafRef.current = requestAnimationFrame(animateProgress);
       };

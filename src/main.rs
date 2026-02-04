@@ -288,7 +288,8 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_headers(Any)
+        .expose_headers(Any);
 
     // Build combined API router (OpenSubsonic + Ferrotune Admin)
     // Both APIs are served on the same port:

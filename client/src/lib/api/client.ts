@@ -645,6 +645,8 @@ export class FerrotuneClient {
     options?: {
       maxBitRate?: number;
       format?: string;
+      timeOffset?: number;
+      seekMode?: "accurate" | "coarse";
     },
   ): string {
     const params = new URLSearchParams();
@@ -667,6 +669,9 @@ export class FerrotuneClient {
     if (options?.maxBitRate)
       params.set("maxBitRate", String(options.maxBitRate));
     if (options?.format) params.set("format", options.format);
+    if (options?.timeOffset !== undefined && options.timeOffset > 0)
+      params.set("timeOffset", String(Math.floor(options.timeOffset)));
+    if (options?.seekMode) params.set("seekMode", options.seekMode);
 
     return `${this.serverUrl}/ferrotune/stream?${params.toString()}`;
   }

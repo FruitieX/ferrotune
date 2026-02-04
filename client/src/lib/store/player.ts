@@ -48,6 +48,13 @@ export const transcodingBitrateAtom = atomWithServerStorage<number>(
   "transcodingBitrate",
   192,
 );
+// Seek mode for transcoding: "accurate" is sample-accurate but slower for some formats,
+// "coarse" is faster but may not seek to the exact requested position
+export type SeekMode = "accurate" | "coarse";
+export const transcodingSeekModeAtom = atomWithServerStorage<SeekMode>(
+  "transcodingSeekMode",
+  "coarse",
+);
 
 // ReplayGain settings
 // Mode: "computed" uses server-computed EBU R128 values, "original" uses tags from files, "disabled" disables ReplayGain

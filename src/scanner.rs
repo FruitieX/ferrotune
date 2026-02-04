@@ -2,13 +2,14 @@ use crate::api::ScanState;
 
 use crate::error::{Error, Result};
 use async_walkdir::WalkDir;
-use futures_lite::StreamExt;
+use futures::stream::{self, StreamExt};
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::probe::Probe;
 use lofty::tag::Accessor;
 use sqlx::SqlitePool;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -600,14 +601,15 @@ async fn scan_folder_files(
 ) -> Result<FolderMissingFiles> {
     let base_path = PathBuf::from(folder_path);
 
-    let mut scanned = 0;
-    let mut added = 0;
-    let mut updated = 0;
-    let mut unchanged = 0;
-    let mut errors = 0;
+    let mut scanned = 0u64;
+    let mut added = 0u64;
+    let mut updated = 0u64;
+    let mut unchanged = 0u64;
+    let mut errors = 0u64;
 
     // Load all existing file paths for this folder from database.
     // We'll track which ones we see during the scan - any remaining are missing files.
+    // Also fetch mtime and ReplayGain status for incremental scan optimization.
     tracing::info!("Loading existing songs from database...");
     if let Some(ref state) = scan_state {
         state
@@ -615,16 +617,22 @@ async fn scan_folder_files(
             .await;
     }
 
-    let existing_paths: Vec<(String, String)> =
-        sqlx::query_as("SELECT id, file_path FROM songs WHERE music_folder_id = ?")
-            .bind(folder_id)
-            .fetch_all(pool)
-            .await?;
+    // Fetch: id, file_path, file_mtime, has_replaygain (1 if computed gain exists, 0 otherwise)
+    let existing_paths: Vec<(String, String, Option<i64>, i32)> = sqlx::query_as(
+        "SELECT id, file_path, file_mtime, 
+                CASE WHEN computed_replaygain_track_gain IS NOT NULL THEN 1 ELSE 0 END as has_rg
+         FROM songs WHERE music_folder_id = ?",
+    )
+    .bind(folder_id)
+    .fetch_all(pool)
+    .await?;
 
-    let mut unseen_files: std::collections::HashMap<String, String> = existing_paths
-        .into_iter()
-        .map(|(id, path)| (path, id))
-        .collect();
+    // Map: file_path -> (song_id, file_mtime, has_replaygain)
+    let mut unseen_files: std::collections::HashMap<String, (String, Option<i64>, bool)> =
+        existing_paths
+            .into_iter()
+            .map(|(id, path, mtime, has_rg)| (path, (id, mtime, has_rg != 0)))
+            .collect();
 
     tracing::info!(
         "Found {} existing songs, processing {} files...",
@@ -644,32 +652,22 @@ async fn scan_folder_files(
             .await;
     }
 
-    // Process each file from the pre-collected list
+    // ==========================================
+    // PHASE 1: Classify files (single-threaded)
+    // Determine which files to skip vs process, update unseen_files tracking
+    // ==========================================
+
+    // Info needed to process a file
+    struct FileToProcess {
+        path: PathBuf,
+        relative_path: String,
+        file_mtime: Option<i64>,
+    }
+
+    let mut files_to_process: Vec<FileToProcess> = Vec::new();
+
     for (_, path) in files {
-        // Check for cancellation
-        if let Some(ref state) = scan_state {
-            if state.is_cancelled() {
-                state.log("WARN", "Scan cancelled by user").await;
-                return Err(Error::InvalidRequest("Scan cancelled".to_string()));
-            }
-        }
-
         scanned += 1;
-
-        // Update progress
-        if let Some(ref state) = scan_state {
-            state.increment_scanned();
-            state
-                .set_current_file(Some(
-                    path.file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string(),
-                ))
-                .await;
-            // Throttled broadcast (sends at most every 200ms)
-            state.broadcast_throttled().await;
-        }
 
         // Get relative path from base
         let relative_path = path
@@ -678,8 +676,8 @@ async fn scan_folder_files(
             .to_string_lossy()
             .to_string();
 
-        // Mark this file as seen (remove from unseen set)
-        let existing_id = unseen_files.remove(&relative_path);
+        // Mark this file as seen (remove from unseen set) and get cached info
+        let existing_info = unseen_files.remove(&relative_path);
 
         // Get file modification time (used for incremental scanning)
         let file_mtime = std::fs::metadata(path)
@@ -688,45 +686,19 @@ async fn scan_folder_files(
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs() as i64);
 
-        // Check if file already exists in database (use cached info if available)
-        let existing: Option<(String, Option<i64>)> = if let Some(id) = existing_id {
-            // We know it exists, fetch mtime for incremental scan check
-            sqlx::query_as("SELECT id, file_mtime FROM songs WHERE id = ?")
-                .bind(&id)
-                .fetch_optional(pool)
-                .await?
-        } else {
-            None
-        };
-
+        // Check if we can skip this file in incremental mode
         if !full {
-            if let Some((_, stored_mtime)) = &existing {
-                // Skip if file hasn't been modified since last scan
-                if file_mtime.is_some() && stored_mtime == &file_mtime {
+            if let Some((_, stored_mtime, has_replaygain)) = &existing_info {
+                // Skip if:
+                // 1. File hasn't been modified since last scan, AND
+                // 2. Either ReplayGain analysis is not requested, OR file already has ReplayGain data
+                let mtime_unchanged = file_mtime.is_some() && stored_mtime == &file_mtime;
+                let replaygain_ok = !analyze_replaygain || *has_replaygain;
+
+                if mtime_unchanged && replaygain_ok {
                     unchanged += 1;
                     if let Some(ref state) = scan_state {
                         state.track_unchanged(&path.to_string_lossy()).await;
-                    }
-                    if scanned % 100 == 0 {
-                        tracing::info!(
-                            "Progress: {} files scanned, {} added, {} updated, {} unchanged, {} errors",
-                            scanned,
-                            added,
-                            updated,
-                            unchanged,
-                            errors
-                        );
-                        if let Some(ref state) = scan_state {
-                            state
-                                .log(
-                                    "INFO",
-                                    format!(
-                                        "Progress: {} files scanned, {} added, {} updated, {} unchanged, {} errors",
-                                        scanned, added, updated, unchanged, errors
-                                    ),
-                                )
-                                .await;
-                        }
                     }
                     continue;
                 }
@@ -735,7 +707,7 @@ async fn scan_folder_files(
 
         // In dry-run mode, just count what would be added/updated
         if dry_run {
-            if existing.is_none() {
+            if existing_info.is_none() {
                 tracing::info!("Would add: {}", relative_path);
                 if let Some(ref state) = scan_state {
                     state.track_added(&path.to_string_lossy()).await;
@@ -751,20 +723,240 @@ async fn scan_folder_files(
             continue;
         }
 
-        // Extract metadata (pass file_mtime to avoid re-reading it)
-        match extract_metadata(pool, path, file_mtime, analyze_replaygain).await {
-            Ok(metadata) => {
-                match upsert_song(pool, metadata, relative_path.clone(), folder_id).await {
+        // This file needs processing
+        files_to_process.push(FileToProcess {
+            path: path.clone(),
+            relative_path,
+            file_mtime,
+        });
+    }
+
+    // Log classification results
+    let files_to_process_count = files_to_process.len();
+    tracing::info!(
+        "Classification complete: {} files to process, {} unchanged (skipped)",
+        files_to_process_count,
+        unchanged
+    );
+    if let Some(ref state) = scan_state {
+        state
+            .log(
+                "INFO",
+                format!(
+                    "Classification complete: {} files to process, {} unchanged (skipped)",
+                    files_to_process_count, unchanged
+                ),
+            )
+            .await;
+    }
+
+    // ==========================================
+    // PHASE 2: Extract metadata in parallel, write to DB sequentially
+    // ==========================================
+    //
+    // We separate metadata extraction (parallelized) from database writes (sequential)
+    // because SQLite concurrent transactions can have race conditions when multiple
+    // tasks perform read-modify-write cycles on related records (artists, albums).
+
+    if !files_to_process.is_empty() && !dry_run {
+        // Determine concurrency level based on available CPUs
+        let concurrency = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+
+        tracing::info!(
+            "Extracting metadata from {} files with {} parallel workers{}",
+            files_to_process_count,
+            concurrency,
+            if analyze_replaygain {
+                " (ReplayGain analysis enabled)"
+            } else {
+                ""
+            }
+        );
+        if let Some(ref state) = scan_state {
+            state
+                .log(
+                    "INFO",
+                    format!(
+                        "Extracting metadata from {} files with {} parallel workers{}",
+                        files_to_process_count,
+                        concurrency,
+                        if analyze_replaygain {
+                            " (ReplayGain analysis enabled)"
+                        } else {
+                            ""
+                        }
+                    ),
+                )
+                .await;
+        }
+
+        // Atomic counters for parallel tracking
+        let extracted_counter = Arc::new(AtomicU64::new(0));
+        let extract_errors_counter = Arc::new(AtomicU64::new(0));
+
+        // Wrap cancellation state check in Arc for sharing
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        // Result type for extracted metadata
+        struct ExtractedFile {
+            path: PathBuf,
+            relative_path: String,
+            metadata: SongMetadata,
+        }
+
+        // STAGE 1: Extract metadata in parallel
+        let extracted_results: Vec<Option<ExtractedFile>> = stream::iter(files_to_process)
+            .map(|file_info| {
+                let pool = pool.clone();
+                let scan_state = scan_state.clone();
+                let extracted_counter = Arc::clone(&extracted_counter);
+                let extract_errors_counter = Arc::clone(&extract_errors_counter);
+                let cancelled = Arc::clone(&cancelled);
+                let total_to_process = files_to_process_count;
+
+                async move {
+                    // Check for cancellation
+                    if cancelled.load(Ordering::Relaxed) {
+                        return None;
+                    }
+                    if let Some(ref state) = scan_state {
+                        if state.is_cancelled() {
+                            cancelled.store(true, Ordering::Relaxed);
+                            return None;
+                        }
+                    }
+
+                    // Update progress
+                    if let Some(ref state) = scan_state {
+                        state.increment_scanned();
+                        state
+                            .set_current_file(Some(
+                                file_info
+                                    .path
+                                    .file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .to_string(),
+                            ))
+                            .await;
+                        state.broadcast_throttled().await;
+                    }
+
+                    // Extract metadata (this is the CPU-intensive part, especially with ReplayGain)
+                    match extract_metadata(
+                        &pool,
+                        &file_info.path,
+                        file_info.file_mtime,
+                        analyze_replaygain,
+                    )
+                    .await
+                    {
+                        Ok(metadata) => {
+                            let extracted = extracted_counter.fetch_add(1, Ordering::Relaxed) + 1;
+                            if extracted % 100 == 0 || extracted == total_to_process as u64 {
+                                tracing::info!(
+                                    "Metadata extraction progress: {}/{}",
+                                    extracted,
+                                    total_to_process
+                                );
+                                if let Some(ref state) = scan_state {
+                                    state
+                                        .log(
+                                            "INFO",
+                                            format!(
+                                                "Metadata extraction progress: {}/{}",
+                                                extracted, total_to_process
+                                            ),
+                                        )
+                                        .await;
+                                }
+                            }
+                            Some(ExtractedFile {
+                                path: file_info.path,
+                                relative_path: file_info.relative_path,
+                                metadata,
+                            })
+                        }
+                        Err(e) => {
+                            tracing::debug!(
+                                "Failed to extract metadata from {}: {}",
+                                file_info.path.display(),
+                                e
+                            );
+                            if let Some(ref state) = scan_state {
+                                state
+                                    .track_error(&file_info.path.to_string_lossy(), &e.to_string())
+                                    .await;
+                            }
+                            extract_errors_counter.fetch_add(1, Ordering::Relaxed);
+                            None
+                        }
+                    }
+                }
+            })
+            .buffer_unordered(concurrency)
+            .collect()
+            .await;
+
+        // Check if cancelled during extraction
+        if cancelled.load(Ordering::Relaxed) {
+            if let Some(ref state) = scan_state {
+                state.log("WARN", "Scan cancelled by user").await;
+            }
+            return Err(Error::InvalidRequest("Scan cancelled".to_string()));
+        }
+
+        // Collect successful extractions
+        let extracted_files: Vec<ExtractedFile> = extracted_results.into_iter().flatten().collect();
+        let extract_errors = extract_errors_counter.load(Ordering::Relaxed);
+
+        tracing::info!(
+            "Metadata extraction complete: {} succeeded, {} failed",
+            extracted_files.len(),
+            extract_errors
+        );
+
+        // STAGE 2: Write to database sequentially (to avoid race conditions)
+        if !extracted_files.is_empty() {
+            tracing::info!("Writing {} songs to database...", extracted_files.len());
+            if let Some(ref state) = scan_state {
+                state
+                    .log(
+                        "INFO",
+                        format!("Writing {} songs to database...", extracted_files.len()),
+                    )
+                    .await;
+            }
+
+            for (idx, extracted) in extracted_files.into_iter().enumerate() {
+                // Check for cancellation
+                if let Some(ref state) = scan_state {
+                    if state.is_cancelled() {
+                        state.log("WARN", "Scan cancelled by user").await;
+                        return Err(Error::InvalidRequest("Scan cancelled".to_string()));
+                    }
+                }
+
+                match upsert_song(
+                    pool,
+                    extracted.metadata,
+                    extracted.relative_path.clone(),
+                    folder_id,
+                )
+                .await
+                {
                     Ok(is_new) => {
                         if is_new {
                             added += 1;
                             if let Some(ref state) = scan_state {
-                                state.track_added(&path.to_string_lossy()).await;
+                                state.track_added(&extracted.path.to_string_lossy()).await;
                             }
                         } else {
                             updated += 1;
                             if let Some(ref state) = scan_state {
-                                state.track_updated(&path.to_string_lossy()).await;
+                                state.track_updated(&extracted.path.to_string_lossy()).await;
                             }
                         }
                     }
@@ -772,7 +964,7 @@ async fn scan_folder_files(
                         tracing::error!("Failed to save song metadata: {}", e);
                         if let Some(ref state) = scan_state {
                             state
-                                .track_error(&path.to_string_lossy(), &e.to_string())
+                                .track_error(&extracted.path.to_string_lossy(), &e.to_string())
                                 .await;
                             state
                                 .log("ERROR", format!("Failed to save metadata: {}", e))
@@ -781,44 +973,44 @@ async fn scan_folder_files(
                         errors += 1;
                     }
                 }
-            }
-            Err(e) => {
-                tracing::debug!("Failed to extract metadata from {}: {}", path.display(), e);
-                if let Some(ref state) = scan_state {
-                    state
-                        .track_error(&path.to_string_lossy(), &e.to_string())
-                        .await;
+
+                // Log progress periodically
+                if (idx + 1) % 100 == 0 || idx + 1 == files_to_process_count {
+                    tracing::info!(
+                        "Database write progress: {}/{}, {} added, {} updated, {} errors",
+                        idx + 1,
+                        files_to_process_count,
+                        added,
+                        updated,
+                        errors
+                    );
+                    if let Some(ref state) = scan_state {
+                        state
+                            .log(
+                                "INFO",
+                                format!(
+                                    "Database write progress: {}/{}, {} added, {} updated, {} errors",
+                                    idx + 1, files_to_process_count, added, updated, errors
+                                ),
+                            )
+                            .await;
+                    }
                 }
-                errors += 1;
             }
         }
 
-        if scanned % 100 == 0 {
-            tracing::info!(
-                "Progress: {} files scanned, {} added, {} updated, {} unchanged, {} errors",
-                scanned,
-                added,
-                updated,
-                unchanged,
-                errors
-            );
-            if let Some(ref state) = scan_state {
-                state
-                    .log(
-                        "INFO",
-                        format!(
-                            "Progress: {} files scanned, {} added, {} updated, {} unchanged, {} errors",
-                            scanned, added, updated, unchanged, errors
-                        ),
-                    )
-                    .await;
-            }
-        }
+        // Add extraction errors to total
+        errors += extract_errors;
     }
 
     // Any files still in unseen_files no longer exist on disk
     // Return this info so the caller can handle cross-library rename detection
+    // Extract just the song_id from the tuple for missing file tracking
     let missing_count = unseen_files.len();
+    let unseen_files: std::collections::HashMap<String, String> = unseen_files
+        .into_iter()
+        .map(|(path, (id, _, _))| (path, id))
+        .collect();
 
     if let Some(ref state) = scan_state {
         state.set_current_file(None).await;

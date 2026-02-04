@@ -1,2 +1,4 @@
 e2e/.auth/**
 src/lib/api/generated/**
+src-tauri/**
+tauri-plugin-native-audio/**

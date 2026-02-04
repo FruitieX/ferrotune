@@ -18,6 +18,7 @@ import {
   audioElementAtom,
   transcodingEnabledAtom,
   transcodingBitrateAtom,
+  transcodingSeekModeAtom,
   replayGainModeAtom,
   replayGainOffsetAtom,
 } from "@/lib/store/player";
@@ -61,6 +62,10 @@ let accumulatedPlayTime: number = 0; // Accumulated time for pauses
 // Session-based listening tracking
 let currentListeningSessionId: number | null = null;
 let listeningUpdateInterval: ReturnType<typeof setInterval> | null = null;
+// Track the time offset of the current stream (for transcoded seeking)
+// When we reload a transcoded stream with timeOffset, audio.currentTime starts at 0
+// but the real position is timeOffset + audio.currentTime
+let currentStreamTimeOffset: number = 0;
 
 const LISTENING_UPDATE_INTERVAL_MS = 60000; // Update every 60 seconds
 
@@ -80,6 +85,7 @@ function initializeWebAudio(audio: HTMLAudioElement): void {
   if (audioContext) return; // Already initialized
 
   try {
+    console.log("[Audio] Initializing Web Audio API for ReplayGain");
     audioContext = new AudioContext();
     sourceNode = audioContext.createMediaElementSource(audio);
     gainNode = audioContext.createGain();
@@ -87,9 +93,44 @@ function initializeWebAudio(audio: HTMLAudioElement): void {
     // Connect: audio element -> gain node -> speakers
     sourceNode.connect(gainNode);
     gainNode.connect(audioContext.destination);
+
+    console.log(
+      "[Audio] Web Audio API initialized, AudioContext state:",
+      audioContext.state,
+    );
   } catch (err) {
     console.error("[Audio] Failed to initialize Web Audio API:", err);
   }
+}
+
+/**
+ * Resume the AudioContext if it's suspended.
+ * Must be called from a user gesture handler (like clicking play).
+ * Returns true if the context is running after this call.
+ */
+async function resumeAudioContext(): Promise<boolean> {
+  if (!audioContext) {
+    console.warn("[Audio] Cannot resume: AudioContext not initialized");
+    return false;
+  }
+
+  console.log("[Audio] AudioContext state before resume:", audioContext.state);
+
+  if (audioContext.state === "suspended") {
+    console.log("[Audio] Resuming suspended AudioContext...");
+    try {
+      await audioContext.resume();
+      console.log("[Audio] AudioContext resumed, state:", audioContext.state);
+    } catch (err) {
+      console.error("[Audio] Failed to resume AudioContext:", err);
+      return false;
+    }
+  } else if (audioContext.state === "closed") {
+    console.error("[Audio] AudioContext is closed, cannot resume");
+    return false;
+  }
+
+  return audioContext.state === "running";
 }
 
 /**
@@ -97,12 +138,18 @@ function initializeWebAudio(audio: HTMLAudioElement): void {
  * @param gainDb - The gain in dB to apply (can be negative)
  */
 function setReplayGain(gainDb: number): void {
-  if (!gainNode) return;
+  if (!gainNode) {
+    console.warn("[Audio] Cannot set ReplayGain: gainNode not initialized");
+    return;
+  }
 
   const linearGain = dbToLinear(gainDb);
   // Clamp to prevent extreme values (max +12dB boost)
   const clampedGain = Math.min(linearGain, dbToLinear(12));
   gainNode.gain.value = clampedGain;
+  console.log(
+    `[Audio] ReplayGain set: ${gainDb.toFixed(2)} dB -> linear gain ${clampedGain.toFixed(4)}`,
+  );
 }
 
 /**
@@ -128,6 +175,8 @@ export function getGlobalAudio(): HTMLAudioElement | null {
     // Buffer the entire track if possible - helps with battery life on mobile
     // as the modem can sleep when there's no network activity
     globalAudio.preload = "auto";
+    // Enable CORS - required for Web Audio API to process cross-origin audio
+    globalAudio.crossOrigin = "anonymous";
     // Attach to DOM for better browser compatibility
     // Hidden from screen readers and invisible
     globalAudio.setAttribute("aria-hidden", "true");
@@ -422,7 +471,10 @@ export function useAudioEngineInit() {
       const state = stateRef.current;
       if (state.queueState?.repeatMode === "one") {
         audio.currentTime = 0;
-        audio.play().catch(console.error);
+        // Resume context just in case, then play
+        resumeAudioContext().then(() => {
+          audio.play().catch(console.error);
+        });
         return;
       }
 
@@ -444,7 +496,10 @@ export function useAudioEngineInit() {
     };
 
     const handleTimeUpdate = () => {
-      settersRef.current.setCurrentTime(audio.currentTime);
+      // Add the stream time offset to get the real position in the song
+      // This is needed when using timeOffset-based seeking with transcoding
+      const realTime = audio.currentTime + currentStreamTimeOffset;
+      settersRef.current.setCurrentTime(realTime);
 
       const state = stateRef.current;
       const duration = audio.duration || 0;
@@ -469,13 +524,26 @@ export function useAudioEngineInit() {
       }
     };
 
-    const handleDurationChange = () =>
-      settersRef.current.setDuration(audio.duration || 0);
+    const handleDurationChange = () => {
+      // When transcoding is enabled, the audio.duration from the stream may be unreliable
+      // (it changes as the stream is buffered). Prefer the database duration.
+      const state = stateRef.current;
+      const songDuration = state.currentSong?.duration;
+
+      if (state.transcodingEnabled && songDuration && songDuration > 0) {
+        // Use database duration when transcoding - it's more reliable
+        settersRef.current.setDuration(songDuration);
+      } else {
+        // Use audio element duration when not transcoding or no database duration
+        settersRef.current.setDuration(audio.duration || 0);
+      }
+    };
 
     const handleProgress = () => {
       if (audio.buffered.length > 0) {
+        // Add stream time offset for correct buffered display with transcoded seeking
         settersRef.current.setBuffered(
-          audio.buffered.end(audio.buffered.length - 1),
+          audio.buffered.end(audio.buffered.length - 1) + currentStreamTimeOffset,
         );
       }
     };
@@ -522,8 +590,11 @@ export function useAudioEngineInit() {
       }
       isLoadingNewTrack = false;
       // Always try to play when canplay fires
-      audio.play().catch((err) => {
-        console.error("[Audio] Failed to play on canplay:", err);
+      // Ensure AudioContext is resumed first (may have been suspended by browser)
+      resumeAudioContext().then(() => {
+        audio.play().catch((err) => {
+          console.error("[Audio] Failed to play on canplay:", err);
+        });
       });
     };
 
@@ -720,6 +791,9 @@ export function useAudioEngineInit() {
       initializeWebAudio(audio);
     }
 
+    // Resume AudioContext if suspended (required after user interaction)
+    resumeAudioContext();
+
     // Apply client-side ReplayGain
     // Note: We always need to apply this client-side because:
     // - When transcoding is disabled: browser ignores ReplayGain tags in original file
@@ -728,15 +802,32 @@ export function useAudioEngineInit() {
     if (replayGainMode !== "disabled") {
       const trackGain = currentSong.replayGainTrackGain ?? 0;
       const totalGain = trackGain + replayGainOffset;
+      console.log(
+        `[Audio] Applying ReplayGain: track=${trackGain.toFixed(2)} dB, offset=${replayGainOffset.toFixed(2)} dB, total=${totalGain.toFixed(2)} dB`,
+      );
       setReplayGain(totalGain);
     } else if (gainNode) {
       // Reset gain to unity when ReplayGain is disabled
+      console.log("[Audio] ReplayGain disabled, setting gain to unity");
       gainNode.gain.value = 1;
     }
+
+    // Check if this is just a transcoding settings change (same track, different URL)
+    const isTranscodingSettingsChange =
+      currentSong.id === currentLoadedTrackId && urlChanged && !signalChanged;
+
+    // Save current playback position if this is a settings change
+    const savedPosition = isTranscodingSettingsChange
+      ? audio.currentTime + currentStreamTimeOffset
+      : 0;
+    const wasPlaying = isTranscodingSettingsChange && !audio.paused;
 
     // Stop current playback
     audio.pause();
     audio.src = streamUrl;
+
+    // Reset stream time offset (no seeking when loading fresh track)
+    currentStreamTimeOffset = 0;
 
     if (isRestoringQueue) {
       // During restore: load the track but don't play, set to paused state
@@ -746,6 +837,51 @@ export function useAudioEngineInit() {
       setDuration(currentSong.duration || 0);
       // Just load metadata, don't play
       audio.load();
+    } else if (isTranscodingSettingsChange && savedPosition > 0) {
+      // Transcoding settings changed - continue from saved position
+      console.log(
+        `[Audio] Transcoding settings changed, resuming from ${savedPosition.toFixed(1)}s`,
+      );
+      isLoadingNewTrack = true;
+      setPlaybackState("loading");
+      // Don't reset scrobble state - we're continuing the same track
+
+      // Set up one-time handler to seek after loading
+      const handleCanPlayForSeek = () => {
+        audio.removeEventListener("canplay", handleCanPlayForSeek);
+
+        if (transcodingEnabled && savedPosition > 0) {
+          // For transcoded streams, we need timeOffset-based seeking
+          // But since we just loaded a fresh stream, we need to reload with offset
+          currentStreamTimeOffset = savedPosition;
+          const offsetUrl = getClient()?.getStreamUrl(currentSong.id, {
+            maxBitRate: transcodingEnabled ? transcodingBitrate : undefined,
+            format: transcodingEnabled ? "opus" : undefined,
+            timeOffset: savedPosition,
+          });
+          if (offsetUrl) {
+            audio.src = offsetUrl;
+            setCurrentTime(savedPosition);
+            if (wasPlaying) {
+              resumeAudioContext().then(() => {
+                audio.play().catch(console.error);
+              });
+            }
+          }
+        } else {
+          // Non-transcoded: native seeking works
+          audio.currentTime = savedPosition;
+          setCurrentTime(savedPosition);
+          if (wasPlaying) {
+            resumeAudioContext().then(() => {
+              audio.play().catch(console.error);
+            });
+          }
+        }
+        isLoadingNewTrack = false;
+      };
+      audio.addEventListener("canplay", handleCanPlayForSeek);
+      audio.load();
     } else {
       // Normal playback: load and play
       isLoadingNewTrack = true;
@@ -754,25 +890,50 @@ export function useAudioEngineInit() {
       setCurrentTime(0);
       setDuration(currentSong.duration || 0);
 
-      audio.play().catch((err) => {
-        console.error("Failed to play:", err);
-        isLoadingNewTrack = false;
-        setPlaybackState("paused");
+      // Resume AudioContext first, then play
+      // Must await this - AudioContext must be running before audio will play through Web Audio graph
+      resumeAudioContext().then((contextRunning) => {
+        if (!contextRunning) {
+          console.error(
+            "[Audio] Cannot play: AudioContext not running after resume",
+          );
+        }
+        audio.play().catch((err) => {
+          console.error("Failed to play:", err);
+          isLoadingNewTrack = false;
+          setPlaybackState("paused");
+        });
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- replayGainMode and replayGainOffset are handled by separate effect
   }, [
     currentSong,
     trackChangeSignal,
     isRestoringQueue,
     transcodingEnabled,
     transcodingBitrate,
-    replayGainMode,
-    replayGainOffset,
     setPlaybackState,
     setHasScrobbled,
     setCurrentTime,
     setDuration,
   ]);
+
+  // Separate effect for ReplayGain settings - updates gain immediately without reloading track
+  useEffect(() => {
+    if (!currentSong || !gainNode) return;
+
+    if (replayGainMode !== "disabled") {
+      const trackGain = currentSong.replayGainTrackGain ?? 0;
+      const totalGain = trackGain + replayGainOffset;
+      console.log(
+        `[Audio] ReplayGain settings changed: track=${trackGain.toFixed(2)} dB, offset=${replayGainOffset.toFixed(2)} dB, total=${totalGain.toFixed(2)} dB`,
+      );
+      setReplayGain(totalGain);
+    } else {
+      console.log("[Audio] ReplayGain disabled, setting gain to unity");
+      gainNode.gain.value = 1;
+    }
+  }, [replayGainMode, replayGainOffset, currentSong]);
 }
 
 /**
@@ -791,6 +952,11 @@ export function useAudioEngine() {
   const playAtIndex = useSetAtom(playAtIndexAtom);
   const setIsRestoring = useSetAtom(isRestoringQueueAtom);
 
+  // Transcoding settings (needed for time-offset seeking)
+  const transcodingEnabled = useAtomValue(transcodingEnabledAtom);
+  const transcodingBitrate = useAtomValue(transcodingBitrateAtom);
+  const transcodingSeekMode = useAtomValue(transcodingSeekModeAtom);
+
   // Retry playback by forcing a fresh load of the current track
   const retryPlayback = () => {
     if (!globalAudio || !currentSong) return;
@@ -808,17 +974,30 @@ export function useAudioEngine() {
     // Get fresh stream URL and load
     const streamUrl = client.getStreamUrl(currentSong.id);
     globalAudio.src = streamUrl;
+    currentStreamTimeOffset = 0; // Reset offset for fresh load
     isLoadingNewTrack = true;
 
-    globalAudio.play().catch((err) => {
-      console.error("[Audio] Retry playback failed:", err);
-      setPlaybackState("error");
+    // Resume AudioContext then play
+    resumeAudioContext().then((contextRunning) => {
+      if (!contextRunning) {
+        console.error("[Audio] Cannot retry: AudioContext not running");
+      }
+      globalAudio?.play().catch((err) => {
+        console.error("[Audio] Retry playback failed:", err);
+        setPlaybackState("error");
+      });
     });
   };
 
-  const play = () => {
+  const play = async () => {
     // Clear restore flag on explicit user interaction
     setIsRestoring(false);
+    // Resume AudioContext if suspended (required for Web Audio API after user gesture)
+    // Must await this - AudioContext must be running before audio will play through Web Audio graph
+    const contextRunning = await resumeAudioContext();
+    if (!contextRunning) {
+      console.error("[Audio] Cannot play: AudioContext not running");
+    }
     globalAudio?.play().catch(console.error);
   };
 
@@ -849,17 +1028,139 @@ export function useAudioEngine() {
     }
   };
 
-  const seek = (time: number) => {
+  // Trailing throttle state for unbuffered seeks (only used when transcoding)
+  const lastUnbufferedSeekRef = useRef<number>(0);
+  const pendingSeekRef = useRef<number | null>(null);
+  const pendingSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  // Native seek for non-transcoded content or buffered positions
+  const seekNative = (time: number) => {
     if (globalAudio) {
       globalAudio.currentTime = time;
       setCurrentTime(time);
     }
   };
 
+  // Reload stream with time offset for transcoded unbuffered seeks
+  const seekWithTimeOffset = (time: number) => {
+    if (!globalAudio || !currentSong) return;
+
+    const client = getClient();
+    if (!client) return;
+
+    const wasPlaying = !globalAudio.paused;
+
+    // Track the offset so handleTimeUpdate can calculate real position
+    currentStreamTimeOffset = time;
+
+    // Build new stream URL with time offset and seek mode
+    const streamUrl = client.getStreamUrl(currentSong.id, {
+      maxBitRate: transcodingEnabled ? transcodingBitrate : undefined,
+      format: transcodingEnabled ? "opus" : undefined,
+      timeOffset: time,
+      seekMode: transcodingSeekMode,
+    });
+
+    // Reload the stream from the new offset
+    globalAudio.src = streamUrl;
+    setCurrentTime(time);
+
+    if (wasPlaying) {
+      resumeAudioContext().then(() => {
+        globalAudio?.play().catch(console.error);
+      });
+    } else {
+      globalAudio.load();
+    }
+  };
+
+  // General seek function that chooses the right strategy
+  const seek = (time: number) => {
+    if (!globalAudio) return;
+
+    // Check if target time is within buffered ranges
+    const isBuffered = (() => {
+      const buffered = globalAudio.buffered;
+      for (let i = 0; i < buffered.length; i++) {
+        if (time >= buffered.start(i) && time <= buffered.end(i)) {
+          return true;
+        }
+      }
+      return false;
+    })();
+
+    if (isBuffered || !transcodingEnabled) {
+      // Buffered content or no transcoding: native seek works
+      seekNative(time);
+    } else {
+      // Unbuffered transcoded content: reload stream with time offset
+      seekWithTimeOffset(time);
+    }
+  };
+
+  // Smart seeking with trailing throttle for unbuffered positions when transcoding
+  // This reduces stream reloads during scrubbing while ensuring final position is reached
   const seekPercent = (percent: number) => {
-    if (globalAudio && globalAudio.duration) {
-      const time = (percent / 100) * globalAudio.duration;
-      seek(time);
+    if (!globalAudio) return;
+
+    // Use database duration (stable) instead of audio.duration (unreliable with transcoding)
+    const duration = currentSong?.duration ?? globalAudio.duration;
+    if (!duration || duration <= 0) return;
+
+    const targetTime = (percent / 100) * duration;
+
+    // Check if target time is within buffered ranges
+    const isBuffered = (() => {
+      const buffered = globalAudio.buffered;
+      for (let i = 0; i < buffered.length; i++) {
+        if (targetTime >= buffered.start(i) && targetTime <= buffered.end(i)) {
+          return true;
+        }
+      }
+      return false;
+    })();
+
+    if (isBuffered || !transcodingEnabled) {
+      // Buffered content or no transcoding: seek immediately
+      // Also clear any pending unbuffered seek
+      if (pendingSeekTimeoutRef.current) {
+        clearTimeout(pendingSeekTimeoutRef.current);
+        pendingSeekTimeoutRef.current = null;
+      }
+      pendingSeekRef.current = null;
+      seekNative(targetTime);
+    } else {
+      // Unbuffered transcoded content: use trailing throttle to reduce stream reloads
+      const now = Date.now();
+      const throttleMs = 150; // Slightly higher for stream reloads
+      const timeSinceLastSeek = now - lastUnbufferedSeekRef.current;
+
+      // Always store the latest target
+      pendingSeekRef.current = targetTime;
+
+      if (timeSinceLastSeek >= throttleMs) {
+        // Throttle window expired - seek immediately
+        lastUnbufferedSeekRef.current = now;
+        pendingSeekRef.current = null;
+        if (pendingSeekTimeoutRef.current) {
+          clearTimeout(pendingSeekTimeoutRef.current);
+          pendingSeekTimeoutRef.current = null;
+        }
+        seekWithTimeOffset(targetTime);
+      } else if (!pendingSeekTimeoutRef.current) {
+        // Schedule trailing seek after throttle window
+        const remainingTime = throttleMs - timeSinceLastSeek;
+        pendingSeekTimeoutRef.current = setTimeout(() => {
+          if (pendingSeekRef.current !== null) {
+            lastUnbufferedSeekRef.current = Date.now();
+            seekWithTimeOffset(pendingSeekRef.current);
+            pendingSeekRef.current = null;
+          }
+          pendingSeekTimeoutRef.current = null;
+        }, remainingTime);
+      }
     }
   };
 
