@@ -49,6 +49,99 @@ jsonpath "$.subsonic-response.playlist.id" exists
 test_playlist_id: jsonpath "$.subsonic-response.playlist.id"
 
 # ============================================================================
+# PLAYLIST FOLDER PATH IN OPENSUBSONIC RESPONSES
+# ============================================================================
+
+# Create a playlist folder via Ferrotune API
+POST {{base_url}}/ferrotune/playlist-folders
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "name": "FolderA"
+}
+HTTP 200
+[Captures]
+folder_a_id: jsonpath "$.id"
+
+# Create a nested folder
+POST {{base_url}}/ferrotune/playlist-folders
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "name": "FolderB",
+  "parentId": "{{folder_a_id}}"
+}
+HTTP 200
+[Captures]
+folder_b_id: jsonpath "$.id"
+
+# Create a playlist in the nested folder
+GET {{base_url}}/rest/createPlaylist?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&name=NestedPlaylist&songId={{song_1}}
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.status" == "ok"
+jsonpath "$.subsonic-response.playlist.id" exists
+[Captures]
+nested_playlist_id: jsonpath "$.subsonic-response.playlist.id"
+
+# Move playlist to nested folder via Ferrotune API
+PATCH {{base_url}}/ferrotune/playlists/{{nested_playlist_id}}/move
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "folderId": "{{folder_b_id}}"
+}
+HTTP 204
+
+# Test: getPlaylists should return full path as name
+GET {{base_url}}/rest/getPlaylists?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.status" == "ok"
+# Find the nested playlist and verify it has full path name (filter returns a list, so use includes)
+jsonpath "$.subsonic-response.playlists.playlist[?(@.id=='{{nested_playlist_id}}')].name" includes "FolderA/FolderB/NestedPlaylist"
+
+# Test: getPlaylist should return full path as name
+GET {{base_url}}/rest/getPlaylist?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&id={{nested_playlist_id}}
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.status" == "ok"
+jsonpath "$.subsonic-response.playlist.name" == "FolderA/FolderB/NestedPlaylist"
+
+# Test: getPlaylist for root playlist should have just the name, no path prefix
+GET {{base_url}}/rest/getPlaylist?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&id={{test_playlist_id}}
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.status" == "ok"
+jsonpath "$.subsonic-response.playlist.name" == "TestPlaylist"
+
+# Test: createPlaylist with path in name should create folders and return full path
+GET {{base_url}}/rest/createPlaylist?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&name=NewFolder/SubFolder/PathPlaylist&songId={{song_1}}
+HTTP 200
+[Asserts]
+jsonpath "$.subsonic-response.status" == "ok"
+jsonpath "$.subsonic-response.playlist.name" == "NewFolder/SubFolder/PathPlaylist"
+[Captures]
+path_playlist_id: jsonpath "$.subsonic-response.playlist.id"
+
+# Cleanup: Delete path playlist
+GET {{base_url}}/rest/deletePlaylist?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&id={{path_playlist_id}}
+HTTP 200
+
+# Cleanup: Delete nested playlist
+GET {{base_url}}/rest/deletePlaylist?u={{username}}&p={{password}}&v=1.16.1&c=hurl-test&f=json&id={{nested_playlist_id}}
+HTTP 200
+
+# Cleanup: Delete folders (child first, then parent)
+DELETE {{base_url}}/ferrotune/playlist-folders/{{folder_b_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 204
+
+DELETE {{base_url}}/ferrotune/playlist-folders/{{folder_a_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 204
+
+# ============================================================================
 # FERROTUNE ADMIN API - PLAYLIST SONGS ENDPOINT
 # ============================================================================
 

@@ -138,8 +138,13 @@ pub struct PlaylistDetailResponse {
     pub entry: Vec<crate::api::common::models::SongResponse>,
 }
 
-/// Convert a database Playlist to a PlaylistResponse
-fn playlist_to_response(playlist: &Playlist, owner_name: &str) -> PlaylistResponse {
+/// Convert a database Playlist to a PlaylistResponse.
+/// `full_name` should be the playlist name with folder path prefix (e.g., "Folder/SubFolder/PlaylistName").
+fn playlist_to_response(
+    playlist: &Playlist,
+    owner_name: &str,
+    full_name: String,
+) -> PlaylistResponse {
     // Use playlist ID as cover art reference (will generate tiled cover)
     let cover_art = if playlist.song_count > 0 {
         Some(playlist.id.clone())
@@ -149,7 +154,7 @@ fn playlist_to_response(playlist: &Playlist, owner_name: &str) -> PlaylistRespon
 
     PlaylistResponse {
         id: playlist.id.clone(),
-        name: playlist.name.clone(),
+        name: full_name,
         comment: playlist.comment.clone(),
         owner: owner_name.to_string(),
         public: playlist.is_public,
@@ -184,10 +189,15 @@ pub async fn get_playlists(
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let playlist_responses: Vec<PlaylistResponse> = playlists
-        .iter()
-        .map(|p| playlist_to_response(p, &user.username))
-        .collect();
+    // Build full names (with folder paths) for all playlists
+    let mut playlist_responses = Vec::with_capacity(playlists.len());
+    for p in &playlists {
+        let full_name =
+            queries::get_playlist_full_name(&state.pool, &p.name, p.folder_id.as_deref())
+                .await
+                .map_err(|e| Error::Internal(e.to_string()))?;
+        playlist_responses.push(playlist_to_response(p, &user.username, full_name));
+    }
 
     let response = PlaylistsResponse {
         playlists: PlaylistsWrapper {
@@ -270,10 +280,16 @@ pub async fn get_playlist(
         None
     };
 
+    // Get full name with folder path
+    let full_name =
+        queries::get_playlist_full_name(&state.pool, &playlist.name, playlist.folder_id.as_deref())
+            .await
+            .map_err(|e| Error::Internal(e.to_string()))?;
+
     let response = PlaylistWithSongsResponse {
         playlist: PlaylistDetailResponse {
             id: playlist.id.clone(),
-            name: playlist.name.clone(),
+            name: full_name,
             comment: playlist.comment.clone(),
             owner: user.username.clone(),
             public: playlist.is_public,
@@ -408,10 +424,16 @@ async fn get_playlist_response(
         None
     };
 
+    // Get full name with folder path
+    let full_name =
+        queries::get_playlist_full_name(&state.pool, &playlist.name, playlist.folder_id.as_deref())
+            .await
+            .map_err(|e| Error::Internal(e.to_string()))?;
+
     let response = PlaylistWithSongsResponse {
         playlist: PlaylistDetailResponse {
             id: playlist.id.clone(),
-            name: playlist.name.clone(),
+            name: full_name,
             comment: playlist.comment.clone(),
             owner: user.username.clone(),
             public: playlist.is_public,

@@ -855,7 +855,8 @@ async fn scan_folder_files(
                     {
                         Ok(metadata) => {
                             let extracted = extracted_counter.fetch_add(1, Ordering::Relaxed) + 1;
-                            if extracted % 100 == 0 || extracted == total_to_process as u64 {
+                            if extracted.is_multiple_of(100) || extracted == total_to_process as u64
+                            {
                                 tracing::info!(
                                     "Metadata extraction progress: {}/{}",
                                     extracted,

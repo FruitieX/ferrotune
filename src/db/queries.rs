@@ -1988,3 +1988,57 @@ pub async fn resolve_or_create_folder_path(
 
     Ok((parent_id, playlist_name))
 }
+
+/// Get the full folder path for a given folder_id by walking up the parent hierarchy.
+/// Returns the path segments joined by '/' (e.g., "Folder1/Folder2").
+/// Returns None if folder_id is None.
+pub async fn get_folder_path(
+    pool: &SqlitePool,
+    folder_id: Option<&str>,
+) -> sqlx::Result<Option<String>> {
+    let Some(folder_id) = folder_id else {
+        return Ok(None);
+    };
+
+    let mut path_segments: Vec<String> = Vec::new();
+    let mut current_id = Some(folder_id.to_string());
+
+    while let Some(ref id) = current_id {
+        let folder: Option<(String, Option<String>)> =
+            sqlx::query_as("SELECT name, parent_id FROM playlist_folders WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?;
+
+        match folder {
+            Some((name, parent_id)) => {
+                path_segments.push(name);
+                current_id = parent_id;
+            }
+            None => {
+                current_id = None;
+            }
+        }
+    }
+
+    if path_segments.is_empty() {
+        return Ok(None);
+    }
+
+    // Reverse because we collected from leaf to root
+    path_segments.reverse();
+    Ok(Some(path_segments.join("/")))
+}
+
+/// Builds the full playlist name including folder path prefix.
+/// Returns "Folder1/Folder2/PlaylistName" if in a folder, or just "PlaylistName" if at root.
+pub async fn get_playlist_full_name(
+    pool: &SqlitePool,
+    name: &str,
+    folder_id: Option<&str>,
+) -> sqlx::Result<String> {
+    match get_folder_path(pool, folder_id).await? {
+        Some(path) => Ok(format!("{}/{}", path, name)),
+        None => Ok(name.to_string()),
+    }
+}
