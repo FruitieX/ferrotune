@@ -501,6 +501,13 @@ export function useAudioEngineInit() {
       const realTime = audio.currentTime + currentStreamTimeOffset;
       settersRef.current.setCurrentTime(realTime);
 
+      // Also update buffered during timeupdate as a fallback
+      // (progress events may not fire consistently during streaming playback)
+      if (audio.buffered.length > 0) {
+        const rawBuffered = audio.buffered.end(audio.buffered.length - 1);
+        settersRef.current.setBuffered(rawBuffered + currentStreamTimeOffset);
+      }
+
       const state = stateRef.current;
       const duration = audio.duration || 0;
       if (!state.hasScrobbled && duration > 0) {
@@ -543,7 +550,8 @@ export function useAudioEngineInit() {
       if (audio.buffered.length > 0) {
         // Add stream time offset for correct buffered display with transcoded seeking
         settersRef.current.setBuffered(
-          audio.buffered.end(audio.buffered.length - 1) + currentStreamTimeOffset,
+          audio.buffered.end(audio.buffered.length - 1) +
+            currentStreamTimeOffset,
         );
       }
     };
@@ -834,6 +842,7 @@ export function useAudioEngineInit() {
       setPlaybackState("paused");
       setHasScrobbled(false);
       setCurrentTime(0);
+      setBuffered(0);
       setDuration(currentSong.duration || 0);
       // Just load metadata, don't play
       audio.load();
@@ -888,6 +897,7 @@ export function useAudioEngineInit() {
       setPlaybackState("loading");
       setHasScrobbled(false);
       setCurrentTime(0);
+      setBuffered(0);
       setDuration(currentSong.duration || 0);
 
       // Resume AudioContext first, then play
@@ -915,6 +925,7 @@ export function useAudioEngineInit() {
     setPlaybackState,
     setHasScrobbled,
     setCurrentTime,
+    setBuffered,
     setDuration,
   ]);
 
@@ -944,6 +955,7 @@ export function useAudioEngine() {
   const [playbackState, setPlaybackState] = useAtom(playbackStateAtom);
   const setPlaybackError = useSetAtom(playbackErrorAtom);
   const setCurrentTime = useSetAtom(currentTimeAtom);
+  const setBuffered = useSetAtom(bufferedAtom);
 
   const currentSong = useAtomValue(currentSongAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
@@ -1055,6 +1067,10 @@ export function useAudioEngine() {
     // Track the offset so handleTimeUpdate can calculate real position
     currentStreamTimeOffset = time;
 
+    // Reset buffered to the seek position (nothing buffered beyond seek point yet)
+    // This prevents stale buffered values from being displayed until progress events fire
+    setBuffered(time);
+
     // Build new stream URL with time offset and seek mode
     const streamUrl = client.getStreamUrl(currentSong.id, {
       maxBitRate: transcodingEnabled ? transcodingBitrate : undefined,
@@ -1080,11 +1096,19 @@ export function useAudioEngine() {
   const seek = (time: number) => {
     if (!globalAudio) return;
 
+    // When transcoding with timeOffset, the audio element's buffered ranges are relative
+    // to the stream start (0), not the actual song timeline. We need to convert the
+    // seek target to stream-relative time for the buffer check.
+    const streamRelativeTime = time - currentStreamTimeOffset;
+
     // Check if target time is within buffered ranges
     const isBuffered = (() => {
       const buffered = globalAudio.buffered;
       for (let i = 0; i < buffered.length; i++) {
-        if (time >= buffered.start(i) && time <= buffered.end(i)) {
+        if (
+          streamRelativeTime >= buffered.start(i) &&
+          streamRelativeTime <= buffered.end(i)
+        ) {
           return true;
         }
       }
@@ -1093,7 +1117,13 @@ export function useAudioEngine() {
 
     if (isBuffered || !transcodingEnabled) {
       // Buffered content or no transcoding: native seek works
-      seekNative(time);
+      // Use stream-relative time for the actual seek operation
+      if (transcodingEnabled && currentStreamTimeOffset > 0) {
+        globalAudio.currentTime = streamRelativeTime;
+        setCurrentTime(time);
+      } else {
+        seekNative(time);
+      }
     } else {
       // Unbuffered transcoded content: reload stream with time offset
       seekWithTimeOffset(time);
@@ -1111,11 +1141,18 @@ export function useAudioEngine() {
 
     const targetTime = (percent / 100) * duration;
 
+    // When transcoding with timeOffset, the audio element's buffered ranges are relative
+    // to the stream start (0), not the actual song timeline.
+    const streamRelativeTime = targetTime - currentStreamTimeOffset;
+
     // Check if target time is within buffered ranges
     const isBuffered = (() => {
       const buffered = globalAudio.buffered;
       for (let i = 0; i < buffered.length; i++) {
-        if (targetTime >= buffered.start(i) && targetTime <= buffered.end(i)) {
+        if (
+          streamRelativeTime >= buffered.start(i) &&
+          streamRelativeTime <= buffered.end(i)
+        ) {
           return true;
         }
       }
@@ -1130,7 +1167,13 @@ export function useAudioEngine() {
         pendingSeekTimeoutRef.current = null;
       }
       pendingSeekRef.current = null;
-      seekNative(targetTime);
+      // Use stream-relative time for the actual seek operation with transcoding
+      if (transcodingEnabled && currentStreamTimeOffset > 0) {
+        globalAudio.currentTime = streamRelativeTime;
+        setCurrentTime(targetTime);
+      } else {
+        seekNative(targetTime);
+      }
     } else {
       // Unbuffered transcoded content: use trailing throttle to reduce stream reloads
       const now = Date.now();

@@ -449,7 +449,8 @@ async fn get_transcode_stream_logic(
     }
 
     // Create channel for streaming transcoded data
-    let (tx, rx) = mpsc::channel::<Vec<u8>>(32);
+    // Large buffer to allow transcoding to run ahead without blocking
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(256);
 
     // Build ReplayGain info from song data
     // Prefer computed values over original tags (computed uses EBU R128 with -23 LUFS reference)
@@ -508,7 +509,8 @@ pub async fn transcode_with_offset(
     let config = config.clone();
 
     // Create channel for streaming transcoded data
-    let (tx, rx) = mpsc::channel::<Vec<u8>>(32);
+    // Large buffer to allow transcoding to run ahead without blocking
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(256);
 
     // Spawn blocking task to transcode
     tokio::task::spawn_blocking(move || {
@@ -952,7 +954,7 @@ impl OggStreamBuffer {
     fn new(tx: mpsc::Sender<Vec<u8>>) -> Self {
         Self {
             tx,
-            buffer: Vec::with_capacity(8192),
+            buffer: Vec::with_capacity(32768),
         }
     }
 
@@ -968,8 +970,8 @@ impl std::io::Write for OggStreamBuffer {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.buffer.extend_from_slice(buf);
 
-        // Send chunks when buffer is large enough
-        if self.buffer.len() >= 8192 {
+        // Send chunks when buffer is large enough (32KB = ~2s of 128kbps audio)
+        if self.buffer.len() >= 32768 {
             let chunk = std::mem::take(&mut self.buffer);
             if self.tx.blocking_send(chunk).is_err() {
                 return Err(std::io::Error::new(

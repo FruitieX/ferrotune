@@ -81,26 +81,10 @@ export function CoverImage({
   showPlaceholderWhileLoading = false,
   showTypeOverlay = false,
 }: CoverImageProps) {
-  // Helper to check if an image is cached (synchronous check)
-  const isImageCached = (imgSrc: string | null | undefined): boolean => {
-    if (!imgSrc) return false;
-    // Create a temporary Image to check if it's cached
-    // .complete is true if the image is cached or embedded
-    // .naturalWidth > 0 ensures it's a valid loaded image (not a broken one)
-    const testImg = new window.Image();
-    testImg.src = imgSrc;
-    return testImg.complete && testImg.naturalWidth > 0;
-  };
-
   const [hasError, setHasError] = useState(false);
-  // Initialize isLoaded based on whether image is already cached
-  // This prevents flash when component mounts with a cached image
-  const [isLoaded, setIsLoaded] = useState(() => {
-    // Inline data is always immediately "loaded" (embedded in page)
-    if (inlineData) return true;
-    // Check browser cache for external URLs
-    return isImageCached(src);
-  });
+  // Initialize isLoaded to true for inline data (no fetch needed)
+  // For external URLs, start as false and wait for onLoad
+  const [isLoaded, setIsLoaded] = useState(() => !!inlineData);
   const [isVisible, setIsVisible] = useState(!lazy);
   const [prevSrc, setPrevSrc] = useState<string | null | undefined>(src);
   const [prevInlineData, setPrevInlineData] = useState<
@@ -131,12 +115,9 @@ export function CoverImage({
     setPrevSrc(src);
     setPrevInlineData(inlineData);
     setHasError(false);
-    // Check if the new image is already cached - if so, keep isLoaded=true to avoid flash
-    if (inlineData) {
-      setIsLoaded(true);
-    } else {
-      setIsLoaded(isImageCached(src));
-    }
+    // For inline data, mark as loaded immediately (no fetch needed)
+    // For external URLs, reset to false and let onLoad set it to true
+    setIsLoaded(!!inlineData);
   }
 
   // Generate a unique color based on colorSeed (album/artist name) or fall back to alt

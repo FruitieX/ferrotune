@@ -56,6 +56,40 @@ import { getClient } from "@/lib/api/client";
 import { SongDropdownMenu } from "@/components/browse/song-context-menu";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 
+/**
+ * Background component that only re-renders when the cover art changes.
+ * Isolated from currentTime updates to prevent unnecessary re-renders and
+ * spurious network requests from CSS background-image being re-applied.
+ */
+function FullscreenBackground({
+  coverArt,
+}: {
+  coverArt: string | null | undefined;
+}) {
+  const coverArtUrl = coverArt
+    ? getClient()?.getCoverArtUrl(coverArt, 500)
+    : undefined;
+
+  return (
+    <>
+      {/* Background with cover art */}
+      <div
+        className="absolute inset-0"
+        style={{
+          backgroundImage: coverArtUrl
+            ? `linear-gradient(to bottom, rgba(0,0,0,0.1), var(--background)), url(${coverArtUrl})`
+            : undefined,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundBlendMode: "multiply",
+        }}
+      />
+      {/* Blur overlay */}
+      <div className="absolute inset-0 backdrop-blur-3xl bg-background/70" />
+    </>
+  );
+}
+
 export function FullscreenPlayer() {
   const [isOpen, setIsOpen] = useAtom(fullscreenPlayerOpenAtom);
   const currentTrack = useAtomValue(currentSongAtom);
@@ -407,20 +441,8 @@ export function FullscreenPlayer() {
             data-fullscreen-player="true"
             className="fixed inset-0 z-50 bg-linear-to-b from-background/95 to-background flex flex-col"
           >
-            {/* Background with cover art */}
-            <div
-              className="absolute inset-0"
-              style={{
-                backgroundImage: coverArtUrl
-                  ? `linear-gradient(to bottom, rgba(0,0,0,0.1), var(--background)), url(${coverArtUrl})`
-                  : undefined,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-                backgroundBlendMode: "multiply",
-              }}
-            />
-            {/* Blur overlay */}
-            <div className="absolute inset-0 backdrop-blur-3xl bg-background/70" />
+            {/* Background - isolated to prevent re-renders on currentTime changes */}
+            <FullscreenBackground coverArt={currentTrack?.coverArt} />
 
             {/* Content wrapper */}
             <div className="relative z-10 flex flex-col h-full w-full">
