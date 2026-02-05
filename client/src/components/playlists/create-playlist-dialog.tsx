@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { getClient } from "@/lib/api/client";
+import { buildFolderPathMap } from "@/lib/utils/playlist-folders";
 import { cn } from "@/lib/utils";
 
 interface CreatePlaylistDialogProps {
@@ -76,6 +77,7 @@ export function CreatePlaylistDialog({
   });
 
   const folders = foldersData?.folders ?? [];
+  const folderPathMap = buildFolderPathMap(folders);
 
   // Reset state when dialog opens
   if (open !== prevOpen) {
@@ -88,10 +90,10 @@ export function CreatePlaylistDialog({
     }
   }
 
-  // Get the selected folder name for display
-  const selectedFolder = folders.find((f) => f.id === selectedFolderId);
-  const selectedFolderName =
-    selectedFolder?.name ?? initialFolderPath ?? "Root";
+  // Get the selected folder full path for display
+  const selectedFolderPath = selectedFolderId
+    ? (folderPathMap.get(selectedFolderId) ?? initialFolderPath ?? "Root")
+    : "Root";
 
   // Handle file selection for folder cover
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -237,7 +239,7 @@ export function CreatePlaylistDialog({
                       ) : (
                         <Home className="w-4 h-4" />
                       )}
-                      {selectedFolderId ? selectedFolderName : "Root"}
+                      {selectedFolderPath}
                     </span>
                     <ChevronDown className="w-4 h-4 opacity-50" />
                   </Button>
@@ -253,20 +255,23 @@ export function CreatePlaylistDialog({
                     )}
                   </DropdownMenuItem>
                   {folders.length > 0 && <DropdownMenuSeparator />}
-                  {folders.map((folder) => (
-                    <DropdownMenuItem
-                      key={folder.id}
-                      onClick={() => setSelectedFolderId(folder.id)}
-                    >
-                      <Folder className="w-4 h-4 mr-2" />
-                      <span className="truncate">{folder.name}</span>
-                      {selectedFolderId === folder.id && (
-                        <span className="ml-auto text-xs text-muted-foreground">
-                          Current
-                        </span>
-                      )}
-                    </DropdownMenuItem>
-                  ))}
+                  {folders.map((folder) => {
+                    const fullPath = folderPathMap.get(folder.id) ?? folder.name;
+                    return (
+                      <DropdownMenuItem
+                        key={folder.id}
+                        onClick={() => setSelectedFolderId(folder.id)}
+                      >
+                        <Folder className="w-4 h-4 mr-2" />
+                        <span className="truncate">{fullPath}</span>
+                        {selectedFolderId === folder.id && (
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            Current
+                          </span>
+                        )}
+                      </DropdownMenuItem>
+                    );
+                  })}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

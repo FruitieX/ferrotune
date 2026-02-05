@@ -367,3 +367,67 @@ export function getUniqueFolderPaths(playlists: Playlist[]): string[] {
 
   return Array.from(paths).sort();
 }
+
+/**
+ * Build a map from folder ID to full folder path by walking up the parent hierarchy.
+ * E.g., if folder "Jazz" (id: 2) has parent "Music" (id: 1), the map will contain:
+ * { "1": "Music", "2": "Music/Jazz" }
+ */
+export function buildFolderPathMap(
+  folders: PlaylistFolderResponse[],
+): Map<string, string> {
+  const pathMap = new Map<string, string>();
+  const folderById = new Map<string, PlaylistFolderResponse>();
+
+  for (const folder of folders) {
+    folderById.set(folder.id, folder);
+  }
+
+  const computePath = (folderId: string): string => {
+    const cached = pathMap.get(folderId);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const folder = folderById.get(folderId);
+    if (!folder) {
+      return "";
+    }
+
+    let path: string;
+    if (folder.parentId) {
+      const parentPath = computePath(folder.parentId);
+      path = parentPath ? `${parentPath}/${folder.name}` : folder.name;
+    } else {
+      path = folder.name;
+    }
+
+    pathMap.set(folderId, path);
+    return path;
+  };
+
+  for (const folder of folders) {
+    computePath(folder.id);
+  }
+
+  return pathMap;
+}
+
+/**
+ * Get the full display path for a playlist including its folder hierarchy.
+ * E.g., a playlist named "Best Hits" in folder "Rock/80s" returns "Rock/80s/Best Hits"
+ */
+export function getPlaylistFullPath(
+  playlistName: string,
+  folderId: string | null | undefined,
+  folderPathMap: Map<string, string>,
+): string {
+  if (!folderId) {
+    return playlistName;
+  }
+  const folderPath = folderPathMap.get(folderId);
+  if (!folderPath) {
+    return playlistName;
+  }
+  return `${folderPath}/${playlistName}`;
+}

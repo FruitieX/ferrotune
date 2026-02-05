@@ -28,8 +28,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { CoverImage } from "@/components/shared/cover-image";
 import { getClient } from "@/lib/api/client";
 import { formatCount } from "@/lib/utils/format";
-import { isFolderPlaceholder } from "@/lib/utils/playlist-folders";
-import type { Playlist, Song } from "@/lib/api/types";
+import {
+  isFolderPlaceholder,
+  buildFolderPathMap,
+  getPlaylistFullPath,
+} from "@/lib/utils/playlist-folders";
+import type { Song } from "@/lib/api/types";
+import type { PlaylistInFolder } from "@/lib/api/generated/PlaylistInFolder";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/lib/hooks/use-media-query";
 
@@ -80,17 +85,20 @@ export function AddToPlaylistDialog({
   const router = useRouter();
   const isMobile = useIsMobile();
 
-  // Fetch playlists
-  const { data: playlists, isLoading } = useQuery({
-    queryKey: ["playlists"],
+  // Fetch playlists with folder structure
+  const { data: foldersData, isLoading } = useQuery({
+    queryKey: ["playlistFolders"],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getPlaylists();
-      return response.playlists.playlist ?? [];
+      return client.getPlaylistFoldersWithStructure();
     },
     enabled: open,
   });
+
+  const playlists = foldersData?.playlists ?? [];
+  const folders = foldersData?.folders ?? [];
+  const folderPathMap = buildFolderPathMap(folders);
 
   // Fetch which playlists already contain the songs being added
   const { data: containingPlaylists } = useQuery({
@@ -223,19 +231,21 @@ export function AddToPlaylistDialog({
   });
 
   const filteredPlaylists = (Array.isArray(playlists) ? playlists : [])
-    .filter(
-      (p) =>
-        !isFolderPlaceholder(p.name) &&
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()),
-    )
+    .filter((p) => {
+      if (isFolderPlaceholder(p.name)) return false;
+      const fullPath = getPlaylistFullPath(p.name, p.folderId, folderPathMap);
+      return fullPath.toLowerCase().includes(searchQuery.toLowerCase());
+    })
     .sort((a, b) => {
       // Sort playlists that already contain the songs to the top
       const aContains = containingPlaylistIds.has(a.id);
       const bContains = containingPlaylistIds.has(b.id);
       if (aContains && !bContains) return -1;
       if (!aContains && bContains) return 1;
-      // Otherwise maintain original order (by name)
-      return a.name.localeCompare(b.name);
+      // Otherwise sort by full path
+      const aPath = getPlaylistFullPath(a.name, a.folderId, folderPathMap);
+      const bPath = getPlaylistFullPath(b.name, b.folderId, folderPathMap);
+      return aPath.localeCompare(bPath);
     });
 
   const handleAddToPlaylist = async (
@@ -386,19 +396,27 @@ export function AddToPlaylistDialog({
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                 </div>
               ) : filteredPlaylists.length > 0 ? (
-                filteredPlaylists.map((playlist) => (
-                  <PlaylistOption
-                    key={playlist.id}
-                    playlist={playlist}
-                    isSelected={selectedPlaylistId === playlist.id}
-                    isPending={isPending && selectedPlaylistId === playlist.id}
-                    onSelect={() =>
-                      handleAddToPlaylist(playlist.id, playlist.name)
-                    }
-                    disabled={isPending}
-                    alreadyContainsSong={containingPlaylistIds.has(playlist.id)}
-                  />
-                ))
+                filteredPlaylists.map((playlist) => {
+                  const fullPath = getPlaylistFullPath(
+                    playlist.name,
+                    playlist.folderId,
+                    folderPathMap,
+                  );
+                  return (
+                    <PlaylistOption
+                      key={playlist.id}
+                      playlist={playlist}
+                      fullPath={fullPath}
+                      isSelected={selectedPlaylistId === playlist.id}
+                      isPending={isPending && selectedPlaylistId === playlist.id}
+                      onSelect={() =>
+                        handleAddToPlaylist(playlist.id, fullPath)
+                      }
+                      disabled={isPending}
+                      alreadyContainsSong={containingPlaylistIds.has(playlist.id)}
+                    />
+                  );
+                })
               ) : searchQuery ? (
                 <div className="py-6 text-center space-y-3">
                   <p className="text-muted-foreground text-sm">
@@ -473,7 +491,8 @@ export function AddToPlaylistDialog({
 }
 
 interface PlaylistOptionProps {
-  playlist: Playlist;
+  playlist: PlaylistInFolder;
+  fullPath: string;
   isSelected: boolean;
   isPending: boolean;
   onSelect: () => void;
@@ -483,16 +502,13 @@ interface PlaylistOptionProps {
 
 function PlaylistOption({
   playlist,
+  fullPath,
   isSelected,
   isPending,
   onSelect,
   disabled,
   alreadyContainsSong = false,
 }: PlaylistOptionProps) {
-  const coverArtUrl = playlist.coverArt
-    ? getClient()?.getCoverArtUrl(playlist.coverArt, 80)
-    : undefined;
-
   return (
     <button
       onClick={onSelect}
@@ -506,13 +522,13 @@ function PlaylistOption({
       )}
     >
       <CoverImage
-        src={coverArtUrl}
+        src={undefined}
         alt={playlist.name}
         size="sm"
         type="playlist"
       />
       <div className="flex-1 min-w-0">
-        <p className="font-medium truncate">{playlist.name}</p>
+        <p className="font-medium truncate">{fullPath}</p>
         <p className="text-xs text-muted-foreground">
           {formatCount(playlist.songCount, "song")}
           {alreadyContainsSong && (
