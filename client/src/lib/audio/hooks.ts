@@ -21,7 +21,14 @@ import {
   transcodingSeekModeAtom,
   replayGainModeAtom,
   replayGainOffsetAtom,
+  clippingStateAtom,
+  clippingDetectionEnabledAtom,
 } from "@/lib/store/player";
+import {
+  startClippingDetection,
+  stopClippingDetection,
+  resetClippingPeak,
+} from "@/lib/audio/clipping-detector";
 import {
   serverQueueStateAtom,
   currentSongAtom,
@@ -46,6 +53,7 @@ let globalAudio: HTMLAudioElement | null = null;
 let audioContext: AudioContext | null = null;
 let sourceNode: MediaElementAudioSourceNode | null = null;
 let gainNode: GainNode | null = null;
+let analyserNode: AnalyserNode | null = null;
 
 // Track the currently loaded track ID to avoid unnecessary reloads when queue changes
 let currentLoadedTrackId: string | null = null;
@@ -89,10 +97,13 @@ function initializeWebAudio(audio: HTMLAudioElement): void {
     audioContext = new AudioContext();
     sourceNode = audioContext.createMediaElementSource(audio);
     gainNode = audioContext.createGain();
+    analyserNode = audioContext.createAnalyser();
+    analyserNode.fftSize = 2048;
 
-    // Connect: audio element -> gain node -> speakers
+    // Connect: audio element -> gain node -> analyser -> speakers
     sourceNode.connect(gainNode);
-    gainNode.connect(audioContext.destination);
+    gainNode.connect(analyserNode);
+    analyserNode.connect(audioContext.destination);
 
     console.log(
       "[Audio] Web Audio API initialized, AudioContext state:",
@@ -305,6 +316,8 @@ export function useAudioEngineInit() {
   const [hasScrobbled, setHasScrobbled] = useAtom(hasScrobbledAtom);
   const scrobbleThreshold = useAtomValue(scrobbleThresholdAtom);
   const setAudioElement = useSetAtom(audioElementAtom);
+  const setClippingState = useSetAtom(clippingStateAtom);
+  const clippingDetectionEnabled = useAtomValue(clippingDetectionEnabledAtom);
 
   // Transcoding and ReplayGain settings
   const transcodingEnabled = useAtomValue(transcodingEnabledAtom);
@@ -347,6 +360,7 @@ export function useAudioEngineInit() {
     setBuffered,
     setHasScrobbled,
     setAudioElement,
+    setClippingState,
     invalidatePlayCountQueries,
     goToNext,
   });
@@ -361,6 +375,7 @@ export function useAudioEngineInit() {
       setBuffered,
       setHasScrobbled,
       setAudioElement,
+      setClippingState,
       invalidatePlayCountQueries,
       goToNext,
     };
@@ -377,6 +392,7 @@ export function useAudioEngineInit() {
     transcodingEnabled,
     replayGainMode,
     replayGainOffset,
+    clippingDetectionEnabled,
   });
 
   // Keep refs in sync
@@ -391,6 +407,7 @@ export function useAudioEngineInit() {
       transcodingEnabled,
       replayGainMode,
       replayGainOffset,
+      clippingDetectionEnabled,
     };
   });
 
@@ -425,6 +442,15 @@ export function useAudioEngineInit() {
       console.log("[Audio] play event fired");
       settersRef.current.setPlaybackState("playing");
 
+      // Start real-time clipping detection
+      if (analyserNode && stateRef.current.clippingDetectionEnabled) {
+        startClippingDetection(
+          analyserNode,
+          settersRef.current.setClippingState,
+          () => audio.volume,
+        );
+      }
+
       // Start tracking listening time
       const currentSongId = stateRef.current.currentSong?.id;
       if (currentSongId) {
@@ -450,6 +476,9 @@ export function useAudioEngineInit() {
       }
       settersRef.current.setPlaybackState("paused");
 
+      // Stop clipping detection while paused
+      stopClippingDetection();
+
       // Stop periodic updates
       stopListeningUpdateInterval();
 
@@ -464,6 +493,8 @@ export function useAudioEngineInit() {
 
     const handleEnded = () => {
       console.log("[Audio] ended event fired");
+      // Stop clipping detection
+      stopClippingDetection();
       // Log listening time before moving to next track
       logListeningTimeAndReset();
 
@@ -720,6 +751,21 @@ export function useAudioEngineInit() {
     }
   }, [effectiveVolume]);
 
+  // Start/stop clipping detection when the setting changes
+  useEffect(() => {
+    if (!clippingDetectionEnabled) {
+      stopClippingDetection();
+      setClippingState(null);
+    } else if (playbackState === "playing" && analyserNode && globalAudio) {
+      const audio = globalAudio;
+      startClippingDetection(
+        analyserNode,
+        setClippingState,
+        () => audio.volume,
+      );
+    }
+  }, [clippingDetectionEnabled, setClippingState, playbackState]);
+
   // Pause audio when playback state becomes "ended" (e.g., when queue ends via goToNext)
   useEffect(() => {
     if (playbackState === "ended" && globalAudio && !globalAudio.paused) {
@@ -790,6 +836,7 @@ export function useAudioEngineInit() {
     // Log listening time for the track we're leaving
     if (currentLoadedTrackId && currentSong.id !== currentLoadedTrackId) {
       logListeningTimeAndReset();
+      resetClippingPeak();
     }
 
     currentLoadedTrackId = currentSong.id;

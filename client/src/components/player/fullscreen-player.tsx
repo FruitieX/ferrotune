@@ -55,6 +55,16 @@ import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import { SongDropdownMenu } from "@/components/browse/song-context-menu";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
+import {
+  useClippingIndicator,
+  formatClippingTooltip,
+} from "@/components/player/clipping-indicator";
+import { AlertTriangle } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 /**
  * Background component that only re-renders when the cover art changes.
@@ -87,6 +97,70 @@ function FullscreenBackground({
       {/* Blur overlay */}
       <div className="absolute inset-0 backdrop-blur-3xl bg-background/70" />
     </>
+  );
+}
+
+/** Fullscreen volume controls with clipping indicator integration */
+function FullscreenVolumeControls({
+  volumeContainerRef,
+  volume,
+  isMuted,
+  setVolume,
+  setIsMuted,
+}: {
+  volumeContainerRef: React.RefObject<HTMLDivElement | null>;
+  volume: number;
+  isMuted: boolean;
+  setVolume: (v: number) => void;
+  setIsMuted: (v: boolean) => void;
+}) {
+  const { isClipping, peakOverDbAt100, peakDbAtCurrent, volumePercent } =
+    useClippingIndicator();
+
+  const volumeButton = (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="shrink-0 rounded-full h-8 w-8"
+      onClick={() => setIsMuted(!isMuted)}
+    >
+      {isClipping ? (
+        <AlertTriangle className="w-4 h-4 text-red-500" />
+      ) : isMuted || volume === 0 ? (
+        <VolumeX className="w-4 h-4" />
+      ) : (
+        <Volume2 className="w-4 h-4" />
+      )}
+    </Button>
+  );
+
+  return (
+    <div ref={volumeContainerRef} className="flex items-center gap-2 w-32">
+      {isClipping ? (
+        <Tooltip>
+          <TooltipTrigger asChild>{volumeButton}</TooltipTrigger>
+          <TooltipContent side="top" className="whitespace-pre-line">
+            {formatClippingTooltip(
+              peakOverDbAt100,
+              peakDbAtCurrent,
+              volumePercent,
+            )}
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        volumeButton
+      )}
+      <Slider
+        value={[isMuted ? 0 : volume]}
+        max={1}
+        step={0.01}
+        onValueChange={([v]) => {
+          setVolume(v);
+          if (v > 0) setIsMuted(false);
+        }}
+        className="w-full"
+      />
+    </div>
   );
 }
 
@@ -645,33 +719,13 @@ export function FullscreenPlayer() {
                   className="flex items-center justify-between pb-4"
                 >
                   {/* Volume */}
-                  <div
-                    ref={volumeContainerRef}
-                    className="flex items-center gap-2 w-32"
-                  >
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="shrink-0 rounded-full h-8 w-8"
-                      onClick={() => setIsMuted(!isMuted)}
-                    >
-                      {isMuted || volume === 0 ? (
-                        <VolumeX className="w-4 h-4" />
-                      ) : (
-                        <Volume2 className="w-4 h-4" />
-                      )}
-                    </Button>
-                    <Slider
-                      value={[isMuted ? 0 : volume]}
-                      max={1}
-                      step={0.01}
-                      onValueChange={([v]) => {
-                        setVolume(v);
-                        if (v > 0) setIsMuted(false);
-                      }}
-                      className="w-full"
-                    />
-                  </div>
+                  <FullscreenVolumeControls
+                    volumeContainerRef={volumeContainerRef}
+                    volume={volume}
+                    isMuted={isMuted}
+                    setVolume={setVolume}
+                    setIsMuted={setIsMuted}
+                  />
 
                   {/* Queue button */}
                   <Button

@@ -83,6 +83,19 @@ export const repeatModeAtom = atomWithServerStorage<RepeatMode>(
   "off",
 );
 
+// Clipping detection (real-time via AnalyserNode)
+export interface ClippingState {
+  /** Max peak over 0 dBFS normalized to 100% volume (for the current song) */
+  peakOverDbAt100: number;
+  /** Timestamp of last detected clip (at 100% volume) */
+  lastClipTime: number;
+}
+export const clippingStateAtom = atom<ClippingState | null>(null);
+export const clippingDetectionEnabledAtom = atomWithServerStorage(
+  "clippingDetectionEnabled",
+  true,
+);
+
 // Scrobble tracking
 export const hasScrobbledAtom = atom<boolean>(false);
 export const scrobbleThresholdAtom = atom<number>(0.5); // 50% of track

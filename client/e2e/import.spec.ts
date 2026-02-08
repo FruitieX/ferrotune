@@ -175,9 +175,15 @@ Second Song,Test Artist,Test Album,${now.toISOString()},240
         toast.filter({ hasText: /scrobbles.*sessions|sessions.*scrobbles/i }),
       ).toBeVisible({ timeout: 10000 });
 
-      // Verify by checking history
-      await page.goto("/history");
-      await page.waitForLoadState("domcontentloaded");
+      // Wait for dialog to close before navigating
+      await expect(
+        page.getByRole("heading", { name: "Import Play Counts" }),
+      ).toBeHidden({ timeout: 5000 });
+
+      // Verify by checking history - use link click instead of goto to allow
+      // React Query cache invalidation to complete first
+      await page.getByRole("link", { name: "Recently Played" }).click();
+      await page.waitForURL("/history");
       await expect(
         page.getByText("First Song").or(page.getByText("Second Song")).first(),
       ).toBeVisible({ timeout: 10000 });

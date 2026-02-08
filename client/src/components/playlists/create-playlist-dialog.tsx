@@ -256,7 +256,8 @@ export function CreatePlaylistDialog({
                   </DropdownMenuItem>
                   {folders.length > 0 && <DropdownMenuSeparator />}
                   {folders.map((folder) => {
-                    const fullPath = folderPathMap.get(folder.id) ?? folder.name;
+                    const fullPath =
+                      folderPathMap.get(folder.id) ?? folder.name;
                     return (
                       <DropdownMenuItem
                         key={folder.id}

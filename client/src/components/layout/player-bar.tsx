@@ -71,6 +71,16 @@ import {
 import { CoverImage } from "@/components/shared/cover-image";
 import { WaveformProgressBar } from "@/components/player/waveform-progress-bar";
 import { SimpleProgressBar } from "@/components/player/simple-progress-bar";
+import {
+  useClippingIndicator,
+  formatClippingTooltip,
+} from "@/components/player/clipping-indicator";
+import { AlertTriangle } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // ============================================================================
 // Memoized Sub-Components
@@ -751,6 +761,8 @@ function TimeSlider() {
 function VolumeControls() {
   const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
   const volumeContainerRef = useRef<HTMLDivElement>(null);
+  const { isClipping, peakOverDbAt100, peakDbAtCurrent, volumePercent } =
+    useClippingIndicator();
 
   const VolumeIcon =
     isMuted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
@@ -773,21 +785,42 @@ function VolumeControls() {
     return () => container.removeEventListener("wheel", handleWheel);
   }, [volume, changeVolume]);
 
+  const volumeButton = (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-8 w-8"
+      onClick={toggleMute}
+      aria-label={isMuted ? "Unmute" : "Mute"}
+    >
+      {isClipping ? (
+        <AlertTriangle className="w-4 h-4 text-red-500" />
+      ) : (
+        <VolumeIcon className="w-4 h-4" />
+      )}
+    </Button>
+  );
+
   return (
     // Desktop volume - hidden on mobile (mobile uses more menu for volume)
     <div
       ref={volumeContainerRef}
       className="hidden md:flex items-center gap-2 w-32"
     >
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8"
-        onClick={toggleMute}
-        aria-label={isMuted ? "Unmute" : "Mute"}
-      >
-        <VolumeIcon className="w-4 h-4" />
-      </Button>
+      {isClipping ? (
+        <Tooltip>
+          <TooltipTrigger asChild>{volumeButton}</TooltipTrigger>
+          <TooltipContent side="top" className="whitespace-pre-line">
+            {formatClippingTooltip(
+              peakOverDbAt100,
+              peakDbAtCurrent,
+              volumePercent,
+            )}
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        volumeButton
+      )}
       <Slider
         value={[isMuted ? 0 : volume * 100]}
         max={100}

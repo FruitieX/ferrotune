@@ -408,12 +408,16 @@ export function AddToPlaylistDialog({
                       playlist={playlist}
                       fullPath={fullPath}
                       isSelected={selectedPlaylistId === playlist.id}
-                      isPending={isPending && selectedPlaylistId === playlist.id}
+                      isPending={
+                        isPending && selectedPlaylistId === playlist.id
+                      }
                       onSelect={() =>
                         handleAddToPlaylist(playlist.id, fullPath)
                       }
                       disabled={isPending}
-                      alreadyContainsSong={containingPlaylistIds.has(playlist.id)}
+                      alreadyContainsSong={containingPlaylistIds.has(
+                        playlist.id,
+                      )}
                     />
                   );
                 })

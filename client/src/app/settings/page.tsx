@@ -44,6 +44,7 @@ import {
   transcodingEnabledAtom,
   transcodingBitrateAtom,
   transcodingSeekModeAtom,
+  clippingDetectionEnabledAtom,
   type ReplayGainMode,
   type SeekMode,
 } from "@/lib/store/player";
@@ -99,6 +100,9 @@ export default function SettingsPage() {
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
   const [replayGainMode, setReplayGainMode] = useAtom(replayGainModeAtom);
   const [replayGainOffset, setReplayGainOffset] = useAtom(replayGainOffsetAtom);
+  const [clippingDetectionEnabled, setClippingDetectionEnabled] = useAtom(
+    clippingDetectionEnabledAtom,
+  );
   const [transcodingEnabled, setTranscodingEnabled] = useAtom(
     transcodingEnabledAtom,
   );
@@ -659,6 +663,19 @@ export default function SettingsPage() {
                     <p className="text-xs text-muted-foreground">
                       Adjust all tracks up or down from their computed gain
                     </p>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <label className="font-medium">Clipping Detection</label>
+                      <p className="text-xs text-muted-foreground">
+                        Show a warning when audio would clip at full volume
+                      </p>
+                    </div>
+                    <Switch
+                      checked={clippingDetectionEnabled}
+                      onCheckedChange={setClippingDetectionEnabled}
+                    />
                   </div>
                 </>
               )}
