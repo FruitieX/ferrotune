@@ -26,6 +26,9 @@ pub struct LogListeningRequest {
     pub duration_seconds: i64,
     /// Optional session ID to update an existing session instead of creating a new one
     pub session_id: Option<i64>,
+    /// Whether the song was skipped (user manually advanced to next track)
+    #[serde(default)]
+    pub skipped: bool,
 }
 
 /// Response for logging a listening session.
@@ -53,6 +56,12 @@ pub struct ListeningStats {
     /// Number of unique songs listened to
     #[ts(type = "number")]
     pub unique_songs: i64,
+    /// Number of songs skipped
+    #[ts(type = "number")]
+    pub skip_count: i64,
+    /// Total number of scrobbles (completed plays)
+    #[ts(type = "number")]
+    pub scrobble_count: i64,
 }
 
 /// Response for getting listening statistics.
@@ -97,11 +106,12 @@ pub async fn log_listening(
         let result = sqlx::query(
             r#"
             UPDATE listening_sessions 
-            SET duration_seconds = ?
+            SET duration_seconds = ?, skipped = ?
             WHERE id = ? AND user_id = ? AND song_id = ?
             "#,
         )
         .bind(request.duration_seconds)
+        .bind(request.skipped)
         .bind(session_id)
         .bind(user.user_id)
         .bind(&request.song_id)
@@ -134,14 +144,15 @@ pub async fn log_listening(
     // Insert a new listening session
     let result = sqlx::query_scalar::<_, i64>(
         r#"
-        INSERT INTO listening_sessions (user_id, song_id, duration_seconds, listened_at)
-        VALUES (?, ?, ?, datetime('now'))
+        INSERT INTO listening_sessions (user_id, song_id, duration_seconds, skipped, listened_at)
+        VALUES (?, ?, ?, ?, datetime('now'))
         RETURNING id
         "#,
     )
     .bind(user.user_id)
     .bind(&request.song_id)
     .bind(request.duration_seconds)
+    .bind(request.skipped)
     .fetch_one(&state.pool)
     .await;
 
@@ -173,14 +184,20 @@ pub async fn get_listening_stats(
         let query = format!(
             r#"
             SELECT 
-                COALESCE(SUM(duration_seconds), 0) as total_seconds,
+                COALESCE(SUM(ls.duration_seconds), 0) as total_seconds,
                 COUNT(*) as session_count,
-                COUNT(DISTINCT song_id) as unique_songs
-            FROM listening_sessions
-            WHERE user_id = ?
-            {}
+                COUNT(DISTINCT ls.song_id) as unique_songs,
+                COALESCE(SUM(CASE WHEN ls.skipped THEN 1 ELSE 0 END), 0) as skip_count,
+                COALESCE((
+                    SELECT SUM(s.play_count) FROM scrobbles s 
+                    WHERE s.user_id = ls.user_id {date_filter_scrobbles}
+                ), 0) as scrobble_count
+            FROM listening_sessions ls
+            WHERE ls.user_id = ?
+            {date_filter_ls}
             "#,
-            date_filter
+            date_filter_ls = date_filter,
+            date_filter_scrobbles = date_filter.replace("listened_at", "played_at"),
         );
 
         sqlx::query_as::<_, ListeningStats>(&query)

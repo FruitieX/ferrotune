@@ -6,6 +6,7 @@ import {
   waveformCacheAtom,
   loadingWaveformIdAtom,
   lastChunkInfoAtom,
+  waveformActualDurationAtom,
   WAVEFORM_BAR_COUNT,
   FLAT_BAR_HEIGHT,
 } from "@/lib/store/waveform";
@@ -17,6 +18,7 @@ interface WaveformChunk {
   total_chunks: number;
   rms_values: number[]; // Raw RMS values, not normalized
   done: boolean;
+  actual_duration_ms?: number | null; // Actual decoded duration in ms (final chunk only)
 }
 
 /**
@@ -61,6 +63,7 @@ export function useWaveform() {
   const [waveformCache, setWaveformCache] = useAtom(waveformCacheAtom);
   const [loadingId, setLoadingId] = useAtom(loadingWaveformIdAtom);
   const setLastChunkInfo = useSetAtom(lastChunkInfoAtom);
+  const setWaveformActualDuration = useSetAtom(waveformActualDurationAtom);
   const [streamingHeights, setStreamingHeights] = useState<number[] | null>(
     null,
   );
@@ -192,12 +195,27 @@ export function useWaveform() {
               setStreamingHeights([...normalizedHeights]);
 
               if (chunk.done) {
+                // Store actual decoded duration if available
+                const actualDuration =
+                  chunk.actual_duration_ms != null
+                    ? chunk.actual_duration_ms / 1000
+                    : null;
+
+                if (actualDuration != null) {
+                  setWaveformActualDuration((prev) => {
+                    const next = new Map(prev);
+                    next.set(trackId, actualDuration);
+                    return next;
+                  });
+                }
+
                 // Final chunk - save normalized data to cache
                 setWaveformCache((prev) => {
                   const next = new Map(prev);
                   next.set(trackId, {
                     heights: normalizedHeights,
                     isLoaded: true,
+                    actualDuration,
                   });
                   return next;
                 });
@@ -226,6 +244,7 @@ export function useWaveform() {
     trackId,
     waveformCache,
     setWaveformCache,
+    setWaveformActualDuration,
     setLoadingId,
     setLastChunkInfo,
   ]);

@@ -1081,10 +1081,11 @@ export class FerrotuneClient {
     songId: string,
     durationSeconds: number,
     sessionId?: number,
+    skipped?: boolean,
   ): Promise<{ success: boolean; sessionId: number }> {
     return this.request("/ferrotune/listening", {
       method: "POST",
-      body: JSON.stringify({ songId, durationSeconds, sessionId }),
+      body: JSON.stringify({ songId, durationSeconds, sessionId, skipped }),
     });
   }
 

@@ -25,6 +25,7 @@ import {
   Maximize2,
   Heart,
   MoreHorizontal,
+  Cast,
 } from "lucide-react";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { cn } from "@/lib/utils";
@@ -42,6 +43,7 @@ import {
   useRepeatMode,
   useShuffle,
 } from "@/lib/audio/hooks";
+import { useCast } from "@/lib/hooks/use-cast";
 import {
   currentTimeAtom,
   durationAtom,
@@ -1004,6 +1006,35 @@ function MobileMoreMenu() {
   );
 }
 
+/** Cast button - shows cast icon when Chromecast devices are available */
+function CastButton() {
+  const { isAvailable, isCasting, castDeviceName, requestCast, stopCasting } =
+    useCast();
+
+  if (!isAvailable) return null;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn("hidden md:flex h-8 w-8", isCasting && "text-primary")}
+          onClick={isCasting ? stopCasting : requestCast}
+          aria-label={isCasting ? "Stop casting" : "Cast"}
+        >
+          <Cast className="w-4 h-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {isCasting
+          ? `Casting to ${castDeviceName ?? "device"}`
+          : "Cast to device"}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 /** Fullscreen button - separated to avoid re-renders */
 function FullscreenButton() {
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
@@ -1083,6 +1114,8 @@ export function PlayerBar() {
           </div>
           {/* Desktop volume controls */}
           <VolumeControls />
+          {/* Cast button - shows when Chromecast devices are available */}
+          <CastButton />
           {/* Mobile more menu (includes queue, volume, etc.) */}
           <MobileMoreMenu />
           <FullscreenButton />

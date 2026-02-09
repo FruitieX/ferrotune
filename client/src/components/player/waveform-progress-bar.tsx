@@ -11,7 +11,10 @@ import {
 } from "@/lib/store/player";
 import { currentSongAtom } from "@/lib/store/server-queue";
 import { accentColorRgbAtom } from "@/lib/store/ui";
-import { lastChunkInfoAtom } from "@/lib/store/waveform";
+import {
+  lastChunkInfoAtom,
+  waveformActualDurationAtom,
+} from "@/lib/store/waveform";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { useWaveform } from "@/lib/hooks/use-waveform";
 import { FLAT_BAR_HEIGHT } from "@/lib/store/waveform";
@@ -80,6 +83,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const buffered = useAtomValue(bufferedAtom);
   const primaryColor = useAtomValue(accentColorRgbAtom);
   const lastChunkInfo = useAtomValue(lastChunkInfoAtom);
+  const waveformActualDurations = useAtomValue(waveformActualDurationAtom);
   const { seekPercent } = useAudioEngine();
   const {
     heights: sourceHeights,
@@ -142,12 +146,22 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   // Treat "ended" playback as no track for waveform animation purposes
   // This ensures the waveform animates out when queue ends
   const trackId = isEnded ? null : rawTrackId;
+  // Use the waveform's actual decoded duration for progress calculation when available.
+  // This ensures the progress indicator is perfectly synchronized with the waveform bars,
+  // since both are derived from the same audio decoding. Falls back to the player's
+  // duration atom (which may be a truncated integer from the database).
+  const waveformDuration =
+    rawTrackId != null
+      ? (waveformActualDurations.get(rawTrackId) ?? null)
+      : null;
+  const effectiveDuration = waveformDuration ?? duration;
   const atomProgress = isEnded
     ? 0
-    : duration > 0
-      ? (currentTime / duration) * 100
+    : effectiveDuration > 0
+      ? (currentTime / effectiveDuration) * 100
       : 0;
-  const bufferedPercent = duration > 0 ? (buffered / duration) * 100 : 0;
+  const bufferedPercent =
+    effectiveDuration > 0 ? (buffered / effectiveDuration) * 100 : 0;
 
   // Ensure buffers are correctly sized
   useEffect(() => {
@@ -679,8 +693,8 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   };
 
   const hoverTime =
-    hoverPercent !== null && duration > 0
-      ? (hoverPercent / 100) * duration
+    hoverPercent !== null && effectiveDuration > 0
+      ? (hoverPercent / 100) * effectiveDuration
       : null;
   const hasTrack =
     !!currentTrack && playbackState !== "idle" && playbackState !== "ended";

@@ -341,19 +341,6 @@ export default function HomePage() {
 
       {/* Content */}
       <div className="py-6 space-y-8">
-        {/* Recently Added */}
-        <AlbumSection
-          title="Recently Added"
-          icon={Clock}
-          albums={newestAlbums}
-          isLoading={loadingNewest}
-          onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() => handlePlayAllAlbums(newestAlbums, "Recently Added")}
-          onShuffleAll={() =>
-            handleShuffleAllAlbums(newestAlbums, "Recently Added")
-          }
-        />
-
         {/* Continue Listening (Recently Played) */}
         <AlbumSection
           title="Continue Listening"
@@ -391,6 +378,19 @@ export default function HomePage() {
           onPlayAlbum={handlePlayAlbum}
           onPlayAll={() => handlePlayAllAlbums(randomAlbums, "Discover")}
           onShuffleAll={() => handleShuffleAllAlbums(randomAlbums, "Discover")}
+        />
+
+        {/* Recently Added */}
+        <AlbumSection
+          title="Recently Added"
+          icon={Clock}
+          albums={newestAlbums}
+          isLoading={loadingNewest}
+          onPlayAlbum={handlePlayAlbum}
+          onPlayAll={() => handlePlayAllAlbums(newestAlbums, "Recently Added")}
+          onShuffleAll={() =>
+            handleShuffleAllAlbums(newestAlbums, "Recently Added")
+          }
         />
       </div>
     </div>

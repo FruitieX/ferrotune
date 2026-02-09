@@ -16,6 +16,8 @@ import {
   Upload,
   FileSpreadsheet,
   Heart,
+  SkipForward,
+  Music,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -299,68 +301,111 @@ export default function ProfilePage() {
                   ))}
                 </div>
               ) : listeningStats ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="p-3 rounded-lg bg-muted/30">
-                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                      <Calendar className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">
-                        Last 7 Days
-                      </span>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="p-3 rounded-lg bg-muted/30">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                        <Calendar className="w-4 h-4" />
+                        <span className="text-xs uppercase tracking-wider">
+                          Last 7 Days
+                        </span>
+                      </div>
+                      <p className="text-lg font-bold">
+                        {formatListeningTime(
+                          listeningStats.last7Days.totalSeconds,
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {listeningStats.last7Days.uniqueSongs} songs
+                      </p>
                     </div>
-                    <p className="text-lg font-bold">
-                      {formatListeningTime(
-                        listeningStats.last7Days.totalSeconds,
-                      )}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {listeningStats.last7Days.uniqueSongs} songs
-                    </p>
+                    <div className="p-3 rounded-lg bg-muted/30">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                        <Calendar className="w-4 h-4" />
+                        <span className="text-xs uppercase tracking-wider">
+                          Last 30 Days
+                        </span>
+                      </div>
+                      <p className="text-lg font-bold">
+                        {formatListeningTime(
+                          listeningStats.last30Days.totalSeconds,
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {listeningStats.last30Days.uniqueSongs} songs
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted/30">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                        <Calendar className="w-4 h-4" />
+                        <span className="text-xs uppercase tracking-wider">
+                          This Year
+                        </span>
+                      </div>
+                      <p className="text-lg font-bold">
+                        {formatListeningTime(
+                          listeningStats.thisYear.totalSeconds,
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {listeningStats.thisYear.uniqueSongs} songs
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted/30">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                        <Clock className="w-4 h-4" />
+                        <span className="text-xs uppercase tracking-wider">
+                          All Time
+                        </span>
+                      </div>
+                      <p className="text-lg font-bold">
+                        {formatListeningTime(
+                          listeningStats.allTime.totalSeconds,
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {listeningStats.allTime.uniqueSongs} songs
+                      </p>
+                    </div>
                   </div>
-                  <div className="p-3 rounded-lg bg-muted/30">
-                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                      <Calendar className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">
-                        Last 30 Days
-                      </span>
+
+                  {/* Detailed stats */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="p-3 rounded-lg bg-muted/30">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                        <Music className="w-4 h-4" />
+                        <span className="text-xs uppercase tracking-wider">
+                          Total Plays
+                        </span>
+                      </div>
+                      <p className="text-lg font-bold">
+                        {listeningStats.allTime.scrobbleCount.toLocaleString()}
+                      </p>
                     </div>
-                    <p className="text-lg font-bold">
-                      {formatListeningTime(
-                        listeningStats.last30Days.totalSeconds,
-                      )}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {listeningStats.last30Days.uniqueSongs} songs
-                    </p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/30">
-                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                      <Calendar className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">
-                        This Year
-                      </span>
+                    <div className="p-3 rounded-lg bg-muted/30">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                        <SkipForward className="w-4 h-4" />
+                        <span className="text-xs uppercase tracking-wider">
+                          Songs Skipped
+                        </span>
+                      </div>
+                      <p className="text-lg font-bold">
+                        {listeningStats.allTime.skipCount.toLocaleString()}
+                      </p>
                     </div>
-                    <p className="text-lg font-bold">
-                      {formatListeningTime(
-                        listeningStats.thisYear.totalSeconds,
-                      )}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {listeningStats.thisYear.uniqueSongs} songs
-                    </p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/30">
-                    <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                      <Clock className="w-4 h-4" />
-                      <span className="text-xs uppercase tracking-wider">
-                        All Time
-                      </span>
+                    <div className="p-3 rounded-lg bg-muted/30">
+                      <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                        <TrendingUp className="w-4 h-4" />
+                        <span className="text-xs uppercase tracking-wider">
+                          Skip Rate
+                        </span>
+                      </div>
+                      <p className="text-lg font-bold">
+                        {listeningStats.allTime.sessionCount > 0
+                          ? `${Math.round((listeningStats.allTime.skipCount / listeningStats.allTime.sessionCount) * 100)}%`
+                          : "0%"}
+                      </p>
                     </div>
-                    <p className="text-lg font-bold">
-                      {formatListeningTime(listeningStats.allTime.totalSeconds)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {listeningStats.allTime.uniqueSongs} songs
-                    </p>
                   </div>
                 </div>
               ) : (

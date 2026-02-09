@@ -12,6 +12,7 @@ import { usePreferencesSync } from "@/lib/hooks/use-preferences-sync";
 import { useClearSelectionOnNavigate } from "@/lib/hooks/use-clear-selection-on-navigate";
 import { useBackButtonClose } from "@/lib/hooks/use-back-button-close";
 import { useScanProgressStream } from "@/lib/hooks/use-scan-progress-stream";
+import { useCastInit } from "@/lib/hooks/use-cast";
 import { DynamicFavicon } from "@/components/dynamic-favicon";
 import {
   accentColorAtom,
@@ -38,6 +39,7 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   usePreferencesSync(); // Load and sync user preferences from server
   useScanProgressStream(); // Monitor scan progress in background
   useBackButtonClose(); // Handle Android back button to close menus
+  useCastInit(); // Initialize Chromecast SDK
   return <>{children}</>;
 }
 

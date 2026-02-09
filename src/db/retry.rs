@@ -115,8 +115,7 @@ mod tests {
     #[test]
     fn test_is_retryable_error() {
         // Test with a non-database error
-        let io_error =
-            sqlx::Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "test error"));
+        let io_error = sqlx::Error::Io(std::io::Error::other("test error"));
         assert!(!is_retryable_error(&io_error));
     }
 }

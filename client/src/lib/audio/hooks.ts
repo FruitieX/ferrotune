@@ -32,6 +32,7 @@ import {
 import {
   serverQueueStateAtom,
   currentSongAtom,
+  nextSongAtom,
   isRestoringQueueAtom,
   trackChangeSignalAtom,
   goToNextAtom,
@@ -46,14 +47,35 @@ import { serverConnectionAtom, isHydratedAtom } from "@/lib/store/auth";
 import { getClient } from "@/lib/api/client";
 import { invalidatePlayCountQueries as invalidatePlayCounts } from "@/lib/api/cache-invalidation";
 
-// Singleton audio element - only one instance across the entire app
-let globalAudio: HTMLAudioElement | null = null;
+// ============================================================================
+// Dual Audio Element System for Gapless Playback
+// ============================================================================
+// Two audio elements are used: one active (playing) and one inactive (pre-buffering).
+// Each has its own MediaElementAudioSourceNode → GainNode, both feeding into a shared
+// AnalyserNode → AudioContext.destination. The inactive element's gain is 0.
+// When the active track ends, we swap: the pre-buffered element becomes active immediately.
 
-// Web Audio API for ReplayGain volume adjustment
+// Dual audio elements for gapless playback
+const audioElements: [HTMLAudioElement | null, HTMLAudioElement | null] = [
+  null,
+  null,
+];
+let activeIndex: 0 | 1 = 0;
+
+// Web Audio API nodes - dual gain nodes, shared analyser
 let audioContext: AudioContext | null = null;
-let sourceNode: MediaElementAudioSourceNode | null = null;
-let gainNode: GainNode | null = null;
+const sourceNodes: [
+  MediaElementAudioSourceNode | null,
+  MediaElementAudioSourceNode | null,
+] = [null, null];
+const gainNodes: [GainNode | null, GainNode | null] = [null, null];
 let analyserNode: AnalyserNode | null = null;
+
+// Pre-buffering state
+let preBufferedTrackId: string | null = null;
+let preBufferReady = false;
+// Time in seconds before track end to start pre-buffering
+const PRE_BUFFER_LEAD_TIME = 15;
 
 // Track the currently loaded track ID to avoid unnecessary reloads when queue changes
 let currentLoadedTrackId: string | null = null;
@@ -63,6 +85,8 @@ let isEndingQueue: boolean = false;
 let isLoadingNewTrack: boolean = false;
 // Flag to indicate we're intentionally stopping/clearing (prevents error toasts)
 let isIntentionalStop: boolean = false;
+// Flag to indicate a gapless handoff is in progress (prevents double-advance)
+let isGaplessHandoff = false;
 // Track when playback started for listening time logging
 let playbackStartTime: number | null = null;
 let playbackStartSongId: string | null = null;
@@ -86,27 +110,41 @@ function dbToLinear(db: number): number {
 }
 
 /**
- * Initialize Web Audio API for ReplayGain processing.
- * This creates an AudioContext and routes the audio through a GainNode.
+ * Initialize Web Audio API for ReplayGain processing with dual audio elements.
+ * Creates an AudioContext, two source/gain chains, and a shared analyser.
+ * Both chains feed into: sourceNode → gainNode → analyserNode → destination
+ * The inactive element's gain is set to 0 to prevent audio bleed.
  */
-function initializeWebAudio(audio: HTMLAudioElement): void {
+function initializeWebAudio(
+  audio0: HTMLAudioElement,
+  audio1: HTMLAudioElement,
+): void {
   if (audioContext) return; // Already initialized
 
   try {
-    console.log("[Audio] Initializing Web Audio API for ReplayGain");
+    console.log(
+      "[Audio] Initializing Web Audio API with dual elements for gapless playback",
+    );
     audioContext = new AudioContext();
-    sourceNode = audioContext.createMediaElementSource(audio);
-    gainNode = audioContext.createGain();
     analyserNode = audioContext.createAnalyser();
     analyserNode.fftSize = 2048;
-
-    // Connect: audio element -> gain node -> analyser -> speakers
-    sourceNode.connect(gainNode);
-    gainNode.connect(analyserNode);
     analyserNode.connect(audioContext.destination);
 
+    // Create source and gain nodes for each element
+    for (const [i, audio] of [audio0, audio1].entries()) {
+      sourceNodes[i as 0 | 1] = audioContext.createMediaElementSource(audio);
+      gainNodes[i as 0 | 1] = audioContext.createGain();
+      // Connect: source → gain → analyser
+      sourceNodes[i as 0 | 1]!.connect(gainNodes[i as 0 | 1]!);
+      gainNodes[i as 0 | 1]!.connect(analyserNode);
+    }
+
+    // Set inactive element gain to 0
+    const inactiveIdx = activeIndex === 0 ? 1 : 0;
+    gainNodes[inactiveIdx]!.gain.value = 0;
+
     console.log(
-      "[Audio] Web Audio API initialized, AudioContext state:",
+      "[Audio] Web Audio API initialized with dual elements, AudioContext state:",
       audioContext.state,
     );
   } catch (err) {
@@ -145,56 +183,90 @@ async function resumeAudioContext(): Promise<boolean> {
 }
 
 /**
- * Update the ReplayGain volume adjustment.
+ * Update the ReplayGain volume adjustment for a specific audio element.
  * @param gainDb - The gain in dB to apply (can be negative)
+ * @param elementIndex - Which audio element's gain to adjust (0 or 1). Defaults to active element.
  */
-function setReplayGain(gainDb: number): void {
-  if (!gainNode) {
-    console.warn("[Audio] Cannot set ReplayGain: gainNode not initialized");
+function setReplayGain(gainDb: number, elementIndex?: 0 | 1): void {
+  const idx = elementIndex ?? activeIndex;
+  const node = gainNodes[idx];
+  if (!node) {
+    console.warn(
+      "[Audio] Cannot set ReplayGain: gainNode not initialized for element",
+      idx,
+    );
     return;
   }
 
   const linearGain = dbToLinear(gainDb);
   // Clamp to prevent extreme values (max +12dB boost)
   const clampedGain = Math.min(linearGain, dbToLinear(12));
-  gainNode.gain.value = clampedGain;
+  node.gain.value = clampedGain;
   console.log(
-    `[Audio] ReplayGain set: ${gainDb.toFixed(2)} dB -> linear gain ${clampedGain.toFixed(4)}`,
+    `[Audio] ReplayGain set on element ${idx}: ${gainDb.toFixed(2)} dB -> linear gain ${clampedGain.toFixed(4)}`,
   );
 }
 
 /**
- * Gets or creates the singleton audio element for playback.
- *
- * Uses `preload="auto"` which instructs the browser to buffer the entire track
- * if possible. This helps with battery life on mobile devices since the modem
- * can go to sleep after downloading is complete. The actual buffering behavior
- * is browser-dependent and may be throttled based on network conditions and
- * available memory.
- *
- * The audio element is attached to the DOM for better browser compatibility,
- * especially on mobile devices where non-DOM audio elements may be handled
- * differently.
+ * Creates an audio element for gapless playback.
+ * Uses `preload="auto"` for full buffering and enables CORS for Web Audio API.
+ */
+function createAudioElement(): HTMLAudioElement {
+  const audio = document.createElement("audio");
+  audio.preload = "auto";
+  audio.crossOrigin = "anonymous";
+  audio.setAttribute("aria-hidden", "true");
+  audio.style.display = "none";
+  document.body.appendChild(audio);
+  return audio;
+}
+
+/**
+ * Gets or creates the dual audio elements for gapless playback.
+ * Returns the currently active audio element.
  */
 export function getGlobalAudio(): HTMLAudioElement | null {
   if (typeof window === "undefined") {
     return null;
   }
 
-  if (!globalAudio) {
-    globalAudio = document.createElement("audio");
-    // Buffer the entire track if possible - helps with battery life on mobile
-    // as the modem can sleep when there's no network activity
-    globalAudio.preload = "auto";
-    // Enable CORS - required for Web Audio API to process cross-origin audio
-    globalAudio.crossOrigin = "anonymous";
-    // Attach to DOM for better browser compatibility
-    // Hidden from screen readers and invisible
-    globalAudio.setAttribute("aria-hidden", "true");
-    globalAudio.style.display = "none";
-    document.body.appendChild(globalAudio);
+  if (!audioElements[0]) {
+    audioElements[0] = createAudioElement();
+    audioElements[1] = createAudioElement();
   }
-  return globalAudio;
+  return audioElements[activeIndex];
+}
+
+/**
+ * Gets the currently active audio element without creating elements.
+ */
+function getActiveAudio(): HTMLAudioElement | null {
+  return audioElements[activeIndex];
+}
+
+/**
+ * Gets the inactive (pre-buffer) audio element.
+ */
+function getInactiveAudio(): HTMLAudioElement | null {
+  return audioElements[activeIndex === 0 ? 1 : 0];
+}
+
+/**
+ * Invalidates the pre-buffer state, clearing any pre-loaded track.
+ */
+function invalidatePreBuffer(): void {
+  const inactiveAudio = getInactiveAudio();
+  if (inactiveAudio && preBufferedTrackId) {
+    console.log(
+      "[Audio] Invalidating pre-buffer for track:",
+      preBufferedTrackId,
+    );
+    inactiveAudio.pause();
+    inactiveAudio.removeAttribute("src");
+    inactiveAudio.load();
+  }
+  preBufferedTrackId = null;
+  preBufferReady = false;
 }
 
 /**
@@ -266,8 +338,10 @@ function stopListeningUpdateInterval(): void {
  * - Track changes for any other reason
  *
  * Only logs if the user has listened for at least 5 seconds.
+ *
+ * @param skipped - Whether the song was skipped by the user
  */
-async function logListeningTimeAndReset(): Promise<void> {
+async function logListeningTimeAndReset(skipped = false): Promise<void> {
   // Stop the periodic update interval
   stopListeningUpdateInterval();
 
@@ -285,6 +359,7 @@ async function logListeningTimeAndReset(): Promise<void> {
           playbackStartSongId,
           Math.round(totalSeconds),
           currentListeningSessionId ?? undefined,
+          skipped,
         );
       }
     } catch (err) {
@@ -328,6 +403,7 @@ export function useAudioEngineInit() {
   // Server-side queue state
   const queueState = useAtomValue(serverQueueStateAtom);
   const currentSong = useAtomValue(currentSongAtom);
+  const nextSong = useAtomValue(nextSongAtom);
   const isRestoringQueue = useAtomValue(isRestoringQueueAtom);
   const trackChangeSignal = useAtomValue(trackChangeSignalAtom);
   const goToNext = useSetAtom(goToNextAtom);
@@ -387,9 +463,11 @@ export function useAudioEngineInit() {
     hasScrobbled,
     scrobbleThreshold,
     currentSong,
+    nextSong,
     queueState,
     isRestoringQueue,
     transcodingEnabled,
+    transcodingBitrate,
     replayGainMode,
     replayGainOffset,
     clippingDetectionEnabled,
@@ -402,9 +480,11 @@ export function useAudioEngineInit() {
       hasScrobbled,
       scrobbleThreshold,
       currentSong,
+      nextSong,
       queueState,
       isRestoringQueue,
       transcodingEnabled,
+      transcodingBitrate,
       replayGainMode,
       replayGainOffset,
       clippingDetectionEnabled,
@@ -428,7 +508,7 @@ export function useAudioEngineInit() {
     fetchQueue();
   }, [isHydrated, serverConnection, fetchQueue]);
 
-  // Initialize audio element and event listeners ONCE
+  // Initialize audio elements and event listeners ONCE
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (initializedRef.current) return;
@@ -438,8 +518,26 @@ export function useAudioEngineInit() {
     if (!audio) return;
     setAudioElement(audio);
 
-    const handlePlay = () => {
-      console.log("[Audio] play event fired");
+    // Also ensure secondary element exists
+    const audio1 = audioElements[1];
+    if (!audio1) return;
+
+    // Initialize Web Audio API with both elements immediately
+    initializeWebAudio(audioElements[0]!, audio1);
+
+    // ========================================================================
+    // Event Handlers for ACTIVE element only
+    // The inactive (pre-buffer) element has its own minimal handlers below.
+    // ========================================================================
+
+    /** Returns true if the event came from the currently active element */
+    const isFromActive = (e: Event): boolean => {
+      return e.target === audioElements[activeIndex];
+    };
+
+    const handlePlay = (e: Event) => {
+      if (!isFromActive(e)) return;
+      console.log("[Audio] play event fired on active element", activeIndex);
       settersRef.current.setPlaybackState("playing");
 
       // Start real-time clipping detection
@@ -447,7 +545,7 @@ export function useAudioEngineInit() {
         startClippingDetection(
           analyserNode,
           settersRef.current.setClippingState,
-          () => audio.volume,
+          () => audioElements[activeIndex]?.volume ?? 1,
         );
       }
 
@@ -467,8 +565,9 @@ export function useAudioEngineInit() {
       }
     };
 
-    const handlePause = () => {
-      console.log("[Audio] pause event fired");
+    const handlePause = (e: Event) => {
+      if (!isFromActive(e)) return;
+      console.log("[Audio] pause event fired on active element", activeIndex);
       // Don't overwrite "ended" state - that's intentional when queue finishes
       if (isEndingQueue) {
         isEndingQueue = false;
@@ -491,8 +590,9 @@ export function useAudioEngineInit() {
       }
     };
 
-    const handleEnded = () => {
-      console.log("[Audio] ended event fired");
+    const handleEnded = (e: Event) => {
+      if (!isFromActive(e)) return;
+      console.log("[Audio] ended event fired on active element", activeIndex);
       // Stop clipping detection
       stopClippingDetection();
       // Log listening time before moving to next track
@@ -500,16 +600,16 @@ export function useAudioEngineInit() {
 
       // Handle repeat-one mode: just restart the track
       const state = stateRef.current;
+      const currentActive = audioElements[activeIndex]!;
       if (state.queueState?.repeatMode === "one") {
-        audio.currentTime = 0;
-        // Resume context just in case, then play
+        currentActive.currentTime = 0;
         resumeAudioContext().then(() => {
-          audio.play().catch(console.error);
+          currentActive.play().catch(console.error);
         });
         return;
       }
 
-      // Check if we're at the end of the queue
+      // Check if we're at the end of the queue with no repeat
       if (state.queueState) {
         const isLastTrack =
           state.queueState.currentIndex >= state.queueState.totalCount - 1;
@@ -518,32 +618,100 @@ export function useAudioEngineInit() {
           isEndingQueue = true;
           settersRef.current.setCurrentTime(0);
           settersRef.current.setPlaybackState("ended");
+          invalidatePreBuffer();
           return;
         }
       }
 
-      // Go to next track via server queue
+      // =====================================================================
+      // GAPLESS HANDOFF: if pre-buffer is ready, swap immediately
+      // =====================================================================
+      if (preBufferReady && preBufferedTrackId) {
+        console.log(
+          "[Audio] Gapless handoff: swapping to pre-buffered element",
+        );
+        isGaplessHandoff = true;
+
+        // Swap active index
+        const oldActiveIdx = activeIndex;
+        const newActiveIdx: 0 | 1 = activeIndex === 0 ? 1 : 0;
+        activeIndex = newActiveIdx;
+
+        // Mute the old element
+        if (gainNodes[oldActiveIdx]) {
+          gainNodes[oldActiveIdx]!.gain.value = 0;
+        }
+
+        // Apply ReplayGain to the new active element
+        const nextSongData = stateRef.current.nextSong;
+        if (nextSongData && stateRef.current.replayGainMode !== "disabled") {
+          const trackGain = nextSongData.replayGainTrackGain ?? 0;
+          const totalGain = trackGain + stateRef.current.replayGainOffset;
+          setReplayGain(totalGain, newActiveIdx);
+        } else if (gainNodes[newActiveIdx]) {
+          // ReplayGain disabled: set unity gain
+          gainNodes[newActiveIdx]!.gain.value = 1;
+        }
+
+        // Update the audio element atom so the rest of the app knows
+        settersRef.current.setAudioElement(audioElements[activeIndex]!);
+
+        // Reset tracking for the new active element
+        currentLoadedTrackId = preBufferedTrackId;
+        currentStreamTimeOffset = 0;
+        preBufferedTrackId = null;
+        preBufferReady = false;
+
+        // Reset scrobble tracking for new track
+        settersRef.current.setHasScrobbled(false);
+        settersRef.current.setCurrentTime(0);
+        settersRef.current.setBuffered(0);
+        if (nextSongData) {
+          settersRef.current.setDuration(nextSongData.duration || 0);
+        }
+
+        // Play the pre-buffered element immediately (should be instant)
+        resumeAudioContext().then(() => {
+          audioElements[activeIndex]?.play().catch(console.error);
+        });
+
+        // Update server state asynchronously (fire-and-forget)
+        settersRef.current.goToNext();
+
+        // Clean up old element
+        const oldElement = audioElements[oldActiveIdx];
+        if (oldElement) {
+          oldElement.pause();
+          oldElement.removeAttribute("src");
+          oldElement.load();
+        }
+
+        isGaplessHandoff = false;
+        return;
+      }
+
+      // No pre-buffer ready, fall back to standard next track
       settersRef.current.goToNext();
     };
 
-    const handleTimeUpdate = () => {
+    const handleTimeUpdate = (e: Event) => {
+      if (!isFromActive(e)) return;
+      const activeAudio = audioElements[activeIndex]!;
       // Add the stream time offset to get the real position in the song
-      // This is needed when using timeOffset-based seeking with transcoding
-      const realTime = audio.currentTime + currentStreamTimeOffset;
+      const realTime = activeAudio.currentTime + currentStreamTimeOffset;
       settersRef.current.setCurrentTime(realTime);
 
       // Also update buffered during timeupdate as a fallback
-      // (progress events may not fire consistently during streaming playback)
-      if (audio.buffered.length > 0) {
-        const rawBuffered = audio.buffered.end(audio.buffered.length - 1);
+      if (activeAudio.buffered.length > 0) {
+        const rawBuffered = activeAudio.buffered.end(
+          activeAudio.buffered.length - 1,
+        );
         settersRef.current.setBuffered(rawBuffered + currentStreamTimeOffset);
       }
 
       const state = stateRef.current;
-      const duration = audio.duration || 0;
+      const duration = activeAudio.duration || 0;
       if (!state.hasScrobbled && duration > 0) {
-        // Calculate actual accumulated listening time (not just current position)
-        // This ensures seeking past 50% doesn't immediately trigger a scrobble
         const totalListenedSeconds = calculateTotalListeningSeconds();
         const thresholdSeconds = duration * state.scrobbleThreshold;
 
@@ -553,108 +721,177 @@ export function useAudioEngineInit() {
             getClient()
               ?.scrobble(state.currentSong.id)
               .then(() => {
-                // Invalidate queries that display play counts so they update in real-time
                 settersRef.current.invalidatePlayCountQueries();
               })
               .catch(console.error);
           }
         }
       }
+
+      // Pre-buffer logic: start loading next track when near the end
+      if (
+        duration > 0 &&
+        !preBufferedTrackId &&
+        state.queueState?.repeatMode !== "one" &&
+        activeAudio.currentTime > duration - PRE_BUFFER_LEAD_TIME
+      ) {
+        const nextSongData = state.nextSong;
+        if (nextSongData) {
+          startPreBuffering(nextSongData, state);
+        }
+      }
     };
 
-    const handleDurationChange = () => {
-      // When transcoding is enabled, the audio.duration from the stream may be unreliable
-      // (it changes as the stream is buffered). Prefer the database duration.
+    /**
+     * Start pre-buffering the next track on the inactive audio element.
+     */
+    const startPreBuffering = (
+      nextSongData: {
+        id: string;
+        replayGainTrackGain?: number | null;
+        duration?: number | null;
+      },
+      state: typeof stateRef.current,
+    ) => {
+      const client = getClient();
+      if (!client) return;
+
+      const inactiveIdx = activeIndex === 0 ? 1 : 0;
+      const inactiveAudio = audioElements[inactiveIdx];
+      if (!inactiveAudio) return;
+
+      console.log("[Audio] Pre-buffering next track:", nextSongData.id);
+      preBufferedTrackId = nextSongData.id;
+      preBufferReady = false;
+
+      // Build stream URL for the next track
+      const streamUrl = client.getStreamUrl(nextSongData.id, {
+        maxBitRate: state.transcodingEnabled
+          ? state.transcodingBitrate
+          : undefined,
+        format: state.transcodingEnabled ? "opus" : undefined,
+      });
+
+      // Keep inactive element gain at 0 until handoff
+      if (gainNodes[inactiveIdx]) {
+        gainNodes[inactiveIdx]!.gain.value = 0;
+      }
+
+      // Load the stream
+      inactiveAudio.src = streamUrl;
+      inactiveAudio.load();
+    };
+
+    const handleDurationChange = (e: Event) => {
+      if (!isFromActive(e)) return;
+      const activeAudio = audioElements[activeIndex]!;
       const state = stateRef.current;
       const songDuration = state.currentSong?.duration;
 
       if (state.transcodingEnabled && songDuration && songDuration > 0) {
-        // Use database duration when transcoding - it's more reliable
         settersRef.current.setDuration(songDuration);
       } else {
-        // Use audio element duration when not transcoding or no database duration
-        settersRef.current.setDuration(audio.duration || 0);
+        settersRef.current.setDuration(activeAudio.duration || 0);
       }
     };
 
-    const handleProgress = () => {
-      if (audio.buffered.length > 0) {
-        // Add stream time offset for correct buffered display with transcoded seeking
+    const handleProgress = (e: Event) => {
+      if (!isFromActive(e)) return;
+      const activeAudio = audioElements[activeIndex]!;
+      if (activeAudio.buffered.length > 0) {
         settersRef.current.setBuffered(
-          audio.buffered.end(audio.buffered.length - 1) +
+          activeAudio.buffered.end(activeAudio.buffered.length - 1) +
             currentStreamTimeOffset,
         );
       }
     };
 
-    const handleLoadStart = () => {
-      console.log("[Audio] loadstart event");
-      // Don't set loading state during restore - we want to stay paused
-      // Also skip if we're intentionally stopping (clearing queue)
+    const handleLoadStart = (e: Event) => {
+      if (!isFromActive(e)) return;
+      console.log("[Audio] loadstart event on active element");
       if (!stateRef.current.isRestoringQueue && !isIntentionalStop) {
         settersRef.current.setPlaybackState("loading");
       }
     };
 
-    const handleCanPlay = () => {
-      console.log("[Audio] canplay event");
+    const handleCanPlay = (e: Event) => {
+      const audioElement = e.target as HTMLAudioElement;
+
+      // Check if this is from the pre-buffer (inactive) element
+      if (!isFromActive(e)) {
+        if (
+          audioElement === audioElements[activeIndex === 0 ? 1 : 0] &&
+          preBufferedTrackId
+        ) {
+          console.log(
+            "[Audio] Pre-buffer element is ready to play:",
+            preBufferedTrackId,
+          );
+          preBufferReady = true;
+        }
+        return;
+      }
+
+      console.log("[Audio] canplay event on active element");
       const state = stateRef.current;
 
-      // Don't try to play if src is empty or cleared
       if (
-        !audio.src ||
-        audio.src === "" ||
-        audio.src === window.location.href
+        !audioElement.src ||
+        audioElement.src === "" ||
+        audioElement.src === window.location.href
       ) {
         console.log("[Audio] Skipping auto-play because src is empty");
         return;
       }
 
-      // Don't auto-play if we're restoring queue from server
       if (state.isRestoringQueue) {
         console.log(
           "[Audio] Skipping auto-play because queue is being restored",
         );
         isLoadingNewTrack = false;
-        // Set state to paused so the play button shows correctly
         settersRef.current.setPlaybackState("paused");
         return;
       }
 
-      // Don't auto-play if queue has ended (unless we're loading a new track)
       if (state.playbackState === "ended" && !isLoadingNewTrack) {
         console.log("[Audio] Skipping auto-play because queue has ended");
         settersRef.current.setPlaybackState("ended");
         return;
       }
       isLoadingNewTrack = false;
-      // Always try to play when canplay fires
-      // Ensure AudioContext is resumed first (may have been suspended by browser)
       resumeAudioContext().then(() => {
-        audio.play().catch((err) => {
+        audioElement.play().catch((err) => {
           console.error("[Audio] Failed to play on canplay:", err);
         });
       });
     };
 
-    const handleWaiting = () => {
+    const handleWaiting = (e: Event) => {
+      if (!isFromActive(e)) return;
       console.log("[Audio] waiting event (buffering)");
       const state = stateRef.current;
-      // Don't set loading if queue has ended or is idle
       if (state.playbackState !== "ended" && state.playbackState !== "idle") {
         settersRef.current.setPlaybackState("loading");
       }
     };
 
-    const handlePlaying = () => {
-      console.log("[Audio] playing event");
-      // Clear any previous error when playback successfully starts
+    const handlePlaying = (e: Event) => {
+      if (!isFromActive(e)) return;
+      console.log("[Audio] playing event on active element");
       settersRef.current.setPlaybackError(null);
       settersRef.current.setPlaybackState("playing");
     };
 
     const handleError = (e: Event) => {
-      // Skip error handling if we're intentionally stopping/clearing
+      // Skip errors from inactive (pre-buffer) element — just invalidate pre-buffer
+      if (!isFromActive(e)) {
+        console.warn(
+          "[Audio] Error on inactive (pre-buffer) element, invalidating pre-buffer",
+        );
+        invalidatePreBuffer();
+        return;
+      }
+
       if (isIntentionalStop) {
         console.log("[Audio] Ignoring error during intentional stop");
         return;
@@ -664,7 +901,6 @@ export function useAudioEngineInit() {
       const mediaError = audioElement?.error;
       const state = stateRef.current;
 
-      // Ignore errors from empty src (happens during cleanup)
       if (
         !audioElement?.src ||
         audioElement.src === "" ||
@@ -674,7 +910,6 @@ export function useAudioEngineInit() {
         return;
       }
 
-      // Determine error message based on error code
       let errorMessage = "Failed to play track";
       if (mediaError) {
         switch (mediaError.code) {
@@ -695,7 +930,6 @@ export function useAudioEngineInit() {
 
       console.error("[Audio] Playback error:", errorMessage, mediaError);
 
-      // Set error state
       settersRef.current.setPlaybackError({
         message: errorMessage,
         trackId: state.currentSong?.id,
@@ -704,7 +938,6 @@ export function useAudioEngineInit() {
       });
       settersRef.current.setPlaybackState("error");
 
-      // Show toast notification
       const trackName = state.currentSong?.title || "Unknown track";
       toast.error(`Playback failed: ${trackName}`, {
         description: errorMessage,
@@ -712,42 +945,45 @@ export function useAudioEngineInit() {
       });
     };
 
-    audio.addEventListener("play", handlePlay);
-    audio.addEventListener("pause", handlePause);
-    audio.addEventListener("ended", handleEnded);
-    audio.addEventListener("timeupdate", handleTimeUpdate);
-    audio.addEventListener("durationchange", handleDurationChange);
-    audio.addEventListener("progress", handleProgress);
-    audio.addEventListener("loadstart", handleLoadStart);
-    audio.addEventListener("canplay", handleCanPlay);
-    audio.addEventListener("waiting", handleWaiting);
-    audio.addEventListener("playing", handlePlaying);
-    audio.addEventListener("error", handleError);
+    // Attach event listeners to BOTH elements (handlers check isFromActive)
+    const events: Array<[string, (e: Event) => void]> = [
+      ["play", handlePlay],
+      ["pause", handlePause],
+      ["ended", handleEnded],
+      ["timeupdate", handleTimeUpdate],
+      ["durationchange", handleDurationChange],
+      ["progress", handleProgress],
+      ["loadstart", handleLoadStart],
+      ["canplay", handleCanPlay],
+      ["waiting", handleWaiting],
+      ["playing", handlePlaying],
+      ["error", handleError],
+    ];
 
-    // Cleanup only happens on full unmount (which shouldn't happen for root component)
+    for (const element of [audioElements[0]!, audio1]) {
+      for (const [event, handler] of events) {
+        element.addEventListener(event, handler);
+      }
+    }
+
+    // Cleanup
     return () => {
-      audio.removeEventListener("play", handlePlay);
-      audio.removeEventListener("pause", handlePause);
-      audio.removeEventListener("ended", handleEnded);
-      audio.removeEventListener("timeupdate", handleTimeUpdate);
-      audio.removeEventListener("durationchange", handleDurationChange);
-      audio.removeEventListener("progress", handleProgress);
-      audio.removeEventListener("loadstart", handleLoadStart);
-      audio.removeEventListener("canplay", handleCanPlay);
-      audio.removeEventListener("waiting", handleWaiting);
-      audio.removeEventListener("playing", handlePlaying);
-      audio.removeEventListener("error", handleError);
-      // Clean up the listening update interval
+      for (const element of [audioElements[0], audioElements[1]]) {
+        if (!element) continue;
+        for (const [event, handler] of events) {
+          element.removeEventListener(event, handler);
+        }
+      }
       stopListeningUpdateInterval();
       initializedRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally run once on mount; setAudioElement is stable
   }, []);
 
-  // Update volume
+  // Update volume on both elements
   useEffect(() => {
-    if (globalAudio) {
-      globalAudio.volume = effectiveVolume;
+    for (const el of audioElements) {
+      if (el) el.volume = effectiveVolume;
     }
   }, [effectiveVolume]);
 
@@ -756,8 +992,12 @@ export function useAudioEngineInit() {
     if (!clippingDetectionEnabled) {
       stopClippingDetection();
       setClippingState(null);
-    } else if (playbackState === "playing" && analyserNode && globalAudio) {
-      const audio = globalAudio;
+    } else if (
+      playbackState === "playing" &&
+      analyserNode &&
+      audioElements[activeIndex]
+    ) {
+      const audio = audioElements[activeIndex]!;
       startClippingDetection(
         analyserNode,
         setClippingState,
@@ -768,43 +1008,59 @@ export function useAudioEngineInit() {
 
   // Pause audio when playback state becomes "ended" (e.g., when queue ends via goToNext)
   useEffect(() => {
-    if (playbackState === "ended" && globalAudio && !globalAudio.paused) {
+    if (
+      playbackState === "ended" &&
+      audioElements[activeIndex] &&
+      !audioElements[activeIndex]!.paused
+    ) {
       // Set flag to prevent handlePause from overwriting "ended" state with "paused"
       isEndingQueue = true;
-      globalAudio.pause();
+      audioElements[activeIndex]!.pause();
     }
   }, [playbackState]);
 
   // Load new track when current song changes (triggered by trackChangeSignal or currentSong)
   // Also reload when transcoding settings change
   useEffect(() => {
-    const audio = globalAudio;
+    // During a gapless handoff, the track change is handled inline — skip this effect
+    if (isGaplessHandoff) return;
+
+    const audio = getActiveAudio();
     const client = getClient();
 
     if (!audio || !currentSong || !client) {
       if (audio && audio.src && !currentSong) {
         // Set flag BEFORE any audio operation to prevent error toasts
         isIntentionalStop = true;
-        isEndingQueue = false; // Clear ending flag
-        isLoadingNewTrack = false; // Clear loading flag
+        isEndingQueue = false;
+        isLoadingNewTrack = false;
 
-        // Pause first to stop any pending operations
         audio.pause();
 
-        // Clear the source - this must be done carefully to avoid errors
         try {
           audio.removeAttribute("src");
-          audio.load(); // Reset the media element
+          audio.load();
         } catch (_e) {
-          // Fallback if removeAttribute fails
           audio.src = "";
+        }
+
+        // Also clear the inactive element
+        const inactiveAudio = getInactiveAudio();
+        if (inactiveAudio) {
+          inactiveAudio.pause();
+          try {
+            inactiveAudio.removeAttribute("src");
+            inactiveAudio.load();
+          } catch (_e) {
+            inactiveAudio.src = "";
+          }
         }
 
         setPlaybackState("idle");
         currentLoadedTrackId = null;
         lastStreamUrlRef.current = null;
+        invalidatePreBuffer();
 
-        // Reset flag after sufficient delay to allow all error events to process
         setTimeout(() => {
           isIntentionalStop = false;
         }, 200);
@@ -819,7 +1075,6 @@ export function useAudioEngineInit() {
     });
 
     // Skip if same track is already loaded with same settings AND signal hasn't changed
-    // (signal changes when user explicitly starts playback or repeat-all wraps around)
     const signalChanged = trackChangeSignal !== lastProcessedSignalRef.current;
     const urlChanged = streamUrl !== lastStreamUrlRef.current;
 
@@ -841,30 +1096,29 @@ export function useAudioEngineInit() {
 
     currentLoadedTrackId = currentSong.id;
 
-    // Initialize Web Audio API if not already done (needed for client-side ReplayGain)
-    if (!audioContext) {
-      initializeWebAudio(audio);
-    }
+    // Invalidate any pre-buffer since we're loading a new track explicitly
+    invalidatePreBuffer();
 
     // Resume AudioContext if suspended (required after user interaction)
     resumeAudioContext();
 
-    // Apply client-side ReplayGain
-    // Note: We always need to apply this client-side because:
-    // - When transcoding is disabled: browser ignores ReplayGain tags in original file
-    // - When transcoding is enabled: browser ignores ReplayGain tags embedded in Opus stream
-    //   (the server embeds R128_TRACK_GAIN but doesn't apply output_gain during transcoding)
+    // Apply client-side ReplayGain on the active element
     if (replayGainMode !== "disabled") {
       const trackGain = currentSong.replayGainTrackGain ?? 0;
       const totalGain = trackGain + replayGainOffset;
       console.log(
         `[Audio] Applying ReplayGain: track=${trackGain.toFixed(2)} dB, offset=${replayGainOffset.toFixed(2)} dB, total=${totalGain.toFixed(2)} dB`,
       );
-      setReplayGain(totalGain);
-    } else if (gainNode) {
-      // Reset gain to unity when ReplayGain is disabled
+      setReplayGain(totalGain, activeIndex);
+    } else if (gainNodes[activeIndex]) {
       console.log("[Audio] ReplayGain disabled, setting gain to unity");
-      gainNode.gain.value = 1;
+      gainNodes[activeIndex]!.gain.value = 1;
+    }
+
+    // Ensure inactive element gain is 0
+    const inactiveIdx = activeIndex === 0 ? 1 : 0;
+    if (gainNodes[inactiveIdx]) {
+      gainNodes[inactiveIdx]!.gain.value = 0;
     }
 
     // Check if this is just a transcoding settings change (same track, different URL)
@@ -891,24 +1145,18 @@ export function useAudioEngineInit() {
       setCurrentTime(0);
       setBuffered(0);
       setDuration(currentSong.duration || 0);
-      // Just load metadata, don't play
       audio.load();
     } else if (isTranscodingSettingsChange && savedPosition > 0) {
-      // Transcoding settings changed - continue from saved position
       console.log(
         `[Audio] Transcoding settings changed, resuming from ${savedPosition.toFixed(1)}s`,
       );
       isLoadingNewTrack = true;
       setPlaybackState("loading");
-      // Don't reset scrobble state - we're continuing the same track
 
-      // Set up one-time handler to seek after loading
       const handleCanPlayForSeek = () => {
         audio.removeEventListener("canplay", handleCanPlayForSeek);
 
         if (transcodingEnabled && savedPosition > 0) {
-          // For transcoded streams, we need timeOffset-based seeking
-          // But since we just loaded a fresh stream, we need to reload with offset
           currentStreamTimeOffset = savedPosition;
           const offsetUrl = getClient()?.getStreamUrl(currentSong.id, {
             maxBitRate: transcodingEnabled ? transcodingBitrate : undefined,
@@ -925,7 +1173,6 @@ export function useAudioEngineInit() {
             }
           }
         } else {
-          // Non-transcoded: native seeking works
           audio.currentTime = savedPosition;
           setCurrentTime(savedPosition);
           if (wasPlaying) {
@@ -947,8 +1194,6 @@ export function useAudioEngineInit() {
       setBuffered(0);
       setDuration(currentSong.duration || 0);
 
-      // Resume AudioContext first, then play
-      // Must await this - AudioContext must be running before audio will play through Web Audio graph
       resumeAudioContext().then((contextRunning) => {
         if (!contextRunning) {
           console.error(
@@ -978,7 +1223,7 @@ export function useAudioEngineInit() {
 
   // Separate effect for ReplayGain settings - updates gain immediately without reloading track
   useEffect(() => {
-    if (!currentSong || !gainNode) return;
+    if (!currentSong || !gainNodes[activeIndex]) return;
 
     if (replayGainMode !== "disabled") {
       const trackGain = currentSong.replayGainTrackGain ?? 0;
@@ -986,10 +1231,10 @@ export function useAudioEngineInit() {
       console.log(
         `[Audio] ReplayGain settings changed: track=${trackGain.toFixed(2)} dB, offset=${replayGainOffset.toFixed(2)} dB, total=${totalGain.toFixed(2)} dB`,
       );
-      setReplayGain(totalGain);
+      setReplayGain(totalGain, activeIndex);
     } else {
       console.log("[Audio] ReplayGain disabled, setting gain to unity");
-      gainNode.gain.value = 1;
+      gainNodes[activeIndex]!.gain.value = 1;
     }
   }, [replayGainMode, replayGainOffset, currentSong]);
 }
@@ -1018,7 +1263,8 @@ export function useAudioEngine() {
 
   // Retry playback by forcing a fresh load of the current track
   const retryPlayback = () => {
-    if (!globalAudio || !currentSong) return;
+    const audio = getActiveAudio();
+    if (!audio || !currentSong) return;
 
     const client = getClient();
     if (!client) return;
@@ -1029,19 +1275,19 @@ export function useAudioEngine() {
 
     // Force reload by clearing cached state
     currentLoadedTrackId = null;
+    invalidatePreBuffer();
 
     // Get fresh stream URL and load
     const streamUrl = client.getStreamUrl(currentSong.id);
-    globalAudio.src = streamUrl;
-    currentStreamTimeOffset = 0; // Reset offset for fresh load
+    audio.src = streamUrl;
+    currentStreamTimeOffset = 0;
     isLoadingNewTrack = true;
 
-    // Resume AudioContext then play
     resumeAudioContext().then((contextRunning) => {
       if (!contextRunning) {
         console.error("[Audio] Cannot retry: AudioContext not running");
       }
-      globalAudio?.play().catch((err) => {
+      audio.play().catch((err) => {
         console.error("[Audio] Retry playback failed:", err);
         setPlaybackState("error");
       });
@@ -1049,38 +1295,33 @@ export function useAudioEngine() {
   };
 
   const play = async () => {
-    // Clear restore flag on explicit user interaction
     setIsRestoring(false);
-    // Resume AudioContext if suspended (required for Web Audio API after user gesture)
-    // Must await this - AudioContext must be running before audio will play through Web Audio graph
     const contextRunning = await resumeAudioContext();
     if (!contextRunning) {
       console.error("[Audio] Cannot play: AudioContext not running");
     }
-    globalAudio?.play().catch(console.error);
+    getActiveAudio()?.play().catch(console.error);
   };
 
   const pause = () => {
-    globalAudio?.pause();
+    getActiveAudio()?.pause();
   };
 
   const togglePlayPause = () => {
-    if (!globalAudio) return;
+    const audio = getActiveAudio();
+    if (!audio) return;
 
     if (playbackState === "playing") {
       pause();
     } else if (playbackState === "loading") {
-      // If loading, pause to cancel the pending play
       pause();
     } else if (playbackState === "ended") {
-      // Queue finished - restart from the beginning
       if (queueState && queueState.totalCount > 0) {
-        currentLoadedTrackId = null; // Force reload
+        currentLoadedTrackId = null;
         setIsRestoring(false);
-        playAtIndex(0); // Go back to first track
+        playAtIndex(0);
       }
     } else if (playbackState === "error") {
-      // Retry playback after error
       retryPlayback();
     } else {
       play();
@@ -1096,29 +1337,26 @@ export function useAudioEngine() {
 
   // Native seek for non-transcoded content or buffered positions
   const seekNative = (time: number) => {
-    if (globalAudio) {
-      globalAudio.currentTime = time;
+    const audio = getActiveAudio();
+    if (audio) {
+      audio.currentTime = time;
       setCurrentTime(time);
     }
   };
 
   // Reload stream with time offset for transcoded unbuffered seeks
   const seekWithTimeOffset = (time: number) => {
-    if (!globalAudio || !currentSong) return;
+    const audio = getActiveAudio();
+    if (!audio || !currentSong) return;
 
     const client = getClient();
     if (!client) return;
 
-    const wasPlaying = !globalAudio.paused;
+    const wasPlaying = !audio.paused;
 
-    // Track the offset so handleTimeUpdate can calculate real position
     currentStreamTimeOffset = time;
-
-    // Reset buffered to the seek position (nothing buffered beyond seek point yet)
-    // This prevents stale buffered values from being displayed until progress events fire
     setBuffered(time);
 
-    // Build new stream URL with time offset and seek mode
     const streamUrl = client.getStreamUrl(currentSong.id, {
       maxBitRate: transcodingEnabled ? transcodingBitrate : undefined,
       format: transcodingEnabled ? "opus" : undefined,
@@ -1126,31 +1364,30 @@ export function useAudioEngine() {
       seekMode: transcodingSeekMode,
     });
 
-    // Reload the stream from the new offset
-    globalAudio.src = streamUrl;
+    // Invalidate pre-buffer since we're seeking (current track position changed)
+    invalidatePreBuffer();
+
+    audio.src = streamUrl;
     setCurrentTime(time);
 
     if (wasPlaying) {
       resumeAudioContext().then(() => {
-        globalAudio?.play().catch(console.error);
+        audio.play().catch(console.error);
       });
     } else {
-      globalAudio.load();
+      audio.load();
     }
   };
 
   // General seek function that chooses the right strategy
   const seek = (time: number) => {
-    if (!globalAudio) return;
+    const audio = getActiveAudio();
+    if (!audio) return;
 
-    // When transcoding with timeOffset, the audio element's buffered ranges are relative
-    // to the stream start (0), not the actual song timeline. We need to convert the
-    // seek target to stream-relative time for the buffer check.
     const streamRelativeTime = time - currentStreamTimeOffset;
 
-    // Check if target time is within buffered ranges
     const isBuffered = (() => {
-      const buffered = globalAudio.buffered;
+      const buffered = audio.buffered;
       for (let i = 0; i < buffered.length; i++) {
         if (
           streamRelativeTime >= buffered.start(i) &&
@@ -1163,38 +1400,29 @@ export function useAudioEngine() {
     })();
 
     if (isBuffered || !transcodingEnabled) {
-      // Buffered content or no transcoding: native seek works
-      // Use stream-relative time for the actual seek operation
       if (transcodingEnabled && currentStreamTimeOffset > 0) {
-        globalAudio.currentTime = streamRelativeTime;
+        audio.currentTime = streamRelativeTime;
         setCurrentTime(time);
       } else {
         seekNative(time);
       }
     } else {
-      // Unbuffered transcoded content: reload stream with time offset
       seekWithTimeOffset(time);
     }
   };
 
-  // Smart seeking with trailing throttle for unbuffered positions when transcoding
-  // This reduces stream reloads during scrubbing while ensuring final position is reached
   const seekPercent = (percent: number) => {
-    if (!globalAudio) return;
+    const audio = getActiveAudio();
+    if (!audio) return;
 
-    // Use database duration (stable) instead of audio.duration (unreliable with transcoding)
-    const duration = currentSong?.duration ?? globalAudio.duration;
+    const duration = currentSong?.duration ?? audio.duration;
     if (!duration || duration <= 0) return;
 
     const targetTime = (percent / 100) * duration;
-
-    // When transcoding with timeOffset, the audio element's buffered ranges are relative
-    // to the stream start (0), not the actual song timeline.
     const streamRelativeTime = targetTime - currentStreamTimeOffset;
 
-    // Check if target time is within buffered ranges
     const isBuffered = (() => {
-      const buffered = globalAudio.buffered;
+      const buffered = audio.buffered;
       for (let i = 0; i < buffered.length; i++) {
         if (
           streamRelativeTime >= buffered.start(i) &&
@@ -1216,7 +1444,7 @@ export function useAudioEngine() {
       pendingSeekRef.current = null;
       // Use stream-relative time for the actual seek operation with transcoding
       if (transcodingEnabled && currentStreamTimeOffset > 0) {
-        globalAudio.currentTime = streamRelativeTime;
+        audio.currentTime = streamRelativeTime;
         setCurrentTime(targetTime);
       } else {
         seekNative(targetTime);
@@ -1255,24 +1483,24 @@ export function useAudioEngine() {
   };
 
   const next = () => {
-    // Log listening time before skipping
-    logListeningTimeAndReset();
-    // Clear restore flag on explicit user interaction
+    logListeningTimeAndReset(true);
     setIsRestoring(false);
+    // Invalidate any pre-buffer since user is explicitly skipping
+    invalidatePreBuffer();
     goToNextAction();
   };
 
   const previous = () => {
-    // Clear restore flag on explicit user interaction
     setIsRestoring(false);
 
-    if (globalAudio && globalAudio.currentTime > 3) {
-      globalAudio.currentTime = 0;
+    const audio = getActiveAudio();
+    if (audio && audio.currentTime > 3) {
+      audio.currentTime = 0;
       return;
     }
 
-    // Log listening time before going to previous track
-    logListeningTimeAndReset();
+    logListeningTimeAndReset(true);
+    invalidatePreBuffer();
     goToPreviousAction();
   };
 
@@ -1282,7 +1510,7 @@ export function useAudioEngine() {
     setIsRestoring(false);
 
     // Log listening time before going to previous track
-    logListeningTimeAndReset();
+    logListeningTimeAndReset(true);
     goToPreviousAction();
   };
 

@@ -64,6 +64,12 @@ pub struct WaveformChunk {
     pub rms_values: Vec<f32>,
     /// Whether this is the last chunk
     pub done: bool,
+    /// Actual decoded audio duration in milliseconds (only set on the final chunk)
+    /// This is the precise duration from actual decoding, NOT from metadata.
+    /// Use this for waveform-to-playback synchronization.
+    #[ts(type = "number | null")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual_duration_ms: Option<u64>,
 }
 
 /// Get waveform data as a Server-Sent Events stream.
@@ -203,6 +209,7 @@ fn generate_waveform_streaming(
     // State for incremental processing within a chunk
     let mut current_chunk = 0;
     let mut samples_in_current_chunk: usize = 0;
+    let mut total_decoded_frames: u64 = 0;
 
     // RMS accumulator for current bar within the chunk
     let mut bar_sum: f64 = 0.0;
@@ -267,6 +274,7 @@ fn generate_waveform_streaming(
             bar_sum += frame_rms_squared;
             bar_count += 1;
             samples_in_current_chunk += 1;
+            total_decoded_frames += 1;
             frame_idx += 1;
 
             // Calculate bars per chunk based on progress
@@ -311,6 +319,7 @@ fn generate_waveform_streaming(
                     total_chunks: estimated_total_chunks,
                     rms_values: std::mem::take(&mut chunk_rms_values),
                     done: false,
+                    actual_duration_ms: None,
                 };
 
                 let _ = tx.blocking_send(chunk);
@@ -326,6 +335,9 @@ fn generate_waveform_streaming(
         chunk_rms_values.push(rms);
     }
 
+    // Calculate actual decoded duration from total frames and sample rate
+    let actual_duration_ms = (total_decoded_frames * 1000) / sample_rate as u64;
+
     if !chunk_rms_values.is_empty() || current_chunk == 0 {
         let chunk = WaveformChunk {
             chunk_index: current_chunk,
@@ -336,6 +348,7 @@ fn generate_waveform_streaming(
                 chunk_rms_values
             },
             done: true,
+            actual_duration_ms: Some(actual_duration_ms),
         };
         let _ = tx.blocking_send(chunk);
     } else {
@@ -345,6 +358,7 @@ fn generate_waveform_streaming(
             total_chunks: current_chunk,
             rms_values: vec![],
             done: true,
+            actual_duration_ms: Some(actual_duration_ms),
         };
         let _ = tx.blocking_send(chunk);
     }

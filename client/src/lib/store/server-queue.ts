@@ -83,6 +83,26 @@ export const currentSongAtom = atom<Song | null>((get) => {
   return entry?.song ?? null;
 });
 
+// Get the next song from the window (for gapless pre-buffering)
+export const nextSongAtom = atom<Song | null>((get) => {
+  const state = get(serverQueueStateAtom);
+  const window = get(queueWindowAtom);
+
+  if (!state || !window) return null;
+
+  let nextIndex = state.currentIndex + 1;
+  if (nextIndex >= state.totalCount) {
+    if (state.repeatMode === "all") {
+      nextIndex = 0;
+    } else {
+      return null; // No next song
+    }
+  }
+
+  const entry = window.songs.find((s) => s.position === nextIndex);
+  return entry?.song ?? null;
+});
+
 // Get total queue length
 export const queueLengthAtom = atom<number>((get) => {
   const state = get(serverQueueStateAtom);

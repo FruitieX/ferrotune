@@ -329,29 +329,18 @@ Read these when working on specific areas:
 
 ## Further instructions
 
-- After implementing a feature, suggest a conventional commits compliant commit message summarizing the change.
 - Always use ts_rs for generating TypeScript types from Rust structs for API request/response data. Use the generated types in the frontend.
 - Filtering and sorting logic is always implemented serverside, NEVER clientside. The server will anyway need to support filtering and sorting, since it's supposed to materialize playback queues from queueSource info so that we can efficiently start playback of giant track lists without loading everything clientside.
 - Always use virtualization (react-virtual) and "infinite scroll" for lists showing data from the library (e.g., library views, playlists, queue, search results, etc.) to ensure good performance with large libraries.
 - Always use moon tasks where applicable since these make use of caching
 - Only opensubsonic API endpoints need to support both JSON and XML responses. The ferrotune API is JSON-only. We should keep the opensubsonic API compatible with the spec as much as possible. If there's anything requiring out of spec behaviour, we should create a ferrotune-specific endpoint instead and implement the behaviour there.
 - We're using React Compiler, so we do not need to use React.memo or useMemo/useCallback anywhere.
-- Don't add linter ignores, instead fix the underlying issue.
 - After finishing your changes, run `moon run pre-ci` to ensure everything passes.
 - Moon runs dependencies of tasks automatically, so you can just run the high-level tasks like `moon run pre-ci` or `moon run :test` and moon will take care of running e.g. code generation, linting, type checking etc. as needed.
 - Run `moon query tasks` to get a list of moon tasks
 - You can run similarily named client and server tasks with e.g. `moon run :fmt` to format both client and server code.
 - i64 etc types get exported as bigint, you should just override this as number
-- Try to reuse code when feasible. If the user refers to replicating some other functionality, or if there are any existing implementations using similar logic, you should aim to share code between these functionalities/implementations by e.g. extracting code into utility functions.
 - **Before implementing new functionality, check the "Shared Utilities" section above** for existing helpers. Use `src/api/common/` for backend and `client/src/components/shared/` for frontend shared code.
 - When adding new shared functionality, update the "Shared Utilities" section in this file to document it for future agents.
 - Avoid Promise.race in e2e tests, instead write the test for specific expected behavior.
 - Avoid timeouts in tests, instead use proper waiting for elements or network requests.
-
-## TODO list files
-
-When asking to complete batches from a TODO list file, complete items from top to bottom regardless of complexity. Mark the items as done when progressing. After completing a batch, check if there are any new items in the referenced TODO file, and if so, begin working on those. Loop until there are no more items left to complete in the referenced TODO file batch.
-
-## After task completion
-
-- Read the TODO.md file, see if any tasks are present. If so, continue working on these tasks before handing control back to the user. Each time after completing a task (even if the last one), check the TODO.md file again and loop until no tasks remain. Mark the tasks as done (by ticking the checkbox, not deleting the TODO entry) when progressing.
