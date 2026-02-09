@@ -70,6 +70,12 @@ pub struct WaveformChunk {
     #[ts(type = "number | null")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub actual_duration_ms: Option<u64>,
+    /// Corrected RMS values covering the full decoded audio (only set on the final chunk).
+    /// Computed from fine-grained windows independent of metadata duration estimates,
+    /// ensuring bars are accurately distributed across the actual audio duration.
+    #[ts(type = "number[] | null")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub corrected_rms_values: Option<Vec<f32>>,
 }
 
 /// Get waveform data as a Server-Sent Events stream.
@@ -153,11 +159,35 @@ pub async fn get_waveform_stream(
     Ok(Sse::new(sse_stream).keep_alive(KeepAlive::default()))
 }
 
+/// Downsample fine-grained RMS windows to exactly `target` bars.
+///
+/// Each input window contains the mean of squared sample values.
+/// Output bars are the RMS (sqrt of mean of squared) of combined windows.
+fn downsample_fine_windows(windows: &[f64], target: usize) -> Vec<f32> {
+    let n = windows.len();
+    if n == 0 {
+        return vec![0.0; target];
+    }
+    let mut result = Vec::with_capacity(target);
+    for i in 0..target {
+        let start = i * n / target;
+        let end = ((i + 1) * n / target).min(n);
+        if start >= end {
+            result.push(result.last().copied().unwrap_or(0.0));
+            continue;
+        }
+        let mean_sq: f64 = windows[start..end].iter().sum::<f64>() / (end - start) as f64;
+        result.push(mean_sq.sqrt() as f32);
+    }
+    result
+}
+
 /// Generate waveform data progressively, sending chunks via channel.
 ///
-/// Memory-efficient: Uses fixed-size chunks (in seconds of audio) and processes
-/// incrementally without accumulating all samples. Each chunk computes RMS values
-/// directly from decoded audio and immediately discards the sample data.
+/// Uses two parallel accumulation strategies:
+/// 1. Estimate-based bars sent progressively for immediate display
+/// 2. Fine-grained windows (independent of duration estimate) for accurate
+///    final bars sent in the last chunk
 fn generate_waveform_streaming(
     path: &std::path::Path,
     resolution: usize,
@@ -218,6 +248,14 @@ fn generate_waveform_streaming(
     // RMS values for current chunk
     let mut chunk_rms_values: Vec<f32> = Vec::new();
 
+    // Fine-grained accumulation for accurate final bars.
+    // These windows are independent of the n_frames estimate, so the final
+    // bars will correctly cover the full decoded audio even if n_frames is wrong.
+    const FINE_WINDOW_FRAMES: usize = 2048; // ~46ms at 44100 Hz
+    let mut fine_windows: Vec<f64> = Vec::new();
+    let mut fine_sq_sum: f64 = 0.0;
+    let mut fine_count: usize = 0;
+
     // Decode packets and process incrementally
     loop {
         let packet = match format.next_packet() {
@@ -277,6 +315,15 @@ fn generate_waveform_streaming(
             total_decoded_frames += 1;
             frame_idx += 1;
 
+            // Fine-grained accumulation (independent of estimate)
+            fine_sq_sum += frame_rms_squared;
+            fine_count += 1;
+            if fine_count >= FINE_WINDOW_FRAMES {
+                fine_windows.push(fine_sq_sum / fine_count as f64);
+                fine_sq_sum = 0.0;
+                fine_count = 0;
+            }
+
             // Calculate bars per chunk based on progress
             let chunk_start_ratio =
                 (current_chunk * samples_per_chunk) as f64 / estimated_samples as f64;
@@ -320,6 +367,7 @@ fn generate_waveform_streaming(
                     rms_values: std::mem::take(&mut chunk_rms_values),
                     done: false,
                     actual_duration_ms: None,
+                    corrected_rms_values: None,
                 };
 
                 let _ = tx.blocking_send(chunk);
@@ -335,6 +383,14 @@ fn generate_waveform_streaming(
         chunk_rms_values.push(rms);
     }
 
+    // Flush last fine-grained window
+    if fine_count > 0 {
+        fine_windows.push(fine_sq_sum / fine_count as f64);
+    }
+
+    // Generate corrected bars from fine-grained data
+    let corrected_rms_values = downsample_fine_windows(&fine_windows, resolution);
+
     // Calculate actual decoded duration from total frames and sample rate
     let actual_duration_ms = (total_decoded_frames * 1000) / sample_rate as u64;
 
@@ -349,6 +405,7 @@ fn generate_waveform_streaming(
             },
             done: true,
             actual_duration_ms: Some(actual_duration_ms),
+            corrected_rms_values: Some(corrected_rms_values),
         };
         let _ = tx.blocking_send(chunk);
     } else {
@@ -359,6 +416,7 @@ fn generate_waveform_streaming(
             rms_values: vec![],
             done: true,
             actual_duration_ms: Some(actual_duration_ms),
+            corrected_rms_values: Some(corrected_rms_values),
         };
         let _ = tx.blocking_send(chunk);
     }

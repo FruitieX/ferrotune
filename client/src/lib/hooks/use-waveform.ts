@@ -19,6 +19,7 @@ interface WaveformChunk {
   rms_values: number[]; // Raw RMS values, not normalized
   done: boolean;
   actual_duration_ms?: number | null; // Actual decoded duration in ms (final chunk only)
+  corrected_rms_values?: number[] | null; // Accurately-scaled bars for the full audio (final chunk only)
 }
 
 /**
@@ -195,6 +196,27 @@ export function useWaveform() {
               setStreamingHeights([...normalizedHeights]);
 
               if (chunk.done) {
+                // Use corrected bars if available (accurately scaled to full audio)
+                const finalRmsValues =
+                  chunk.corrected_rms_values &&
+                  chunk.corrected_rms_values.length > 0
+                    ? chunk.corrected_rms_values
+                    : allRmsValues;
+
+                // If using corrected values, replace allRmsValues for normalization
+                if (finalRmsValues !== allRmsValues) {
+                  for (
+                    let i = 0;
+                    i < WAVEFORM_BAR_COUNT && i < finalRmsValues.length;
+                    i++
+                  ) {
+                    allRmsValues[i] = finalRmsValues[i];
+                  }
+                }
+
+                const finalNormalizedHeights =
+                  normalizeRmsToHeights(allRmsValues);
+
                 // Store actual decoded duration if available
                 const actualDuration =
                   chunk.actual_duration_ms != null
@@ -213,7 +235,7 @@ export function useWaveform() {
                 setWaveformCache((prev) => {
                   const next = new Map(prev);
                   next.set(trackId, {
-                    heights: normalizedHeights,
+                    heights: finalNormalizedHeights,
                     isLoaded: true,
                     actualDuration,
                   });
