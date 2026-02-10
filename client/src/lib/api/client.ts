@@ -1410,12 +1410,14 @@ export class FerrotuneClient {
   async updateServerQueuePosition(
     currentIndex: number,
     positionMs: number = 0,
+    reshuffle: boolean = false,
   ): Promise<QueueSuccessResponse> {
     return this.request("/ferrotune/queue/position", {
       method: "POST",
       body: JSON.stringify({
         currentIndex,
         positionMs,
+        ...(reshuffle && { reshuffle: true }),
       }),
     });
   }

@@ -238,6 +238,9 @@ pub struct UpdatePositionRequest {
     /// Playback position in milliseconds
     #[serde(default)]
     pub position_ms: i64,
+    /// When true, generate new shuffle indices (used for repeat-all wrap-around)
+    #[serde(default)]
+    pub reshuffle: bool,
 }
 
 /// Request to update repeat mode
@@ -464,8 +467,8 @@ pub async fn start_queue(
 
         let indices = generate_shuffle_indices(total_count, effective_start, seed as u64);
         let indices_json = serde_json::to_string(&indices).unwrap_or_default();
-        // Start playback at effective_start position
-        (true, Some(seed), Some(indices_json), effective_start as i64)
+        // The current song is at position 0 in the shuffled indices
+        (true, Some(seed), Some(indices_json), 0i64)
     } else {
         (false, None, None, start_index as i64)
     };
@@ -1108,30 +1111,49 @@ pub async fn toggle_shuffle(
     let current_index = queue.current_index as usize;
 
     if request.enabled {
-        // Enable shuffle - only shuffle upcoming tracks, keep current position
+        // Enable shuffle - current song goes to position 0, all others shuffled after it
         let seed = rand::random::<u64>() as i64;
-        let indices = generate_shuffle_indices(total_count, current_index, seed as u64);
+
+        // In shuffled mode, current_index is in the shuffled space.
+        // We need to find which original index is currently playing.
+        // For a non-shuffled queue, current_index IS the original index.
+        let original_index = if queue.is_shuffled {
+            // Already shuffled — look up the original index from existing shuffle indices
+            queue
+                .shuffle_indices()
+                .and_then(|indices| indices.get(current_index).copied())
+                .unwrap_or(current_index)
+        } else {
+            current_index
+        };
+
+        let indices = generate_shuffle_indices(total_count, original_index, seed as u64);
         let indices_json = serde_json::to_string(&indices).unwrap_or_default();
 
+        // Current song is now at shuffled position 0
         queries::update_queue_shuffle(
             &state.pool,
             user.user_id,
             true,
             Some(seed),
             Some(&indices_json),
-            current_index as i64, // Keep current index unchanged
+            0, // Current song is at position 0 in shuffled order
         )
         .await?;
 
         Ok(Json(QueueSuccessResponse {
             success: true,
-            new_index: Some(current_index),
+            new_index: Some(0),
             total_count: None,
             added_count: None,
         }))
     } else {
-        // Disable shuffle - restore original order, keep current position
-        // The current_index still points to the same position in the original order
+        // Disable shuffle - restore original order
+        // Look up the original index of the currently-playing song from shuffle indices
+        let original_index = queue
+            .shuffle_indices()
+            .and_then(|indices| indices.get(current_index).copied())
+            .unwrap_or(current_index);
 
         queries::update_queue_shuffle(
             &state.pool,
@@ -1139,13 +1161,13 @@ pub async fn toggle_shuffle(
             false,
             None,
             None,
-            current_index as i64,
+            original_index as i64,
         )
         .await?;
 
         Ok(Json(QueueSuccessResponse {
             success: true,
-            new_index: Some(current_index),
+            new_index: Some(original_index),
             total_count: None,
             added_count: None,
         }))
@@ -1168,6 +1190,33 @@ pub async fn update_position(
         return Err(FerrotuneApiError(Error::InvalidRequest(
             "Position out of range".to_string(),
         )));
+    }
+
+    // Handle reshuffle (e.g., repeat-all wrap-around in shuffle mode)
+    if request.reshuffle && queue.is_shuffled {
+        let seed = rand::random::<u64>() as i64;
+        // Pick a random starting song for the new cycle
+        use rand::Rng;
+        let start = rand::thread_rng().gen_range(0..total_count);
+        let indices = generate_shuffle_indices(total_count, start, seed as u64);
+        let indices_json = serde_json::to_string(&indices).unwrap_or_default();
+
+        queries::update_queue_shuffle(
+            &state.pool,
+            user.user_id,
+            true,
+            Some(seed),
+            Some(&indices_json),
+            0, // Start at position 0 in the new shuffled order
+        )
+        .await?;
+
+        return Ok(Json(QueueSuccessResponse {
+            success: true,
+            new_index: Some(0),
+            total_count: None,
+            added_count: None,
+        }));
     }
 
     // If shuffled, update the shuffled current index
@@ -1661,20 +1710,20 @@ fn generate_shuffle_indices(total: usize, current_index: usize, seed: u64) -> Ve
         return vec![];
     }
 
-    let mut indices: Vec<usize> = (0..total).collect();
-
-    // If current_index is at or beyond the end, nothing to shuffle
-    if current_index >= total.saturating_sub(1) {
-        return indices;
+    if total == 1 {
+        return vec![0];
     }
 
-    // Only shuffle the portion after current_index
-    let upcoming_start = current_index + 1;
+    // Place current song at position 0, shuffle ALL other songs after it.
+    // This ensures every track in the source is reachable regardless of
+    // where playback started.
+    let mut others: Vec<usize> = (0..total).filter(|&i| i != current_index).collect();
     let mut rng = StdRng::seed_from_u64(seed);
+    others.shuffle(&mut rng);
 
-    // Shuffle only the upcoming portion
-    indices[upcoming_start..].shuffle(&mut rng);
-
+    let mut indices = Vec::with_capacity(total);
+    indices.push(current_index);
+    indices.extend(others);
     indices
 }
 

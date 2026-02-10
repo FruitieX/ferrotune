@@ -292,8 +292,9 @@ export const goToNextAtom = atom(null, async (get, set) => {
   if (!client) return;
 
   let nextIndex = state.currentIndex + 1;
+  const isWrapping = nextIndex >= state.totalCount;
 
-  if (nextIndex >= state.totalCount) {
+  if (isWrapping) {
     if (state.repeatMode === "all") {
       nextIndex = 0;
     } else {
@@ -308,24 +309,33 @@ export const goToNextAtom = atom(null, async (get, set) => {
   set(isQueueOperationPendingAtom, true);
 
   try {
-    await client.updateServerQueuePosition(nextIndex, 0);
+    // When wrapping around with shuffle + repeat-all, request a reshuffle
+    // so the next cycle has a fresh random order
+    const shouldReshuffle = isWrapping && state.isShuffled;
+    const response = await client.updateServerQueuePosition(
+      nextIndex,
+      0,
+      shouldReshuffle,
+    );
+
+    const newIndex = response.newIndex ?? nextIndex;
 
     // Update local state immediately for responsive UI
     set(serverQueueStateAtom, {
       ...state,
-      currentIndex: nextIndex,
+      currentIndex: newIndex,
       positionMs: 0,
     });
     set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
 
-    // Fetch new window if needed
+    // Fetch new window if needed (always fetch after reshuffle since order changed)
     const window = get(queueWindowAtom);
-    if (window) {
-      const needsFetch = !window.songs.some((s) => s.position === nextIndex);
-      if (needsFetch) {
-        const response = await client.getQueueCurrentWindow(20, "small");
-        set(queueWindowAtom, response.window);
-      }
+    if (
+      shouldReshuffle ||
+      !window?.songs.some((s) => s.position === newIndex)
+    ) {
+      const queueResponse = await client.getQueueCurrentWindow(20, "small");
+      set(queueWindowAtom, queueResponse.window);
     }
   } catch (error) {
     console.error("Failed to go to next track:", error);
