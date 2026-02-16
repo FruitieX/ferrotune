@@ -158,6 +158,22 @@ pub async fn get_music_folders(pool: &SqlitePool) -> sqlx::Result<Vec<MusicFolde
         .await
 }
 
+pub async fn get_music_folders_for_user(
+    pool: &SqlitePool,
+    user_id: i64,
+) -> sqlx::Result<Vec<MusicFolder>> {
+    sqlx::query_as::<_, MusicFolder>(
+        "SELECT mf.*
+         FROM music_folders mf
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+         WHERE mf.enabled = 1 AND ula.user_id = ?
+         ORDER BY mf.id",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+}
+
 pub async fn create_music_folder(pool: &SqlitePool, name: &str, path: &str) -> sqlx::Result<i64> {
     let result = sqlx::query("INSERT INTO music_folders (name, path, enabled) VALUES (?, ?, 1)")
         .bind(name)
@@ -184,6 +200,23 @@ pub async fn get_artists(pool: &SqlitePool) -> sqlx::Result<Vec<Artist>> {
     .await
 }
 
+pub async fn get_artists_for_user(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<Artist>> {
+    sqlx::query_as::<_, Artist>(
+        "SELECT id, name, sort_name, album_count, cover_art_hash
+         FROM artists
+         WHERE EXISTS (
+             SELECT 1 FROM songs s
+             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+             INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+             WHERE s.artist_id = artists.id AND mf.enabled = 1 AND ula.user_id = ?
+         )
+         ORDER BY COALESCE(sort_name, name) COLLATE NOCASE",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+}
+
 pub async fn get_artist_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<Artist>> {
     sqlx::query_as::<_, Artist>("SELECT * FROM artists WHERE id = ?")
         .bind(id)
@@ -206,6 +239,30 @@ pub async fn get_albums_by_artist(pool: &SqlitePool, artist_id: &str) -> sqlx::R
          ORDER BY a.year, a.name COLLATE NOCASE",
     )
     .bind(artist_id)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn get_albums_by_artist_for_user(
+    pool: &SqlitePool,
+    artist_id: &str,
+    user_id: i64,
+) -> sqlx::Result<Vec<Album>> {
+    sqlx::query_as::<_, Album>(
+        "SELECT a.*, ar.name as artist_name
+         FROM albums a
+         INNER JOIN artists ar ON a.artist_id = ar.id
+         WHERE a.artist_id = ?
+           AND EXISTS (
+               SELECT 1 FROM songs s
+               INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+               INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+               WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?
+           )
+         ORDER BY a.year, a.name COLLATE NOCASE",
+    )
+    .bind(artist_id)
+    .bind(user_id)
     .fetch_all(pool)
     .await
 }
@@ -249,6 +306,33 @@ pub async fn get_songs_by_artist(pool: &SqlitePool, artist_id: &str) -> sqlx::Re
          WHERE s.marked_for_deletion_at IS NULL AND (s.artist_id = ? OR al.artist_id = ?)
          ORDER BY s.album_id, s.disc_number, s.track_number, s.title COLLATE NOCASE";
     sqlx::query_as::<_, Song>(query)
+        .bind(artist_id)
+        .bind(artist_id)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_songs_by_artist_for_user(
+    pool: &SqlitePool,
+    artist_id: &str,
+    user_id: i64,
+) -> sqlx::Result<Vec<Song>> {
+    let query = "SELECT DISTINCT s.*, ar.name as artist_name, al.name as album_name,
+                                pc.play_count, pc.last_played, NULL as starred_at
+                 FROM songs s
+                 INNER JOIN artists ar ON s.artist_id = ar.id
+                 LEFT JOIN albums al ON s.album_id = al.id
+                 INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+                 INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+                 LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played
+                                        FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+                 WHERE s.marked_for_deletion_at IS NULL
+                     AND mf.enabled = 1
+                     AND ula.user_id = ?
+                     AND (s.artist_id = ? OR al.artist_id = ?)
+                 ORDER BY s.album_id, s.disc_number, s.track_number, s.title COLLATE NOCASE";
+    sqlx::query_as::<_, Song>(query)
+        .bind(user_id)
         .bind(artist_id)
         .bind(artist_id)
         .fetch_all(pool)
@@ -331,12 +415,12 @@ pub async fn get_songs_by_ids_with_library_status(
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
          LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played 
-                    FROM scrobbles WHERE submission = 1 AND user_id = {} GROUP BY song_id) pc ON s.id = pc.song_id
+                    FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
          WHERE s.id IN ({})",
-        user_id, placeholder_str
+        placeholder_str
     );
 
-    let mut query_builder = sqlx::query_as::<_, SongWithLibraryStatus>(&query);
+    let mut query_builder = sqlx::query_as::<_, SongWithLibraryStatus>(&query).bind(user_id);
     for id in ids {
         query_builder = query_builder.bind(id);
     }

@@ -159,7 +159,10 @@ pub async fn get_server_config(
         get_config_value(pool, "music.allow_file_deletion").await,
         false,
     );
-    let configured: bool = parse_json(get_config_value(pool, "configured").await, false);
+    let configured: bool = parse_json(
+        get_config_value(pool, "initial_setup_complete").await,
+        false,
+    );
 
     Ok(Json(ServerConfigResponse {
         server_name,
@@ -231,7 +234,7 @@ pub async fn update_server_config(
         .await?;
     }
     if let Some(configured) = request.configured {
-        set_config_value(pool, "configured", &configured.to_string()).await?;
+        set_config_value(pool, "initial_setup_complete", &configured.to_string()).await?;
     }
 
     // Return updated config

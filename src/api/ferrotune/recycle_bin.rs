@@ -5,6 +5,7 @@
 //! and moved to a recycle bin. After 30 days (or manual confirmation),
 //! the files are permanently deleted.
 
+use crate::api::ferrotune::users::require_admin;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::error::{Error, FerrotuneApiResult};
@@ -124,10 +125,12 @@ const RETENTION_DAYS: i64 = 30;
 /// Mark songs for deletion (soft delete)
 /// POST /ferrotune/recycle-bin/mark
 pub async fn mark_for_deletion(
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<MarkForDeletionRequest>,
 ) -> FerrotuneApiResult<Json<MarkForDeletionResponse>> {
+    require_admin(&user)?;
+
     if request.song_ids.is_empty() {
         return Err(Error::InvalidRequest("No song IDs provided".to_string()).into());
     }
@@ -165,10 +168,12 @@ pub async fn mark_for_deletion(
 /// Restore songs from recycle bin
 /// POST /ferrotune/recycle-bin/restore
 pub async fn restore_songs(
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<RestoreSongsRequest>,
 ) -> FerrotuneApiResult<Json<RestoreSongsResponse>> {
+    require_admin(&user)?;
+
     if request.song_ids.is_empty() {
         return Err(Error::InvalidRequest("No song IDs provided".to_string()).into());
     }
@@ -204,10 +209,12 @@ pub async fn restore_songs(
 /// List songs in recycle bin
 /// GET /ferrotune/recycle-bin
 pub async fn list_recycle_bin(
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<RecycleBinParams>,
 ) -> FerrotuneApiResult<Json<RecycleBinResponse>> {
+    require_admin(&user)?;
+
     let limit = params.limit.unwrap_or(100).min(500);
     let offset = params.offset.unwrap_or(0);
 
@@ -348,10 +355,12 @@ async fn delete_songs_internal(
 /// Permanently delete songs (from database and disk)
 /// POST /ferrotune/recycle-bin/delete-permanently
 pub async fn delete_permanently(
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<PermanentDeleteRequest>,
 ) -> FerrotuneApiResult<Json<PermanentDeleteResponse>> {
+    require_admin(&user)?;
+
     // Check if file deletion is enabled
     if !super::server_config::is_file_deletion_enabled(&state).await {
         return Err(Error::Forbidden(
@@ -372,9 +381,11 @@ pub async fn delete_permanently(
 /// Empty the recycle bin - delete all songs marked for deletion
 /// POST /ferrotune/recycle-bin/empty
 pub async fn empty_recycle_bin(
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<PermanentDeleteResponse>> {
+    require_admin(&user)?;
+
     // Check if file deletion is enabled
     if !super::server_config::is_file_deletion_enabled(&state).await {
         return Err(Error::Forbidden(
@@ -407,9 +418,11 @@ pub async fn empty_recycle_bin(
 /// Purge expired songs (older than 30 days) - called periodically or on startup
 /// POST /ferrotune/recycle-bin/purge-expired
 pub async fn purge_expired(
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<PermanentDeleteResponse>> {
+    require_admin(&user)?;
+
     // Check if file deletion is enabled
     if !super::server_config::is_file_deletion_enabled(&state).await {
         return Err(Error::Forbidden(

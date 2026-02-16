@@ -57,12 +57,11 @@ test.describe("Smart Playlists", () => {
     await expect(dialog).not.toBeVisible({ timeout: 5000 });
 
     // Look for the smart playlist in the list (may have sparkle icon)
-    await page.waitForTimeout(1000);
-    const playlistLink = page.getByText(smartPlaylistName);
-    if (await playlistLink.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await playlistLink.click();
+    const playlistLink = page.getByText(smartPlaylistName).first();
+    if (await playlistLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await playlistLink.click({ force: true });
       // Smart playlist page should show heading
-      await expect(page.getByRole("heading")).toBeVisible();
+      await expect(page.getByRole("heading").first()).toBeVisible();
     }
   });
 });

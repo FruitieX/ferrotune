@@ -20,6 +20,7 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use ts_rs::TS;
 
+use super::tagger::resolve_path_within_music_folder;
 use super::ErrorResponse;
 
 use crate::error::{Error, FerrotuneApiResult};
@@ -574,149 +575,115 @@ pub async fn update_session(
         .await
         .map_err(|e| Error::Internal(format!("Failed to get session: {}", e)))?;
 
-    // Build dynamic update query
-    let mut updates = Vec::new();
-    let mut values: Vec<Box<dyn std::any::Any + Send + Sync>> = Vec::new();
+    let has_updates = request.visible_columns.is_some()
+        || request.active_rename_script_id.is_some()
+        || request.active_tag_script_id.is_some()
+        || request.target_library_id.is_some()
+        || request.show_library_prefix.is_some()
+        || request.show_computed_path.is_some()
+        || request.column_widths.is_some()
+        || request.file_column_width.is_some()
+        || request.details_panel_open.is_some()
+        || request.dangerous_char_mode.is_some()
+        || request.dangerous_char_replacement.is_some();
 
-    if let Some(ref cols) = request.visible_columns {
-        updates.push("visible_columns = ?");
-        values.push(Box::new(serde_json::to_string(cols).unwrap_or_default()));
-    }
-    if let Some(ref id) = request.active_rename_script_id {
-        updates.push("active_rename_script_id = ?");
-        values.push(Box::new(id.clone()));
-    }
-    if let Some(ref id) = request.active_tag_script_id {
-        updates.push("active_tag_script_id = ?");
-        values.push(Box::new(id.clone()));
-    }
-    if let Some(ref id) = request.target_library_id {
-        updates.push("target_library_id = ?");
-        values.push(Box::new(id.clone()));
-    }
-    if let Some(show) = request.show_library_prefix {
-        updates.push("show_library_prefix = ?");
-        values.push(Box::new(show));
-    }
-    if let Some(show) = request.show_computed_path {
-        updates.push("show_computed_path = ?");
-        values.push(Box::new(show));
-    }
-    if let Some(ref widths) = request.column_widths {
-        updates.push("column_widths = ?");
-        values.push(Box::new(serde_json::to_string(widths).unwrap_or_default()));
-    }
-    if let Some(width) = request.file_column_width {
-        updates.push("file_column_width = ?");
-        values.push(Box::new(width));
-    }
-    if let Some(open) = request.details_panel_open {
-        updates.push("details_panel_open = ?");
-        values.push(Box::new(open));
-    }
-    if let Some(ref mode) = request.dangerous_char_mode {
-        updates.push("dangerous_char_mode = ?");
-        values.push(Box::new(mode.clone()));
-    }
-    if let Some(ref replacement) = request.dangerous_char_replacement {
-        updates.push("dangerous_char_replacement = ?");
-        values.push(Box::new(replacement.clone()));
-    }
-
-    if updates.is_empty() {
+    if !has_updates {
         return Ok(StatusCode::NO_CONTENT);
     }
-
-    updates.push("updated_at = ?");
-
-    // Note: We use individual updates below since sqlx doesn't support dynamic binding easily
-    let _query = format!(
-        "UPDATE tagger_sessions SET {} WHERE id = ?",
-        updates.join(", ")
-    );
 
     // Execute with a simpler approach - rebuild per field
     // Since sqlx doesn't support dynamic binding easily, we'll do individual updates
     if let Some(ref cols) = request.visible_columns {
-        let _ = sqlx::query("UPDATE tagger_sessions SET visible_columns = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE tagger_sessions SET visible_columns = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(serde_json::to_string(cols).unwrap_or_default())
             .bind(session_id)
             .execute(&state.pool)
-            .await;
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to update visible columns: {}", e)))?;
     }
     if let Some(ref id) = request.active_rename_script_id {
         // Empty string means clear to NULL
         let value_to_bind: Option<&str> = if id.is_empty() { None } else { Some(id) };
-        let _ = sqlx::query("UPDATE tagger_sessions SET active_rename_script_id = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE tagger_sessions SET active_rename_script_id = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(value_to_bind)
             .bind(session_id)
             .execute(&state.pool)
-            .await;
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to update active rename script: {}", e)))?;
     }
     if let Some(ref id) = request.active_tag_script_id {
         // Empty string means clear to NULL
         let value_to_bind: Option<&str> = if id.is_empty() { None } else { Some(id) };
-        let _ = sqlx::query("UPDATE tagger_sessions SET active_tag_script_id = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE tagger_sessions SET active_tag_script_id = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(value_to_bind)
             .bind(session_id)
             .execute(&state.pool)
-            .await;
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to update active tag script: {}", e)))?;
     }
     if request.target_library_id.is_some() {
-        let _ = sqlx::query("UPDATE tagger_sessions SET target_library_id = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE tagger_sessions SET target_library_id = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(&request.target_library_id)
             .bind(session_id)
             .execute(&state.pool)
-            .await;
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to update target library: {}", e)))?;
     }
     if let Some(show) = request.show_library_prefix {
-        let _ = sqlx::query("UPDATE tagger_sessions SET show_library_prefix = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE tagger_sessions SET show_library_prefix = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(show)
             .bind(session_id)
             .execute(&state.pool)
-            .await;
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to update show_library_prefix: {}", e)))?;
     }
     if let Some(show) = request.show_computed_path {
-        let _ = sqlx::query("UPDATE tagger_sessions SET show_computed_path = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE tagger_sessions SET show_computed_path = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(show)
             .bind(session_id)
             .execute(&state.pool)
-            .await;
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to update show_computed_path: {}", e)))?;
     }
     if let Some(ref widths) = request.column_widths {
-        let _ = sqlx::query("UPDATE tagger_sessions SET column_widths = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE tagger_sessions SET column_widths = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(serde_json::to_string(widths).unwrap_or_default())
             .bind(session_id)
             .execute(&state.pool)
-            .await;
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to update column widths: {}", e)))?;
     }
     if let Some(width) = request.file_column_width {
-        let _ = sqlx::query("UPDATE tagger_sessions SET file_column_width = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE tagger_sessions SET file_column_width = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(width)
             .bind(session_id)
             .execute(&state.pool)
-            .await;
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to update file column width: {}", e)))?;
     }
     if let Some(open) = request.details_panel_open {
-        let _ = sqlx::query("UPDATE tagger_sessions SET details_panel_open = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE tagger_sessions SET details_panel_open = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(open)
             .bind(session_id)
             .execute(&state.pool)
-            .await;
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to update details panel state: {}", e)))?;
     }
     if let Some(ref mode) = request.dangerous_char_mode {
-        let _ = sqlx::query("UPDATE tagger_sessions SET dangerous_char_mode = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE tagger_sessions SET dangerous_char_mode = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(mode)
             .bind(session_id)
             .execute(&state.pool)
-            .await;
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to update dangerous char mode: {}", e)))?;
     }
     if let Some(ref replacement) = request.dangerous_char_replacement {
-        let _ = sqlx::query("UPDATE tagger_sessions SET dangerous_char_replacement = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE tagger_sessions SET dangerous_char_replacement = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(replacement)
             .bind(session_id)
             .execute(&state.pool)
-            .await;
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to update dangerous char replacement: {}", e)))?;
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -1039,11 +1006,19 @@ pub async fn remove_track(
     }
 
     // Also delete any pending edit for this track
-    let _ = sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?")
-        .bind(session_id)
-        .bind(&track_id)
-        .execute(&state.pool)
-        .await;
+    if let Err(e) =
+        sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?")
+            .bind(session_id)
+            .bind(&track_id)
+            .execute(&state.pool)
+            .await
+    {
+        tracing::warn!(
+            "Failed to delete pending edit for track {}: {}",
+            track_id,
+            e
+        );
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1095,20 +1070,30 @@ pub async fn remove_tracks(
         }
 
         // Delete the track from session
-        let _ =
+        if let Err(e) =
             sqlx::query("DELETE FROM tagger_session_tracks WHERE session_id = ? AND track_id = ?")
                 .bind(session_id)
                 .bind(track_id)
                 .execute(&state.pool)
-                .await;
+                .await
+        {
+            tracing::warn!("Failed to delete session track {}: {}", track_id, e);
+        }
 
         // Also delete any pending edit
-        let _ =
+        if let Err(e) =
             sqlx::query("DELETE FROM tagger_pending_edits WHERE session_id = ? AND track_id = ?")
                 .bind(session_id)
                 .bind(track_id)
                 .execute(&state.pool)
-                .await;
+                .await
+        {
+            tracing::warn!(
+                "Failed to delete pending edit during bulk remove for track {}: {}",
+                track_id,
+                e
+            );
+        }
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -2388,27 +2373,21 @@ pub async fn save_pending_edits(
                 .or(pending.computed_path.clone())
                 .unwrap_or_else(|| original_filename.clone());
 
-            let target_path = PathBuf::from(&target_folder.path).join(&target_rel_path);
-
-            // Security check
-            if !target_path.starts_with(&target_folder.path) {
-                errors.push(SessionSaveError {
-                    track_id: track_id.clone(),
-                    error: "Target path must be within music folder".to_string(),
-                });
-                continue;
-            }
-
-            // Create parent directories
-            if let Some(parent) = target_path.parent() {
-                if let Err(e) = fs::create_dir_all(parent).await {
+            let target_path = match resolve_path_within_music_folder(
+                std::path::Path::new(&target_folder.path),
+                &target_rel_path,
+            )
+            .await
+            {
+                Ok(path) => path,
+                Err(e) => {
                     errors.push(SessionSaveError {
                         track_id: track_id.clone(),
-                        error: format!("Failed to create directories: {}", e),
+                        error: e,
                     });
                     continue;
                 }
-            }
+            };
 
             // Move file from staging to target (with cross-filesystem support)
             if let Err(e) = move_file_cross_fs(&staging_path, &target_path).await {
@@ -3374,19 +3353,11 @@ async fn save_single_track(
             .or(pending.as_ref().and_then(|p| p.computed_path.clone()))
             .unwrap_or(original_filename);
 
-        let target_path = PathBuf::from(&target_folder.path).join(&target_rel_path);
-
-        // Security check
-        if !target_path.starts_with(&target_folder.path) {
-            return Err("Target path must be within music folder".to_string());
-        }
-
-        // Create parent directories
-        if let Some(parent) = target_path.parent() {
-            fs::create_dir_all(parent)
-                .await
-                .map_err(|e| format!("Failed to create directories: {}", e))?;
-        }
+        let target_path = resolve_path_within_music_folder(
+            std::path::Path::new(&target_folder.path),
+            &target_rel_path,
+        )
+        .await?;
 
         // Move file from staging to target
         move_file_cross_fs(&staging_path, &target_path)

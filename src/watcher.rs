@@ -17,7 +17,7 @@ use sqlx::SqlitePool;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 use tracing::{debug, error, info, warn};
 
 /// Duration to wait after file changes before triggering scan
@@ -46,6 +46,8 @@ pub struct LibraryWatcher {
     tx: mpsc::Sender<WatcherMessage>,
     /// Tracked folder paths and their IDs
     watched_folders: std::sync::Mutex<Vec<(i64, PathBuf)>>,
+    /// Limits concurrent auto-scans triggered by watcher events
+    scan_semaphore: Arc<Semaphore>,
 }
 
 impl LibraryWatcher {
@@ -62,6 +64,7 @@ impl LibraryWatcher {
                 scan_state,
                 tx,
                 watched_folders: std::sync::Mutex::new(Vec::new()),
+                scan_semaphore: Arc::new(Semaphore::new(2)),
             },
             rx,
         )
@@ -141,9 +144,18 @@ impl LibraryWatcher {
                     );
 
                     let pool = self.pool.clone();
+                    let scan_semaphore = Arc::clone(&self.scan_semaphore);
 
                     // Spawn scan in background - use targeted file scanning
                     tokio::spawn(async move {
+                        let permit = match scan_semaphore.acquire_owned().await {
+                            Ok(permit) => permit,
+                            Err(e) => {
+                                error!("Failed to acquire scan semaphore: {}", e);
+                                return;
+                            }
+                        };
+
                         if let Err(e) =
                             crate::scanner::scan_specific_files(&pool, folder_id, file_paths).await
                         {
@@ -151,6 +163,8 @@ impl LibraryWatcher {
                         } else {
                             info!("Auto-scan for folder {} completed", folder_id);
                         }
+
+                        drop(permit);
                     });
                 }
                 WatcherMessage::Error(e) => {

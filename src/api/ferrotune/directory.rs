@@ -45,12 +45,10 @@ pub struct LibraryInfo {
 
 /// Get libraries accessible to the current user
 pub async fn get_libraries(
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<LibrariesResponse>> {
-    // Get all enabled music folders
-    // TODO: Filter by user access when user library access is implemented
-    let folders = crate::db::queries::get_music_folders(&state.pool).await?;
+    let folders = crate::db::queries::get_music_folders_for_user(&state.pool, user.user_id).await?;
 
     let mut libraries = Vec::new();
     for folder in folders {
@@ -224,6 +222,13 @@ pub async fn get_directory_paged(
     let library_id = params
         .library_id
         .ok_or_else(|| Error::InvalidRequest("libraryId is required".to_string()))?;
+
+    let has_access =
+        crate::api::ferrotune::users::user_has_folder_access(&state.pool, user.user_id, library_id)
+            .await?;
+    if !has_access {
+        return Err(Error::Forbidden("Access denied to library".to_string()).into());
+    }
 
     // Get the music folder
     let folder: crate::db::models::MusicFolder =

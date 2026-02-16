@@ -10,7 +10,7 @@ import {
   resetState,
 } from "./fixtures";
 
-test.describe.serial("Playback", () => {
+test.describe("Playback", () => {
   // Reset all server state before each test for isolation
   test.beforeEach(async ({ authenticatedPage: page, server }) => {
     await resetState(page, server);
@@ -53,17 +53,14 @@ test.describe.serial("Playback", () => {
 
     // Skip to next
     await playerBar.getByRole("button", { name: /next/i }).click();
-    await page.waitForTimeout(500);
     await expect(playerBar).toContainText("Second Song");
 
     // Skip to next again
     await playerBar.getByRole("button", { name: /next/i }).click();
-    await page.waitForTimeout(500);
     await expect(playerBar).toContainText("Third Song");
 
     // Skip previous
     await playerBar.getByRole("button", { name: /previous/i }).click();
-    await page.waitForTimeout(500);
     await expect(playerBar).toContainText("Second Song");
   });
 
@@ -77,18 +74,14 @@ test.describe.serial("Playback", () => {
 
     // Skip through all tracks
     await playerBar.getByRole("button", { name: /next/i }).click();
-    await page.waitForTimeout(300);
     await playerBar.getByRole("button", { name: /next/i }).click();
-    await page.waitForTimeout(300);
     await playerBar.getByRole("button", { name: /next/i }).click();
-    await page.waitForTimeout(500);
 
     // Queue ended
     await expect(playerBar).toContainText("Not playing");
 
     // Click play to restart
     await playerBar.getByRole("button", { name: /play/i }).click();
-    await page.waitForTimeout(500);
     await expect(playerBar).toContainText("First Song");
   });
 
@@ -104,13 +97,10 @@ test.describe.serial("Playback", () => {
     // Enable repeat one (click twice: off -> all -> one)
     const repeatButton = playerBar.getByRole("button", { name: /repeat/i });
     await repeatButton.click();
-    await page.waitForTimeout(200);
     await repeatButton.click();
-    await page.waitForTimeout(200);
 
     // Click next - should still advance (repeat one only loops on natural end)
     await playerBar.getByRole("button", { name: /next/i }).click();
-    await page.waitForTimeout(500);
     await expect(playerBar).toContainText("Second Song");
   });
 });

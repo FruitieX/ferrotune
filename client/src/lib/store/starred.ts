@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { atom, useAtom } from "jotai";
 import { atomFamily } from "jotai/utils";
 
@@ -31,6 +32,8 @@ const starredItemAtomFamily = atomFamily((key: string) =>
     },
   ),
 );
+
+const starredKeyRefCounts = new Map<string, number>();
 
 type StarType = "song" | "album" | "artist";
 export type { StarType };
@@ -121,13 +124,27 @@ function useStarredItem(id: string, initialStarred: boolean, type: StarType) {
   // Once initialized, the atom value takes precedence (for optimistic updates).
   const isStarred = starredValue ?? initialStarred;
 
+  useEffect(() => {
+    const count = starredKeyRefCounts.get(key) ?? 0;
+    starredKeyRefCounts.set(key, count + 1);
+
+    return () => {
+      const currentCount = starredKeyRefCounts.get(key) ?? 0;
+      if (currentCount <= 1) {
+        starredKeyRefCounts.delete(key);
+        starredItemAtomFamily.remove(key);
+      } else {
+        starredKeyRefCounts.set(key, currentCount - 1);
+      }
+    };
+  }, [key]);
+
   // Initialize the atom with server value if not yet set
-  if (starredValue === undefined) {
-    // Use queueMicrotask to avoid setting state during render
-    queueMicrotask(() => {
+  useEffect(() => {
+    if (starredValue === undefined) {
       setStarredValue(initialStarred);
-    });
-  }
+    }
+  }, [initialStarred, setStarredValue, starredValue]);
 
   const toggleStar = async () => {
     const client = getClient();

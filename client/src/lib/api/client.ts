@@ -113,6 +113,10 @@ import type { TaggerScriptsResponse } from "./generated/TaggerScriptsResponse";
 import type { TaggerScriptData } from "./generated/TaggerScriptData";
 import type { SongPlaylistsResponse } from "./generated/SongPlaylistsResponse";
 import type { ReplacementAudioUploadResponse } from "./generated/ReplacementAudioUploadResponse";
+import type { SetupStatusResponse } from "./generated/SetupStatusResponse";
+import type { FerrotuneAlbumListResponse } from "./generated/FerrotuneAlbumListResponse";
+import type { FerrotuneSearchResponse } from "./generated/FerrotuneSearchResponse";
+import type { FerrotunePlayHistoryResponse } from "./generated/FerrotunePlayHistoryResponse";
 import { PlaylistInFolder } from "./generated";
 
 // Ping response is empty
@@ -153,6 +157,15 @@ function buildQueryString(params: Record<string, unknown>): string {
 function buildEndpoint(base: string, params: Record<string, unknown>): string {
   const queryString = buildQueryString(params);
   return queryString ? `${base}?${queryString}` : base;
+}
+
+function toBase64Utf8(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 /**
@@ -219,6 +232,12 @@ export class FerrotuneClient {
   // System endpoints
   async ping(): Promise<PingResponse> {
     return this.request<PingResponse>("/ferrotune/ping");
+  }
+
+  async completeSetup(): Promise<SetupStatusResponse> {
+    return this.request<SetupStatusResponse>("/ferrotune/setup/complete", {
+      method: "POST",
+    });
   }
 
   async getMusicFolders(): Promise<MusicFoldersResponse> {
@@ -303,17 +322,14 @@ export class FerrotuneClient {
   ): Promise<AlbumListResponse> {
     const endpoint = buildEndpoint("/ferrotune/albums", params);
 
-    // Ferrotune API returns { album: [...], total: ... }
-    // but client expects { albumList2: { album: [...] } }
-    const res = await this.request<{ album: unknown[]; total?: number }>(
-      endpoint,
-    );
+    const res = await this.request<FerrotuneAlbumListResponse>(endpoint);
 
     return {
       albumList2: {
         album: res.album,
+        total: res.total ?? undefined,
       },
-    } as unknown as AlbumListResponse;
+    };
   }
 
   async getRandomSongs(
@@ -341,14 +357,18 @@ export class FerrotuneClient {
   ): Promise<SearchResponse> {
     const endpoint = buildEndpoint("/ferrotune/search", params);
 
-    // Ferrotune API returns { searchResult: {...} }
-    // but client expects { searchResult3: {...} }
-    // FIXME: This is a temporary workaround
-    const res = await this.request<{ searchResult: unknown }>(endpoint);
+    const res = await this.request<FerrotuneSearchResponse>(endpoint);
 
     return {
-      searchResult3: res.searchResult,
-    } as unknown as SearchResponse;
+      searchResult3: {
+        artist: res.searchResult.artist,
+        album: res.searchResult.album,
+        song: res.searchResult.song,
+        artistTotal: res.searchResult.artistTotal ?? undefined,
+        albumTotal: res.searchResult.albumTotal ?? undefined,
+        songTotal: res.searchResult.songTotal ?? undefined,
+      },
+    };
   }
 
   // Starring endpoints
@@ -625,18 +645,14 @@ export class FerrotuneClient {
   ): Promise<PlayHistoryResponse> {
     const endpoint = buildEndpoint("/ferrotune/history", params);
 
-    // Ferrotune API returns { entry: [...], total: ... }
-    // but client expects { playHistory: { entry: [...], total: ... } }
-    const res = await this.request<{ entry: unknown[]; total?: number }>(
-      endpoint,
-    );
+    const res = await this.request<FerrotunePlayHistoryResponse>(endpoint);
 
     return {
       playHistory: {
         entry: res.entry,
-        total: res.total,
+        total: res.total ?? undefined,
       },
-    } as unknown as PlayHistoryResponse;
+    };
   }
 
   // Media URL builders (no fetch, returns URL string)
@@ -655,11 +671,6 @@ export class FerrotuneClient {
       params.set("u", this.username);
       params.set("p", this.password);
     } else if (this.apiKey) {
-      params.set("k", this.apiKey); // OpenSubsonic usually calls it apiKey? Or t+s.
-      // Admin API uses basic auth or standard OS params.
-      // Let's use `u` & `p` as standard fallback.
-      // Or better, let's look at `buildUrl`:
-      // if (this.apiKey) url.searchParams.set("apiKey", this.apiKey);
       params.set("apiKey", this.apiKey);
     }
 
@@ -738,6 +749,14 @@ export class FerrotuneClient {
     return `${this.serverUrl}${endpoint}`;
   }
 
+  private getAuthorizationHeader(): string | undefined {
+    if (!this.username || !this.password) {
+      return undefined;
+    }
+
+    return `Basic ${toBase64Utf8(`${this.username}:${this.password}`)}`;
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {},
@@ -752,9 +771,9 @@ export class FerrotuneClient {
       ...(options.headers as Record<string, string>),
     };
 
-    if (this.username && this.password) {
-      headers["Authorization"] =
-        `Basic ${btoa(`${this.username}:${this.password}`)}`;
+    const authorization = this.getAuthorizationHeader();
+    if (authorization) {
+      headers["Authorization"] = authorization;
     }
 
     let response: Response;
@@ -1164,9 +1183,9 @@ export class FerrotuneClient {
   // Get auth headers for streaming requests
   getAuthHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
-    if (this.username && this.password) {
-      headers["Authorization"] =
-        `Basic ${btoa(`${this.username}:${this.password}`)}`;
+    const authorization = this.getAuthorizationHeader();
+    if (authorization) {
+      headers["Authorization"] = authorization;
     }
     return headers;
   }
@@ -1184,30 +1203,13 @@ export class FerrotuneClient {
     songId: string,
     excluded: boolean,
   ): Promise<{ songId: string; excluded: boolean }> {
-    const url = this.buildAdminUrl(
+    return this.request(
       `/ferrotune/songs/${encodeURIComponent(songId)}/shuffle-exclude`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ excluded }),
+      },
     );
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (this.username && this.password) {
-      headers["Authorization"] =
-        `Basic ${btoa(`${this.username}:${this.password}`)}`;
-    }
-
-    const response = await fetch(url, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ excluded }),
-    });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || `HTTP error: ${response.status}`);
-    }
-
-    return response.json();
   }
 
   async getAllShuffleExcludes(): Promise<{ songIds: string[] }> {
@@ -1240,30 +1242,13 @@ export class FerrotuneClient {
     songId: string,
     disabled: boolean,
   ): Promise<{ songId: string; disabled: boolean }> {
-    const url = this.buildAdminUrl(
+    return this.request(
       `/ferrotune/songs/${encodeURIComponent(songId)}/disabled`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ disabled }),
+      },
     );
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (this.username && this.password) {
-      headers["Authorization"] =
-        `Basic ${btoa(`${this.username}:${this.password}`)}`;
-    }
-
-    const response = await fetch(url, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ disabled }),
-    });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || `HTTP error: ${response.status}`);
-    }
-
-    return response.json();
   }
 
   async getAllDisabledSongs(): Promise<{ songIds: string[] }> {
@@ -1927,11 +1912,7 @@ export class FerrotuneClient {
     }
 
     const url = this.buildAdminUrl("/ferrotune/tagger/upload");
-    const headers: Record<string, string> = {};
-    if (this.username && this.password) {
-      headers["Authorization"] =
-        `Basic ${btoa(`${this.username}:${this.password}`)}`;
-    }
+    const headers = this.getAuthHeaders();
 
     const response = await fetch(url, {
       method: "POST",
@@ -2222,9 +2203,9 @@ export class FerrotuneClient {
       "Content-Type": "application/json",
     };
 
-    if (this.username && this.password) {
-      headers["Authorization"] =
-        `Basic ${btoa(`${this.username}:${this.password}`)}`;
+    const authorization = this.getAuthorizationHeader();
+    if (authorization) {
+      headers["Authorization"] = authorization;
     }
 
     const response = await fetch(url, {
@@ -2390,12 +2371,7 @@ export class FerrotuneClient {
       `/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/cover`,
     );
 
-    // Add Basic Auth header (same as uploadTaggerFiles)
-    const headers: Record<string, string> = {};
-    if (this.username && this.password) {
-      headers["Authorization"] =
-        `Basic ${btoa(`${this.username}:${this.password}`)}`;
-    }
+    const headers = this.getAuthHeaders();
 
     const response = await fetch(url, {
       method: "PUT",
@@ -2468,12 +2444,7 @@ export class FerrotuneClient {
       `/ferrotune/tagger/session/edits/${encodeURIComponent(trackId)}/replacement-audio`,
     );
 
-    // Add Basic Auth header (same as uploadTaggerFiles)
-    const headers: Record<string, string> = {};
-    if (this.username && this.password) {
-      headers["Authorization"] =
-        `Basic ${btoa(`${this.username}:${this.password}`)}`;
-    }
+    const headers = this.getAuthHeaders();
 
     const response = await fetch(url, {
       method: "PUT",
@@ -2630,12 +2601,7 @@ export class FerrotuneClient {
       `/ferrotune/playlist-folders/${encodeURIComponent(folderId)}/cover`,
     );
 
-    // Add auth header
-    const headers: Record<string, string> = {};
-    if (this.username && this.password) {
-      headers["Authorization"] =
-        `Basic ${btoa(`${this.username}:${this.password}`)}`;
-    }
+    const headers = this.getAuthHeaders();
 
     // Send raw binary data (not FormData)
     const response = await fetch(url, {

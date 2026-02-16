@@ -9,10 +9,11 @@ mod thumbnails;
 mod watcher;
 
 use anyhow::Result;
+use axum::http::HeaderValue;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -285,11 +286,7 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
 
     // CORS layer - must be applied first (added last) to handle preflight requests
     // before the router rejects OPTIONS method
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any)
-        .expose_headers(Any);
+    let cors = build_cors_layer(&config);
 
     // Build combined API router (OpenSubsonic + Ferrotune Admin)
     // Both APIs are served on the same port:
@@ -376,6 +373,78 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+fn build_cors_layer(config: &config::Config) -> CorsLayer {
+    if config.server.host == "127.0.0.1" || config.server.host == "localhost" {
+        return CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any)
+            .expose_headers(Any);
+    }
+
+    let allow_any = std::env::var("FERROTUNE_CORS_ALLOW_ANY")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
+
+    if allow_any {
+        tracing::warn!(
+            "CORS is configured to allow any origin (FERROTUNE_CORS_ALLOW_ANY=true). This is unsafe for production."
+        );
+        return CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any)
+            .expose_headers(Any);
+    }
+
+    let mut origins: Vec<HeaderValue> = Vec::new();
+
+    if let Ok(origin_csv) = std::env::var("FERROTUNE_CORS_ALLOWED_ORIGINS") {
+        for origin in origin_csv
+            .split(',')
+            .map(str::trim)
+            .filter(|o| !o.is_empty())
+        {
+            match origin.parse::<HeaderValue>() {
+                Ok(value) => origins.push(value),
+                Err(_) => tracing::warn!(origin = %origin, "Ignoring invalid CORS origin"),
+            }
+        }
+    } else {
+        let mut default_origins = vec![format!(
+            "http://{}:{}",
+            config.server.host, config.server.port
+        )];
+
+        if config.server.host == "127.0.0.1" || config.server.host == "localhost" {
+            for port in [config.server.port, 3000, 13000] {
+                default_origins.push(format!("http://localhost:{}", port));
+                default_origins.push(format!("http://127.0.0.1:{}", port));
+            }
+        }
+
+        default_origins.sort();
+        default_origins.dedup();
+
+        for origin in default_origins {
+            if let Ok(value) = origin.parse::<HeaderValue>() {
+                origins.push(value);
+            }
+        }
+    }
+
+    let mut cors = CorsLayer::new()
+        .allow_methods(Any)
+        .allow_headers(Any)
+        .expose_headers(Any);
+
+    if !origins.is_empty() {
+        cors = cors.allow_origin(AllowOrigin::list(origins));
+    }
+
+    cors
 }
 
 async fn create_admin_user(pool: &sqlx::SqlitePool, username: &str, password: &str) -> Result<()> {

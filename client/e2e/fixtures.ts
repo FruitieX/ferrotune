@@ -238,9 +238,12 @@ max_cover_size = 512
   }
 
   // Mark setup as complete
-  await fetch(`http://127.0.0.1:${port}/ferrotune/setup/complete`, {
-    method: "POST",
-  });
+  await fetch(
+    `http://127.0.0.1:${port}/ferrotune/setup/complete?u=${username}&p=${password}&v=1.16.1&c=test&f=json`,
+    {
+      method: "POST",
+    },
+  );
 
   return {
     url: `http://127.0.0.1:${port}`,
@@ -346,7 +349,7 @@ export { expect };
  */
 export async function waitForPageReady(page: Page, timeout = 5000) {
   await page.waitForLoadState("domcontentloaded", { timeout });
-  await page.waitForTimeout(100);
+  await page.waitForLoadState("load", { timeout });
 }
 
 /**
@@ -412,13 +415,12 @@ export async function goToLibrary(
  * Helper to wait for library content to load (handles virtualization).
  */
 export async function waitForLibraryContent(page: Page, timeout = 15000) {
-  // Wait for either media cards (grid) or list rows to appear
-  await Promise.race([
-    page.waitForSelector('[data-testid="media-card"]', { timeout }),
-    page.waitForSelector('[data-testid="media-row"]', { timeout }),
-    page.waitForSelector('[data-testid="song-row"]', { timeout }),
-    page.waitForSelector('[data-testid="artist-row"]', { timeout }),
-  ]);
+  const content = page
+    .locator(
+      '[data-testid="media-card"], [data-testid="media-row"], [data-testid="song-row"], [data-testid="artist-row"]',
+    )
+    .first();
+  await expect(content).toBeVisible({ timeout });
 }
 
 /**
@@ -442,17 +444,17 @@ export async function playFirstSong(page: Page) {
   await page.goto("/library");
   await page.waitForLoadState("domcontentloaded");
 
-  const albumLoaded = await Promise.race([
-    page
-      .waitForSelector('[data-testid="media-card"]', { timeout: 10000 })
-      .then(() => "grid"),
-    page
-      .waitForSelector('a:has-text("Test Album")', { timeout: 10000 })
-      .then(() => "list"),
-  ]).catch(() => null);
+  const gridCard = page.locator('[data-testid="media-card"]').first();
+  const listAlbumLink = page
+    .locator("a")
+    .filter({ hasText: /^Test Album/ })
+    .first();
 
-  if (!albumLoaded) {
-    throw new Error("Could not find albums in library");
+  const hasGrid = await gridCard
+    .isVisible({ timeout: 10000 })
+    .catch(() => false);
+  if (!hasGrid) {
+    await expect(listAlbumLink).toBeVisible({ timeout: 10000 });
   }
 
   const testAlbum = page
@@ -501,11 +503,9 @@ export async function login(
   });
 
   await page.goto("/login");
-  await page.waitForTimeout(500);
 
   // Wait for login form
   await page.waitForSelector("#username", { state: "visible", timeout: 10000 });
-  await page.waitForTimeout(500);
 
   // Fill credentials
   const usernameInput = page.locator("#username");
@@ -529,8 +529,6 @@ export async function login(
   const serverUrlInput = page.locator("#server-url");
   await serverUrlInput.click();
   await serverUrlInput.fill(serverUrl);
-
-  await page.waitForTimeout(200);
 
   // Click login
   const connectButton = page.getByRole("button", { name: /connect/i });

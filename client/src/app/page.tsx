@@ -285,8 +285,8 @@ export default function HomePage() {
         <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
           <div className="flex items-center gap-4 h-16 px-4 lg:px-6">
             <h1 className="text-2xl font-bold">Home</h1>
-            <div className="flex-1 max-w-md ml-auto">
-              <div className="relative">
+            <div className="flex-1 flex justify-center">
+              <div className="relative w-full max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Skeleton className="h-10 w-full rounded-full" />
               </div>
@@ -323,8 +323,8 @@ export default function HomePage() {
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
         <div className="flex items-center gap-4 h-16 px-4 lg:px-6">
           <h1 className="text-2xl font-bold">Home</h1>
-          <div className="flex-1 max-w-md ml-auto">
-            <div className="relative">
+          <div className="flex-1 flex justify-center">
+            <div className="relative w-full max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 type="text"

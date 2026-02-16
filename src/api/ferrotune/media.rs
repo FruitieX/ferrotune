@@ -3,6 +3,7 @@
 use crate::api::common::search::{
     build_fts_query, build_song_filter_conditions, get_song_order_clause, SearchParams,
 };
+use crate::api::ferrotune::users::require_admin;
 use crate::api::subsonic::auth::{AuthenticatedUser, FerrotuneAuthenticatedUser};
 use crate::api::subsonic::xml::ResponseFormat;
 use crate::api::AppState;
@@ -39,10 +40,12 @@ pub struct DeleteSongResponse {
 /// Note: This does NOT delete the actual file from disk. On the next scan,
 /// the song will be re-added to the database unless the file is also removed.
 pub async fn delete_song(
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> FerrotuneApiResult<Json<DeleteSongResponse>> {
+    require_admin(&user)?;
+
     // First verify the song exists
     let song = queries::get_song_by_id(&state.pool, &id)
         .await
@@ -94,10 +97,12 @@ pub struct DeleteSongFilesRequest {
 ///
 /// Requires `allow_file_deletion = true` in server config.
 pub async fn delete_song_files(
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<DeleteSongFilesRequest>,
 ) -> FerrotuneApiResult<Json<DeleteSongFileResponse>> {
+    require_admin(&user)?;
+
     // Check if file deletion is enabled
     if !super::server_config::is_file_deletion_enabled(&state).await {
         return Err(FerrotuneApiError::from(Error::Forbidden(
@@ -233,17 +238,18 @@ pub async fn get_song_ids(
          LEFT JOIN albums al ON s.album_id = al.id{}",
         crate::db::queries::SCROBBLE_STATS_JOIN
     );
+    let mut join_user_ids = Vec::new();
     if filter_conds.has_rating_filter {
-        joins.push_str(&format!(
-            " LEFT JOIN ratings r ON r.item_id = s.id AND r.item_type = 'song' AND r.user_id = {}",
-            user.user_id
-        ));
+        joins.push_str(
+            " LEFT JOIN ratings r ON r.item_id = s.id AND r.item_type = 'song' AND r.user_id = ?",
+        );
+        join_user_ids.push(user.user_id);
     }
     if filter_conds.has_starred_filter {
-        joins.push_str(&format!(
-            " LEFT JOIN starred st ON st.item_id = s.id AND st.item_type = 'song' AND st.user_id = {}",
-            user.user_id
-        ));
+        joins.push_str(
+            " LEFT JOIN starred st ON st.item_id = s.id AND st.item_type = 'song' AND st.user_id = ?",
+        );
+        join_user_ids.push(user.user_id);
     }
 
     let song_order =
@@ -260,7 +266,11 @@ pub async fn get_song_ids(
         let query_str =
             format!("SELECT s.id FROM songs s {joins} {where_clause} ORDER BY {song_order}");
 
-        sqlx::query_as(&query_str).fetch_all(&state.pool).await
+        let mut query_builder = sqlx::query_as(&query_str);
+        for join_user_id in &join_user_ids {
+            query_builder = query_builder.bind(*join_user_id);
+        }
+        query_builder.fetch_all(&state.pool).await
     } else if let Some(ref fts_q) = fts_query {
         // Build WHERE clause combining FTS and filters
         let mut where_conditions = vec!["songs_fts MATCH ?".to_string()];
@@ -271,10 +281,11 @@ pub async fn get_song_ids(
             "SELECT s.id FROM songs s {joins} INNER JOIN songs_fts fts ON s.id = fts.song_id {where_clause} ORDER BY {song_order}"
         );
 
-        sqlx::query_as(&query_str)
-            .bind(fts_q)
-            .fetch_all(&state.pool)
-            .await
+        let mut query_builder = sqlx::query_as(&query_str);
+        for join_user_id in &join_user_ids {
+            query_builder = query_builder.bind(*join_user_id);
+        }
+        query_builder.bind(fts_q).fetch_all(&state.pool).await
     } else {
         // Empty query after processing - return empty
         Ok(vec![])

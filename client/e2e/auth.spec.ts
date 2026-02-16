@@ -43,9 +43,11 @@ test.describe("Authentication", () => {
     await page.getByRole("button", { name: /connect/i }).click();
 
     await expect(
-      page.getByText(
-        /authentication failed|unable to connect|error|invalid|unauthorized/i,
-      ),
+      page
+        .getByText(
+          /authentication failed|unable to connect|error|invalid|unauthorized/i,
+        )
+        .first(),
     ).toBeVisible({ timeout: 10000 });
     await expect(page).toHaveURL(/\/login/);
   });

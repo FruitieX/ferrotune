@@ -3,6 +3,7 @@
 //! These endpoints allow managing multiple music libraries (music folders).
 //! Each music folder can be independently enabled/disabled and scanned.
 
+use crate::api::ferrotune::users::require_admin;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser as AuthenticatedUser;
 use crate::api::AppState;
 use crate::db::models::MusicFolder;
@@ -123,6 +124,8 @@ pub async fn create_music_folder(
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreateMusicFolderRequest>,
 ) -> FerrotuneApiResult<impl IntoResponse> {
+    require_admin(&user)?;
+
     // Validate the path exists
     let path = std::path::Path::new(&request.path);
     if !path.exists() {
@@ -181,11 +184,13 @@ pub async fn create_music_folder(
 
 /// PATCH /ferrotune/music-folders/{id} - Update a music folder
 pub async fn update_music_folder(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(request): Json<UpdateMusicFolderRequest>,
 ) -> FerrotuneApiResult<impl IntoResponse> {
+    require_admin(&user)?;
+
     // Check if folder exists
     let existing: Option<MusicFolder> =
         sqlx::query_as("SELECT id, name, path, enabled, watch_enabled, last_scanned_at, scan_error FROM music_folders WHERE id = ?")
@@ -244,10 +249,12 @@ pub async fn update_music_folder(
 
 /// DELETE /ferrotune/music-folders/{id} - Delete a music folder
 pub async fn delete_music_folder(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> FerrotuneApiResult<impl IntoResponse> {
+    require_admin(&user)?;
+
     // Check if folder exists
     let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM music_folders WHERE id = ?")
         .bind(id)

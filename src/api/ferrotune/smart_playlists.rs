@@ -678,7 +678,7 @@ async fn count_matching_songs(
     user_id: i64,
     max_songs: Option<i64>,
 ) -> FerrotuneApiResult<i64> {
-    let where_clause = build_where_clause(rules, user_id)?;
+    let (where_clause, where_args) = build_where_clause(rules, user_id)?;
 
     // Always filter by enabled music folders
     let enabled_filter = "mf.enabled = 1";
@@ -701,11 +701,18 @@ async fn count_matching_songs(
         combined_where
     );
 
-    let (count,): (i64,) = sqlx::query_as(&query)
+    let mut query_builder = sqlx::query_as::<_, (i64,)>(&query)
         .bind(user_id)
-        .bind(user_id)
-        .fetch_one(pool)
-        .await?;
+        .bind(user_id);
+
+    for arg in where_args {
+        query_builder = match arg {
+            SqlArg::Text(value) => query_builder.bind(value),
+            SqlArg::I64(value) => query_builder.bind(value),
+        };
+    }
+
+    let (count,): (i64,) = query_builder.fetch_one(pool).await?;
 
     // Apply max_songs limit if set
     let effective_count = match max_songs {
@@ -728,7 +735,11 @@ pub async fn materialize_smart_playlist_songs(
     offset: Option<i64>,
     limit: Option<i64>,
 ) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
-    let where_clause = build_where_clause(rules, user_id)?;
+    let (where_clause, where_args) = build_where_clause(rules, user_id)?;
+
+    let safe_max_songs = max_songs.filter(|value| *value > 0);
+    let safe_offset = offset.map(|value| value.max(0));
+    let safe_limit = limit.filter(|value| *value > 0);
 
     // Always filter by enabled music folders
     let enabled_filter = "mf.enabled = 1";
@@ -759,10 +770,10 @@ pub async fn materialize_smart_playlist_songs(
 
     // Build LIMIT clause - consider both max_songs and pagination limit
     // If both are set, use the smaller effective limit
-    let effective_limit = match (max_songs, limit) {
+    let effective_limit = match (safe_max_songs, safe_limit) {
         (Some(max), Some(lim)) => {
             // With offset, we need to ensure we don't go past max_songs
-            let remaining = max - offset.unwrap_or(0);
+            let remaining = max - safe_offset.unwrap_or(0);
             if remaining <= 0 {
                 Some(0)
             } else {
@@ -774,7 +785,7 @@ pub async fn materialize_smart_playlist_songs(
         (None, None) => None,
     };
 
-    let limit_offset_clause = match (effective_limit, offset) {
+    let limit_offset_clause = match (effective_limit, safe_offset) {
         (Some(lim), Some(off)) => format!("LIMIT {} OFFSET {}", lim, off),
         (Some(lim), None) => format!("LIMIT {}", lim),
         (None, Some(off)) => format!("LIMIT -1 OFFSET {}", off), // SQLite uses -1 for no limit with offset
@@ -798,11 +809,18 @@ pub async fn materialize_smart_playlist_songs(
         combined_where, order_by, direction, limit_offset_clause
     );
 
-    let songs: Vec<crate::db::models::Song> = sqlx::query_as(&query)
+    let mut query_builder = sqlx::query_as::<_, crate::db::models::Song>(&query)
         .bind(user_id)
-        .bind(user_id)
-        .fetch_all(pool)
-        .await?;
+        .bind(user_id);
+
+    for arg in where_args {
+        query_builder = match arg {
+            SqlArg::Text(value) => query_builder.bind(value),
+            SqlArg::I64(value) => query_builder.bind(value),
+        };
+    }
+
+    let songs: Vec<crate::db::models::Song> = query_builder.fetch_all(pool).await?;
 
     Ok(songs)
 }
@@ -815,22 +833,9 @@ async fn count_matching_songs_filtered(
     filter: Option<&str>,
     max_songs: Option<i64>,
 ) -> FerrotuneApiResult<i64> {
-    let where_clause = build_where_clause(rules, user_id)?;
+    let (where_clause, mut where_args) = build_where_clause(rules, user_id)?;
 
-    // Add filter clause if provided
-    let filter_clause = if let Some(f) = filter {
-        if !f.trim().is_empty() {
-            let escaped = f.replace('\'', "''");
-            format!(
-                " AND (s.title LIKE '%{}%' COLLATE NOCASE OR ar.name LIKE '%{}%' COLLATE NOCASE OR al.name LIKE '%{}%' COLLATE NOCASE)",
-                escaped, escaped, escaped
-            )
-        } else {
-            String::new()
-        }
-    } else {
-        String::new()
-    };
+    let (filter_clause, mut filter_args) = build_filter_clause(filter);
 
     // Always filter by enabled music folders
     let enabled_filter = "mf.enabled = 1";
@@ -856,11 +861,20 @@ async fn count_matching_songs_filtered(
         combined_where
     );
 
-    let (count,): (i64,) = sqlx::query_as(&query)
+    where_args.append(&mut filter_args);
+
+    let mut query_builder = sqlx::query_as::<_, (i64,)>(&query)
         .bind(user_id)
-        .bind(user_id)
-        .fetch_one(pool)
-        .await?;
+        .bind(user_id);
+
+    for arg in where_args {
+        query_builder = match arg {
+            SqlArg::Text(value) => query_builder.bind(value),
+            SqlArg::I64(value) => query_builder.bind(value),
+        };
+    }
+
+    let (count,): (i64,) = query_builder.fetch_one(pool).await?;
 
     // Apply max_songs limit if set
     let effective_count = match max_songs {
@@ -881,22 +895,9 @@ async fn sum_matching_songs_duration_filtered(
     sort_field: Option<&str>,
     sort_direction: Option<&str>,
 ) -> FerrotuneApiResult<i64> {
-    let where_clause = build_where_clause(rules, user_id)?;
+    let (where_clause, mut where_args) = build_where_clause(rules, user_id)?;
 
-    // Add filter clause if provided
-    let filter_clause = if let Some(f) = filter {
-        if !f.trim().is_empty() {
-            let escaped = f.replace('\'', "''");
-            format!(
-                " AND (s.title LIKE '%{}%' COLLATE NOCASE OR ar.name LIKE '%{}%' COLLATE NOCASE OR al.name LIKE '%{}%' COLLATE NOCASE)",
-                escaped, escaped, escaped
-            )
-        } else {
-            String::new()
-        }
-    } else {
-        String::new()
-    };
+    let (filter_clause, mut filter_args) = build_filter_clause(filter);
 
     // Always filter by enabled music folders
     let enabled_filter = "mf.enabled = 1";
@@ -911,7 +912,9 @@ async fn sum_matching_songs_duration_filtered(
 
     // If max_songs is set, we need to use a subquery to respect the limit
     // The duration sum should only include the songs that would actually be shown
-    let query = if let Some(max) = max_songs {
+    let safe_max_songs = max_songs.filter(|value| *value > 0);
+
+    let query = if let Some(max) = safe_max_songs {
         // Build ORDER BY clause for the subquery (needed for correct LIMIT)
         // Text fields use COLLATE NOCASE for case-insensitive sorting
         let order_by = match sort_field {
@@ -962,11 +965,20 @@ async fn sum_matching_songs_duration_filtered(
         )
     };
 
-    let (duration,): (i64,) = sqlx::query_as(&query)
+    where_args.append(&mut filter_args);
+
+    let mut query_builder = sqlx::query_as::<_, (i64,)>(&query)
         .bind(user_id)
-        .bind(user_id)
-        .fetch_one(pool)
-        .await?;
+        .bind(user_id);
+
+    for arg in where_args {
+        query_builder = match arg {
+            SqlArg::Text(value) => query_builder.bind(value),
+            SqlArg::I64(value) => query_builder.bind(value),
+        };
+    }
+
+    let (duration,): (i64,) = query_builder.fetch_one(pool).await?;
 
     Ok(duration)
 }
@@ -984,22 +996,13 @@ async fn materialize_smart_playlist_songs_filtered(
     limit: Option<i64>,
     filter: Option<&str>,
 ) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
-    let where_clause = build_where_clause(rules, user_id)?;
+    let (where_clause, mut where_args) = build_where_clause(rules, user_id)?;
 
-    // Add filter clause if provided
-    let filter_clause = if let Some(f) = filter {
-        if !f.trim().is_empty() {
-            let escaped = f.replace('\'', "''");
-            format!(
-                " AND (s.title LIKE '%{}%' COLLATE NOCASE OR ar.name LIKE '%{}%' COLLATE NOCASE OR al.name LIKE '%{}%' COLLATE NOCASE)",
-                escaped, escaped, escaped
-            )
-        } else {
-            String::new()
-        }
-    } else {
-        String::new()
-    };
+    let (filter_clause, mut filter_args) = build_filter_clause(filter);
+
+    let safe_max_songs = max_songs.filter(|value| *value > 0);
+    let safe_offset = offset.map(|value| value.max(0));
+    let safe_limit = limit.filter(|value| *value > 0);
 
     // Always filter by enabled music folders
     let enabled_filter = "mf.enabled = 1";
@@ -1032,9 +1035,9 @@ async fn materialize_smart_playlist_songs_filtered(
     };
 
     // Build LIMIT clause - consider both max_songs and pagination limit
-    let effective_limit = match (max_songs, limit) {
+    let effective_limit = match (safe_max_songs, safe_limit) {
         (Some(max), Some(lim)) => {
-            let remaining = max - offset.unwrap_or(0);
+            let remaining = max - safe_offset.unwrap_or(0);
             if remaining <= 0 {
                 Some(0)
             } else {
@@ -1046,7 +1049,7 @@ async fn materialize_smart_playlist_songs_filtered(
         (None, None) => None,
     };
 
-    let limit_offset_clause = match (effective_limit, offset) {
+    let limit_offset_clause = match (effective_limit, safe_offset) {
         (Some(lim), Some(off)) => format!("LIMIT {} OFFSET {}", lim, off),
         (Some(lim), None) => format!("LIMIT {}", lim),
         (None, Some(off)) => format!("LIMIT -1 OFFSET {}", off),
@@ -1070,11 +1073,20 @@ async fn materialize_smart_playlist_songs_filtered(
         combined_where, order_by, direction, limit_offset_clause
     );
 
-    let songs: Vec<crate::db::models::Song> = sqlx::query_as(&query)
+    where_args.append(&mut filter_args);
+
+    let mut query_builder = sqlx::query_as::<_, crate::db::models::Song>(&query)
         .bind(user_id)
-        .bind(user_id)
-        .fetch_all(pool)
-        .await?;
+        .bind(user_id);
+
+    for arg in where_args {
+        query_builder = match arg {
+            SqlArg::Text(value) => query_builder.bind(value),
+            SqlArg::I64(value) => query_builder.bind(value),
+        };
+    }
+
+    let songs: Vec<crate::db::models::Song> = query_builder.fetch_all(pool).await?;
 
     Ok(songs)
 }
@@ -1121,28 +1133,70 @@ pub async fn get_smart_playlist_songs_by_id(
     .await
 }
 
-/// Build WHERE clause from filter rules
-fn build_where_clause(rules: &SmartPlaylistRulesApi, user_id: i64) -> FerrotuneApiResult<String> {
-    if rules.conditions.is_empty() {
-        return Ok(String::new());
+#[derive(Debug, Clone)]
+enum SqlArg {
+    Text(String),
+    I64(i64),
+}
+
+fn escape_like_pattern(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+fn build_filter_clause(filter: Option<&str>) -> (String, Vec<SqlArg>) {
+    if let Some(raw) = filter {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let pattern = format!("%{}%", escape_like_pattern(trimmed));
+            return (
+                " AND (s.title LIKE ? ESCAPE '\\\\' COLLATE NOCASE OR ar.name LIKE ? ESCAPE '\\\\' COLLATE NOCASE OR al.name LIKE ? ESCAPE '\\\\' COLLATE NOCASE)".to_string(),
+                vec![
+                    SqlArg::Text(pattern.clone()),
+                    SqlArg::Text(pattern.clone()),
+                    SqlArg::Text(pattern),
+                ],
+            );
+        }
     }
 
-    let conditions: Vec<String> = rules
-        .conditions
-        .iter()
-        .filter_map(|cond| build_condition(cond, user_id))
-        .collect();
+    (String::new(), vec![])
+}
+
+/// Build WHERE clause from filter rules
+fn build_where_clause(
+    rules: &SmartPlaylistRulesApi,
+    user_id: i64,
+) -> FerrotuneApiResult<(String, Vec<SqlArg>)> {
+    if rules.conditions.is_empty() {
+        return Ok((String::new(), vec![]));
+    }
+
+    let mut conditions: Vec<String> = Vec::new();
+    let mut args: Vec<SqlArg> = Vec::new();
+
+    for cond in &rules.conditions {
+        if let Some((sql, mut cond_args)) = build_condition(cond, user_id) {
+            conditions.push(sql);
+            args.append(&mut cond_args);
+        }
+    }
 
     if conditions.is_empty() {
-        return Ok(String::new());
+        return Ok((String::new(), vec![]));
     }
 
     let joiner = if rules.logic == "or" { " OR " } else { " AND " };
-    Ok(conditions.join(joiner))
+    Ok((conditions.join(joiner), args))
 }
 
 /// Build a single SQL condition from a filter condition
-fn build_condition(cond: &SmartPlaylistConditionApi, user_id: i64) -> Option<String> {
+fn build_condition(
+    cond: &SmartPlaylistConditionApi,
+    user_id: i64,
+) -> Option<(String, Vec<SqlArg>)> {
     let field = &cond.field;
     let op = &cond.operator;
     let value = &cond.value;
@@ -1153,16 +1207,16 @@ fn build_condition(cond: &SmartPlaylistConditionApi, user_id: i64) -> Option<Str
             return match op.as_str() {
                 "eq" => {
                     if value.as_bool().unwrap_or(false) {
-                        Some("st.starred_at IS NOT NULL".to_string())
+                        Some(("st.starred_at IS NOT NULL".to_string(), vec![]))
                     } else {
-                        Some("st.starred_at IS NULL".to_string())
+                        Some(("st.starred_at IS NULL".to_string(), vec![]))
                     }
                 }
                 "neq" => {
                     if value.as_bool().unwrap_or(false) {
-                        Some("st.starred_at IS NULL".to_string())
+                        Some(("st.starred_at IS NULL".to_string(), vec![]))
                     } else {
-                        Some("st.starred_at IS NOT NULL".to_string())
+                        Some(("st.starred_at IS NOT NULL".to_string(), vec![]))
                     }
                 }
                 _ => None,
@@ -1190,8 +1244,8 @@ fn build_condition(cond: &SmartPlaylistConditionApi, user_id: i64) -> Option<Str
                 _ => return None,
             };
             return match op.as_str() {
-                "eq" => Some(has_condition.to_string()),
-                "neq" => Some(not_has_condition.to_string()),
+                "eq" => Some((has_condition.to_string(), vec![])),
+                "neq" => Some((not_has_condition.to_string(), vec![])),
                 _ => None,
             };
         }
@@ -1200,28 +1254,28 @@ fn build_condition(cond: &SmartPlaylistConditionApi, user_id: i64) -> Option<Str
             return match op.as_str() {
                 "eq" => {
                     if value.as_bool().unwrap_or(false) {
-                        Some(format!(
+                        Some((format!(
                             "EXISTS (SELECT 1 FROM shuffle_excludes se WHERE se.song_id = s.id AND se.user_id = {})",
                             user_id
-                        ))
+                        ), vec![]))
                     } else {
-                        Some(format!(
+                        Some((format!(
                             "NOT EXISTS (SELECT 1 FROM shuffle_excludes se WHERE se.song_id = s.id AND se.user_id = {})",
                             user_id
-                        ))
+                        ), vec![]))
                     }
                 }
                 "neq" => {
                     if value.as_bool().unwrap_or(false) {
-                        Some(format!(
+                        Some((format!(
                             "NOT EXISTS (SELECT 1 FROM shuffle_excludes se WHERE se.song_id = s.id AND se.user_id = {})",
                             user_id
-                        ))
+                        ), vec![]))
                     } else {
-                        Some(format!(
+                        Some((format!(
                             "EXISTS (SELECT 1 FROM shuffle_excludes se WHERE se.song_id = s.id AND se.user_id = {})",
                             user_id
-                        ))
+                        ), vec![]))
                     }
                 }
                 _ => None,
@@ -1232,28 +1286,28 @@ fn build_condition(cond: &SmartPlaylistConditionApi, user_id: i64) -> Option<Str
             return match op.as_str() {
                 "eq" => {
                     if value.as_bool().unwrap_or(false) {
-                        Some(format!(
+                        Some((format!(
                             "EXISTS (SELECT 1 FROM disabled_songs ds WHERE ds.song_id = s.id AND ds.user_id = {})",
                             user_id
-                        ))
+                        ), vec![]))
                     } else {
-                        Some(format!(
+                        Some((format!(
                             "NOT EXISTS (SELECT 1 FROM disabled_songs ds WHERE ds.song_id = s.id AND ds.user_id = {})",
                             user_id
-                        ))
+                        ), vec![]))
                     }
                 }
                 "neq" => {
                     if value.as_bool().unwrap_or(false) {
-                        Some(format!(
+                        Some((format!(
                             "NOT EXISTS (SELECT 1 FROM disabled_songs ds WHERE ds.song_id = s.id AND ds.user_id = {})",
                             user_id
-                        ))
+                        ), vec![]))
                     } else {
-                        Some(format!(
+                        Some((format!(
                             "EXISTS (SELECT 1 FROM disabled_songs ds WHERE ds.song_id = s.id AND ds.user_id = {})",
                             user_id
-                        ))
+                        ), vec![]))
                     }
                 }
                 _ => None,
@@ -1261,15 +1315,13 @@ fn build_condition(cond: &SmartPlaylistConditionApi, user_id: i64) -> Option<Str
         }
         "musicFolder" | "library" => {
             // Filter by music folder ID - the value should be the music folder ID
+            let folder_id = value
+                .as_i64()
+                .or_else(|| value.as_str().and_then(|s| s.parse::<i64>().ok()))?;
+
             return match op.as_str() {
-                "eq" => value.as_str().map(|s| {
-                    let escaped = s.replace('\'', "''");
-                    format!("mf.id = '{}'", escaped)
-                }),
-                "neq" => value.as_str().map(|s| {
-                    let escaped = s.replace('\'', "''");
-                    format!("mf.id != '{}'", escaped)
-                }),
+                "eq" => Some(("mf.id = ?".to_string(), vec![SqlArg::I64(folder_id)])),
+                "neq" => Some(("mf.id != ?".to_string(), vec![SqlArg::I64(folder_id)])),
                 _ => None,
             };
         }
@@ -1279,46 +1331,52 @@ fn build_condition(cond: &SmartPlaylistConditionApi, user_id: i64) -> Option<Str
             // Falls back to album cover art if song doesn't have embedded cover
             return match op.as_str() {
                 "eq" => value.as_i64().map(|n| {
-                    format!(
-                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) = {}",
-                        n
+                    (
+                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) = ?".to_string(),
+                        vec![SqlArg::I64(n)],
                     )
                 }),
                 "neq" => value.as_i64().map(|n| {
-                    format!(
-                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) != {}",
-                        n
+                    (
+                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) != ?".to_string(),
+                        vec![SqlArg::I64(n)],
                     )
                 }),
                 "gt" => value.as_i64().map(|n| {
-                    format!(
-                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) > {}",
-                        n
+                    (
+                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) > ?".to_string(),
+                        vec![SqlArg::I64(n)],
                     )
                 }),
                 "gte" => value.as_i64().map(|n| {
-                    format!(
-                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) >= {}",
-                        n
+                    (
+                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) >= ?".to_string(),
+                        vec![SqlArg::I64(n)],
                     )
                 }),
                 "lt" => value.as_i64().map(|n| {
-                    format!(
-                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) < {}",
-                        n
+                    (
+                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) < ?".to_string(),
+                        vec![SqlArg::I64(n)],
                     )
                 }),
                 "lte" => value.as_i64().map(|n| {
-                    format!(
-                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) <= {}",
-                        n
+                    (
+                        "COALESCE(MIN(s.cover_art_width, s.cover_art_height), MIN(al.cover_art_width, al.cover_art_height)) <= ?".to_string(),
+                        vec![SqlArg::I64(n)],
                     )
                 }),
                 "empty" => Some(
-                    "(s.cover_art_width IS NULL AND s.cover_art_height IS NULL AND al.cover_art_width IS NULL AND al.cover_art_height IS NULL)".to_string()
+                    (
+                        "(s.cover_art_width IS NULL AND s.cover_art_height IS NULL AND al.cover_art_width IS NULL AND al.cover_art_height IS NULL)".to_string(),
+                        vec![],
+                    )
                 ),
                 "notEmpty" => Some(
-                    "(s.cover_art_width IS NOT NULL OR al.cover_art_width IS NOT NULL)".to_string()
+                    (
+                        "(s.cover_art_width IS NOT NULL OR al.cover_art_width IS NOT NULL)".to_string(),
+                        vec![],
+                    )
                 ),
                 _ => None,
             };
@@ -1326,24 +1384,33 @@ fn build_condition(cond: &SmartPlaylistConditionApi, user_id: i64) -> Option<Str
         _ => {}
     }
 
-    // Map field names to SQL expressions (all as String for consistent handling)
-    let sql_field = match field.as_str() {
-        "year" => "s.year".to_string(),
-        "genre" => "s.genre".to_string(),
-        "artist" | "artistName" => "ar.name".to_string(),
-        "album" | "albumName" => "al.name".to_string(),
-        "title" => "s.title".to_string(),
-        "duration" => "s.duration".to_string(),
-        "bitrate" => "COALESCE(s.bitrate, 0)".to_string(),
-        "playCount" => "COALESCE(pc.play_count, 0)".to_string(),
-        "rating" => format!("COALESCE((SELECT r.rating FROM ratings r WHERE r.item_id = s.id AND r.item_type = 'song' AND r.user_id = {}), 0)", user_id),
-        "lastPlayed" => "pc.last_played".to_string(),
-        "dateAdded" | "createdAt" => "s.created_at".to_string(),
-        "fileFormat" => "LOWER(s.file_format)".to_string(),
-        "albumartist" => "ar.name".to_string(), // Same as artist for now (album artist not stored separately)
+    // Map field names to SQL expressions and field-specific bound args.
+    let (sql_field, field_args) = match field.as_str() {
+        "year" => ("s.year".to_string(), vec![]),
+        "genre" => ("s.genre".to_string(), vec![]),
+        "artist" | "artistName" => ("ar.name".to_string(), vec![]),
+        "album" | "albumName" => ("al.name".to_string(), vec![]),
+        "title" => ("s.title".to_string(), vec![]),
+        "duration" => ("s.duration".to_string(), vec![]),
+        "bitrate" => ("COALESCE(s.bitrate, 0)".to_string(), vec![]),
+        "playCount" => ("COALESCE(pc.play_count, 0)".to_string(), vec![]),
+        "rating" => (
+            "COALESCE((SELECT r.rating FROM ratings r WHERE r.item_id = s.id AND r.item_type = 'song' AND r.user_id = ?), 0)".to_string(),
+            vec![SqlArg::I64(user_id)],
+        ),
+        "lastPlayed" => ("pc.last_played".to_string(), vec![]),
+        "dateAdded" | "createdAt" => ("s.created_at".to_string(), vec![]),
+        "fileFormat" => ("LOWER(s.file_format)".to_string(), vec![]),
+        "albumartist" => ("ar.name".to_string(), vec![]), // Same as artist for now (album artist not stored separately)
         "composer" => return None, // Composer field not in database schema
         "comment" => return None,  // Comment field not in database schema for songs
         _ => return None, // Unknown field
+    };
+
+    let with_field_args = |mut op_args: Vec<SqlArg>| {
+        let mut args = field_args.clone();
+        args.append(&mut op_args);
+        args
     };
 
     // Build the comparison based on operator
@@ -1351,88 +1418,132 @@ fn build_condition(cond: &SmartPlaylistConditionApi, user_id: i64) -> Option<Str
         "eq" => value
             .as_str()
             .map(|s| {
-                let escaped = s.replace('\'', "''");
-                // For fileFormat, compare lowercase
                 if field == "fileFormat" {
-                    format!("{} = '{}'", sql_field, escaped.to_lowercase())
+                    (
+                        format!("{} = ?", sql_field),
+                        with_field_args(vec![SqlArg::Text(s.to_lowercase())]),
+                    )
                 } else {
-                    format!("{} = '{}'", sql_field, escaped)
+                    (
+                        format!("{} = ?", sql_field),
+                        with_field_args(vec![SqlArg::Text(s.to_string())]),
+                    )
                 }
             })
-            .or_else(|| value.as_i64().map(|n| format!("{} = {}", sql_field, n))),
+            .or_else(|| {
+                value.as_i64().map(|n| {
+                    (
+                        format!("{} = ?", sql_field),
+                        with_field_args(vec![SqlArg::I64(n)]),
+                    )
+                })
+            }),
         "neq" => value
             .as_str()
             .map(|s| {
-                let escaped = s.replace('\'', "''");
                 if field == "fileFormat" {
-                    format!("{} != '{}'", sql_field, escaped.to_lowercase())
+                    (
+                        format!("{} != ?", sql_field),
+                        with_field_args(vec![SqlArg::Text(s.to_lowercase())]),
+                    )
                 } else {
-                    format!("{} != '{}'", sql_field, escaped)
+                    (
+                        format!("{} != ?", sql_field),
+                        with_field_args(vec![SqlArg::Text(s.to_string())]),
+                    )
                 }
             })
-            .or_else(|| value.as_i64().map(|n| format!("{} != {}", sql_field, n))),
+            .or_else(|| {
+                value.as_i64().map(|n| {
+                    (
+                        format!("{} != ?", sql_field),
+                        with_field_args(vec![SqlArg::I64(n)]),
+                    )
+                })
+            }),
         "gt" => value
             .as_i64()
-            .map(|n| format!("{} > {}", sql_field, n))
+            .map(|n| {
+                (
+                    format!("{} > ?", sql_field),
+                    with_field_args(vec![SqlArg::I64(n)]),
+                )
+            })
             .or_else(|| {
-                // For date fields, support ISO date strings
                 value.as_str().map(|s| {
-                    let escaped = s.replace('\'', "''");
-                    format!("date({}) > '{}'", sql_field, escaped)
+                    (
+                        format!("date({}) > ?", sql_field),
+                        with_field_args(vec![SqlArg::Text(s.to_string())]),
+                    )
                 })
             }),
-        "gte" => value.as_i64().map(|n| format!("{} >= {}", sql_field, n)),
+        "gte" => value.as_i64().map(|n| {
+            (
+                format!("{} >= ?", sql_field),
+                with_field_args(vec![SqlArg::I64(n)]),
+            )
+        }),
         "lt" => value
             .as_i64()
-            .map(|n| format!("{} < {}", sql_field, n))
+            .map(|n| {
+                (
+                    format!("{} < ?", sql_field),
+                    with_field_args(vec![SqlArg::I64(n)]),
+                )
+            })
             .or_else(|| {
-                // For date fields, support ISO date strings
                 value.as_str().map(|s| {
-                    let escaped = s.replace('\'', "''");
-                    format!("date({}) < '{}'", sql_field, escaped)
+                    (
+                        format!("date({}) < ?", sql_field),
+                        with_field_args(vec![SqlArg::Text(s.to_string())]),
+                    )
                 })
             }),
-        "lte" => value.as_i64().map(|n| format!("{} <= {}", sql_field, n)),
+        "lte" => value.as_i64().map(|n| {
+            (
+                format!("{} <= ?", sql_field),
+                with_field_args(vec![SqlArg::I64(n)]),
+            )
+        }),
         "contains" => value.as_str().map(|s| {
-            format!(
-                "{} LIKE '%{}%' COLLATE NOCASE",
-                sql_field,
-                s.replace('\'', "''").replace('%', "\\%")
+            (
+                format!("{} LIKE ? ESCAPE '\\\\' COLLATE NOCASE", sql_field),
+                with_field_args(vec![SqlArg::Text(format!("%{}%", escape_like_pattern(s)))]),
             )
         }),
         "notContains" => value.as_str().map(|s| {
-            format!(
-                "{} NOT LIKE '%{}%' COLLATE NOCASE",
-                sql_field,
-                s.replace('\'', "''").replace('%', "\\%")
+            (
+                format!("{} NOT LIKE ? ESCAPE '\\\\' COLLATE NOCASE", sql_field),
+                with_field_args(vec![SqlArg::Text(format!("%{}%", escape_like_pattern(s)))]),
             )
         }),
         "startsWith" => value.as_str().map(|s| {
-            format!(
-                "{} LIKE '{}%' COLLATE NOCASE",
-                sql_field,
-                s.replace('\'', "''").replace('%', "\\%")
+            (
+                format!("{} LIKE ? ESCAPE '\\\\' COLLATE NOCASE", sql_field),
+                with_field_args(vec![SqlArg::Text(format!("{}%", escape_like_pattern(s)))]),
             )
         }),
         "endsWith" => value.as_str().map(|s| {
-            format!(
-                "{} LIKE '%{}' COLLATE NOCASE",
-                sql_field,
-                s.replace('\'', "''").replace('%', "\\%")
+            (
+                format!("{} LIKE ? ESCAPE '\\\\' COLLATE NOCASE", sql_field),
+                with_field_args(vec![SqlArg::Text(format!("%{}", escape_like_pattern(s)))]),
             )
         }),
-        "empty" => Some(format!("({} IS NULL OR {} = '')", sql_field, sql_field)),
-        "notEmpty" => Some(format!(
-            "({} IS NOT NULL AND {} != '')",
-            sql_field, sql_field
+        "empty" => Some((
+            format!("({} IS NULL OR {} = '')", sql_field, sql_field),
+            field_args.clone(),
+        )),
+        "notEmpty" => Some((
+            format!("({} IS NOT NULL AND {} != '')", sql_field, sql_field),
+            field_args.clone(),
         )),
         "within" => {
             // Time-based "within" operator, e.g., "30d" for last 30 days
             value.as_str().and_then(|s| {
                 let duration = parse_duration(s)?;
-                Some(format!(
-                    "{} >= datetime('now', '-{} seconds')",
-                    sql_field, duration
+                Some((
+                    format!("{} >= datetime('now', '-{} seconds')", sql_field, duration),
+                    vec![],
                 ))
             })
         }
@@ -1486,5 +1597,76 @@ mod tests {
         assert_eq!(parse_duration("1w"), Some(7 * 86400));
         assert_eq!(parse_duration("24h"), Some(24 * 3600));
         assert_eq!(parse_duration(""), None);
+    }
+
+    #[test]
+    fn test_build_condition_uses_placeholders_for_contains() {
+        let condition = SmartPlaylistConditionApi {
+            field: "title".to_string(),
+            operator: "contains".to_string(),
+            value: serde_json::json!("a'b%_c"),
+        };
+
+        let (sql, args) = build_condition(&condition, 1).expect("condition should be built");
+
+        assert!(sql.contains("LIKE ?"));
+        assert!(sql.contains("ESCAPE '\\\\'"));
+        assert!(!sql.contains("a'b%_c"));
+        assert_eq!(args.len(), 1);
+
+        match &args[0] {
+            SqlArg::Text(pattern) => {
+                assert!(pattern.starts_with('%'));
+                assert!(pattern.ends_with('%'));
+                assert!(pattern.contains("\\%"));
+                assert!(pattern.contains("\\_"));
+            }
+            SqlArg::I64(_) => panic!("expected text SQL arg"),
+        }
+    }
+
+    #[test]
+    fn test_build_filter_clause_uses_bound_patterns() {
+        let (sql, args) = build_filter_clause(Some("rock_%"));
+
+        assert!(sql.contains("s.title LIKE ?"));
+        assert!(sql.contains("ar.name LIKE ?"));
+        assert!(sql.contains("al.name LIKE ?"));
+        assert_eq!(args.len(), 3);
+
+        for arg in args {
+            match arg {
+                SqlArg::Text(pattern) => {
+                    assert!(pattern.starts_with('%'));
+                    assert!(pattern.ends_with('%'));
+                    assert!(pattern.contains("\\_"));
+                    assert!(pattern.contains("\\%"));
+                }
+                SqlArg::I64(_) => panic!("expected text SQL arg"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_build_condition_rating_binds_user_id() {
+        let condition = SmartPlaylistConditionApi {
+            field: "rating".to_string(),
+            operator: "eq".to_string(),
+            value: serde_json::json!(5),
+        };
+
+        let (sql, args) = build_condition(&condition, 42).expect("condition should be built");
+
+        assert!(sql.contains("r.user_id = ?"));
+        assert!(!sql.contains("42"));
+        assert_eq!(args.len(), 2);
+
+        match (&args[0], &args[1]) {
+            (SqlArg::I64(user_id), SqlArg::I64(rating)) => {
+                assert_eq!(*user_id, 42);
+                assert_eq!(*rating, 5);
+            }
+            _ => panic!("expected integer SQL args"),
+        }
     }
 }

@@ -322,7 +322,7 @@ async fn get_directory_by_path(
     let path_str = decoded_path.as_ref();
 
     // Get subdirectories and songs in this directory path
-    let (subdirs, songs) = get_directory_contents(&state.pool, path_str).await?;
+    let (subdirs, songs) = get_directory_contents(&state.pool, user.user_id, path_str).await?;
 
     // Get parent path
     let parent = std::path::Path::new(path_str)
@@ -425,6 +425,7 @@ struct SubDirectory {
 /// Get subdirectories and songs within a specific directory path
 async fn get_directory_contents(
     pool: &sqlx::SqlitePool,
+    user_id: i64,
     path: &str,
 ) -> crate::error::Result<(Vec<SubDirectory>, Vec<crate::db::models::Song>)> {
     // Normalize path to not have trailing slash
@@ -443,11 +444,16 @@ async fn get_directory_contents(
         LEFT JOIN artists a ON s.artist_id = a.id
         LEFT JOIN albums al ON s.album_id = al.id
         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-        WHERE s.file_path LIKE ? || '%' AND mf.enabled = 1 AND s.marked_for_deletion_at IS NULL
+                INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+                WHERE s.file_path LIKE ? || '%' 
+                    AND mf.enabled = 1 
+                    AND ula.user_id = ?
+                    AND s.marked_for_deletion_at IS NULL
         ORDER BY s.file_path
         "#,
     )
     .bind(&path_prefix)
+    .bind(user_id)
     .fetch_all(pool)
     .await?;
 

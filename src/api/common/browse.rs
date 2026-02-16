@@ -16,7 +16,7 @@ pub async fn get_artists_logic(
     pool: &SqlitePool,
     user_id: i64,
 ) -> crate::error::Result<ArtistsIndex> {
-    let artists = crate::db::queries::get_artists(pool).await?;
+    let artists = crate::db::queries::get_artists_for_user(pool, user_id).await?;
 
     // Get starred status and ratings for all artists
     let artist_ids: Vec<String> = artists.iter().map(|a| a.id.clone()).collect();
@@ -89,10 +89,11 @@ pub async fn get_artist_logic(
         .await?
         .ok_or_else(|| crate::error::Error::NotFound(format!("Artist {} not found", artist_id)))?;
 
-    let albums = crate::db::queries::get_albums_by_artist(pool, artist_id).await?;
+    let albums =
+        crate::db::queries::get_albums_by_artist_for_user(pool, artist_id, user_id).await?;
 
     // Get all songs by this artist (track artist, includes songs on compilations)
-    let songs = crate::db::queries::get_songs_by_artist(pool, artist_id).await?;
+    let songs = crate::db::queries::get_songs_by_artist_for_user(pool, artist_id, user_id).await?;
 
     // Apply server-side filtering and sorting
     let songs = filter_and_sort_songs(songs, filter, sort, sort_dir);
@@ -309,7 +310,7 @@ pub async fn get_genres_logic(pool: &SqlitePool) -> crate::error::Result<GenresL
 /// IDs are returned as "dir-<urlencoded_path>" to support filesystem browsing.
 pub async fn get_indexes_logic(
     pool: &SqlitePool,
-    _user_id: i64,
+    user_id: i64,
     folder_id: Option<i64>,
 ) -> crate::error::Result<(Vec<DirectoryIndex>, i64)> {
     // Get top-level directory names from songs table
@@ -322,11 +323,13 @@ pub async fn get_indexes_logic(
                 substr(s.file_path, 1, instr(s.file_path, '/') - 1) as name
             FROM songs s
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            WHERE mf.enabled = 1 AND mf.id = ? AND instr(s.file_path, '/') > 0
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE mf.enabled = 1 AND mf.id = ? AND ula.user_id = ? AND instr(s.file_path, '/') > 0
             ORDER BY name COLLATE NOCASE
             "#,
         )
         .bind(fid)
+        .bind(user_id)
         .fetch_all(pool)
         .await?
     } else {
@@ -336,10 +339,12 @@ pub async fn get_indexes_logic(
                 substr(s.file_path, 1, instr(s.file_path, '/') - 1) as name
             FROM songs s
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            WHERE mf.enabled = 1 AND instr(s.file_path, '/') > 0
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE mf.enabled = 1 AND ula.user_id = ? AND instr(s.file_path, '/') > 0
             ORDER BY name COLLATE NOCASE
             "#,
         )
+        .bind(user_id)
         .fetch_all(pool)
         .await?
     };

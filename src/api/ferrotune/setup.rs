@@ -3,6 +3,7 @@
 //! This module provides an unauthenticated endpoint for checking if the server
 //! needs initial setup. The frontend uses this to redirect to the setup wizard.
 
+use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::error::{Error, FerrotuneApiResult};
 use axum::extract::State;
@@ -65,8 +66,13 @@ pub async fn get_setup_status(
 
 /// Mark setup as complete
 pub async fn complete_setup(
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<SetupStatusResponse>> {
+    if !user.is_admin {
+        return Err(Error::Forbidden("Admin privileges required".to_string()).into());
+    }
+
     let pool = &state.pool;
 
     // Set initial_setup_complete to true

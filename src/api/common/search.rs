@@ -346,17 +346,18 @@ pub async fn search_songs_for_queue(
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id{}",
         crate::db::queries::SCROBBLE_STATS_JOIN
     );
+    let mut join_user_ids = Vec::new();
     if filter_conds.has_rating_filter {
-        joins.push_str(&format!(
-            " LEFT JOIN ratings r ON r.item_id = s.id AND r.item_type = 'song' AND r.user_id = {}",
-            user_id
-        ));
+        joins.push_str(
+            " LEFT JOIN ratings r ON r.item_id = s.id AND r.item_type = 'song' AND r.user_id = ?",
+        );
+        join_user_ids.push(user_id);
     }
     if filter_conds.has_starred_filter {
-        joins.push_str(&format!(
-            " LEFT JOIN starred st ON st.item_id = s.id AND st.item_type = 'song' AND st.user_id = {}",
-            user_id
-        ));
+        joins.push_str(
+            " LEFT JOIN starred st ON st.item_id = s.id AND st.item_type = 'song' AND st.user_id = ?",
+        );
+        join_user_ids.push(user_id);
     }
 
     let songs: Vec<crate::db::models::Song> = if is_wildcard {
@@ -373,7 +374,11 @@ pub async fn search_songs_for_queue(
              ORDER BY {song_order}"
         );
 
-        sqlx::query_as(&query_str).fetch_all(pool).await?
+        let mut query_builder = sqlx::query_as(&query_str);
+        for join_user_id in &join_user_ids {
+            query_builder = query_builder.bind(*join_user_id);
+        }
+        query_builder.fetch_all(pool).await?
     } else if let Some(ref fts_q) = fts_query {
         // Build WHERE clause combining FTS and filters - always include enabled folder check
         let mut where_conditions = vec![
@@ -392,10 +397,11 @@ pub async fn search_songs_for_queue(
              ORDER BY {song_order}"
         );
 
-        sqlx::query_as(&query_str)
-            .bind(fts_q)
-            .fetch_all(pool)
-            .await?
+        let mut query_builder = sqlx::query_as(&query_str);
+        for join_user_id in &join_user_ids {
+            query_builder = query_builder.bind(*join_user_id);
+        }
+        query_builder.bind(fts_q).fetch_all(pool).await?
     } else {
         // Empty query after processing
         vec![]
@@ -434,17 +440,18 @@ pub async fn search_artists(
 
     // Build JOIN clauses
     let mut artist_joins = String::new();
+    let mut artist_join_user_ids = Vec::new();
     if artist_has_rating_filter {
-        artist_joins.push_str(&format!(
-            " LEFT JOIN ratings r ON r.item_id = a.id AND r.item_type = 'artist' AND r.user_id = {}",
-            user_id
-        ));
+        artist_joins.push_str(
+            " LEFT JOIN ratings r ON r.item_id = a.id AND r.item_type = 'artist' AND r.user_id = ?",
+        );
+        artist_join_user_ids.push(user_id);
     }
     if artist_has_starred_filter {
-        artist_joins.push_str(&format!(
-            " LEFT JOIN starred st ON st.item_id = a.id AND st.item_type = 'artist' AND st.user_id = {}",
-            user_id
-        ));
+        artist_joins.push_str(
+            " LEFT JOIN starred st ON st.item_id = a.id AND st.item_type = 'artist' AND st.user_id = ?",
+        );
+        artist_join_user_ids.push(user_id);
     }
 
     // Build filter conditions
@@ -470,14 +477,22 @@ pub async fn search_artists(
         let query_str = format!(
             "SELECT a.* FROM artists a {artist_joins} {where_clause} ORDER BY a.name COLLATE NOCASE LIMIT ? OFFSET ?"
         );
-        let artists: Vec<crate::db::models::Artist> = sqlx::query_as(&query_str)
+        let mut query_builder = sqlx::query_as(&query_str);
+        for join_user_id in &artist_join_user_ids {
+            query_builder = query_builder.bind(*join_user_id);
+        }
+        let artists: Vec<crate::db::models::Artist> = query_builder
             .bind(limit)
             .bind(offset)
             .fetch_all(pool)
             .await?;
 
         let count_query = format!("SELECT COUNT(*) FROM artists a {artist_joins} {where_clause}");
-        let total: (i64,) = sqlx::query_as(&count_query).fetch_one(pool).await?;
+        let mut count_query_builder = sqlx::query_as(&count_query);
+        for join_user_id in &artist_join_user_ids {
+            count_query_builder = count_query_builder.bind(*join_user_id);
+        }
+        let total: (i64,) = count_query_builder.fetch_one(pool).await?;
 
         (artists, Some(total.0))
     } else if let Some(ref fts_q) = fts_query {
@@ -496,7 +511,11 @@ pub async fn search_artists(
              ORDER BY a.name COLLATE NOCASE
              LIMIT ? OFFSET ?"
         );
-        let artists: Vec<crate::db::models::Artist> = sqlx::query_as(&query_str)
+        let mut query_builder = sqlx::query_as(&query_str);
+        for join_user_id in &artist_join_user_ids {
+            query_builder = query_builder.bind(*join_user_id);
+        }
+        let artists: Vec<crate::db::models::Artist> = query_builder
             .bind(fts_q)
             .bind(limit)
             .bind(offset)
@@ -506,10 +525,11 @@ pub async fn search_artists(
         let count_query = format!(
             "SELECT COUNT(*) FROM artists a {artist_joins} INNER JOIN artists_fts fts ON a.id = fts.artist_id {where_clause}"
         );
-        let total: (i64,) = sqlx::query_as(&count_query)
-            .bind(fts_q)
-            .fetch_one(pool)
-            .await?;
+        let mut count_query_builder = sqlx::query_as(&count_query);
+        for join_user_id in &artist_join_user_ids {
+            count_query_builder = count_query_builder.bind(*join_user_id);
+        }
+        let total: (i64,) = count_query_builder.bind(fts_q).fetch_one(pool).await?;
 
         (artists, Some(total.0))
     } else {
@@ -553,17 +573,18 @@ pub async fn search_albums(
 
     // Build JOIN clauses - always need artists for artist_name
     let mut album_joins = String::from("INNER JOIN artists ar ON a.artist_id = ar.id");
+    let mut album_join_user_ids = Vec::new();
     if album_has_rating_filter {
-        album_joins.push_str(&format!(
-            " LEFT JOIN ratings r ON r.item_id = a.id AND r.item_type = 'album' AND r.user_id = {}",
-            user_id
-        ));
+        album_joins.push_str(
+            " LEFT JOIN ratings r ON r.item_id = a.id AND r.item_type = 'album' AND r.user_id = ?",
+        );
+        album_join_user_ids.push(user_id);
     }
     if album_has_starred_filter {
-        album_joins.push_str(&format!(
-            " LEFT JOIN starred st ON st.item_id = a.id AND st.item_type = 'album' AND st.user_id = {}",
-            user_id
-        ));
+        album_joins.push_str(
+            " LEFT JOIN starred st ON st.item_id = a.id AND st.item_type = 'album' AND st.user_id = ?",
+        );
+        album_join_user_ids.push(user_id);
     }
 
     // Filter to only include albums with songs from enabled music folders
@@ -582,14 +603,22 @@ pub async fn search_albums(
              ORDER BY {album_order}
              LIMIT ? OFFSET ?"
         );
-        let albums: Vec<crate::db::models::Album> = sqlx::query_as(&album_query)
+        let mut query_builder = sqlx::query_as(&album_query);
+        for join_user_id in &album_join_user_ids {
+            query_builder = query_builder.bind(*join_user_id);
+        }
+        let albums: Vec<crate::db::models::Album> = query_builder
             .bind(limit)
             .bind(offset)
             .fetch_all(pool)
             .await?;
 
         let count_query = format!("SELECT COUNT(*) FROM albums a {album_joins} {where_clause}");
-        let total: (i64,) = sqlx::query_as(&count_query).fetch_one(pool).await?;
+        let mut count_query_builder = sqlx::query_as(&count_query);
+        for join_user_id in &album_join_user_ids {
+            count_query_builder = count_query_builder.bind(*join_user_id);
+        }
+        let total: (i64,) = count_query_builder.fetch_one(pool).await?;
 
         (albums, Some(total.0))
     } else if let Some(ref fts_q) = fts_query {
@@ -609,7 +638,11 @@ pub async fn search_albums(
              ORDER BY {album_order}
              LIMIT ? OFFSET ?"
         );
-        let albums: Vec<crate::db::models::Album> = sqlx::query_as(&album_query)
+        let mut query_builder = sqlx::query_as(&album_query);
+        for join_user_id in &album_join_user_ids {
+            query_builder = query_builder.bind(*join_user_id);
+        }
+        let albums: Vec<crate::db::models::Album> = query_builder
             .bind(fts_q)
             .bind(limit)
             .bind(offset)
@@ -619,10 +652,11 @@ pub async fn search_albums(
         let count_query = format!(
             "SELECT COUNT(*) FROM albums a {album_joins} INNER JOIN albums_fts fts ON a.id = fts.album_id {where_clause}"
         );
-        let total: (i64,) = sqlx::query_as(&count_query)
-            .bind(fts_q)
-            .fetch_one(pool)
-            .await?;
+        let mut count_query_builder = sqlx::query_as(&count_query);
+        for join_user_id in &album_join_user_ids {
+            count_query_builder = count_query_builder.bind(*join_user_id);
+        }
+        let total: (i64,) = count_query_builder.bind(fts_q).fetch_one(pool).await?;
 
         (albums, Some(total.0))
     } else {
@@ -676,17 +710,18 @@ pub async fn search_songs(
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id{}",
         crate::db::queries::SCROBBLE_STATS_JOIN
     );
+    let mut join_user_ids = Vec::new();
     if filter_conds.has_rating_filter {
-        joins.push_str(&format!(
-            " LEFT JOIN ratings r ON r.item_id = s.id AND r.item_type = 'song' AND r.user_id = {}",
-            user_id
-        ));
+        joins.push_str(
+            " LEFT JOIN ratings r ON r.item_id = s.id AND r.item_type = 'song' AND r.user_id = ?",
+        );
+        join_user_ids.push(user_id);
     }
     if filter_conds.has_starred_filter {
-        joins.push_str(&format!(
-            " LEFT JOIN starred st ON st.item_id = s.id AND st.item_type = 'song' AND st.user_id = {}",
-            user_id
-        ));
+        joins.push_str(
+            " LEFT JOIN starred st ON st.item_id = s.id AND st.item_type = 'song' AND st.user_id = ?",
+        );
+        join_user_ids.push(user_id);
     }
 
     let (songs, total) = if is_wildcard {
@@ -703,14 +738,22 @@ pub async fn search_songs(
              LIMIT ? OFFSET ?"
         );
 
-        let songs: Vec<crate::db::models::Song> = sqlx::query_as(&query_str)
+        let mut query_builder = sqlx::query_as(&query_str);
+        for join_user_id in &join_user_ids {
+            query_builder = query_builder.bind(*join_user_id);
+        }
+        let songs: Vec<crate::db::models::Song> = query_builder
             .bind(limit)
             .bind(offset)
             .fetch_all(pool)
             .await?;
 
         let count_query = format!("SELECT COUNT(*) FROM songs s {joins} {where_clause}");
-        let total: (i64,) = sqlx::query_as(&count_query).fetch_one(pool).await?;
+        let mut count_query_builder = sqlx::query_as(&count_query);
+        for join_user_id in &join_user_ids {
+            count_query_builder = count_query_builder.bind(*join_user_id);
+        }
+        let total: (i64,) = count_query_builder.fetch_one(pool).await?;
 
         (songs, Some(total.0))
     } else if let Some(ref fts_q) = fts_query {
@@ -731,7 +774,11 @@ pub async fn search_songs(
              LIMIT ? OFFSET ?"
         );
 
-        let songs: Vec<crate::db::models::Song> = sqlx::query_as(&query_str)
+        let mut query_builder = sqlx::query_as(&query_str);
+        for join_user_id in &join_user_ids {
+            query_builder = query_builder.bind(*join_user_id);
+        }
+        let songs: Vec<crate::db::models::Song> = query_builder
             .bind(fts_q)
             .bind(limit)
             .bind(offset)
@@ -741,10 +788,11 @@ pub async fn search_songs(
         let count_query = format!(
             "SELECT COUNT(*) FROM songs s {joins} INNER JOIN songs_fts fts ON s.id = fts.song_id {where_clause}"
         );
-        let total: (i64,) = sqlx::query_as(&count_query)
-            .bind(fts_q)
-            .fetch_one(pool)
-            .await?;
+        let mut count_query_builder = sqlx::query_as(&count_query);
+        for join_user_id in &join_user_ids {
+            count_query_builder = count_query_builder.bind(*join_user_id);
+        }
+        let total: (i64,) = count_query_builder.bind(fts_q).fetch_one(pool).await?;
 
         (songs, Some(total.0))
     } else {

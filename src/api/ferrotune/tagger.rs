@@ -25,6 +25,7 @@ use lofty::probe::Probe;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::path::{Component, Path as StdPath};
 use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
@@ -316,6 +317,44 @@ pub fn get_staging_dir(_state: &AppState, user_id: &str) -> PathBuf {
         .join("staging")
         .join(user_id)
         .join("uploaded")
+}
+
+pub(crate) async fn resolve_path_within_music_folder(
+    folder_path: &StdPath,
+    relative_path: &str,
+) -> Result<PathBuf, String> {
+    let rel = StdPath::new(relative_path);
+
+    if rel.is_absolute()
+        || rel
+            .components()
+            .any(|c| matches!(c, Component::ParentDir | Component::RootDir))
+    {
+        return Err("Path must be a relative path within the music folder".to_string());
+    }
+
+    let canonical_root = folder_path
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve music folder path: {}", e))?;
+
+    let target_path = canonical_root.join(rel);
+    let parent = target_path
+        .parent()
+        .ok_or_else(|| "Invalid target path".to_string())?;
+
+    fs::create_dir_all(parent)
+        .await
+        .map_err(|e| format!("Failed to create directories: {}", e))?;
+
+    let canonical_parent = parent
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve target directory path: {}", e))?;
+
+    if !canonical_parent.starts_with(&canonical_root) {
+        return Err("Target path escapes music folder".to_string());
+    }
+
+    Ok(target_path)
 }
 
 /// POST /ferrotune/tagger/upload
@@ -1255,19 +1294,22 @@ pub async fn save_staged_files(
             }
         };
 
-        // Build target path
-        let target_path = PathBuf::from(&music_folder.path).join(&file_save.target_path);
-
-        // Create parent directories
-        if let Some(parent) = target_path.parent() {
-            if let Err(e) = fs::create_dir_all(parent).await {
+        // Build and validate target path
+        let target_path = match resolve_path_within_music_folder(
+            StdPath::new(&music_folder.path),
+            &file_save.target_path,
+        )
+        .await
+        {
+            Ok(path) => path,
+            Err(e) => {
                 errors.push(SaveError {
                     staged_id: file_save.staged_id.clone(),
-                    error: format!("Failed to create directories: {}", e),
+                    error: e,
                 });
                 continue;
             }
-        }
+        };
 
         // Move file from staging to target (with cross-filesystem support)
         if let Err(e) = move_file_cross_fs(&staging_path, &target_path).await {
@@ -1438,27 +1480,36 @@ pub async fn rename_files(
             }
         };
 
-        // Calculate new absolute path
-        let new_path = folder.join(&entry.new_path);
+        // Calculate and validate new absolute path
+        let new_path =
+            match resolve_path_within_music_folder(folder.as_path(), &entry.new_path).await {
+                Ok(path) => path,
+                Err(_) => {
+                    errors.push(RenameError {
+                        song_id: entry.song_id.clone(),
+                        error: "New path must be within music folder".to_string(),
+                    });
+                    continue;
+                }
+            };
 
-        // Security check: ensure new path is still within the music folder
-        if !new_path.starts_with(&folder) {
+        let new_relative_path = match new_path.strip_prefix(&folder) {
+            Ok(path) => path.to_string_lossy().to_string(),
+            Err(_) => {
+                errors.push(RenameError {
+                    song_id: entry.song_id.clone(),
+                    error: "Failed to build relative path for database update".to_string(),
+                });
+                continue;
+            }
+        };
+
+        if new_relative_path.is_empty() {
             errors.push(RenameError {
                 song_id: entry.song_id.clone(),
                 error: "New path must be within music folder".to_string(),
             });
             continue;
-        }
-
-        // Create parent directories if needed
-        if let Some(parent) = new_path.parent() {
-            if let Err(e) = fs::create_dir_all(parent).await {
-                errors.push(RenameError {
-                    song_id: entry.song_id.clone(),
-                    error: format!("Failed to create directory: {}", e),
-                });
-                continue;
-            }
         }
 
         // Move the file (with cross-filesystem support)
@@ -1472,7 +1523,7 @@ pub async fn rename_files(
 
         // Update database path
         if let Err(e) =
-            queries::update_song_path(&state.pool, &entry.song_id, &entry.new_path).await
+            queries::update_song_path(&state.pool, &entry.song_id, &new_relative_path).await
         {
             // Try to rollback the file move
             let _ = move_file_cross_fs(&new_path, &current).await;

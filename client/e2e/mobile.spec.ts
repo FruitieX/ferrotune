@@ -45,7 +45,6 @@ test.describe("Mobile Tests", () => {
     const toast = page.locator("[data-sonner-toast]");
     if (await toast.isVisible().catch(() => false)) {
       await toast.click({ force: true });
-      await page.waitForTimeout(500);
     }
 
     // Use force click in case toast is still animating out
@@ -110,10 +109,22 @@ test.describe("Mobile Tests", () => {
     const gridMenuItem = page.getByRole("menuitem", { name: /^grid$/i });
     await gridMenuItem.click();
 
-    // Wait for media cards and click the first album
+    // Click album from either grid card view or list/link view
     const albumCard = page.locator('[data-testid="media-card"]').first();
-    await expect(albumCard).toBeVisible({ timeout: 10000 });
-    await albumCard.click();
+    const albumLink = page
+      .locator("a")
+      .filter({ hasText: /^Test Album/ })
+      .first();
+
+    const hasAlbumCard = await albumCard
+      .isVisible({ timeout: 10000 })
+      .catch(() => false);
+    if (hasAlbumCard) {
+      await albumCard.click();
+    } else {
+      await expect(albumLink).toBeVisible({ timeout: 10000 });
+      await albumLink.click();
+    }
 
     await expect(page).toHaveURL(/\/library\/albums\/details/);
   });
@@ -134,9 +145,10 @@ test.describe("Mobile Tests", () => {
     const listMenuItem = page.getByRole("menuitem", { name: /^list$/i });
     await listMenuItem.click();
 
-    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
-
-    const songRow = page.locator('[data-testid="song-row"]').first();
+    const songRow = page
+      .locator('[data-testid="song-row"], [data-testid="media-row"]')
+      .first();
+    await expect(songRow).toBeVisible({ timeout: 10000 });
 
     // On mobile, try using context menu (long press simulation via right click)
     await songRow.click({ button: "right" });
@@ -151,9 +163,13 @@ test.describe("Mobile Tests", () => {
   });
 
   test("can star a song", async ({ authenticatedPage: page }) => {
-    await page.goto("/library");
-    await page.waitForSelector("article", { timeout: 10000 });
-    await page.getByText("Test Album").click();
+    await page.goto("/library/albums");
+    const albumLink = page
+      .locator("a")
+      .filter({ hasText: /^Test Album/ })
+      .first();
+    await expect(albumLink).toBeVisible({ timeout: 10000 });
+    await albumLink.click();
 
     await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
     await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
@@ -167,7 +183,6 @@ test.describe("Mobile Tests", () => {
       .first();
     await starButton.click();
 
-    await page.waitForTimeout(500);
     expect(page.url()).toBeTruthy();
   });
 

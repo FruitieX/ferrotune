@@ -156,7 +156,7 @@ pub struct ApiKeysResponse {
 // Helper: Check admin permission
 // ============================================================================
 
-fn require_admin(user: &FerrotuneAuthenticatedUser) -> FerrotuneApiResult<()> {
+pub(crate) fn require_admin(user: &FerrotuneAuthenticatedUser) -> FerrotuneApiResult<()> {
     if !user.is_admin {
         return Err(Error::Auth("Admin privileges required".to_string()).into());
     }

@@ -419,16 +419,9 @@ export default function SetupPage() {
   // Complete setup mutation
   const completeSetupMutation = useMutation({
     mutationFn: async () => {
-      const baseUrl =
-        serverUrl.trim() ||
-        (typeof window !== "undefined" ? window.location.origin : "");
-      const response = await fetch(`${baseUrl}/ferrotune/setup/complete`, {
-        method: "POST",
-      });
-      if (!response.ok) {
-        throw new Error("Failed to complete setup");
-      }
-      return response.json();
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      return client.completeSetup();
     },
     onSuccess: () => {
       // Mark setup as intentionally completed to prevent redirect loops
