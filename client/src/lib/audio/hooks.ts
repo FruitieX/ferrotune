@@ -87,6 +87,9 @@ let isLoadingNewTrack: boolean = false;
 let isIntentionalStop: boolean = false;
 // Flag to indicate a gapless handoff is in progress (prevents double-advance)
 let isGaplessHandoff = false;
+// Track the expected track ID during gapless handoff so queue sync can be
+// acknowledged without reloading the already-playing pre-buffered stream.
+let gaplessHandoffExpectedTrackId: string | null = null;
 // Track when playback started for listening time logging
 let playbackStartTime: number | null = null;
 let playbackStartSongId: string | null = null;
@@ -630,7 +633,9 @@ export function useAudioEngineInit() {
         console.log(
           "[Audio] Gapless handoff: swapping to pre-buffered element",
         );
+        const handoffTrackId = preBufferedTrackId;
         isGaplessHandoff = true;
+        gaplessHandoffExpectedTrackId = handoffTrackId;
 
         // Swap active index
         const oldActiveIdx = activeIndex;
@@ -657,7 +662,7 @@ export function useAudioEngineInit() {
         settersRef.current.setAudioElement(audioElements[activeIndex]!);
 
         // Reset tracking for the new active element
-        currentLoadedTrackId = preBufferedTrackId;
+        currentLoadedTrackId = handoffTrackId;
         currentStreamTimeOffset = 0;
         preBufferedTrackId = null;
         preBufferReady = false;
@@ -686,7 +691,6 @@ export function useAudioEngineInit() {
           oldElement.load();
         }
 
-        isGaplessHandoff = false;
         return;
       }
 
@@ -1022,9 +1026,6 @@ export function useAudioEngineInit() {
   // Load new track when current song changes (triggered by trackChangeSignal or currentSong)
   // Also reload when transcoding settings change
   useEffect(() => {
-    // During a gapless handoff, the track change is handled inline — skip this effect
-    if (isGaplessHandoff) return;
-
     const audio = getActiveAudio();
     const client = getClient();
 
@@ -1077,6 +1078,41 @@ export function useAudioEngineInit() {
     // Skip if same track is already loaded with same settings AND signal hasn't changed
     const signalChanged = trackChangeSignal !== lastProcessedSignalRef.current;
     const urlChanged = streamUrl !== lastStreamUrlRef.current;
+
+    // During gapless handoff, queue advances after playback already switched.
+    // If queue sync points to the same pre-buffered track, consume the signal
+    // and skip reloading to prevent restarting the track from 0.
+    if (
+      isGaplessHandoff &&
+      gaplessHandoffExpectedTrackId &&
+      currentSong.id === gaplessHandoffExpectedTrackId &&
+      currentSong.id === currentLoadedTrackId &&
+      signalChanged
+    ) {
+      console.log(
+        "[Audio] Gapless handoff synchronized with queue; skipping redundant reload",
+      );
+      lastProcessedSignalRef.current = trackChangeSignal;
+      lastStreamUrlRef.current = streamUrl;
+      isGaplessHandoff = false;
+      gaplessHandoffExpectedTrackId = null;
+      return;
+    }
+
+    // Queue selected a different next song than the pre-buffered handoff target
+    // (e.g. shuffle/repeat-all reshuffle). Let normal load flow handle it.
+    if (
+      isGaplessHandoff &&
+      gaplessHandoffExpectedTrackId &&
+      currentSong.id !== gaplessHandoffExpectedTrackId &&
+      signalChanged
+    ) {
+      console.warn(
+        "[Audio] Gapless handoff mismatch with queue state; reloading queue-selected track",
+      );
+      isGaplessHandoff = false;
+      gaplessHandoffExpectedTrackId = null;
+    }
 
     if (
       currentSong.id === currentLoadedTrackId &&
@@ -1487,6 +1523,8 @@ export function useAudioEngine() {
     setIsRestoring(false);
     // Invalidate any pre-buffer since user is explicitly skipping
     invalidatePreBuffer();
+    isGaplessHandoff = false;
+    gaplessHandoffExpectedTrackId = null;
     goToNextAction();
   };
 
@@ -1501,6 +1539,8 @@ export function useAudioEngine() {
 
     logListeningTimeAndReset(true);
     invalidatePreBuffer();
+    isGaplessHandoff = false;
+    gaplessHandoffExpectedTrackId = null;
     goToPreviousAction();
   };
 
@@ -1511,6 +1551,8 @@ export function useAudioEngine() {
 
     // Log listening time before going to previous track
     logListeningTimeAndReset(true);
+    isGaplessHandoff = false;
+    gaplessHandoffExpectedTrackId = null;
     goToPreviousAction();
   };
 
