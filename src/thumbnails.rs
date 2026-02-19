@@ -37,15 +37,6 @@ pub enum ThumbnailSize {
 }
 
 impl ThumbnailSize {
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "small" | "s" => Some(ThumbnailSize::Small),
-            "medium" | "m" => Some(ThumbnailSize::Medium),
-            "large" | "l" | "original" => Some(ThumbnailSize::Large),
-            _ => None,
-        }
-    }
-
     pub fn from_size(s: u32) -> Self {
         if s <= THUMBNAIL_SMALL {
             ThumbnailSize::Small
@@ -53,6 +44,19 @@ impl ThumbnailSize {
             ThumbnailSize::Medium
         } else {
             ThumbnailSize::Large
+        }
+    }
+}
+
+impl std::str::FromStr for ThumbnailSize {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "small" | "s" => Ok(ThumbnailSize::Small),
+            "medium" | "m" => Ok(ThumbnailSize::Medium),
+            "large" | "l" | "original" => Ok(ThumbnailSize::Large),
+            _ => Err(()),
         }
     }
 }

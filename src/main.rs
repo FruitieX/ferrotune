@@ -393,6 +393,18 @@ fn build_cors_layer(config: &config::Config) -> CorsLayer {
 
     let mut origins: Vec<HeaderValue> = Vec::new();
 
+    // Always allow Tauri app origins (Android/Windows use http://ferrotune.localhost,
+    // macOS/Linux/iOS use https://tauri.localhost).
+    for tauri_origin in &[
+        "http://ferrotune.localhost",
+        "https://tauri.localhost",
+        "tauri://localhost",
+    ] {
+        if let Ok(value) = tauri_origin.parse::<HeaderValue>() {
+            origins.push(value);
+        }
+    }
+
     if let Ok(origin_csv) = std::env::var("FERROTUNE_CORS_ALLOWED_ORIGINS") {
         for origin in origin_csv
             .split(',')

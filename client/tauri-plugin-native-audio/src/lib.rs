@@ -53,6 +53,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::set_queue,
             commands::next_track,
             commands::previous_track,
+            commands::get_safe_area_insets,
         ])
         .setup(|app, api| {
             #[cfg(mobile)]

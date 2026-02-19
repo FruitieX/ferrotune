@@ -71,6 +71,13 @@ pub struct PlaybackState {
     pub queue_length: i32,
 }
 
+/// Safe area insets for edge-to-edge displays
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SafeAreaInsets {
+    pub top: f64,
+    pub bottom: f64,
+}
+
 /// Event payload for state change events
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

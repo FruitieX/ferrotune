@@ -70,7 +70,7 @@ pub fn to_xml_string<T: Serialize>(value: &T) -> Result<String, quick_xml::se::S
 /// This eliminates duplication of the 6 standard header fields across all response types.
 ///
 /// Usage:
-/// ```
+/// ```ignore
 /// xml_response!(XmlArtistsResponse, "artists", XmlArtistsInner, artists);
 /// ```
 /// Generates a struct with the standard headers plus the data field.

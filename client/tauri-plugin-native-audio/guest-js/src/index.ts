@@ -1,27 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   PlaybackState,
   TrackInfo,
   QueueItem,
-  StateChangeEvent,
-  ProgressEvent,
-  ErrorEvent,
-  TrackChangeEvent,
 } from "./types";
 
 // Re-export types
 export * from "./types";
-
-/**
- * Event names emitted by the native audio plugin
- */
-export const EVENTS = {
-  STATE_CHANGE: "native-audio://state-change",
-  PROGRESS: "native-audio://progress",
-  ERROR: "native-audio://error",
-  TRACK_CHANGE: "native-audio://track-change",
-} as const;
 
 /**
  * Start or resume playback
@@ -57,7 +42,7 @@ export async function seek(positionMs: number): Promise<void> {
  * @param track Track information
  */
 export async function setTrack(track: TrackInfo): Promise<void> {
-  await invoke("plugin:native-audio|set_track", { ...track });
+  await invoke("plugin:native-audio|set_track", { track });
 }
 
 /**
@@ -103,53 +88,8 @@ export async function previousTrack(): Promise<void> {
 }
 
 /**
- * Listen for state change events
- * @param callback Callback function
- * @returns Unlisten function
+ * Get safe area insets (top/bottom in dp) for edge-to-edge display
  */
-export async function onStateChange(
-  callback: (event: StateChangeEvent) => void
-): Promise<UnlistenFn> {
-  return await listen<StateChangeEvent>(EVENTS.STATE_CHANGE, (event) => {
-    callback(event.payload);
-  });
-}
-
-/**
- * Listen for progress events
- * @param callback Callback function
- * @returns Unlisten function
- */
-export async function onProgress(
-  callback: (event: ProgressEvent) => void
-): Promise<UnlistenFn> {
-  return await listen<ProgressEvent>(EVENTS.PROGRESS, (event) => {
-    callback(event.payload);
-  });
-}
-
-/**
- * Listen for error events
- * @param callback Callback function
- * @returns Unlisten function
- */
-export async function onError(
-  callback: (event: ErrorEvent) => void
-): Promise<UnlistenFn> {
-  return await listen<ErrorEvent>(EVENTS.ERROR, (event) => {
-    callback(event.payload);
-  });
-}
-
-/**
- * Listen for track change events
- * @param callback Callback function
- * @returns Unlisten function
- */
-export async function onTrackChange(
-  callback: (event: TrackChangeEvent) => void
-): Promise<UnlistenFn> {
-  return await listen<TrackChangeEvent>(EVENTS.TRACK_CHANGE, (event) => {
-    callback(event.payload);
-  });
+export async function getSafeAreaInsets(): Promise<{ top: number; bottom: number }> {
+  return await invoke<{ top: number; bottom: number }>("plugin:native-audio|get_safe_area_insets");
 }

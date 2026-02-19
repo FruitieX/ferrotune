@@ -518,8 +518,8 @@ export function FullscreenPlayer() {
             {/* Background - isolated to prevent re-renders on currentTime changes */}
             <FullscreenBackground coverArt={currentTrack?.coverArt} />
 
-            {/* Content wrapper */}
-            <div className="relative z-10 flex flex-col h-full w-full">
+            {/* Content wrapper - pt-safe pushes UI below status bar while blur extends into it */}
+            <div className="relative z-10 flex flex-col h-full w-full pt-safe">
               {/* Inner container with max-width and padding */}
               <div className="flex flex-col h-full max-w-lg md:max-w-2xl lg:max-w-4xl xl:max-w-6xl mx-auto w-full px-6 py-4">
                 {/* Header */}

@@ -17,6 +17,10 @@ fileGroups:
     - "next.config.ts"
     - "tsconfig.json"
     - "package.json"
+  plugin-guest-js:
+    - "tauri-plugin-native-audio/guest-js/src/**/*"
+    - "tauri-plugin-native-audio/guest-js/tsconfig.json"
+    - "tauri-plugin-native-audio/guest-js/package.json"
   e2e:
     - "e2e/**/*"
     - "playwright.config.ts"
@@ -39,6 +43,15 @@ tasks:
     outputs:
       - "node_modules"
 
+  build-native-audio-api:
+    command: "npx tsc -p tauri-plugin-native-audio/guest-js/tsconfig.json"
+    inputs:
+      - "@group(plugin-guest-js)"
+    outputs:
+      - "tauri-plugin-native-audio/guest-js/dist"
+    deps:
+      - "install"
+
   # ============================================================================
   # DEVELOPMENT
   # ============================================================================
@@ -49,6 +62,7 @@ tasks:
       - "@group(sources)"
     deps:
       - "install"
+      - "build-native-audio-api"
       - "ferrotune:generate-bindings"
     options:
       persistent: true
@@ -67,6 +81,7 @@ tasks:
       - ".next"
     deps:
       - "install"
+      - "build-native-audio-api"
       - "ferrotune:generate-bindings"
 
   build-export:
@@ -78,6 +93,7 @@ tasks:
       - "out"
     deps:
       - "install"
+      - "build-native-audio-api"
       - "ferrotune:generate-bindings"
     env:
       NEXT_OUTPUT_STATIC: "1"
@@ -93,6 +109,7 @@ tasks:
       - "@group(sources)"
     deps:
       - "install"
+      - "build-native-audio-api"
       - "ferrotune:generate-bindings"
 
   typecheck:
@@ -104,6 +121,7 @@ tasks:
       - ".next-dev/types/**/*.ts"
     deps:
       - "install"
+      - "build-native-audio-api"
       - "ferrotune:generate-bindings"
 
   fmt:
@@ -337,7 +355,7 @@ tasks:
   # ============================================================================
 
   tauri-check:
-    command: "cd src-tauri && cargo check"
+    script: "cd src-tauri && cargo check"
     inputs:
       - "src-tauri/**/*"
       - "tauri-plugin-native-audio/src/**/*"
@@ -350,6 +368,7 @@ tasks:
     command: "npx tauri dev"
     deps:
       - "install"
+      - "build-native-audio-api"
       - "ferrotune:generate-bindings"
     options:
       persistent: true
@@ -364,6 +383,7 @@ tasks:
     deps:
       - "install"
       - "build-export"
+      - "build-native-audio-api"
       - "ferrotune:generate-bindings"
     options:
       runInCI: false
@@ -377,6 +397,7 @@ tasks:
     deps:
       - "install"
       - "build-export"
+      - "build-native-audio-api"
       - "ferrotune:generate-bindings"
     options:
       runInCI: false
@@ -390,6 +411,7 @@ tasks:
     deps:
       - "install"
       - "build-export"
+      - "build-native-audio-api"
       - "ferrotune:generate-bindings"
     options:
       runInCI: false
@@ -410,6 +432,7 @@ tasks:
     command: "npx tauri android dev"
     deps:
       - "install"
+      - "build-native-audio-api"
       - "ferrotune:generate-bindings"
     options:
       persistent: true
@@ -424,6 +447,7 @@ tasks:
     deps:
       - "install"
       - "build-export"
+      - "build-native-audio-api"
       - "ferrotune:generate-bindings"
     options:
       runInCI: false
@@ -437,9 +461,31 @@ tasks:
     deps:
       - "install"
       - "build-export"
+      - "build-native-audio-api"
       - "ferrotune:generate-bindings"
     options:
       runInCI: false
+
+  tauri-android-deploy:
+    script: "npx tauri android build --debug --config tauri.android-deploy.conf.json && adb -H ${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1} install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk && adb -H ${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1} shell am start -S -n com.ferrotune.music/.MainActivity"
+    inputs:
+      - "@group(sources)"
+      - "src-tauri/**/*"
+      - "tauri-plugin-native-audio/**/*"
+    deps:
+      - "install"
+      - "build-export"
+      - "build-native-audio-api"
+      - "ferrotune:generate-bindings"
+    env:
+      JAVA_HOME: "${JAVA_HOME}"
+      ANDROID_HOME: "${ANDROID_HOME}"
+      ANDROID_SDK_ROOT: "${ANDROID_SDK_ROOT}"
+      NDK_HOME: "${NDK_HOME}"
+      ANDROID_ADB_SERVER_ADDRESS: "${ANDROID_ADB_SERVER_ADDRESS}"
+    options:
+      runInCI: false
+      cache: false
 
   # ============================================================================
   # CI PIPELINE

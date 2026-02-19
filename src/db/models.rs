@@ -284,13 +284,17 @@ impl ItemType {
             ItemType::Artist => "artist",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for ItemType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "song" => Some(ItemType::Song),
-            "album" => Some(ItemType::Album),
-            "artist" => Some(ItemType::Artist),
-            _ => None,
+            "song" => Ok(ItemType::Song),
+            "album" => Ok(ItemType::Album),
+            "artist" => Ok(ItemType::Artist),
+            _ => Err(()),
         }
     }
 }
@@ -455,9 +459,13 @@ impl QueueSourceType {
             QueueSourceType::Other => "other",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Self {
-        match s {
+impl std::str::FromStr for QueueSourceType {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
             "library" => QueueSourceType::Library,
             "album" => QueueSourceType::Album,
             "artist" => QueueSourceType::Artist,
@@ -470,7 +478,7 @@ impl QueueSourceType {
             "directory" => QueueSourceType::Directory,
             "directoryFlat" => QueueSourceType::DirectoryFlat,
             _ => QueueSourceType::Other,
-        }
+        })
     }
 }
 
@@ -492,13 +500,17 @@ impl RepeatMode {
             RepeatMode::One => "one",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Self {
-        match s {
+impl std::str::FromStr for RepeatMode {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
             "all" => RepeatMode::All,
             "one" => RepeatMode::One,
             _ => RepeatMode::Off,
-        }
+        })
     }
 }
 
@@ -533,12 +545,12 @@ pub struct PlayQueue {
 impl PlayQueue {
     /// Get the source type as an enum
     pub fn source_type_enum(&self) -> QueueSourceType {
-        QueueSourceType::from_str(&self.source_type)
+        self.source_type.parse().unwrap_or_default()
     }
 
     /// Get the repeat mode as an enum
     pub fn repeat_mode_enum(&self) -> RepeatMode {
-        RepeatMode::from_str(&self.repeat_mode)
+        self.repeat_mode.parse().unwrap_or_default()
     }
 
     /// Parse shuffle indices from JSON

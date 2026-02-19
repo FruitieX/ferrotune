@@ -42,6 +42,7 @@ import { initializeClient, FerrotuneApiError } from "@/lib/api/client";
 import type { ServerConnection } from "@/lib/api/types";
 import type { SetupStatusResponse } from "@/lib/api/generated/SetupStatusResponse";
 import {
+  isTauri,
   isTauriDesktop,
   getApiBaseUrl,
   getEmbeddedAdminPassword,
@@ -62,7 +63,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  // On Tauri mobile (Android/iOS), there's no embedded server, so the server URL
+  // must always be visible since it can't default to window.location.origin
+  const isMobileTauri = isTauri() && !isTauriDesktop();
+  const [showAdvanced, setShowAdvanced] = useState(isMobileTauri);
 
   // Embedded server mode (Tauri desktop only)
   const [useEmbeddedServer, setUseEmbeddedServer] = useState(false);
@@ -81,12 +85,19 @@ export default function LoginPage() {
     checkEmbedded();
   }, []);
 
-  // Compute stable backend URL for setup check - uses current origin (works in dev with proxy)
+  // Compute stable backend URL for setup check
+  // On Tauri desktop with embedded server, use the custom protocol URL
+  // On Tauri mobile, we can't check setup until the user actually connects
+  // (deriving from serverUrl would trigger a query on every keystroke, causing
+  // setupLoading=true which unmounts the form and loses input focus)
+  // On web, use current origin (works in dev with proxy)
   const setupCheckUrl =
     typeof window !== "undefined"
       ? useEmbeddedServer && isEmbeddedAvailable
         ? getApiBaseUrl()
-        : window.location.origin
+        : isMobileTauri
+          ? ""
+          : window.location.origin
       : "";
 
   // Check setup status - redirect to setup if not complete
@@ -117,7 +128,7 @@ export default function LoginPage() {
       }
     },
     retry: false,
-    enabled: !embeddedLoading,
+    enabled: !embeddedLoading && !!setupCheckUrl,
   });
 
   // Redirect to setup if not complete
@@ -196,6 +207,11 @@ export default function LoginPage() {
     try {
       // Validate and normalize server URL
       let url = serverUrl.trim();
+
+      // On Tauri mobile, the user must provide a server URL
+      if (!url && isMobileTauri) {
+        throw new Error("Server URL is required");
+      }
 
       // If empty, use current origin (for embedded deployments)
       if (!url) {
@@ -456,63 +472,87 @@ export default function LoginPage() {
                     </TabsContent>
                   </Tabs>
 
-                  {/* Advanced Settings */}
-                  <Collapsible
-                    open={showAdvanced}
-                    onOpenChange={setShowAdvanced}
-                  >
-                    <CollapsibleTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full justify-between text-muted-foreground hover:text-foreground"
+                  {/* Server URL - shown prominently on Tauri mobile, in Advanced otherwise */}
+                  {isMobileTauri ? (
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="server-url"
+                        className="text-sm font-medium flex items-center gap-2"
                       >
-                        <span className="flex items-center gap-2">
-                          <Settings className="w-4 h-4" />
-                          Advanced Settings
-                        </span>
-                        <motion.div
-                          animate={{ rotate: showAdvanced ? 180 : 0 }}
-                          transition={{ duration: 0.2 }}
+                        <Server className="w-4 h-4" />
+                        Server URL
+                      </label>
+                      <Input
+                        id="server-url"
+                        placeholder="http://192.168.1.100:4040"
+                        value={serverUrl}
+                        onChange={(e) => setServerUrl(e.target.value)}
+                        disabled={isConnecting}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {serverUrl
+                          ? `Will connect to: ${serverUrl}`
+                          : "Enter the URL of your Ferrotune server"}
+                      </p>
+                    </div>
+                  ) : (
+                    <Collapsible
+                      open={showAdvanced}
+                      onOpenChange={setShowAdvanced}
+                    >
+                      <CollapsibleTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-between text-muted-foreground hover:text-foreground"
                         >
-                          <ChevronDown className="w-4 h-4" />
-                        </motion.div>
-                      </Button>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <AnimatePresence>
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: "auto" }}
-                          exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="pt-2"
-                        >
-                          <div className="space-y-2">
-                            <label
-                              htmlFor="server-url"
-                              className="text-sm font-medium flex items-center gap-2"
-                            >
-                              <Server className="w-4 h-4" />
-                              Server URL
-                            </label>
-                            <Input
-                              id="server-url"
-                              placeholder="Leave empty to use current origin"
-                              value={serverUrl}
-                              onChange={(e) => setServerUrl(e.target.value)}
-                              disabled={isConnecting}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              {serverUrl
-                                ? `Will connect to: ${serverUrl}`
-                                : "Will connect to current page origin"}
-                            </p>
-                          </div>
-                        </motion.div>
-                      </AnimatePresence>
-                    </CollapsibleContent>
-                  </Collapsible>
+                          <span className="flex items-center gap-2">
+                            <Settings className="w-4 h-4" />
+                            Advanced Settings
+                          </span>
+                          <motion.div
+                            animate={{ rotate: showAdvanced ? 180 : 0 }}
+                            transition={{ duration: 0.2 }}
+                          >
+                            <ChevronDown className="w-4 h-4" />
+                          </motion.div>
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <AnimatePresence>
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="pt-2"
+                          >
+                            <div className="space-y-2">
+                              <label
+                                htmlFor="server-url"
+                                className="text-sm font-medium flex items-center gap-2"
+                              >
+                                <Server className="w-4 h-4" />
+                                Server URL
+                              </label>
+                              <Input
+                                id="server-url"
+                                placeholder="Leave empty to use current origin"
+                                value={serverUrl}
+                                onChange={(e) => setServerUrl(e.target.value)}
+                                disabled={isConnecting}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                {serverUrl
+                                  ? `Will connect to: ${serverUrl}`
+                                  : "Will connect to current page origin"}
+                              </p>
+                            </div>
+                          </motion.div>
+                        </AnimatePresence>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
                 </>
               )}
 

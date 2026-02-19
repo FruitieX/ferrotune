@@ -317,6 +317,7 @@ Read these when working on specific areas:
 
 - **[docs/API_STATUS.md](docs/API_STATUS.md)** - OpenSubsonic endpoint implementation status
 - **[docs/TESTING.md](docs/TESTING.md)** - Comprehensive testing guide with examples
+- **[docs/ANDROID_EMULATOR.md](docs/ANDROID_EMULATOR.md)** - Android emulator interaction (ADB commands, nix shell, debugging)
 
 ---
 

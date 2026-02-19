@@ -356,6 +356,8 @@ export function MobileQueueSheet() {
               "select-none",
               // Allow vertical scroll gestures to pass through, horizontal gestures control sheet
               "touch-pan-y",
+              // Safe area padding for mobile status bar
+              "pt-safe",
             )}
           >
             {/* Header */}

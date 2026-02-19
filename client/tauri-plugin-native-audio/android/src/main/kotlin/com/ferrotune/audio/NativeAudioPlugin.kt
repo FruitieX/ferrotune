@@ -4,9 +4,13 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import android.webkit.WebView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import app.tauri.annotation.Command
@@ -82,6 +86,9 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     private var mediaController: MediaController? = null
     private var playbackService: PlaybackService? = null
     private var serviceBound = false
+    private var webViewRef: WebView? = null
+    private var safeAreaTop: Float = 0f
+    private var safeAreaBottom: Float = 0f
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -90,6 +97,15 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
             playbackService?.setEventEmitter { event, data ->
                 triggerEvent(event, data)
             }
+            // Wire up skip callbacks so notification prev/next dispatch events to the web side
+            playbackService?.setSkipCallbacks(
+                onPrevious = {
+                    triggerEvent(AudioEvents.SKIP_PREVIOUS, JSObject())
+                },
+                onNext = {
+                    triggerEvent(AudioEvents.SKIP_NEXT, JSObject())
+                }
+            )
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -101,8 +117,56 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     override fun load(webView: WebView) {
         super.load(webView)
         Log.d(TAG, "NativeAudioPlugin loaded")
+        webViewRef = webView
+        injectSafeAreaInsets(webView)
         bindPlaybackService()
         connectToMediaSession()
+
+        // Re-apply safe area insets after the page loads.
+        // The initial injection from onApplyWindowInsetsListener fires before
+        // the WebView navigates to the app URL, so the CSS variables are lost.
+        val handler = Handler(Looper.getMainLooper())
+        handler.postDelayed({ applySafeAreaInsets(webView) }, 1000)
+        handler.postDelayed({ applySafeAreaInsets(webView) }, 3000)
+    }
+
+    /**
+     * Inject safe area insets as CSS variables so the web UI can add
+     * padding for the status bar / navigation bar in edge-to-edge mode.
+     */
+    private fun injectSafeAreaInsets(webView: WebView) {
+        val rootView = activity.window.decorView
+        ViewCompat.setOnApplyWindowInsetsListener(rootView) { view, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val topPx = systemBars.top
+            val bottomPx = systemBars.bottom
+            // Convert px to CSS-friendly dp-ish values using the display density
+            val density = activity.resources.displayMetrics.density
+            val newTop = topPx / density
+            val newBottom = bottomPx / density
+            // Only call evaluateJavascript when values actually change.
+            // The soft keyboard triggers onApplyWindowInsets repeatedly, and
+            // evaluateJavascript can disrupt WebView input focus on Android.
+            if (newTop != safeAreaTop || newBottom != safeAreaBottom) {
+                safeAreaTop = newTop
+                safeAreaBottom = newBottom
+                Log.d(TAG, "Safe area insets: top=${safeAreaTop}dp, bottom=${safeAreaBottom}dp")
+                applySafeAreaInsets(webView)
+            }
+            // Let the default handling continue
+            ViewCompat.onApplyWindowInsets(view, insets)
+        }
+    }
+
+    /**
+     * Apply stored safe area inset values as CSS custom properties.
+     */
+    private fun applySafeAreaInsets(webView: WebView) {
+        webView.evaluateJavascript(
+            "document.documentElement.style.setProperty('--safe-area-top', '${safeAreaTop}px');" +
+            "document.documentElement.style.setProperty('--safe-area-bottom', '${safeAreaBottom}px');",
+            null
+        )
     }
 
     // Note: Plugin base class doesn't have onDestroy hook
@@ -151,8 +215,20 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         mediaController = null
     }
 
+    /**
+     * Dispatch an event to the WebView via evaluateJavascript.
+     * This bypasses Tauri's plugin event system (trigger/addPluginListener)
+     * which doesn't reliably deliver events from Android plugins to JS.
+     * Instead, we call a global callback function registered by the JS engine.
+     */
     private fun triggerEvent(event: String, data: JSObject) {
-        trigger(event, data)
+        val jsonData = data.toString()
+        webViewRef?.post {
+            webViewRef?.evaluateJavascript(
+                "window.__ferrotuneNativeAudio && window.__ferrotuneNativeAudio('$event', $jsonData)",
+                null
+            )
+        }
     }
 
     /**
@@ -371,6 +447,14 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                 invoke.reject(e.message)
             }
         }
+    }
+
+    @Command
+    fun getSafeAreaInsets(invoke: Invoke) {
+        invoke.resolve(JSObject().apply {
+            put("top", safeAreaTop.toDouble())
+            put("bottom", safeAreaBottom.toDouble())
+        })
     }
 
     @Command

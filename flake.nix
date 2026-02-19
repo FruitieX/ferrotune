@@ -105,8 +105,31 @@
             echo "NDK_HOME=$NDK_HOME"
             echo "JAVA_HOME=$JAVA_HOME"
             echo ""
-            echo "To initialize Android for Tauri:"
+
+            # Auto-configure ADB bridge when running under WSL2
+            # Points the Android SDK's ADB client at the Windows-side ADB server
+            # where the Android emulator is running.
+            # WSL2 mirrored networking mode shares localhost with Windows, so
+            # 127.0.0.1 reaches the Windows ADB server directly.
+            if grep -qi microsoft /proc/version 2>/dev/null; then
+              # Allow override via env var; default to localhost (mirrored networking)
+              WINDOWS_HOST="''${ADB_WINDOWS_HOST:-127.0.0.1}"
+              export ANDROID_ADB_SERVER_ADDRESS="$WINDOWS_HOST"
+              echo "WSL2 detected: ADB bridged to Windows host at $WINDOWS_HOST"
+              echo "  (ANDROID_ADB_SERVER_ADDRESS=$WINDOWS_HOST)"
+              echo "  Make sure the Windows ADB server is running:"
+              echo "  > PowerShell (Admin): scripts\\setup-windows-adb-for-wsl.ps1"
+            fi
+
+            echo ""
+            echo "To initialize Android for Tauri (first time):"
             echo "  cd client && npx tauri android init"
+            echo ""
+            echo "To verify emulator connectivity:"
+            echo "  bash scripts/connect-android-emulator.sh"
+            echo ""
+            echo "To run on Android emulator:"
+            echo "  moon run client:tauri-android-dev"
           '';
         };
       };

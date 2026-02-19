@@ -287,7 +287,7 @@ pub async fn start_queue(
     State(state): State<Arc<AppState>>,
     Json(request): Json<StartQueueRequest>,
 ) -> FerrotuneApiResult<Json<StartQueueResponse>> {
-    let source_type = QueueSourceType::from_str(&request.source_type);
+    let source_type: QueueSourceType = request.source_type.parse().unwrap_or_default();
 
     // For playlists with missing entries, we need to track position mappings
     // to correctly translate the client's start_index (based on full playlist positions)
@@ -821,7 +821,7 @@ pub async fn add_to_queue(
         (&request.source_type, &request.source_id)
     {
         // Materialize songs from source
-        let source_type = QueueSourceType::from_str(source_type_str);
+        let source_type: QueueSourceType = source_type_str.parse().unwrap_or_default();
         let songs = materialize_queue_songs(
             &state.pool,
             user.user_id,
@@ -1255,7 +1255,7 @@ pub async fn update_repeat_mode(
     Json(request): Json<RepeatModeRequest>,
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     // Validate repeat mode
-    let mode = RepeatMode::from_str(&request.mode);
+    let mode: RepeatMode = request.mode.parse().unwrap_or_default();
 
     queries::update_queue_repeat_mode(&state.pool, user.user_id, mode.as_str()).await?;
 
@@ -1588,7 +1588,7 @@ pub async fn materialize_lazy_queue_page(
     }
 
     // Parse the source parameters
-    let source_type = QueueSourceType::from_str(&queue.source_type);
+    let source_type: QueueSourceType = queue.source_type.parse().unwrap_or_default();
     let filters: Option<serde_json::Value> = queue
         .filters_json
         .as_ref()
@@ -1676,7 +1676,7 @@ pub async fn get_lazy_queue_count(
     }
 
     // Otherwise, materialize and count
-    let source_type = QueueSourceType::from_str(&queue.source_type);
+    let source_type: QueueSourceType = queue.source_type.parse().unwrap_or_default();
     let filters: Option<serde_json::Value> = queue
         .filters_json
         .as_ref()

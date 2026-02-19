@@ -36,6 +36,9 @@ dependencies {
     // Tauri plugin API
     implementation(project(":tauri-android"))
 
+    // AndroidX Core (for ViewCompat, WindowInsetsCompat)
+    implementation("androidx.core:core-ktx:1.16.0")
+
     // AndroidX Media3 (ExoPlayer) for audio playback
     val media3Version = "1.5.1"
     implementation("androidx.media3:media3-exoplayer:$media3Version")

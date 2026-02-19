@@ -11,9 +11,10 @@ projects:
   ferrotune: '.'
   client: 'client'
 
+defaultProject: 'ferrotune'
+
 # Version control
 vcs:
-  manager: 'git'
   defaultBranch: 'main'
 
 # Node.js settings (if needed for tooling)
@@ -21,7 +22,7 @@ vcs:
 #   version: '20.0.0'
 
 # Task runner settings
-runner:
+pipeline:
   # Enable caching for faster subsequent runs
   cacheLifetime: '7 days'
   

@@ -39,26 +39,6 @@ interface NativePlaybackState {
   queueLength: number;
 }
 
-interface StateChangeEvent {
-  state: NativePlaybackState;
-}
-
-interface ProgressEvent {
-  positionMs: number;
-  durationMs: number;
-  bufferedMs: number;
-}
-
-interface ErrorEvent {
-  message: string;
-  trackId?: string;
-}
-
-interface TrackChangeEvent {
-  track?: NativeTrackInfo;
-  queueIndex: number;
-}
-
 // Native audio API - dynamically imported only when needed
 let nativeAudioApi: typeof import("tauri-plugin-native-audio-api") | null =
   null;
@@ -110,32 +90,33 @@ export interface NativeAudioCallbacks {
   onStateChange: (state: AppPlaybackState) => void;
   onProgress: (currentTime: number, duration: number, buffered: number) => void;
   onError: (message: string, trackId?: string) => void;
-  onTrackChange: (track: NativeTrackInfo | undefined, queueIndex: number) => void;
+  onTrackChange: (
+    track: NativeTrackInfo | undefined,
+    queueIndex: number,
+  ) => void;
+  onSkipPrevious: () => void;
+  onSkipNext: () => void;
 }
-
-/**
- * Unsubscribe functions for event listeners
- */
-type UnlistenFn = () => void;
 
 /**
  * Native audio engine state
  */
 interface NativeEngineState {
   initialized: boolean;
-  unlisteners: UnlistenFn[];
   callbacks: NativeAudioCallbacks | null;
 }
 
 const engineState: NativeEngineState = {
   initialized: false,
-  unlisteners: [],
   callbacks: null,
 };
 
 /**
  * Initialize the native audio engine.
- * Sets up event listeners for state changes, progress, errors, and track changes.
+ * Sets up a global callback function that the Kotlin side calls via
+ * WebView.evaluateJavascript() to deliver events. This bypasses Tauri's
+ * plugin event system (trigger/addPluginListener) which doesn't reliably
+ * deliver events from Android plugins to JS.
  *
  * @param callbacks Callback functions for audio events
  */
@@ -155,40 +136,97 @@ export async function initNativeAudioEngine(
   console.log("[NativeAudio] Initializing native audio engine");
 
   try {
-    const api = await getNativeApi();
+    // Ensure the native API module is loaded (validates Tauri environment)
+    await getNativeApi();
     engineState.callbacks = callbacks;
 
-    // Set up event listeners
-    const stateUnlisten = await api.onStateChange((event: StateChangeEvent) => {
-      console.log("[NativeAudio] State change:", event.state.status);
-      const appState = mapNativeStatusToAppState(event.state.status);
-      engineState.callbacks?.onStateChange(appState);
-    });
-    engineState.unlisteners.push(stateUnlisten);
-
-    const progressUnlisten = await api.onProgress((event: ProgressEvent) => {
-      engineState.callbacks?.onProgress(
-        event.positionMs / 1000, // Convert to seconds
-        event.durationMs / 1000,
-        event.bufferedMs / 1000,
-      );
-    });
-    engineState.unlisteners.push(progressUnlisten);
-
-    const errorUnlisten = await api.onError((event: ErrorEvent) => {
-      console.error("[NativeAudio] Error:", event.message);
-      engineState.callbacks?.onError(event.message, event.trackId);
-    });
-    engineState.unlisteners.push(errorUnlisten);
-
-    const trackUnlisten = await api.onTrackChange((event: TrackChangeEvent) => {
-      console.log("[NativeAudio] Track change:", event.track?.title);
-      engineState.callbacks?.onTrackChange(event.track, event.queueIndex);
-    });
-    engineState.unlisteners.push(trackUnlisten);
+    // Register a global callback that the Kotlin NativeAudioPlugin calls
+    // via WebView.evaluateJavascript() to deliver events.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__ferrotuneNativeAudio = (event: string, data: any) => {
+      switch (event) {
+        case "state-change": {
+          const status = data?.state?.status as
+            | NativePlaybackState["status"]
+            | undefined;
+          if (status) {
+            console.log("[NativeAudio] State change:", status);
+            const appState = mapNativeStatusToAppState(status);
+            engineState.callbacks?.onStateChange(appState);
+          }
+          break;
+        }
+        case "progress":
+          engineState.callbacks?.onProgress(
+            (data?.positionMs ?? 0) / 1000,
+            (data?.durationMs ?? 0) / 1000,
+            (data?.bufferedMs ?? 0) / 1000,
+          );
+          break;
+        case "error":
+          console.error("[NativeAudio] Error:", data?.message);
+          engineState.callbacks?.onError(
+            data?.message ?? "Unknown error",
+            data?.trackId,
+          );
+          break;
+        case "track-change":
+          console.log("[NativeAudio] Track change:", data?.track?.title);
+          engineState.callbacks?.onTrackChange(data?.track, data?.queueIndex);
+          break;
+        case "skip-previous":
+          console.log("[NativeAudio] Skip previous from notification");
+          engineState.callbacks?.onSkipPrevious();
+          break;
+        case "skip-next":
+          console.log("[NativeAudio] Skip next from notification");
+          engineState.callbacks?.onSkipNext();
+          break;
+        default:
+          console.warn("[NativeAudio] Unknown event:", event);
+      }
+    };
 
     engineState.initialized = true;
     console.log("[NativeAudio] Native audio engine initialized");
+
+    // Apply safe area insets that may have been missed during initial page load
+    // (the native listener fires before the WebView loads the page)
+    try {
+      const api = await getNativeApi();
+      const insets = await api.getSafeAreaInsets();
+      if (insets.top > 0 || insets.bottom > 0) {
+        document.documentElement.style.setProperty(
+          "--safe-area-top",
+          `${insets.top}px`,
+        );
+        document.documentElement.style.setProperty(
+          "--safe-area-bottom",
+          `${insets.bottom}px`,
+        );
+      }
+    } catch (insetError) {
+      console.warn("[NativeAudio] Failed to get safe area insets:", insetError);
+    }
+
+    // Sync current state in case the Kotlin side already has playback state
+    // (e.g., service was already running from before the WebView loaded).
+    try {
+      const api = await getNativeApi();
+      const currentState = await api.getState();
+      const appState = mapNativeStatusToAppState(currentState.status);
+      console.log("[NativeAudio] Post-init state sync:", currentState.status);
+      callbacks.onStateChange(appState);
+      if (currentState.positionMs > 0 || currentState.durationMs > 0) {
+        callbacks.onProgress(
+          currentState.positionMs / 1000,
+          currentState.durationMs / 1000,
+          0,
+        );
+      }
+    } catch (syncError) {
+      console.warn("[NativeAudio] Post-init state sync failed:", syncError);
+    }
   } catch (error) {
     console.error("[NativeAudio] Failed to initialize:", error);
     throw error;
@@ -197,16 +235,15 @@ export async function initNativeAudioEngine(
 
 /**
  * Clean up the native audio engine.
- * Removes all event listeners.
+ * Removes the global callback and resets state.
  */
 export async function cleanupNativeAudioEngine(): Promise<void> {
   console.log("[NativeAudio] Cleaning up native audio engine");
 
-  for (const unlisten of engineState.unlisteners) {
-    unlisten();
-  }
+  // Remove global callback
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  delete (window as any).__ferrotuneNativeAudio;
 
-  engineState.unlisteners = [];
   engineState.callbacks = null;
   engineState.initialized = false;
 }
@@ -228,7 +265,9 @@ function songToNativeTrack(
     title: song.title,
     artist: song.artist || "Unknown Artist",
     album: song.album || "Unknown Album",
-    coverArtUrl: song.coverArt ? client.getCoverArtUrl(song.coverArt, 512) : undefined,
+    coverArtUrl: song.coverArt
+      ? client.getCoverArtUrl(song.coverArt, 512)
+      : undefined,
     durationMs: (song.duration || 0) * 1000,
   };
 }

@@ -2,7 +2,7 @@ use tauri::{command, AppHandle, Runtime};
 
 use crate::{
     error::{Error, Result},
-    models::{PlaybackState, QueueItem, TrackInfo},
+    models::{PlaybackState, QueueItem, SafeAreaInsets, TrackInfo},
 };
 
 #[cfg(mobile)]
@@ -170,6 +170,24 @@ pub async fn previous_track<R: Runtime>(app: AppHandle<R>) -> Result<()> {
     {
         let _ = app;
         log::warn!("previous_track() called on desktop - native audio only available on mobile");
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+/// Get safe area insets for edge-to-edge display
+#[command]
+pub async fn get_safe_area_insets<R: Runtime>(app: AppHandle<R>) -> Result<SafeAreaInsets> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().get_safe_area_insets()
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        log::warn!(
+            "get_safe_area_insets() called on desktop - native audio only available on mobile"
+        );
         Err(Error::ServiceNotAvailable)
     }
 }

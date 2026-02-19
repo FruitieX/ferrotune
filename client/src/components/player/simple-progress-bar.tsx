@@ -12,6 +12,7 @@ import {
 import { currentSongAtom } from "@/lib/store/server-queue";
 import { accentColorRgbAtom } from "@/lib/store/ui";
 import { useAudioEngine, getGlobalAudio } from "@/lib/audio/hooks";
+import { hasNativeAudio } from "@/lib/tauri";
 
 interface SimpleProgressBarProps {
   className?: string;
@@ -63,15 +64,21 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
   // Smooth progress animation loop
   useEffect(() => {
     const isPlaying = playbackState === "playing";
+    const isNative = hasNativeAudio();
 
     if (isPlaying) {
       const animateProgress = () => {
-        const audio = getGlobalAudio();
-        if (audio && audio.duration > 0) {
-          smoothProgressRef.current =
-            (audio.currentTime / audio.duration) * 100;
-        } else {
+        if (isNative) {
+          // Native audio: use atom-based progress (updated by native events)
           smoothProgressRef.current = atomProgress;
+        } else {
+          const audio = getGlobalAudio();
+          if (audio && audio.duration > 0) {
+            smoothProgressRef.current =
+              (audio.currentTime / audio.duration) * 100;
+          } else {
+            smoothProgressRef.current = atomProgress;
+          }
         }
         setDisplayProgress(smoothProgressRef.current);
         progressAnimationRef.current = requestAnimationFrame(animateProgress);

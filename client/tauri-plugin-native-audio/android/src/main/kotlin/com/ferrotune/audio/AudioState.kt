@@ -83,8 +83,10 @@ data class PlaybackState(
  * Event names matching the Rust side.
  */
 object AudioEvents {
-    const val STATE_CHANGE = "native-audio://state-change"
-    const val PROGRESS = "native-audio://progress"
-    const val ERROR = "native-audio://error"
-    const val TRACK_CHANGE = "native-audio://track-change"
+    const val STATE_CHANGE = "state-change"
+    const val PROGRESS = "progress"
+    const val ERROR = "error"
+    const val TRACK_CHANGE = "track-change"
+    const val SKIP_PREVIOUS = "skip-previous"
+    const val SKIP_NEXT = "skip-next"
 }

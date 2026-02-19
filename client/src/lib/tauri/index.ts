@@ -183,4 +183,3 @@ export function getApiBaseUrl(serverUrl?: string): string {
   // Default: use same origin (empty string)
   return "";
 }
-

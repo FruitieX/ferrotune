@@ -207,6 +207,15 @@
   --sidebar-ring: oklch(0.6 0.22 15);
 }
 
+/* Safe area inset utilities for edge-to-edge displays (Android/iOS) */
+@utility pt-safe {
+  padding-top: var(--safe-area-top, env(safe-area-inset-top, 0px));
+}
+
+@utility pb-safe {
+  padding-bottom: var(--safe-area-bottom, env(safe-area-inset-bottom, 0px));
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

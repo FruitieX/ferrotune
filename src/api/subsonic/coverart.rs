@@ -48,7 +48,7 @@ impl CoverArtParams {
             None => ThumbnailSize::Large, // Default to original
             Some(s) => {
                 // Try parsing as string first
-                if let Some(size) = ThumbnailSize::from_str(s) {
+                if let Ok(size) = s.parse::<ThumbnailSize>() {
                     return size;
                 }
                 // Try parsing as number for backwards compatibility

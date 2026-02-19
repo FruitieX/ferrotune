@@ -6,13 +6,13 @@ import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Binder
-import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -55,6 +55,11 @@ class PlaybackService : MediaSessionService() {
     private var currentTrack: TrackInfo? = null
     private var queue: List<TrackInfo> = emptyList()
     private var queueIndex: Int = -1
+    // Callback for skip prev/next from notification (delegated to web-side queue)
+    private var onSkipPrevious: (() -> Unit)? = null
+    private var onSkipNext: (() -> Unit)? = null
+    // Volume saved during track transitions (muted to prevent old track audio bleed)
+    private var transitionSavedVolume: Float? = null
 
     private val progressRunnable = object : Runnable {
         override fun run() {
@@ -94,6 +99,30 @@ class PlaybackService : MediaSessionService() {
         // Add player listener
         player.addListener(PlayerListener())
 
+        // Create a ForwardingPlayer that exposes prev/next commands
+        // and routes them to our skip callbacks (managed by the JS-side queue)
+        val forwardingPlayer = object : ForwardingPlayer(player) {
+            override fun getAvailableCommands(): Player.Commands {
+                return super.getAvailableCommands().buildUpon()
+                    .add(COMMAND_SEEK_TO_NEXT)
+                    .add(COMMAND_SEEK_TO_PREVIOUS)
+                    .build()
+            }
+
+            override fun isCommandAvailable(command: Int): Boolean {
+                if (command == COMMAND_SEEK_TO_NEXT || command == COMMAND_SEEK_TO_PREVIOUS) return true
+                return super.isCommandAvailable(command)
+            }
+
+            override fun seekToNext() {
+                onSkipNext?.invoke() ?: super.seekToNext()
+            }
+
+            override fun seekToPrevious() {
+                onSkipPrevious?.invoke() ?: super.seekToPrevious()
+            }
+        }
+
         // Create pending intent for the app
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -102,8 +131,8 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // Create media session
-        mediaSession = MediaSession.Builder(this, player)
+        // Create media session using ForwardingPlayer for notification controls
+        mediaSession = MediaSession.Builder(this, forwardingPlayer)
             .setSessionActivity(pendingIntent)
             .build()
     }
@@ -123,6 +152,18 @@ class PlaybackService : MediaSessionService() {
 
     fun setEventEmitter(emitter: (String, JSObject) -> Unit) {
         eventEmitter = emitter
+    }
+
+    fun setSkipCallbacks(onPrevious: () -> Unit, onNext: () -> Unit) {
+        onSkipPrevious = onPrevious
+        onSkipNext = onNext
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Only stop if not playing - allow background playback while playing
+        if (!player.isPlaying) {
+            stopSelf()
+        }
     }
 
     fun play() {
@@ -152,21 +193,49 @@ class PlaybackService : MediaSessionService() {
 
     fun setTrack(track: TrackInfo) {
         Log.d(TAG, "setTrack(${track.title}) - url: ${track.url}")
+
         currentTrack = track
         queueIndex = 0
         queue = listOf(track)
 
+        // Mute the player during the transition to prevent briefly hearing
+        // the old track. We avoid stop()/setMediaItem() because those enter
+        // STATE_IDLE which dismisses the media notification.
+        // Only save the original volume on the first transition call
+        // (handles rapid successive setTrack calls correctly).
+        if (transitionSavedVolume == null) {
+            transitionSavedVolume = player.volume
+        }
+        player.volume = 0f
+
         scope.launch {
             try {
                 val mediaItem = createMediaItem(track)
-                Log.d(TAG, "setTrack() - MediaItem created, calling player.setMediaItem()")
-                player.setMediaItem(mediaItem)
-                Log.d(TAG, "setTrack() - calling player.prepare()")
-                player.prepare()
-                Log.d(TAG, "setTrack() - player prepared, emitting track change")
+                Log.d(TAG, "setTrack() - MediaItem created")
+
+                if (player.mediaItemCount > 0 && player.playbackState != Player.STATE_IDLE) {
+                    // Swap tracks without going through STATE_IDLE:
+                    // add new item, jump to it, remove old item.
+                    // This keeps the media session alive and the notification visible.
+                    player.addMediaItem(mediaItem)
+                    player.seekToNextMediaItem()
+                    player.removeMediaItem(0)
+                    Log.d(TAG, "setTrack() - swapped media item in-place")
+                } else {
+                    // First track or player was idle — standard path
+                    player.setMediaItem(mediaItem)
+                    player.prepare()
+                    Log.d(TAG, "setTrack() - set initial media item")
+                }
+
                 emitTrackChange()
             } catch (e: Exception) {
                 Log.e(TAG, "setTrack() - Error setting track", e)
+                // Restore volume on failure
+                transitionSavedVolume?.let { savedVol ->
+                    player.volume = savedVol
+                    transitionSavedVolume = null
+                }
                 emitError("Failed to set track: ${e.message}", track.id)
             }
         }
@@ -207,7 +276,13 @@ class PlaybackService : MediaSessionService() {
 
     fun setVolume(volume: Float) {
         Log.d(TAG, "setVolume($volume)")
-        player.volume = volume.coerceIn(0f, 1f)
+        val clamped = volume.coerceIn(0f, 1f)
+        player.volume = clamped
+        // If we're in a transition, update the saved volume too
+        // so the correct value is restored when the transition completes
+        if (transitionSavedVolume != null) {
+            transitionSavedVolume = clamped
+        }
     }
 
     fun getState(): PlaybackState {
@@ -319,6 +394,16 @@ class PlaybackService : MediaSessionService() {
     private inner class PlayerListener : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             Log.d(TAG, "onPlaybackStateChanged: $playbackState")
+
+            // Restore volume after track transition completes
+            if (playbackState == Player.STATE_READY) {
+                transitionSavedVolume?.let { savedVol ->
+                    Log.d(TAG, "Restoring volume after transition: $savedVol")
+                    player.volume = savedVol
+                    transitionSavedVolume = null
+                }
+            }
+
             emitStateChange()
 
             // Start/stop progress updates

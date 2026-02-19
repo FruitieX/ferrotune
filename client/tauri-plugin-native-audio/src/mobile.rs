@@ -6,7 +6,7 @@ use tauri::{
 
 use crate::{
     error::Result,
-    models::{PlaybackState, QueueItem, TrackInfo},
+    models::{PlaybackState, QueueItem, SafeAreaInsets, TrackInfo},
 };
 
 #[cfg(target_os = "android")]
@@ -18,23 +18,17 @@ pub struct NativeAudio<R: Runtime>(PluginHandle<R>);
 impl<R: Runtime> NativeAudio<R> {
     /// Start or resume playback
     pub fn play(&self) -> Result<()> {
-        self.0
-            .run_mobile_plugin("play", ())
-            .map_err(Into::into)
+        self.0.run_mobile_plugin("play", ()).map_err(Into::into)
     }
 
     /// Pause playback
     pub fn pause(&self) -> Result<()> {
-        self.0
-            .run_mobile_plugin("pause", ())
-            .map_err(Into::into)
+        self.0.run_mobile_plugin("pause", ()).map_err(Into::into)
     }
 
     /// Stop playback completely
     pub fn stop(&self) -> Result<()> {
-        self.0
-            .run_mobile_plugin("stop", ())
-            .map_err(Into::into)
+        self.0.run_mobile_plugin("stop", ()).map_err(Into::into)
     }
 
     /// Seek to a specific position
@@ -53,9 +47,7 @@ impl<R: Runtime> NativeAudio<R> {
 
     /// Get current playback state
     pub fn get_state(&self) -> Result<PlaybackState> {
-        self.0
-            .run_mobile_plugin("getState", ())
-            .map_err(Into::into)
+        self.0.run_mobile_plugin("getState", ()).map_err(Into::into)
     }
 
     /// Set playback volume
@@ -89,6 +81,13 @@ impl<R: Runtime> NativeAudio<R> {
     pub fn previous_track(&self) -> Result<()> {
         self.0
             .run_mobile_plugin("previousTrack", ())
+            .map_err(Into::into)
+    }
+
+    /// Get safe area insets for edge-to-edge display
+    pub fn get_safe_area_insets(&self) -> Result<SafeAreaInsets> {
+        self.0
+            .run_mobile_plugin("getSafeAreaInsets", ())
             .map_err(Into::into)
     }
 }
