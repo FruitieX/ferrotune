@@ -68,6 +68,18 @@ internal class QueueItem {
 internal class SetQueueArgs {
     var items: Array<QueueItem> = emptyArray()
     var startIndex: Int = 0
+    var queueOffset: Int = 0
+    var startPositionMs: Long = 0
+}
+
+@InvokeArg
+internal class SetRepeatModeArgs {
+    var mode: String = "off"
+}
+
+@InvokeArg
+internal class AppendToQueueArgs {
+    var items: Array<QueueItem> = emptyArray()
 }
 
 /**
@@ -421,7 +433,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                     invoke.reject("Service not available - try again")
                     return@launch
                 }
-                service.setQueue(items, args.startIndex)
+                service.setQueue(items, args.startIndex, args.queueOffset, args.startPositionMs)
                 invoke.resolve()
             } catch (e: Exception) {
                 Log.e(TAG, "Error in setQueue()", e)
@@ -471,6 +483,58 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                 invoke.resolve()
             } catch (e: Exception) {
                 Log.e(TAG, "Error in previousTrack()", e)
+                invoke.reject(e.message)
+            }
+        }
+    }
+
+    @Command
+    fun setRepeatMode(invoke: Invoke) {
+        scope.launch {
+            try {
+                val args = invoke.parseArgs(SetRepeatModeArgs::class.java)
+                val service = awaitService()
+                if (service == null) {
+                    Log.e(TAG, "setRepeatMode() failed: Service not available after timeout")
+                    invoke.reject("Service not available - try again")
+                    return@launch
+                }
+                service.setRepeatMode(args.mode)
+                invoke.resolve()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in setRepeatMode()", e)
+                invoke.reject(e.message)
+            }
+        }
+    }
+
+    @Command
+    fun appendToQueue(invoke: Invoke) {
+        scope.launch {
+            try {
+                val args = invoke.parseArgs(AppendToQueueArgs::class.java)
+                Log.d(TAG, "appendToQueue() called with ${args.items.size} items")
+                val items = args.items.map { item ->
+                    TrackInfo(
+                        id = item.id,
+                        url = item.url,
+                        title = item.title,
+                        artist = item.artist,
+                        album = item.album,
+                        coverArtUrl = item.coverArtUrl,
+                        durationMs = item.durationMs
+                    )
+                }
+                val service = awaitService()
+                if (service == null) {
+                    Log.e(TAG, "appendToQueue() failed: Service not available after timeout")
+                    invoke.reject("Service not available - try again")
+                    return@launch
+                }
+                service.appendToQueue(items)
+                invoke.resolve()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in appendToQueue()", e)
                 invoke.reject(e.message)
             }
         }

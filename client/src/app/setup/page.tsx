@@ -724,6 +724,8 @@ export default function SetupPage() {
                         value={serverUrl}
                         onChange={(e) => setServerUrl(e.target.value)}
                         disabled={isConnecting}
+                        autoCapitalize="off"
+                        autoCorrect="off"
                       />
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -740,6 +742,8 @@ export default function SetupPage() {
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       disabled={isConnecting}
+                      autoCapitalize="off"
+                      autoCorrect="off"
                     />
                   </div>
 

@@ -41,6 +41,7 @@ import {
   setRepeatModeAtom,
   fetchQueueAtom,
   playAtIndexAtom,
+  queueWindowAtom,
   type RepeatMode,
 } from "@/lib/store/server-queue";
 import { serverConnectionAtom, isHydratedAtom } from "@/lib/store/auth";
@@ -58,6 +59,10 @@ import {
   nativeSetVolume,
   nativeNextTrack,
   nativePreviousTrack,
+  nativeSetQueue,
+  nativeSetRepeatMode,
+  nativeAppendToQueue,
+  nativeGetState,
 } from "@/lib/audio/native-engine";
 
 // Flag to track if we're using native audio
@@ -65,6 +70,15 @@ let usingNativeAudio = false;
 // Promise that resolves when the native audio engine is fully initialized
 // (all event listeners registered). Track-loading must await this.
 let nativeAudioReady: Promise<void> | null = null;
+// Track the server queue offset and length of items currently loaded in ExoPlayer
+let nativeQueueOffset = 0;
+let nativeQueueLength = 0;
+// Flag to indicate the onTrackChange handler already updated state for a native
+// auto-advance, so the track-loading effect should skip re-sending the queue.
+let nativeAutoAdvanced = false;
+// Suppresses the queue-window-sync effect when the window update comes from
+// onTrackChange (auto-advance) rather than a user action like shuffle toggle.
+let suppressQueueWindowSync = false;
 
 // ============================================================================
 // Dual Audio Element System for Gapless Playback
@@ -425,7 +439,8 @@ export function useAudioEngineInit() {
   const replayGainOffset = useAtomValue(replayGainOffsetAtom);
 
   // Server-side queue state
-  const queueState = useAtomValue(serverQueueStateAtom);
+  const [queueState, setServerQueueState] = useAtom(serverQueueStateAtom);
+  const [queueWindow, setQueueWindow] = useAtom(queueWindowAtom);
   const currentSong = useAtomValue(currentSongAtom);
   const nextSong = useAtomValue(nextSongAtom);
   const isRestoringQueue = useAtomValue(isRestoringQueueAtom);
@@ -465,6 +480,8 @@ export function useAudioEngineInit() {
     invalidatePlayCountQueries,
     goToNext,
     goToPrevious,
+    setServerQueueState,
+    setQueueWindow,
   });
 
   // Keep setter refs in sync
@@ -481,6 +498,8 @@ export function useAudioEngineInit() {
       invalidatePlayCountQueries,
       goToNext,
       goToPrevious,
+      setServerQueueState,
+      setQueueWindow,
     };
   });
 
@@ -492,6 +511,7 @@ export function useAudioEngineInit() {
     currentSong,
     nextSong,
     queueState,
+    queueWindow,
     isRestoringQueue,
     transcodingEnabled,
     transcodingBitrate,
@@ -509,6 +529,7 @@ export function useAudioEngineInit() {
       currentSong,
       nextSong,
       queueState,
+      queueWindow,
       isRestoringQueue,
       transcodingEnabled,
       transcodingBitrate,
@@ -550,28 +571,71 @@ export function useAudioEngineInit() {
       // Store the promise so the track-loading effect can await readiness.
       nativeAudioReady = initNativeAudioEngine({
         onStateChange: (state) => {
-          // Handle "ended" state: advance to next track (mirrors web audio handleEnded)
+          // Handle "ended" state: with multi-item queue this only fires when
+          // ExoPlayer has exhausted all loaded media items (end of window or
+          // true end of queue).
           if (state === "ended") {
             logListeningTimeAndReset();
             const qs = stateRef.current.queueState;
+            // Repeat-one is handled natively by ExoPlayer REPEAT_MODE_ONE,
+            // so we should never reach here. Just in case:
             if (qs?.repeatMode === "one") {
-              // Repeat-one: restart the current track
               nativeSeek(0)
                 .then(() => nativePlay())
                 .catch(console.error);
               return;
             }
             if (qs) {
-              const isLastTrack = qs.currentIndex >= qs.totalCount - 1;
-              if (isLastTrack && qs.repeatMode !== "all") {
-                // End of queue with no repeat
+              const isLastServerTrack =
+                qs.currentIndex >= qs.totalCount - 1;
+              if (isLastServerTrack && qs.repeatMode !== "all") {
+                // True end of queue with no repeat
                 settersRef.current.setCurrentTime(0);
                 settersRef.current.setPlaybackState("ended");
                 return;
               }
+              if (isLastServerTrack && qs.repeatMode === "all") {
+                // Repeat-all: wrap around to the beginning
+                // Update server position, fetch a fresh window, and re-send queue
+                const client = getClient();
+                if (client) {
+                  client
+                    .updateServerQueuePosition(0, 0, qs.isShuffled)
+                    .then(() => client.getQueueCurrentWindow(20, "small"))
+                    .then(async (response) => {
+                      settersRef.current.setServerQueueState((prev) =>
+                        prev
+                          ? { ...prev, currentIndex: 0, positionMs: 0 }
+                          : prev,
+                      );
+                      suppressQueueWindowSync = true;
+                      settersRef.current.setQueueWindow(response.window);
+                      if (response.window.songs.length > 0) {
+                        const sorted = [...response.window.songs].sort(
+                          (a, b) => a.position - b.position,
+                        );
+                        const songs = sorted.map((s) => s.song);
+                        nativeQueueOffset = sorted[0].position;
+                        nativeQueueLength = sorted.length;
+                        currentLoadedTrackId = songs[0].id;
+                        await nativeSetQueue(
+                          songs,
+                          0,
+                          client,
+                          nativeQueueOffset,
+                        );
+                        await nativePlay();
+                      }
+                    })
+                    .catch(console.error);
+                }
+                return;
+              }
+              // End of loaded window but more tracks exist in server queue.
+              // This is a fallback — normally onTrackChange proactively appends.
+              // Re-fetch and re-send the queue.
+              settersRef.current.goToNext();
             }
-            // Advance to next track
-            settersRef.current.goToNext();
             return;
           }
 
@@ -641,18 +705,130 @@ export function useAudioEngineInit() {
             duration: 5000,
           });
         },
-        onTrackChange: (_track, queueIndex) => {
-          // Track changes are handled by the server queue
-          // Just reset scrobble state
+        onTrackChange: (track, queueIndex) => {
+          console.log(
+            "[NativeAudio] Track changed to index:",
+            queueIndex,
+            "track:",
+            track?.id,
+          );
+
+          // This fires when ExoPlayer auto-advances to the next track in its
+          // queue. We need to sync state back to JS without triggering the
+          // track-loading effect (which would send the queue again).
+
+          // Log listening time for the track we're leaving
+          if (
+            currentLoadedTrackId &&
+            track?.id &&
+            track.id !== currentLoadedTrackId
+          ) {
+            logListeningTimeAndReset();
+          }
+
+          // Update loaded track ID so the track-loading effect skips
+          if (track?.id) {
+            currentLoadedTrackId = track.id;
+            nativeAutoAdvanced = true;
+          }
+
+          // Reset scrobble state for new track
           settersRef.current.setHasScrobbled(false);
-          console.log("[NativeAudio] Track changed to index:", queueIndex);
+          settersRef.current.setCurrentTime(0);
+
+          // Update server queue state (currentIndex) without incrementing
+          // trackChangeSignal — this prevents the track-loading effect from
+          // re-sending the queue. The currentSongAtom will re-derive from
+          // the new currentIndex.
+          settersRef.current.setServerQueueState((prev) =>
+            prev ? { ...prev, currentIndex: queueIndex, positionMs: 0 } : prev,
+          );
+
+          // Find the song in the queue window for duration info
+          const window = stateRef.current.queueWindow;
+          const entry = window?.songs.find((s) => s.position === queueIndex);
+          if (entry?.song) {
+            settersRef.current.setDuration(entry.song.duration || 0);
+          }
+
+          // Sync position with server asynchronously (fire-and-forget)
+          const client = getClient();
+          if (client) {
+            client
+              .updateServerQueuePosition(queueIndex, 0)
+              .then(() => {
+                // After server sync, re-fetch window centered on new position
+                // so the queue UI and WearOS always show ~20 items around current
+                return client.getQueueCurrentWindow(20, "small");
+              })
+              .then(async (response) => {
+                // Update the queue window atom for UI.
+                // Suppress the queue-window-sync effect — we handle appending
+                // directly here, no need for a full queue re-send.
+                suppressQueueWindowSync = true;
+                settersRef.current.setQueueWindow(response.window);
+
+                const qs = stateRef.current.queueState;
+                if (!qs) return;
+
+                // Check how many items remain ahead in ExoPlayer's queue
+                const exoIndex = queueIndex - nativeQueueOffset;
+                const remainingInExo = nativeQueueLength - exoIndex - 1;
+
+                // Find songs in the new window that are beyond our current
+                // ExoPlayer queue and append them
+                const currentExoEnd = nativeQueueOffset + nativeQueueLength;
+                const newSongs = response.window.songs
+                  .filter((s) => s.position >= currentExoEnd)
+                  .sort((a, b) => a.position - b.position);
+
+                if (newSongs.length > 0 && client) {
+                  console.log(
+                    "[NativeAudio] Appending",
+                    newSongs.length,
+                    "tracks to native queue",
+                  );
+                  await nativeAppendToQueue(
+                    newSongs.map((s) => s.song),
+                    client,
+                  );
+                  nativeQueueLength += newSongs.length;
+                }
+
+                console.log(
+                  "[NativeAudio] Queue status: exoIndex=",
+                  exoIndex,
+                  "remaining=",
+                  remainingInExo,
+                  "nativeQueueLength=",
+                  nativeQueueLength,
+                );
+              })
+              .catch(console.error);
+          }
+
+          // Start listening time tracking for new track
+          if (track?.id) {
+            playbackStartSongId = track.id;
+            accumulatedPlayTime = 0;
+            currentListeningSessionId = null;
+            playbackStartTime = Date.now();
+            startListeningUpdateInterval();
+          }
         },
         onSkipPrevious: () => {
-          console.log("[NativeAudio] Skip previous from notification");
+          // Only fires when ExoPlayer has no previous item (edge of loaded window).
+          // This requires user interaction (screen on), so JS round-trip is OK.
+          console.log(
+            "[NativeAudio] Skip previous from notification (at window edge)",
+          );
           settersRef.current.goToPrevious();
         },
         onSkipNext: () => {
-          console.log("[NativeAudio] Skip next from notification");
+          // Only fires when ExoPlayer has no next item (edge of loaded window).
+          console.log(
+            "[NativeAudio] Skip next from notification (at window edge)",
+          );
           settersRef.current.goToNext();
         },
       }).catch((error) => {
@@ -1214,11 +1390,13 @@ export function useAudioEngineInit() {
           nativeStop().catch(console.error);
           setPlaybackState("idle");
           currentLoadedTrackId = null;
+          nativeQueueOffset = 0;
+          nativeQueueLength = 0;
         }
         return;
       }
 
-      // Skip if same track is already loaded AND signal hasn't changed
+      // Check if signal changed (new queue started, shuffle, playAtIndex, etc.)
       const signalChanged =
         trackChangeSignal !== lastProcessedSignalRef.current;
       console.log(
@@ -1229,6 +1407,19 @@ export function useAudioEngineInit() {
         "lastProcessedSignal:",
         lastProcessedSignalRef.current,
       );
+
+      // If the onTrackChange handler already updated state for a native
+      // auto-advance, skip re-sending the queue.
+      if (nativeAutoAdvanced && !signalChanged) {
+        console.log(
+          "[Audio] Skipping - native auto-advance already handled this track",
+        );
+        nativeAutoAdvanced = false;
+        return;
+      }
+      nativeAutoAdvanced = false;
+
+      // Skip if same track is already loaded AND signal hasn't changed
       if (currentSong.id === currentLoadedTrackId && !signalChanged) {
         console.log("[Audio] Skipping - same track already loaded");
         return;
@@ -1253,26 +1444,76 @@ export function useAudioEngineInit() {
           await nativeAudioReady;
         }
 
-        if (isRestoringQueue) {
-          // During restore: set track but don't play
+        // Build the queue from the queue window. Sort songs by position and
+        // find the start index within the window for the current song.
+        const currentWindow = stateRef.current.queueWindow;
+        const currentQueueState = stateRef.current.queueState;
+        const windowSongs = currentWindow?.songs
+          ? [...currentWindow.songs].sort((a, b) => a.position - b.position)
+          : [];
+
+        // Find the current song's position in the sorted window
+        const startIdx = windowSongs.findIndex(
+          (s) => s.position === currentQueueState?.currentIndex,
+        );
+
+        if (windowSongs.length > 0 && startIdx >= 0) {
+          // Send the full queue window to ExoPlayer
+          const songs = windowSongs.map((s) => s.song);
+          nativeQueueOffset = windowSongs[0].position;
+          nativeQueueLength = windowSongs.length;
+
           console.log(
-            "[Audio] Restoring queue - setting track without playing",
+            "[Audio] Sending queue window to native:",
+            songs.length,
+            "songs, startIdx:",
+            startIdx,
+            "offset:",
+            nativeQueueOffset,
           );
-          setPlaybackState("paused");
+
           setHasScrobbled(false);
           setCurrentTime(0);
           setDuration(currentSong.duration || 0);
-          await nativeSetTrack(currentSong, client);
+
+          await nativeSetQueue(songs, startIdx, client, nativeQueueOffset);
+
+          // Sync repeat mode to native player
+          if (currentQueueState?.repeatMode) {
+            await nativeSetRepeatMode(currentQueueState.repeatMode);
+          }
+
+          if (isRestoringQueue) {
+            console.log(
+              "[Audio] Restoring queue - setting queue without playing",
+            );
+            setPlaybackState("paused");
+          } else {
+            console.log("[Audio] Normal playback - setting queue and playing");
+            setPlaybackState("loading");
+            console.log("[Audio] Queue set, now calling nativePlay");
+            await nativePlay();
+          }
         } else {
-          // Normal playback: set track and play
-          console.log("[Audio] Normal playback - setting track and playing");
-          setPlaybackState("loading");
+          // Fallback: no queue window available, use single track
+          console.log(
+            "[Audio] No queue window, falling back to single track",
+          );
+          nativeQueueOffset = 0;
+          nativeQueueLength = 1;
+
           setHasScrobbled(false);
           setCurrentTime(0);
           setDuration(currentSong.duration || 0);
+
           await nativeSetTrack(currentSong, client);
-          console.log("[Audio] Track set, now calling nativePlay");
-          await nativePlay();
+
+          if (isRestoringQueue) {
+            setPlaybackState("paused");
+          } else {
+            setPlaybackState("loading");
+            await nativePlay();
+          }
         }
       };
 
@@ -1529,6 +1770,80 @@ export function useAudioEngineInit() {
       gainNodes[activeIndex]!.gain.value = 1;
     }
   }, [replayGainMode, replayGainOffset, currentSong]);
+
+  // Re-sync the native queue when the queue window changes (e.g., shuffle toggle,
+  // queue reorder) while the current track stays the same. The initial queue send
+  // is handled by the track-loading effect; this handles subsequent updates.
+  const prevQueueWindowRef = useRef(queueWindow);
+  useEffect(() => {
+    if (!usingNativeAudio || !queueWindow || !currentSong) {
+      prevQueueWindowRef.current = queueWindow;
+      return;
+    }
+
+    // Skip if the window update came from onTrackChange (auto-advance)
+    if (suppressQueueWindowSync) {
+      suppressQueueWindowSync = false;
+      prevQueueWindowRef.current = queueWindow;
+      return;
+    }
+
+    const prevWindow = prevQueueWindowRef.current;
+    prevQueueWindowRef.current = queueWindow;
+
+    // Skip the first mount (initial send is done by track-loading effect)
+    if (!prevWindow) return;
+
+    // Check if the window content actually changed
+    const prevIds = prevWindow.songs
+      .sort((a, b) => a.position - b.position)
+      .map((s) => s.song.id)
+      .join(",");
+    const newIds = queueWindow.songs
+      .sort((a, b) => a.position - b.position)
+      .map((s) => s.song.id)
+      .join(",");
+
+    if (prevIds === newIds) return;
+
+    // Window content changed — re-send the queue to ExoPlayer
+    const client = getClient();
+    if (!client) return;
+
+    const windowSongs = [...queueWindow.songs].sort(
+      (a, b) => a.position - b.position,
+    );
+    const startIdx = windowSongs.findIndex(
+      (s) => s.song.id === currentSong.id,
+    );
+    if (startIdx < 0) return;
+
+    const songs = windowSongs.map((s) => s.song);
+    const offset = windowSongs[0].position;
+
+    console.log(
+      "[Audio] Queue window changed (shuffle/reorder), re-syncing native queue:",
+      songs.length,
+      "songs, startIdx:",
+      startIdx,
+    );
+
+    // Get current playback position to resume seamlessly
+    nativeGetState()
+      .then((state) => {
+        const positionMs = Math.round((state?.positionSeconds ?? 0) * 1000);
+        nativeQueueOffset = offset;
+        nativeQueueLength = songs.length;
+        return nativeSetQueue(songs, startIdx, client, offset, positionMs);
+      })
+      .catch(console.error);
+  }, [queueWindow, currentSong]);
+
+  // Sync repeat mode to native player when it changes
+  useEffect(() => {
+    if (!usingNativeAudio || !queueState?.repeatMode) return;
+    nativeSetRepeatMode(queueState.repeatMode).catch(console.error);
+  }, [queueState?.repeatMode]);
 }
 
 /**
@@ -1548,6 +1863,7 @@ export function useAudioEngine() {
   const goToPreviousAction = useSetAtom(goToPreviousAtom);
   const playAtIndex = useSetAtom(playAtIndexAtom);
   const setIsRestoring = useSetAtom(isRestoringQueueAtom);
+  const setTrackChangeSignal = useSetAtom(trackChangeSignalAtom);
 
   // Transcoding settings (needed for time-offset seeking)
   const transcodingEnabled = useAtomValue(transcodingEnabledAtom);
@@ -1570,12 +1886,10 @@ export function useAudioEngine() {
     invalidatePreBuffer();
 
     if (usingNativeAudio) {
-      nativeSetTrack(currentSong, client)
-        .then(() => nativePlay())
-        .catch((err) => {
-          console.error("[NativeAudio] Retry playback failed:", err);
-          setPlaybackState("error");
-        });
+      // Force the track-loading effect to re-send the queue window by
+      // incrementing the signal. It will see currentLoadedTrackId === null
+      // and send the full queue.
+      setTrackChangeSignal((prev) => prev + 1);
     } else {
       const audio = getActiveAudio();
       if (audio) {
@@ -1818,7 +2132,10 @@ export function useAudioEngine() {
     isGaplessHandoff = false;
     gaplessHandoffExpectedTrackId = null;
     if (usingNativeAudio) {
+      // ExoPlayer handles next natively within its queue.
+      // onTrackChange will sync state back to JS.
       nativeNextTrack().catch(console.error);
+      return;
     }
     goToNextAction();
   };
@@ -1827,18 +2144,10 @@ export function useAudioEngine() {
     setIsRestoring(false);
 
     if (usingNativeAudio) {
-      // If more than 3 seconds in, restart current track instead of going to previous
-      if (lastKnownNativeCurrentTime > 3) {
-        nativeSeek(0).catch(console.error);
-        setCurrentTime(0);
-        lastKnownNativeCurrentTime = 0;
-        return;
-      }
+      // ExoPlayer handles previous natively (with 3-second restart built in).
+      // onTrackChange will sync state back to JS.
       logListeningTimeAndReset(true);
-      invalidatePreBuffer();
-      isGaplessHandoff = false;
-      gaplessHandoffExpectedTrackId = null;
-      goToPreviousAction();
+      nativePreviousTrack().catch(console.error);
       return;
     }
 
@@ -1866,11 +2175,11 @@ export function useAudioEngine() {
     isGaplessHandoff = false;
     gaplessHandoffExpectedTrackId = null;
     if (usingNativeAudio) {
-      // For force previous, we need to go to previous track regardless of position
-      // The native implementation handles the 3-second rule, so we seek to 0 first
+      // Seek to 0 first then go previous so ExoPlayer skips the 3-second rule
       nativeSeek(0)
         .then(() => nativePreviousTrack())
         .catch(console.error);
+      return;
     }
     goToPreviousAction();
   };

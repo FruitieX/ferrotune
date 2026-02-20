@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   motion,
@@ -1057,10 +1058,16 @@ function FullscreenButton() {
 // ============================================================================
 
 export function PlayerBar() {
+  const pathname = usePathname();
   const currentTrack = useAtomValue(currentSongAtom);
   const playbackState = useAtomValue(playbackStateAtom);
   const connection = useAtomValue(serverConnectionAtom);
   const progressBarStyle = useAtomValue(progressBarStyleAtom);
+
+  // Don't show on login or setup pages
+  if (pathname === "/login" || pathname === "/setup") {
+    return null;
+  }
 
   const isEnded = playbackState === "ended";
   const hasTrack = !!currentTrack;

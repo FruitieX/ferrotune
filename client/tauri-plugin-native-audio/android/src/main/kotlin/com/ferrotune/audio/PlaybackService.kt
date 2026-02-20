@@ -2,8 +2,6 @@ package com.ferrotune.audio
 
 import android.app.PendingIntent
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Binder
 import android.os.Handler
@@ -21,14 +19,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import app.tauri.plugin.JSObject
-import coil.ImageLoader
-import coil.request.ImageRequest
-import coil.request.SuccessResult
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
 
 /**
  * MediaSessionService for handling audio playback.
@@ -48,18 +38,27 @@ class PlaybackService : MediaSessionService() {
     private val binder = LocalBinder()
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val handler = Handler(Looper.getMainLooper())
 
     private var eventEmitter: ((String, JSObject) -> Unit)? = null
     private var currentTrack: TrackInfo? = null
     private var queue: List<TrackInfo> = emptyList()
     private var queueIndex: Int = -1
+    // Offset of the first item in ExoPlayer's queue relative to the server queue
+    private var queueOffset: Int = 0
     // Callback for skip prev/next from notification (delegated to web-side queue)
     private var onSkipPrevious: (() -> Unit)? = null
     private var onSkipNext: (() -> Unit)? = null
     // Volume saved during track transitions (muted to prevent old track audio bleed)
     private var transitionSavedVolume: Float? = null
+
+    // Timeout to stop service if JS side doesn't advance after track ends
+    private val endedTimeoutRunnable = Runnable {
+        Log.d(TAG, "Track ended timeout - stopping service")
+        if (player.playbackState == Player.STATE_ENDED) {
+            stopSelf()
+        }
+    }
 
     private val progressRunnable = object : Runnable {
         override fun run() {
@@ -99,8 +98,10 @@ class PlaybackService : MediaSessionService() {
         // Add player listener
         player.addListener(PlayerListener())
 
-        // Create a ForwardingPlayer that exposes prev/next commands
-        // and routes them to our skip callbacks (managed by the JS-side queue)
+        // Create a ForwardingPlayer that exposes prev/next commands.
+        // When ExoPlayer has adjacent items in its queue, use native skip for
+        // instant gapless transition. Only fall back to JS-side queue management
+        // at the edges of the loaded window.
         val forwardingPlayer = object : ForwardingPlayer(player) {
             override fun getAvailableCommands(): Player.Commands {
                 return super.getAvailableCommands().buildUpon()
@@ -115,11 +116,21 @@ class PlaybackService : MediaSessionService() {
             }
 
             override fun seekToNext() {
-                onSkipNext?.invoke() ?: super.seekToNext()
+                if (wrappedPlayer.hasNextMediaItem()) {
+                    wrappedPlayer.seekToNextMediaItem()
+                } else {
+                    onSkipNext?.invoke()
+                }
             }
 
             override fun seekToPrevious() {
-                onSkipPrevious?.invoke() ?: super.seekToPrevious()
+                if (wrappedPlayer.currentPosition > 3000) {
+                    wrappedPlayer.seekTo(0)
+                } else if (wrappedPlayer.hasPreviousMediaItem()) {
+                    wrappedPlayer.seekToPreviousMediaItem()
+                } else {
+                    onSkipPrevious?.invoke()
+                }
             }
         }
 
@@ -144,7 +155,7 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         Log.d(TAG, "PlaybackService destroyed")
         handler.removeCallbacks(progressRunnable)
-        scope.cancel()
+        handler.removeCallbacks(endedTimeoutRunnable)
         mediaSession.release()
         player.release()
         super.onDestroy()
@@ -160,10 +171,21 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Only stop if not playing - allow background playback while playing
-        if (!player.isPlaying) {
+        // Use playWhenReady instead of isPlaying. When a track naturally ends
+        // (STATE_ENDED), isPlaying is false but playWhenReady is still true.
+        // This gives the JS side time to advance to the next track.
+        if (!player.playWhenReady || player.mediaItemCount == 0) {
             stopSelf()
         }
+    }
+
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        // Keep the service in foreground when a track ends naturally
+        // (playWhenReady still true) to prevent the system from killing
+        // the service before the JS side can advance to the next track.
+        val keepForeground = startInForegroundRequired ||
+            (player.playWhenReady && player.playbackState == Player.STATE_ENDED)
+        super.onUpdateNotification(session, keepForeground)
     }
 
     fun play() {
@@ -193,6 +215,7 @@ class PlaybackService : MediaSessionService() {
 
     fun setTrack(track: TrackInfo) {
         Log.d(TAG, "setTrack(${track.title}) - url: ${track.url}")
+        handler.removeCallbacks(endedTimeoutRunnable)
 
         currentTrack = track
         queueIndex = 0
@@ -208,50 +231,63 @@ class PlaybackService : MediaSessionService() {
         }
         player.volume = 0f
 
-        scope.launch {
-            try {
-                val mediaItem = createMediaItem(track)
-                Log.d(TAG, "setTrack() - MediaItem created")
+        try {
+            val mediaItem = createMediaItem(track)
+            Log.d(TAG, "setTrack() - MediaItem created")
 
-                if (player.mediaItemCount > 0 && player.playbackState != Player.STATE_IDLE) {
-                    // Swap tracks without going through STATE_IDLE:
-                    // add new item, jump to it, remove old item.
-                    // This keeps the media session alive and the notification visible.
-                    player.addMediaItem(mediaItem)
-                    player.seekToNextMediaItem()
-                    player.removeMediaItem(0)
-                    Log.d(TAG, "setTrack() - swapped media item in-place")
-                } else {
-                    // First track or player was idle — standard path
-                    player.setMediaItem(mediaItem)
-                    player.prepare()
-                    Log.d(TAG, "setTrack() - set initial media item")
-                }
-
-                emitTrackChange()
-            } catch (e: Exception) {
-                Log.e(TAG, "setTrack() - Error setting track", e)
-                // Restore volume on failure
-                transitionSavedVolume?.let { savedVol ->
-                    player.volume = savedVol
-                    transitionSavedVolume = null
-                }
-                emitError("Failed to set track: ${e.message}", track.id)
+            if (player.mediaItemCount > 0 && player.playbackState != Player.STATE_IDLE) {
+                // Swap tracks without going through STATE_IDLE:
+                // add new item, jump to it, remove old item.
+                // This keeps the media session alive and the notification visible.
+                player.addMediaItem(mediaItem)
+                player.seekToNextMediaItem()
+                player.removeMediaItem(0)
+                Log.d(TAG, "setTrack() - swapped media item in-place")
+            } else {
+                // First track or player was idle — standard path
+                player.setMediaItem(mediaItem)
+                player.prepare()
+                Log.d(TAG, "setTrack() - set initial media item")
             }
+
+            emitTrackChange()
+        } catch (e: Exception) {
+            Log.e(TAG, "setTrack() - Error setting track", e)
+            // Restore volume on failure
+            transitionSavedVolume?.let { savedVol ->
+                player.volume = savedVol
+                transitionSavedVolume = null
+            }
+            emitError("Failed to set track: ${e.message}", track.id)
         }
     }
 
-    fun setQueue(items: List<TrackInfo>, startIndex: Int) {
-        Log.d(TAG, "setQueue(${items.size} items, startIndex=$startIndex)")
+    fun setQueue(items: List<TrackInfo>, startIndex: Int, offset: Int = 0, startPositionMs: Long = 0) {
+        Log.d(TAG, "setQueue(${items.size} items, startIndex=$startIndex, offset=$offset, startPositionMs=$startPositionMs)")
+        handler.removeCallbacks(endedTimeoutRunnable)
         queue = items
-        queueIndex = startIndex.coerceIn(0, items.size - 1)
-        currentTrack = items.getOrNull(queueIndex)
+        queueOffset = offset
+        queueIndex = offset + startIndex.coerceIn(0, items.size - 1)
+        currentTrack = items.getOrNull(startIndex.coerceIn(0, items.size - 1))
 
-        scope.launch {
-            val mediaItems = items.map { createMediaItem(it) }
-            player.setMediaItems(mediaItems, queueIndex, 0)
-            player.prepare()
-            emitTrackChange()
+        val mediaItems = items.map { createMediaItem(it) }
+        player.setMediaItems(mediaItems, startIndex.coerceIn(0, items.size - 1), startPositionMs)
+        player.prepare()
+        emitTrackChange()
+    }
+
+    fun appendToQueue(items: List<TrackInfo>) {
+        Log.d(TAG, "appendToQueue(${items.size} items)")
+        queue = queue + items
+        val mediaItems = items.map { createMediaItem(it) }
+        player.addMediaItems(mediaItems)
+    }
+
+    fun setRepeatMode(mode: String) {
+        Log.d(TAG, "setRepeatMode($mode)")
+        player.repeatMode = when (mode) {
+            "one" -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
         }
     }
 
@@ -293,30 +329,23 @@ class PlaybackService : MediaSessionService() {
             volume = player.volume,
             muted = player.volume == 0f,
             track = currentTrack,
-            queueIndex = player.currentMediaItemIndex,
+            queueIndex = queueOffset + player.currentMediaItemIndex,
             queueLength = queue.size
         )
     }
 
-    private suspend fun createMediaItem(track: TrackInfo): MediaItem {
+    private fun createMediaItem(track: TrackInfo): MediaItem {
         val metadataBuilder = MediaMetadata.Builder()
             .setTitle(track.title)
             .setArtist(track.artist)
             .setAlbumTitle(track.album)
 
-        // Load artwork if available
+        // Use artwork URI instead of embedding raw bitmap data.
+        // Embedding bitmaps in MediaMetadata causes TransactionTooLargeException
+        // (binder limit ~1MB) when the MediaSession sends player info to controllers.
+        // Media3 will load the artwork asynchronously from the URI for notifications.
         if (track.coverArtUrl != null) {
-            try {
-                val bitmap = loadArtwork(track.coverArtUrl)
-                if (bitmap != null) {
-                    metadataBuilder.setArtworkData(
-                        bitmapToByteArray(bitmap),
-                        MediaMetadata.PICTURE_TYPE_FRONT_COVER
-                    )
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to load artwork", e)
-            }
+            metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
         }
 
         return MediaItem.Builder()
@@ -324,27 +353,6 @@ class PlaybackService : MediaSessionService() {
             .setUri(Uri.parse(track.url))
             .setMediaMetadata(metadataBuilder.build())
             .build()
-    }
-
-    private suspend fun loadArtwork(url: String): Bitmap? {
-        val loader = ImageLoader(this)
-        val request = ImageRequest.Builder(this)
-            .data(url)
-            .size(512, 512)
-            .build()
-
-        val result = loader.execute(request)
-        return if (result is SuccessResult) {
-            (result.drawable as? BitmapDrawable)?.bitmap
-        } else {
-            null
-        }
-    }
-
-    private fun bitmapToByteArray(bitmap: Bitmap): ByteArray {
-        val stream = java.io.ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-        return stream.toByteArray()
     }
 
     private fun mapPlaybackState(state: Int, playWhenReady: Boolean): PlaybackStatus {
@@ -412,6 +420,14 @@ class PlaybackService : MediaSessionService() {
             } else {
                 handler.removeCallbacks(progressRunnable)
             }
+
+            // When a track ends, give the JS side time to advance to the
+            // next track. If no new track is set within 60s, stop the service.
+            if (playbackState == Player.STATE_ENDED) {
+                handler.postDelayed(endedTimeoutRunnable, 60_000)
+            } else {
+                handler.removeCallbacks(endedTimeoutRunnable)
+            }
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -426,9 +442,10 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            Log.d(TAG, "onMediaItemTransition: ${mediaItem?.mediaId}, reason: $reason")
-            queueIndex = player.currentMediaItemIndex
-            currentTrack = queue.getOrNull(queueIndex)
+            Log.d(TAG, "onMediaItemTransition: ${mediaItem?.mediaId}, reason: $reason, exoIndex: ${player.currentMediaItemIndex}")
+            val exoIndex = player.currentMediaItemIndex
+            queueIndex = queueOffset + exoIndex
+            currentTrack = queue.getOrNull(exoIndex)
             emitTrackChange()
             emitStateChange()
         }

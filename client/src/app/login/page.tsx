@@ -358,6 +358,33 @@ export default function LoginPage() {
               {/* Show remote server options when not using embedded */}
               {(!isEmbeddedAvailable || !useEmbeddedServer) && (
                 <>
+                  {/* Server URL - shown prominently above auth on Tauri mobile */}
+                  {isMobileTauri && (
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="server-url"
+                        className="text-sm font-medium flex items-center gap-2"
+                      >
+                        <Server className="w-4 h-4" />
+                        Server URL
+                      </label>
+                      <Input
+                        id="server-url"
+                        placeholder="http://192.168.1.100:4040"
+                        value={serverUrl}
+                        onChange={(e) => setServerUrl(e.target.value)}
+                        disabled={isConnecting}
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {serverUrl
+                          ? `Will connect to: ${serverUrl}`
+                          : "Enter the URL of your Ferrotune server"}
+                      </p>
+                    </div>
+                  )}
+
                   {/* Auth method tabs */}
                   <Tabs defaultValue="password" className="w-full">
                     <TabsList className="grid w-full grid-cols-2">
@@ -380,6 +407,8 @@ export default function LoginPage() {
                           value={username}
                           onChange={(e) => setUsername(e.target.value)}
                           disabled={isConnecting}
+                          autoCapitalize="off"
+                          autoCorrect="off"
                         />
                       </div>
 
@@ -472,30 +501,8 @@ export default function LoginPage() {
                     </TabsContent>
                   </Tabs>
 
-                  {/* Server URL - shown prominently on Tauri mobile, in Advanced otherwise */}
-                  {isMobileTauri ? (
-                    <div className="space-y-2">
-                      <label
-                        htmlFor="server-url"
-                        className="text-sm font-medium flex items-center gap-2"
-                      >
-                        <Server className="w-4 h-4" />
-                        Server URL
-                      </label>
-                      <Input
-                        id="server-url"
-                        placeholder="http://192.168.1.100:4040"
-                        value={serverUrl}
-                        onChange={(e) => setServerUrl(e.target.value)}
-                        disabled={isConnecting}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        {serverUrl
-                          ? `Will connect to: ${serverUrl}`
-                          : "Enter the URL of your Ferrotune server"}
-                      </p>
-                    </div>
-                  ) : (
+                  {/* Server URL - in Advanced collapsible on web (non-mobile Tauri) */}
+                  {!isMobileTauri && (
                     <Collapsible
                       open={showAdvanced}
                       onOpenChange={setShowAdvanced}
@@ -541,6 +548,8 @@ export default function LoginPage() {
                                 value={serverUrl}
                                 onChange={(e) => setServerUrl(e.target.value)}
                                 disabled={isConnecting}
+                                autoCapitalize="off"
+                                autoCorrect="off"
                               />
                               <p className="text-xs text-muted-foreground">
                                 {serverUrl

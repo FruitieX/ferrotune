@@ -16,6 +16,7 @@ import {
   Trash2,
   Ban,
   Settings,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -783,6 +784,17 @@ export function SongContextMenu({
 
   const handleMarkForEditing = useMarkForEditing(song);
 
+  async function handleRescan() {
+    const client = getClient();
+    if (!client) return;
+    try {
+      await client.rescanFiles([song.id]);
+      toast.success("Song rescanned");
+    } catch {
+      toast.error("Failed to rescan song");
+    }
+  }
+
   // Bulk actions - use queueSongs for finding selected songs
   const bulkActions = useBulkSongActions(queueSongs ?? [song]);
 
@@ -875,6 +887,7 @@ export function SongContextMenu({
                 handlers={{
                   handleDownload,
                   handleMarkForEditing,
+                  handleRescan,
                   setDetailsOpen,
                   setConfirmDeletionOpen,
                 }}
@@ -1010,6 +1023,17 @@ export function SongDropdownMenu({
 
   const handleMarkForEditing = useMarkForEditing(song);
 
+  async function handleRescan() {
+    const client = getClient();
+    if (!client) return;
+    try {
+      await client.rescanFiles([song.id]);
+      toast.success("Song rescanned");
+    } catch {
+      toast.error("Failed to rescan song");
+    }
+  }
+
   const defaultTrigger = (
     <Button
       variant="ghost"
@@ -1096,6 +1120,7 @@ export function SongDropdownMenu({
             handlers={{
               handleDownload,
               handleMarkForEditing,
+              handleRescan,
               setDetailsOpen,
               setConfirmDeletionOpen,
             }}

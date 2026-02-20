@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import {
   DndContext,
   closestCenter,
@@ -184,6 +184,16 @@ export function ImportFromFileDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileIdCounter = useRef(0);
 
+  // Reset state when dialog opens (handles external open state changes)
+  useEffect(() => {
+    if (open) {
+      setImportAudio(true);
+      setImportTags(false);
+      setImportCoverArt(false);
+      setSelectedFiles([]);
+    }
+  }, [open]);
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
@@ -253,25 +263,14 @@ export function ImportFromFileDialog({
     setSelectedFiles([]);
   }
 
-  // Reset state when dialog opens
-  function handleOpenChange(newOpen: boolean) {
-    if (newOpen) {
-      setImportAudio(true);
-      setImportTags(false);
-      setImportCoverArt(false);
-      setSelectedFiles([]);
-    }
-    onOpenChange(newOpen);
-  }
-
   const title = "Replace with File";
   const description = isBatch
     ? `Choose what to replace from audio files for ${trackCount} selected tracks.`
     : "Choose what to replace from an audio file.";
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-md lg:max-w-2xl xl:max-w-3xl overflow-x-hidden">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl lg:max-w-4xl xl:max-w-5xl overflow-x-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileAudio className="h-5 w-5" />

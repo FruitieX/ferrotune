@@ -20,3 +20,9 @@
 *.py
 
 *.db
+
+/scripts/.venv
+/.cache
+/*.log
+/*.csv
+/*.txt

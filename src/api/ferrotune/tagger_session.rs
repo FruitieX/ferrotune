@@ -1537,35 +1537,35 @@ pub async fn upload_replacement_audio(
             if import_tags {
                 let mut tag_map = HashMap::new();
                 if let Some(tag) = tagged_file.primary_tag() {
-                    // Extract common tags
+                    // Extract common tags using standard uppercase key names
                     if let Some(v) = tag.title() {
-                        tag_map.insert("title".to_string(), v.to_string());
+                        tag_map.insert("TITLE".to_string(), v.to_string());
                     }
                     if let Some(v) = tag.artist() {
-                        tag_map.insert("artist".to_string(), v.to_string());
+                        tag_map.insert("ARTIST".to_string(), v.to_string());
                     }
                     if let Some(v) = tag.album() {
-                        tag_map.insert("album".to_string(), v.to_string());
+                        tag_map.insert("ALBUM".to_string(), v.to_string());
                     }
                     if let Some(v) = tag.genre() {
-                        tag_map.insert("genre".to_string(), v.to_string());
+                        tag_map.insert("GENRE".to_string(), v.to_string());
                     }
                     if let Some(v) = tag.year() {
-                        tag_map.insert("year".to_string(), v.to_string());
+                        tag_map.insert("YEAR".to_string(), v.to_string());
                     }
                     if let Some(v) = tag.track() {
-                        tag_map.insert("track".to_string(), v.to_string());
+                        tag_map.insert("TRACKNUMBER".to_string(), v.to_string());
                     }
                     if let Some(v) = tag.disk() {
-                        tag_map.insert("disc".to_string(), v.to_string());
+                        tag_map.insert("DISCNUMBER".to_string(), v.to_string());
                     }
                     if let Some(v) = tag.comment() {
-                        tag_map.insert("comment".to_string(), v.to_string());
+                        tag_map.insert("COMMENT".to_string(), v.to_string());
                     }
 
                     // Also check for album artist
                     if let Some(v) = tag.get_string(&lofty::tag::ItemKey::AlbumArtist) {
-                        tag_map.insert("albumArtist".to_string(), v.to_string());
+                        tag_map.insert("ALBUMARTIST".to_string(), v.to_string());
                     }
                 }
 
@@ -2965,15 +2965,20 @@ pub async fn save_pending_edits_stream(
 ) -> impl IntoResponse {
     use axum::response::sse::{Event, Sse};
     use std::convert::Infallible;
+    use tokio_stream::wrappers::ReceiverStream;
+    use tokio_stream::StreamExt;
 
-    let stream = async_stream::stream! {
-        let result = save_pending_edits_internal(user, state, request).await;
+    let (tx, rx) = tokio::sync::mpsc::channel::<SaveProgressEvent>(16);
 
-        for event in result {
-            let data = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
-            yield Ok::<_, Infallible>(Event::default().data(data));
-        }
-    };
+    // Spawn the save work in a background task so events stream as they're produced
+    tokio::spawn(async move {
+        save_pending_edits_internal(user, state, request, tx).await;
+    });
+
+    let stream = ReceiverStream::new(rx).map(|event| {
+        let data = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
+        Ok::<_, Infallible>(Event::default().data(data))
+    });
 
     Sse::new(stream).keep_alive(
         axum::response::sse::KeepAlive::new()
@@ -2982,35 +2987,37 @@ pub async fn save_pending_edits_stream(
     )
 }
 
-/// Internal implementation that yields progress events
+/// Internal implementation that sends progress events via channel
 async fn save_pending_edits_internal(
     user: FerrotuneAuthenticatedUser,
     state: Arc<AppState>,
     request: SavePendingEditsRequest,
-) -> Vec<SaveProgressEvent> {
+    tx: tokio::sync::mpsc::Sender<SaveProgressEvent>,
+) {
     use crate::db::queries;
 
-    let mut events = Vec::new();
     let total = request.track_ids.len() as i32;
 
     let session_id = match get_or_create_session(&state.pool, user.user_id).await {
         Ok(id) => id,
         Err(e) => {
-            events.push(SaveProgressEvent {
-                event_type: "complete".to_string(),
-                current: 0,
-                total,
-                track_id: None,
-                error: Some(format!("Failed to get session: {}", e)),
-                result: Some(SavePendingEditsResponse {
-                    success: false,
-                    saved_count: 0,
-                    errors: vec![],
-                    rescan_recommended: false,
-                    new_song_paths: vec![],
-                }),
-            });
-            return events;
+            let _ = tx
+                .send(SaveProgressEvent {
+                    event_type: "complete".to_string(),
+                    current: 0,
+                    total,
+                    track_id: None,
+                    error: Some(format!("Failed to get session: {}", e)),
+                    result: Some(SavePendingEditsResponse {
+                        success: false,
+                        saved_count: 0,
+                        errors: vec![],
+                        rescan_recommended: false,
+                        new_song_paths: vec![],
+                    }),
+                })
+                .await;
+            return;
         }
     };
 
@@ -3039,34 +3046,38 @@ async fn save_pending_edits_internal(
     let music_folders = match queries::get_music_folders(&state.pool).await {
         Ok(folders) => folders,
         Err(e) => {
-            events.push(SaveProgressEvent {
-                event_type: "complete".to_string(),
-                current: 0,
-                total,
-                track_id: None,
-                error: Some(format!("Failed to get music folders: {}", e)),
-                result: Some(SavePendingEditsResponse {
-                    success: false,
-                    saved_count: 0,
-                    errors: vec![],
-                    rescan_recommended: false,
-                    new_song_paths: vec![],
-                }),
-            });
-            return events;
+            let _ = tx
+                .send(SaveProgressEvent {
+                    event_type: "complete".to_string(),
+                    current: 0,
+                    total,
+                    track_id: None,
+                    error: Some(format!("Failed to get music folders: {}", e)),
+                    result: Some(SavePendingEditsResponse {
+                        success: false,
+                        saved_count: 0,
+                        errors: vec![],
+                        rescan_recommended: false,
+                        new_song_paths: vec![],
+                    }),
+                })
+                .await;
+            return;
         }
     };
 
     for (index, track_id) in request.track_ids.iter().enumerate() {
         // Emit progress event for starting this track
-        events.push(SaveProgressEvent {
-            event_type: "progress".to_string(),
-            current: index as i32,
-            total,
-            track_id: Some(track_id.clone()),
-            error: None,
-            result: None,
-        });
+        let _ = tx
+            .send(SaveProgressEvent {
+                event_type: "progress".to_string(),
+                current: index as i32,
+                total,
+                track_id: Some(track_id.clone()),
+                error: None,
+                result: None,
+            })
+            .await;
 
         // Process this track using the same logic as save_pending_edits
         let track_result = save_single_track(
@@ -3166,22 +3177,22 @@ async fn save_pending_edits_internal(
     }
 
     // Emit completion event
-    events.push(SaveProgressEvent {
-        event_type: "complete".to_string(),
-        current: total,
-        total,
-        track_id: None,
-        error: None,
-        result: Some(SavePendingEditsResponse {
-            success: errors.is_empty(),
-            saved_count,
-            errors,
-            rescan_recommended,
-            new_song_paths: new_song_ids,
-        }),
-    });
-
-    events
+    let _ = tx
+        .send(SaveProgressEvent {
+            event_type: "complete".to_string(),
+            current: total,
+            total,
+            track_id: None,
+            error: None,
+            result: Some(SavePendingEditsResponse {
+                success: errors.is_empty(),
+                saved_count,
+                errors,
+                rescan_recommended,
+                new_song_paths: new_song_ids,
+            }),
+        })
+        .await;
 }
 
 /// Result of saving a single track

@@ -669,6 +669,12 @@ export function SaveConfirmationDialog({
                     const state = tracks.get(conflict.songId);
                     const fileName =
                       state?.track.filePath.split("/").pop() ?? conflict.songId;
+                    const conflictLibraryPrefix =
+                      session.showLibraryPrefix &&
+                      state?.track.musicFolderPath &&
+                      !state?.track.isStaged
+                        ? `${state.track.musicFolderPath}/`
+                        : "";
 
                     return (
                       <div
@@ -682,16 +688,16 @@ export function SaveConfirmationDialog({
                             </p>
                             <p
                               className="text-xs text-red-500 truncate"
-                              title={conflict.requestedPath}
+                              title={`${conflictLibraryPrefix}${conflict.requestedPath}`}
                             >
-                              → {conflict.requestedPath}
+                              → {`${conflictLibraryPrefix}${conflict.requestedPath}`}
                             </p>
                             {resolution?.action === "rename" && (
                               <p
                                 className="text-xs text-green-500 truncate"
-                                title={conflict.suggestedPath}
+                                title={`${conflictLibraryPrefix}${conflict.suggestedPath}`}
                               >
-                                Will save as: {conflict.suggestedPath}
+                                Will save as: {`${conflictLibraryPrefix}${conflict.suggestedPath}`}
                               </p>
                             )}
                           </div>
@@ -744,13 +750,21 @@ export function SaveConfirmationDialog({
                 </p>
                 <div className="space-y-2">
                   {Array.from(duplicatePaths.entries()).map(
-                    ([path, songIds]) => (
+                    ([path, songIds]) => {
+                      const firstState = tracks.get(songIds[0]);
+                      const dupLibraryPrefix =
+                        session.showLibraryPrefix &&
+                        firstState?.track.musicFolderPath &&
+                        !firstState?.track.isStaged
+                          ? `${firstState.track.musicFolderPath}/`
+                          : "";
+                      return (
                       <div
                         key={path}
                         className="p-2 bg-background rounded border border-border/50"
                       >
                         <p className="text-sm font-medium text-red-500 truncate">
-                          → {path}
+                          → {`${dupLibraryPrefix}${path}`}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           Conflicting tracks:{" "}
@@ -764,7 +778,8 @@ export function SaveConfirmationDialog({
                             .join(", ")}
                         </p>
                       </div>
-                    ),
+                      );
+                    },
                   )}
                 </div>
               </div>

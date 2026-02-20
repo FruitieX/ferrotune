@@ -508,6 +508,7 @@ export interface SongMenuItemsNavigationProps {
   handlers: {
     handleDownload?: () => void;
     handleMarkForEditing?: () => void;
+    handleRescan?: () => void;
     setDetailsOpen: (open: boolean) => void;
     setConfirmDeletionOpen?: (open: boolean) => void;
   };
@@ -525,7 +526,9 @@ export function SongMenuItemsNavigation({
   const { Item, Separator } = components;
 
   const hasEditingActions =
-    handlers.handleMarkForEditing || handlers.setConfirmDeletionOpen;
+    handlers.handleMarkForEditing ||
+    handlers.handleRescan ||
+    handlers.setConfirmDeletionOpen;
 
   return (
     <>
@@ -547,7 +550,7 @@ export function SongMenuItemsNavigation({
             href: `/library/albums/details?id=${song.albumId}`,
           },
         )}
-      {/* Mark for Editing and Mark for Deletion grouped together */}
+      {/* Mark for Editing, Rescan, and Mark for Deletion grouped together */}
       {hasEditingActions && (
         <>
           <Separator />
@@ -558,6 +561,15 @@ export function SongMenuItemsNavigation({
                 icon: Tag,
                 label: "Mark for Editing",
                 onClick: handlers.handleMarkForEditing,
+              },
+            )}
+          {handlers.handleRescan &&
+            renderMenuItem(
+              { Item },
+              {
+                icon: RefreshCw,
+                label: "Rescan",
+                onClick: handlers.handleRescan,
               },
             )}
           {handlers.setConfirmDeletionOpen &&

@@ -45,9 +45,6 @@ dependencies {
     implementation("androidx.media3:media3-session:$media3Version")
     implementation("androidx.media3:media3-common:$media3Version")
 
-    // Coil for loading cover art
-    implementation("io.coil-kt:coil:2.7.0")
-
     // Coroutines for async operations
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

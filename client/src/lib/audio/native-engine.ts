@@ -330,10 +330,12 @@ export async function nativeSetQueue(
   songs: Song[],
   startIndex: number,
   client: ReturnType<typeof getClient>,
+  queueOffset: number = 0,
+  startPositionMs: number = 0,
 ): Promise<void> {
   const api = await getNativeApi();
   const tracks = songs.map((song) => songToNativeTrack(song, client));
-  await api.setQueue(tracks, startIndex);
+  await api.setQueue(tracks, startIndex, queueOffset, startPositionMs);
 }
 
 /**
@@ -350,6 +352,26 @@ export async function nativeNextTrack(): Promise<void> {
 export async function nativePreviousTrack(): Promise<void> {
   const api = await getNativeApi();
   await api.previousTrack();
+}
+
+/**
+ * Set native player repeat mode
+ */
+export async function nativeSetRepeatMode(mode: string): Promise<void> {
+  const api = await getNativeApi();
+  await api.setRepeatMode(mode);
+}
+
+/**
+ * Append songs to the end of the native playback queue
+ */
+export async function nativeAppendToQueue(
+  songs: Song[],
+  client: ReturnType<typeof getClient>,
+): Promise<void> {
+  const api = await getNativeApi();
+  const tracks = songs.map((song) => songToNativeTrack(song, client));
+  await api.appendToQueue(tracks);
 }
 
 /**

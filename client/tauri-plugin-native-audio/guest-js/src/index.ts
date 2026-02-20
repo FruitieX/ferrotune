@@ -65,12 +65,15 @@ export async function setVolume(volume: number): Promise<void> {
  * Set the playback queue
  * @param items Queue items
  * @param startIndex Index to start playback from
+ * @param queueOffset Server queue position of the first item
  */
 export async function setQueue(
   items: QueueItem[],
-  startIndex: number
+  startIndex: number,
+  queueOffset: number = 0,
+  startPositionMs: number = 0
 ): Promise<void> {
-  await invoke("plugin:native-audio|set_queue", { items, startIndex });
+  await invoke("plugin:native-audio|set_queue", { items, startIndex, queueOffset, startPositionMs });
 }
 
 /**
@@ -85,6 +88,22 @@ export async function nextTrack(): Promise<void> {
  */
 export async function previousTrack(): Promise<void> {
   await invoke("plugin:native-audio|previous_track");
+}
+
+/**
+ * Set the repeat mode on the native player
+ * @param mode Repeat mode: "off", "one", or "all"
+ */
+export async function setRepeatMode(mode: string): Promise<void> {
+  await invoke("plugin:native-audio|set_repeat_mode", { mode });
+}
+
+/**
+ * Append items to the end of the native playback queue
+ * @param items Queue items to append
+ */
+export async function appendToQueue(items: QueueItem[]): Promise<void> {
+  await invoke("plugin:native-audio|append_to_queue", { items });
 }
 
 /**
