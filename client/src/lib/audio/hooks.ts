@@ -1737,7 +1737,13 @@ export function useAudioEngine() {
     const audio = getActiveAudio();
     if (!audio) return;
 
-    const audioDuration = currentSong?.duration ?? audio.duration;
+    // Use the browser's audio.duration for non-transcoded content since it
+    // reflects the actual decoded length which may differ from metadata.
+    // For transcoded streams audio.duration is Infinity, so fall back to metadata.
+    const audioDuration =
+      !transcodingEnabled && audio.duration && isFinite(audio.duration)
+        ? audio.duration
+        : (currentSong?.duration ?? audio.duration);
     if (!audioDuration || audioDuration <= 0) return;
 
     const targetTime = (percent / 100) * audioDuration;
