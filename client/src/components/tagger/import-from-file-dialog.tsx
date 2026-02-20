@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -184,15 +184,16 @@ export function ImportFromFileDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileIdCounter = useRef(0);
 
-  // Reset state when dialog opens (handles external open state changes)
-  useEffect(() => {
-    if (open) {
+  // Reset state when dialog opens via onOpenChange handler
+  const handleOpenChange = (newOpen: boolean) => {
+    if (newOpen) {
       setImportAudio(true);
       setImportTags(false);
       setImportCoverArt(false);
       setSelectedFiles([]);
     }
-  }, [open]);
+    onOpenChange(newOpen);
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -269,7 +270,7 @@ export function ImportFromFileDialog({
     : "Choose what to replace from an audio file.";
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-2xl lg:max-w-4xl xl:max-w-5xl overflow-x-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">

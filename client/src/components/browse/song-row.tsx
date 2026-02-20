@@ -376,22 +376,18 @@ export function SongRow({
               </Tooltip>
             )}
             {showYear && song.year && (
-              <span className="hidden sm:inline w-12 text-right">
-                {song.year}
-              </span>
+              <span className="w-12 text-right">{song.year}</span>
             )}
             {showPlayCount && (
-              <span className="hidden md:inline w-12 text-right">
-                {song.playCount ?? 0}
-              </span>
+              <span className="w-12 text-right">{song.playCount ?? 0}</span>
             )}
             {showLastPlayed && (
-              <span className="hidden lg:inline w-24 text-right">
+              <span className="w-24 text-right">
                 {song.lastPlayed ? formatDate(song.lastPlayed) : "Never"}
               </span>
             )}
             {showDateAdded && (song.created || dateAddedOverride) && (
-              <span className="hidden lg:inline w-24 text-right">
+              <span className="w-24 text-right">
                 {formatDate(dateAddedOverride ?? song.created ?? "")}
               </span>
             )}

@@ -65,15 +65,18 @@ export async function setVolume(volume: number): Promise<void> {
  * Set the playback queue
  * @param items Queue items
  * @param startIndex Index to start playback from
- * @param queueOffset Server queue position of the first item
+ * @param queueOffset Offset of first item relative to full server queue
+ * @param startPositionMs Position in ms to start from
+ * @param playWhenReady Whether to start playback immediately
  */
 export async function setQueue(
   items: QueueItem[],
   startIndex: number,
   queueOffset: number = 0,
-  startPositionMs: number = 0
+  startPositionMs: number = 0,
+  playWhenReady: boolean = false,
 ): Promise<void> {
-  await invoke("plugin:native-audio|set_queue", { items, startIndex, queueOffset, startPositionMs });
+  await invoke("plugin:native-audio|set_queue", { items, startIndex, queueOffset, startPositionMs, playWhenReady });
 }
 
 /**
@@ -91,19 +94,27 @@ export async function previousTrack(): Promise<void> {
 }
 
 /**
- * Set the repeat mode on the native player
- * @param mode Repeat mode: "off", "one", or "all"
+ * Set repeat mode
+ * @param mode Repeat mode ("off", "one", "all")
  */
 export async function setRepeatMode(mode: string): Promise<void> {
   await invoke("plugin:native-audio|set_repeat_mode", { mode });
 }
 
 /**
- * Append items to the end of the native playback queue
+ * Append items to the end of the playback queue
  * @param items Queue items to append
  */
 export async function appendToQueue(items: QueueItem[]): Promise<void> {
   await invoke("plugin:native-audio|append_to_queue", { items });
+}
+
+/**
+ * Update the starred state of the current track (for WearOS button icon)
+ * @param starred Whether the current track is starred
+ */
+export async function updateStarredState(starred: boolean): Promise<void> {
+  await invoke("plugin:native-audio|update_starred_state", { starred });
 }
 
 /**

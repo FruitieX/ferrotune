@@ -690,14 +690,16 @@ export function SaveConfirmationDialog({
                               className="text-xs text-red-500 truncate"
                               title={`${conflictLibraryPrefix}${conflict.requestedPath}`}
                             >
-                              → {`${conflictLibraryPrefix}${conflict.requestedPath}`}
+                              →{" "}
+                              {`${conflictLibraryPrefix}${conflict.requestedPath}`}
                             </p>
                             {resolution?.action === "rename" && (
                               <p
                                 className="text-xs text-green-500 truncate"
                                 title={`${conflictLibraryPrefix}${conflict.suggestedPath}`}
                               >
-                                Will save as: {`${conflictLibraryPrefix}${conflict.suggestedPath}`}
+                                Will save as:{" "}
+                                {`${conflictLibraryPrefix}${conflict.suggestedPath}`}
                               </p>
                             )}
                           </div>
@@ -759,25 +761,25 @@ export function SaveConfirmationDialog({
                           ? `${firstState.track.musicFolderPath}/`
                           : "";
                       return (
-                      <div
-                        key={path}
-                        className="p-2 bg-background rounded border border-border/50"
-                      >
-                        <p className="text-sm font-medium text-red-500 truncate">
-                          → {`${dupLibraryPrefix}${path}`}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Conflicting tracks:{" "}
-                          {songIds
-                            .map((id) => {
-                              const state = tracks.get(id);
-                              return (
-                                state?.track.filePath.split("/").pop() ?? id
-                              );
-                            })
-                            .join(", ")}
-                        </p>
-                      </div>
+                        <div
+                          key={path}
+                          className="p-2 bg-background rounded border border-border/50"
+                        >
+                          <p className="text-sm font-medium text-red-500 truncate">
+                            → {`${dupLibraryPrefix}${path}`}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Conflicting tracks:{" "}
+                            {songIds
+                              .map((id) => {
+                                const state = tracks.get(id);
+                                return (
+                                  state?.track.filePath.split("/").pop() ?? id
+                                );
+                              })
+                              .join(", ")}
+                          </p>
+                        </div>
                       );
                     },
                   )}

@@ -4,21 +4,31 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
 import android.os.Binder
+import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
-import androidx.media3.common.ForwardingPlayer
+import androidx.media3.common.ForwardingSimpleBasePlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionCommands
+import androidx.media3.session.SessionResult
 import app.tauri.plugin.JSObject
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 
 /**
  * MediaSessionService for handling audio playback.
@@ -33,6 +43,7 @@ class PlaybackService : MediaSessionService() {
     companion object {
         private const val TAG = "PlaybackService"
         private const val PROGRESS_UPDATE_INTERVAL_MS = 1000L
+        private const val ACTION_TOGGLE_STAR = "com.ferrotune.TOGGLE_STAR"
     }
 
     private val binder = LocalBinder()
@@ -51,6 +62,10 @@ class PlaybackService : MediaSessionService() {
     private var onSkipNext: (() -> Unit)? = null
     // Volume saved during track transitions (muted to prevent old track audio bleed)
     private var transitionSavedVolume: Float? = null
+    // Custom session command for starring the current track
+    private val starCommand = SessionCommand(ACTION_TOGGLE_STAR, Bundle.EMPTY)
+    // Whether the currently playing track is starred (for WearOS button icon)
+    private var isCurrentTrackStarred = false
 
     // Timeout to stop service if JS side doesn't advance after track ends
     private val endedTimeoutRunnable = Runnable {
@@ -98,39 +113,64 @@ class PlaybackService : MediaSessionService() {
         // Add player listener
         player.addListener(PlayerListener())
 
-        // Create a ForwardingPlayer that exposes prev/next commands.
-        // When ExoPlayer has adjacent items in its queue, use native skip for
-        // instant gapless transition. Only fall back to JS-side queue management
-        // at the edges of the loaded window.
-        val forwardingPlayer = object : ForwardingPlayer(player) {
-            override fun getAvailableCommands(): Player.Commands {
-                return super.getAvailableCommands().buildUpon()
-                    .add(COMMAND_SEEK_TO_NEXT)
-                    .add(COMMAND_SEEK_TO_PREVIOUS)
+        // Use ForwardingSimpleBasePlayer instead of ForwardingPlayer.
+        // ForwardingSimpleBasePlayer uses atomic getState() which properly
+        // propagates timeline/queue state to all listeners including the
+        // MediaSession's internal legacy session stub (used by WearOS).
+        @OptIn(UnstableApi::class)
+        val forwardingPlayer = object : ForwardingSimpleBasePlayer(player) {
+            override fun getState(): State {
+                val state = super.getState()
+                return state.buildUpon()
+                    .setAvailableCommands(
+                        state.availableCommands.buildUpon()
+                            .add(COMMAND_SEEK_TO_NEXT)
+                            .add(COMMAND_SEEK_TO_PREVIOUS)
+                            .add(COMMAND_GET_TIMELINE)
+                            .add(COMMAND_GET_CURRENT_MEDIA_ITEM)
+                            .add(COMMAND_SET_SHUFFLE_MODE)
+                            .add(COMMAND_SET_REPEAT_MODE)
+                            .build()
+                    )
                     .build()
             }
 
-            override fun isCommandAvailable(command: Int): Boolean {
-                if (command == COMMAND_SEEK_TO_NEXT || command == COMMAND_SEEK_TO_PREVIOUS) return true
-                return super.isCommandAvailable(command)
-            }
-
-            override fun seekToNext() {
-                if (wrappedPlayer.hasNextMediaItem()) {
-                    wrappedPlayer.seekToNextMediaItem()
-                } else {
-                    onSkipNext?.invoke()
+            override fun handleSeek(
+                mediaItemIndex: Int,
+                positionMs: Long,
+                @Player.Command seekCommand: Int
+            ): ListenableFuture<*> {
+                when (seekCommand) {
+                    COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> {
+                        if (player.hasNextMediaItem()) {
+                            player.seekToNextMediaItem()
+                        } else {
+                            onSkipNext?.invoke()
+                        }
+                        return Futures.immediateVoidFuture()
+                    }
+                    COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
+                        if (player.currentPosition > 3000) {
+                            player.seekTo(0)
+                        } else if (player.hasPreviousMediaItem()) {
+                            player.seekToPreviousMediaItem()
+                        } else {
+                            onSkipPrevious?.invoke()
+                        }
+                        return Futures.immediateVoidFuture()
+                    }
+                    else -> return super.handleSeek(mediaItemIndex, positionMs, seekCommand)
                 }
             }
 
-            override fun seekToPrevious() {
-                if (wrappedPlayer.currentPosition > 3000) {
-                    wrappedPlayer.seekTo(0)
-                } else if (wrappedPlayer.hasPreviousMediaItem()) {
-                    wrappedPlayer.seekToPreviousMediaItem()
-                } else {
-                    onSkipPrevious?.invoke()
-                }
+            override fun handleSetShuffleModeEnabled(shuffleModeEnabled: Boolean): ListenableFuture<*> {
+                player.shuffleModeEnabled = shuffleModeEnabled
+                return Futures.immediateVoidFuture()
+            }
+
+            override fun handleSetRepeatMode(repeatMode: Int): ListenableFuture<*> {
+                player.repeatMode = repeatMode
+                return Futures.immediateVoidFuture()
             }
         }
 
@@ -143,9 +183,51 @@ class PlaybackService : MediaSessionService() {
         )
 
         // Create media session using ForwardingPlayer for notification controls
+        @OptIn(UnstableApi::class)
         mediaSession = MediaSession.Builder(this, forwardingPlayer)
             .setSessionActivity(pendingIntent)
+            .setCallback(object : MediaSession.Callback {
+                override fun onConnect(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo
+                ): MediaSession.ConnectionResult {
+                    Log.d(TAG, "Controller connected: ${controller.packageName}")
+                    // Accept all connections with full player commands and our
+                    // custom session commands so external controllers (WearOS,
+                    // Android Auto) can see the queue and use custom actions.
+                    val sessionCommands = SessionCommands.Builder()
+                        .add(starCommand)
+                        .build()
+                    return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                        .setAvailablePlayerCommands(
+                            MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
+                        )
+                        .setAvailableSessionCommands(sessionCommands)
+                        .build()
+                }
+
+                override fun onCustomCommand(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo,
+                    customCommand: SessionCommand,
+                    args: Bundle
+                ): ListenableFuture<SessionResult> {
+                    if (customCommand.customAction == ACTION_TOGGLE_STAR) {
+                        Log.d(TAG, "Toggle star from external controller for track: ${currentTrack?.id}")
+                        currentTrack?.id?.let { trackId ->
+                            eventEmitter?.invoke(AudioEvents.TOGGLE_STAR, JSObject().apply {
+                                put("trackId", trackId)
+                                put("isStarred", isCurrentTrackStarred)
+                            })
+                        }
+                        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    }
+                    return super.onCustomCommand(session, controller, customCommand, args)
+                }
+            })
             .build()
+
+        updateMediaButtonPreferences()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession {
@@ -262,8 +344,8 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    fun setQueue(items: List<TrackInfo>, startIndex: Int, offset: Int = 0, startPositionMs: Long = 0) {
-        Log.d(TAG, "setQueue(${items.size} items, startIndex=$startIndex, offset=$offset, startPositionMs=$startPositionMs)")
+    fun setQueue(items: List<TrackInfo>, startIndex: Int, offset: Int = 0, startPositionMs: Long = 0, playWhenReady: Boolean = false) {
+        Log.d(TAG, "setQueue(${items.size} items, startIndex=$startIndex, offset=$offset, startPositionMs=$startPositionMs, playWhenReady=$playWhenReady)")
         handler.removeCallbacks(endedTimeoutRunnable)
         queue = items
         queueOffset = offset
@@ -272,6 +354,7 @@ class PlaybackService : MediaSessionService() {
 
         val mediaItems = items.map { createMediaItem(it) }
         player.setMediaItems(mediaItems, startIndex.coerceIn(0, items.size - 1), startPositionMs)
+        player.playWhenReady = playWhenReady
         player.prepare()
         emitTrackChange()
     }
@@ -289,6 +372,47 @@ class PlaybackService : MediaSessionService() {
             "one" -> Player.REPEAT_MODE_ONE
             else -> Player.REPEAT_MODE_OFF
         }
+        updateMediaButtonPreferences()
+    }
+
+    fun updateStarredState(starred: Boolean) {
+        Log.d(TAG, "updateStarredState($starred)")
+        isCurrentTrackStarred = starred
+        updateMediaButtonPreferences()
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun updateMediaButtonPreferences() {
+        if (!::mediaSession.isInitialized) return
+
+        val starIcon = if (isCurrentTrackStarred)
+            CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED
+        val starButton = CommandButton.Builder(starIcon)
+            .setSessionCommand(starCommand)
+            .setDisplayName(if (isCurrentTrackStarred) "Unstar" else "Star")
+            .setSlots(CommandButton.SLOT_OVERFLOW)
+            .build()
+
+        val shuffleIcon = if (player.shuffleModeEnabled)
+            CommandButton.ICON_SHUFFLE_ON else CommandButton.ICON_SHUFFLE_OFF
+        val shuffleButton = CommandButton.Builder(shuffleIcon)
+            .setPlayerCommand(Player.COMMAND_SET_SHUFFLE_MODE)
+            .setDisplayName("Shuffle")
+            .setSlots(CommandButton.SLOT_OVERFLOW)
+            .build()
+
+        val repeatIcon = when (player.repeatMode) {
+            Player.REPEAT_MODE_ONE -> CommandButton.ICON_REPEAT_ONE
+            Player.REPEAT_MODE_ALL -> CommandButton.ICON_REPEAT_ALL
+            else -> CommandButton.ICON_REPEAT_OFF
+        }
+        val repeatButton = CommandButton.Builder(repeatIcon)
+            .setPlayerCommand(Player.COMMAND_SET_REPEAT_MODE)
+            .setDisplayName("Repeat")
+            .setSlots(CommandButton.SLOT_OVERFLOW)
+            .build()
+
+        mediaSession.setMediaButtonPreferences(listOf(starButton, shuffleButton, repeatButton))
     }
 
     fun nextTrack() {
@@ -430,6 +554,23 @@ class PlaybackService : MediaSessionService() {
             }
         }
 
+        override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+            val reasonStr = when (reason) {
+                Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED -> "PLAYLIST_CHANGED"
+                Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE -> "SOURCE_UPDATE"
+                else -> "UNKNOWN($reason)"
+            }
+            Log.d(TAG, "onTimelineChanged: windowCount=${timeline.windowCount}, reason=$reasonStr")
+        }
+
+        override fun onAvailableCommandsChanged(commands: Player.Commands) {
+            Log.d(TAG, "onAvailableCommandsChanged: " +
+                "GET_TIMELINE=${commands.contains(Player.COMMAND_GET_TIMELINE)}, " +
+                "SEEK_TO_NEXT=${commands.contains(Player.COMMAND_SEEK_TO_NEXT)}, " +
+                "SEEK_TO_MEDIA_ITEM=${commands.contains(Player.COMMAND_SEEK_TO_MEDIA_ITEM)}, " +
+                "GET_CURRENT_ITEM=${commands.contains(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)}")
+        }
+
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             Log.d(TAG, "onPlayWhenReadyChanged: $playWhenReady, reason: $reason")
             emitStateChange()
@@ -459,6 +600,27 @@ class PlaybackService : MediaSessionService() {
         override fun onVolumeChanged(volume: Float) {
             Log.d(TAG, "onVolumeChanged: $volume")
             emitStateChange()
+        }
+
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+            Log.d(TAG, "onShuffleModeEnabledChanged: $shuffleModeEnabled")
+            updateMediaButtonPreferences()
+            eventEmitter?.invoke(AudioEvents.SHUFFLE_MODE_CHANGED, JSObject().apply {
+                put("enabled", shuffleModeEnabled)
+            })
+        }
+
+        override fun onRepeatModeChanged(repeatMode: Int) {
+            val mode = when (repeatMode) {
+                Player.REPEAT_MODE_ONE -> "one"
+                Player.REPEAT_MODE_ALL -> "all"
+                else -> "off"
+            }
+            Log.d(TAG, "onRepeatModeChanged: $mode")
+            updateMediaButtonPreferences()
+            eventEmitter?.invoke(AudioEvents.REPEAT_MODE_CHANGED, JSObject().apply {
+                put("mode", mode)
+            })
         }
 
         override fun onPositionDiscontinuity(

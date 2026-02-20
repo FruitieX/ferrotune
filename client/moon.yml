@@ -420,8 +420,19 @@ tasks:
   # TAURI (Android App)
   # ============================================================================
 
+  tauri-android-sync-icons:
+    command: "bash scripts/sync-android-icons.sh"
+    inputs:
+      - "scripts/sync-android-icons.sh"
+      - "src-tauri/icons/**/*"
+    deps:
+      - "install"
+    options:
+      cache: false
+      runInCI: false
+
   tauri-android-init:
-    command: "npx tauri android init"
+    script: "npx tauri android init && bash scripts/sync-android-icons.sh"
     deps:
       - "install"
     options:
@@ -432,6 +443,7 @@ tasks:
     command: "npx tauri android dev"
     deps:
       - "install"
+      - "tauri-android-sync-icons"
       - "build-native-audio-api"
       - "ferrotune:generate-bindings"
     options:
@@ -446,6 +458,7 @@ tasks:
       - "tauri-plugin-native-audio/**/*"
     deps:
       - "install"
+      - "tauri-android-sync-icons"
       - "build-export"
       - "build-native-audio-api"
       - "ferrotune:generate-bindings"
@@ -460,6 +473,7 @@ tasks:
       - "tauri-plugin-native-audio/**/*"
     deps:
       - "install"
+      - "tauri-android-sync-icons"
       - "build-export"
       - "build-native-audio-api"
       - "ferrotune:generate-bindings"
@@ -474,6 +488,7 @@ tasks:
       - "tauri-plugin-native-audio/**/*"
     deps:
       - "install"
+      - "tauri-android-sync-icons"
       - "build-export"
       - "build-native-audio-api"
       - "ferrotune:generate-bindings"

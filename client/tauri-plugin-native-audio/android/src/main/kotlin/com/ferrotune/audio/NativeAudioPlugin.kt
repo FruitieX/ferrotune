@@ -70,6 +70,12 @@ internal class SetQueueArgs {
     var startIndex: Int = 0
     var queueOffset: Int = 0
     var startPositionMs: Long = 0
+    var playWhenReady: Boolean = false
+}
+
+@InvokeArg
+internal class UpdateStarredStateArgs {
+    var starred: Boolean = false
 }
 
 @InvokeArg
@@ -130,6 +136,8 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         super.load(webView)
         Log.d(TAG, "NativeAudioPlugin loaded")
         webViewRef = webView
+        // Disable overscroll glow/bounce effect on the WebView
+        webView.overScrollMode = android.view.View.OVER_SCROLL_NEVER
         injectSafeAreaInsets(webView)
         bindPlaybackService()
         connectToMediaSession()
@@ -433,7 +441,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                     invoke.reject("Service not available - try again")
                     return@launch
                 }
-                service.setQueue(items, args.startIndex, args.queueOffset, args.startPositionMs)
+                service.setQueue(items, args.startIndex, args.queueOffset, args.startPositionMs, args.playWhenReady)
                 invoke.resolve()
             } catch (e: Exception) {
                 Log.e(TAG, "Error in setQueue()", e)
@@ -535,6 +543,26 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                 invoke.resolve()
             } catch (e: Exception) {
                 Log.e(TAG, "Error in appendToQueue()", e)
+                invoke.reject(e.message)
+            }
+        }
+    }
+
+    @Command
+    fun updateStarredState(invoke: Invoke) {
+        scope.launch {
+            try {
+                val args = invoke.parseArgs(UpdateStarredStateArgs::class.java)
+                val service = awaitService()
+                if (service == null) {
+                    Log.e(TAG, "updateStarredState() failed: Service not available after timeout")
+                    invoke.reject("Service not available - try again")
+                    return@launch
+                }
+                service.updateStarredState(args.starred)
+                invoke.resolve()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in updateStarredState()", e)
                 invoke.reject(e.message)
             }
         }

@@ -62,17 +62,15 @@ export function SongListHeader({
       {/* Right content columns - match SongRow widths */}
       <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground shrink-0">
         {/* Shuffle exclude indicator - just takes 4px but we need gap alignment */}
-        {columnVisibility.year && (
-          <span className="hidden sm:inline w-12 text-right">Year</span>
-        )}
+        {columnVisibility.year && <span className="w-12 text-right">Year</span>}
         {columnVisibility.playCount && (
-          <span className="hidden md:inline w-12 text-right">Plays</span>
+          <span className="w-12 text-right">Plays</span>
         )}
         {columnVisibility.lastPlayed && (
-          <span className="hidden lg:inline w-24 text-right">Last Played</span>
+          <span className="w-24 text-right">Last Played</span>
         )}
         {columnVisibility.dateAdded && (
-          <span className="hidden lg:inline w-24 text-right">Added</span>
+          <span className="w-24 text-right">Added</span>
         )}
         {columnVisibility.duration && (
           <span className="w-12 text-right">Time</span>
@@ -193,11 +191,9 @@ export function AlbumListHeader({
 
       {/* Right content columns - match AlbumCardCompact widths */}
       <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground shrink-0">
-        {columnVisibility.year && (
-          <span className="hidden sm:inline w-12 text-right">Year</span>
-        )}
+        {columnVisibility.year && <span className="w-12 text-right">Year</span>}
         {columnVisibility.songCount && (
-          <span className="hidden md:inline w-12 text-right">Songs</span>
+          <span className="w-12 text-right">Songs</span>
         )}
         {columnVisibility.duration && (
           <span className="w-12 text-right">Time</span>
@@ -262,7 +258,7 @@ export function ArtistListHeader({
       {/* Right content columns - match ArtistCardCompact widths */}
       <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground shrink-0">
         {columnVisibility.albumCount && (
-          <span className="hidden md:inline w-12 text-right">Albums</span>
+          <span className="w-12 text-right">Albums</span>
         )}
       </div>
     </div>

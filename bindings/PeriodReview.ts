@@ -3,4 +3,15 @@ import type { TopAlbum } from "./TopAlbum";
 import type { TopArtist } from "./TopArtist";
 import type { TopTrack } from "./TopTrack";
 
-export type PeriodReview = { year: number, month: number | null, totalListeningSecs: bigint, totalPlayCount: bigint, uniqueTracks: bigint, uniqueAlbums: bigint, uniqueArtists: bigint, topArtists: Array<TopArtist>, topAlbums: Array<TopAlbum>, topTracks: Array<TopTrack>, };
+export type PeriodReview = {
+  year: number;
+  month: number | null;
+  totalListeningSecs: bigint;
+  totalPlayCount: bigint;
+  uniqueTracks: bigint;
+  uniqueAlbums: bigint;
+  uniqueArtists: bigint;
+  topArtists: Array<TopArtist>;
+  topAlbums: Array<TopAlbum>;
+  topTracks: Array<TopTrack>;
+};

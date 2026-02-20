@@ -54,7 +54,7 @@ export function VirtualizedGrid<T>({
   estimateItemHeight = 280,
   gap = 16,
   className,
-  columns = { default: 2, sm: 3, md: 4, lg: 5, xl: 6 },
+  columns = { default: 3, sm: 3, md: 4, lg: 5, xl: 6 },
   overscan = 3,
   hasNextPage = false,
   isFetchingNextPage = false,

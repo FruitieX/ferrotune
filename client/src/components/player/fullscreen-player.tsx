@@ -40,6 +40,7 @@ import {
   currentSongAtom,
   serverQueueStateAtom,
   toggleShuffleAtom,
+  queueWindowAtom,
 } from "@/lib/store/server-queue";
 import {
   playbackStateAtom,
@@ -197,6 +198,106 @@ export function FullscreenPlayer() {
   );
   const [localProgress, setLocalProgress] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Album art horizontal swipe state
+  const queueWindow = useAtomValue(queueWindowAtom);
+  const albumArtDragX = useMotionValue(0);
+  const albumArtContainerRef = useRef<HTMLDivElement>(null);
+  const [isSwipingAlbumArt, setIsSwipingAlbumArt] = useState(false);
+
+  // Get adjacent tracks for album art swipe preview
+  const prevTrack =
+    queueWindow?.songs.find(
+      (s) => s.position === (queueState?.currentIndex ?? 0) - 1,
+    )?.song ?? null;
+  const nextTrack =
+    queueWindow?.songs.find(
+      (s) => s.position === (queueState?.currentIndex ?? 0) + 1,
+    )?.song ?? null;
+
+  const prevCoverArtUrl = prevTrack?.coverArt
+    ? getClient()?.getCoverArtUrl(prevTrack.coverArt, 500)
+    : undefined;
+  const nextCoverArtUrl = nextTrack?.coverArt
+    ? getClient()?.getCoverArtUrl(nextTrack.coverArt, 500)
+    : undefined;
+
+  // Album art swipe transforms
+  const SWIPE_THRESHOLD = 50;
+  const VELOCITY_THRESHOLD = 300;
+
+  const albumArtOpacity = useTransform(
+    albumArtDragX,
+    [-200, 0, 200],
+    [0.3, 1, 0.3],
+  );
+
+  const prevAlbumArtX = useTransform(albumArtDragX, (v) =>
+    v > 0 ? v - (albumArtContainerRef.current?.offsetWidth ?? 300) - 16 : -9999,
+  );
+  const prevAlbumArtOpacity = useTransform(
+    albumArtDragX,
+    [0, SWIPE_THRESHOLD, 200],
+    [0, 0.5, 1],
+  );
+
+  const nextAlbumArtX = useTransform(albumArtDragX, (v) =>
+    v < 0 ? v + (albumArtContainerRef.current?.offsetWidth ?? 300) + 16 : 9999,
+  );
+  const nextAlbumArtOpacity = useTransform(
+    albumArtDragX,
+    [-200, -SWIPE_THRESHOLD, 0],
+    [1, 0.5, 0],
+  );
+
+  // Reset albumArtDragX when track changes
+  const prevTrackIdRef = useRef(currentTrack?.id);
+  useLayoutEffect(() => {
+    if (currentTrack?.id !== prevTrackIdRef.current) {
+      prevTrackIdRef.current = currentTrack?.id;
+      albumArtDragX.set(0);
+    }
+  }, [currentTrack?.id, albumArtDragX]);
+
+  const handleAlbumArtDragEnd = async (
+    _event: MouseEvent | TouchEvent | PointerEvent,
+    info: PanInfo,
+  ) => {
+    const currentDragX = albumArtDragX.get();
+    const shouldGoNext =
+      (currentDragX < -SWIPE_THRESHOLD ||
+        info.velocity.x < -VELOCITY_THRESHOLD) &&
+      nextTrack;
+    const shouldGoPrev =
+      (currentDragX > SWIPE_THRESHOLD ||
+        info.velocity.x > VELOCITY_THRESHOLD) &&
+      prevTrack;
+
+    if (shouldGoNext) {
+      const width = albumArtContainerRef.current?.offsetWidth ?? 300;
+      await animate(albumArtDragX, -width, {
+        type: "spring",
+        stiffness: 500,
+        damping: 40,
+      });
+      next();
+    } else if (shouldGoPrev) {
+      const width = albumArtContainerRef.current?.offsetWidth ?? 300;
+      await animate(albumArtDragX, width, {
+        type: "spring",
+        stiffness: 500,
+        damping: 40,
+      });
+      previous();
+    } else {
+      animate(albumArtDragX, 0, {
+        type: "spring",
+        stiffness: 500,
+        damping: 30,
+      });
+    }
+    setIsSwipingAlbumArt(false);
+  };
 
   // Motion values for swipe-to-close
   const dragY = useMotionValue(0);
@@ -563,12 +664,51 @@ export function FullscreenPlayer() {
                 </div>
 
                 {/* Album Art */}
-                <div className="flex-1 flex items-center justify-center py-4 xl:py-8 min-h-0 overflow-hidden">
+                <div
+                  ref={albumArtContainerRef}
+                  className="flex-1 flex items-center justify-center py-4 xl:py-8 min-h-0 overflow-hidden relative"
+                >
+                  {/* Previous track preview (swipe right) */}
+                  {isSmallScreen && prevTrack && isSwipingAlbumArt && (
+                    <motion.div
+                      className="absolute w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] aspect-square pointer-events-none"
+                      style={{ x: prevAlbumArtX, opacity: prevAlbumArtOpacity }}
+                    >
+                      <CoverImage
+                        src={prevCoverArtUrl}
+                        alt={prevTrack.album ?? prevTrack.title}
+                        colorSeed={prevTrack.album ?? undefined}
+                        type="song"
+                        size="full"
+                        className="rounded-lg shadow-2xl w-full h-full object-cover"
+                      />
+                    </motion.div>
+                  )}
+
+                  {/* Current track album art */}
                   <motion.div
                     initial={{ scale: 0.9, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     transition={{ delay: 0.1 }}
                     className="w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] aspect-square"
+                    style={
+                      isSmallScreen
+                        ? {
+                            x: albumArtDragX,
+                            opacity: albumArtOpacity,
+                            touchAction: "pan-y",
+                          }
+                        : undefined
+                    }
+                    drag={isSmallScreen ? "x" : false}
+                    dragConstraints={{ left: 0, right: 0 }}
+                    dragElastic={0.5}
+                    dragDirectionLock
+                    onDragStart={() => setIsSwipingAlbumArt(true)}
+                    onDragEnd={
+                      isSmallScreen ? handleAlbumArtDragEnd : undefined
+                    }
+                    onPointerDown={(e) => e.stopPropagation()}
                   >
                     <CoverImage
                       src={coverArtUrl}
@@ -580,6 +720,23 @@ export function FullscreenPlayer() {
                       priority
                     />
                   </motion.div>
+
+                  {/* Next track preview (swipe left) */}
+                  {isSmallScreen && nextTrack && isSwipingAlbumArt && (
+                    <motion.div
+                      className="absolute w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] aspect-square pointer-events-none"
+                      style={{ x: nextAlbumArtX, opacity: nextAlbumArtOpacity }}
+                    >
+                      <CoverImage
+                        src={nextCoverArtUrl}
+                        alt={nextTrack.album ?? nextTrack.title}
+                        colorSeed={nextTrack.album ?? undefined}
+                        type="song"
+                        size="full"
+                        className="rounded-lg shadow-2xl w-full h-full object-cover"
+                      />
+                    </motion.div>
+                  )}
                 </div>
 
                 {/* Track Info */}

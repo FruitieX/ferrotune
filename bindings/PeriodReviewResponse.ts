@@ -2,4 +2,7 @@
 import type { AvailablePeriod } from "./AvailablePeriod";
 import type { PeriodReview } from "./PeriodReview";
 
-export type PeriodReviewResponse = { review: PeriodReview, availablePeriods: Array<AvailablePeriod>, };
+export type PeriodReviewResponse = {
+  review: PeriodReview;
+  availablePeriods: Array<AvailablePeriod>;
+};

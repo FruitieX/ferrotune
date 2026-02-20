@@ -40,7 +40,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.16.0")
 
     // AndroidX Media3 (ExoPlayer) for audio playback
-    val media3Version = "1.5.1"
+    val media3Version = "1.9.2"
     implementation("androidx.media3:media3-exoplayer:$media3Version")
     implementation("androidx.media3:media3-session:$media3Version")
     implementation("androidx.media3:media3-common:$media3Version")

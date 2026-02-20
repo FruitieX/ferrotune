@@ -16,7 +16,6 @@ import {
   Trash2,
   Ban,
   Settings,
-  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import {

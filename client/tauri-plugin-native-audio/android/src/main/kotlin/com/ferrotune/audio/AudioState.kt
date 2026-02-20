@@ -89,4 +89,7 @@ object AudioEvents {
     const val TRACK_CHANGE = "track-change"
     const val SKIP_PREVIOUS = "skip-previous"
     const val SKIP_NEXT = "skip-next"
+    const val TOGGLE_STAR = "toggle-star"
+    const val SHUFFLE_MODE_CHANGED = "shuffle-mode-changed"
+    const val REPEAT_MODE_CHANGED = "repeat-mode-changed"
 }

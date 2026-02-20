@@ -66,10 +66,10 @@ function AlbumSection({
   onShuffleAll?: () => void;
 }) {
   return (
-    <section className="space-y-4">
-      <div className="flex items-center gap-2 px-4 lg:px-6">
+    <section className="space-y-2 sm:space-y-4">
+      <div className="flex items-center gap-2 px-3 sm:px-4 lg:px-6">
         <Icon className="w-5 h-5 text-primary" />
-        <h2 className="text-xl font-bold">{title}</h2>
+        <h2 className="text-lg sm:text-xl font-bold">{title}</h2>
         {/* Play all and shuffle buttons */}
         {albums && albums.length > 0 && (
           <div className="flex items-center gap-1 ml-auto">
@@ -106,10 +106,10 @@ function AlbumSection({
       </div>
 
       <ScrollArea className="w-full">
-        <div className="flex gap-4 px-4 lg:px-6 pb-4">
+        <div className="flex gap-2 sm:gap-4 px-3 sm:px-4 lg:px-6 pb-4">
           {isLoading ? (
             Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="w-[180px] shrink-0">
+              <div key={i} className="w-[130px] sm:w-[180px] shrink-0">
                 <AlbumCardSkeleton />
               </div>
             ))
@@ -117,7 +117,7 @@ function AlbumSection({
             albums.map((album) => (
               <motion.div
                 key={album.id}
-                className="w-[180px] shrink-0"
+                className="w-[130px] sm:w-[180px] shrink-0"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.3 }}
@@ -340,7 +340,7 @@ export default function HomePage() {
       </header>
 
       {/* Content */}
-      <div className="py-6 space-y-8">
+      <div className="py-4 sm:py-6 space-y-6 sm:space-y-8">
         {/* Continue Listening (Recently Played) */}
         <AlbumSection
           title="Continue Listening"

@@ -96,6 +96,9 @@ export interface NativeAudioCallbacks {
   ) => void;
   onSkipPrevious: () => void;
   onSkipNext: () => void;
+  onToggleStar: (trackId: string, isStarred: boolean) => void;
+  onShuffleModeChanged: (enabled: boolean) => void;
+  onRepeatModeChanged: (mode: string) => void;
 }
 
 /**
@@ -182,6 +185,23 @@ export async function initNativeAudioEngine(
           console.log("[NativeAudio] Skip next from notification");
           engineState.callbacks?.onSkipNext();
           break;
+        case "toggle-star":
+          console.log("[NativeAudio] Toggle star from external controller");
+          if (data?.trackId) {
+            engineState.callbacks?.onToggleStar(
+              data.trackId,
+              data.isStarred ?? false,
+            );
+          }
+          break;
+        case "shuffle-mode-changed":
+          console.log("[NativeAudio] Shuffle mode changed:", data?.enabled);
+          engineState.callbacks?.onShuffleModeChanged(data?.enabled ?? false);
+          break;
+        case "repeat-mode-changed":
+          console.log("[NativeAudio] Repeat mode changed:", data?.mode);
+          engineState.callbacks?.onRepeatModeChanged(data?.mode ?? "off");
+          break;
         default:
           console.warn("[NativeAudio] Unknown event:", event);
       }
@@ -249,11 +269,20 @@ export async function cleanupNativeAudioEngine(): Promise<void> {
 }
 
 /**
+ * Options for converting a Song to native track info
+ */
+export interface NativeStreamOptions {
+  transcodingEnabled: boolean;
+  transcodingBitrate: number;
+}
+
+/**
  * Convert a Song to native track info
  */
 function songToNativeTrack(
   song: Song,
   client: ReturnType<typeof getClient>,
+  options?: NativeStreamOptions,
 ): NativeTrackInfo {
   if (!client) {
     throw new Error("Client not available");
@@ -261,7 +290,12 @@ function songToNativeTrack(
 
   return {
     id: song.id,
-    url: client.getStreamUrl(song.id),
+    url: client.getStreamUrl(song.id, {
+      maxBitRate: options?.transcodingEnabled
+        ? options.transcodingBitrate
+        : undefined,
+      format: options?.transcodingEnabled ? "opus" : undefined,
+    }),
     title: song.title,
     artist: song.artist || "Unknown Artist",
     album: song.album || "Unknown Album",
@@ -314,10 +348,11 @@ export async function nativeSeek(positionSeconds: number): Promise<void> {
 export async function nativeSetTrack(
   song: Song,
   client: ReturnType<typeof getClient>,
+  options?: NativeStreamOptions,
 ): Promise<void> {
   console.log("[NativeAudio] nativeSetTrack() called:", song.title);
   const api = await getNativeApi();
-  const track = songToNativeTrack(song, client);
+  const track = songToNativeTrack(song, client, options);
   console.log("[NativeAudio] nativeSetTrack() - track URL:", track.url);
   await api.setTrack(track);
   console.log("[NativeAudio] nativeSetTrack() completed");
@@ -332,10 +367,18 @@ export async function nativeSetQueue(
   client: ReturnType<typeof getClient>,
   queueOffset: number = 0,
   startPositionMs: number = 0,
+  options?: NativeStreamOptions,
+  playWhenReady: boolean = false,
 ): Promise<void> {
   const api = await getNativeApi();
-  const tracks = songs.map((song) => songToNativeTrack(song, client));
-  await api.setQueue(tracks, startIndex, queueOffset, startPositionMs);
+  const tracks = songs.map((song) => songToNativeTrack(song, client, options));
+  await api.setQueue(
+    tracks,
+    startIndex,
+    queueOffset,
+    startPositionMs,
+    playWhenReady,
+  );
 }
 
 /**
@@ -368,9 +411,10 @@ export async function nativeSetRepeatMode(mode: string): Promise<void> {
 export async function nativeAppendToQueue(
   songs: Song[],
   client: ReturnType<typeof getClient>,
+  options?: NativeStreamOptions,
 ): Promise<void> {
   const api = await getNativeApi();
-  const tracks = songs.map((song) => songToNativeTrack(song, client));
+  const tracks = songs.map((song) => songToNativeTrack(song, client, options));
   await api.appendToQueue(tracks);
 }
 
@@ -402,4 +446,14 @@ export async function nativeGetState(): Promise<{
     volume: nativeState.volume,
     queueIndex: nativeState.queueIndex,
   };
+}
+
+/**
+ * Update the starred state of the current track (updates WearOS button icon)
+ */
+export async function nativeUpdateStarredState(
+  starred: boolean,
+): Promise<void> {
+  const api = await getNativeApi();
+  await api.updateStarredState(starred);
 }

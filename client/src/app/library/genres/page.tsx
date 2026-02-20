@@ -145,7 +145,7 @@ export default function GenresPage() {
   if (authLoading) {
     return (
       <div className="p-4 lg:p-6">
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <Skeleton key={i} className="h-24 rounded-lg" />
           ))}
@@ -165,7 +165,7 @@ export default function GenresPage() {
         <div
           className={
             viewMode === "grid"
-              ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"
+              ? "grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 gap-4"
               : "space-y-1"
           }
         >
@@ -192,7 +192,7 @@ export default function GenresPage() {
             renderSkeleton={() => <GenreCardSkeleton />}
             getItemKey={(genre) => genre.value}
             estimateItemHeight={96}
-            columns={{ default: 2, sm: 3, md: 4, lg: 4, xl: 4 }}
+            columns={{ default: 3, sm: 3, md: 4, lg: 4, xl: 4 }}
             initialOffset={getInitialOffset()}
             onScrollChange={saveOffset}
           />

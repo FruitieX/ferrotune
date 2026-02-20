@@ -201,7 +201,7 @@ export default function ArtistsPage() {
     return (
       <div className="p-4 lg:p-6">
         {viewMode === "grid" ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+          <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             {Array.from({ length: 12 }).map((_, i) => (
               <ArtistCardSkeleton key={i} />
             ))}
@@ -226,7 +226,7 @@ export default function ArtistsPage() {
     >
       {isLoadingData && displayArtists.length === 0 ? (
         viewMode === "grid" ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+          <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             {Array.from({ length: 12 }).map((_, i) => (
               <ArtistCardSkeleton key={i} />
             ))}

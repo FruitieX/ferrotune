@@ -31,8 +31,13 @@ import {
   hasActiveFiltersAtom,
   filesSortAtom,
   filesColumnVisibilityAtom,
+  libraryAlbumColumnVisibilityAtom,
+  libraryArtistColumnVisibilityAtom,
   type SortField,
   type FilesSortField,
+  type ColumnVisibility,
+  type AlbumColumnVisibility,
+  type ArtistColumnVisibility,
 } from "@/lib/store/ui";
 import {
   shuffleExcludesAtom,
@@ -93,8 +98,8 @@ const filesSortOptions: { value: FilesSortField; label: string }[] = [
   { value: "dateAdded", label: "Date Added" },
 ];
 
-const columnOptions: {
-  key: keyof import("@/lib/store/ui").ColumnVisibility;
+const songColumnOptions: {
+  key: keyof ColumnVisibility;
   label: string;
 }[] = [
   { key: "artist", label: "Artist" },
@@ -104,6 +109,21 @@ const columnOptions: {
   { key: "dateAdded", label: "Date Added" },
   { key: "year", label: "Year" },
 ];
+
+const albumColumnOptions: {
+  key: keyof AlbumColumnVisibility;
+  label: string;
+}[] = [
+  { key: "artist", label: "Artist" },
+  { key: "year", label: "Year" },
+  { key: "songCount", label: "Songs" },
+  { key: "duration", label: "Duration" },
+];
+
+const artistColumnOptions: {
+  key: keyof ArtistColumnVisibility;
+  label: string;
+}[] = [{ key: "albumCount", label: "Albums" }];
 
 const filesColumnOptions: {
   key: keyof import("@/lib/store/ui").FilesColumnVisibility;
@@ -126,6 +146,12 @@ export default function LibraryLayout({
   const [filter, setFilter] = useAtom(libraryFilterAtom);
   const [sortConfig, setSortConfig] = useAtom(librarySortAtom);
   const [columnVisibility, setColumnVisibility] = useAtom(columnVisibilityAtom);
+  const [albumColumnVisibility, setAlbumColumnVisibility] = useAtom(
+    libraryAlbumColumnVisibilityAtom,
+  );
+  const [artistColumnVisibility, setArtistColumnVisibility] = useAtom(
+    libraryArtistColumnVisibilityAtom,
+  );
   const [filesSortConfig, setFilesSortConfig] = useAtom(filesSortAtom);
   const [filesColumnVisibility, setFilesColumnVisibility] = useAtom(
     filesColumnVisibilityAtom,
@@ -231,6 +257,20 @@ export default function LibraryLayout({
 
   const toggleColumn = (key: keyof typeof columnVisibility) => {
     setColumnVisibility((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const toggleAlbumColumn = (key: keyof AlbumColumnVisibility) => {
+    setAlbumColumnVisibility((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const toggleArtistColumn = (key: keyof ArtistColumnVisibility) => {
+    setArtistColumnVisibility((prev) => ({
       ...prev,
       [key]: !prev[key],
     }));
@@ -397,23 +437,36 @@ export default function LibraryLayout({
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuLabel>Visible Columns</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {columnOptions.map((option) => (
-                    <DropdownMenuCheckboxItem
-                      key={option.key}
-                      checked={
-                        columnVisibility[
-                          option.key as keyof typeof columnVisibility
-                        ]
-                      }
-                      onCheckedChange={() =>
-                        toggleColumn(
-                          option.key as keyof typeof columnVisibility,
-                        )
-                      }
-                    >
-                      {option.label}
-                    </DropdownMenuCheckboxItem>
-                  ))}
+                  {isSongsTab &&
+                    songColumnOptions.map((option) => (
+                      <DropdownMenuCheckboxItem
+                        key={option.key}
+                        checked={columnVisibility[option.key]}
+                        onCheckedChange={() => toggleColumn(option.key)}
+                      >
+                        {option.label}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  {isAlbumsTab &&
+                    albumColumnOptions.map((option) => (
+                      <DropdownMenuCheckboxItem
+                        key={option.key}
+                        checked={albumColumnVisibility[option.key]}
+                        onCheckedChange={() => toggleAlbumColumn(option.key)}
+                      >
+                        {option.label}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  {isArtistsTab &&
+                    artistColumnOptions.map((option) => (
+                      <DropdownMenuCheckboxItem
+                        key={option.key}
+                        checked={artistColumnVisibility[option.key]}
+                        onCheckedChange={() => toggleArtistColumn(option.key)}
+                      >
+                        {option.label}
+                      </DropdownMenuCheckboxItem>
+                    ))}
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
@@ -566,23 +619,40 @@ export default function LibraryLayout({
                     </DropdownMenuSubTrigger>
                     <DropdownMenuPortal>
                       <DropdownMenuSubContent className="w-48">
-                        {columnOptions.map((option) => (
-                          <DropdownMenuCheckboxItem
-                            key={option.key}
-                            checked={
-                              columnVisibility[
-                                option.key as keyof typeof columnVisibility
-                              ]
-                            }
-                            onCheckedChange={() =>
-                              toggleColumn(
-                                option.key as keyof typeof columnVisibility,
-                              )
-                            }
-                          >
-                            {option.label}
-                          </DropdownMenuCheckboxItem>
-                        ))}
+                        {isSongsTab &&
+                          songColumnOptions.map((option) => (
+                            <DropdownMenuCheckboxItem
+                              key={option.key}
+                              checked={columnVisibility[option.key]}
+                              onCheckedChange={() => toggleColumn(option.key)}
+                            >
+                              {option.label}
+                            </DropdownMenuCheckboxItem>
+                          ))}
+                        {isAlbumsTab &&
+                          albumColumnOptions.map((option) => (
+                            <DropdownMenuCheckboxItem
+                              key={option.key}
+                              checked={albumColumnVisibility[option.key]}
+                              onCheckedChange={() =>
+                                toggleAlbumColumn(option.key)
+                              }
+                            >
+                              {option.label}
+                            </DropdownMenuCheckboxItem>
+                          ))}
+                        {isArtistsTab &&
+                          artistColumnOptions.map((option) => (
+                            <DropdownMenuCheckboxItem
+                              key={option.key}
+                              checked={artistColumnVisibility[option.key]}
+                              onCheckedChange={() =>
+                                toggleArtistColumn(option.key)
+                              }
+                            >
+                              {option.label}
+                            </DropdownMenuCheckboxItem>
+                          ))}
                       </DropdownMenuSubContent>
                     </DropdownMenuPortal>
                   </DropdownMenuSub>

@@ -47,6 +47,7 @@ import {
 import { serverConnectionAtom, isHydratedAtom } from "@/lib/store/auth";
 import { getClient } from "@/lib/api/client";
 import { invalidatePlayCountQueries as invalidatePlayCounts } from "@/lib/api/cache-invalidation";
+import { starredItemsAtom } from "@/lib/store/starred";
 import { hasNativeAudio } from "@/lib/tauri";
 import {
   initNativeAudioEngine,
@@ -63,7 +64,20 @@ import {
   nativeSetRepeatMode,
   nativeAppendToQueue,
   nativeGetState,
+  nativeUpdateStarredState,
+  type NativeStreamOptions,
 } from "@/lib/audio/native-engine";
+
+/** Build NativeStreamOptions from the current transcoding settings */
+function getNativeStreamOptions(state: {
+  transcodingEnabled: boolean;
+  transcodingBitrate: number;
+}): NativeStreamOptions {
+  return {
+    transcodingEnabled: state.transcodingEnabled,
+    transcodingBitrate: state.transcodingBitrate,
+  };
+}
 
 // Flag to track if we're using native audio
 let usingNativeAudio = false;
@@ -130,8 +144,9 @@ let accumulatedPlayTime: number = 0; // Accumulated time for pauses
 // Session-based listening tracking
 let currentListeningSessionId: number | null = null;
 let listeningUpdateInterval: ReturnType<typeof setInterval> | null = null;
-// Tracks current playback position for native audio (updated by progress events)
-let lastKnownNativeCurrentTime: number = 0;
+// Track the last-used native transcoding settings to detect changes
+let lastNativeTranscodingEnabled: boolean = false;
+let lastNativeTranscodingBitrate: number = 0;
 // Track the time offset of the current stream (for transcoded seeking)
 // When we reload a transcoded stream with timeOffset, audio.currentTime starts at 0
 // but the real position is timeOffset + audio.currentTime
@@ -431,6 +446,8 @@ export function useAudioEngineInit() {
   const setAudioElement = useSetAtom(audioElementAtom);
   const setClippingState = useSetAtom(clippingStateAtom);
   const clippingDetectionEnabled = useAtomValue(clippingDetectionEnabledAtom);
+  const setStarredItems = useSetAtom(starredItemsAtom);
+  const starredItems = useAtomValue(starredItemsAtom);
 
   // Transcoding and ReplayGain settings
   const transcodingEnabled = useAtomValue(transcodingEnabledAtom);
@@ -482,6 +499,7 @@ export function useAudioEngineInit() {
     goToPrevious,
     setServerQueueState,
     setQueueWindow,
+    setStarredItems,
   });
 
   // Keep setter refs in sync
@@ -500,6 +518,7 @@ export function useAudioEngineInit() {
       goToPrevious,
       setServerQueueState,
       setQueueWindow,
+      setStarredItems,
     };
   });
 
@@ -518,6 +537,7 @@ export function useAudioEngineInit() {
     replayGainMode,
     replayGainOffset,
     clippingDetectionEnabled,
+    starredItems,
   });
 
   // Keep refs in sync
@@ -536,6 +556,7 @@ export function useAudioEngineInit() {
       replayGainMode,
       replayGainOffset,
       clippingDetectionEnabled,
+      starredItems,
     };
   });
 
@@ -586,8 +607,7 @@ export function useAudioEngineInit() {
               return;
             }
             if (qs) {
-              const isLastServerTrack =
-                qs.currentIndex >= qs.totalCount - 1;
+              const isLastServerTrack = qs.currentIndex >= qs.totalCount - 1;
               if (isLastServerTrack && qs.repeatMode !== "all") {
                 // True end of queue with no repeat
                 settersRef.current.setCurrentTime(0);
@@ -623,8 +643,10 @@ export function useAudioEngineInit() {
                           0,
                           client,
                           nativeQueueOffset,
+                          0,
+                          getNativeStreamOptions(stateRef.current),
+                          true,
                         );
-                        await nativePlay();
                       }
                     })
                     .catch(console.error);
@@ -659,7 +681,6 @@ export function useAudioEngineInit() {
           }
         },
         onProgress: (currentTime, duration, buffered) => {
-          lastKnownNativeCurrentTime = currentTime;
           settersRef.current.setCurrentTime(currentTime);
           settersRef.current.setDuration(duration);
           settersRef.current.setBuffered(buffered);
@@ -791,6 +812,7 @@ export function useAudioEngineInit() {
                   await nativeAppendToQueue(
                     newSongs.map((s) => s.song),
                     client,
+                    getNativeStreamOptions(stateRef.current),
                   );
                   nativeQueueLength += newSongs.length;
                 }
@@ -814,6 +836,11 @@ export function useAudioEngineInit() {
             currentListeningSessionId = null;
             playbackStartTime = Date.now();
             startListeningUpdateInterval();
+
+            // Sync star state to WearOS button icon
+            const isStarred =
+              stateRef.current.starredItems.get(track.id) ?? false;
+            nativeUpdateStarredState(isStarred).catch(console.error);
           }
         },
         onSkipPrevious: () => {
@@ -830,6 +857,53 @@ export function useAudioEngineInit() {
             "[NativeAudio] Skip next from notification (at window edge)",
           );
           settersRef.current.goToNext();
+        },
+        onToggleStar: (trackId, isStarred) => {
+          // Toggle star from WearOS overflow menu
+          const client = getClient();
+          if (!client) return;
+          const newStarred = !isStarred;
+          // Optimistically update UI
+          settersRef.current.setStarredItems((current) => {
+            const updated = new Map(current);
+            updated.set(trackId, newStarred);
+            return updated;
+          });
+          const action = isStarred
+            ? client.unstar({ id: trackId })
+            : client.star({ id: trackId });
+          action
+            .then(() => {
+              nativeUpdateStarredState(newStarred).catch(console.error);
+            })
+            .catch((err) => {
+              console.error("[NativeAudio] Failed to toggle star:", err);
+              // Revert on failure
+              settersRef.current.setStarredItems((current) => {
+                const updated = new Map(current);
+                updated.set(trackId, isStarred);
+                return updated;
+              });
+              nativeUpdateStarredState(isStarred).catch(console.error);
+            });
+        },
+        onShuffleModeChanged: (enabled) => {
+          // Shuffle mode changed from WearOS — sync to app state
+          console.log(
+            "[NativeAudio] Shuffle mode changed from external:",
+            enabled,
+          );
+          settersRef.current.setServerQueueState((prev) =>
+            prev ? { ...prev, isShuffled: enabled } : prev,
+          );
+        },
+        onRepeatModeChanged: (mode) => {
+          // Repeat mode changed from WearOS — sync to app state
+          console.log("[NativeAudio] Repeat mode changed from external:", mode);
+          const repeatMode = mode as "off" | "one" | "all";
+          settersRef.current.setServerQueueState((prev) =>
+            prev ? { ...prev, repeatMode } : prev,
+          );
         },
       }).catch((error) => {
         console.error("[Audio] Failed to initialize native audio:", error);
@@ -1323,13 +1397,23 @@ export function useAudioEngineInit() {
   // Update volume on both elements
   useEffect(() => {
     if (usingNativeAudio) {
-      nativeSetVolume(effectiveVolume).catch(console.error);
+      // For native audio, combine user volume with ReplayGain
+      let volume = effectiveVolume;
+      if (replayGainMode !== "disabled" && currentSong) {
+        const trackGain = currentSong.replayGainTrackGain ?? 0;
+        const totalGain = trackGain + replayGainOffset;
+        volume = Math.min(
+          1,
+          Math.max(0, effectiveVolume * dbToLinear(totalGain)),
+        );
+      }
+      nativeSetVolume(volume).catch(console.error);
     } else {
       for (const el of audioElements) {
         if (el) el.volume = effectiveVolume;
       }
     }
-  }, [effectiveVolume]);
+  }, [effectiveVolume, replayGainMode, replayGainOffset, currentSong]);
 
   // Start/stop clipping detection when the setting changes
   useEffect(() => {
@@ -1399,6 +1483,14 @@ export function useAudioEngineInit() {
       // Check if signal changed (new queue started, shuffle, playAtIndex, etc.)
       const signalChanged =
         trackChangeSignal !== lastProcessedSignalRef.current;
+
+      // Check if transcoding settings changed (need to reload with new stream URLs)
+      const nativeOpts = getNativeStreamOptions(stateRef.current);
+      const transcodingChanged =
+        currentLoadedTrackId !== null &&
+        (lastNativeTranscodingEnabled !== nativeOpts.transcodingEnabled ||
+          lastNativeTranscodingBitrate !== nativeOpts.transcodingBitrate);
+
       console.log(
         "[Audio] signalChanged:",
         signalChanged,
@@ -1406,11 +1498,13 @@ export function useAudioEngineInit() {
         trackChangeSignal,
         "lastProcessedSignal:",
         lastProcessedSignalRef.current,
+        "transcodingChanged:",
+        transcodingChanged,
       );
 
       // If the onTrackChange handler already updated state for a native
       // auto-advance, skip re-sending the queue.
-      if (nativeAutoAdvanced && !signalChanged) {
+      if (nativeAutoAdvanced && !signalChanged && !transcodingChanged) {
         console.log(
           "[Audio] Skipping - native auto-advance already handled this track",
         );
@@ -1420,7 +1514,12 @@ export function useAudioEngineInit() {
       nativeAutoAdvanced = false;
 
       // Skip if same track is already loaded AND signal hasn't changed
-      if (currentSong.id === currentLoadedTrackId && !signalChanged) {
+      // AND transcoding settings haven't changed
+      if (
+        currentSong.id === currentLoadedTrackId &&
+        !signalChanged &&
+        !transcodingChanged
+      ) {
         console.log("[Audio] Skipping - same track already loaded");
         return;
       }
@@ -1432,6 +1531,8 @@ export function useAudioEngineInit() {
       }
 
       currentLoadedTrackId = currentSong.id;
+      lastNativeTranscodingEnabled = nativeOpts.transcodingEnabled;
+      lastNativeTranscodingBitrate = nativeOpts.transcodingBitrate;
       console.log(
         "[Audio] Setting currentLoadedTrackId to:",
         currentLoadedTrackId,
@@ -1476,12 +1577,25 @@ export function useAudioEngineInit() {
           setCurrentTime(0);
           setDuration(currentSong.duration || 0);
 
-          await nativeSetQueue(songs, startIdx, client, nativeQueueOffset);
+          await nativeSetQueue(
+            songs,
+            startIdx,
+            client,
+            nativeQueueOffset,
+            0,
+            getNativeStreamOptions(stateRef.current),
+            !isRestoringQueue,
+          );
 
           // Sync repeat mode to native player
           if (currentQueueState?.repeatMode) {
             await nativeSetRepeatMode(currentQueueState.repeatMode);
           }
+
+          // Sync star state to WearOS button icon
+          const isStarred =
+            stateRef.current.starredItems.get(currentSong.id) ?? false;
+          await nativeUpdateStarredState(isStarred);
 
           if (isRestoringQueue) {
             console.log(
@@ -1489,16 +1603,17 @@ export function useAudioEngineInit() {
             );
             setPlaybackState("paused");
           } else {
-            console.log("[Audio] Normal playback - setting queue and playing");
+            console.log(
+              "[Audio] Normal playback - queue set with playWhenReady",
+            );
             setPlaybackState("loading");
-            console.log("[Audio] Queue set, now calling nativePlay");
+            // Explicitly call play() as a safety measure in case the
+            // playWhenReady parameter didn't reach ExoPlayer correctly
             await nativePlay();
           }
         } else {
           // Fallback: no queue window available, use single track
-          console.log(
-            "[Audio] No queue window, falling back to single track",
-          );
+          console.log("[Audio] No queue window, falling back to single track");
           nativeQueueOffset = 0;
           nativeQueueLength = 1;
 
@@ -1506,7 +1621,11 @@ export function useAudioEngineInit() {
           setCurrentTime(0);
           setDuration(currentSong.duration || 0);
 
-          await nativeSetTrack(currentSong, client);
+          await nativeSetTrack(
+            currentSong,
+            client,
+            getNativeStreamOptions(stateRef.current),
+          );
 
           if (isRestoringQueue) {
             setPlaybackState("paused");
@@ -1756,7 +1875,12 @@ export function useAudioEngineInit() {
 
   // Separate effect for ReplayGain settings - updates gain immediately without reloading track
   useEffect(() => {
-    if (!currentSong || !gainNodes[activeIndex]) return;
+    if (!currentSong) return;
+
+    // Native audio: ReplayGain is applied via volume (handled in volume effect above)
+    if (usingNativeAudio) return;
+
+    if (!gainNodes[activeIndex]) return;
 
     if (replayGainMode !== "disabled") {
       const trackGain = currentSong.replayGainTrackGain ?? 0;
@@ -1813,9 +1937,7 @@ export function useAudioEngineInit() {
     const windowSongs = [...queueWindow.songs].sort(
       (a, b) => a.position - b.position,
     );
-    const startIdx = windowSongs.findIndex(
-      (s) => s.song.id === currentSong.id,
-    );
+    const startIdx = windowSongs.findIndex((s) => s.song.id === currentSong.id);
     if (startIdx < 0) return;
 
     const songs = windowSongs.map((s) => s.song);
@@ -1834,7 +1956,14 @@ export function useAudioEngineInit() {
         const positionMs = Math.round((state?.positionSeconds ?? 0) * 1000);
         nativeQueueOffset = offset;
         nativeQueueLength = songs.length;
-        return nativeSetQueue(songs, startIdx, client, offset, positionMs);
+        return nativeSetQueue(
+          songs,
+          startIdx,
+          client,
+          offset,
+          positionMs,
+          getNativeStreamOptions(stateRef.current),
+        );
       })
       .catch(console.error);
   }, [queueWindow, currentSong]);
