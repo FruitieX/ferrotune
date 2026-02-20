@@ -44,6 +44,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("native-audio")
         .invoke_handler(tauri::generate_handler![
             commands::play,
+            commands::request_playback,
             commands::pause,
             commands::stop,
             commands::seek,
@@ -53,6 +54,9 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::set_queue,
             commands::next_track,
             commands::previous_track,
+            commands::set_repeat_mode,
+            commands::append_to_queue,
+            commands::update_starred_state,
             commands::get_safe_area_insets,
         ])
         .setup(|app, api| {

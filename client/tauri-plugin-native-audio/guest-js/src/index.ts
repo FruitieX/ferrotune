@@ -16,6 +16,14 @@ export async function play(): Promise<void> {
 }
 
 /**
+ * Request that the next setQueue() call auto-starts playback.
+ * Called from atom writes to decouple the play decision from React effects.
+ */
+export async function requestPlayback(): Promise<void> {
+  await invoke("plugin:native-audio|request_playback");
+}
+
+/**
  * Pause playback
  */
 export async function pause(): Promise<void> {

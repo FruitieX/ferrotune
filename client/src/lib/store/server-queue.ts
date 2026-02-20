@@ -15,6 +15,22 @@
 import { atom } from "jotai";
 import type { Song, QueueSourceInfo, QueueWindow } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
+import { hasNativeAudio } from "@/lib/tauri";
+import { nativeRequestPlayback } from "@/lib/audio/native-engine";
+
+// Module-level flag: set to true when user explicitly starts playback
+// (startQueue, playAtIndex). Read by the audio engine to decide whether
+// to auto-play after loading the queue. This avoids stale-closure and
+// async timing issues with React atom values.
+let _pendingUserPlayback = false;
+export const pendingUserPlayback = {
+  get value() {
+    return _pendingUserPlayback;
+  },
+  set value(v: boolean) {
+    _pendingUserPlayback = v;
+  },
+};
 
 // ============================================================================
 // Types
@@ -164,6 +180,8 @@ export const startQueueAtom = atom(
 
     set(isQueueOperationPendingAtom, true);
     set(isRestoringQueueAtom, false); // User explicitly starting playback
+    pendingUserPlayback.value = true;
+    if (hasNativeAudio()) nativeRequestPlayback();
 
     try {
       const response = await client.startQueue({
@@ -307,6 +325,8 @@ export const goToNextAtom = atom(null, async (get, set) => {
   }
 
   set(isQueueOperationPendingAtom, true);
+  pendingUserPlayback.value = true;
+  if (hasNativeAudio()) nativeRequestPlayback();
 
   try {
     // When wrapping around with shuffle + repeat-all, request a reshuffle
@@ -363,6 +383,8 @@ export const goToPreviousAtom = atom(null, async (get, set) => {
   }
 
   set(isQueueOperationPendingAtom, true);
+  pendingUserPlayback.value = true;
+  if (hasNativeAudio()) nativeRequestPlayback();
 
   try {
     await client.updateServerQueuePosition(prevIndex, 0);
@@ -399,6 +421,8 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
 
   set(isQueueOperationPendingAtom, true);
   set(isRestoringQueueAtom, false); // User explicitly starting playback
+  pendingUserPlayback.value = true;
+  if (hasNativeAudio()) nativeRequestPlayback();
 
   try {
     await client.updateServerQueuePosition(index, 0);

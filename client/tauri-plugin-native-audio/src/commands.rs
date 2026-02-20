@@ -24,6 +24,23 @@ pub async fn play<R: Runtime>(app: AppHandle<R>) -> Result<()> {
     }
 }
 
+/// Request that the next setQueue() call auto-starts playback.
+/// Called from JS atom writes to decouple the play decision from React effects.
+#[command]
+pub async fn request_playback<R: Runtime>(app: AppHandle<R>) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().request_playback()
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        log::warn!("request_playback() called on desktop - native audio only available on mobile");
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
 /// Pause playback
 #[command]
 pub async fn pause<R: Runtime>(app: AppHandle<R>) -> Result<()> {
@@ -128,15 +145,31 @@ pub async fn set_queue<R: Runtime>(
     app: AppHandle<R>,
     items: Vec<QueueItem>,
     start_index: usize,
+    queue_offset: Option<usize>,
+    start_position_ms: Option<u64>,
+    play_when_ready: Option<bool>,
 ) -> Result<()> {
     #[cfg(mobile)]
     {
-        app.native_audio().set_queue(&items, start_index)
+        app.native_audio().set_queue(
+            &items,
+            start_index,
+            queue_offset.unwrap_or(0),
+            start_position_ms.unwrap_or(0),
+            play_when_ready.unwrap_or(false),
+        )
     }
 
     #[cfg(not(mobile))]
     {
-        let _ = (app, items, start_index);
+        let _ = (
+            app,
+            items,
+            start_index,
+            queue_offset,
+            start_position_ms,
+            play_when_ready,
+        );
         log::warn!("set_queue() called on desktop - native audio only available on mobile");
         Err(Error::ServiceNotAvailable)
     }
@@ -170,6 +203,56 @@ pub async fn previous_track<R: Runtime>(app: AppHandle<R>) -> Result<()> {
     {
         let _ = app;
         log::warn!("previous_track() called on desktop - native audio only available on mobile");
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+/// Set repeat mode
+#[command]
+pub async fn set_repeat_mode<R: Runtime>(app: AppHandle<R>, mode: String) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().set_repeat_mode(&mode)
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, mode);
+        log::warn!("set_repeat_mode() called on desktop - native audio only available on mobile");
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+/// Append items to the playback queue
+#[command]
+pub async fn append_to_queue<R: Runtime>(app: AppHandle<R>, items: Vec<QueueItem>) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().append_to_queue(&items)
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, items);
+        log::warn!("append_to_queue() called on desktop - native audio only available on mobile");
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+/// Update the starred state of the current track
+#[command]
+pub async fn update_starred_state<R: Runtime>(app: AppHandle<R>, starred: bool) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().update_starred_state(starred)
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, starred);
+        log::warn!(
+            "update_starred_state() called on desktop - native audio only available on mobile"
+        );
         Err(Error::ServiceNotAvailable)
     }
 }

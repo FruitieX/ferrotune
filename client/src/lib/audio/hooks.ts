@@ -42,6 +42,7 @@ import {
   fetchQueueAtom,
   playAtIndexAtom,
   queueWindowAtom,
+  pendingUserPlayback,
   type RepeatMode,
 } from "@/lib/store/server-queue";
 import { serverConnectionAtom, isHydratedAtom } from "@/lib/store/auth";
@@ -1465,6 +1466,8 @@ export function useAudioEngineInit() {
         currentLoadedTrackId,
         "isRestoringQueue:",
         isRestoringQueue,
+        "pendingUserPlayback:",
+        pendingUserPlayback.value,
       );
 
       if (!currentSong || !client) {
@@ -1538,6 +1541,36 @@ export function useAudioEngineInit() {
         currentLoadedTrackId,
       );
 
+      // Suppress the queue-window-sync effect: the track-loading effect
+      // handles the initial queue send, so the sync effect should not
+      // re-send the queue (which would reset playWhenReady to false).
+      suppressQueueWindowSync = true;
+
+      // Determine whether playback should start automatically.
+      // Use multiple independent signals for robustness:
+      // 1. pendingUserPlayback: module-level flag set synchronously in
+      //    startQueueAtom / playAtIndexAtom / goToNext / goToPrevious.
+      //    Bypasses React closure/async timing issues.
+      // 2. signalChanged && !isRestoringQueue: trackChangeSignal is only
+      //    incremented by user actions, never by fetchQueueAtom (restore).
+      // 3. transcodingChanged: preserve playback state during settings change.
+      const shouldPlay =
+        pendingUserPlayback.value ||
+        (signalChanged && !isRestoringQueue) ||
+        (transcodingChanged && stateRef.current.playbackState === "playing");
+      pendingUserPlayback.value = false;
+
+      console.log(
+        "[Audio] shouldPlay:",
+        shouldPlay,
+        "pendingUserPlayback:",
+        pendingUserPlayback.value,
+        "signalChanged:",
+        signalChanged,
+        "isRestoringQueue:",
+        isRestoringQueue,
+      );
+
       // Wait for native audio engine to be fully initialized (listeners registered)
       // before sending any commands, to avoid missing state change events.
       const doNativeLoad = async () => {
@@ -1571,6 +1604,8 @@ export function useAudioEngineInit() {
             startIdx,
             "offset:",
             nativeQueueOffset,
+            "shouldPlay:",
+            shouldPlay,
           );
 
           setHasScrobbled(false);
@@ -1584,7 +1619,7 @@ export function useAudioEngineInit() {
             nativeQueueOffset,
             0,
             getNativeStreamOptions(stateRef.current),
-            !isRestoringQueue,
+            shouldPlay,
           );
 
           // Sync repeat mode to native player
@@ -1597,7 +1632,7 @@ export function useAudioEngineInit() {
             stateRef.current.starredItems.get(currentSong.id) ?? false;
           await nativeUpdateStarredState(isStarred);
 
-          if (isRestoringQueue) {
+          if (!shouldPlay) {
             console.log(
               "[Audio] Restoring queue - setting queue without playing",
             );
@@ -1627,7 +1662,7 @@ export function useAudioEngineInit() {
             getNativeStreamOptions(stateRef.current),
           );
 
-          if (isRestoringQueue) {
+          if (!shouldPlay) {
             setPlaybackState("paused");
           } else {
             setPlaybackState("loading");
@@ -1954,6 +1989,10 @@ export function useAudioEngineInit() {
     nativeGetState()
       .then((state) => {
         const positionMs = Math.round((state?.positionSeconds ?? 0) * 1000);
+        // Preserve current playback state: if the player was playing
+        // (or loading/buffering), keep it playing after the queue resend.
+        const shouldPlay =
+          state?.state === "playing" || state?.state === "loading";
         nativeQueueOffset = offset;
         nativeQueueLength = songs.length;
         return nativeSetQueue(
@@ -1963,6 +2002,7 @@ export function useAudioEngineInit() {
           offset,
           positionMs,
           getNativeStreamOptions(stateRef.current),
+          shouldPlay,
         );
       })
       .catch(console.error);

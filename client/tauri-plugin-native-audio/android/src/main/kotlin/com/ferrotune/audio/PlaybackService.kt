@@ -67,6 +67,10 @@ class PlaybackService : MediaSessionService() {
     // Whether the currently playing track is starred (for WearOS button icon)
     private var isCurrentTrackStarred = false
 
+    // Flag: when true, the next setQueue() call will auto-play regardless
+    // of the playWhenReady parameter. Set by requestPlayback() from JS.
+    private var pendingPlayOnNextQueue = false
+
     // Timeout to stop service if JS side doesn't advance after track ends
     private val endedTimeoutRunnable = Runnable {
         Log.d(TAG, "Track ended timeout - stopping service")
@@ -344,8 +348,22 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * Request that the next setQueue() call auto-starts playback.
+     * This is called from JS atom writes (outside React effects) to ensure
+     * the play decision is made synchronously with the user action.
+     */
+    fun requestPlayback() {
+        Log.d(TAG, "requestPlayback() - will auto-play on next setQueue")
+        pendingPlayOnNextQueue = true
+    }
+
     fun setQueue(items: List<TrackInfo>, startIndex: Int, offset: Int = 0, startPositionMs: Long = 0, playWhenReady: Boolean = false) {
-        Log.d(TAG, "setQueue(${items.size} items, startIndex=$startIndex, offset=$offset, startPositionMs=$startPositionMs, playWhenReady=$playWhenReady)")
+        // Consume the pending play flag: if requestPlayback() was called,
+        // override playWhenReady to true regardless of what JS passed.
+        val shouldPlay = playWhenReady || pendingPlayOnNextQueue
+        pendingPlayOnNextQueue = false
+        Log.d(TAG, "setQueue(${items.size} items, startIndex=$startIndex, offset=$offset, startPositionMs=$startPositionMs, playWhenReady=$playWhenReady, pendingPlay->shouldPlay=$shouldPlay)")
         handler.removeCallbacks(endedTimeoutRunnable)
         queue = items
         queueOffset = offset
@@ -354,7 +372,7 @@ class PlaybackService : MediaSessionService() {
 
         val mediaItems = items.map { createMediaItem(it) }
         player.setMediaItems(mediaItems, startIndex.coerceIn(0, items.size - 1), startPositionMs)
-        player.playWhenReady = playWhenReady
+        player.playWhenReady = shouldPlay
         player.prepare()
         emitTrackChange()
     }

@@ -269,6 +269,25 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     }
 
     @Command
+    fun requestPlayback(invoke: Invoke) {
+        scope.launch {
+            try {
+                val service = awaitService()
+                if (service == null) {
+                    Log.e(TAG, "requestPlayback() failed: Service not available after timeout")
+                    invoke.reject("Service not available - try again")
+                    return@launch
+                }
+                service.requestPlayback()
+                invoke.resolve()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in requestPlayback()", e)
+                invoke.reject(e.message)
+            }
+        }
+    }
+
+    @Command
     fun play(invoke: Invoke) {
         scope.launch {
             try {

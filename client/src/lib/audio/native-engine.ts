@@ -316,6 +316,19 @@ export async function nativePlay(): Promise<void> {
 }
 
 /**
+ * Request that the next setQueue() call auto-starts playback.
+ * Fire-and-forget: call from atom writes before the queue is set.
+ */
+export function nativeRequestPlayback(): void {
+  console.log("[NativeAudio] nativeRequestPlayback() called");
+  getNativeApi()
+    .then((api) => api.requestPlayback())
+    .catch((err) =>
+      console.error("[NativeAudio] requestPlayback failed:", err),
+    );
+}
+
+/**
  * Pause playback
  */
 export async function nativePause(): Promise<void> {
