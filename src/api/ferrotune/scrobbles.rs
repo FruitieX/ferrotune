@@ -53,15 +53,27 @@ pub async fn scrobble(
 
     // If submission, record it
     if params.submission {
-        // Record scrobble
-        sqlx::query(
-            "INSERT INTO scrobbles (user_id, song_id, played_at, submission) VALUES (?, ?, ?, 1)",
+        // Deduplicate: skip if same user+song was scrobbled within last 30 seconds
+        let duplicate: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM scrobbles WHERE user_id = ? AND song_id = ? AND played_at > ? AND submission = 1)",
         )
         .bind(user.user_id)
         .bind(&params.id)
-        .bind(played_at)
-        .execute(&state.pool)
+        .bind(played_at - chrono::Duration::seconds(30))
+        .fetch_one(&state.pool)
         .await?;
+
+        if !duplicate {
+            // Record scrobble
+            sqlx::query(
+                "INSERT INTO scrobbles (user_id, song_id, played_at, submission) VALUES (?, ?, ?, 1)",
+            )
+            .bind(user.user_id)
+            .bind(&params.id)
+            .bind(played_at)
+            .execute(&state.pool)
+            .await?;
+        }
 
         // Update play count and last played in the simple play_count/last_played fields in songs table (if we had them)
         // But we rely on the scrobbles table for stats, so insertion is enough.
