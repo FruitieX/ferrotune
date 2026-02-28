@@ -231,6 +231,7 @@ export interface ScanRequest {
   folderId?: number;
   dryRun?: boolean;
   analyzeReplaygain?: boolean;
+  analyzeBliss?: boolean;
 }
 
 // ============================================================================

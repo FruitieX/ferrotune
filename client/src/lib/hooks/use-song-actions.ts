@@ -55,6 +55,7 @@ interface UseSongActionsReturn {
 
   // Playback actions
   handlePlay: () => void;
+  handleStartRadio: () => void;
   handlePlayNext: () => void;
   handleAddToQueue: () => void;
   handleDownload: () => void;
@@ -183,6 +184,15 @@ export function useSongActions({
     }
   };
 
+  const handleStartRadio = () => {
+    startQueue({
+      sourceType: "songRadio",
+      sourceId: song.id,
+      sourceName: `${song.title} Radio`,
+      startIndex: 0,
+    });
+  };
+
   const handlePlayNext = async () => {
     const result = await addToQueue({ songIds: [song.id], position: "next" });
     if (result.success) {
@@ -264,6 +274,7 @@ export function useSongActions({
     currentRating,
     handleRate,
     handlePlay,
+    handleStartRadio,
     handlePlayNext,
     handleAddToQueue,
     handleDownload,

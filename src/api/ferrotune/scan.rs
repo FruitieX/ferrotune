@@ -36,6 +36,15 @@ pub struct ScanRequest {
     /// This is CPU-intensive as it requires fully decoding each audio file.
     #[serde(default)]
     pub analyze_replaygain: bool,
+
+    /// If true, perform bliss audio analysis to compute song similarity features.
+    /// This is CPU-intensive as it requires fully decoding each audio file.
+    #[serde(default)]
+    pub analyze_bliss: bool,
+
+    /// Number of files to skip in the extraction phase (for debugging).
+    #[serde(default)]
+    pub skip: Option<u64>,
 }
 
 /// Response from a scan operation.
@@ -102,29 +111,32 @@ pub async fn start_scan(
     // Clone what we need for the async task
     let pool = state.pool.clone();
     let scan_state = state.scan_state.clone();
-    let full = request.full;
-    let folder_id = request.folder_id;
-    let dry_run = request.dry_run;
-    let analyze_replaygain = request.analyze_replaygain;
+
+    let opts = crate::scanner::ScanOptions {
+        full: request.full,
+        folder_id: request.folder_id,
+        dry_run: request.dry_run,
+        analyze_replaygain: request.analyze_replaygain,
+        analyze_bliss: request.analyze_bliss,
+        skip: request.skip,
+    };
 
     // Spawn the scan in a background task
     tokio::spawn(async move {
         scan_state.log("INFO", "Starting library scan...").await;
-        if analyze_replaygain {
+        if opts.analyze_replaygain {
             scan_state
                 .log("INFO", "ReplayGain analysis enabled (EBU R128)")
                 .await;
         }
+        if opts.analyze_bliss {
+            scan_state
+                .log("INFO", "Bliss audio analysis enabled (song similarity)")
+                .await;
+        }
 
-        match crate::scanner::scan_library_with_progress(
-            &pool,
-            full,
-            folder_id,
-            dry_run,
-            analyze_replaygain,
-            Some(scan_state.clone()),
-        )
-        .await
+        match crate::scanner::scan_library_with_progress(&pool, opts, Some(scan_state.clone()))
+            .await
         {
             Ok(()) => {
                 scan_state

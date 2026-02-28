@@ -11,6 +11,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 /// Size threshold for partial hashing. Files smaller than this use the entire file.
@@ -90,6 +91,20 @@ fn parse_replaygain_value(s: &str) -> Option<f64> {
     value_str.parse::<f64>().ok()
 }
 
+/// Format a duration in seconds as a human-readable ETA string.
+fn format_eta(total_secs: u64) -> String {
+    let hours = total_secs / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+    if hours > 0 {
+        format!("{}h {}m {}s", hours, minutes, seconds)
+    } else if minutes > 0 {
+        format!("{}m {}s", minutes, seconds)
+    } else {
+        format!("{}s", seconds)
+    }
+}
+
 pub async fn scan_library(
     pool: &SqlitePool,
     full: bool,
@@ -97,7 +112,19 @@ pub async fn scan_library(
     dry_run: bool,
     analyze_replaygain: bool,
 ) -> Result<()> {
-    scan_library_with_progress(pool, full, folder_id, dry_run, analyze_replaygain, None).await
+    scan_library_with_progress(
+        pool,
+        ScanOptions {
+            full,
+            folder_id,
+            dry_run,
+            analyze_replaygain,
+            analyze_bliss: false,
+            skip: None,
+        },
+        None,
+    )
+    .await
 }
 
 /// Scan specific files rather than walking entire directories.
@@ -160,7 +187,18 @@ pub async fn scan_specific_files(
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs() as i64);
 
-            match extract_metadata(pool, &path, file_mtime, false).await {
+            // No analysis in watcher mode, but semaphore is still required by the API
+            let no_analysis_semaphore = Semaphore::new(1);
+            match extract_metadata(
+                pool,
+                &path,
+                file_mtime,
+                false,
+                false,
+                &no_analysis_semaphore,
+            )
+            .await
+            {
                 Ok(metadata) => {
                     match upsert_song(pool, metadata, relative_path.clone(), folder_id).await {
                         Ok(is_new) => {
@@ -228,18 +266,25 @@ pub async fn scan_specific_files(
 /// If `analyze_replaygain` is true, EBU R128 loudness analysis will be performed
 /// on each track to compute ReplayGain values. This is CPU-intensive and significantly
 /// increases scan time, as each file must be fully decoded.
+/// Options for a library scan.
+pub struct ScanOptions {
+    pub full: bool,
+    pub folder_id: Option<i64>,
+    pub dry_run: bool,
+    pub analyze_replaygain: bool,
+    pub analyze_bliss: bool,
+    pub skip: Option<u64>,
+}
+
 pub async fn scan_library_with_progress(
     pool: &SqlitePool,
-    full: bool,
-    folder_id: Option<i64>,
-    dry_run: bool,
-    analyze_replaygain: bool,
+    opts: ScanOptions,
     scan_state: Option<Arc<ScanState>>,
 ) -> Result<()> {
     let supported_extensions = ["mp3", "flac", "ogg", "opus", "m4a", "mp4", "aac", "wav"];
 
     // Get music folders from database (database is the source of truth)
-    let folders = if let Some(id) = folder_id {
+    let folders = if let Some(id) = opts.folder_id {
         vec![get_music_folder(pool, id).await?]
     } else {
         crate::db::queries::get_music_folders(pool).await?
@@ -287,7 +332,7 @@ pub async fn scan_library_with_progress(
                 state.log("ERROR", &error_msg).await;
             }
             // Update folder with error
-            if !dry_run {
+            if !opts.dry_run {
                 let _ = crate::api::ferrotune::music_folders::update_folder_scan_error(
                     pool, folder.id, &error_msg,
                 )
@@ -302,7 +347,7 @@ pub async fn scan_library_with_progress(
             if let Some(ref state) = scan_state {
                 state.log("ERROR", &error_msg).await;
             }
-            if !dry_run {
+            if !opts.dry_run {
                 let _ = crate::api::ferrotune::music_folders::update_folder_scan_error(
                     pool, folder.id, &error_msg,
                 )
@@ -321,7 +366,7 @@ pub async fn scan_library_with_progress(
             if let Some(ref state) = scan_state {
                 state.log("ERROR", &error_msg).await;
             }
-            if !dry_run {
+            if !opts.dry_run {
                 let _ = crate::api::ferrotune::music_folders::update_folder_scan_error(
                     pool, folder.id, &error_msg,
                 )
@@ -457,15 +502,17 @@ pub async fn scan_library_with_progress(
             folder.id,
             &folder.path,
             files,
-            full,
-            dry_run,
-            analyze_replaygain,
+            opts.full,
+            opts.dry_run,
+            opts.analyze_replaygain,
+            opts.analyze_bliss,
+            opts.skip,
             scan_state.clone(),
         )
         .await;
 
         // Update folder scan timestamp/error based on result
-        if !dry_run {
+        if !opts.dry_run {
             match &folder_result {
                 Ok(_) => {
                     // Update last_scanned_at timestamp on success
@@ -511,15 +558,15 @@ pub async fn scan_library_with_progress(
                 .await;
             state.broadcast().await;
         }
-        resolve_missing_songs(pool, all_missing_files, dry_run, scan_state.clone()).await?;
+        resolve_missing_songs(pool, all_missing_files, opts.dry_run, scan_state.clone()).await?;
     }
 
     // After scanning all folders, detect and resolve hash collisions
-    if !dry_run {
+    if !opts.dry_run {
         if let Some(ref state) = scan_state {
             state.log("INFO", "Detecting duplicates...").await;
         }
-        let duplicate_count = detect_duplicates(pool, folder_id, scan_state.clone()).await?;
+        let duplicate_count = detect_duplicates(pool, opts.folder_id, scan_state.clone()).await?;
         if let Some(ref state) = scan_state {
             if duplicate_count > 0 {
                 state
@@ -554,7 +601,7 @@ pub async fn scan_library_with_progress(
         }
     } else {
         // In dry-run mode, just report potential duplicates
-        detect_duplicates_dry_run(pool, folder_id).await?;
+        detect_duplicates_dry_run(pool, opts.folder_id).await?;
     }
 
     Ok(())
@@ -597,6 +644,8 @@ async fn scan_folder_files(
     full: bool,
     dry_run: bool,
     analyze_replaygain: bool,
+    analyze_bliss: bool,
+    skip: Option<u64>,
     scan_state: Option<Arc<ScanState>>,
 ) -> Result<FolderMissingFiles> {
     let base_path = PathBuf::from(folder_path);
@@ -617,21 +666,24 @@ async fn scan_folder_files(
             .await;
     }
 
-    // Fetch: id, file_path, file_mtime, has_replaygain (1 if computed gain exists, 0 otherwise)
-    let existing_paths: Vec<(String, String, Option<i64>, i32)> = sqlx::query_as(
+    // Fetch: id, file_path, file_mtime, has_replaygain (1 if computed gain exists, 0 otherwise), has_bliss
+    let existing_paths: Vec<(String, String, Option<i64>, i32, i32)> = sqlx::query_as(
         "SELECT id, file_path, file_mtime, 
-                CASE WHEN computed_replaygain_track_gain IS NOT NULL THEN 1 ELSE 0 END as has_rg
+                CASE WHEN computed_replaygain_track_gain IS NOT NULL THEN 1 ELSE 0 END as has_rg,
+                CASE WHEN bliss_features IS NOT NULL THEN 1 ELSE 0 END as has_bliss
          FROM songs WHERE music_folder_id = ?",
     )
     .bind(folder_id)
     .fetch_all(pool)
     .await?;
 
-    // Map: file_path -> (song_id, file_mtime, has_replaygain)
-    let mut unseen_files: std::collections::HashMap<String, (String, Option<i64>, bool)> =
+    // Map: file_path -> (song_id, file_mtime, has_replaygain, has_bliss)
+    let mut unseen_files: std::collections::HashMap<String, (String, Option<i64>, bool, bool)> =
         existing_paths
             .into_iter()
-            .map(|(id, path, mtime, has_rg)| (path, (id, mtime, has_rg != 0)))
+            .map(|(id, path, mtime, has_rg, has_bliss)| {
+                (path, (id, mtime, has_rg != 0, has_bliss != 0))
+            })
             .collect();
 
     tracing::info!(
@@ -688,14 +740,16 @@ async fn scan_folder_files(
 
         // Check if we can skip this file in incremental mode
         if !full {
-            if let Some((_, stored_mtime, has_replaygain)) = &existing_info {
+            if let Some((_, stored_mtime, has_replaygain, has_bliss)) = &existing_info {
                 // Skip if:
                 // 1. File hasn't been modified since last scan, AND
                 // 2. Either ReplayGain analysis is not requested, OR file already has ReplayGain data
+                // 3. Either bliss analysis is not requested, OR file already has bliss data
                 let mtime_unchanged = file_mtime.is_some() && stored_mtime == &file_mtime;
                 let replaygain_ok = !analyze_replaygain || *has_replaygain;
+                let bliss_ok = !analyze_bliss || *has_bliss;
 
-                if mtime_unchanged && replaygain_ok {
+                if mtime_unchanged && replaygain_ok && bliss_ok {
                     unchanged += 1;
                     if let Some(ref state) = scan_state {
                         state.track_unchanged(&path.to_string_lossy()).await;
@@ -759,20 +813,66 @@ async fn scan_folder_files(
     // tasks perform read-modify-write cycles on related records (artists, albums).
 
     if !files_to_process.is_empty() && !dry_run {
+        // Skip files if requested (for debugging — jump to a specific position)
+        if let Some(skip_count) = skip {
+            let skip_count = skip_count as usize;
+            if skip_count > 0 && skip_count < files_to_process.len() {
+                tracing::info!(
+                    "Skipping first {} files (jumping to file {})",
+                    skip_count,
+                    skip_count + 1
+                );
+                if let Some(ref state) = scan_state {
+                    state
+                        .log(
+                            "INFO",
+                            format!(
+                                "Skipping first {} files (jumping to file {})",
+                                skip_count,
+                                skip_count + 1
+                            ),
+                        )
+                        .await;
+                }
+                files_to_process.drain(..skip_count);
+            }
+        }
+        let files_to_process_count = files_to_process.len();
+
         // Determine concurrency level based on available CPUs
         let concurrency = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4);
 
+        // Limit concurrent audio analysis (ReplayGain/bliss) which decode
+        // entire audio files into memory as f32 samples. Without a limit, high
+        // core counts (e.g. 32) combined with large tracks can cause excessive
+        // memory usage and OOM crashes. Overrideable via env var if you have
+        // lots of RAM and want to speed up analysis.
+        let analysis_concurrency = std::env::var("FERROTUNE_ANALYSIS_CONCURRENCY")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or_else(|| concurrency.min(4));
+        let analysis_semaphore = Arc::new(Semaphore::new(analysis_concurrency));
+
+        let analysis_label = match (analyze_replaygain, analyze_bliss) {
+            (true, true) => format!(
+                " (ReplayGain + bliss analysis, {} concurrent)",
+                analysis_concurrency
+            ),
+            (true, false) => format!(
+                " (ReplayGain analysis, {} concurrent)",
+                analysis_concurrency
+            ),
+            (false, true) => format!(" (bliss analysis, {} concurrent)", analysis_concurrency),
+            (false, false) => String::new(),
+        };
+
         tracing::info!(
             "Extracting metadata from {} files with {} parallel workers{}",
             files_to_process_count,
             concurrency,
-            if analyze_replaygain {
-                " (ReplayGain analysis enabled)"
-            } else {
-                ""
-            }
+            analysis_label
         );
         if let Some(ref state) = scan_state {
             state
@@ -780,13 +880,7 @@ async fn scan_folder_files(
                     "INFO",
                     format!(
                         "Extracting metadata from {} files with {} parallel workers{}",
-                        files_to_process_count,
-                        concurrency,
-                        if analyze_replaygain {
-                            " (ReplayGain analysis enabled)"
-                        } else {
-                            ""
-                        }
+                        files_to_process_count, concurrency, analysis_label
                     ),
                 )
                 .await;
@@ -798,6 +892,9 @@ async fn scan_folder_files(
 
         // Wrap cancellation state check in Arc for sharing
         let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        // Track extraction start time for ETA estimation
+        let extraction_start = std::time::Instant::now();
 
         // Result type for extracted metadata
         struct ExtractedFile {
@@ -814,6 +911,7 @@ async fn scan_folder_files(
                 let extracted_counter = Arc::clone(&extracted_counter);
                 let extract_errors_counter = Arc::clone(&extract_errors_counter);
                 let cancelled = Arc::clone(&cancelled);
+                let analysis_semaphore = Arc::clone(&analysis_semaphore);
                 let total_to_process = files_to_process_count;
 
                 async move {
@@ -850,6 +948,8 @@ async fn scan_folder_files(
                         &file_info.path,
                         file_info.file_mtime,
                         analyze_replaygain,
+                        analyze_bliss,
+                        &analysis_semaphore,
                     )
                     .await
                     {
@@ -857,18 +957,30 @@ async fn scan_folder_files(
                             let extracted = extracted_counter.fetch_add(1, Ordering::Relaxed) + 1;
                             if extracted.is_multiple_of(100) || extracted == total_to_process as u64
                             {
+                                let eta = {
+                                    let elapsed = extraction_start.elapsed().as_secs_f64();
+                                    let remaining = total_to_process as u64 - extracted;
+                                    let rate = extracted as f64 / elapsed;
+                                    if rate > 0.0 {
+                                        let secs = (remaining as f64 / rate) as u64;
+                                        format_eta(secs)
+                                    } else {
+                                        "unknown".to_string()
+                                    }
+                                };
                                 tracing::info!(
-                                    "Metadata extraction progress: {}/{}",
+                                    "Metadata extraction progress: {}/{} (ETA: {})",
                                     extracted,
-                                    total_to_process
+                                    total_to_process,
+                                    eta
                                 );
                                 if let Some(ref state) = scan_state {
                                     state
                                         .log(
                                             "INFO",
                                             format!(
-                                                "Metadata extraction progress: {}/{}",
-                                                extracted, total_to_process
+                                                "Metadata extraction progress: {}/{} (ETA: {})",
+                                                extracted, total_to_process, eta
                                             ),
                                         )
                                         .await;
@@ -901,12 +1013,17 @@ async fn scan_folder_files(
             .collect()
             .await;
 
-        // Check if cancelled during extraction
-        if cancelled.load(Ordering::Relaxed) {
+        // Check if cancelled during extraction — still proceed to write what we have
+        let mut was_cancelled = cancelled.load(Ordering::Relaxed);
+        if was_cancelled {
             if let Some(ref state) = scan_state {
-                state.log("WARN", "Scan cancelled by user").await;
+                state
+                    .log(
+                        "WARN",
+                        "Scan cancelled by user, saving already-extracted metadata...",
+                    )
+                    .await;
             }
-            return Err(Error::InvalidRequest("Scan cancelled".to_string()));
         }
 
         // Collect successful extractions
@@ -932,11 +1049,16 @@ async fn scan_folder_files(
             }
 
             for (idx, extracted) in extracted_files.into_iter().enumerate() {
-                // Check for cancellation
-                if let Some(ref state) = scan_state {
-                    if state.is_cancelled() {
-                        state.log("WARN", "Scan cancelled by user").await;
-                        return Err(Error::InvalidRequest("Scan cancelled".to_string()));
+                // Check for new cancellation during DB writes (skip if already saving after cancellation)
+                if !was_cancelled {
+                    if let Some(ref state) = scan_state {
+                        if state.is_cancelled() {
+                            was_cancelled = true;
+                            state
+                                .log("WARN", "Scan cancelled, saving progress...")
+                                .await;
+                            break;
+                        }
                     }
                 }
 
@@ -1002,6 +1124,24 @@ async fn scan_folder_files(
 
         // Add extraction errors to total
         errors += extract_errors;
+
+        // Return cancellation error after saving what we extracted
+        if was_cancelled {
+            if let Some(ref state) = scan_state {
+                state
+                    .log(
+                        "INFO",
+                        format!(
+                            "Saved {} songs before cancellation ({} added, {} updated)",
+                            added + updated,
+                            added,
+                            updated
+                        ),
+                    )
+                    .await;
+            }
+            return Err(Error::InvalidRequest("Scan cancelled".to_string()));
+        }
     }
 
     // Any files still in unseen_files no longer exist on disk
@@ -1010,7 +1150,7 @@ async fn scan_folder_files(
     let missing_count = unseen_files.len();
     let unseen_files: std::collections::HashMap<String, String> = unseen_files
         .into_iter()
-        .map(|(path, (id, _, _))| (path, id))
+        .map(|(path, (id, _, _, _))| (path, id))
         .collect();
 
     if let Some(ref state) = scan_state {
@@ -1459,6 +1599,9 @@ struct SongMetadata {
     // ReplayGain values - computed by scanner via EBU R128 analysis
     computed_replaygain_track_gain: Option<f64>,
     computed_replaygain_track_peak: Option<f64>,
+    // Bliss audio analysis features for song similarity
+    bliss_features: Option<Vec<u8>>,
+    bliss_version: Option<i32>,
 }
 
 async fn extract_metadata(
@@ -1466,6 +1609,8 @@ async fn extract_metadata(
     path: &Path,
     file_mtime: Option<i64>,
     analyze_replaygain: bool,
+    #[cfg_attr(not(feature = "bliss"), allow(unused))] analyze_bliss: bool,
+    analysis_semaphore: &Semaphore,
 ) -> Result<SongMetadata> {
     let tagged_file = Probe::open(path)
         .map_err(Error::Lofty)?
@@ -1618,21 +1763,50 @@ async fn extract_metadata(
         )
     };
 
+    // Drop tagged_file before running CPU/memory-intensive audio analysis.
+    // tagged_file holds all parsed tag data including embedded album art (potentially
+    // 5-20MB per file), and we don't need it during ReplayGain/bliss decoding.
+    drop(tagged_file);
+
     // Compute ReplayGain values via EBU R128 analysis if requested
     let (computed_replaygain_track_gain, computed_replaygain_track_peak) = if analyze_replaygain {
+        // Acquire semaphore permit to limit concurrent audio decoding.
+        // Each decode loads the entire audio as f32 samples (~50-100MB per file).
+        let _permit = analysis_semaphore
+            .acquire()
+            .await
+            .map_err(|_| Error::Internal("Analysis semaphore closed unexpectedly".to_string()))?;
+        tracing::debug!("Starting ReplayGain analysis for {}", path.display());
         let path_clone = path.to_path_buf();
         // Run CPU-intensive ReplayGain analysis on a blocking thread
-        match tokio::task::spawn_blocking(move || crate::replaygain::analyze_track(&path_clone))
-            .await
+        match tokio::task::spawn_blocking(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::replaygain::analyze_track(&path_clone)
+            }))
+        })
+        .await
         {
-            Ok(Ok(result)) => (Some(result.track_gain), Some(result.track_peak)),
-            Ok(Err(e)) => {
+            Ok(Ok(Ok(result))) => (Some(result.track_gain), Some(result.track_peak)),
+            Ok(Ok(Err(e))) => {
                 tracing::warn!("Failed to analyze ReplayGain for {}: {}", path.display(), e);
+                (None, None)
+            }
+            Ok(Err(panic)) => {
+                let msg = panic
+                    .downcast_ref::<String>()
+                    .map(|s| s.as_str())
+                    .or_else(|| panic.downcast_ref::<&str>().copied())
+                    .unwrap_or("unknown panic");
+                tracing::error!(
+                    "ReplayGain analysis panicked for {}: {}",
+                    path.display(),
+                    msg
+                );
                 (None, None)
             }
             Err(e) => {
                 tracing::warn!(
-                    "ReplayGain analysis task panicked for {}: {}",
+                    "ReplayGain analysis task failed for {}: {}",
                     path.display(),
                     e
                 );
@@ -1642,6 +1816,68 @@ async fn extract_metadata(
     } else {
         (None, None)
     };
+
+    // Compute bliss audio features for song similarity if requested.
+    // Skip files longer than the configured limit (default 20 minutes) — bliss
+    // features are not very meaningful for e.g. long DJ mixes and analyzing
+    // them consumes too much memory.
+    #[cfg(feature = "bliss")]
+    let (bliss_features, bliss_version) = if analyze_bliss {
+        let bliss_max_duration_secs: u64 = std::env::var("FERROTUNE_BLISS_MAX_DURATION_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(20 * 60);
+        if duration > bliss_max_duration_secs {
+            tracing::debug!(
+                "Skipping bliss analysis for {} (duration {}s exceeds {}s limit)",
+                path.display(),
+                duration,
+                bliss_max_duration_secs
+            );
+            (None, None)
+        } else {
+            // Acquire semaphore permit to limit concurrent audio decoding
+            let _permit = analysis_semaphore.acquire().await.map_err(|_| {
+                Error::Internal("Analysis semaphore closed unexpectedly".to_string())
+            })?;
+            tracing::debug!("Starting bliss analysis for {}", path.display());
+            let path_clone = path.to_path_buf();
+            // Run CPU-intensive bliss analysis on a blocking thread
+            match tokio::task::spawn_blocking(move || {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    crate::bliss::analyze_track(&path_clone)
+                }))
+            })
+            .await
+            {
+                Ok(Ok(Ok(result))) => (
+                    Some(crate::bliss::features_to_blob(&result.features)),
+                    Some(result.version),
+                ),
+                Ok(Ok(Err(e))) => {
+                    tracing::warn!("Failed to analyze bliss for {}: {}", path.display(), e);
+                    (None, None)
+                }
+                Ok(Err(panic)) => {
+                    let msg = panic
+                        .downcast_ref::<String>()
+                        .map(|s| s.as_str())
+                        .or_else(|| panic.downcast_ref::<&str>().copied())
+                        .unwrap_or("unknown panic");
+                    tracing::error!("Bliss analysis panicked for {}: {}", path.display(), msg);
+                    (None, None)
+                }
+                Err(e) => {
+                    tracing::warn!("Bliss analysis task failed for {}: {}", path.display(), e);
+                    (None, None)
+                }
+            }
+        }
+    } else {
+        (None, None)
+    };
+    #[cfg(not(feature = "bliss"))]
+    let (bliss_features, bliss_version): (Option<Vec<u8>>, Option<i32>) = (None, None);
 
     Ok(SongMetadata {
         title,
@@ -1665,6 +1901,8 @@ async fn extract_metadata(
         original_replaygain_track_peak,
         computed_replaygain_track_gain,
         computed_replaygain_track_peak,
+        bliss_features,
+        bliss_version,
     })
 }
 
@@ -1734,6 +1972,8 @@ async fn upsert_song(
                 original_replaygain_track_peak = ?,
                 computed_replaygain_track_gain = COALESCE(?, computed_replaygain_track_gain),
                 computed_replaygain_track_peak = COALESCE(?, computed_replaygain_track_peak),
+                bliss_features = COALESCE(?, bliss_features),
+                bliss_version = COALESCE(?, bliss_version),
                 full_file_hash = NULL, updated_at = datetime('now')
              WHERE id = ?",
         )
@@ -1758,6 +1998,8 @@ async fn upsert_song(
         .bind(metadata.original_replaygain_track_peak)
         .bind(metadata.computed_replaygain_track_gain)
         .bind(metadata.computed_replaygain_track_peak)
+        .bind(&metadata.bliss_features)
+        .bind(metadata.bliss_version)
         .bind(&id)
         .execute(&mut *tx)
         .await?;
@@ -1775,8 +2017,9 @@ async fn upsert_song(
                 cover_art_width, cover_art_height,
                 original_replaygain_track_gain, original_replaygain_track_peak,
                 computed_replaygain_track_gain, computed_replaygain_track_peak,
+                bliss_features, bliss_version,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
         )
         .bind(&song_id)
         .bind(&metadata.title)
@@ -1801,6 +2044,8 @@ async fn upsert_song(
         .bind(metadata.original_replaygain_track_peak)
         .bind(metadata.computed_replaygain_track_gain)
         .bind(metadata.computed_replaygain_track_peak)
+        .bind(&metadata.bliss_features)
+        .bind(metadata.bliss_version)
         .execute(&mut *tx)
         .await?;
 

@@ -1459,6 +1459,21 @@ async fn materialize_queue_songs(
                     .into(),
             )
         }
+        QueueSourceType::SongRadio => {
+            #[cfg(feature = "bliss")]
+            {
+                let song_id = source_id.ok_or_else(|| {
+                    Error::InvalidRequest("Song ID required for radio".to_string())
+                })?;
+                let similar = crate::bliss::find_similar_songs(pool, song_id, user_id, 50).await?;
+                let mut song_ids: Vec<String> = Vec::with_capacity(similar.len() + 1);
+                song_ids.push(song_id.to_string());
+                song_ids.extend(similar.into_iter().map(|(id, _)| id));
+                Ok(queries::get_songs_by_ids(pool, &song_ids).await?)
+            }
+            #[cfg(not(feature = "bliss"))]
+            Err(Error::InvalidRequest("Song radio requires the 'bliss' feature".to_string()).into())
+        }
         QueueSourceType::Other => {
             // For "other" source with no song IDs, treat as library
             let search_params = build_search_params_from_json(filters, sort);

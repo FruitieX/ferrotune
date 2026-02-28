@@ -4,6 +4,8 @@
 //! in other applications like the Tauri desktop app.
 
 pub mod api;
+#[cfg(feature = "bliss")]
+pub mod bliss;
 pub mod config;
 pub mod db;
 pub mod error;

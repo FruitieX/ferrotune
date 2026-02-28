@@ -63,6 +63,7 @@ export function useScanProgressStream() {
           mode: status.mode,
           finished: status.finished,
           error: status.error,
+          etaSeconds: status.etaSeconds,
           logs: status.logs,
         });
         setLogs(status.logs);

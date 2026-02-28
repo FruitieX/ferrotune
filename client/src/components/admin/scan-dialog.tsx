@@ -271,6 +271,15 @@ function StatBox({
   );
 }
 
+function formatEta(totalSecs: number): string {
+  const hours = Math.floor(totalSecs / 3600);
+  const minutes = Math.floor((totalSecs % 3600) / 60);
+  const seconds = totalSecs % 60;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
 export function ScanDialog() {
   const [open, setOpen] = useAtom(scanDialogOpenAtom);
   const [folderId, setFolderId] = useAtom(scanFolderIdAtom);
@@ -286,7 +295,19 @@ export function ScanDialog() {
   const [fullScan, setFullScan] = useState(false);
   const [dryRun, setDryRun] = useState(false);
   const [analyzeReplaygain, setAnalyzeReplaygain] = useState(false);
+  const [analyzeBliss, setAnalyzeBliss] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [blissAvailable, setBlissAvailable] = useState(true);
+
+  // Fetch server features to know if bliss is compiled in
+  useEffect(() => {
+    const client = getClient();
+    if (!client) return;
+    client
+      .getFeatures()
+      .then((features) => setBlissAvailable(features.bliss))
+      .catch(() => setBlissAvailable(false));
+  }, []);
 
   // State for stat details
   const [detailCategory, setDetailCategory] = useState<StatCategory | null>(
@@ -343,6 +364,7 @@ export function ScanDialog() {
         full: fullScan,
         dryRun: dryRun,
         analyzeReplaygain: analyzeReplaygain,
+        analyzeBliss: analyzeBliss,
         folderId: folderId ?? undefined,
       });
 
@@ -474,6 +496,28 @@ export function ScanDialog() {
                     onCheckedChange={setAnalyzeReplaygain}
                   />
                 </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label
+                      htmlFor="analyze-bliss"
+                      className={cn(!blissAvailable && "text-muted-foreground")}
+                    >
+                      Analyze Song Similarity
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {blissAvailable
+                        ? "Compute audio features for song radio (slower)"
+                        : "Not available — server compiled without bliss feature"}
+                    </p>
+                  </div>
+                  <Switch
+                    id="analyze-bliss"
+                    checked={analyzeBliss}
+                    onCheckedChange={setAnalyzeBliss}
+                    disabled={!blissAvailable}
+                  />
+                </div>
               </div>
             )}
 
@@ -515,7 +559,14 @@ export function ScanDialog() {
                       <span>
                         {progress.scanned} / {progress.total} files
                       </span>
-                      <span>{progressPercent}%</span>
+                      <div className="flex gap-3">
+                        {isScanning &&
+                          progress.etaSeconds != null &&
+                          progress.etaSeconds > 0 && (
+                            <span>ETA: {formatEta(progress.etaSeconds)}</span>
+                          )}
+                        <span>{progressPercent}%</span>
+                      </div>
                     </div>
                   </div>
                 )}

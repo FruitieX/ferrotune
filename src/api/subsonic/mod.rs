@@ -70,6 +70,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/rest/getSong.view", get(browse::get_song))
         .route("/rest/getGenres", get(browse::get_genres))
         .route("/rest/getGenres.view", get(browse::get_genres))
+        .route("/rest/getSimilarSongs2", get(browse::get_similar_songs2))
+        .route(
+            "/rest/getSimilarSongs2.view",
+            get(browse::get_similar_songs2),
+        )
         // Directory browsing endpoints
         .route("/rest/getIndexes", get(directory::get_indexes))
         .route("/rest/getIndexes.view", get(directory::get_indexes))

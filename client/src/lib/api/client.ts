@@ -113,6 +113,7 @@ import type { TaggerPendingEditsResponse } from "./generated/TaggerPendingEditsR
 import type { TaggerScriptsResponse } from "./generated/TaggerScriptsResponse";
 import type { TaggerScriptData } from "./generated/TaggerScriptData";
 import type { SongPlaylistsResponse } from "./generated/SongPlaylistsResponse";
+import type { ServerFeatures } from "./generated/ServerFeatures";
 import type { ReplacementAudioUploadResponse } from "./generated/ReplacementAudioUploadResponse";
 import type { SetupStatusResponse } from "./generated/SetupStatusResponse";
 import type { FerrotuneAlbumListResponse } from "./generated/FerrotuneAlbumListResponse";
@@ -1427,6 +1428,17 @@ export class FerrotuneClient {
     return this.request("/ferrotune/queue", {
       method: "DELETE",
     });
+  }
+
+  // ============================================================================
+  // Server Features API
+  // ============================================================================
+
+  /**
+   * Get server feature flags (which optional features are compiled in)
+   */
+  async getFeatures(): Promise<ServerFeatures> {
+    return this.request("/ferrotune/features");
   }
 
   // ============================================================================

@@ -131,6 +131,7 @@ use ts_rs::TS;
 pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/ferrotune/health", get(health))
+        .route("/ferrotune/features", get(features))
         // Browse endpoints (migrated from OpenSubsonic)
         .route("/ferrotune/ping", get(browse::ping))
         .route("/ferrotune/artists", get(browse::get_artists))
@@ -287,6 +288,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/ferrotune/songs/{id}",
             get(browse::get_song).delete(media::delete_song),
+        )
+        .route(
+            "/ferrotune/songs/{id}/similar",
+            get(browse::get_similar_songs),
         )
         // Delete song files (from disk and database)
         .route(
@@ -577,6 +582,22 @@ async fn health() -> impl IntoResponse {
     Json(HealthResponse {
         status: "ok",
         version: env!("CARGO_PKG_VERSION"),
+    })
+}
+
+/// Server feature flags exposed to the frontend.
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ServerFeatures {
+    /// Whether bliss audio analysis (song similarity) is available.
+    pub bliss: bool,
+}
+
+/// Returns which optional features are compiled into this server build.
+async fn features() -> impl IntoResponse {
+    Json(ServerFeatures {
+        bliss: cfg!(feature = "bliss"),
     })
 }
 

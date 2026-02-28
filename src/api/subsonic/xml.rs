@@ -535,6 +535,20 @@ pub struct XmlSongsByGenreInner {
     pub song: Vec<XmlSong>,
 }
 
+// Similar songs response (getSimilarSongs2)
+xml_response!(
+    XmlSimilarSongs2Response,
+    "similarSongs2",
+    XmlSimilarSongs2Inner,
+    similar_songs2
+);
+
+#[derive(Serialize)]
+pub struct XmlSimilarSongs2Inner {
+    #[serde(rename = "song", default, skip_serializing_if = "Vec::is_empty")]
+    pub song: Vec<XmlSong>,
+}
+
 // Starred response (getStarred)
 xml_response!(XmlStarredResponse, XmlStarredInner, starred);
 
@@ -676,7 +690,7 @@ pub struct XmlPlayQueueInner {
 use crate::api::common::models::{AlbumResponse, ArtistResponse, SongResponse};
 use crate::api::subsonic::browse::{
     AlbumDetailResponse, ArtistDetailResponse, ArtistInfo2Response, ArtistsResponse,
-    GenresResponse, SongDetailResponse,
+    GenresResponse, SimilarSongs2Response, SongDetailResponse,
 };
 use crate::api::subsonic::lists::{AlbumList2Response, RandomSongsResponse, SongsByGenreResponse};
 use crate::api::subsonic::playlists::{PlaylistWithSongsResponse, PlaylistsResponse};
@@ -1355,6 +1369,16 @@ impl ToXml for DirectoryResponse {
                 .iter()
                 .map(directory_child_to_xml)
                 .collect(),
+        })
+    }
+}
+
+impl ToXml for SimilarSongs2Response {
+    type XmlType = XmlSimilarSongs2Response;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlSimilarSongs2Response::ok(XmlSimilarSongs2Inner {
+            song: self.similar_songs2.song.iter().map(song_to_xml).collect(),
         })
     }
 }

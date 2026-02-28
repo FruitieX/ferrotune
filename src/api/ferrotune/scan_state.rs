@@ -97,6 +97,9 @@ pub struct ScanProgressUpdate {
     pub finished: bool,
     /// Error message if scan failed
     pub error: Option<String>,
+    /// Estimated seconds remaining (if computable)
+    #[ts(type = "number | null")]
+    pub eta_seconds: Option<u64>,
     /// Recent log entries (included in SSE updates)
     pub logs: Vec<ScanLogEntry>,
 }
@@ -119,6 +122,7 @@ impl Default for ScanProgressUpdate {
             mode: "incremental".to_string(),
             finished: false,
             error: None,
+            eta_seconds: None,
             logs: Vec::new(),
         }
     }
@@ -155,6 +159,8 @@ pub struct ScanState {
     last_broadcast_log_index: RwLock<usize>,
     /// Timestamp of last broadcast (for throttling)
     last_broadcast_at: RwLock<Option<Instant>>,
+    /// Timestamp when the scan started (for ETA estimation)
+    started_at: RwLock<Option<Instant>>,
     /// Detailed lists of affected files
     details: RwLock<ScanDetails>,
 }
@@ -184,6 +190,7 @@ impl ScanState {
             logs: RwLock::new(Vec::new()),
             last_broadcast_log_index: RwLock::new(0),
             last_broadcast_at: RwLock::new(None),
+            started_at: RwLock::new(None),
             details: RwLock::new(ScanDetails::default()),
         }
     }
@@ -213,10 +220,36 @@ impl ScanState {
             self.logs.read().await.clone()
         };
 
+        let scanned = self.scanned.load(Ordering::Relaxed);
+        let total = *self.total.read().await;
+        let scanning = self.scanning.load(Ordering::Relaxed);
+
+        // Estimate time remaining based on elapsed time and progress
+        let eta_seconds = if scanning && scanned > 0 {
+            if let (Some(total), Some(started_at)) = (total, *self.started_at.read().await) {
+                let remaining = total.saturating_sub(scanned);
+                if remaining > 0 {
+                    let elapsed = started_at.elapsed().as_secs_f64();
+                    let rate = scanned as f64 / elapsed;
+                    if rate > 0.0 {
+                        Some((remaining as f64 / rate) as u64)
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(0)
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         ScanProgressUpdate {
-            scanning: self.scanning.load(Ordering::Relaxed),
-            scanned: self.scanned.load(Ordering::Relaxed),
-            total: *self.total.read().await,
+            scanning,
+            scanned,
+            total,
             added: self.added.load(Ordering::Relaxed),
             updated: self.updated.load(Ordering::Relaxed),
             unchanged: self.unchanged.load(Ordering::Relaxed),
@@ -229,6 +262,7 @@ impl ScanState {
             mode: self.mode.read().await.clone(),
             finished: self.finished.load(Ordering::Relaxed),
             error: self.error.read().await.clone(),
+            eta_seconds,
             logs,
         }
     }
@@ -282,6 +316,7 @@ impl ScanState {
         self.logs.write().await.clear();
         *self.last_broadcast_log_index.write().await = 0;
         *self.last_broadcast_at.write().await = None;
+        *self.started_at.write().await = Some(Instant::now());
 
         // Clear details on new scan
         *self.details.write().await = ScanDetails::default();

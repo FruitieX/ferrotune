@@ -13,7 +13,14 @@ import {
   scanDialogOpenAtom,
   scanProgressAtom,
 } from "@/lib/store/scan";
-
+function formatEtaShort(totalSecs: number): string {
+  const hours = Math.floor(totalSecs / 3600);
+  const minutes = Math.floor((totalSecs % 3600) / 60);
+  const seconds = totalSecs % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
 interface ScanStatusIndicatorProps {
   /** Whether the sidebar is collapsed (affects tooltip position) */
   collapsed?: boolean;
@@ -45,6 +52,11 @@ export function ScanStatusIndicator({
       ? `Scanning... ${progressPercent}%`
       : "Scanning...";
 
+  const etaText =
+    progress?.etaSeconds != null && progress.etaSeconds > 0
+      ? formatEtaShort(progress.etaSeconds)
+      : undefined;
+
   // Always use icon-only button with tooltip to avoid text overflow issues
   return (
     <Tooltip>
@@ -60,6 +72,9 @@ export function ScanStatusIndicator({
       </TooltipTrigger>
       <TooltipContent side={collapsed ? "right" : "bottom"}>
         <p>{statusText}</p>
+        {etaText && (
+          <p className="text-xs text-muted-foreground">ETA: {etaText}</p>
+        )}
         <p className="text-xs text-muted-foreground">Click to view details</p>
       </TooltipContent>
     </Tooltip>

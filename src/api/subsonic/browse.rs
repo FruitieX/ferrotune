@@ -253,3 +253,78 @@ pub async fn get_genres(
         },
     ))
 }
+
+// ===== getSimilarSongs2 =====
+
+#[derive(Deserialize)]
+#[cfg_attr(not(feature = "bliss"), allow(dead_code))]
+pub struct GetSimilarSongs2Params {
+    id: String,
+    #[serde(default = "default_similar_count")]
+    count: usize,
+}
+
+fn default_similar_count() -> usize {
+    50
+}
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct SimilarSongs2Response {
+    pub similar_songs2: SimilarSongs2Inner,
+}
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct SimilarSongs2Inner {
+    pub song: Vec<SongResponse>,
+}
+
+pub async fn get_similar_songs2(
+    user: AuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<GetSimilarSongs2Params>,
+) -> crate::error::Result<FormatResponse<SimilarSongs2Response>> {
+    #[cfg(feature = "bliss")]
+    let song_responses = {
+        use crate::api::common::browse::song_to_response;
+        use crate::api::common::starring::{get_ratings_map, get_starred_map};
+        use crate::db::models::ItemType;
+
+        let similar =
+            crate::bliss::find_similar_songs(&state.pool, &params.id, user.user_id, params.count)
+                .await?;
+        let song_ids: Vec<String> = similar.into_iter().map(|(id, _)| id).collect();
+        let songs = crate::db::queries::get_songs_by_ids(&state.pool, &song_ids).await?;
+
+        let starred_map =
+            get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+        let ratings_map =
+            get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+
+        songs
+            .into_iter()
+            .map(|song| {
+                let starred = starred_map.get(&song.id).cloned();
+                let user_rating = ratings_map.get(&song.id).copied();
+                song_to_response(song, None, starred, user_rating)
+            })
+            .collect::<Vec<_>>()
+    };
+    #[cfg(not(feature = "bliss"))]
+    let song_responses = {
+        let _ = (&state, &params);
+        Vec::new()
+    };
+
+    Ok(FormatResponse::new(
+        user.format,
+        SimilarSongs2Response {
+            similar_songs2: SimilarSongs2Inner {
+                song: song_responses,
+            },
+        },
+    ))
+}

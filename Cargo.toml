@@ -12,9 +12,11 @@ name = "ferrotune"
 path = "src/main.rs"
 
 [features]
-default = []
+default = ["bliss"]
 # Enable embedded web UI - requires client/out to exist at compile time
 embedded-ui = ["dep:rust-embed", "dep:mime_guess"]
+# Enable bliss audio analysis for song similarity
+bliss = ["dep:bliss-audio"]
 
 [dependencies]
 # Web framework
@@ -54,6 +56,9 @@ rubato = "0.16"
 
 # Audio loudness measurement (EBU R128 for ReplayGain)
 ebur128 = "0.1"
+
+# Audio analysis for song similarity (bliss)
+bliss-audio = { version = "0.11", default-features = false, features = ["symphonia-all", "serde", "update-aubio-bindings"], optional = true }
 
 # Safe sample format conversion
 bytemuck = { version = "1.21", features = ["derive"] }

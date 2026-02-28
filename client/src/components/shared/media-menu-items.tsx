@@ -22,6 +22,7 @@ import {
   Unlink,
   Settings,
   Ban,
+  Radio,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -275,6 +276,7 @@ export interface SongMenuItemsCoreProps {
   components: MenuComponents;
   handlers: {
     handlePlay?: () => void;
+    handleStartRadio?: () => void;
     handlePlayNext?: () => void;
     handleAddToQueue?: () => void;
     setAddToPlaylistOpen: (open: boolean) => void;
@@ -326,6 +328,15 @@ export function SongMenuItemsQueue({
               onClick: handlers.handleAddToQueue,
             },
           )}
+          {handlers.handleStartRadio &&
+            renderMenuItem(
+              { Item },
+              {
+                icon: Radio,
+                label: "Start Radio",
+                onClick: handlers.handleStartRadio,
+              },
+            )}
         </>
       )}
       {renderMenuItem(

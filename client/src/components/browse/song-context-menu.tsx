@@ -769,6 +769,7 @@ export function SongContextMenu({
     currentRating,
     handleRate,
     handlePlay,
+    handleStartRadio,
     handlePlayNext,
     handleAddToQueue,
     handleDownload,
@@ -835,6 +836,7 @@ export function SongContextMenu({
                 components={contextMenuComponents}
                 handlers={{
                   handlePlay,
+                  handleStartRadio,
                   handlePlayNext,
                   handleAddToQueue,
                   setAddToPlaylistOpen: setSingleAddToPlaylistOpen,
@@ -1008,6 +1010,7 @@ export function SongDropdownMenu({
     currentRating,
     handleRate,
     handlePlay,
+    handleStartRadio,
     handlePlayNext,
     handleAddToQueue,
     handleDownload,
@@ -1069,6 +1072,7 @@ export function SongDropdownMenu({
             components={dropdownMenuComponents}
             handlers={{
               handlePlay,
+              handleStartRadio,
               handlePlayNext,
               handleAddToQueue,
               setAddToPlaylistOpen,

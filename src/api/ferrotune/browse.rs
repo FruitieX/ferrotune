@@ -233,6 +233,75 @@ pub async fn get_song(
 }
 
 // ============================================================================
+// Similar Songs Endpoint
+// ============================================================================
+
+/// Response for similar songs
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct FerrotuneSimilarSongsResponse {
+    pub songs: Vec<SongResponse>,
+}
+
+/// Query params for similar songs
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(not(feature = "bliss"), allow(dead_code))]
+pub struct GetSimilarSongsParams {
+    /// Maximum number of similar songs to return (default: 50)
+    #[serde(default = "default_similar_count")]
+    pub count: usize,
+}
+
+fn default_similar_count() -> usize {
+    50
+}
+
+/// GET /ferrotune/songs/:id/similar - Get similar songs based on audio analysis
+pub async fn get_similar_songs(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(params): Query<GetSimilarSongsParams>,
+) -> FerrotuneApiResult<Json<FerrotuneSimilarSongsResponse>> {
+    #[cfg(feature = "bliss")]
+    {
+        use crate::api::common::browse::song_to_response;
+        use crate::api::common::starring::{get_ratings_map, get_starred_map};
+        use crate::db::models::ItemType;
+
+        let similar =
+            crate::bliss::find_similar_songs(&state.pool, &id, user.user_id, params.count).await?;
+        let song_ids: Vec<String> = similar.into_iter().map(|(id, _)| id).collect();
+        let songs = crate::db::queries::get_songs_by_ids(&state.pool, &song_ids).await?;
+
+        let starred_map =
+            get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+        let ratings_map =
+            get_ratings_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
+
+        let song_responses: Vec<SongResponse> = songs
+            .into_iter()
+            .map(|song| {
+                let starred = starred_map.get(&song.id).cloned();
+                let user_rating = ratings_map.get(&song.id).copied();
+                song_to_response(song, None, starred, user_rating)
+            })
+            .collect();
+
+        Ok(Json(FerrotuneSimilarSongsResponse {
+            songs: song_responses,
+        }))
+    }
+    #[cfg(not(feature = "bliss"))]
+    {
+        let _ = (&user, &state, &id, &params);
+        Ok(Json(FerrotuneSimilarSongsResponse { songs: vec![] }))
+    }
+}
+
+// ============================================================================
 // Genres Endpoint
 // ============================================================================
 

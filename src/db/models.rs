@@ -438,6 +438,8 @@ pub enum QueueSourceType {
     Directory,
     /// Non-recursive directory - only files in the current folder, not subfolders
     DirectoryFlat,
+    /// Song radio - similar songs based on bliss audio analysis
+    SongRadio,
     #[default]
     Other,
 }
@@ -456,6 +458,7 @@ impl QueueSourceType {
             QueueSourceType::Directory => "directory",
             QueueSourceType::DirectoryFlat => "directoryFlat",
             QueueSourceType::SmartPlaylist => "smartPlaylist",
+            QueueSourceType::SongRadio => "songRadio",
             QueueSourceType::Other => "other",
         }
     }
@@ -477,6 +480,7 @@ impl std::str::FromStr for QueueSourceType {
             "history" => QueueSourceType::History,
             "directory" => QueueSourceType::Directory,
             "directoryFlat" => QueueSourceType::DirectoryFlat,
+            "songRadio" => QueueSourceType::SongRadio,
             _ => QueueSourceType::Other,
         })
     }
