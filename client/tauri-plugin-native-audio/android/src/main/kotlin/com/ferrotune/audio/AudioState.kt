@@ -12,7 +12,8 @@ data class TrackInfo(
     val artist: String,
     val album: String,
     val coverArtUrl: String?,
-    val durationMs: Long
+    val durationMs: Long,
+    val replayGainDb: Float? = null
 ) {
     fun toJSObject(): JSObject {
         return JSObject().apply {
@@ -25,6 +26,9 @@ data class TrackInfo(
                 put("coverArtUrl", coverArtUrl)
             }
             put("durationMs", durationMs)
+            if (replayGainDb != null) {
+                put("replayGainDb", replayGainDb.toDouble())
+            }
         }
     }
 }

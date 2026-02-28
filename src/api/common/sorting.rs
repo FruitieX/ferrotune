@@ -75,7 +75,12 @@ pub fn sort_songs(mut songs: Vec<Song>, sort: Option<&str>, sort_dir: Option<&st
             "year" => a.year.unwrap_or(0).cmp(&b.year.unwrap_or(0)),
             "dateAdded" | "created" => a.created_at.cmp(&b.created_at),
             "playCount" => a.play_count.unwrap_or(0).cmp(&b.play_count.unwrap_or(0)),
-            "lastPlayed" => a.last_played.cmp(&b.last_played),
+            "lastPlayed" => match (&a.last_played, &b.last_played) {
+                (None, None) => std::cmp::Ordering::Equal,
+                (None, Some(_)) => std::cmp::Ordering::Greater, // NULLs last
+                (Some(_), None) => std::cmp::Ordering::Less,    // NULLs last
+                (Some(a_lp), Some(b_lp)) => a_lp.cmp(b_lp),
+            },
             "duration" => a.duration.cmp(&b.duration),
             "size" => a.file_size.cmp(&b.file_size),
             // Track number sort: by disc number first, then track number

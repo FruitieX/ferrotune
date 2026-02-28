@@ -27,6 +27,8 @@ export interface TrackInfo {
   coverArtUrl?: string;
   /** Track duration in milliseconds */
   durationMs: number;
+  /** Pre-computed ReplayGain in dB (optional, applied natively on track transitions) */
+  replayGainDb?: number;
 }
 
 /**

@@ -92,6 +92,7 @@ import type { PermanentDeleteRequest } from "./generated/PermanentDeleteRequest"
 import type { PermanentDeleteResponse } from "./generated/PermanentDeleteResponse";
 import type { SmartPlaylistsResponse } from "./generated/SmartPlaylistsResponse";
 import type { SmartPlaylistInfo } from "./generated/SmartPlaylistInfo";
+import type { RecentPlaylistsResponse } from "./generated/RecentPlaylistsResponse";
 import type { SmartPlaylistSongsResponse } from "./generated/SmartPlaylistSongsResponse";
 import type { CreateSmartPlaylistRequest } from "./generated/CreateSmartPlaylistRequest";
 import type { CreateSmartPlaylistResponse } from "./generated/CreateSmartPlaylistResponse";
@@ -1801,6 +1802,10 @@ export class FerrotuneClient {
    */
   async getSmartPlaylists(): Promise<SmartPlaylistsResponse> {
     return this.request("/ferrotune/smart-playlists");
+  }
+
+  async getRecentlyPlayedPlaylists(): Promise<RecentPlaylistsResponse> {
+    return this.request("/ferrotune/playlists/recently-played");
   }
 
   /**

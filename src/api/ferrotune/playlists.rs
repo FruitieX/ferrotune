@@ -1956,3 +1956,102 @@ pub async fn get_playlists_for_songs(
 
     Ok(Json(SongPlaylistsResponse { playlists_by_song }))
 }
+
+/// A recently played playlist (regular or smart).
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct RecentPlaylistEntry {
+    pub id: String,
+    pub name: String,
+    /// "playlist" or "smartPlaylist"
+    pub playlist_type: String,
+    #[ts(type = "number")]
+    pub song_count: i64,
+    #[ts(type = "number")]
+    pub duration: i64,
+    pub last_played_at: String,
+    pub cover_art: Option<String>,
+}
+
+/// Response for recently played playlists.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct RecentPlaylistsResponse {
+    pub playlists: Vec<RecentPlaylistEntry>,
+}
+
+/// GET /ferrotune/playlists/recently-played - Get recently played playlists
+pub async fn get_recently_played_playlists(
+    State(state): State<Arc<AppState>>,
+    user: FerrotuneAuthenticatedUser,
+) -> FerrotuneApiResult<Json<RecentPlaylistsResponse>> {
+    // Fetch recently played regular playlists
+    let regular: Vec<(String, String, i64, i64, String)> = sqlx::query_as(
+        r#"
+        SELECT p.id, p.name, p.song_count,
+               COALESCE((
+                   SELECT SUM(s.duration)
+                   FROM playlist_songs ps
+                   JOIN songs s ON s.id = ps.song_id
+                   WHERE ps.playlist_id = p.id
+               ), 0) as duration,
+               strftime('%Y-%m-%dT%H:%M:%SZ', p.last_played_at) as last_played_at
+        FROM playlists p
+        WHERE p.owner_id = ? AND p.last_played_at IS NOT NULL
+        ORDER BY p.last_played_at DESC
+        LIMIT 50
+        "#,
+    )
+    .bind(user.user_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    // Fetch recently played smart playlists
+    let smart: Vec<(String, String, String)> = sqlx::query_as(
+        r#"
+        SELECT sp.id, sp.name,
+               strftime('%Y-%m-%dT%H:%M:%SZ', sp.last_played_at) as last_played_at
+        FROM smart_playlists sp
+        WHERE sp.owner_id = ? AND sp.last_played_at IS NOT NULL
+        ORDER BY sp.last_played_at DESC
+        LIMIT 50
+        "#,
+    )
+    .bind(user.user_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let mut entries: Vec<RecentPlaylistEntry> = Vec::new();
+
+    for (id, name, song_count, duration, last_played_at) in regular {
+        entries.push(RecentPlaylistEntry {
+            cover_art: Some(id.clone()),
+            id,
+            name,
+            playlist_type: "playlist".to_string(),
+            song_count,
+            duration,
+            last_played_at,
+        });
+    }
+
+    for (id, name, last_played_at) in smart {
+        entries.push(RecentPlaylistEntry {
+            cover_art: Some(format!("sp-{}", id)),
+            playlist_type: "smartPlaylist".to_string(),
+            id,
+            name,
+            song_count: 0, // Smart playlists compute this dynamically
+            duration: 0,
+            last_played_at,
+        });
+    }
+
+    // Sort by last_played_at descending (most recent first)
+    entries.sort_by(|a, b| b.last_played_at.cmp(&a.last_played_at));
+    entries.truncate(50);
+
+    Ok(Json(RecentPlaylistsResponse { playlists: entries }))
+}

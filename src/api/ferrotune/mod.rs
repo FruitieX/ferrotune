@@ -261,6 +261,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/playlists/containing-songs",
             get(playlists::get_playlists_for_songs),
         )
+        .route(
+            "/ferrotune/playlists/recently-played",
+            get(playlists::get_recently_played_playlists),
+        )
         // Song ID query endpoint (for bulk selection)
         .route("/ferrotune/songs/ids", get(media::get_song_ids))
         // Song match list endpoint (for client-side matching)

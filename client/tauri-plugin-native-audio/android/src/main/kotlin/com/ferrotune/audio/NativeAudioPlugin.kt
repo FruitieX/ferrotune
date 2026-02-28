@@ -43,6 +43,11 @@ internal class VolumeArgs {
 }
 
 @InvokeArg
+internal class ReplayGainArgs {
+    var gainMb: Int = 0
+}
+
+@InvokeArg
 internal class SetTrackArgs {
     lateinit var id: String
     lateinit var url: String
@@ -51,6 +56,7 @@ internal class SetTrackArgs {
     var album: String = ""
     var coverArtUrl: String? = null
     var durationMs: Long = 0
+    var replayGainDb: Float? = null
 }
 
 @InvokeArg
@@ -62,6 +68,7 @@ internal class QueueItem {
     var album: String = ""
     var coverArtUrl: String? = null
     var durationMs: Long = 0
+    var replayGainDb: Float? = null
 }
 
 @InvokeArg
@@ -378,7 +385,8 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                     artist = args.artist,
                     album = args.album,
                     coverArtUrl = args.coverArtUrl,
-                    durationMs = args.durationMs
+                    durationMs = args.durationMs,
+                    replayGainDb = args.replayGainDb
                 )
                 val service = awaitService()
                 if (service == null) {
@@ -436,6 +444,26 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     }
 
     @Command
+    fun setReplayGain(invoke: Invoke) {
+        scope.launch {
+            try {
+                val args = invoke.parseArgs(ReplayGainArgs::class.java)
+                val service = awaitService()
+                if (service == null) {
+                    Log.e(TAG, "setReplayGain() failed: Service not available after timeout")
+                    invoke.reject("Service not available - try again")
+                    return@launch
+                }
+                service.setReplayGain(args.gainMb)
+                invoke.resolve()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in setReplayGain()", e)
+                invoke.reject(e.message)
+            }
+        }
+    }
+
+    @Command
     fun setQueue(invoke: Invoke) {
         scope.launch {
             try {
@@ -450,7 +478,8 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                         artist = item.artist,
                         album = item.album,
                         coverArtUrl = item.coverArtUrl,
-                        durationMs = item.durationMs
+                        durationMs = item.durationMs,
+                        replayGainDb = item.replayGainDb
                     )
                 }
 
@@ -549,7 +578,8 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                         artist = item.artist,
                         album = item.album,
                         coverArtUrl = item.coverArtUrl,
-                        durationMs = item.durationMs
+                        durationMs = item.durationMs,
+                        replayGainDb = item.replayGainDb
                     )
                 }
                 val service = awaitService()

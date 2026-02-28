@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Play, Heart, Check } from "lucide-react";
+import { Play, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -65,12 +65,12 @@ export function MediaCard({
   colorSeed,
   coverType = "album",
   onPlay,
-  onStar,
-  isStarred,
+  onStar: _onStar,
+  isStarred: _isStarred,
   isSelected,
   isSelectionMode,
   onSelect,
-  dropdownMenu,
+  dropdownMenu: _dropdownMenu,
   contextMenu,
   withGlow = false,
   className,
@@ -95,7 +95,7 @@ export function MediaCard({
               "absolute top-1 left-1 z-20 transition-opacity",
               isSelected || isSelectionMode
                 ? "opacity-100"
-                : "opacity-0 group-hover:opacity-100",
+                : "opacity-0 hidden lg:block group-hover:opacity-100",
             )}
           >
             <button
@@ -115,41 +115,6 @@ export function MediaCard({
             >
               {isSelected && <Check className="w-4 h-4" />}
             </button>
-          </div>
-        )}
-
-        {/* Dropdown menu (top-right corner of cover art) - outside overflow-hidden */}
-        {dropdownMenu && (
-          <div className="absolute top-1 right-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-            {dropdownMenu}
-          </div>
-        )}
-
-        {/* Star button (bottom-right corner of cover art) - outside overflow-hidden */}
-        {onStar && (
-          <div
-            className={cn(
-              "absolute bottom-1 right-1 z-20 transition-opacity",
-              !isStarred && "opacity-0 group-hover:opacity-100",
-            )}
-          >
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 bg-black/50 hover:bg-black/70 text-white"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onStar(e);
-              }}
-            >
-              <Heart
-                className={cn(
-                  "w-4 h-4",
-                  isStarred && "fill-red-500 text-red-500",
-                )}
-              />
-            </Button>
           </div>
         )}
 
@@ -174,11 +139,12 @@ export function MediaCard({
               showTypeOverlay={coverType === "smartPlaylist"}
             />
 
-            {/* Play button overlay - only shows on cover hover */}
+            {/* Play button overlay - only shows on cover hover, hidden on mobile */}
             {onPlay && (
               <div
                 className={cn(
-                  "absolute inset-0 flex items-center justify-center",
+                  "absolute inset-0 items-center justify-center",
+                  "hidden lg:flex",
                   "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
                   coverShape === "circle" && "rounded-full",
                 )}

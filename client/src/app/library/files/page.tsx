@@ -291,7 +291,6 @@ function FilesPageContent() {
       sourceId: `${libraryId}:${relativePath}`,
       sourceName: directoryInfo?.name ?? "Folder",
       startIndex: 0,
-      shuffle: false,
     });
   };
 

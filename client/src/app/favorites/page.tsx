@@ -490,7 +490,6 @@ export default function FavoritesPage() {
         sourceType: "favorites",
         sourceName: "Favorites",
         startIndex: 0,
-        shuffle: false,
         // Pass sort config so server materializes queue in same order as displayed
         sort:
           songSortConfig.field !== "custom"
@@ -528,7 +527,6 @@ export default function FavoritesPage() {
       sourceId: album.id,
       sourceName: album.name,
       startIndex: 0,
-      shuffle: false,
     });
   };
 
@@ -538,7 +536,6 @@ export default function FavoritesPage() {
       sourceId: artist.id,
       sourceName: artist.name,
       startIndex: 0,
-      shuffle: false,
     });
   };
 

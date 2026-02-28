@@ -1,10 +1,12 @@
 "use client";
 
-import type { ComponentProps } from "react";
+import { useRef, type ComponentProps } from "react";
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+
+const SCROLL_THRESHOLD = 10; // pixels of movement to consider it a scroll
 
 function ContextMenu({
   ...props
@@ -13,10 +15,58 @@ function ContextMenu({
 }
 
 function ContextMenuTrigger({
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+  onContextMenu,
   ...props
 }: ComponentProps<typeof ContextMenuPrimitive.Trigger>) {
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const isScrollingRef = useRef(false);
+
   return (
-    <ContextMenuPrimitive.Trigger data-slot="context-menu-trigger" {...props} />
+    <ContextMenuPrimitive.Trigger
+      data-slot="context-menu-trigger"
+      onPointerDown={(e) => {
+        if (e.pointerType === "touch") {
+          touchStartRef.current = { x: e.clientX, y: e.clientY };
+          isScrollingRef.current = false;
+        }
+        onPointerDown?.(e);
+      }}
+      onPointerMove={(e) => {
+        if (
+          e.pointerType === "touch" &&
+          touchStartRef.current &&
+          !isScrollingRef.current
+        ) {
+          const dx = e.clientX - touchStartRef.current.x;
+          const dy = e.clientY - touchStartRef.current.y;
+          if (dx * dx + dy * dy > SCROLL_THRESHOLD * SCROLL_THRESHOLD) {
+            isScrollingRef.current = true;
+          }
+        }
+        onPointerMove?.(e);
+      }}
+      onPointerUp={(e) => {
+        touchStartRef.current = null;
+        onPointerUp?.(e);
+      }}
+      onPointerCancel={(e) => {
+        touchStartRef.current = null;
+        isScrollingRef.current = false;
+        onPointerCancel?.(e);
+      }}
+      onContextMenu={(e) => {
+        if (isScrollingRef.current) {
+          e.preventDefault();
+          isScrollingRef.current = false;
+        }
+        onContextMenu?.(e);
+      }}
+      {...props}
+    />
   );
 }
 

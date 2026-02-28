@@ -120,7 +120,6 @@ export function PlaylistContextMenu({
       sourceId: playlist.id,
       sourceName: getPlaylistDisplayName(playlist),
       startIndex: 0,
-      shuffle: false,
     });
     toast.success(`Playing "${playlist.name}"`);
   };
@@ -386,7 +385,6 @@ export function PlaylistDropdownMenu({
       sourceId: playlist.id,
       sourceName: getPlaylistDisplayName(playlist),
       startIndex: 0,
-      shuffle: false,
     });
     toast.success(`Playing "${playlist.name}"`);
   };

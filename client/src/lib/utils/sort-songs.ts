@@ -12,6 +12,7 @@ export const sortSongs = createSortFunction<Song>({
     year: (s) => s.year ?? 0,
     dateAdded: (s) => s.created ?? "",
     playCount: (s) => s.playCount ?? 0,
+    lastPlayed: (s) => s.lastPlayed ?? "",
     duration: (s) => s.duration ?? 0,
   },
   defaultField: "name",

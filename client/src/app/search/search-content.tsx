@@ -147,7 +147,6 @@ export function SearchPageContent() {
       sourceId: album.id,
       sourceName: album.name,
       startIndex: 0,
-      shuffle: false,
     });
   };
 
@@ -157,7 +156,6 @@ export function SearchPageContent() {
       sourceId: artist.id,
       sourceName: artist.name,
       startIndex: 0,
-      shuffle: false,
     });
   };
 

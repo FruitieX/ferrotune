@@ -202,7 +202,6 @@ function GenreDetailContent() {
       sourceId: genreName,
       sourceName: genreName,
       startIndex: 0,
-      shuffle: false,
       filters: debouncedFilter.trim()
         ? { filter: debouncedFilter.trim() }
         : undefined,
@@ -255,7 +254,6 @@ function GenreDetailContent() {
       sourceId: album.id,
       sourceName: album.name,
       startIndex: 0,
-      shuffle: false,
     });
   };
 

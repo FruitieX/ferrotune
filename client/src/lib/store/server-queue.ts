@@ -184,13 +184,17 @@ export const startQueueAtom = atom(
     if (hasNativeAudio()) nativeRequestPlayback();
 
     try {
+      // Persist current shuffle state when not explicitly specified
+      const currentState = get(serverQueueStateAtom);
+      const shuffle = params.shuffle ?? currentState?.isShuffled ?? false;
+
       const response = await client.startQueue({
         sourceType: params.sourceType,
         sourceId: params.sourceId,
         sourceName: params.sourceName,
         startIndex: params.startIndex ?? 0,
         startSongId: params.startSongId,
-        shuffle: params.shuffle ?? false,
+        shuffle,
         filters: params.filters,
         sort: params.sort,
         songIds: params.songIds,
@@ -521,7 +525,6 @@ export const addToQueueAtom = atom(
           sourceType: "other",
           songIds: params.songIds,
           startIndex: 0,
-          shuffle: false,
           inlineImages: "small",
         });
 

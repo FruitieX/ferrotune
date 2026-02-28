@@ -148,7 +148,6 @@ function ArtistDetailContent() {
         sourceId: id,
         sourceName: artistData?.name,
         startIndex: 0,
-        shuffle: false,
         filters: debouncedFilter.trim()
           ? { filter: debouncedFilter.trim() }
           : undefined,
@@ -203,7 +202,6 @@ function ArtistDetailContent() {
       sourceId: album.id,
       sourceName: album.name,
       startIndex: 0,
-      shuffle: false,
     });
   };
 

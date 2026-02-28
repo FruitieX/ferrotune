@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSetAtom } from "jotai";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
@@ -13,6 +14,7 @@ import {
   TrendingUp,
   Shuffle,
   Search,
+  ListMusic,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -28,6 +30,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
+import { MediaCard } from "@/components/shared/media-card";
+import { formatDuration } from "@/lib/utils/format";
 import type { Album, Song } from "@/lib/api/types";
 
 // Helper to fetch all songs for albums
@@ -45,6 +49,76 @@ async function fetchAlbumsSongs(albums: Album[]): Promise<Song[]> {
     console.error("Failed to fetch songs:", error);
     return [];
   }
+}
+
+// Section header component
+function SectionHeader({
+  title,
+  icon: Icon,
+  hasItems,
+  isLoading,
+  onPlayAll,
+  onShuffleAll,
+  viewAllHref,
+}: {
+  title: string;
+  icon: React.ElementType;
+  hasItems: boolean;
+  isLoading: boolean;
+  onPlayAll?: () => void;
+  onShuffleAll?: () => void;
+  viewAllHref?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 px-3 sm:px-4 lg:px-6">
+      <Icon className="w-5 h-5 text-primary" />
+      <h2 className="text-lg sm:text-xl font-bold">{title}</h2>
+      {hasItems && (
+        <div className="flex items-center gap-1 ml-auto">
+          {onPlayAll && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={onPlayAll}
+                  disabled={isLoading}
+                >
+                  <Play className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Play all</TooltipContent>
+            </Tooltip>
+          )}
+          {onShuffleAll && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={onShuffleAll}
+                  disabled={isLoading}
+                >
+                  <Shuffle className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Shuffle all</TooltipContent>
+            </Tooltip>
+          )}
+          {viewAllHref && (
+            <Link
+              href={viewAllHref}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors ml-1"
+            >
+              View all
+            </Link>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Section component for album rows
@@ -67,43 +141,14 @@ function AlbumSection({
 }) {
   return (
     <section className="space-y-2 sm:space-y-4">
-      <div className="flex items-center gap-2 px-3 sm:px-4 lg:px-6">
-        <Icon className="w-5 h-5 text-primary" />
-        <h2 className="text-lg sm:text-xl font-bold">{title}</h2>
-        {/* Play all and shuffle buttons */}
-        {albums && albums.length > 0 && (
-          <div className="flex items-center gap-1 ml-auto">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={onPlayAll}
-                  disabled={isLoading}
-                >
-                  <Play className="w-4 h-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Play all</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={onShuffleAll}
-                  disabled={isLoading}
-                >
-                  <Shuffle className="w-4 h-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Shuffle all</TooltipContent>
-            </Tooltip>
-          </div>
-        )}
-      </div>
+      <SectionHeader
+        title={title}
+        icon={Icon}
+        hasItems={!!albums?.length}
+        isLoading={isLoading}
+        onPlayAll={onPlayAll}
+        onShuffleAll={onShuffleAll}
+      />
 
       <ScrollArea className="w-full">
         <div className="flex gap-2 sm:gap-4 px-3 sm:px-4 lg:px-6 pb-4">
@@ -134,6 +179,49 @@ function AlbumSection({
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
     </section>
+  );
+}
+
+// Playlist card for home page sections
+function HomePlaylistCard({
+  playlist,
+  onPlay,
+}: {
+  playlist: {
+    id: string;
+    name: string;
+    playlistType: string;
+    songCount: number;
+    duration: number;
+    coverArt: string | null;
+  };
+  onPlay: () => void;
+}) {
+  const coverArtUrl = playlist.coverArt
+    ? getClient()?.getCoverArtUrl(playlist.coverArt, "medium")
+    : undefined;
+
+  const isSmartPlaylist = playlist.playlistType === "smartPlaylist";
+  const href = isSmartPlaylist
+    ? `/playlists/smart/details?id=${playlist.id}`
+    : `/playlists/details?id=${playlist.id}`;
+
+  return (
+    <MediaCard
+      coverArt={coverArtUrl}
+      title={playlist.name}
+      titleIcon={<ListMusic className="w-4 h-4 shrink-0 text-emerald-500" />}
+      subtitleContent={
+        <span className="flex items-center gap-1">
+          {playlist.songCount} {playlist.songCount === 1 ? "song" : "songs"} •{" "}
+          <Clock className="w-3 h-3" /> {formatDuration(playlist.duration)}
+        </span>
+      }
+      href={href}
+      coverType={isSmartPlaylist ? "smartPlaylist" : "playlist"}
+      colorSeed={playlist.name}
+      onPlay={onPlay}
+    />
   );
 }
 
@@ -215,6 +303,43 @@ export default function HomePage() {
     enabled: isReady,
   });
 
+  // Fetch recently played playlists
+  const { data: recentPlaylists, isLoading: loadingRecentPlaylists } = useQuery(
+    {
+      queryKey: ["playlists", "recently-played"],
+      queryFn: async () => {
+        const client = getClient();
+        if (!client) throw new Error("Not connected");
+        const response = await client.getRecentlyPlayedPlaylists();
+        return response.playlists;
+      },
+      enabled: isReady,
+    },
+  );
+
+  // Fetch all playlists for "Your Playlists" section
+  const { data: allPlaylists, isLoading: loadingPlaylists } = useQuery({
+    queryKey: ["playlists", "all-for-home"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const [foldersRes, smartRes] = await Promise.all([
+        client.getPlaylistFoldersWithStructure(),
+        client.getSmartPlaylists(),
+      ]);
+      const regular = (foldersRes.playlists ?? []).map((p) => ({
+        ...p,
+        playlistType: "playlist" as const,
+      }));
+      const smart = (smartRes.smartPlaylists ?? []).map((sp) => ({
+        ...sp,
+        playlistType: "smartPlaylist" as const,
+      }));
+      return { regular, smart };
+    },
+    enabled: isReady,
+  });
+
   // Play album - uses server-side queue
   const handlePlayAlbum = async (album: Album) => {
     startQueue({
@@ -222,7 +347,20 @@ export default function HomePage() {
       sourceId: album.id,
       sourceName: album.name,
       startIndex: 0,
-      shuffle: false,
+    });
+  };
+
+  // Play playlist
+  const handlePlayPlaylist = (
+    id: string,
+    name: string,
+    type: "playlist" | "smartPlaylist",
+  ) => {
+    startQueue({
+      sourceType: type,
+      sourceId: id,
+      sourceName: name,
+      startIndex: 0,
     });
   };
 
@@ -242,7 +380,6 @@ export default function HomePage() {
         sourceType: "other",
         sourceName: sectionName,
         startIndex: 0,
-        shuffle: false,
         songIds: songs.map((s) => s.id),
       });
       toast.success(`Playing ${songs.length} songs`);
@@ -276,6 +413,28 @@ export default function HomePage() {
     }
   };
 
+  // Combine all playlists for the "Your Playlists" section
+  const yourPlaylists = allPlaylists
+    ? [
+        ...allPlaylists.regular.map((p) => ({
+          id: p.id,
+          name: p.name,
+          playlistType: "playlist" as const,
+          songCount: p.songCount,
+          duration: p.duration,
+          coverArt: p.id,
+        })),
+        ...allPlaylists.smart.map((sp) => ({
+          id: sp.id,
+          name: sp.name,
+          playlistType: "smartPlaylist" as const,
+          songCount: sp.songCount,
+          duration: 0,
+          coverArt: `sp-${sp.id}`,
+        })),
+      ]
+    : [];
+
   // Always render the same loading state on server and during hydration
   // This prevents hydration mismatches
   if (!isMounted || authLoading) {
@@ -296,8 +455,8 @@ export default function HomePage() {
 
         {/* Content skeleton */}
         <div className="py-6 space-y-8">
-          {/* Four sections */}
-          {Array.from({ length: 4 }).map((_, sectionIndex) => (
+          {/* Five sections */}
+          {Array.from({ length: 5 }).map((_, sectionIndex) => (
             <section key={sectionIndex} className="space-y-4">
               <div className="flex items-center gap-2 px-4 lg:px-6">
                 <Skeleton className="w-5 h-5" />
@@ -341,20 +500,115 @@ export default function HomePage() {
 
       {/* Content */}
       <div className="py-4 sm:py-6 space-y-6 sm:space-y-8">
-        {/* Continue Listening (Recently Played) */}
-        <AlbumSection
-          title="Continue Listening"
-          icon={Play}
-          albums={recentAlbums}
-          isLoading={loadingRecent}
-          onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() =>
-            handlePlayAllAlbums(recentAlbums, "Continue Listening")
-          }
-          onShuffleAll={() =>
-            handleShuffleAllAlbums(recentAlbums, "Continue Listening")
-          }
-        />
+        {/* Continue Listening (Recently Played Albums + Playlists) */}
+        <section className="space-y-2 sm:space-y-4">
+          <SectionHeader
+            title="Continue Listening"
+            icon={Play}
+            hasItems={!!(recentAlbums?.length || recentPlaylists?.length)}
+            isLoading={loadingRecent || loadingRecentPlaylists}
+            onPlayAll={() =>
+              handlePlayAllAlbums(recentAlbums, "Continue Listening")
+            }
+            onShuffleAll={() =>
+              handleShuffleAllAlbums(recentAlbums, "Continue Listening")
+            }
+          />
+          <ScrollArea className="w-full">
+            <div className="flex gap-2 sm:gap-4 px-3 sm:px-4 lg:px-6 pb-4">
+              {loadingRecent || loadingRecentPlaylists ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="w-[130px] sm:w-[180px] shrink-0">
+                    <AlbumCardSkeleton />
+                  </div>
+                ))
+              ) : (
+                <>
+                  {recentPlaylists?.map((pl) => (
+                    <motion.div
+                      key={`pl-${pl.id}`}
+                      className="w-[130px] sm:w-[180px] shrink-0"
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <HomePlaylistCard
+                        playlist={pl}
+                        onPlay={() =>
+                          handlePlayPlaylist(
+                            pl.id,
+                            pl.name,
+                            pl.playlistType as "playlist" | "smartPlaylist",
+                          )
+                        }
+                      />
+                    </motion.div>
+                  ))}
+                  {recentAlbums?.map((album) => (
+                    <motion.div
+                      key={album.id}
+                      className="w-[130px] sm:w-[180px] shrink-0"
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <AlbumCard
+                        album={album}
+                        onPlay={() => handlePlayAlbum(album)}
+                      />
+                    </motion.div>
+                  ))}
+                  {!recentPlaylists?.length && !recentAlbums?.length && (
+                    <p className="text-muted-foreground text-sm py-8">
+                      No recently played items
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
+        </section>
+
+        {/* Your Playlists */}
+        {(loadingPlaylists || yourPlaylists.length > 0) && (
+          <section className="space-y-2 sm:space-y-4">
+            <SectionHeader
+              title="Your Playlists"
+              icon={ListMusic}
+              hasItems={yourPlaylists.length > 0}
+              isLoading={loadingPlaylists}
+              viewAllHref="/playlists"
+            />
+            <ScrollArea className="w-full">
+              <div className="flex gap-2 sm:gap-4 px-3 sm:px-4 lg:px-6 pb-4">
+                {loadingPlaylists
+                  ? Array.from({ length: 6 }).map((_, i) => (
+                      <div key={i} className="w-[130px] sm:w-[180px] shrink-0">
+                        <AlbumCardSkeleton />
+                      </div>
+                    ))
+                  : yourPlaylists.map((pl) => (
+                      <motion.div
+                        key={`${pl.playlistType}-${pl.id}`}
+                        className="w-[130px] sm:w-[180px] shrink-0"
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.3 }}
+                      >
+                        <HomePlaylistCard
+                          playlist={pl}
+                          onPlay={() =>
+                            handlePlayPlaylist(pl.id, pl.name, pl.playlistType)
+                          }
+                        />
+                      </motion.div>
+                    ))}
+              </div>
+              <ScrollBar orientation="horizontal" />
+            </ScrollArea>
+          </section>
+        )}
 
         {/* Most Played */}
         <AlbumSection

@@ -175,15 +175,22 @@ test.describe("Mobile Tests", () => {
     await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 
     const firstSongRow = page.locator('[data-testid="song-row"]').first();
-    await firstSongRow.hover();
 
-    const starButton = firstSongRow
-      .getByRole("button")
-      .filter({ has: page.locator("svg") })
-      .first();
-    await starButton.click();
+    // Right-click to open context menu (works even in mobile emulation with Playwright)
+    await firstSongRow.click({ button: "right" });
 
-    expect(page.url()).toBeTruthy();
+    const contextMenu = page.locator('[data-slot="context-menu-content"]');
+    await expect(contextMenu).toBeVisible({ timeout: 5000 });
+
+    // Star via context menu
+    const starItem = contextMenu.getByRole("menuitem", {
+      name: /add to favorites/i,
+    });
+    await expect(starItem).toBeVisible();
+    await starItem.click({ force: true });
+
+    // Verify the context menu closed (star action succeeded)
+    await expect(contextMenu).not.toBeVisible();
   });
 
   test("playlist page is accessible", async ({ authenticatedPage: page }) => {

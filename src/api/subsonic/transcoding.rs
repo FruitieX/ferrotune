@@ -487,7 +487,6 @@ async fn get_transcode_stream_logic(
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "audio/ogg")
-        .header(header::TRANSFER_ENCODING, "chunked")
         .body(body)
         .unwrap())
 }
@@ -534,7 +533,6 @@ pub async fn transcode_with_offset(
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "audio/ogg")
-        .header(header::TRANSFER_ENCODING, "chunked")
         .body(body)
         .unwrap())
 }
@@ -827,6 +825,19 @@ fn transcode_to_opus_with_offset(
 
         let frame: Vec<i16> = pcm_buffer.drain(..frame_samples).collect();
         if let Ok(len) = opus_encoder.encode(&frame, &mut opus_output) {
+            granule_pos += OPUS_FRAME_SIZE as u64;
+            let _ = ogg_writer.write_packet(
+                opus_output[..len].to_vec(),
+                serial,
+                ogg::writing::PacketWriteEndInfo::EndStream,
+                granule_pos,
+            );
+        }
+    } else {
+        // No remaining samples, but we still need to write an EndStream marker
+        // so Firefox (and other strict parsers) don't treat the stream as truncated.
+        let silent_frame = vec![0i16; frame_samples];
+        if let Ok(len) = opus_encoder.encode(&silent_frame, &mut opus_output) {
             granule_pos += OPUS_FRAME_SIZE as u64;
             let _ = ogg_writer.write_packet(
                 opus_output[..len].to_vec(),

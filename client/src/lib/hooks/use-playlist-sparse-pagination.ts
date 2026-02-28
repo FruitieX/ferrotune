@@ -83,6 +83,9 @@ export function usePlaylistSparsePagination({
   // Track which pages are currently being fetched
   const fetchingPages = useRef<Set<number>>(new Set());
 
+  // Counter incremented on reset() to force a new query key, preventing stale cache hits
+  const [resetCounter, setResetCounter] = useState(0);
+
   // Track range that needs to be loaded
   const [pendingRange, setPendingRange] = useState<{
     start: number;
@@ -131,15 +134,27 @@ export function usePlaylistSparsePagination({
   // gets reset but React Query returns cached data without calling queryFn, causing
   // the loading state to get stuck.
   const { isLoading: _isLoading, isFetching } = useQuery({
-    queryKey: [...queryKey, "sparse", pendingRange?.start, pendingRange?.end],
+    queryKey: [
+      ...queryKey,
+      "sparse",
+      pendingRange?.start,
+      pendingRange?.end,
+      resetCounter,
+    ],
     queryFn: async () => {
-      if (!pendingRange) return null;
+      if (!pendingRange) {
+        setHasLoadedOnce(true);
+        return null;
+      }
 
       const requiredPages = getRequiredPages(
         pendingRange.start,
         pendingRange.end,
       );
-      if (requiredPages.length === 0) return null;
+      if (requiredPages.length === 0) {
+        setHasLoadedOnce(true);
+        return null;
+      }
 
       // Mark pages as fetching
       requiredPages.forEach((p) => fetchingPages.current.add(p));
@@ -215,10 +230,13 @@ export function usePlaylistSparsePagination({
   // Function to reset all cached data and refetch from the beginning
   const reset = () => {
     setPages(new Map());
-    setMetadata(null);
+    // Don't reset metadata - keep previous values to prevent header flicker
+    // and avoid unmounting components guarded by playlist != null
     setTotalCount(0);
     setHasLoadedOnce(false);
     fetchingPages.current.clear();
+    // Increment reset counter to change query key, ensuring a fresh fetch
+    setResetCounter((c) => c + 1);
     // Trigger a refetch of the first page
     setPendingRange({ start: 0, end: pageSize - 1 });
   };

@@ -571,6 +571,27 @@ pub async fn start_queue(
         .await?
     };
 
+    // Update last_played_at for playlist/smart playlist sources
+    if let Some(ref source_id) = request.source_id {
+        match source_type {
+            QueueSourceType::Playlist => {
+                sqlx::query("UPDATE playlists SET last_played_at = datetime('now') WHERE id = ?")
+                    .bind(source_id)
+                    .execute(&state.pool)
+                    .await?;
+            }
+            QueueSourceType::SmartPlaylist => {
+                sqlx::query(
+                    "UPDATE smart_playlists SET last_played_at = datetime('now') WHERE id = ?",
+                )
+                .bind(source_id)
+                .execute(&state.pool)
+                .await?;
+            }
+            _ => {}
+        }
+    }
+
     // Fetch the queue to get the created_at timestamp
     let queue = queries::get_play_queue(&state.pool, user.user_id)
         .await?

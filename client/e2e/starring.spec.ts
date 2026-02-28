@@ -25,23 +25,30 @@ test.describe("Starring and Ratings", () => {
     await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 
     const firstSongRow = page.locator('[data-testid="song-row"]').first();
-    await firstSongRow.hover();
 
-    const starButton = firstSongRow
-      .getByRole("button")
-      .filter({ has: page.locator("svg") })
-      .first();
+    // Star via context menu
+    await firstSongRow.click({ button: "right" });
+    const contextMenu = page.locator('[data-slot="context-menu-content"]');
+    await expect(contextMenu).toBeVisible({ timeout: 5000 });
 
-    // Star
-    await starButton.click();
-    await page.waitForTimeout(1000);
+    const addToFavorites = contextMenu.getByRole("menuitem", {
+      name: /add to favorites/i,
+    });
+    await expect(addToFavorites).toBeVisible();
+    // Use force to bypass animation stability check
+    await addToFavorites.click({ force: true });
+    await expect(contextMenu).not.toBeVisible({ timeout: 5000 });
 
-    // Unstar
-    await firstSongRow.hover();
-    await starButton.click();
-    await page.waitForTimeout(500);
+    // Unstar via context menu
+    await firstSongRow.click({ button: "right" });
+    await expect(contextMenu).toBeVisible({ timeout: 5000 });
 
-    expect(page.url()).toBeTruthy();
+    const removeFromFavorites = contextMenu.getByRole("menuitem", {
+      name: /remove from favorites/i,
+    });
+    await expect(removeFromFavorites).toBeVisible();
+    await removeFromFavorites.click({ force: true });
+    await expect(contextMenu).not.toBeVisible({ timeout: 5000 });
   });
 
   test("can rate song from menu", async ({ authenticatedPage: page }) => {
@@ -64,35 +71,31 @@ test.describe("Starring and Ratings", () => {
     await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 
     const firstSongRow = page.locator('[data-testid="song-row"]').first();
-    await firstSongRow.hover();
-    await page.waitForTimeout(200);
+    await firstSongRow.click({ button: "right" });
 
-    const moreButton = firstSongRow.getByRole("button", {
-      name: /more options/i,
-    });
-    await expect(moreButton).toBeVisible({ timeout: 2000 });
-    await moreButton.click();
+    const contextMenu = page.locator('[data-slot="context-menu-content"]');
+    await expect(contextMenu).toBeVisible({ timeout: 5000 });
 
-    await page.waitForTimeout(300);
+    // Open Rate submenu - click the trigger to open it
+    const rateTrigger = contextMenu
+      .locator('[data-slot="context-menu-sub-trigger"]')
+      .filter({ hasText: /rate/i });
+    await expect(rateTrigger).toBeVisible({ timeout: 2000 });
+    // Click to focus and open the submenu
+    await rateTrigger.click({ force: true });
 
-    const rateOption = page.getByRole("menuitem", { name: /^rate/i });
-    await expect(rateOption).toBeVisible({ timeout: 2000 });
-    await rateOption.click();
-
-    await page.waitForTimeout(300);
-
+    // Wait for the rating submenu to appear
     const ratingSubmenu = page.locator(
-      '[data-slot="dropdown-menu-sub-content"]',
+      '[data-slot="context-menu-sub-content"]',
     );
-    await expect(ratingSubmenu).toBeVisible({ timeout: 2000 });
+    await expect(ratingSubmenu).toBeVisible({ timeout: 3000 });
 
-    // Click 5 stars
-    const ratingMenuItems = ratingSubmenu
-      .locator('[role="menuitem"]')
-      .filter({ hasNotText: "Remove Rating" });
-    const fiveStarOption = ratingMenuItems.nth(4);
-    await expect(fiveStarOption).toBeVisible({ timeout: 2000 });
-    await fiveStarOption.click();
+    // Click the first rating item (5 stars - highest rating option)
+    const ratingItem = ratingSubmenu
+      .locator('[data-slot="context-menu-item"]')
+      .first();
+    await expect(ratingItem).toBeVisible({ timeout: 2000 });
+    await ratingItem.click({ force: true });
 
     await expect(
       page.locator("[data-sonner-toast]").filter({ hasText: /rated/i }),

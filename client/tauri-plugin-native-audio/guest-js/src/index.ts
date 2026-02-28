@@ -70,6 +70,15 @@ export async function setVolume(volume: number): Promise<void> {
 }
 
 /**
+ * Set ReplayGain boost/attenuation in millibels.
+ * Uses Android's LoudnessEnhancer for digital gain.
+ * @param gainMb Gain in millibels (e.g., -6500 for -6.5 dB, 3000 for +3 dB)
+ */
+export async function setReplayGain(gainMb: number): Promise<void> {
+  await invoke("plugin:native-audio|set_replay_gain", { gainMb });
+}
+
+/**
  * Set the playback queue
  * @param items Queue items
  * @param startIndex Index to start playback from

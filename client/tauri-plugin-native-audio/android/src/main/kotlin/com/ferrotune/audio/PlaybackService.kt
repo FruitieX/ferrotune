@@ -2,6 +2,7 @@ package com.ferrotune.audio
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
 import android.os.Binder
 import android.os.Bundle
@@ -67,6 +68,9 @@ class PlaybackService : MediaSessionService() {
     // Whether the currently playing track is starred (for WearOS button icon)
     private var isCurrentTrackStarred = false
 
+    // LoudnessEnhancer for ReplayGain boost (allows gain > 1.0)
+    private var loudnessEnhancer: LoudnessEnhancer? = null
+
     // Flag: when true, the next setQueue() call will auto-play regardless
     // of the playWhenReady parameter. Set by requestPlayback() from JS.
     private var pendingPlayOnNextQueue = false
@@ -116,6 +120,15 @@ class PlaybackService : MediaSessionService() {
 
         // Add player listener
         player.addListener(PlayerListener())
+
+        // Initialize LoudnessEnhancer for ReplayGain boost
+        try {
+            loudnessEnhancer = LoudnessEnhancer(player.audioSessionId)
+            loudnessEnhancer?.enabled = true
+            Log.d(TAG, "LoudnessEnhancer initialized on session ${player.audioSessionId}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize LoudnessEnhancer", e)
+        }
 
         // Use ForwardingSimpleBasePlayer instead of ForwardingPlayer.
         // ForwardingSimpleBasePlayer uses atomic getState() which properly
@@ -242,6 +255,8 @@ class PlaybackService : MediaSessionService() {
         Log.d(TAG, "PlaybackService destroyed")
         handler.removeCallbacks(progressRunnable)
         handler.removeCallbacks(endedTimeoutRunnable)
+        loudnessEnhancer?.release()
+        loudnessEnhancer = null
         mediaSession.release()
         player.release()
         super.onDestroy()
@@ -370,9 +385,13 @@ class PlaybackService : MediaSessionService() {
         queueIndex = offset + startIndex.coerceIn(0, items.size - 1)
         currentTrack = items.getOrNull(startIndex.coerceIn(0, items.size - 1))
 
+        applyTrackReplayGain(currentTrack)
+
         val mediaItems = items.map { createMediaItem(it) }
-        player.setMediaItems(mediaItems, startIndex.coerceIn(0, items.size - 1), startPositionMs)
+        // Set playWhenReady BEFORE setMediaItems to prevent ExoPlayer from
+        // auto-starting with the old playWhenReady value during media transition
         player.playWhenReady = shouldPlay
+        player.setMediaItems(mediaItems, startIndex.coerceIn(0, items.size - 1), startPositionMs)
         player.prepare()
         emitTrackChange()
     }
@@ -461,6 +480,26 @@ class PlaybackService : MediaSessionService() {
         if (transitionSavedVolume != null) {
             transitionSavedVolume = clamped
         }
+    }
+
+    /**
+     * Set ReplayGain boost/attenuation in millibels.
+     * Uses Android's LoudnessEnhancer to apply digital gain,
+     * which allows boosting volume above the normal 1.0 max.
+     */
+    fun setReplayGain(gainMb: Int) {
+        Log.d(TAG, "setReplayGain($gainMb mB)")
+        try {
+            loudnessEnhancer?.setTargetGain(gainMb)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set ReplayGain", e)
+        }
+    }
+
+    private fun applyTrackReplayGain(track: TrackInfo?) {
+        val gainDb = track?.replayGainDb
+        val gainMb = if (gainDb != null) (gainDb * 100).toInt() else 0
+        setReplayGain(gainMb)
     }
 
     fun getState(): PlaybackState {
@@ -605,6 +644,7 @@ class PlaybackService : MediaSessionService() {
             val exoIndex = player.currentMediaItemIndex
             queueIndex = queueOffset + exoIndex
             currentTrack = queue.getOrNull(exoIndex)
+            applyTrackReplayGain(currentTrack)
             emitTrackChange()
             emitStateChange()
         }

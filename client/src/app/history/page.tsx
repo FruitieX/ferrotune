@@ -134,7 +134,6 @@ export default function HistoryPage() {
         sourceType: "history",
         sourceName: "Recently Played",
         startIndex: 0,
-        shuffle: false,
       });
     }
   };

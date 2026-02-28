@@ -2,7 +2,7 @@
 
 import { forwardRef } from "react";
 import Link from "next/link";
-import { Play, Pause, Heart, MoreHorizontal, Check } from "lucide-react";
+import { Play, Pause, MoreHorizontal, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -129,7 +129,7 @@ export function MediaRow({
           "absolute inset-0 flex items-center justify-center transition-opacity",
           isSelected || isSelectionMode
             ? "opacity-100"
-            : "opacity-0 group-hover:opacity-100",
+            : "opacity-0 hidden lg:flex group-hover:opacity-100",
         )}
       >
         <button
@@ -178,13 +178,14 @@ export function MediaRow({
         className={coverShape === "circle" ? "rounded-full" : undefined}
         showTypeOverlay={coverType === "smartPlaylist"}
       />
-      {/* Play button overlay on cover art - only shows on cover hover */}
+      {/* Play button overlay on cover art - only shows on cover hover, hidden on mobile */}
       {onPlay && (
         <button
           type="button"
           aria-label={isPlaying ? "Pause" : "Play"}
           className={cn(
-            "absolute inset-0 flex items-center justify-center",
+            "absolute inset-0 items-center justify-center",
+            "hidden lg:flex",
             "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
             "cursor-pointer",
             coverShape === "circle" && "rounded-full",
@@ -296,53 +297,11 @@ interface RowActionsProps {
 
 /**
  * Standard action buttons for media rows.
- * Button order: Dropdown → Custom children → Star (heart on right)
- * Note: Play button is now on cover art overlay, not in actions.
- * The star button is always visible when starred, otherwise shows on hover.
- *
- * On mobile, all action buttons are hidden to save space.
- * Users can long-press on items to access context menus instead.
+ * All actions are now accessible via context menu (right-click / long-press).
+ * Inline buttons have been removed for a cleaner UI.
  */
-export function RowActions({
-  onStar,
-  isStarred,
-  dropdownMenu,
-  children,
-}: RowActionsProps) {
-  // On mobile, hide all action buttons - use long press for context menu instead
-  // Using CSS media query class for SSR compatibility instead of useIsMobile hook
-  return (
-    <div className="hidden lg:flex items-center gap-1 shrink-0">
-      {/* Actions that only show on hover */}
-      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-        {dropdownMenu}
-        {children}
-      </div>
-      {/* Star button - always visible when starred, otherwise on hover */}
-      {onStar && (
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={isStarred ? "Remove from favorites" : "Add to favorites"}
-          aria-pressed={isStarred}
-          className={cn(
-            rowActionButtonStyles,
-            !isStarred &&
-              "opacity-0 group-hover:opacity-100 transition-opacity",
-          )}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onStar(e);
-          }}
-        >
-          <Heart
-            className={cn("w-4 h-4", isStarred && "fill-red-500 text-red-500")}
-          />
-        </Button>
-      )}
-    </div>
-  );
+export function RowActions(_props: RowActionsProps) {
+  return null;
 }
 
 /**

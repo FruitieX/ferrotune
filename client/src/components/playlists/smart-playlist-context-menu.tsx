@@ -155,7 +155,6 @@ export function SmartPlaylistContextMenu({
       sourceId: smartPlaylist.id,
       sourceName: getSmartPlaylistDisplayName(smartPlaylist),
       startIndex: 0,
-      shuffle: false,
     });
     toast.success(`Playing "${smartPlaylist.name}"`);
   };
@@ -459,7 +458,6 @@ export function SmartPlaylistDropdownMenu({
       sourceId: smartPlaylist.id,
       sourceName: getSmartPlaylistDisplayName(smartPlaylist),
       startIndex: 0,
-      shuffle: false,
     });
     toast.success(`Playing "${smartPlaylist.name}"`);
   };

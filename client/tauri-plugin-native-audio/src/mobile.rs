@@ -64,6 +64,13 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(Into::into)
     }
 
+    /// Set ReplayGain boost/attenuation in millibels
+    pub fn set_replay_gain(&self, gain_mb: i32) -> Result<()> {
+        self.0
+            .run_mobile_plugin("setReplayGain", serde_json::json!({ "gainMb": gain_mb }))
+            .map_err(Into::into)
+    }
+
     /// Set the playback queue
     pub fn set_queue(
         &self,

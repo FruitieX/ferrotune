@@ -206,7 +206,6 @@ export function GenreRow({
       sourceId: genre.value,
       sourceName: genre.value,
       startIndex: 0,
-      shuffle: false,
     });
     toast.success(`Playing "${genre.value}"`);
   };
@@ -260,7 +259,6 @@ function GenreContextMenu({ genre, children }: GenreContextMenuProps) {
       sourceId: genre.value,
       sourceName: genre.value,
       startIndex: 0,
-      shuffle: false,
     });
     toast.success(`Playing "${genre.value}"`);
   };
@@ -345,7 +343,6 @@ function GenreDropdownMenu({ genre, trigger }: GenreDropdownMenuProps) {
       sourceId: genre.value,
       sourceName: genre.value,
       startIndex: 0,
-      shuffle: false,
     });
     toast.success(`Playing "${genre.value}"`);
   };

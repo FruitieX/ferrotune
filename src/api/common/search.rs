@@ -154,7 +154,8 @@ pub fn get_song_order_clause_for_search(
         Some("album") => format!("s.album COLLATE NOCASE {dir}, s.title COLLATE NOCASE {dir}"),
         Some("year") => format!("s.year {dir}, s.title COLLATE NOCASE {dir}"),
         Some("duration") => format!("s.duration {dir}, s.title COLLATE NOCASE {dir}"),
-        Some("playCount") => format!("play_count {dir}, s.title COLLATE NOCASE {dir}"),
+        Some("playCount") => format!("COALESCE(play_count, 0) {dir}, s.title COLLATE NOCASE {dir}"),
+        Some("lastPlayed") => format!("last_played {dir} NULLS LAST, s.title COLLATE NOCASE {dir}"),
         Some("dateAdded") => format!("s.created_at {dir}, s.title COLLATE NOCASE {dir}"),
         Some("relevance") => "fts.rank".to_string(), // explicit relevance sort
         None if is_fts_query => "fts.rank, s.title COLLATE NOCASE ASC".to_string(), // default to relevance for FTS

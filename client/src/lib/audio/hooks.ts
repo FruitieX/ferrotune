@@ -23,6 +23,7 @@ import {
   replayGainOffsetAtom,
   clippingStateAtom,
   clippingDetectionEnabledAtom,
+  type ReplayGainMode,
 } from "@/lib/store/player";
 import {
   startClippingDetection,
@@ -59,6 +60,7 @@ import {
   nativeSeek,
   nativeSetTrack,
   nativeSetVolume,
+  nativeSetReplayGain,
   nativeNextTrack,
   nativePreviousTrack,
   nativeSetQueue,
@@ -73,10 +75,14 @@ import {
 function getNativeStreamOptions(state: {
   transcodingEnabled: boolean;
   transcodingBitrate: number;
+  replayGainMode: string;
+  replayGainOffset: number;
 }): NativeStreamOptions {
   return {
     transcodingEnabled: state.transcodingEnabled,
     transcodingBitrate: state.transcodingBitrate,
+    replayGainMode: state.replayGainMode,
+    replayGainOffset: state.replayGainOffset,
   };
 }
 
@@ -161,6 +167,28 @@ const LISTENING_UPDATE_INTERVAL_MS = 60000; // Update every 60 seconds
  */
 function dbToLinear(db: number): number {
   return Math.pow(10, db / 20);
+}
+
+/**
+ * Get the correct ReplayGain track gain value based on the current mode.
+ * - "computed": prefer computed, fall back to original
+ * - "original": use only original tag values
+ */
+function getTrackReplayGain(
+  song: {
+    computedReplayGainTrackGain?: number | null;
+    originalReplayGainTrackGain?: number | null;
+    replayGainTrackGain?: number | null;
+  },
+  mode: ReplayGainMode,
+): number {
+  if (mode === "original") {
+    return song.originalReplayGainTrackGain ?? 0;
+  }
+  // "computed" mode: prefer computed, fall back to original
+  return (
+    song.computedReplayGainTrackGain ?? song.originalReplayGainTrackGain ?? 0
+  );
 }
 
 /**
@@ -735,6 +763,17 @@ export function useAudioEngineInit() {
             track?.id,
           );
 
+          // Deduplicate: setQueue() and onMediaItemTransition both emit
+          // track change events for the same track. Skip if the track hasn't
+          // actually changed to prevent double scrobble resets.
+          if (track?.id && track.id === currentLoadedTrackId) {
+            console.log(
+              "[NativeAudio] Skipping duplicate track change for:",
+              track.id,
+            );
+            return;
+          }
+
           // This fires when ExoPlayer auto-advances to the next track in its
           // queue. We need to sync state back to JS without triggering the
           // track-loading effect (which would send the queue again).
@@ -1061,7 +1100,10 @@ export function useAudioEngineInit() {
         // Apply ReplayGain to the new active element
         const nextSongData = stateRef.current.nextSong;
         if (nextSongData && stateRef.current.replayGainMode !== "disabled") {
-          const trackGain = nextSongData.replayGainTrackGain ?? 0;
+          const trackGain = getTrackReplayGain(
+            nextSongData,
+            stateRef.current.replayGainMode,
+          );
           const totalGain = trackGain + stateRef.current.replayGainOffset;
           setReplayGain(totalGain, newActiveIdx);
         } else if (gainNodes[newActiveIdx]) {
@@ -1164,6 +1206,8 @@ export function useAudioEngineInit() {
       nextSongData: {
         id: string;
         replayGainTrackGain?: number | null;
+        originalReplayGainTrackGain?: number | null;
+        computedReplayGainTrackGain?: number | null;
         duration?: number | null;
       },
       state: typeof stateRef.current,
@@ -1398,17 +1442,18 @@ export function useAudioEngineInit() {
   // Update volume on both elements
   useEffect(() => {
     if (usingNativeAudio) {
-      // For native audio, combine user volume with ReplayGain
-      let volume = effectiveVolume;
+      // For native audio, set user volume and ReplayGain separately.
+      // Volume goes through ExoPlayer's volume (0.0-1.0).
+      // ReplayGain goes through LoudnessEnhancer which can boost above 1.0.
+      nativeSetVolume(effectiveVolume).catch(console.error);
+
       if (replayGainMode !== "disabled" && currentSong) {
-        const trackGain = currentSong.replayGainTrackGain ?? 0;
+        const trackGain = getTrackReplayGain(currentSong, replayGainMode);
         const totalGain = trackGain + replayGainOffset;
-        volume = Math.min(
-          1,
-          Math.max(0, effectiveVolume * dbToLinear(totalGain)),
-        );
+        nativeSetReplayGain(totalGain).catch(console.error);
+      } else {
+        nativeSetReplayGain(0).catch(console.error);
       }
-      nativeSetVolume(volume).catch(console.error);
     } else {
       for (const el of audioElements) {
         if (el) el.volume = effectiveVolume;
@@ -1791,7 +1836,7 @@ export function useAudioEngineInit() {
 
     // Apply client-side ReplayGain on the active element
     if (replayGainMode !== "disabled") {
-      const trackGain = currentSong.replayGainTrackGain ?? 0;
+      const trackGain = getTrackReplayGain(currentSong, replayGainMode);
       const totalGain = trackGain + replayGainOffset;
       console.log(
         `[Audio] Applying ReplayGain: track=${trackGain.toFixed(2)} dB, offset=${replayGainOffset.toFixed(2)} dB, total=${totalGain.toFixed(2)} dB`,
@@ -1918,7 +1963,7 @@ export function useAudioEngineInit() {
     if (!gainNodes[activeIndex]) return;
 
     if (replayGainMode !== "disabled") {
-      const trackGain = currentSong.replayGainTrackGain ?? 0;
+      const trackGain = getTrackReplayGain(currentSong, replayGainMode);
       const totalGain = trackGain + replayGainOffset;
       console.log(
         `[Audio] ReplayGain settings changed: track=${trackGain.toFixed(2)} dB, offset=${replayGainOffset.toFixed(2)} dB, total=${totalGain.toFixed(2)} dB`,

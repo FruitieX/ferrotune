@@ -164,7 +164,6 @@ function AlbumDetailContent() {
         sourceId: id,
         sourceName: albumData?.name,
         startIndex: 0,
-        shuffle: false,
         filters: debouncedFilter.trim()
           ? { filter: debouncedFilter.trim() }
           : undefined,

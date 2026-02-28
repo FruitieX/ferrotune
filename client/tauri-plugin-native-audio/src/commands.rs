@@ -139,6 +139,22 @@ pub async fn set_volume<R: Runtime>(app: AppHandle<R>, volume: f32) -> Result<()
     }
 }
 
+/// Set ReplayGain in millibels (can be negative for attenuation or positive for boost)
+#[command]
+pub async fn set_replay_gain<R: Runtime>(app: AppHandle<R>, gain_mb: i32) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().set_replay_gain(gain_mb)
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, gain_mb);
+        log::warn!("set_replay_gain() called on desktop - native audio only available on mobile");
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
 /// Set the playback queue
 #[command]
 pub async fn set_queue<R: Runtime>(

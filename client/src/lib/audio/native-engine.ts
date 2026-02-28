@@ -26,6 +26,7 @@ interface NativeTrackInfo {
   album: string;
   coverArtUrl?: string;
   durationMs: number;
+  replayGainDb?: number;
 }
 
 interface NativePlaybackState {
@@ -274,6 +275,8 @@ export async function cleanupNativeAudioEngine(): Promise<void> {
 export interface NativeStreamOptions {
   transcodingEnabled: boolean;
   transcodingBitrate: number;
+  replayGainMode: string;
+  replayGainOffset: number;
 }
 
 /**
@@ -286,6 +289,18 @@ function songToNativeTrack(
 ): NativeTrackInfo {
   if (!client) {
     throw new Error("Client not available");
+  }
+
+  // Compute per-track ReplayGain so native side can apply it during background playback
+  let replayGainDb: number | undefined;
+  if (options && options.replayGainMode !== "disabled") {
+    const trackGain =
+      options.replayGainMode === "original"
+        ? (song.originalReplayGainTrackGain ?? 0)
+        : (song.computedReplayGainTrackGain ??
+          song.originalReplayGainTrackGain ??
+          0);
+    replayGainDb = trackGain + options.replayGainOffset;
   }
 
   return {
@@ -303,6 +318,7 @@ function songToNativeTrack(
       ? client.getCoverArtUrl(song.coverArt, 512)
       : undefined,
     durationMs: (song.duration || 0) * 1000,
+    replayGainDb,
   };
 }
 
@@ -437,6 +453,16 @@ export async function nativeAppendToQueue(
 export async function nativeSetVolume(volume: number): Promise<void> {
   const api = await getNativeApi();
   await api.setVolume(volume);
+}
+
+/**
+ * Set ReplayGain boost/attenuation in dB.
+ * Converted to millibels for the native LoudnessEnhancer.
+ */
+export async function nativeSetReplayGain(gainDb: number): Promise<void> {
+  const api = await getNativeApi();
+  const gainMb = Math.round(gainDb * 100);
+  await api.setReplayGain(gainMb);
 }
 
 /**
