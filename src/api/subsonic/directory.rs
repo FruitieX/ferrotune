@@ -169,7 +169,9 @@ pub async fn get_music_directory(
 
     // First, try to find as an artist
     if let Some(artist) = crate::db::queries::get_artist_by_id(&state.pool, id).await? {
-        let albums = crate::db::queries::get_albums_by_artist(&state.pool, id).await?;
+        let albums =
+            crate::db::queries::get_albums_by_artist_for_user(&state.pool, id, user.user_id)
+                .await?;
 
         // Get starred and ratings for albums
         let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
@@ -235,7 +237,8 @@ pub async fn get_music_directory(
 
     // Try to find as an album
     if let Some(album) = crate::db::queries::get_album_by_id(&state.pool, id).await? {
-        let songs = crate::db::queries::get_songs_by_album(&state.pool, id).await?;
+        let songs =
+            crate::db::queries::get_songs_by_album_for_user(&state.pool, id, user.user_id).await?;
 
         // Get starred and ratings for songs
         let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();

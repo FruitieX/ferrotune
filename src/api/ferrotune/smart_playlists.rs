@@ -680,8 +680,8 @@ async fn count_matching_songs(
 ) -> FerrotuneApiResult<i64> {
     let (where_clause, where_args) = build_where_clause(rules, user_id)?;
 
-    // Always filter by enabled music folders
-    let enabled_filter = "mf.enabled = 1";
+    // Always filter by enabled music folders and user library access
+    let enabled_filter = "mf.enabled = 1 AND ula.user_id = ?";
     let combined_where = if where_clause.is_empty() {
         format!("WHERE {}", enabled_filter)
     } else {
@@ -693,6 +693,7 @@ async fn count_matching_songs(
          LEFT JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
          LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
@@ -702,6 +703,7 @@ async fn count_matching_songs(
     );
 
     let mut query_builder = sqlx::query_as::<_, (i64,)>(&query)
+        .bind(user_id)
         .bind(user_id)
         .bind(user_id);
 
@@ -741,8 +743,8 @@ pub async fn materialize_smart_playlist_songs(
     let safe_offset = offset.map(|value| value.max(0));
     let safe_limit = limit.filter(|value| *value > 0);
 
-    // Always filter by enabled music folders
-    let enabled_filter = "mf.enabled = 1";
+    // Always filter by enabled music folders and user library access
+    let enabled_filter = "mf.enabled = 1 AND ula.user_id = ?";
     let combined_where = if where_clause.is_empty() {
         format!("WHERE {}", enabled_filter)
     } else {
@@ -799,6 +801,7 @@ pub async fn materialize_smart_playlist_songs(
          LEFT JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
          LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
@@ -810,6 +813,7 @@ pub async fn materialize_smart_playlist_songs(
     );
 
     let mut query_builder = sqlx::query_as::<_, crate::db::models::Song>(&query)
+        .bind(user_id)
         .bind(user_id)
         .bind(user_id);
 
@@ -837,8 +841,8 @@ async fn count_matching_songs_filtered(
 
     let (filter_clause, mut filter_args) = build_filter_clause(filter);
 
-    // Always filter by enabled music folders
-    let enabled_filter = "mf.enabled = 1";
+    // Always filter by enabled music folders and user library access
+    let enabled_filter = "mf.enabled = 1 AND ula.user_id = ?";
     let combined_where = if where_clause.is_empty() {
         format!("WHERE {}{}", enabled_filter, filter_clause)
     } else {
@@ -853,6 +857,7 @@ async fn count_matching_songs_filtered(
          LEFT JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
          LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
@@ -864,6 +869,7 @@ async fn count_matching_songs_filtered(
     where_args.append(&mut filter_args);
 
     let mut query_builder = sqlx::query_as::<_, (i64,)>(&query)
+        .bind(user_id)
         .bind(user_id)
         .bind(user_id);
 
@@ -899,8 +905,8 @@ async fn sum_matching_songs_duration_filtered(
 
     let (filter_clause, mut filter_args) = build_filter_clause(filter);
 
-    // Always filter by enabled music folders
-    let enabled_filter = "mf.enabled = 1";
+    // Always filter by enabled music folders and user library access
+    let enabled_filter = "mf.enabled = 1 AND ula.user_id = ?";
     let combined_where = if where_clause.is_empty() {
         format!("WHERE {}{}", enabled_filter, filter_clause)
     } else {
@@ -940,6 +946,7 @@ async fn sum_matching_songs_duration_filtered(
                 LEFT JOIN artists ar ON s.artist_id = ar.id
                 LEFT JOIN albums al ON s.album_id = al.id
                 INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+                INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
                 LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                            FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
                    ON s.id = pc.song_id
@@ -956,6 +963,7 @@ async fn sum_matching_songs_duration_filtered(
              LEFT JOIN artists ar ON s.artist_id = ar.id
              LEFT JOIN albums al ON s.album_id = al.id
              INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+             INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
              LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                         FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
                 ON s.id = pc.song_id
@@ -968,6 +976,7 @@ async fn sum_matching_songs_duration_filtered(
     where_args.append(&mut filter_args);
 
     let mut query_builder = sqlx::query_as::<_, (i64,)>(&query)
+        .bind(user_id)
         .bind(user_id)
         .bind(user_id);
 
@@ -1004,8 +1013,8 @@ async fn materialize_smart_playlist_songs_filtered(
     let safe_offset = offset.map(|value| value.max(0));
     let safe_limit = limit.filter(|value| *value > 0);
 
-    // Always filter by enabled music folders
-    let enabled_filter = "mf.enabled = 1";
+    // Always filter by enabled music folders and user library access
+    let enabled_filter = "mf.enabled = 1 AND ula.user_id = ?";
     let combined_where = if where_clause.is_empty() {
         format!("WHERE {}{}", enabled_filter, filter_clause)
     } else {
@@ -1063,6 +1072,7 @@ async fn materialize_smart_playlist_songs_filtered(
          LEFT JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
          LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
                     FROM scrobbles WHERE user_id = ? GROUP BY song_id) pc 
             ON s.id = pc.song_id
@@ -1076,6 +1086,7 @@ async fn materialize_smart_playlist_songs_filtered(
     where_args.append(&mut filter_args);
 
     let mut query_builder = sqlx::query_as::<_, crate::db::models::Song>(&query)
+        .bind(user_id)
         .bind(user_id)
         .bind(user_id);
 

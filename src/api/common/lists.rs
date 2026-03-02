@@ -52,10 +52,11 @@ pub async fn get_album_list_logic(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
-                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)
                  ORDER BY RANDOM() 
                  LIMIT ? OFFSET ?"
             )
+            .bind(user_id)
             .bind(size)
             .bind(offset)
             .fetch_all(pool)
@@ -66,10 +67,11 @@ pub async fn get_album_list_logic(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
-                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)
                  ORDER BY a.created_at DESC 
                  LIMIT ? OFFSET ?"
             )
+            .bind(user_id)
             .bind(size)
             .bind(offset)
             .fetch_all(pool)
@@ -80,10 +82,11 @@ pub async fn get_album_list_logic(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
-                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)
                  ORDER BY a.name COLLATE NOCASE 
                  LIMIT ? OFFSET ?"
             )
+            .bind(user_id)
             .bind(size)
             .bind(offset)
             .fetch_all(pool)
@@ -99,17 +102,19 @@ pub async fn get_album_list_logic(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
-                 LEFT JOIN scrobbles sc ON sc.song_id IN (SELECT id FROM songs WHERE album_id = a.id) {since_clause}
-                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
+                 LEFT JOIN scrobbles sc ON sc.song_id IN (SELECT id FROM songs WHERE album_id = a.id) AND sc.user_id = ? {since_clause}
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)
                  GROUP BY a.id 
                  ORDER BY COUNT(sc.id) DESC 
                  LIMIT ? OFFSET ?"
             );
             let mut q = sqlx::query_as::<_, crate::db::models::Album>(&query);
+            q = q.bind(user_id);
             if let Some(ref s) = since {
                 q = q.bind(s);
             }
-            q.bind(size)
+            q.bind(user_id)
+            .bind(size)
             .bind(offset)
             .fetch_all(pool)
             .await?
@@ -121,11 +126,14 @@ pub async fn get_album_list_logic(
                  INNER JOIN artists ar ON a.artist_id = ar.id 
                  INNER JOIN songs s ON s.album_id = a.id 
                  INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+                 INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
                  INNER JOIN scrobbles sc ON sc.song_id = s.id 
-                 WHERE mf.enabled = 1
+                 WHERE mf.enabled = 1 AND ula.user_id = ? AND sc.user_id = ?
                  ORDER BY sc.played_at DESC 
                  LIMIT ? OFFSET ?"
             )
+            .bind(user_id)
+            .bind(user_id)
             .bind(size)
             .bind(offset)
             .fetch_all(pool)
@@ -137,10 +145,11 @@ pub async fn get_album_list_logic(
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
                  INNER JOIN starred st ON st.item_id = a.id AND st.item_type = 'album' 
-                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)
                  ORDER BY st.starred_at DESC 
                  LIMIT ? OFFSET ?"
             )
+            .bind(user_id)
             .bind(size)
             .bind(offset)
             .fetch_all(pool)
@@ -151,10 +160,11 @@ pub async fn get_album_list_logic(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
-                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)
                  ORDER BY a.name COLLATE NOCASE 
                  LIMIT ? OFFSET ?"
             )
+            .bind(user_id)
             .bind(size)
             .bind(offset)
             .fetch_all(pool)
@@ -165,10 +175,11 @@ pub async fn get_album_list_logic(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
-                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)
                  ORDER BY ar.name COLLATE NOCASE, a.name COLLATE NOCASE 
                  LIMIT ? OFFSET ?"
             )
+            .bind(user_id)
             .bind(size)
             .bind(offset)
             .fetch_all(pool)
@@ -179,11 +190,12 @@ pub async fn get_album_list_logic(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
-                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)
                    AND (? IS NULL OR a.year >= ?) AND (? IS NULL OR a.year <= ?)
                  ORDER BY a.year DESC, a.name COLLATE NOCASE 
                  LIMIT ? OFFSET ?"
             )
+            .bind(user_id)
             .bind(from_year)
             .bind(from_year)
             .bind(to_year)
@@ -200,11 +212,12 @@ pub async fn get_album_list_logic(
                      FROM albums a 
                      INNER JOIN artists ar ON a.artist_id = ar.id 
                      WHERE a.genre = ? 
-                       AND EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
+                       AND EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)
                      ORDER BY a.name COLLATE NOCASE 
                      LIMIT ? OFFSET ?"
                 )
                 .bind(g)
+                .bind(user_id)
                 .bind(size)
                 .bind(offset)
                 .fetch_all(pool)
@@ -223,8 +236,9 @@ pub async fn get_album_list_logic(
         | AlbumListType::Highest
         | AlbumListType::Frequent => {
             let count: (i64,) = sqlx::query_as(
-                "SELECT COUNT(*) FROM albums a WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)"
+                "SELECT COUNT(*) FROM albums a WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)"
             )
+                .bind(user_id)
                 .fetch_one(pool)
                 .await?;
             Some(count.0)
@@ -233,8 +247,9 @@ pub async fn get_album_list_logic(
             let count: (i64,) = sqlx::query_as(
                 "SELECT COUNT(*) FROM starred st INNER JOIN albums a ON st.item_id = a.id 
                  WHERE st.item_type = 'album' AND st.user_id = ?
-                   AND EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)",
+                   AND EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)",
             )
+            .bind(user_id)
             .bind(user_id)
             .fetch_one(pool)
             .await?;
@@ -243,9 +258,10 @@ pub async fn get_album_list_logic(
         AlbumListType::ByGenre => {
             if let Some(ref g) = genre {
                 let count: (i64,) = sqlx::query_as(
-                    "SELECT COUNT(*) FROM albums a WHERE a.genre = ? AND EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)"
+                    "SELECT COUNT(*) FROM albums a WHERE a.genre = ? AND EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)"
                 )
                     .bind(g)
+                    .bind(user_id)
                     .fetch_one(pool)
                     .await?;
                 Some(count.0)
@@ -256,9 +272,10 @@ pub async fn get_album_list_logic(
         AlbumListType::ByYear => {
             let count: (i64,) = sqlx::query_as(
                 "SELECT COUNT(*) FROM albums a
-                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)
                    AND (? IS NULL OR a.year >= ?) AND (? IS NULL OR a.year <= ?)",
             )
+            .bind(user_id)
             .bind(from_year)
             .bind(from_year)
             .bind(to_year)
@@ -293,11 +310,12 @@ pub async fn get_album_list_logic(
                      FROM albums a
                      INNER JOIN songs s ON s.album_id = a.id
                      INNER JOIN scrobbles sc ON sc.song_id = s.id
-                     WHERE a.id IN ({})
+                     WHERE sc.user_id = ? AND a.id IN ({})
                      GROUP BY a.id",
                     placeholders.join(",")
                 );
                 let mut q = sqlx::query_as::<_, (String, String)>(&query);
+                q = q.bind(user_id);
                 for id in &album_ids {
                     q = q.bind(id);
                 }
@@ -353,13 +371,15 @@ pub async fn get_random_songs_logic(
          INNER JOIN artists ar ON s.artist_id = ar.id 
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         WHERE mf.enabled = 1 AND s.marked_for_deletion_at IS NULL
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+         WHERE mf.enabled = 1 AND ula.user_id = ? AND s.marked_for_deletion_at IS NULL
            AND (? IS NULL OR s.genre = ?)
            AND (? IS NULL OR s.year >= ?)
            AND (? IS NULL OR s.year <= ?)
          ORDER BY RANDOM() 
          LIMIT ?",
     )
+    .bind(user_id)
     .bind(&genre)
     .bind(&genre)
     .bind(from_year)
@@ -424,11 +444,13 @@ pub async fn get_songs_by_genre_logic(
          INNER JOIN artists ar ON s.artist_id = ar.id 
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         WHERE s.genre = ? AND mf.enabled = 1 AND s.marked_for_deletion_at IS NULL
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+         WHERE s.genre = ? AND mf.enabled = 1 AND ula.user_id = ? AND s.marked_for_deletion_at IS NULL
          ORDER BY s.title COLLATE NOCASE
          LIMIT ? OFFSET ?",
     )
     .bind(genre)
+    .bind(user_id)
     .bind(count)
     .bind(offset)
     .fetch_all(pool)

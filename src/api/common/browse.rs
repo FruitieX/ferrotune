@@ -184,7 +184,7 @@ pub async fn get_album_logic(
         .await?
         .ok_or_else(|| crate::error::Error::NotFound(format!("Album {} not found", album_id)))?;
 
-    let songs = crate::db::queries::get_songs_by_album(pool, album_id).await?;
+    let songs = crate::db::queries::get_songs_by_album_for_user(pool, album_id, user_id).await?;
 
     // Apply server-side filtering and sorting
     let songs = filter_and_sort_songs(songs, filter, sort, sort_dir);
@@ -279,7 +279,7 @@ pub async fn get_song_logic(
 }
 
 /// Get all genres (for getGenres endpoint)
-pub async fn get_genres_logic(pool: &SqlitePool) -> crate::error::Result<GenresList> {
+pub async fn get_genres_logic(pool: &SqlitePool, user_id: i64) -> crate::error::Result<GenresList> {
     let genres: Vec<(String, i64, i64)> = sqlx::query_as(
         "SELECT 
             s.genre,
@@ -287,10 +287,12 @@ pub async fn get_genres_logic(pool: &SqlitePool) -> crate::error::Result<GenresL
             COUNT(DISTINCT s.album_id) as album_count
          FROM songs s
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         WHERE s.genre IS NOT NULL AND mf.enabled = 1
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+         WHERE s.genre IS NOT NULL AND mf.enabled = 1 AND ula.user_id = ?
          GROUP BY s.genre 
          ORDER BY s.genre",
     )
+    .bind(user_id)
     .fetch_all(pool)
     .await?;
 

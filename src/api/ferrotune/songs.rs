@@ -72,7 +72,7 @@ pub async fn get_song_match_list(
     Query(params): Query<GetSongMatchListParams>,
 ) -> FerrotuneApiResult<Json<SongMatchListResponse>> {
     // Build query based on whether we're filtering by library
-    // Always filter by enabled music folders
+    // Always filter by enabled music folders and user library access
     let songs: Vec<SongMatchEntry> = if let Some(music_folder_id) = params.library_id {
         sqlx::query_as::<_, SongMatchEntry>(
             r#"
@@ -86,11 +86,13 @@ pub async fn get_song_match_list(
             JOIN artists ar ON s.artist_id = ar.id
             LEFT JOIN albums al ON s.album_id = al.id
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            WHERE s.music_folder_id = ? AND mf.enabled = 1
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE s.music_folder_id = ? AND mf.enabled = 1 AND ula.user_id = ?
             ORDER BY ar.name COLLATE NOCASE, al.name COLLATE NOCASE, s.disc_number, s.track_number, s.title COLLATE NOCASE
             "#,
         )
         .bind(music_folder_id)
+        .bind(_user.user_id)
         .fetch_all(&state.pool)
         .await
         .map_err(|e| Error::Internal(format!("Database error: {}", e)))?
@@ -107,10 +109,12 @@ pub async fn get_song_match_list(
             JOIN artists ar ON s.artist_id = ar.id
             LEFT JOIN albums al ON s.album_id = al.id
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            WHERE mf.enabled = 1
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE mf.enabled = 1 AND ula.user_id = ?
             ORDER BY ar.name COLLATE NOCASE, al.name COLLATE NOCASE, s.disc_number, s.track_number, s.title COLLATE NOCASE
             "#,
         )
+        .bind(_user.user_id)
         .fetch_all(&state.pool)
         .await
         .map_err(|e| Error::Internal(format!("Database error: {}", e)))?
@@ -386,7 +390,7 @@ pub async fn match_tracks(
         None
     };
 
-    // Fetch all songs from enabled music folders
+    // Fetch all songs from enabled music folders the user has access to
     let songs: Vec<SongMatchEntry> = if let Some(music_folder_id) = params.library_id {
         sqlx::query_as::<_, SongMatchEntry>(
             r#"
@@ -400,10 +404,12 @@ pub async fn match_tracks(
             JOIN artists ar ON s.artist_id = ar.id
             LEFT JOIN albums al ON s.album_id = al.id
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            WHERE s.music_folder_id = ? AND mf.enabled = 1
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE s.music_folder_id = ? AND mf.enabled = 1 AND ula.user_id = ?
             "#,
         )
         .bind(music_folder_id)
+        .bind(user.user_id)
         .fetch_all(&state.pool)
         .await
     } else {
@@ -419,9 +425,11 @@ pub async fn match_tracks(
             JOIN artists ar ON s.artist_id = ar.id
             LEFT JOIN albums al ON s.album_id = al.id
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            WHERE mf.enabled = 1
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE mf.enabled = 1 AND ula.user_id = ?
             "#,
         )
+        .bind(user.user_id)
         .fetch_all(&state.pool)
         .await
     }
@@ -819,11 +827,11 @@ struct TokenizedAlbum<'a> {
 /// POST /ferrotune/albums/match
 pub async fn match_albums(
     State(state): State<Arc<AppState>>,
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Query(params): Query<MatchTracksParams>,
     Json(request): Json<MatchAlbumsRequest>,
 ) -> FerrotuneApiResult<Json<MatchAlbumsResponse>> {
-    // Fetch all albums from enabled music folders
+    // Fetch all albums from enabled music folders the user has access to
     let albums: Vec<AlbumMatchEntry> = if let Some(music_folder_id) = params.library_id {
         sqlx::query_as::<_, AlbumMatchEntry>(
             r#"
@@ -836,10 +844,12 @@ pub async fn match_albums(
             JOIN artists ar ON al.artist_id = ar.id
             JOIN songs s ON s.album_id = al.id
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            WHERE s.music_folder_id = ? AND mf.enabled = 1
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE s.music_folder_id = ? AND mf.enabled = 1 AND ula.user_id = ?
             "#,
         )
         .bind(music_folder_id)
+        .bind(user.user_id)
         .fetch_all(&state.pool)
         .await
     } else {
@@ -854,9 +864,11 @@ pub async fn match_albums(
             JOIN artists ar ON al.artist_id = ar.id
             JOIN songs s ON s.album_id = al.id
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            WHERE mf.enabled = 1
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE mf.enabled = 1 AND ula.user_id = ?
             "#,
         )
+        .bind(user.user_id)
         .fetch_all(&state.pool)
         .await
     }
@@ -975,11 +987,11 @@ struct TokenizedArtist<'a> {
 /// POST /ferrotune/artists/match
 pub async fn match_artists(
     State(state): State<Arc<AppState>>,
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     Query(params): Query<MatchTracksParams>,
     Json(request): Json<MatchArtistsRequest>,
 ) -> FerrotuneApiResult<Json<MatchArtistsResponse>> {
-    // Fetch all artists from enabled music folders
+    // Fetch all artists from enabled music folders the user has access to
     let artists: Vec<ArtistMatchEntry> = if let Some(music_folder_id) = params.library_id {
         sqlx::query_as::<_, ArtistMatchEntry>(
             r#"
@@ -989,10 +1001,12 @@ pub async fn match_artists(
             FROM artists ar
             JOIN songs s ON s.artist_id = ar.id
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            WHERE s.music_folder_id = ? AND mf.enabled = 1
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE s.music_folder_id = ? AND mf.enabled = 1 AND ula.user_id = ?
             "#,
         )
         .bind(music_folder_id)
+        .bind(user.user_id)
         .fetch_all(&state.pool)
         .await
     } else {
@@ -1004,9 +1018,11 @@ pub async fn match_artists(
             FROM artists ar
             JOIN songs s ON s.artist_id = ar.id
             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-            WHERE mf.enabled = 1
+            INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+            WHERE mf.enabled = 1 AND ula.user_id = ?
             "#,
         )
+        .bind(user.user_id)
         .fetch_all(&state.pool)
         .await
     }

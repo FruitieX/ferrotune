@@ -369,17 +369,18 @@ pub async fn search_songs_for_queue(
 
     let filter_conds = build_song_filter_conditions(params, user_id);
 
-    // Filter to only include songs from enabled music folders
-    let enabled_folder_condition = "mf.enabled = 1".to_string();
+    // Filter to only include songs from enabled music folders the user has access to
+    let enabled_folder_condition = "mf.enabled = 1 AND ula.user_id = ?".to_string();
 
     // Build JOIN clauses based on filter requirements
     let mut joins = format!(
         "INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
-         INNER JOIN music_folders mf ON s.music_folder_id = mf.id{}",
-        crate::db::queries::SCROBBLE_STATS_JOIN
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id{}",
+        crate::db::queries::scrobble_stats_join_for_user()
     );
-    let mut join_user_ids = Vec::new();
+    let mut join_user_ids = vec![user_id, user_id];
     if filter_conds.has_rating_filter {
         joins.push_str(
             " LEFT JOIN ratings r ON r.item_id = s.id AND r.item_type = 'song' AND r.user_id = ?",
@@ -500,7 +501,7 @@ pub async fn search_artists(
     }
 
     // Filter to only include artists with songs from enabled music folders
-    let artist_enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id WHERE s_check.artist_id = a.id AND mf_check.enabled = 1)";
+    let artist_enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE s_check.artist_id = a.id AND mf_check.enabled = 1 AND ula_check.user_id = ?)";
 
     let (artists, total) = if is_wildcard {
         let mut all_conditions = vec![artist_enabled_condition.to_string()];
@@ -514,6 +515,7 @@ pub async fn search_artists(
         for join_user_id in &artist_join_user_ids {
             query_builder = query_builder.bind(*join_user_id);
         }
+        query_builder = query_builder.bind(user_id);
         let artists: Vec<crate::db::models::Artist> = query_builder
             .bind(limit)
             .bind(offset)
@@ -525,6 +527,7 @@ pub async fn search_artists(
         for join_user_id in &artist_join_user_ids {
             count_query_builder = count_query_builder.bind(*join_user_id);
         }
+        count_query_builder = count_query_builder.bind(user_id);
         let total: (i64,) = count_query_builder.fetch_one(pool).await?;
 
         (artists, Some(total.0))
@@ -548,6 +551,7 @@ pub async fn search_artists(
         for join_user_id in &artist_join_user_ids {
             query_builder = query_builder.bind(*join_user_id);
         }
+        query_builder = query_builder.bind(user_id);
         let artists: Vec<crate::db::models::Artist> = query_builder
             .bind(fts_q)
             .bind(limit)
@@ -562,6 +566,7 @@ pub async fn search_artists(
         for join_user_id in &artist_join_user_ids {
             count_query_builder = count_query_builder.bind(*join_user_id);
         }
+        count_query_builder = count_query_builder.bind(user_id);
         let total: (i64,) = count_query_builder.bind(fts_q).fetch_one(pool).await?;
 
         (artists, Some(total.0))
@@ -621,7 +626,7 @@ pub async fn search_albums(
     }
 
     // Filter to only include albums with songs from enabled music folders
-    let album_enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id WHERE s_check.album_id = a.id AND mf_check.enabled = 1)";
+    let album_enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE s_check.album_id = a.id AND mf_check.enabled = 1 AND ula_check.user_id = ?)";
 
     let (albums, total) = if is_wildcard {
         let mut all_conditions = vec![album_enabled_condition.to_string()];
@@ -640,6 +645,7 @@ pub async fn search_albums(
         for join_user_id in &album_join_user_ids {
             query_builder = query_builder.bind(*join_user_id);
         }
+        query_builder = query_builder.bind(user_id);
         let albums: Vec<crate::db::models::Album> = query_builder
             .bind(limit)
             .bind(offset)
@@ -651,6 +657,7 @@ pub async fn search_albums(
         for join_user_id in &album_join_user_ids {
             count_query_builder = count_query_builder.bind(*join_user_id);
         }
+        count_query_builder = count_query_builder.bind(user_id);
         let total: (i64,) = count_query_builder.fetch_one(pool).await?;
 
         (albums, Some(total.0))
@@ -675,6 +682,7 @@ pub async fn search_albums(
         for join_user_id in &album_join_user_ids {
             query_builder = query_builder.bind(*join_user_id);
         }
+        query_builder = query_builder.bind(user_id);
         let albums: Vec<crate::db::models::Album> = query_builder
             .bind(fts_q)
             .bind(limit)
@@ -689,6 +697,7 @@ pub async fn search_albums(
         for join_user_id in &album_join_user_ids {
             count_query_builder = count_query_builder.bind(*join_user_id);
         }
+        count_query_builder = count_query_builder.bind(user_id);
         let total: (i64,) = count_query_builder.bind(fts_q).fetch_one(pool).await?;
 
         (albums, Some(total.0))
@@ -733,17 +742,18 @@ pub async fn search_songs(
 
     let filter_conds = build_song_filter_conditions(params, user_id);
 
-    // Filter to only include songs from enabled music folders
-    let enabled_folder_condition = "mf.enabled = 1".to_string();
+    // Filter to only include songs from enabled music folders the user has access to
+    let enabled_folder_condition = "mf.enabled = 1 AND ula.user_id = ?".to_string();
 
     // Build JOIN clauses based on filter requirements
     let mut joins = format!(
         "INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
-         INNER JOIN music_folders mf ON s.music_folder_id = mf.id{}",
-        crate::db::queries::SCROBBLE_STATS_JOIN
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id{}",
+        crate::db::queries::scrobble_stats_join_for_user()
     );
-    let mut join_user_ids = Vec::new();
+    let mut join_user_ids = vec![user_id, user_id];
     if filter_conds.has_rating_filter {
         joins.push_str(
             " LEFT JOIN ratings r ON r.item_id = s.id AND r.item_type = 'song' AND r.user_id = ?",

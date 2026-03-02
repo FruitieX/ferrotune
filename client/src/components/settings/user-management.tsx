@@ -468,7 +468,7 @@ export function UserManagement() {
                       <Input
                         id="password"
                         type={showPassword ? "text" : "password"}
-                        placeholder="At least 8 characters"
+                        placeholder="Password"
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
                       />
@@ -538,7 +538,7 @@ export function UserManagement() {
                     onClick={() => createUserMutation.mutate()}
                     disabled={
                       !newUsername ||
-                      newPassword.length < 8 ||
+                      !newPassword ||
                       createUserMutation.isPending
                     }
                   >
@@ -652,11 +652,7 @@ export function UserManagement() {
             </Button>
             <Button
               onClick={() => updateUserMutation.mutate()}
-              disabled={
-                !newUsername ||
-                (newPassword.length > 0 && newPassword.length < 8) ||
-                updateUserMutation.isPending
-              }
+              disabled={!newUsername || updateUserMutation.isPending}
             >
               {updateUserMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>

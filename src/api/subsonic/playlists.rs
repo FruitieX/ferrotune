@@ -233,7 +233,7 @@ pub async fn get_playlist(
     }
 
     // Get songs in the playlist
-    let songs = queries::get_playlist_songs(&state.pool, &id)
+    let songs = queries::get_playlist_songs(&state.pool, &id, user.user_id)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
@@ -400,7 +400,7 @@ async fn get_playlist_response(
         .map_err(|e| Error::Internal(e.to_string()))?
         .ok_or_else(|| Error::NotFound(format!("Playlist not found: {}", playlist_id)))?;
 
-    let songs = queries::get_playlist_songs(&state.pool, playlist_id)
+    let songs = queries::get_playlist_songs(&state.pool, playlist_id, user.user_id)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 

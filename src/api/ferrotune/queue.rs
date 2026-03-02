@@ -302,7 +302,7 @@ pub async fn start_queue(
                 "No songs provided".to_string(),
             )));
         }
-        queries::get_songs_by_ids(&state.pool, song_ids).await?
+        queries::get_songs_by_ids_for_user(&state.pool, song_ids, user.user_id).await?
     } else if source_type == QueueSourceType::Playlist {
         // For playlists, use the position-aware function to handle missing entries
         let playlist_id = request
@@ -1342,7 +1342,7 @@ async fn materialize_queue_songs(
         QueueSourceType::Album => {
             let album_id =
                 source_id.ok_or_else(|| Error::InvalidRequest("Album ID required".to_string()))?;
-            let songs = queries::get_songs_by_album(pool, album_id).await?;
+            let songs = queries::get_songs_by_album_for_user(pool, album_id, user_id).await?;
             // Apply text filtering and sorting if provided
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -1354,7 +1354,7 @@ async fn materialize_queue_songs(
         QueueSourceType::Artist => {
             let artist_id =
                 source_id.ok_or_else(|| Error::InvalidRequest("Artist ID required".to_string()))?;
-            let songs = queries::get_songs_by_artist(pool, artist_id).await?;
+            let songs = queries::get_songs_by_artist_for_user(pool, artist_id, user_id).await?;
             // Apply text filtering and sorting if provided
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -1366,7 +1366,7 @@ async fn materialize_queue_songs(
         QueueSourceType::Playlist => {
             let playlist_id = source_id
                 .ok_or_else(|| Error::InvalidRequest("Playlist ID required".to_string()))?;
-            let songs = queries::get_playlist_songs(pool, playlist_id).await?;
+            let songs = queries::get_playlist_songs(pool, playlist_id, user_id).await?;
             // Apply text filtering and sorting if provided
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -1430,7 +1430,7 @@ async fn materialize_queue_songs(
         QueueSourceType::Directory => {
             let dir_id = source_id
                 .ok_or_else(|| Error::InvalidRequest("Directory ID required".to_string()))?;
-            let songs = queries::get_songs_by_directory(pool, dir_id).await?;
+            let songs = queries::get_songs_by_directory(pool, dir_id, user_id).await?;
             // Apply text filtering and sorting if provided
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -1443,7 +1443,7 @@ async fn materialize_queue_songs(
             // Non-recursive directory - only files in the current folder, not subfolders
             let dir_id = source_id
                 .ok_or_else(|| Error::InvalidRequest("Directory ID required".to_string()))?;
-            let songs = queries::get_songs_by_directory_flat(pool, dir_id).await?;
+            let songs = queries::get_songs_by_directory_flat(pool, dir_id, user_id).await?;
             // Apply text filtering and sorting if provided
             Ok(sorting::filter_and_sort_songs(
                 songs,
@@ -1469,7 +1469,7 @@ async fn materialize_queue_songs(
                 let mut song_ids: Vec<String> = Vec::with_capacity(similar.len() + 1);
                 song_ids.push(song_id.to_string());
                 song_ids.extend(similar.into_iter().map(|(id, _)| id));
-                Ok(queries::get_songs_by_ids(pool, &song_ids).await?)
+                Ok(queries::get_songs_by_ids_for_user(pool, &song_ids, user_id).await?)
             }
             #[cfg(not(feature = "bliss"))]
             Err(Error::InvalidRequest("Song radio requires the 'bliss' feature".to_string()).into())
@@ -1640,7 +1640,7 @@ pub async fn materialize_lazy_queue_page(
 
         // Fetch songs by IDs - need to convert to owned strings for the query
         let page_ids_owned: Vec<String> = page_ids.iter().map(|s| s.to_string()).collect();
-        return Ok(queries::get_songs_by_ids(pool, &page_ids_owned).await?);
+        return Ok(queries::get_songs_by_ids_for_user(pool, &page_ids_owned, user_id).await?);
     }
 
     // Parse the source parameters

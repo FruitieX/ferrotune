@@ -408,7 +408,9 @@ pub async fn get_period_review(
         FROM listening_sessions ls
         LEFT JOIN songs s ON ls.song_id = s.id
         LEFT JOIN artists a ON s.artist_id = a.id
-        WHERE ls.user_id = ? {}
+        INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+        INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+        WHERE ls.user_id = ? AND mf.enabled = 1 AND ula.user_id = ? {}
         GROUP BY s.artist_id
         ORDER BY play_count DESC
         LIMIT 100
@@ -417,6 +419,7 @@ pub async fn get_period_review(
     );
 
     let mut top_artists: Vec<TopArtist> = sqlx::query_as(&top_artists_query)
+        .bind(user.user_id)
         .bind(user.user_id)
         .fetch_all(&state.pool)
         .await?;
@@ -436,7 +439,9 @@ pub async fn get_period_review(
         LEFT JOIN songs s ON ls.song_id = s.id
         LEFT JOIN albums al ON s.album_id = al.id
         LEFT JOIN artists a ON s.artist_id = a.id
-        WHERE ls.user_id = ? {}
+        INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+        INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+        WHERE ls.user_id = ? AND mf.enabled = 1 AND ula.user_id = ? {}
         GROUP BY s.album_id
         ORDER BY play_count DESC
         LIMIT 100
@@ -445,6 +450,7 @@ pub async fn get_period_review(
     );
 
     let mut top_albums: Vec<TopAlbum> = sqlx::query_as(&top_albums_query)
+        .bind(user.user_id)
         .bind(user.user_id)
         .fetch_all(&state.pool)
         .await?;
@@ -466,7 +472,9 @@ pub async fn get_period_review(
         LEFT JOIN songs s ON ls.song_id = s.id
         LEFT JOIN albums al ON s.album_id = al.id
         LEFT JOIN artists a ON s.artist_id = a.id
-        WHERE ls.user_id = ? {}
+        INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+        INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+        WHERE ls.user_id = ? AND mf.enabled = 1 AND ula.user_id = ? {}
         GROUP BY s.id
         ORDER BY play_count DESC
         LIMIT 100
@@ -475,6 +483,7 @@ pub async fn get_period_review(
     );
 
     let mut top_tracks: Vec<TopTrack> = sqlx::query_as(&top_tracks_query)
+        .bind(user.user_id)
         .bind(user.user_id)
         .fetch_all(&state.pool)
         .await?;

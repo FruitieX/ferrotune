@@ -37,10 +37,21 @@ pub const SONG_BASE_QUERY_WITH_SCROBBLES: &str = r#"
 /// Standalone scrobble statistics JOIN clause for composing with custom queries.
 /// Use this when building dynamic queries that need play count and last played info.
 /// Expects the songs table to be aliased as `s`.
+/// NOTE: This aggregates across ALL users. For per-user stats, use `scrobble_stats_join_for_user()`.
 pub const SCROBBLE_STATS_JOIN: &str = r#"
     LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played 
                FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
 "#;
+
+/// Scrobble statistics JOIN clause scoped to a specific user.
+/// Returns a SQL fragment with one `?` placeholder for the `user_id` bind parameter.
+/// Expects the songs table to be aliased as `s`.
+pub fn scrobble_stats_join_for_user() -> &'static str {
+    r#"
+    LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played 
+               FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
+"#
+}
 
 /// Standard WHERE clause for filtering out songs marked for deletion.
 /// Use this in custom queries that don't use SONG_BASE_QUERY constants.
@@ -291,6 +302,32 @@ pub async fn get_songs_by_album(pool: &SqlitePool, album_id: &str) -> sqlx::Resu
         .await
 }
 
+pub async fn get_songs_by_album_for_user(
+    pool: &SqlitePool,
+    album_id: &str,
+    user_id: i64,
+) -> sqlx::Result<Vec<Song>> {
+    sqlx::query_as::<_, Song>(
+        "SELECT s.*, ar.name as artist_name, al.name as album_name,
+                pc.play_count, pc.last_played, NULL as starred_at
+         FROM songs s
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+         LEFT JOIN (SELECT song_id, SUM(play_count) as play_count, MAX(played_at) as last_played
+                    FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
+         WHERE s.marked_for_deletion_at IS NULL
+           AND s.album_id = ? AND mf.enabled = 1 AND ula.user_id = ?
+         ORDER BY s.disc_number, s.track_number, s.title COLLATE NOCASE",
+    )
+    .bind(user_id)
+    .bind(album_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+}
+
 /// Get all songs by a specific artist
 /// This returns:
 /// 1. Songs from albums by this artist (album artist)
@@ -325,13 +362,14 @@ pub async fn get_songs_by_artist_for_user(
                  INNER JOIN music_folders mf ON s.music_folder_id = mf.id
                  INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
                  LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played
-                                        FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+                                        FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
                  WHERE s.marked_for_deletion_at IS NULL
                      AND mf.enabled = 1
                      AND ula.user_id = ?
                      AND (s.artist_id = ? OR al.artist_id = ?)
                  ORDER BY s.album_id, s.disc_number, s.track_number, s.title COLLATE NOCASE";
     sqlx::query_as::<_, Song>(query)
+        .bind(user_id)
         .bind(user_id)
         .bind(artist_id)
         .bind(artist_id)
@@ -384,6 +422,48 @@ pub async fn get_songs_by_ids(pool: &SqlitePool, ids: &[String]) -> sqlx::Result
         songs.into_iter().map(|s| (s.id.clone(), s)).collect();
 
     // Return songs in the order of the input IDs
+    Ok(ids
+        .iter()
+        .filter_map(|id| song_map.get(id).cloned())
+        .collect())
+}
+
+pub async fn get_songs_by_ids_for_user(
+    pool: &SqlitePool,
+    ids: &[String],
+    user_id: i64,
+) -> sqlx::Result<Vec<Song>> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let placeholders: Vec<&str> = ids.iter().map(|_| "?").collect();
+    let placeholder_str = placeholders.join(", ");
+
+    let query = format!(
+        "SELECT s.*, ar.name as artist_name, al.name as album_name
+         FROM songs s
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+         WHERE s.marked_for_deletion_at IS NULL
+           AND s.id IN ({})
+           AND mf.enabled = 1 AND ula.user_id = ?",
+        placeholder_str
+    );
+
+    let mut query_builder = sqlx::query_as::<_, Song>(&query);
+    for id in ids {
+        query_builder = query_builder.bind(id);
+    }
+    query_builder = query_builder.bind(user_id);
+
+    let songs: Vec<Song> = query_builder.fetch_all(pool).await?;
+
+    let song_map: std::collections::HashMap<String, Song> =
+        songs.into_iter().map(|s| (s.id.clone(), s)).collect();
+
     Ok(ids
         .iter()
         .filter_map(|id| song_map.get(id).cloned())
@@ -481,7 +561,11 @@ pub async fn get_playlist_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Opt
 }
 
 /// Get songs in a playlist, ordered by position (includes play stats for sorting)
-pub async fn get_playlist_songs(pool: &SqlitePool, playlist_id: &str) -> sqlx::Result<Vec<Song>> {
+pub async fn get_playlist_songs(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    user_id: i64,
+) -> sqlx::Result<Vec<Song>> {
     sqlx::query_as::<_, Song>(
         "SELECT s.*, ar.name as artist_name, al.name as album_name,
                 pc.play_count, pc.last_played, NULL as starred_at
@@ -490,10 +574,11 @@ pub async fn get_playlist_songs(pool: &SqlitePool, playlist_id: &str) -> sqlx::R
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN playlist_songs ps ON s.id = ps.song_id
          LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
-                    FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+                    FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
          WHERE ps.playlist_id = ?
          ORDER BY ps.position",
     )
+    .bind(user_id)
     .bind(playlist_id)
     .fetch_all(pool)
     .await
@@ -1792,18 +1877,26 @@ pub async fn get_starred_songs(pool: &SqlitePool, user_id: i64) -> sqlx::Result<
          INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
          INNER JOIN starred st ON st.item_id = s.id AND st.item_type = 'song'
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
          LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
-                    FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
-         WHERE st.user_id = ?
+                    FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
+         WHERE st.user_id = ? AND mf.enabled = 1 AND ula.user_id = ?
          ORDER BY st.starred_at DESC",
     )
+    .bind(user_id)
+    .bind(user_id)
     .bind(user_id)
     .fetch_all(pool)
     .await
 }
 
 /// Get songs by genre (includes play stats for sorting)
-pub async fn get_songs_by_genre(pool: &SqlitePool, genre: &str) -> sqlx::Result<Vec<Song>> {
+pub async fn get_songs_by_genre(
+    pool: &SqlitePool,
+    genre: &str,
+    user_id: i64,
+) -> sqlx::Result<Vec<Song>> {
     sqlx::query_as::<_, Song>(
         "SELECT s.*, ar.name as artist_name, al.name as album_name,
                 pc.play_count, pc.last_played, NULL as starred_at
@@ -1811,10 +1904,11 @@ pub async fn get_songs_by_genre(pool: &SqlitePool, genre: &str) -> sqlx::Result<
          INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
          LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
-                    FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+                    FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
          WHERE s.genre = ?
          ORDER BY s.title COLLATE NOCASE",
     )
+    .bind(user_id)
     .bind(genre)
     .fetch_all(pool)
     .await
@@ -1823,7 +1917,11 @@ pub async fn get_songs_by_genre(pool: &SqlitePool, genre: &str) -> sqlx::Result<
 /// Get songs recursively under a directory path (includes play stats for sorting)
 /// Supports new format: "libraryId:relativePath" (e.g., "1:Artist/Album")
 /// Also supports legacy format for Subsonic compatibility: "dir-<encoded_path>"
-pub async fn get_songs_by_directory(pool: &SqlitePool, source_id: &str) -> sqlx::Result<Vec<Song>> {
+pub async fn get_songs_by_directory(
+    pool: &SqlitePool,
+    source_id: &str,
+    user_id: i64,
+) -> sqlx::Result<Vec<Song>> {
     // Parse the source ID - new format is "libraryId:path"
     if let Some((library_id_str, relative_path)) = source_id.split_once(':') {
         if let Ok(library_id) = library_id_str.parse::<i64>() {
@@ -1844,10 +1942,11 @@ pub async fn get_songs_by_directory(pool: &SqlitePool, source_id: &str) -> sqlx:
                      INNER JOIN artists ar ON s.artist_id = ar.id
                      LEFT JOIN albums al ON s.album_id = al.id
                      LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
-                                FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+                                FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
                      WHERE s.music_folder_id = ?
                      ORDER BY s.file_path COLLATE NOCASE",
                 )
+                .bind(user_id)
                 .bind(library_id)
                 .fetch_all(pool)
                 .await;
@@ -1860,10 +1959,11 @@ pub async fn get_songs_by_directory(pool: &SqlitePool, source_id: &str) -> sqlx:
                      INNER JOIN artists ar ON s.artist_id = ar.id
                      LEFT JOIN albums al ON s.album_id = al.id
                      LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
-                                FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+                                FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
                      WHERE s.music_folder_id = ? AND s.file_path LIKE ? || '%'
                      ORDER BY s.file_path COLLATE NOCASE",
                 )
+                .bind(user_id)
                 .bind(library_id)
                 .bind(&path_prefix)
                 .fetch_all(pool)
@@ -1894,9 +1994,10 @@ pub async fn get_songs_by_directory(pool: &SqlitePool, source_id: &str) -> sqlx:
              INNER JOIN artists ar ON s.artist_id = ar.id
              LEFT JOIN albums al ON s.album_id = al.id
              LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
-                        FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+                        FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
              ORDER BY s.file_path COLLATE NOCASE",
         )
+        .bind(user_id)
         .fetch_all(pool)
         .await
     } else {
@@ -1907,10 +2008,11 @@ pub async fn get_songs_by_directory(pool: &SqlitePool, source_id: &str) -> sqlx:
              INNER JOIN artists ar ON s.artist_id = ar.id
              LEFT JOIN albums al ON s.album_id = al.id
              LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
-                        FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+                        FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
              WHERE s.file_path LIKE ? || '%'
              ORDER BY s.file_path COLLATE NOCASE",
         )
+        .bind(user_id)
         .bind(&path_prefix)
         .fetch_all(pool)
         .await
@@ -1923,6 +2025,7 @@ pub async fn get_songs_by_directory(pool: &SqlitePool, source_id: &str) -> sqlx:
 pub async fn get_songs_by_directory_flat(
     pool: &SqlitePool,
     source_id: &str,
+    user_id: i64,
 ) -> sqlx::Result<Vec<Song>> {
     // Parse the source ID - format is "libraryId:path"
     if let Some((library_id_str, relative_path)) = source_id.split_once(':') {
@@ -1943,10 +2046,11 @@ pub async fn get_songs_by_directory_flat(
                      INNER JOIN artists ar ON s.artist_id = ar.id
                      LEFT JOIN albums al ON s.album_id = al.id
                      LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
-                                FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+                                FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
                      WHERE s.music_folder_id = ? AND s.file_path NOT LIKE '%/%'
                      ORDER BY s.file_path COLLATE NOCASE",
                 )
+                .bind(user_id)
                 .bind(library_id)
                 .fetch_all(pool)
                 .await;
@@ -1960,12 +2064,13 @@ pub async fn get_songs_by_directory_flat(
                      INNER JOIN artists ar ON s.artist_id = ar.id
                      LEFT JOIN albums al ON s.album_id = al.id
                      LEFT JOIN (SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played 
-                                FROM scrobbles WHERE submission = 1 GROUP BY song_id) pc ON s.id = pc.song_id
+                                FROM scrobbles WHERE submission = 1 AND user_id = ? GROUP BY song_id) pc ON s.id = pc.song_id
                      WHERE s.music_folder_id = ? 
                        AND s.file_path LIKE ? || '%'
                        AND s.file_path NOT LIKE ? || '%/%'
                      ORDER BY s.file_path COLLATE NOCASE",
                 )
+                .bind(user_id)
                 .bind(library_id)
                 .bind(&path_prefix)
                 .bind(&path_prefix)

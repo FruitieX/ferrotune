@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/tooltip";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { MediaCard } from "@/components/shared/media-card";
+import { MobileProfileMenu } from "@/components/layout/mobile-profile-menu";
 import { formatDuration } from "@/lib/utils/format";
 import type { Album, Song } from "@/lib/api/types";
 import type { RecentPlaylistEntry } from "@/lib/api/generated/RecentPlaylistEntry";
@@ -479,6 +480,7 @@ export default function HomePage() {
       {/* Header */}
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
         <div className="flex items-center gap-4 h-16 px-4 lg:px-6">
+          <MobileProfileMenu />
           <h1 className="text-2xl font-bold">Home</h1>
           <div className="flex-1 flex justify-center">
             <div className="relative w-full max-w-md">

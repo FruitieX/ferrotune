@@ -73,7 +73,7 @@ pub async fn fetch_play_history(
            LEFT JOIN albums al ON s.album_id = al.id
            LEFT JOIN (
                SELECT song_id, COUNT(*) as play_count
-               FROM scrobbles WHERE submission = 1
+               FROM scrobbles WHERE submission = 1 AND user_id = ?
                GROUP BY song_id
            ) pc ON s.id = pc.song_id
            WHERE sc.user_id = ? AND sc.submission = 1
@@ -85,6 +85,7 @@ pub async fn fetch_play_history(
            ORDER BY sc.played_at DESC
            LIMIT ? OFFSET ?"#,
     )
+    .bind(user_id)
     .bind(user_id)
     .bind(params.size)
     .bind(params.offset)

@@ -261,13 +261,6 @@ pub async fn create_user(
         );
     }
 
-    // Validate password
-    if request.password.len() < 8 {
-        return Err(
-            Error::InvalidRequest("Password must be at least 8 characters".to_string()).into(),
-        );
-    }
-
     // Check if username already exists
     let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE username = ?")
         .bind(&request.username)
@@ -376,12 +369,6 @@ pub async fn update_user(
 
     // Handle password update specially - need to hash it
     if let Some(password) = &request.password {
-        if password.len() < 8 {
-            return Err(Error::InvalidRequest(
-                "Password must be at least 8 characters".to_string(),
-            )
-            .into());
-        }
         // Hash the password using argon2
         let password_hash = password::hash_password(password)
             .map_err(|e| Error::Internal(format!("Failed to hash password: {}", e)))?;

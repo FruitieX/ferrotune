@@ -236,9 +236,9 @@ pub async fn get_song_ids(
     let mut joins = format!(
         "INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id{}",
-        crate::db::queries::SCROBBLE_STATS_JOIN
+        crate::db::queries::scrobble_stats_join_for_user()
     );
-    let mut join_user_ids = Vec::new();
+    let mut join_user_ids = vec![user.user_id];
     if filter_conds.has_rating_filter {
         joins.push_str(
             " LEFT JOIN ratings r ON r.item_id = s.id AND r.item_type = 'song' AND r.user_id = ?",

@@ -274,7 +274,9 @@ pub async fn get_similar_songs(
         let similar =
             crate::bliss::find_similar_songs(&state.pool, &id, user.user_id, params.count).await?;
         let song_ids: Vec<String> = similar.into_iter().map(|(id, _)| id).collect();
-        let songs = crate::db::queries::get_songs_by_ids(&state.pool, &song_ids).await?;
+        let songs =
+            crate::db::queries::get_songs_by_ids_for_user(&state.pool, &song_ids, user.user_id)
+                .await?;
 
         let starred_map =
             get_starred_map(&state.pool, user.user_id, ItemType::Song, &song_ids).await?;
@@ -315,10 +317,10 @@ pub struct FerrotuneGenresResponse {
 
 /// GET /ferrotune/genres - Get all genres
 pub async fn get_genres(
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<FerrotuneGenresResponse>> {
-    let genres_list = get_genres_logic(&state.pool).await?;
+    let genres_list = get_genres_logic(&state.pool, user.user_id).await?;
 
     Ok(Json(FerrotuneGenresResponse {
         genres: genres_list,

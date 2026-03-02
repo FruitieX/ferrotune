@@ -45,41 +45,49 @@ pub async fn get_stats(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> FerrotuneApiResult<Json<StatsResponse>> {
-    // Get song count from enabled folders
+    // Get song count from enabled folders the user has access to
     let (song_count,): (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM songs s
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         WHERE mf.enabled = 1",
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+         WHERE mf.enabled = 1 AND ula.user_id = ?",
     )
+    .bind(user.user_id)
     .fetch_one(&state.pool)
     .await?;
 
-    // Get album count (albums with at least one song in enabled folder)
+    // Get album count (albums with at least one song in enabled folder the user has access to)
     let (album_count,): (i64,) = sqlx::query_as(
         "SELECT COUNT(DISTINCT a.id) FROM albums a
          INNER JOIN songs s ON s.album_id = a.id
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         WHERE mf.enabled = 1",
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+         WHERE mf.enabled = 1 AND ula.user_id = ?",
     )
+    .bind(user.user_id)
     .fetch_one(&state.pool)
     .await?;
 
-    // Get artist count (artists with at least one song in enabled folder)
+    // Get artist count (artists with at least one song in enabled folder the user has access to)
     let (artist_count,): (i64,) = sqlx::query_as(
         "SELECT COUNT(DISTINCT ar.id) FROM artists ar
          INNER JOIN songs s ON s.artist_id = ar.id
          INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-         WHERE mf.enabled = 1",
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+         WHERE mf.enabled = 1 AND ula.user_id = ?",
     )
+    .bind(user.user_id)
     .fetch_one(&state.pool)
     .await?;
 
-    // Get genre count (distinct genres from songs in enabled folders)
+    // Get genre count (distinct genres from songs in enabled folders the user has access to)
     let (genre_count,): (i64,) = sqlx::query_as(
         "SELECT COUNT(DISTINCT s.genre) FROM songs s
              INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-             WHERE s.genre IS NOT NULL AND mf.enabled = 1",
+             INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+             WHERE s.genre IS NOT NULL AND mf.enabled = 1 AND ula.user_id = ?",
     )
+    .bind(user.user_id)
     .fetch_one(&state.pool)
     .await?;
 
@@ -87,12 +95,14 @@ pub async fn get_stats(
         .fetch_one(&state.pool)
         .await?;
 
-    // Get total duration and size from enabled folders
+    // Get total duration and size from enabled folders the user has access to
     let (total_duration, total_size): (Option<i64>, Option<i64>) = sqlx::query_as(
         "SELECT SUM(s.duration), SUM(s.file_size) FROM songs s
              INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-             WHERE mf.enabled = 1",
+             INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+             WHERE mf.enabled = 1 AND ula.user_id = ?",
     )
+    .bind(user.user_id)
     .fetch_one(&state.pool)
     .await?;
 

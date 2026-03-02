@@ -403,14 +403,17 @@ pub async fn fetch_starred_content(
            INNER JOIN artists ar ON s.artist_id = ar.id
            LEFT JOIN albums al ON s.album_id = al.id
            INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+           INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
            LEFT JOIN (
                SELECT song_id, COUNT(*) as play_count, MAX(played_at) as last_played
-               FROM scrobbles WHERE submission = 1
+               FROM scrobbles WHERE submission = 1 AND user_id = ?
                GROUP BY song_id
            ) pc ON s.id = pc.song_id
-           WHERE st.user_id = ? AND st.item_type = 'song' AND mf.enabled = 1
+           WHERE st.user_id = ? AND st.item_type = 'song' AND mf.enabled = 1 AND ula.user_id = ?
            ORDER BY st.starred_at DESC"#,
     )
+    .bind(user_id)
+    .bind(user_id)
     .bind(user_id)
     .fetch_all(pool)
     .await?;
