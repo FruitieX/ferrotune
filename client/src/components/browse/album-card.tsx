@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Disc } from "lucide-react";
 import type { Album } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { useStarredAlbum } from "@/lib/store/starred";
@@ -20,7 +21,12 @@ interface AlbumCardProps {
   isSelectionMode?: boolean;
   onSelect?: (id: string, e: React.MouseEvent) => void;
   className?: string;
+  titleIcon?: React.ReactNode;
 }
+
+const defaultAlbumIcon = (
+  <Disc className="w-4 h-4 shrink-0 text-muted-foreground" />
+);
 
 export function AlbumCard({
   album,
@@ -29,6 +35,7 @@ export function AlbumCard({
   isSelectionMode,
   onSelect,
   className,
+  titleIcon = defaultAlbumIcon,
 }: AlbumCardProps) {
   const { isStarred, toggleStar } = useStarredAlbum(album.id, !!album.starred);
 
@@ -63,6 +70,7 @@ export function AlbumCard({
       coverArt={coverArtUrl}
       coverArtData={album.coverArtData}
       title={album.name}
+      titleIcon={titleIcon}
       subtitleContent={subtitleContent}
       href={`/library/albums/details?id=${album.id}`}
       colorSeed={album.name}

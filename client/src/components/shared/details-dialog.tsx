@@ -53,6 +53,7 @@ import { formatDuration, formatDate, formatFileSize } from "@/lib/utils/format";
 import { toast } from "sonner";
 import { TagsEditor } from "./tags-editor";
 import { CoverImage } from "./cover-image";
+import { CoverArtModal } from "./cover-art-modal";
 import type { Song, Album, Artist, Playlist } from "@/lib/api/types";
 
 type DetailsItem =
@@ -174,11 +175,16 @@ function SongDetails({
   const [coverError, _setCoverError] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showTagsEditor, setShowTagsEditor] = useState(false);
+  const [coverModalOpen, setCoverModalOpen] = useState(false);
   const [fullSong, setFullSong] = useState<Song>(song);
   const queryClient = useQueryClient();
   const coverArtUrl =
     fullSong.coverArt && !coverError
       ? getClient()?.getCoverArtUrl(fullSong.coverArt, 200)
+      : null;
+  const fullSizeCoverUrl =
+    fullSong.coverArt && !coverError
+      ? getClient()?.getCoverArtUrl(fullSong.coverArt, "large")
       : null;
 
   // Fetch full song details (including play stats) when dialog opens
@@ -236,14 +242,31 @@ function SongDetails({
       <div className="space-y-4 overflow-hidden">
         {/* Cover and title */}
         <div className="flex gap-4">
-          <CoverImage
-            src={coverArtUrl}
-            alt={fullSong.title || "Song cover"}
-            colorSeed={fullSong.album || fullSong.title || "Song"}
-            type="song"
-            size="full"
-            className="w-24 h-24 shrink-0"
-          />
+          {fullSizeCoverUrl ? (
+            <button
+              type="button"
+              onClick={() => setCoverModalOpen(true)}
+              className="cursor-zoom-in shrink-0"
+            >
+              <CoverImage
+                src={coverArtUrl}
+                alt={fullSong.title || "Song cover"}
+                colorSeed={fullSong.album || fullSong.title || "Song"}
+                type="song"
+                size="full"
+                className="w-24 h-24"
+              />
+            </button>
+          ) : (
+            <CoverImage
+              src={coverArtUrl}
+              alt={fullSong.title || "Song cover"}
+              colorSeed={fullSong.album || fullSong.title || "Song"}
+              type="song"
+              size="full"
+              className="w-24 h-24 shrink-0"
+            />
+          )}
           <div className="min-w-0 flex-1">
             <h3 className="font-bold text-lg truncate">{fullSong.title}</h3>
             <p className="text-sm text-muted-foreground truncate">
@@ -482,13 +505,26 @@ function SongDetails({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {fullSizeCoverUrl && (
+        <CoverArtModal
+          open={coverModalOpen}
+          onOpenChange={setCoverModalOpen}
+          src={fullSizeCoverUrl}
+          alt={fullSong.title || "Song cover"}
+        />
+      )}
     </>
   );
 }
 
 function AlbumDetails({ album }: { album: Album }) {
+  const [coverModalOpen, setCoverModalOpen] = useState(false);
   const coverArtUrl = album.coverArt
     ? getClient()?.getCoverArtUrl(album.coverArt, 200)
+    : null;
+  const fullSizeCoverUrl = album.coverArt
+    ? getClient()?.getCoverArtUrl(album.coverArt, "large")
     : null;
 
   return (
@@ -506,14 +542,31 @@ function AlbumDetails({ album }: { album: Album }) {
       <div className="space-y-4">
         {/* Cover and title */}
         <div className="flex gap-4">
-          <CoverImage
-            src={coverArtUrl}
-            alt={album.name || "Album cover"}
-            colorSeed={album.name || "Album"}
-            type="album"
-            size="full"
-            className="w-24 h-24 shrink-0"
-          />
+          {fullSizeCoverUrl ? (
+            <button
+              type="button"
+              onClick={() => setCoverModalOpen(true)}
+              className="cursor-zoom-in shrink-0"
+            >
+              <CoverImage
+                src={coverArtUrl}
+                alt={album.name || "Album cover"}
+                colorSeed={album.name || "Album"}
+                type="album"
+                size="full"
+                className="w-24 h-24"
+              />
+            </button>
+          ) : (
+            <CoverImage
+              src={coverArtUrl}
+              alt={album.name || "Album cover"}
+              colorSeed={album.name || "Album"}
+              type="album"
+              size="full"
+              className="w-24 h-24 shrink-0"
+            />
+          )}
           <div className="min-w-0 flex-1">
             <h3 className="font-bold text-lg truncate">{album.name}</h3>
             <p className="text-sm text-muted-foreground truncate">
@@ -569,13 +622,26 @@ function AlbumDetails({ album }: { album: Album }) {
           )}
         </div>
       </div>
+
+      {fullSizeCoverUrl && (
+        <CoverArtModal
+          open={coverModalOpen}
+          onOpenChange={setCoverModalOpen}
+          src={fullSizeCoverUrl}
+          alt={album.name || "Album cover"}
+        />
+      )}
     </>
   );
 }
 
 function ArtistDetails({ artist }: { artist: Artist }) {
+  const [coverModalOpen, setCoverModalOpen] = useState(false);
   const coverArtUrl = artist.coverArt
     ? getClient()?.getCoverArtUrl(artist.coverArt, 200)
+    : null;
+  const fullSizeCoverUrl = artist.coverArt
+    ? getClient()?.getCoverArtUrl(artist.coverArt, "large")
     : null;
 
   return (
@@ -593,14 +659,31 @@ function ArtistDetails({ artist }: { artist: Artist }) {
       <div className="space-y-4">
         {/* Cover and title */}
         <div className="flex gap-4">
-          <CoverImage
-            src={coverArtUrl}
-            alt={artist.name || "Artist image"}
-            colorSeed={artist.name || "Artist"}
-            type="artist"
-            size="full"
-            className="w-24 h-24 rounded-full shrink-0"
-          />
+          {fullSizeCoverUrl ? (
+            <button
+              type="button"
+              onClick={() => setCoverModalOpen(true)}
+              className="cursor-zoom-in shrink-0"
+            >
+              <CoverImage
+                src={coverArtUrl}
+                alt={artist.name || "Artist image"}
+                colorSeed={artist.name || "Artist"}
+                type="artist"
+                size="full"
+                className="w-24 h-24 rounded-full"
+              />
+            </button>
+          ) : (
+            <CoverImage
+              src={coverArtUrl}
+              alt={artist.name || "Artist image"}
+              colorSeed={artist.name || "Artist"}
+              type="artist"
+              size="full"
+              className="w-24 h-24 rounded-full shrink-0"
+            />
+          )}
           <div className="min-w-0 flex-1 flex flex-col justify-center">
             <h3 className="font-bold text-lg truncate">{artist.name}</h3>
             <p className="text-sm text-muted-foreground">
@@ -643,13 +726,26 @@ function ArtistDetails({ artist }: { artist: Artist }) {
           )}
         </div>
       </div>
+
+      {fullSizeCoverUrl && (
+        <CoverArtModal
+          open={coverModalOpen}
+          onOpenChange={setCoverModalOpen}
+          src={fullSizeCoverUrl}
+          alt={artist.name || "Artist image"}
+        />
+      )}
     </>
   );
 }
 
 function PlaylistDetails({ playlist }: { playlist: Playlist }) {
+  const [coverModalOpen, setCoverModalOpen] = useState(false);
   const coverArtUrl = playlist.coverArt
     ? getClient()?.getCoverArtUrl(playlist.coverArt, 200)
+    : null;
+  const fullSizeCoverUrl = playlist.coverArt
+    ? getClient()?.getCoverArtUrl(playlist.coverArt, "large")
     : null;
 
   return (
@@ -667,14 +763,31 @@ function PlaylistDetails({ playlist }: { playlist: Playlist }) {
       <div className="space-y-4">
         {/* Cover and title */}
         <div className="flex gap-4">
-          <CoverImage
-            src={coverArtUrl}
-            alt={playlist.name || "Playlist cover"}
-            colorSeed={playlist.name || "Playlist"}
-            type="playlist"
-            size="full"
-            className="w-24 h-24 shrink-0"
-          />
+          {fullSizeCoverUrl ? (
+            <button
+              type="button"
+              onClick={() => setCoverModalOpen(true)}
+              className="cursor-zoom-in shrink-0"
+            >
+              <CoverImage
+                src={coverArtUrl}
+                alt={playlist.name || "Playlist cover"}
+                colorSeed={playlist.name || "Playlist"}
+                type="playlist"
+                size="full"
+                className="w-24 h-24"
+              />
+            </button>
+          ) : (
+            <CoverImage
+              src={coverArtUrl}
+              alt={playlist.name || "Playlist cover"}
+              colorSeed={playlist.name || "Playlist"}
+              type="playlist"
+              size="full"
+              className="w-24 h-24 shrink-0"
+            />
+          )}
           <div className="min-w-0 flex-1">
             <h3 className="font-bold text-lg truncate">{playlist.name}</h3>
             {playlist.comment && (
@@ -714,6 +827,15 @@ function PlaylistDetails({ playlist }: { playlist: Playlist }) {
           )}
         </div>
       </div>
+
+      {fullSizeCoverUrl && (
+        <CoverArtModal
+          open={coverModalOpen}
+          onOpenChange={setCoverModalOpen}
+          src={fullSizeCoverUrl}
+          alt={playlist.name || "Playlist cover"}
+        />
+      )}
     </>
   );
 }

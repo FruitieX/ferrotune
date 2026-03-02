@@ -268,6 +268,11 @@ function PlaylistDetailContent() {
     400,
     playlist?.coverArt,
   );
+  const fullSizeCoverUrl = usePlaylistCoverUrl(
+    playlist?.id ?? null,
+    1024,
+    playlist?.coverArt,
+  );
 
   // Delete mutation
   const deleteMutation = useMutation({
@@ -318,11 +323,12 @@ function PlaylistDetailContent() {
         songIdToAdd: songIds,
       });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
+    onSuccess: async () => {
+      resetPlaylistData();
+      await queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
       });
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      await queryClient.invalidateQueries({ queryKey: ["playlists"] });
       toast.success("Songs restored to playlist");
     },
     onError: () => {
@@ -348,6 +354,7 @@ function PlaylistDetailContent() {
       return songIds; // Return for undo
     },
     onSuccess: async (songIds) => {
+      resetPlaylistData();
       await queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
       });
@@ -415,7 +422,8 @@ function PlaylistDetailContent() {
         playlistId: playlistId!,
         songIndexToRemove: [item.position],
       });
-      queryClient.invalidateQueries({
+      resetPlaylistData();
+      await queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
       });
       toast.success("Entry removed from playlist");
@@ -523,7 +531,8 @@ function PlaylistDetailContent() {
 
     try {
       await client.movePlaylistEntry(playlistId!, entryId, newPosition);
-      queryClient.invalidateQueries({
+      resetPlaylistData();
+      await queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
       });
       toast.success("Entry moved");
@@ -903,6 +912,7 @@ function PlaylistDetailContent() {
       <DetailHeader
         showBackButton
         coverUrl={coverUrl}
+        fullSizeCoverUrl={fullSizeCoverUrl}
         coverAlt={displayName}
         icon={ListMusic}
         iconClassName="bg-linear-to-br from-emerald-500 to-emerald-800"
@@ -1094,6 +1104,7 @@ function PlaylistDetailContent() {
                   <SongCard
                     song={songItem.song}
                     index={songItem.position}
+                    inlineImagesRequested
                     queueSource={playlistQueueSource}
                     isSelected={isSelected(songItem.song.id)}
                     isSelectionMode={totalSelectedCount > 0}
@@ -1129,6 +1140,8 @@ function PlaylistDetailContent() {
                 columnVisibility={columnVisibility}
                 showIndex
                 showCover
+                sortConfig={sortConfig}
+                onSortChange={setSortConfig}
               />
               <VirtualizedList
                 items={displayItems}
@@ -1176,6 +1189,7 @@ function PlaylistDetailContent() {
                       song={songItem.song}
                       index={songItem.position}
                       showCover
+                      inlineImagesRequested
                       showArtist={columnVisibility.artist}
                       showAlbum={columnVisibility.album}
                       showDuration={columnVisibility.duration}
@@ -1184,6 +1198,11 @@ function PlaylistDetailContent() {
                       showDateAdded={columnVisibility.dateAdded}
                       dateAddedOverride={songItem.addedToPlaylist}
                       showLastPlayed={columnVisibility.lastPlayed}
+                      showStarred={columnVisibility.starred}
+                      showGenre={columnVisibility.genre}
+                      showBitRate={columnVisibility.bitRate}
+                      showFormat={columnVisibility.format}
+                      showRating={columnVisibility.rating}
                       queueSource={playlistQueueSource}
                       isSelected={isSelected(songItem.song.id)}
                       isSelectionMode={totalSelectedCount > 0}

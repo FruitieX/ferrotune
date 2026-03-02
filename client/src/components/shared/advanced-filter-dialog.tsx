@@ -182,6 +182,78 @@ function flatToRules(flat: FlatFilters): RuleBasedFilters {
     });
   }
 
+  // Last played range
+  if (flat.lastPlayedAfter) {
+    conditions.push({
+      id: nextId(),
+      field: "lastPlayed",
+      operator: "gt",
+      value: flat.lastPlayedAfter,
+    });
+  }
+  if (flat.lastPlayedBefore) {
+    conditions.push({
+      id: nextId(),
+      field: "lastPlayed",
+      operator: "lt",
+      value: flat.lastPlayedBefore,
+    });
+  }
+
+  // Text filters
+  if (flat.artistFilter) {
+    conditions.push({
+      id: nextId(),
+      field: "artist",
+      operator: "contains",
+      value: flat.artistFilter,
+    });
+  }
+  if (flat.albumFilter) {
+    conditions.push({
+      id: nextId(),
+      field: "album",
+      operator: "contains",
+      value: flat.albumFilter,
+    });
+  }
+  if (flat.titleFilter) {
+    conditions.push({
+      id: nextId(),
+      field: "title",
+      operator: "contains",
+      value: flat.titleFilter,
+    });
+  }
+
+  // File format
+  if (flat.fileFormat) {
+    conditions.push({
+      id: nextId(),
+      field: "fileFormat",
+      operator: "eq",
+      value: flat.fileFormat,
+    });
+  }
+
+  // Boolean filters
+  if (flat.missingCoverArt) {
+    conditions.push({
+      id: nextId(),
+      field: "coverArt",
+      operator: "eq",
+      value: false,
+    });
+  }
+  if (flat.disabledOnly) {
+    conditions.push({
+      id: nextId(),
+      field: "disabled",
+      operator: "eq",
+      value: true,
+    });
+  }
+
   return {
     logic: "and",
     conditions,

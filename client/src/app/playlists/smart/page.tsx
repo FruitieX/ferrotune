@@ -316,6 +316,9 @@ function SmartPlaylistPageContent() {
 
   // Get cover art URL for smart playlist (uses sp- prefix for tiled cover generation)
   const coverUrl = id ? getClient()?.getCoverArtUrl(`sp-${id}`, 400) : null;
+  const fullSizeCoverUrl = id
+    ? getClient()?.getCoverArtUrl(`sp-${id}`, "large")
+    : null;
 
   if (!id) {
     return (
@@ -330,6 +333,7 @@ function SmartPlaylistPageContent() {
       <DetailHeader
         showBackButton
         coverUrl={coverUrl}
+        fullSizeCoverUrl={fullSizeCoverUrl}
         coverAlt={displayName}
         coverType="smartPlaylist"
         coverSize="lg"
@@ -451,6 +455,7 @@ function SmartPlaylistPageContent() {
                 <SongCard
                   song={song}
                   index={index}
+                  inlineImagesRequested
                   queueSource={smartPlaylistQueueSource}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
@@ -468,6 +473,8 @@ function SmartPlaylistPageContent() {
                 columnVisibility={columnVisibility}
                 showIndex
                 showCover
+                sortConfig={sortConfig}
+                onSortChange={setSortConfig}
               />
               <VirtualizedList
                 items={songs}
@@ -477,6 +484,7 @@ function SmartPlaylistPageContent() {
                     song={song}
                     index={index}
                     showCover
+                    inlineImagesRequested
                     queueSource={smartPlaylistQueueSource}
                     isSelected={isSelected(song.id)}
                     isSelectionMode={hasSelection}
@@ -489,6 +497,11 @@ function SmartPlaylistPageContent() {
                     showYear={columnVisibility.year}
                     showDateAdded={columnVisibility.dateAdded}
                     showLastPlayed={columnVisibility.lastPlayed}
+                    showStarred={columnVisibility.starred}
+                    showGenre={columnVisibility.genre}
+                    showBitRate={columnVisibility.bitRate}
+                    showFormat={columnVisibility.format}
+                    showRating={columnVisibility.rating}
                   />
                 )}
                 renderSkeleton={() => <SongRowSkeleton showCover showIndex />}

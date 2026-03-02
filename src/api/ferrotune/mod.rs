@@ -499,6 +499,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/tagger/check-conflicts",
             post(tagger::check_path_conflicts),
         )
+        .route("/ferrotune/tagger/song-paths", get(tagger::get_song_paths))
         // Tagger session endpoints (database-backed state)
         .route(
             "/ferrotune/tagger/session",

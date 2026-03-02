@@ -150,6 +150,7 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
         >
           <CoverImage
             src={coverArtUrl}
+            inlineData={track.coverArtData}
             alt={track.album || "Album cover"}
             colorSeed={track.album || track.title}
             type="song"
@@ -503,6 +504,7 @@ function SwipeableNowPlaying({
           >
             <CoverImage
               src={prevCoverUrl}
+              inlineData={prevTrack.coverArtData}
               alt={prevTrack.album || "Previous album"}
               colorSeed={prevTrack.album || prevTrack.title}
               type="song"
@@ -531,6 +533,7 @@ function SwipeableNowPlaying({
           >
             <CoverImage
               src={nextCoverUrl}
+              inlineData={nextTrack.coverArtData}
               alt={nextTrack.album || "Next album"}
               colorSeed={nextTrack.album || nextTrack.title}
               type="song"
@@ -592,6 +595,7 @@ function SwipeableNowPlaying({
           >
             <CoverImage
               src={coverArtUrl}
+              inlineData={track.coverArtData}
               alt={track.album || "Album cover"}
               colorSeed={track.album || track.title}
               type="song"

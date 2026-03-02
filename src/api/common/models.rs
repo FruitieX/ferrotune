@@ -51,6 +51,9 @@ pub struct AlbumResponse {
     pub starred: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_rating: Option<i32>,
+    /// Last played timestamp (ISO 8601), populated for "recent" album lists
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub played: Option<String>,
 }
 
 #[derive(Debug, Serialize, TS, Clone)]

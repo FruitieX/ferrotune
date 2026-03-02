@@ -33,6 +33,7 @@ import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { MediaCard } from "@/components/shared/media-card";
 import { formatDuration } from "@/lib/utils/format";
 import type { Album, Song } from "@/lib/api/types";
+import type { RecentPlaylistEntry } from "@/lib/api/generated/RecentPlaylistEntry";
 
 // Helper to fetch all songs for albums
 async function fetchAlbumsSongs(albums: Album[]): Promise<Song[]> {
@@ -206,11 +207,15 @@ function HomePlaylistCard({
     ? `/playlists/smart/details?id=${playlist.id}`
     : `/playlists/details?id=${playlist.id}`;
 
+  const PlaylistIcon = isSmartPlaylist ? Sparkles : ListMusic;
+
   return (
     <MediaCard
       coverArt={coverArtUrl}
       title={playlist.name}
-      titleIcon={<ListMusic className="w-4 h-4 shrink-0 text-emerald-500" />}
+      titleIcon={
+        <PlaylistIcon className="w-4 h-4 shrink-0 text-muted-foreground" />
+      }
       subtitleContent={
         <span className="flex items-center gap-1">
           {playlist.songCount} {playlist.songCount === 1 ? "song" : "songs"} •{" "}
@@ -271,16 +276,19 @@ export default function HomePage() {
     enabled: isReady,
   });
 
-  // Fetch most played albums
+  // Fetch most played albums (last 30 days)
   const { data: frequentAlbums, isLoading: loadingFrequent } = useQuery({
-    queryKey: ["albums", "frequent"],
+    queryKey: ["albums", "frequent-recent"],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
+      const since = new Date();
+      since.setDate(since.getDate() - 30);
       const response = await client.getAlbumList2({
         type: "frequent",
         size: 50,
         inlineImages: "medium",
+        since: since.toISOString(),
       });
       return response.albumList2.album;
     },
@@ -317,28 +325,40 @@ export default function HomePage() {
     },
   );
 
-  // Fetch all playlists for "Your Playlists" section
-  const { data: allPlaylists, isLoading: loadingPlaylists } = useQuery({
-    queryKey: ["playlists", "all-for-home"],
-    queryFn: async () => {
-      const client = getClient();
-      if (!client) throw new Error("Not connected");
-      const [foldersRes, smartRes] = await Promise.all([
-        client.getPlaylistFoldersWithStructure(),
-        client.getSmartPlaylists(),
-      ]);
-      const regular = (foldersRes.playlists ?? []).map((p) => ({
-        ...p,
-        playlistType: "playlist" as const,
-      }));
-      const smart = (smartRes.smartPlaylists ?? []).map((sp) => ({
-        ...sp,
-        playlistType: "smartPlaylist" as const,
-      }));
-      return { regular, smart };
-    },
-    enabled: isReady,
-  });
+  // Merge recently played albums and playlists, sorted by last played time
+  type ContinueListeningItem =
+    | { type: "album"; album: Album; lastPlayed: string }
+    | {
+        type: "playlist";
+        playlist: RecentPlaylistEntry;
+        lastPlayed: string;
+      };
+
+  const continueListeningItems: ContinueListeningItem[] = [];
+  if (recentAlbums) {
+    for (const album of recentAlbums) {
+      if (album.played) {
+        continueListeningItems.push({
+          type: "album",
+          album,
+          lastPlayed: album.played,
+        });
+      }
+    }
+  }
+  if (recentPlaylists) {
+    for (const pl of recentPlaylists) {
+      continueListeningItems.push({
+        type: "playlist",
+        playlist: pl,
+        lastPlayed: pl.lastPlayedAt,
+      });
+    }
+  }
+  continueListeningItems.sort(
+    (a, b) =>
+      new Date(b.lastPlayed).getTime() - new Date(a.lastPlayed).getTime(),
+  );
 
   // Play album - uses server-side queue
   const handlePlayAlbum = async (album: Album) => {
@@ -413,28 +433,6 @@ export default function HomePage() {
     }
   };
 
-  // Combine all playlists for the "Your Playlists" section
-  const yourPlaylists = allPlaylists
-    ? [
-        ...allPlaylists.regular.map((p) => ({
-          id: p.id,
-          name: p.name,
-          playlistType: "playlist" as const,
-          songCount: p.songCount,
-          duration: p.duration,
-          coverArt: p.id,
-        })),
-        ...allPlaylists.smart.map((sp) => ({
-          id: sp.id,
-          name: sp.name,
-          playlistType: "smartPlaylist" as const,
-          songCount: sp.songCount,
-          duration: 0,
-          coverArt: `sp-${sp.id}`,
-        })),
-      ]
-    : [];
-
   // Always render the same loading state on server and during hydration
   // This prevents hydration mismatches
   if (!isMounted || authLoading) {
@@ -455,8 +453,8 @@ export default function HomePage() {
 
         {/* Content skeleton */}
         <div className="py-6 space-y-8">
-          {/* Five sections */}
-          {Array.from({ length: 5 }).map((_, sectionIndex) => (
+          {/* Four sections */}
+          {Array.from({ length: 4 }).map((_, sectionIndex) => (
             <section key={sectionIndex} className="space-y-4">
               <div className="flex items-center gap-2 px-4 lg:px-6">
                 <Skeleton className="w-5 h-5" />
@@ -500,12 +498,12 @@ export default function HomePage() {
 
       {/* Content */}
       <div className="py-4 sm:py-6 space-y-6 sm:space-y-8">
-        {/* Continue Listening (Recently Played Albums + Playlists) */}
+        {/* Continue Listening (Recently Played Albums + Playlists, sorted by last played) */}
         <section className="space-y-2 sm:space-y-4">
           <SectionHeader
             title="Continue Listening"
             icon={Play}
-            hasItems={!!(recentAlbums?.length || recentPlaylists?.length)}
+            hasItems={continueListeningItems.length > 0}
             isLoading={loadingRecent || loadingRecentPlaylists}
             onPlayAll={() =>
               handlePlayAllAlbums(recentAlbums, "Continue Listening")
@@ -522,104 +520,66 @@ export default function HomePage() {
                     <AlbumCardSkeleton />
                   </div>
                 ))
-              ) : (
-                <>
-                  {recentPlaylists?.map((pl) => (
+              ) : continueListeningItems.length > 0 ? (
+                continueListeningItems.map((item) =>
+                  item.type === "playlist" ? (
                     <motion.div
-                      key={`pl-${pl.id}`}
+                      key={`pl-${item.playlist.id}`}
                       className="w-[130px] sm:w-[180px] shrink-0"
                       initial={{ opacity: 0, scale: 0.95 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ duration: 0.3 }}
                     >
                       <HomePlaylistCard
-                        playlist={pl}
+                        playlist={item.playlist}
                         onPlay={() =>
                           handlePlayPlaylist(
-                            pl.id,
-                            pl.name,
-                            pl.playlistType as "playlist" | "smartPlaylist",
+                            item.playlist.id,
+                            item.playlist.name,
+                            item.playlist.playlistType as
+                              | "playlist"
+                              | "smartPlaylist",
                           )
                         }
                       />
                     </motion.div>
-                  ))}
-                  {recentAlbums?.map((album) => (
+                  ) : (
                     <motion.div
-                      key={album.id}
+                      key={item.album.id}
                       className="w-[130px] sm:w-[180px] shrink-0"
                       initial={{ opacity: 0, scale: 0.95 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ duration: 0.3 }}
                     >
                       <AlbumCard
-                        album={album}
-                        onPlay={() => handlePlayAlbum(album)}
+                        album={item.album}
+                        onPlay={() => handlePlayAlbum(item.album)}
                       />
                     </motion.div>
-                  ))}
-                  {!recentPlaylists?.length && !recentAlbums?.length && (
-                    <p className="text-muted-foreground text-sm py-8">
-                      No recently played items
-                    </p>
-                  )}
-                </>
+                  ),
+                )
+              ) : (
+                <p className="text-muted-foreground text-sm py-8">
+                  No recently played items
+                </p>
               )}
             </div>
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
         </section>
 
-        {/* Your Playlists */}
-        {(loadingPlaylists || yourPlaylists.length > 0) && (
-          <section className="space-y-2 sm:space-y-4">
-            <SectionHeader
-              title="Your Playlists"
-              icon={ListMusic}
-              hasItems={yourPlaylists.length > 0}
-              isLoading={loadingPlaylists}
-              viewAllHref="/playlists"
-            />
-            <ScrollArea className="w-full">
-              <div className="flex gap-2 sm:gap-4 px-3 sm:px-4 lg:px-6 pb-4">
-                {loadingPlaylists
-                  ? Array.from({ length: 6 }).map((_, i) => (
-                      <div key={i} className="w-[130px] sm:w-[180px] shrink-0">
-                        <AlbumCardSkeleton />
-                      </div>
-                    ))
-                  : yourPlaylists.map((pl) => (
-                      <motion.div
-                        key={`${pl.playlistType}-${pl.id}`}
-                        className="w-[130px] sm:w-[180px] shrink-0"
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ duration: 0.3 }}
-                      >
-                        <HomePlaylistCard
-                          playlist={pl}
-                          onPlay={() =>
-                            handlePlayPlaylist(pl.id, pl.name, pl.playlistType)
-                          }
-                        />
-                      </motion.div>
-                    ))}
-              </div>
-              <ScrollBar orientation="horizontal" />
-            </ScrollArea>
-          </section>
-        )}
-
-        {/* Most Played */}
+        {/* Most Played Recently */}
         <AlbumSection
-          title="Most Played"
+          title="Most Played Recently"
           icon={TrendingUp}
           albums={frequentAlbums}
           isLoading={loadingFrequent}
           onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() => handlePlayAllAlbums(frequentAlbums, "Most Played")}
+          onPlayAll={() =>
+            handlePlayAllAlbums(frequentAlbums, "Most Played Recently")
+          }
           onShuffleAll={() =>
-            handleShuffleAllAlbums(frequentAlbums, "Most Played")
+            handleShuffleAllAlbums(frequentAlbums, "Most Played Recently")
           }
         />
 

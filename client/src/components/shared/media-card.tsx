@@ -170,15 +170,15 @@ export function MediaCard({
       <div
         className={cn("space-y-1", coverShape === "circle" && "text-center")}
       >
-        <Link href={href} prefetch={false}>
+        <Link href={href} prefetch={false} className="block min-w-0">
           <h3
             className={cn(
-              "font-semibold text-foreground truncate group-hover:text-primary transition-colors flex items-center gap-1.5",
+              "font-semibold text-foreground group-hover:text-primary transition-colors flex items-center gap-1.5 min-w-0",
               coverShape === "circle" && "justify-center",
             )}
           >
-            {titleIcon}
-            {title}
+            {titleIcon && <span className="shrink-0">{titleIcon}</span>}
+            <span className="truncate">{title}</span>
           </h3>
         </Link>
         {(subtitleContent || subtitle) && (

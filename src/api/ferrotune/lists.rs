@@ -39,6 +39,8 @@ pub struct AlbumListParams {
     pub genre: Option<String>,
     /// Include inline cover art thumbnails (small or medium)
     pub inline_images: Option<String>,
+    /// Only count scrobbles since this ISO date (for Frequent type)
+    pub since: Option<String>,
 }
 
 /// Response for album list
@@ -81,6 +83,7 @@ pub async fn get_album_list(
         params.to_year,
         params.genre,
         inline_size,
+        params.since,
     )
     .await?;
 

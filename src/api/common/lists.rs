@@ -42,6 +42,7 @@ pub async fn get_album_list_logic(
     to_year: Option<i32>,
     genre: Option<String>,
     inline_image_size: Option<ThumbnailSize>,
+    since: Option<String>,
 ) -> crate::error::Result<AlbumListResult> {
     let size = size.min(500);
 
@@ -89,17 +90,26 @@ pub async fn get_album_list_logic(
             .await?
         }
         AlbumListType::Frequent => {
-            sqlx::query_as(
+            let since_clause = if since.is_some() {
+                "AND sc.played_at >= ?"
+            } else {
+                ""
+            };
+            let query = format!(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
-                 LEFT JOIN scrobbles sc ON sc.song_id IN (SELECT id FROM songs WHERE album_id = a.id)
+                 LEFT JOIN scrobbles sc ON sc.song_id IN (SELECT id FROM songs WHERE album_id = a.id) {since_clause}
                  WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1)
                  GROUP BY a.id 
                  ORDER BY COUNT(sc.id) DESC 
                  LIMIT ? OFFSET ?"
-            )
-            .bind(size)
+            );
+            let mut q = sqlx::query_as::<_, crate::db::models::Album>(&query);
+            if let Some(ref s) = since {
+                q = q.bind(s);
+            }
+            q.bind(size)
             .bind(offset)
             .fetch_all(pool)
             .await?
@@ -271,6 +281,36 @@ pub async fn get_album_list_logic(
         std::collections::HashMap::new()
     };
 
+    // Get last played timestamps for "recent" list type
+    let played_map: std::collections::HashMap<String, String> =
+        if matches!(list_type, AlbumListType::Recent) {
+            let placeholders: Vec<&str> = album_ids.iter().map(|_| "?").collect();
+            if placeholders.is_empty() {
+                std::collections::HashMap::new()
+            } else {
+                let query = format!(
+                    "SELECT a.id, MAX(sc.played_at) as last_played
+                     FROM albums a
+                     INNER JOIN songs s ON s.album_id = a.id
+                     INNER JOIN scrobbles sc ON sc.song_id = s.id
+                     WHERE a.id IN ({})
+                     GROUP BY a.id",
+                    placeholders.join(",")
+                );
+                let mut q = sqlx::query_as::<_, (String, String)>(&query);
+                for id in &album_ids {
+                    q = q.bind(id);
+                }
+                q.fetch_all(pool)
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect()
+            }
+        } else {
+            std::collections::HashMap::new()
+        };
+
     let album_responses: Vec<AlbumResponse> = albums
         .into_iter()
         .map(|album| AlbumResponse {
@@ -287,6 +327,7 @@ pub async fn get_album_list_logic(
             created: format_datetime_iso_ms(album.created_at),
             starred: starred_map.get(&album.id).cloned(),
             user_rating: ratings_map.get(&album.id).copied(),
+            played: played_map.get(&album.id).cloned(),
         })
         .collect();
 

@@ -131,6 +131,7 @@ pub async fn get_artist_logic(
             created: format_datetime_iso_ms(album.created_at),
             starred: starred_map.get(&album.id).cloned(),
             user_rating: ratings_map.get(&album.id).copied(),
+            played: None,
         })
         .collect();
 

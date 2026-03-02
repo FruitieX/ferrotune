@@ -38,6 +38,24 @@ export const fullscreenOpenDragY: MotionValue<number> = motionValue(0);
 export const searchQueryAtom = atom<string>("");
 export const searchOpenAtom = atom<boolean>(false);
 
+// Search history - stores recent search queries (max 20)
+const MAX_SEARCH_HISTORY = 20;
+export const searchHistoryAtom = atomWithServerStorage<string[]>(
+  "search-history",
+  [],
+);
+export const addSearchHistoryAtom = atom(null, (get, set, query: string) => {
+  const trimmed = query.trim();
+  if (trimmed.length < 2) return;
+  const history = get(searchHistoryAtom);
+  // Remove duplicate if exists, then prepend
+  const filtered = history.filter((q) => q !== trimmed);
+  set(searchHistoryAtom, [trimmed, ...filtered].slice(0, MAX_SEARCH_HISTORY));
+});
+export const clearSearchHistoryAtom = atom(null, (_get, set) => {
+  set(searchHistoryAtom, []);
+});
+
 // Library filter state (for filtering library views)
 export const libraryFilterAtom = atom<string>("");
 
@@ -66,7 +84,12 @@ export type SortField =
   | "lastPlayed"
   | "duration"
   | "albumCount"
-  | "songCount";
+  | "songCount"
+  | "genre"
+  | "bitRate"
+  | "format"
+  | "starred"
+  | "rating";
 export type SortDirection = "asc" | "desc";
 
 export interface SortConfig {
@@ -91,6 +114,11 @@ export interface ColumnVisibility {
   dateAdded: boolean;
   lastPlayed: boolean;
   year: boolean;
+  starred: boolean;
+  genre: boolean;
+  bitRate: boolean;
+  format: boolean;
+  rating: boolean;
 }
 
 export const columnVisibilityAtom = atomWithServerStorage<ColumnVisibility>(
@@ -103,6 +131,11 @@ export const columnVisibilityAtom = atomWithServerStorage<ColumnVisibility>(
     dateAdded: false,
     lastPlayed: false,
     year: false,
+    starred: false,
+    genre: false,
+    bitRate: false,
+    format: false,
+    rating: false,
   },
 );
 
@@ -166,6 +199,11 @@ export const playlistColumnVisibilityAtom =
     dateAdded: false,
     lastPlayed: false,
     year: false,
+    starred: false,
+    genre: false,
+    bitRate: false,
+    format: false,
+    rating: false,
   });
 
 // Favorites albums view settings
@@ -256,6 +294,11 @@ export const albumDetailColumnVisibilityAtom =
     dateAdded: false,
     lastPlayed: false,
     year: false,
+    starred: false,
+    genre: false,
+    bitRate: false,
+    format: false,
+    rating: false,
   });
 
 // Artist details view settings (for artist songs list)
@@ -279,6 +322,11 @@ export const artistDetailColumnVisibilityAtom =
     dateAdded: false,
     lastPlayed: false,
     year: true,
+    starred: false,
+    genre: false,
+    bitRate: false,
+    format: false,
+    rating: false,
   });
 
 // Genre details view settings (for genre songs list)
@@ -302,6 +350,11 @@ export const genreDetailColumnVisibilityAtom =
     dateAdded: false,
     lastPlayed: false,
     year: true,
+    starred: false,
+    genre: false,
+    bitRate: false,
+    format: false,
+    rating: false,
   });
 
 // Playlists list view settings (for /playlists page listing playlists)
@@ -346,11 +399,19 @@ export interface AdvancedFilters {
   minPlayCount?: number;
   maxPlayCount?: number;
   shuffleExcludedOnly?: boolean; // Filter to only show shuffle-excluded tracks
+  disabledOnly?: boolean; // Filter to only show disabled tracks
   minBitrate?: number; // in kbps
   maxBitrate?: number; // in kbps
   addedAfter?: string; // ISO 8601 date string (YYYY-MM-DD)
   addedBefore?: string; // ISO 8601 date string (YYYY-MM-DD)
+  missingCoverArt?: boolean; // Filter to only songs missing cover art
+  fileFormat?: string; // Filter by file format (e.g., "mp3", "flac")
   musicFolderId?: string; // Filter by library/music folder
+  artistFilter?: string; // Filter by artist name (substring match)
+  albumFilter?: string; // Filter by album name (substring match)
+  titleFilter?: string; // Filter by title (substring match)
+  lastPlayedAfter?: string; // ISO 8601 date string (YYYY-MM-DD)
+  lastPlayedBefore?: string; // ISO 8601 date string (YYYY-MM-DD)
 }
 
 // Filter state (not persisted - resets on page reload)

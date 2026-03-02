@@ -33,6 +33,7 @@ import { TrackDetailsPanel } from "@/components/tagger/track-details-panel";
 import { ColumnSelector } from "@/components/tagger/column-selector";
 import { AddFromLibraryDialog } from "@/components/tagger/add-from-library-dialog";
 import { FilesDropdown } from "@/components/tagger/files-dropdown";
+import { FindMisnamedDialog } from "@/components/tagger/find-misnamed-dialog";
 import { TaggerOptionsDialog } from "@/components/tagger/tagger-options-dialog";
 import {
   SaveConfirmationDialog,
@@ -101,6 +102,9 @@ export default function TaggerPage() {
 
   // One-off script dialog state
   const [isOneOffScriptOpen, setIsOneOffScriptOpen] = useState(false);
+
+  // Find misnamed songs dialog state
+  const [isFindMisnamedOpen, setIsFindMisnamedOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loadingIdsRef = useRef<Set<string>>(new Set());
@@ -1157,6 +1161,7 @@ export default function TaggerPage() {
           <FilesDropdown
             onUpload={() => fileInputRef.current?.click()}
             onAddFromLibrary={() => setIsAddFromLibraryOpen(true)}
+            onFindMisnamed={() => setIsFindMisnamedOpen(true)}
             onRemoveSelected={handleRemoveSelected}
             onClearAll={() => setIsClearConfirmOpen(true)}
             isUploading={isUploading}
@@ -1350,6 +1355,11 @@ export default function TaggerPage() {
       <AddFromLibraryDialog
         open={isAddFromLibraryOpen}
         onOpenChange={setIsAddFromLibraryOpen}
+      />
+
+      <FindMisnamedDialog
+        open={isFindMisnamedOpen}
+        onOpenChange={setIsFindMisnamedOpen}
       />
 
       {/* Clear confirmation */}

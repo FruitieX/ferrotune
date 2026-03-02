@@ -535,7 +535,9 @@ export const VirtualizedQueueDisplay = forwardRef<
     return () => {
       clearTimeout(debounceTimeout);
     };
-  }, [firstVisible, lastVisible, totalCount, fetchQueueRange]);
+    // Include songs in deps so effect re-evaluates after new data loads,
+    // picking up any remaining gaps that weren't covered by the previous fetch
+  }, [firstVisible, lastVisible, totalCount, fetchQueueRange, songs]);
 
   // Reset fetched ranges when shuffle state changes
   // Note: queue source changes are handled in the source change effect above

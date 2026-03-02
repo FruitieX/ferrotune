@@ -22,7 +22,6 @@ import {
   FolderOpen,
   Disc,
   Users,
-  User,
   Music,
   Tag,
   Import,
@@ -55,6 +54,7 @@ import { getClient } from "@/lib/api/client";
 import { ScanStatusIndicator } from "@/components/admin/scan-status-indicator";
 import { ScanDialog } from "@/components/admin/scan-dialog";
 import { CoverImage } from "@/components/shared/cover-image";
+import { UserSwitcher } from "@/components/layout/user-switcher";
 import {
   organizePlaylistsIntoFolders,
   buildFolderTreeFromApi,
@@ -699,28 +699,11 @@ export function Sidebar() {
 
       {/* Bottom Section */}
       <div className="p-2 space-y-1 border-t border-sidebar-border shrink-0">
-        {/* Profile link */}
-        <Link href="/profile">
-          <Button
-            variant="ghost"
-            className={cn(
-              "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent overflow-hidden",
-              pathname.startsWith("/profile") &&
-                "bg-sidebar-accent text-sidebar-primary font-semibold",
-              isCollapsed && "justify-center px-0",
-            )}
-          >
-            <User
-              className={cn(
-                "w-5 h-5 shrink-0",
-                pathname.startsWith("/profile") && "text-sidebar-primary",
-              )}
-            />
-            {!isCollapsed && (
-              <span className="truncate whitespace-nowrap">Profile</span>
-            )}
-          </Button>
-        </Link>
+        {/* User switcher / Profile */}
+        <UserSwitcher
+          isCollapsed={isCollapsed}
+          isActive={pathname.startsWith("/profile")}
+        />
 
         {/* Import link */}
         <Link href="/import">
@@ -1071,7 +1054,7 @@ function PlaylistFolderTree({
                     "shrink-0 flex items-center justify-center",
                   )}
                 >
-                  <Sparkles className={cn(iconSize, "text-purple-500")} />
+                  <Sparkles className={cn(iconSize, "text-muted-foreground")} />
                 </div>
                 {/* Playable cover art */}
                 <button

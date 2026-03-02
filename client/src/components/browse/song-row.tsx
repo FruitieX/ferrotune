@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useAtomValue, useSetAtom } from "jotai";
-import { Check, Shuffle, Ban } from "lucide-react";
+import { Check, Shuffle, Ban, Star, StarOff, Music } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
@@ -131,6 +131,11 @@ interface SongRowProps {
   /** Override the date shown in "Date Added" column (e.g., for playlist entry dates) */
   dateAddedOverride?: string | null;
   showLastPlayed?: boolean;
+  showStarred?: boolean;
+  showGenre?: boolean;
+  showBitRate?: boolean;
+  showFormat?: boolean;
+  showRating?: boolean;
   queueSongs?: Song[]; // All songs in current context for queue (fallback for explicit song lists)
   queueSource?: QueueSource; // Source info for server-side queue materialization
   // Selection props
@@ -156,6 +161,11 @@ interface SongRowProps {
    * When undefined, the default behavior (matching by song ID) is used.
    */
   isCurrentQueuePosition?: boolean;
+  /**
+   * When true, inline image data was already requested from the server.
+   * Don't make separate cover art requests for songs missing inline data.
+   */
+  inlineImagesRequested?: boolean;
   className?: string;
 }
 
@@ -171,6 +181,11 @@ export function SongRow({
   showDateAdded = false,
   dateAddedOverride,
   showLastPlayed = false,
+  showStarred = false,
+  showGenre = false,
+  showBitRate = false,
+  showFormat = false,
+  showRating = false,
   queueSongs,
   queueSource,
   isSelected = false,
@@ -185,6 +200,7 @@ export function SongRow({
   showUnmatch = false,
   onUnmatch,
   isCurrentQueuePosition,
+  inlineImagesRequested = false,
   className,
 }: SongRowProps) {
   const currentSong = useAtomValue(currentSongAtom);
@@ -208,8 +224,9 @@ export function SongRow({
   const isDisabled = disabledSongs.has(song.id);
 
   // Use inline thumbnail if available, otherwise construct URL for fetching
+  // If inline images were already requested, don't fetch separately (server chose not to include it)
   const coverArtUrl =
-    showCover && song.coverArt && !song.coverArtData
+    showCover && song.coverArt && !song.coverArtData && !inlineImagesRequested
       ? getClient()?.getCoverArtUrl(song.coverArt, "small")
       : undefined;
 
@@ -375,6 +392,28 @@ export function SongRow({
                 </TooltipContent>
               </Tooltip>
             )}
+            {showStarred && (
+              <span className="w-8 text-center">
+                {isStarred ? (
+                  <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500 inline" />
+                ) : (
+                  <StarOff className="w-3.5 h-3.5 text-muted-foreground/40 inline" />
+                )}
+              </span>
+            )}
+            {showRating && (
+              <span className="w-12 text-right">
+                {song.userRating ? "★".repeat(song.userRating) : "—"}
+              </span>
+            )}
+            {showGenre && (
+              <span
+                className="w-24 text-right truncate"
+                title={song.genre ?? undefined}
+              >
+                {song.genre ?? "—"}
+              </span>
+            )}
             {showYear && song.year && (
               <span className="w-12 text-right">{song.year}</span>
             )}
@@ -389,6 +428,16 @@ export function SongRow({
             {showDateAdded && (song.created || dateAddedOverride) && (
               <span className="w-24 text-right">
                 {formatDate(dateAddedOverride ?? song.created ?? "")}
+              </span>
+            )}
+            {showBitRate && (
+              <span className="w-16 text-right">
+                {song.bitRate ? `${song.bitRate}k` : "—"}
+              </span>
+            )}
+            {showFormat && (
+              <span className="w-14 text-right uppercase">
+                {song.suffix ?? "—"}
               </span>
             )}
             {showDuration && (
@@ -477,8 +526,14 @@ interface SongCardProps {
    * When undefined, the default behavior (matching by song ID) is used.
    */
   isCurrentQueuePosition?: boolean;
+  /** When true, inline images were requested from the server - skip separate cover art fetch if coverArtData is missing */
+  inlineImagesRequested?: boolean;
   className?: string;
 }
+
+const defaultSongIcon = (
+  <Music className="w-4 h-4 shrink-0 text-muted-foreground" />
+);
 
 export function SongCard({
   song,
@@ -495,6 +550,7 @@ export function SongCard({
   showUnmatch,
   onUnmatch,
   isCurrentQueuePosition,
+  inlineImagesRequested = false,
   className,
 }: SongCardProps) {
   const currentSong = useAtomValue(currentSongAtom);
@@ -515,7 +571,7 @@ export function SongCard({
 
   // Use inline thumbnail if available, otherwise construct URL for fetching
   const coverArtUrl =
-    song.coverArt && !song.coverArtData
+    song.coverArt && !song.coverArtData && !inlineImagesRequested
       ? getClient()?.getCoverArtUrl(song.coverArt, "medium")
       : undefined;
 
@@ -597,6 +653,7 @@ export function SongCard({
       coverArt={coverArtUrl}
       coverArtData={song.coverArtData}
       title={song.title}
+      titleIcon={defaultSongIcon}
       subtitleContent={subtitleContent}
       href={`/library/albums/details?id=${song.albumId}`}
       colorSeed={song.album ?? undefined}

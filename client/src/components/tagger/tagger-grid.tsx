@@ -653,6 +653,10 @@ export function TaggerGrid({
   async function handleImportFromFileConfirm(
     options: ImportFromFileOptions,
     files: File[],
+    fileHandles?: {
+      handle: FileSystemFileHandle;
+      parentHandle: FileSystemDirectoryHandle;
+    }[],
   ) {
     const targetIds = importFromFileTargetIdsRef.current;
 
@@ -822,6 +826,29 @@ export function TaggerGrid({
       toast.warning(
         `Imported for ${successCount} of ${targetIds.length} tracks (${failCount} failed)`,
       );
+    }
+
+    // Move files: delete source files from the directory after successful import
+    if (options.moveFiles && fileHandles && successCount > 0) {
+      let moveCount = 0;
+      for (let i = 0; i < targetIds.length; i++) {
+        const handle = fileHandles[i];
+        if (!handle) continue;
+        try {
+          await handle.parentHandle.removeEntry(handle.handle.name);
+          moveCount++;
+        } catch (err) {
+          console.error(
+            `Failed to remove source file ${handle.handle.name}:`,
+            err,
+          );
+        }
+      }
+      if (moveCount > 0) {
+        toast.success(
+          `Removed ${moveCount} source file${moveCount !== 1 ? "s" : ""}`,
+        );
+      }
     }
 
     // Clean up

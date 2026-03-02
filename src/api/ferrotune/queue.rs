@@ -1518,6 +1518,11 @@ fn build_search_params_from_json(
         inline_images: None, // Not used for queue materialization
         missing_cover_art: None,
         file_format: None,
+        artist_filter: None,
+        album_filter: None,
+        title_filter: None,
+        last_played_after: None,
+        last_played_before: None,
     };
 
     // Parse filters
@@ -1576,6 +1581,21 @@ fn build_search_params_from_json(
             }
             if let Some(v) = obj.get("fileFormat").and_then(|v| v.as_str()) {
                 params.file_format = Some(v.to_string());
+            }
+            if let Some(v) = obj.get("artistFilter").and_then(|v| v.as_str()) {
+                params.artist_filter = Some(v.to_string());
+            }
+            if let Some(v) = obj.get("albumFilter").and_then(|v| v.as_str()) {
+                params.album_filter = Some(v.to_string());
+            }
+            if let Some(v) = obj.get("titleFilter").and_then(|v| v.as_str()) {
+                params.title_filter = Some(v.to_string());
+            }
+            if let Some(v) = obj.get("lastPlayedAfter").and_then(|v| v.as_str()) {
+                params.last_played_after = Some(v.to_string());
+            }
+            if let Some(v) = obj.get("lastPlayedBefore").and_then(|v| v.as_str()) {
+                params.last_played_before = Some(v.to_string());
             }
         }
     }

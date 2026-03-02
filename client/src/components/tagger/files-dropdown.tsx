@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Upload, Plus, Trash2, X } from "lucide-react";
+import { ChevronDown, Upload, Plus, Trash2, X, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -14,6 +14,7 @@ import {
 interface FilesDropdownProps {
   onUpload: () => void;
   onAddFromLibrary: () => void;
+  onFindMisnamed: () => void;
   onRemoveSelected: () => void;
   onClearAll: () => void;
   isUploading: boolean;
@@ -24,6 +25,7 @@ interface FilesDropdownProps {
 export function FilesDropdown({
   onUpload,
   onAddFromLibrary,
+  onFindMisnamed,
   onRemoveSelected,
   onClearAll,
   isUploading,
@@ -59,6 +61,15 @@ export function FilesDropdown({
         >
           <Plus className="w-4 h-4" />
           <span>Add from Library</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => {
+            setOpen(false);
+            onFindMisnamed();
+          }}
+        >
+          <Search className="w-4 h-4" />
+          <span>Find Misnamed Songs</span>
         </DropdownMenuItem>
 
         {hasAnyTracks && (

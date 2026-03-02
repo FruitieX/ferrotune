@@ -83,6 +83,27 @@ pub fn sort_songs(mut songs: Vec<Song>, sort: Option<&str>, sort_dir: Option<&st
             },
             "duration" => a.duration.cmp(&b.duration),
             "size" => a.file_size.cmp(&b.file_size),
+            "genre" => {
+                let a_genre = a.genre.as_deref().unwrap_or("");
+                let b_genre = b.genre.as_deref().unwrap_or("");
+                a_genre.to_lowercase().cmp(&b_genre.to_lowercase())
+            }
+            "bitRate" | "bitrate" => a.bitrate.unwrap_or(0).cmp(&b.bitrate.unwrap_or(0)),
+            "format" => a
+                .file_format
+                .to_lowercase()
+                .cmp(&b.file_format.to_lowercase()),
+            "starred" => match (&a.starred_at, &b.starred_at) {
+                (None, None) => std::cmp::Ordering::Equal,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (Some(a_s), Some(b_s)) => a_s.cmp(b_s),
+            },
+            "rating" => {
+                // Rating uses user_rating which is not on the Song model directly.
+                // Songs without ratings sort last.
+                std::cmp::Ordering::Equal
+            }
             // Track number sort: by disc number first, then track number
             "trackNumber" => {
                 let disc_cmp = a.disc_number.cmp(&b.disc_number);

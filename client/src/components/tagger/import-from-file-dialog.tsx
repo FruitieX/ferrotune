@@ -31,6 +31,7 @@ import {
   X,
   GripVertical,
   ArrowRight,
+  FolderOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,12 +50,18 @@ export interface ImportFromFileOptions {
   importAudio: boolean;
   importTags: boolean;
   importCoverArt: boolean;
+  /** If true ands files were selected via directory picker, delete source files after import */
+  moveFiles: boolean;
 }
 
 /** File with a stable ID for drag and drop */
 interface FileWithId {
   id: string;
   file: File;
+  /** Handle for removing the file from the source directory (move operation) */
+  handle?: FileSystemFileHandle;
+  /** Parent directory handle needed for removeEntry */
+  parentHandle?: FileSystemDirectoryHandle;
 }
 
 /** Sortable file item component */
@@ -167,7 +174,15 @@ interface ImportFromFileDialogProps {
   trackCount: number;
   /** Names of target tracks (for showing file-to-track mapping) */
   trackNames?: string[];
-  onConfirm: (options: ImportFromFileOptions, files: File[]) => void;
+  onConfirm: (
+    options: ImportFromFileOptions,
+    files: File[],
+    /** File handles for move operation - present if files were chosen via directory picker */
+    fileHandles?: {
+      handle: FileSystemFileHandle;
+      parentHandle: FileSystemDirectoryHandle;
+    }[],
+  ) => void;
 }
 
 export function ImportFromFileDialog({
@@ -180,9 +195,14 @@ export function ImportFromFileDialog({
   const [importAudio, setImportAudio] = useState(true);
   const [importTags, setImportTags] = useState(false);
   const [importCoverArt, setImportCoverArt] = useState(false);
+  const [moveFiles, setMoveFiles] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<FileWithId[]>([]);
+  const [hasDirectoryHandles, setHasDirectoryHandles] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileIdCounter = useRef(0);
+
+  const supportsDirectoryPicker =
+    typeof window !== "undefined" && "showDirectoryPicker" in window;
 
   // Reset state when dialog opens via onOpenChange handler
   const handleOpenChange = (newOpen: boolean) => {
@@ -190,7 +210,9 @@ export function ImportFromFileDialog({
       setImportAudio(true);
       setImportTags(false);
       setImportCoverArt(false);
+      setMoveFiles(false);
       setSelectedFiles([]);
+      setHasDirectoryHandles(false);
     }
     onOpenChange(newOpen);
   };
@@ -213,13 +235,22 @@ export function ImportFromFileDialog({
 
   function handleConfirm() {
     if (!isValid) return;
+    const options = {
+      importAudio,
+      importTags,
+      importCoverArt,
+      moveFiles: moveFiles && hasDirectoryHandles,
+    };
+    const handles =
+      moveFiles && hasDirectoryHandles
+        ? selectedFiles
+            .filter((f) => f.handle && f.parentHandle)
+            .map((f) => ({ handle: f.handle!, parentHandle: f.parentHandle! }))
+        : undefined;
     onConfirm(
-      {
-        importAudio,
-        importTags,
-        importCoverArt,
-      },
+      options,
       selectedFiles.map((f) => f.file),
+      handles,
     );
     onOpenChange(false);
   }
@@ -230,6 +261,51 @@ export function ImportFromFileDialog({
 
   function handleChooseFiles() {
     fileInputRef.current?.click();
+  }
+
+  async function handleChooseDirectory() {
+    try {
+      const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+      const audioExtensions = new Set([
+        ".mp3",
+        ".flac",
+        ".m4a",
+        ".aac",
+        ".ogg",
+        ".opus",
+        ".wav",
+        ".wma",
+        ".aiff",
+        ".alac",
+      ]);
+      const filesWithIds: FileWithId[] = [];
+
+      for await (const entry of dirHandle.values()) {
+        if (entry.kind !== "file") continue;
+        const ext =
+          entry.name.lastIndexOf(".") >= 0
+            ? entry.name.slice(entry.name.lastIndexOf(".")).toLowerCase()
+            : "";
+        if (!audioExtensions.has(ext)) continue;
+        const file = await entry.getFile();
+        filesWithIds.push({
+          id: `file-${++fileIdCounter.current}`,
+          file,
+          handle: entry,
+          parentHandle: dirHandle,
+        });
+      }
+
+      // Sort by filename for a predictable order
+      filesWithIds.sort((a, b) => a.file.name.localeCompare(b.file.name));
+
+      if (filesWithIds.length > 0) {
+        setSelectedFiles((prev) => [...prev, ...filesWithIds]);
+        setHasDirectoryHandles(true);
+      }
+    } catch {
+      // User cancelled the picker
+    }
   }
 
   function handleFilesSelected(e: React.ChangeEvent<HTMLInputElement>) {
@@ -262,6 +338,8 @@ export function ImportFromFileDialog({
 
   function handleClearFiles() {
     setSelectedFiles([]);
+    setHasDirectoryHandles(false);
+    setMoveFiles(false);
   }
 
   const title = "Replace with File";
@@ -368,14 +446,26 @@ export function ImportFromFileDialog({
             </div>
 
             {selectedFiles.length === 0 ? (
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={handleChooseFiles}
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                {isBatch ? `Choose ${trackCount} files...` : "Choose file..."}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={handleChooseFiles}
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  {isBatch ? `Choose ${trackCount} files...` : "Choose file..."}
+                </Button>
+                {supportsDirectoryPicker && isBatch && (
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={handleChooseDirectory}
+                  >
+                    <FolderOpen className="h-4 w-4 mr-2" />
+                    Choose directory...
+                  </Button>
+                )}
+              </div>
             ) : (
               <div className="space-y-2">
                 <DndContext
@@ -405,15 +495,28 @@ export function ImportFromFileDialog({
                     </div>
                   </SortableContext>
                 </DndContext>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  onClick={handleChooseFiles}
-                >
-                  <Upload className="h-3 w-3 mr-2" />
-                  {isBatch ? "Select files..." : "Select file..."}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={handleChooseFiles}
+                  >
+                    <Upload className="h-3 w-3 mr-2" />
+                    {isBatch ? "Select files..." : "Select file..."}
+                  </Button>
+                  {supportsDirectoryPicker && isBatch && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={handleChooseDirectory}
+                    >
+                      <FolderOpen className="h-3 w-3 mr-2" />
+                      Select directory...
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -422,6 +525,28 @@ export function ImportFromFileDialog({
                 Please select exactly {trackCount} files (one for each selected
                 track, in order).
               </p>
+            )}
+
+            {hasDirectoryHandles && (
+              <div className="flex items-start space-x-3">
+                <Checkbox
+                  id="move-files"
+                  checked={moveFiles}
+                  onCheckedChange={(checked) => setMoveFiles(checked === true)}
+                />
+                <div className="grid gap-1.5 leading-none">
+                  <Label
+                    htmlFor="move-files"
+                    className="cursor-pointer text-sm"
+                  >
+                    Move files (delete originals after import)
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Remove source files from the selected directory after
+                    successful import
+                  </p>
+                </div>
+              </div>
             )}
 
             <input

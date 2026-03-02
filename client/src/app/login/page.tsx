@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { useSetAtom } from "jotai";
+import { useSetAtom, useAtom } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import {
   Music2,
@@ -15,6 +15,8 @@ import {
   AlertCircle,
   ChevronDown,
   Settings,
+  X,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +39,10 @@ import {
   serverConnectionAtom,
   connectionStatusAtom,
   connectionErrorAtom,
+  savedAccountsAtom,
+  accountKey,
+  accountLabel,
+  type SavedAccount,
 } from "@/lib/store/auth";
 import { initializeClient, FerrotuneApiError } from "@/lib/api/client";
 import type { ServerConnection } from "@/lib/api/types";
@@ -56,6 +62,7 @@ export default function LoginPage() {
   const setConnection = useSetAtom(serverConnectionAtom);
   const setConnectionStatus = useSetAtom(connectionStatusAtom);
   const setConnectionError = useSetAtom(connectionErrorAtom);
+  const [savedAccounts, setSavedAccounts] = useAtom(savedAccountsAtom);
 
   const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
   const [apiKey, setApiKey] = useState("");
@@ -184,6 +191,7 @@ export default function LoginPage() {
 
       setConnection(connection);
       setConnectionStatus("connected");
+      saveAccount(connection);
       router.push("/");
     } catch (err) {
       console.error("Embedded connection error:", err);
@@ -249,6 +257,7 @@ export default function LoginPage() {
       // Connection successful
       setConnection(connection);
       setConnectionStatus("connected");
+      saveAccount(connection);
       router.push("/");
     } catch (err) {
       console.error("Connection error:", err);
@@ -266,6 +275,57 @@ export default function LoginPage() {
         setError("An unexpected error occurred");
       }
       setConnectionError(error);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  const saveAccount = (connection: ServerConnection) => {
+    const key = accountKey(connection);
+    const account: SavedAccount = {
+      ...connection,
+      label: accountLabel(connection),
+    };
+    setSavedAccounts((prev) => {
+      const filtered = prev.filter((a) => accountKey(a) !== key);
+      return [account, ...filtered];
+    });
+  };
+
+  const removeSavedAccount = (account: SavedAccount) => {
+    const key = accountKey(account);
+    setSavedAccounts((prev) => prev.filter((a) => accountKey(a) !== key));
+  };
+
+  const handleQuickConnect = async (account: SavedAccount) => {
+    setIsConnecting(true);
+    setError(null);
+    setConnectionError(null);
+
+    try {
+      const client = initializeClient(account);
+      setConnectionStatus("connecting");
+      await client.ping();
+
+      setConnection(account);
+      setConnectionStatus("connected");
+      saveAccount(account);
+      router.push("/");
+    } catch (err) {
+      console.error("Quick connect error:", err);
+      setConnectionStatus("error");
+
+      if (err instanceof FerrotuneApiError) {
+        setError(`Authentication failed: ${err.message}`);
+      } else if (err instanceof Error) {
+        if (err.message.includes("fetch")) {
+          setError("Unable to connect to server. Check the URL and try again.");
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError("An unexpected error occurred");
+      }
     } finally {
       setIsConnecting(false);
     }
@@ -334,6 +394,54 @@ export default function LoginPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {/* Saved accounts for quick switching */}
+            {savedAccounts.length > 0 && (
+              <div className="mb-6">
+                <p className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  Saved Accounts
+                </p>
+                <div className="space-y-1.5">
+                  {savedAccounts.map((account) => (
+                    <div
+                      key={accountKey(account)}
+                      className="flex items-center gap-2 group"
+                    >
+                      <Button
+                        variant="outline"
+                        className="flex-1 justify-start h-auto py-2 px-3"
+                        onClick={() => handleQuickConnect(account)}
+                        disabled={isConnecting}
+                      >
+                        <User className="w-4 h-4 mr-2 shrink-0" />
+                        <span className="truncate">
+                          {account.label || accountLabel(account)}
+                        </span>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => removeSavedAccount(account)}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <div className="relative my-4">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">
+                      or connect with
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
               {/* Embedded server toggle (Tauri desktop only) */}
               {isEmbeddedAvailable && (

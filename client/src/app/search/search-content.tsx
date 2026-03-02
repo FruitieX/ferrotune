@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSetAtom, useAtom, useAtomValue } from "jotai";
 import { useQuery } from "@tanstack/react-query";
@@ -12,12 +12,19 @@ import {
   Loader2,
   ListMusic,
   Clock,
+  Trash2,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useScrollRestoration } from "@/lib/hooks/use-scroll-restoration";
 import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
-import { advancedFiltersAtom, hasActiveFiltersAtom } from "@/lib/store/ui";
+import {
+  advancedFiltersAtom,
+  hasActiveFiltersAtom,
+  searchHistoryAtom,
+  addSearchHistoryAtom,
+  clearSearchHistoryAtom,
+} from "@/lib/store/ui";
 import { getClient } from "@/lib/api/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -46,6 +53,11 @@ export function SearchPageContent() {
   const startQueue = useSetAtom(startQueueAtom);
   const [advancedFilters, setAdvancedFilters] = useAtom(advancedFiltersAtom);
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
+  const searchHistory = useAtomValue(searchHistoryAtom);
+  const addSearchHistory = useSetAtom(addSearchHistoryAtom);
+  const clearSearchHistory = useSetAtom(clearSearchHistoryAtom);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
@@ -69,10 +81,12 @@ export function SearchPageContent() {
       router.replace(`/search?q=${encodeURIComponent(debouncedQuery)}`, {
         scroll: false,
       });
+      // Save to search history when we have a real query
+      addSearchHistory(debouncedQuery);
     } else {
       router.replace("/search", { scroll: false });
     }
-  }, [debouncedQuery, router]);
+  }, [debouncedQuery, router, addSearchHistory]);
 
   // Search query for songs, albums, artists
   const {
@@ -189,10 +203,16 @@ export function SearchPageContent() {
             <div className="relative flex-1">
               <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
               <Input
+                ref={inputRef}
                 type="text"
                 placeholder="Search for artists, albums, or songs..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onFocus={() => setShowHistory(true)}
+                onBlur={() => {
+                  // Delay to allow clicking on history items
+                  setTimeout(() => setShowHistory(false), 200);
+                }}
                 className="pl-10 pr-10 h-12 text-lg bg-secondary border-0 rounded-full"
                 autoFocus
               />
@@ -209,6 +229,34 @@ export function SearchPageContent() {
                   <X className="w-4 h-4" />
                 </Button>
               )}
+              {/* Search history suggestions dropdown */}
+              {showHistory &&
+                query.length > 0 &&
+                query.length < 2 &&
+                (() => {
+                  const matching = searchHistory.filter((h) =>
+                    h.toLowerCase().includes(query.toLowerCase()),
+                  );
+                  if (matching.length === 0) return null;
+                  return (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg overflow-hidden z-50">
+                      {matching.slice(0, 8).map((h) => (
+                        <button
+                          key={h}
+                          type="button"
+                          className="flex items-center gap-2 w-full px-3 py-2 hover:bg-muted/50 transition-colors text-left text-sm cursor-pointer"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setQuery(h);
+                          }}
+                        >
+                          <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <span className="truncate">{h}</span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
             </div>
             <AdvancedFilterDialog className="h-10 w-10" />
           </div>
@@ -224,7 +272,18 @@ export function SearchPageContent() {
       {/* Content */}
       <div className="p-4 lg:p-6">
         {!debouncedQuery ? (
-          <EmptySearch />
+          searchHistory.length > 0 ? (
+            <SearchHistory
+              history={searchHistory}
+              onSelect={(q) => {
+                setQuery(q);
+                inputRef.current?.focus();
+              }}
+              onClear={clearSearchHistory}
+            />
+          ) : (
+            <EmptySearch />
+          )
         ) : debouncedQuery.length < 2 ? (
           <div className="py-20 text-center text-muted-foreground">
             Type at least 2 characters to search
@@ -313,6 +372,7 @@ export function SearchPageContent() {
                         song={song}
                         index={index}
                         showCover
+                        inlineImagesRequested
                         queueSongs={searchResults.song}
                         queueSource={searchQueueSource}
                       />
@@ -386,6 +446,7 @@ export function SearchPageContent() {
                       song={song}
                       index={index}
                       showCover
+                      inlineImagesRequested
                       queueSongs={searchResults.song!}
                       queueSource={searchQueueSource}
                     />
@@ -418,6 +479,48 @@ export function SearchPageContent() {
             </TabsContent>
           </Tabs>
         )}
+      </div>
+    </div>
+  );
+}
+
+function SearchHistory({
+  history,
+  onSelect,
+  onClear,
+}: {
+  history: string[];
+  onSelect: (query: string) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="max-w-xl mx-auto py-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-medium text-muted-foreground">
+          Recent searches
+        </h3>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-xs text-muted-foreground h-7"
+          onClick={onClear}
+        >
+          <Trash2 className="w-3 h-3 mr-1" />
+          Clear
+        </Button>
+      </div>
+      <div className="space-y-1">
+        {history.map((q) => (
+          <button
+            key={q}
+            type="button"
+            className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors text-left cursor-pointer"
+            onClick={() => onSelect(q)}
+          >
+            <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
+            <span className="text-sm truncate">{q}</span>
+          </button>
+        ))}
       </div>
     </div>
   );

@@ -11,6 +11,7 @@ use bliss_audio::decoder::symphonia::SymphoniaDecoder;
 use bliss_audio::decoder::Decoder as BlissDecoder;
 use bliss_audio::playlist::euclidean_distance;
 use bliss_audio::{Analysis, FeaturesVersion, NUMBER_FEATURES};
+use rand::seq::SliceRandom;
 use sqlx::SqlitePool;
 use std::path::Path;
 
@@ -164,7 +165,7 @@ pub async fn find_similar_songs(
     scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
     // Dedup: skip near-duplicates (distance < 0.05) or same title+artist as seed
-    let results: Vec<(String, f32)> = scored
+    let mut filtered: Vec<(SongCandidate, f32)> = scored
         .into_iter()
         .filter(|(candidate, distance)| {
             // Skip near-duplicates (likely same song, different version)
@@ -177,6 +178,19 @@ pub async fn find_similar_songs(
             }
             true
         })
+        .collect();
+
+    // Add randomness: take a pool of 3x the requested count from the top matches,
+    // then shuffle the pool and pick the requested count. This ensures results
+    // are still similar to the seed but vary between calls.
+    let pool_size = (count * 3).min(filtered.len());
+    filtered.truncate(pool_size);
+
+    let mut rng = rand::thread_rng();
+    filtered.shuffle(&mut rng);
+
+    let results: Vec<(String, f32)> = filtered
+        .into_iter()
         .take(count)
         .map(|(candidate, distance)| (candidate.id, distance))
         .collect();

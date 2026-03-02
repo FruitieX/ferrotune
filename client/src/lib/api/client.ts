@@ -107,6 +107,7 @@ import type { SaveStagedFilesResponse } from "./generated/SaveStagedFilesRespons
 import type { RescanFilesResponse } from "./generated/RescanFilesResponse";
 import type { RenameFilesResponse } from "./generated/RenameFilesResponse";
 import type { CheckPathConflictsResponse } from "./generated/CheckPathConflictsResponse";
+import type { SongPathsResponse } from "./generated/SongPathsResponse";
 import type { TaggerSessionResponse } from "./generated/TaggerSessionResponse";
 import type { TaggerPendingEditsResponse } from "./generated/TaggerPendingEditsResponse";
 // TaggerPendingEditData import removed - now using individual track sync
@@ -320,6 +321,7 @@ export class FerrotuneClient {
     params: Pick<AlbumListParams, "type"> &
       Partial<Omit<AlbumListParams, "type">> & {
         inlineImages?: "small" | "medium";
+        since?: string;
       },
   ): Promise<AlbumListResponse> {
     const endpoint = buildEndpoint("/ferrotune/albums", params);
@@ -2112,6 +2114,13 @@ export class FerrotuneClient {
       method: "POST",
       body: JSON.stringify({ renames }),
     });
+  }
+
+  /**
+   * Get lightweight metadata for all songs (for rename script path comparison)
+   */
+  async getSongPaths(): Promise<SongPathsResponse> {
+    return this.request("/ferrotune/tagger/song-paths");
   }
 
   // ========================================================================

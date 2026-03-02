@@ -1,5 +1,6 @@
 "use client";
 
+import { Users } from "lucide-react";
 import type { Artist } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { useStarredArtist } from "@/lib/store/starred";
@@ -20,6 +21,10 @@ interface ArtistCardProps {
   onSelect?: (id: string, e: React.MouseEvent) => void;
   className?: string;
 }
+
+const defaultArtistIcon = (
+  <Users className="w-4 h-4 shrink-0 text-muted-foreground" />
+);
 
 export function ArtistCard({
   artist,
@@ -51,6 +56,7 @@ export function ArtistCard({
       coverArt={coverArtUrl}
       coverArtData={artist.coverArtData}
       title={artist.name}
+      titleIcon={defaultArtistIcon}
       subtitle={formatCount(artist.albumCount ?? 0, "album")}
       href={`/library/artists/details?id=${artist.id}`}
       coverShape="circle"

@@ -381,6 +381,7 @@ pub async fn fetch_starred_content(
                 created,
                 starred: Some(format_datetime_iso(starred_at)),
                 user_rating: album_ratings.get(&album.id).copied(),
+                played: None,
             });
         }
     }

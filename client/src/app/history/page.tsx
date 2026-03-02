@@ -239,6 +239,7 @@ export default function HistoryPage() {
                 <SongCard
                   song={song}
                   index={index}
+                  inlineImagesRequested
                   queueSource={historyQueueSource}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}
@@ -254,6 +255,8 @@ export default function HistoryPage() {
                 columnVisibility={columnVisibility}
                 showIndex
                 showCover
+                sortConfig={sortConfig}
+                onSortChange={setSortConfig}
               />
               <VirtualizedList
                 items={displaySongs}
@@ -262,6 +265,7 @@ export default function HistoryPage() {
                     song={song}
                     index={index}
                     showCover
+                    inlineImagesRequested
                     showArtist={columnVisibility.artist}
                     showAlbum={columnVisibility.album}
                     showDuration={columnVisibility.duration}
@@ -269,6 +273,11 @@ export default function HistoryPage() {
                     showYear={columnVisibility.year}
                     showDateAdded={columnVisibility.dateAdded}
                     showLastPlayed={columnVisibility.lastPlayed}
+                    showStarred={columnVisibility.starred}
+                    showGenre={columnVisibility.genre}
+                    showBitRate={columnVisibility.bitRate}
+                    showFormat={columnVisibility.format}
+                    showRating={columnVisibility.rating}
                     queueSource={historyQueueSource}
                     isSelected={isSelected(song.id)}
                     isSelectionMode={hasSelection}

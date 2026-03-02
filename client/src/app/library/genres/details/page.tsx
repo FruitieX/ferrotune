@@ -369,6 +369,7 @@ function GenreDetailContent() {
                   <SongCard
                     song={song}
                     index={index}
+                    inlineImagesRequested
                     queueSource={genreQueueSource}
                     isSelected={selection.isSelected(song.id)}
                     isSelectionMode={selection.hasSelection}
@@ -388,6 +389,8 @@ function GenreDetailContent() {
                   columnVisibility={columnVisibility}
                   showIndex
                   showCover
+                  sortConfig={sortConfig}
+                  onSortChange={setSortConfig}
                 />
                 <VirtualizedList
                   items={displaySongs}
@@ -397,6 +400,7 @@ function GenreDetailContent() {
                       song={song}
                       index={index}
                       showCover
+                      inlineImagesRequested
                       showArtist={columnVisibility.artist}
                       showAlbum={columnVisibility.album}
                       showDuration={columnVisibility.duration}
@@ -404,6 +408,11 @@ function GenreDetailContent() {
                       showYear={columnVisibility.year}
                       showDateAdded={columnVisibility.dateAdded}
                       showLastPlayed={columnVisibility.lastPlayed}
+                      showStarred={columnVisibility.starred}
+                      showGenre={columnVisibility.genre}
+                      showBitRate={columnVisibility.bitRate}
+                      showFormat={columnVisibility.format}
+                      showRating={columnVisibility.rating}
                       queueSource={genreQueueSource}
                       isSelected={selection.isSelected(song.id)}
                       isSelectionMode={selection.hasSelection}

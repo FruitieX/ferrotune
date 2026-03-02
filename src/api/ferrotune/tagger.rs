@@ -1663,3 +1663,98 @@ fn find_non_conflicting_path(
         }
     }
 }
+
+// =============================================================================
+// Song Metadata for Rename Script Comparison
+// =============================================================================
+
+/// Lightweight song metadata for rename script path comparison
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct SongPathMetadata {
+    pub id: String,
+    pub file_path: String,
+    pub title: String,
+    pub artist: String,
+    pub album_artist: String,
+    pub album: String,
+    pub genre: String,
+    pub year: String,
+    pub track_number: String,
+    pub track_total: String,
+    pub disc_number: String,
+    pub disc_total: String,
+    pub ext: String,
+}
+
+/// Response for the song paths endpoint
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct SongPathsResponse {
+    pub songs: Vec<SongPathMetadata>,
+}
+
+#[derive(sqlx::FromRow)]
+struct SongPathRow {
+    id: String,
+    file_path: String,
+    title: String,
+    artist_name: String,
+    file_format: String,
+    album_name: Option<String>,
+    track_number: Option<i32>,
+    disc_number: i32,
+    year: Option<i32>,
+    genre: Option<String>,
+    album_artist_name: Option<String>,
+}
+
+/// GET /ferrotune/tagger/song-paths
+///
+/// Returns lightweight metadata for all library songs, intended for client-side
+/// rename script comparison to find songs whose paths don't match the script.
+pub async fn get_song_paths(
+    _user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+) -> FerrotuneApiResult<Json<SongPathsResponse>> {
+    // Query all songs with artist and album info in a single query
+    let rows = sqlx::query_as::<_, SongPathRow>(
+        r#"
+        SELECT s.id, s.file_path, s.title, s.artist_name, s.file_format,
+               s.album_name, s.track_number, s.disc_number, s.year, s.genre,
+               a.artist_name as album_artist_name
+        FROM songs s
+        LEFT JOIN albums a ON s.album_id = a.id
+        WHERE NOT EXISTS (
+            SELECT 1 FROM disabled_songs ds WHERE ds.song_id = s.id
+        )
+        ORDER BY s.file_path
+        "#,
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| Error::Internal(format!("Failed to fetch songs: {}", e)))?;
+
+    let songs: Vec<SongPathMetadata> = rows
+        .into_iter()
+        .map(|row| SongPathMetadata {
+            id: row.id,
+            file_path: row.file_path,
+            title: row.title,
+            artist: row.artist_name.clone(),
+            album_artist: row.album_artist_name.unwrap_or(row.artist_name),
+            album: row.album_name.unwrap_or_default(),
+            genre: row.genre.unwrap_or_default(),
+            year: row.year.map(|y| y.to_string()).unwrap_or_default(),
+            track_number: row.track_number.map(|n| n.to_string()).unwrap_or_default(),
+            track_total: String::new(),
+            disc_number: row.disc_number.to_string(),
+            disc_total: String::new(),
+            ext: row.file_format,
+        })
+        .collect();
+
+    Ok(Json(SongPathsResponse { songs }))
+}

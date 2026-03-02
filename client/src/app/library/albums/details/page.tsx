@@ -152,6 +152,10 @@ function AlbumDetailContent() {
     ? getClient()?.getCoverArtUrl(albumData.coverArt, 400)
     : undefined;
 
+  const fullSizeCoverUrl = albumData?.coverArt
+    ? getClient()?.getCoverArtUrl(albumData.coverArt, "large")
+    : undefined;
+
   const totalDuration = displaySongs.reduce(
     (acc, song) => acc + song.duration,
     0,
@@ -245,6 +249,7 @@ function AlbumDetailContent() {
       <DetailHeader
         showBackButton
         coverUrl={coverArtUrl}
+        fullSizeCoverUrl={fullSizeCoverUrl}
         coverAlt={albumData?.name || "Album"}
         colorSeed={albumData?.name}
         coverType="album"
@@ -410,6 +415,8 @@ function AlbumDetailContent() {
                 columnVisibility={columnVisibility}
                 showIndex
                 showCover
+                sortConfig={sortConfig}
+                onSortChange={setSortConfig}
               />
               <VirtualizedList
                 items={displaySongs}
@@ -425,6 +432,11 @@ function AlbumDetailContent() {
                     showYear={columnVisibility.year}
                     showDateAdded={columnVisibility.dateAdded}
                     showLastPlayed={columnVisibility.lastPlayed}
+                    showStarred={columnVisibility.starred}
+                    showGenre={columnVisibility.genre}
+                    showBitRate={columnVisibility.bitRate}
+                    showFormat={columnVisibility.format}
+                    showRating={columnVisibility.rating}
                     queueSource={albumQueueSource}
                     isSelected={selection.isSelected(song.id)}
                     isSelectionMode={selection.hasSelection}

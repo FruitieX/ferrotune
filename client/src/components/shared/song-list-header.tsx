@@ -1,12 +1,20 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { ArrowUp, ArrowDown } from "lucide-react";
 import type {
   ColumnVisibility,
   FilesColumnVisibility,
   AlbumColumnVisibility,
   ArtistColumnVisibility,
+  SortField,
+  SortDirection,
 } from "@/lib/store/ui";
+
+interface SortConfig {
+  field: SortField;
+  direction: SortDirection;
+}
 
 interface SongListHeaderProps {
   /** Column visibility settings */
@@ -19,6 +27,47 @@ interface SongListHeaderProps {
   stickyTop?: "72px" | "120px";
   /** Additional class names */
   className?: string;
+  /** Current sort config for highlighting active column */
+  sortConfig?: SortConfig;
+  /** Callback when a column header is clicked to sort */
+  onSortChange?: (config: SortConfig) => void;
+}
+
+function SortableHeader({
+  field,
+  label,
+  width,
+  align = "right",
+  sortConfig,
+  onSort,
+}: {
+  field: SortField;
+  label: string;
+  width: string;
+  align?: "left" | "right" | "center";
+  sortConfig?: SortConfig;
+  onSort: (field: SortField) => void;
+}) {
+  const isActive = sortConfig?.field === field;
+  const SortIcon = sortConfig?.direction === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <button
+      type="button"
+      className={cn(
+        width,
+        align === "right" && "text-right",
+        align === "center" && "text-center",
+        "flex items-center gap-0.5 cursor-pointer hover:text-foreground transition-colors",
+        align === "right" && "justify-end",
+        align === "center" && "justify-center",
+        isActive && "text-foreground",
+      )}
+      onClick={() => onSort(field)}
+    >
+      <span>{label}</span>
+      {isActive && <SortIcon className="w-3 h-3" />}
+    </button>
+  );
 }
 
 /**
@@ -31,7 +80,21 @@ export function SongListHeader({
   showCover = false,
   stickyTop = "72px",
   className,
+  sortConfig,
+  onSortChange,
 }: SongListHeaderProps) {
+  const handleSort = (field: SortField) => {
+    if (!onSortChange) return;
+    if (sortConfig?.field === field) {
+      onSortChange({
+        field,
+        direction: sortConfig.direction === "asc" ? "desc" : "asc",
+      });
+    } else {
+      onSortChange({ field, direction: "asc" });
+    }
+  };
+
   return (
     <div
       className={cn(
@@ -53,7 +116,14 @@ export function SongListHeader({
 
       {/* Title column - takes remaining space */}
       <div className="flex-1 min-w-0 text-xs font-medium text-muted-foreground">
-        Title
+        <SortableHeader
+          field="name"
+          label="Title"
+          width=""
+          align="left"
+          sortConfig={sortConfig}
+          onSort={handleSort}
+        />
       </div>
 
       {/* Actions placeholder - reserve space for action buttons on hover */}
@@ -61,19 +131,96 @@ export function SongListHeader({
 
       {/* Right content columns - match SongRow widths */}
       <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground shrink-0">
-        {/* Shuffle exclude indicator - just takes 4px but we need gap alignment */}
-        {columnVisibility.year && <span className="w-12 text-right">Year</span>}
+        {columnVisibility.starred && (
+          <SortableHeader
+            field="starred"
+            label="Fav"
+            width="w-8"
+            align="center"
+            sortConfig={sortConfig}
+            onSort={handleSort}
+          />
+        )}
+        {columnVisibility.rating && (
+          <SortableHeader
+            field="rating"
+            label="Rating"
+            width="w-12"
+            sortConfig={sortConfig}
+            onSort={handleSort}
+          />
+        )}
+        {columnVisibility.genre && (
+          <SortableHeader
+            field="genre"
+            label="Genre"
+            width="w-24"
+            sortConfig={sortConfig}
+            onSort={handleSort}
+          />
+        )}
+        {columnVisibility.year && (
+          <SortableHeader
+            field="year"
+            label="Year"
+            width="w-12"
+            sortConfig={sortConfig}
+            onSort={handleSort}
+          />
+        )}
         {columnVisibility.playCount && (
-          <span className="w-12 text-right">Plays</span>
+          <SortableHeader
+            field="playCount"
+            label="Plays"
+            width="w-12"
+            sortConfig={sortConfig}
+            onSort={handleSort}
+          />
         )}
         {columnVisibility.lastPlayed && (
-          <span className="w-24 text-right">Last Played</span>
+          <SortableHeader
+            field="lastPlayed"
+            label="Last Played"
+            width="w-24"
+            sortConfig={sortConfig}
+            onSort={handleSort}
+          />
         )}
         {columnVisibility.dateAdded && (
-          <span className="w-24 text-right">Added</span>
+          <SortableHeader
+            field="dateAdded"
+            label="Added"
+            width="w-24"
+            sortConfig={sortConfig}
+            onSort={handleSort}
+          />
+        )}
+        {columnVisibility.bitRate && (
+          <SortableHeader
+            field="bitRate"
+            label="Bitrate"
+            width="w-16"
+            sortConfig={sortConfig}
+            onSort={handleSort}
+          />
+        )}
+        {columnVisibility.format && (
+          <SortableHeader
+            field="format"
+            label="Format"
+            width="w-14"
+            sortConfig={sortConfig}
+            onSort={handleSort}
+          />
         )}
         {columnVisibility.duration && (
-          <span className="w-12 text-right">Time</span>
+          <SortableHeader
+            field="duration"
+            label="Time"
+            width="w-12"
+            sortConfig={sortConfig}
+            onSort={handleSort}
+          />
         )}
       </div>
     </div>

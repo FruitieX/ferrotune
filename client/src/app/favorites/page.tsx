@@ -733,6 +733,7 @@ export default function FavoritesPage() {
                     <SongCard
                       song={song}
                       index={index}
+                      inlineImagesRequested
                       queueSource={favoritesQueueSource}
                       isSelected={songSelection.isSelected(song.id)}
                       isSelectionMode={songSelection.hasSelection}
@@ -751,6 +752,8 @@ export default function FavoritesPage() {
                     columnVisibility={columnVisibility}
                     showIndex
                     showCover
+                    sortConfig={songSortConfig}
+                    onSortChange={setSongSortConfig}
                   />
                   <VirtualizedList
                     items={displaySongs}
@@ -760,6 +763,7 @@ export default function FavoritesPage() {
                         song={song}
                         index={index}
                         showCover
+                        inlineImagesRequested
                         showAlbum={columnVisibility.album}
                         showArtist={columnVisibility.artist}
                         showDuration={columnVisibility.duration}
@@ -767,6 +771,11 @@ export default function FavoritesPage() {
                         showYear={columnVisibility.year}
                         showDateAdded={columnVisibility.dateAdded}
                         showLastPlayed={columnVisibility.lastPlayed}
+                        showStarred={columnVisibility.starred}
+                        showGenre={columnVisibility.genre}
+                        showBitRate={columnVisibility.bitRate}
+                        showFormat={columnVisibility.format}
+                        showRating={columnVisibility.rating}
                         queueSource={favoritesQueueSource}
                         isSelected={songSelection.isSelected(song.id)}
                         isSelectionMode={songSelection.hasSelection}

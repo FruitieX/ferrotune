@@ -130,6 +130,16 @@ pub struct SearchParams {
     pub missing_cover_art: Option<bool>,
     /// Filter songs by file format (e.g., "mp3", "flac", "opus")
     pub file_format: Option<String>,
+    /// Filter songs by artist name (case-insensitive substring match)
+    pub artist_filter: Option<String>,
+    /// Filter songs by album name (case-insensitive substring match)
+    pub album_filter: Option<String>,
+    /// Filter songs by title (case-insensitive substring match)
+    pub title_filter: Option<String>,
+    /// Filter songs last played after this ISO 8601 date (e.g., "2024-01-01")
+    pub last_played_after: Option<String>,
+    /// Filter songs last played before this ISO 8601 date (e.g., "2024-12-31")
+    pub last_played_before: Option<String>,
 }
 
 /// Get ORDER BY clause for song sorting
@@ -268,6 +278,28 @@ pub fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> Song
     if let Some(ref format) = params.file_format {
         let escaped_format = format.replace('\'', "''").to_lowercase();
         conditions.push(format!("LOWER(s.file_format) = '{}'", escaped_format));
+    }
+    // Text field filters (case-insensitive substring match)
+    if let Some(ref artist_filter) = params.artist_filter {
+        let escaped = artist_filter.replace('\'', "''");
+        conditions.push(format!("ar.name LIKE '%{}%' COLLATE NOCASE", escaped));
+    }
+    if let Some(ref album_filter) = params.album_filter {
+        let escaped = album_filter.replace('\'', "''");
+        conditions.push(format!("al.name LIKE '%{}%' COLLATE NOCASE", escaped));
+    }
+    if let Some(ref title_filter) = params.title_filter {
+        let escaped = title_filter.replace('\'', "''");
+        conditions.push(format!("s.title LIKE '%{}%' COLLATE NOCASE", escaped));
+    }
+    // Last played date filters
+    if let Some(ref last_played_after) = params.last_played_after {
+        let escaped_date = last_played_after.replace('\'', "''");
+        conditions.push(format!("date(pc.last_played) >= '{}'", escaped_date));
+    }
+    if let Some(ref last_played_before) = params.last_played_before {
+        let escaped_date = last_played_before.replace('\'', "''");
+        conditions.push(format!("date(pc.last_played) <= '{}'", escaped_date));
     }
 
     SongFilterConditions {

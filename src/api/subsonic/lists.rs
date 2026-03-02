@@ -71,6 +71,7 @@ pub async fn get_album_list2(
         params.to_year,
         params.genre,
         inline_size,
+        None,
     )
     .await?;
 

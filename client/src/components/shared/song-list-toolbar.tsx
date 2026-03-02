@@ -55,11 +55,16 @@ const sortOptions: { value: SortField; label: string }[] = [
   { value: "artist", label: "Artist" },
   { value: "album", label: "Album" },
   { value: "year", label: "Year" },
+  { value: "genre", label: "Genre" },
   { value: "dateAdded", label: "Date Added" },
   { value: "addedToPlaylist", label: "Added to Playlist" },
   { value: "playCount", label: "Play Count" },
   { value: "lastPlayed", label: "Last Played" },
   { value: "duration", label: "Duration" },
+  { value: "bitRate", label: "Bit Rate" },
+  { value: "format", label: "Format" },
+  { value: "starred", label: "Favorited" },
+  { value: "rating", label: "Rating" },
 ];
 
 const columnOptions: { key: keyof ColumnVisibility; label: string }[] = [
@@ -70,6 +75,11 @@ const columnOptions: { key: keyof ColumnVisibility; label: string }[] = [
   { key: "dateAdded", label: "Date Added" },
   { key: "lastPlayed", label: "Last Played" },
   { key: "year", label: "Year" },
+  { key: "starred", label: "Favorited" },
+  { key: "genre", label: "Genre" },
+  { key: "bitRate", label: "Bit Rate" },
+  { key: "format", label: "Format" },
+  { key: "rating", label: "Rating" },
 ];
 
 interface SongListToolbarProps {

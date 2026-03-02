@@ -41,6 +41,7 @@ export default function SongsPage() {
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
   const sortConfig = useAtomValue(librarySortAtom);
+  const setSortConfig = useSetAtom(librarySortAtom);
   const columnVisibility = useAtomValue(columnVisibilityAtom);
   const advancedFilters = useAtomValue(advancedFiltersAtom);
   const debouncedFilter = useDebounce(filter, 300);
@@ -196,6 +197,7 @@ export default function SongsPage() {
               <SongCard
                 song={song}
                 index={index}
+                inlineImagesRequested
                 queueSource={queueSource}
                 isSelected={isSelected(song.id)}
                 isSelectionMode={hasSelection}
@@ -215,6 +217,8 @@ export default function SongsPage() {
               showIndex
               showCover
               stickyTop="120px"
+              sortConfig={sortConfig}
+              onSortChange={setSortConfig}
             />
             <VirtualizedList
               items={displaySongs}
@@ -224,6 +228,7 @@ export default function SongsPage() {
                   song={song}
                   index={index}
                   showCover
+                  inlineImagesRequested
                   showArtist={columnVisibility.artist}
                   showAlbum={columnVisibility.album}
                   showDuration={columnVisibility.duration}
@@ -231,6 +236,11 @@ export default function SongsPage() {
                   showYear={columnVisibility.year}
                   showDateAdded={columnVisibility.dateAdded}
                   showLastPlayed={columnVisibility.lastPlayed}
+                  showStarred={columnVisibility.starred}
+                  showGenre={columnVisibility.genre}
+                  showBitRate={columnVisibility.bitRate}
+                  showFormat={columnVisibility.format}
+                  showRating={columnVisibility.rating}
                   queueSource={queueSource}
                   isSelected={isSelected(song.id)}
                   isSelectionMode={hasSelection}

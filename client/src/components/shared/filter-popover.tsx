@@ -693,6 +693,46 @@ export function ActiveFilterBadges({ className }: { className?: string }) {
     });
   }
 
+  if (filters.artistFilter) {
+    badges.push({
+      key: "artistFilter",
+      label: `Artist: ${filters.artistFilter}`,
+    });
+  }
+
+  if (filters.albumFilter) {
+    badges.push({ key: "albumFilter", label: `Album: ${filters.albumFilter}` });
+  }
+
+  if (filters.titleFilter) {
+    badges.push({ key: "titleFilter", label: `Title: ${filters.titleFilter}` });
+  }
+
+  if (filters.fileFormat) {
+    badges.push({
+      key: "fileFormat",
+      label: `Format: ${filters.fileFormat.toUpperCase()}`,
+    });
+  }
+
+  if (filters.missingCoverArt) {
+    badges.push({ key: "missingCoverArt", label: "Missing Cover Art" });
+  }
+
+  if (filters.disabledOnly) {
+    badges.push({ key: "disabledOnly", label: "Disabled Only" });
+  }
+
+  if (filters.lastPlayedAfter || filters.lastPlayedBefore) {
+    const dateLabel =
+      filters.lastPlayedAfter && filters.lastPlayedBefore
+        ? `${filters.lastPlayedAfter} – ${filters.lastPlayedBefore}`
+        : filters.lastPlayedAfter
+          ? `After ${filters.lastPlayedAfter}`
+          : `Before ${filters.lastPlayedBefore}`;
+    badges.push({ key: "lastPlayedAfter", label: `Last Played: ${dateLabel}` });
+  }
+
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
       {badges.map(({ key, label }) => (
@@ -720,6 +760,9 @@ export function ActiveFilterBadges({ className }: { className?: string }) {
             } else if (key === "addedAfter") {
               removeFilter("addedAfter");
               removeFilter("addedBefore");
+            } else if (key === "lastPlayedAfter") {
+              removeFilter("lastPlayedAfter");
+              removeFilter("lastPlayedBefore");
             } else {
               removeFilter(key);
             }

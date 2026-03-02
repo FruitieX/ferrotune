@@ -1,11 +1,12 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { CoverImage, stringToHue } from "./cover-image";
+import { CoverArtModal } from "./cover-art-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,8 @@ interface DetailHeaderProps {
   circular?: boolean;
   /** Cover size - defaults to 48 (w-48 = 192px) */
   coverSize?: "sm" | "md" | "lg";
+  /** Full-size cover URL for modal preview on click */
+  fullSizeCoverUrl?: string | null;
 
   /** Gradient color for background (used when no cover or not using blurred background) */
   gradientColor?: string;
@@ -80,6 +83,7 @@ export function DetailHeader({
   coverType = "album",
   circular = false,
   coverSize = "md",
+  fullSizeCoverUrl,
   gradientColor = "rgba(100,100,100,0.2)",
   useBlurredBackground = false,
   backgroundHeight = 400,
@@ -92,6 +96,7 @@ export function DetailHeader({
   children,
 }: DetailHeaderProps) {
   const router = useRouter();
+  const [coverModalOpen, setCoverModalOpen] = useState(false);
   const shouldBlur = useBlurredBackground && coverUrl;
 
   // Generate gradient color from colorSeed if provided, otherwise use gradientColor
@@ -176,16 +181,26 @@ export function DetailHeader({
               )}
             />
           ) : coverUrl ? (
-            <CoverImage
-              src={coverUrl}
-              alt={coverAlt}
-              colorSeed={colorSeed}
-              type={coverType}
-              size="full"
-              priority
-              className={circular ? "rounded-full" : "rounded-lg"}
-              showTypeOverlay={coverType === "smartPlaylist"}
-            />
+            <button
+              type="button"
+              className={cn(
+                "w-full h-full block",
+                fullSizeCoverUrl && "cursor-zoom-in",
+              )}
+              onClick={() => fullSizeCoverUrl && setCoverModalOpen(true)}
+              disabled={!fullSizeCoverUrl}
+            >
+              <CoverImage
+                src={coverUrl}
+                alt={coverAlt}
+                colorSeed={colorSeed}
+                type={coverType}
+                size="full"
+                priority
+                className={circular ? "rounded-full" : "rounded-lg"}
+                showTypeOverlay={coverType === "smartPlaylist"}
+              />
+            </button>
           ) : Icon ? (
             <div
               className={cn(
@@ -253,6 +268,15 @@ export function DetailHeader({
       </div>
 
       {children}
+
+      {fullSizeCoverUrl && (
+        <CoverArtModal
+          open={coverModalOpen}
+          onOpenChange={setCoverModalOpen}
+          src={fullSizeCoverUrl}
+          alt={coverAlt}
+        />
+      )}
     </div>
   );
 }

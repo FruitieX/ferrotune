@@ -90,6 +90,7 @@ pub async fn post_process_albums(
                 created,
                 starred: album_starred.get(&album.id).cloned(),
                 user_rating: album_ratings.get(&album.id).copied(),
+                played: None,
             }
         })
         .collect();

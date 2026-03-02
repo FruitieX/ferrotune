@@ -141,6 +141,10 @@ function ArtistDetailContent() {
     ? getClient()?.getCoverArtUrl(artistData.coverArt, 400)
     : undefined;
 
+  const fullSizeCoverUrl = artistData?.coverArt
+    ? getClient()?.getCoverArtUrl(artistData.coverArt, "large")
+    : undefined;
+
   const handlePlayAll = () => {
     if (id && displaySongs && displaySongs.length > 0) {
       startQueue({
@@ -225,6 +229,7 @@ function ArtistDetailContent() {
       <DetailHeader
         showBackButton
         coverUrl={coverArtUrl}
+        fullSizeCoverUrl={fullSizeCoverUrl}
         coverAlt={artistData?.name || "Artist"}
         colorSeed={artistData?.name}
         coverType="artist"
@@ -385,6 +390,8 @@ function ArtistDetailContent() {
                   columnVisibility={columnVisibility}
                   showIndex
                   showCover
+                  sortConfig={sortConfig}
+                  onSortChange={setSortConfig}
                 />
                 <VirtualizedList
                   items={displaySongs}
@@ -400,6 +407,11 @@ function ArtistDetailContent() {
                       showYear={columnVisibility.year}
                       showDateAdded={columnVisibility.dateAdded}
                       showLastPlayed={columnVisibility.lastPlayed}
+                      showStarred={columnVisibility.starred}
+                      showGenre={columnVisibility.genre}
+                      showBitRate={columnVisibility.bitRate}
+                      showFormat={columnVisibility.format}
+                      showRating={columnVisibility.rating}
                       queueSource={artistQueueSource}
                       isSelected={selection.isSelected(song.id)}
                       isSelectionMode={selection.hasSelection}

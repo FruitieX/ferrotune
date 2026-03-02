@@ -452,6 +452,36 @@ function ConditionRow({
 // ============================================================================
 
 /**
+/**
+ * Parse a relative duration string (e.g., "30d", "2w", "6m") to an ISO 8601 date string.
+ */
+function parseDurationToDate(duration: string): string {
+  const match = duration.match(/^(\d+)\s*([dwmy])$/i);
+  if (!match) return duration; // Return as-is if not a valid duration
+
+  const amount = parseInt(match[1], 10);
+  const unit = match[2].toLowerCase();
+  const date = new Date();
+
+  switch (unit) {
+    case "d":
+      date.setDate(date.getDate() - amount);
+      break;
+    case "w":
+      date.setDate(date.getDate() - amount * 7);
+      break;
+    case "m":
+      date.setMonth(date.getMonth() - amount);
+      break;
+    case "y":
+      date.setFullYear(date.getFullYear() - amount);
+      break;
+  }
+
+  return date.toISOString().split("T")[0]; // Return YYYY-MM-DD
+}
+
+/**
  * Convert AdvancedFilters to a flat object suitable for API query params.
  * This handles the conversion from our rule-based format to the backend's
  * flat filter format.
@@ -534,23 +564,46 @@ export function filtersToSearchParams(
         break;
 
       case "dateAdded":
-        if (operator === "gt" || operator === "within") {
+        if (operator === "within") {
+          params.addedAfter = parseDurationToDate(String(value));
+        } else if (operator === "gt") {
           params.addedAfter = String(value);
         } else if (operator === "lt") {
           params.addedBefore = String(value);
         }
         break;
 
-      // Text fields that go into the main query
-      case "artist":
-      case "album":
-      case "title":
-        // These should be handled by the text query
-        // For now, we could concatenate them
-        if (operator === "contains" || operator === "eq") {
-          // This would need to be combined into the main query
-          // For now, just add as-is to support simple searches
+      case "lastPlayed":
+        if (operator === "within") {
+          params.lastPlayedAfter = parseDurationToDate(String(value));
+        } else if (operator === "gt") {
+          params.lastPlayedAfter = String(value);
+        } else if (operator === "lt") {
+          params.lastPlayedBefore = String(value);
         }
+        break;
+
+      // Text fields - use server-side substring filters
+      case "artist":
+        if (operator === "contains" || operator === "eq") {
+          params.artistFilter = String(value);
+        }
+        break;
+      case "album":
+        if (operator === "contains" || operator === "eq") {
+          params.albumFilter = String(value);
+        }
+        break;
+      case "title":
+        if (operator === "contains" || operator === "eq") {
+          params.titleFilter = String(value);
+        }
+        break;
+
+      // Album artist, composer, comment - not yet supported as server-side filters
+      case "albumartist":
+      case "composer":
+      case "comment":
         break;
 
       // Boolean fields

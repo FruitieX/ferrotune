@@ -57,6 +57,7 @@
             pkgs.sqlite  # for database inspection
             pkgs.cmake # needed for libopus
             pkgs.libopus # for transcoding to Opus
+            pkgs.libclang.lib # needed for bindgen (bliss-audio aubio bindings)
             # Tauri desktop dependencies (for building plugin on desktop)
             pkgs.glib
             pkgs.cairo
@@ -68,6 +69,7 @@
             pkgs.libsoup_3
           ];
           shellHook = ''
+            export LIBCLANG_PATH="${pkgs.libclang.lib}/lib"
             echo "Loaded ferrotune dev shell (server + ui)"
             echo "Test tools: hurl, ffmpeg, moon available"
           '';
