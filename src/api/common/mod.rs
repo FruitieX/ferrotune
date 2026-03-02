@@ -3,6 +3,7 @@ pub mod fs_utils;
 pub mod history;
 pub mod lists;
 pub mod models;
+pub mod playlist_access;
 pub mod playqueue;
 pub mod search;
 pub mod search_utils;

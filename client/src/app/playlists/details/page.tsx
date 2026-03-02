@@ -262,6 +262,10 @@ function PlaylistDetailContent() {
   const filteredCount = playlist?.filteredCount ?? displayItems.length;
   const totalDuration = playlist?.duration ?? 0;
 
+  // Sharing permissions
+  const isOwner = !playlist?.sharedWithMe;
+  const canModify = isOwner || (playlist?.canEdit ?? false);
+
   // Get the cover URL
   const coverUrl = usePlaylistCoverUrl(
     playlist?.id ?? null,
@@ -934,6 +938,14 @@ function PlaylistDetailContent() {
                   <span>•</span>
                 </>
               )}
+              {playlist.sharedWithMe && (
+                <>
+                  <Badge variant="secondary" className="h-5">
+                    Shared with you
+                  </Badge>
+                  <span>•</span>
+                </>
+              )}
               <span>{formatCount(playlist.matchedCount, "song")}</span>
               {hasMissingEntries && (
                 <>
@@ -995,11 +1007,17 @@ function PlaylistDetailContent() {
         }
         mobileMenuContent={
           <SongListMobileMenu
-            onEditPlaylist={() => setEditDialogOpen(true)}
-            onAddSong={() => setAddSongDialogOpen(true)}
-            onResolveMissing={() => setMassResolveDialogOpen(true)}
-            showResolveMissing={hasMissingEntries}
-            onDeletePlaylist={() => setDeleteDialogOpen(true)}
+            onEditPlaylist={
+              canModify ? () => setEditDialogOpen(true) : undefined
+            }
+            onAddSong={canModify ? () => setAddSongDialogOpen(true) : undefined}
+            onResolveMissing={
+              canModify ? () => setMassResolveDialogOpen(true) : undefined
+            }
+            showResolveMissing={canModify && hasMissingEntries}
+            onDeletePlaylist={
+              isOwner ? () => setDeleteDialogOpen(true) : undefined
+            }
             sortConfig={sortConfig}
             onSortChange={setSortConfig}
             showCustomSort
@@ -1018,28 +1036,36 @@ function PlaylistDetailContent() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
-              <Pencil className="w-4 h-4 mr-2" />
-              Edit Playlist
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setAddSongDialogOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Add Song
-            </DropdownMenuItem>
-            {hasMissingEntries && (
+            {canModify && (
+              <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
+                <Pencil className="w-4 h-4 mr-2" />
+                Edit Playlist
+              </DropdownMenuItem>
+            )}
+            {canModify && (
+              <DropdownMenuItem onClick={() => setAddSongDialogOpen(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Add Song
+              </DropdownMenuItem>
+            )}
+            {canModify && hasMissingEntries && (
               <DropdownMenuItem onClick={() => setMassResolveDialogOpen(true)}>
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Resolve Missing Entries
               </DropdownMenuItem>
             )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive"
-              onClick={() => setDeleteDialogOpen(true)}
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              Delete Playlist
-            </DropdownMenuItem>
+            {isOwner && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive"
+                  onClick={() => setDeleteDialogOpen(true)}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete Playlist
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </ActionBar>
@@ -1091,10 +1117,16 @@ function PlaylistDetailContent() {
                       isSelected={isMissingSelected(missingId)}
                       isSelectionMode={totalSelectedCount > 0}
                       onSelect={handleMissingSelect}
-                      onRemove={handleRemoveMissingEntry}
-                      showMoveToPosition={sortConfig.field === "custom"}
-                      onMoveToPosition={handleMissingMoveToPosition}
-                      onMatched={resetPlaylistData}
+                      onRemove={
+                        canModify ? handleRemoveMissingEntry : undefined
+                      }
+                      showMoveToPosition={
+                        canModify && sortConfig.field === "custom"
+                      }
+                      onMoveToPosition={
+                        canModify ? handleMissingMoveToPosition : undefined
+                      }
+                      onMatched={canModify ? resetPlaylistData : undefined}
                     />
                   );
                 }
@@ -1117,12 +1149,16 @@ function PlaylistDetailContent() {
                           )
                         : undefined
                     }
-                    showMoveToPosition={sortConfig.field === "custom"}
-                    onMoveToPosition={handleSongMoveToPosition}
-                    showRefineMatch={!!songItem.missing}
-                    onRefineMatch={handleRefineMatch}
-                    showUnmatch={!!songItem.missing}
-                    onUnmatch={handleUnmatch}
+                    showMoveToPosition={
+                      canModify && sortConfig.field === "custom"
+                    }
+                    onMoveToPosition={
+                      canModify ? handleSongMoveToPosition : undefined
+                    }
+                    showRefineMatch={canModify && !!songItem.missing}
+                    onRefineMatch={canModify ? handleRefineMatch : undefined}
+                    showUnmatch={canModify && !!songItem.missing}
+                    onUnmatch={canModify ? handleUnmatch : undefined}
                   />
                 );
               }}
@@ -1172,10 +1208,16 @@ function PlaylistDetailContent() {
                         isSelected={isMissingSelected(missingId)}
                         isSelectionMode={totalSelectedCount > 0}
                         onSelect={handleMissingSelect}
-                        onRemove={handleRemoveMissingEntry}
-                        showMoveToPosition={sortConfig.field === "custom"}
-                        onMoveToPosition={handleMissingMoveToPosition}
-                        onMatched={resetPlaylistData}
+                        onRemove={
+                          canModify ? handleRemoveMissingEntry : undefined
+                        }
+                        showMoveToPosition={
+                          canModify && sortConfig.field === "custom"
+                        }
+                        onMoveToPosition={
+                          canModify ? handleMissingMoveToPosition : undefined
+                        }
+                        onMatched={canModify ? resetPlaylistData : undefined}
                       />
                     );
                   }
@@ -1207,8 +1249,10 @@ function PlaylistDetailContent() {
                       isSelected={isSelected(songItem.song.id)}
                       isSelectionMode={totalSelectedCount > 0}
                       onSelect={handleSongSelect}
-                      showRemoveFromPlaylist
-                      onRemoveFromPlaylist={handleRemoveSingleSong}
+                      showRemoveFromPlaylist={canModify}
+                      onRemoveFromPlaylist={
+                        canModify ? handleRemoveSingleSong : undefined
+                      }
                       isCurrentQueuePosition={
                         isPlaylistInQueue
                           ? isCurrentQueuePosition(
@@ -1217,12 +1261,16 @@ function PlaylistDetailContent() {
                             )
                           : undefined
                       }
-                      showMoveToPosition={sortConfig.field === "custom"}
-                      onMoveToPosition={handleSongMoveToPosition}
-                      showRefineMatch={!!songItem.missing}
-                      onRefineMatch={handleRefineMatch}
-                      showUnmatch={!!songItem.missing}
-                      onUnmatch={handleUnmatch}
+                      showMoveToPosition={
+                        canModify && sortConfig.field === "custom"
+                      }
+                      onMoveToPosition={
+                        canModify ? handleSongMoveToPosition : undefined
+                      }
+                      showRefineMatch={canModify && !!songItem.missing}
+                      onRefineMatch={canModify ? handleRefineMatch : undefined}
+                      showUnmatch={canModify && !!songItem.missing}
+                      onUnmatch={canModify ? handleUnmatch : undefined}
                     />
                   );
                 }}
@@ -1260,7 +1308,7 @@ function PlaylistDetailContent() {
         onUnstar={() => starSelected(false)}
         onSelectAll={selectAllItems}
         getSelectedSongs={getSelectedSongs}
-        onRemoveFromPlaylist={handleRemoveSelected}
+        onRemoveFromPlaylist={canModify ? handleRemoveSelected : undefined}
         disablePlaybackActions={hasMissingInSelection}
         missingCount={selectedMissingIds.size}
       />
@@ -1357,6 +1405,7 @@ function PlaylistDetailContent() {
             name: playlist.name,
             comment: playlist.comment ?? undefined,
           }}
+          isOwner={isOwner}
         />
       )}
 

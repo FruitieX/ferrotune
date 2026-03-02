@@ -165,14 +165,16 @@ function PlaylistsPageContent() {
     id: p.id,
     name: p.name,
     comment: null,
-    owner: "admin",
+    owner: p.owner ?? "admin",
     public: false,
     songCount: p.songCount,
     duration: p.duration,
     created: new Date().toISOString(),
     changed: new Date().toISOString(),
     coverArt: null,
-  })) as Playlist[] | undefined;
+    sharedWithMe: p.sharedWithMe,
+    canEdit: p.canEdit,
+  })) as (Playlist & { sharedWithMe: boolean; canEdit: boolean })[] | undefined;
 
   // Fetch smart playlists
   const { data: smartPlaylists } = useQuery({
@@ -1327,9 +1329,19 @@ function DraggablePlaylistGridCard({
         isSelectionMode={isSelectionMode}
         onSelect={onSelect}
         onPlay={onPlay}
-        dropdownMenu={<PlaylistDropdownMenu playlist={playlist} />}
+        dropdownMenu={
+          <PlaylistDropdownMenu
+            playlist={playlist}
+            sharedWithMe={(playlist as { sharedWithMe?: boolean }).sharedWithMe}
+            canEdit={(playlist as { canEdit?: boolean }).canEdit}
+          />
+        }
         contextMenu={(children) => (
-          <PlaylistContextMenu playlist={playlist}>
+          <PlaylistContextMenu
+            playlist={playlist}
+            sharedWithMe={(playlist as { sharedWithMe?: boolean }).sharedWithMe}
+            canEdit={(playlist as { canEdit?: boolean }).canEdit}
+          >
             {children}
           </PlaylistContextMenu>
         )}
@@ -1403,9 +1415,20 @@ function DraggablePlaylistListRow({
         isSelectionMode={isSelectionMode}
         onSelect={onSelect}
         onPlay={onPlay}
-        actions={<PlaylistDropdownMenu playlist={playlist} inline />}
+        actions={
+          <PlaylistDropdownMenu
+            playlist={playlist}
+            sharedWithMe={(playlist as { sharedWithMe?: boolean }).sharedWithMe}
+            canEdit={(playlist as { canEdit?: boolean }).canEdit}
+            inline
+          />
+        }
         contextMenu={(children) => (
-          <PlaylistContextMenu playlist={playlist}>
+          <PlaylistContextMenu
+            playlist={playlist}
+            sharedWithMe={(playlist as { sharedWithMe?: boolean }).sharedWithMe}
+            canEdit={(playlist as { canEdit?: boolean }).canEdit}
+          >
             {children}
           </PlaylistContextMenu>
         )}

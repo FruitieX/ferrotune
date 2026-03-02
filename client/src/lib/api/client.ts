@@ -114,6 +114,9 @@ import type { TaggerPendingEditsResponse } from "./generated/TaggerPendingEditsR
 import type { TaggerScriptsResponse } from "./generated/TaggerScriptsResponse";
 import type { TaggerScriptData } from "./generated/TaggerScriptData";
 import type { SongPlaylistsResponse } from "./generated/SongPlaylistsResponse";
+import type { ShareableUsersResponse } from "./generated/ShareableUsersResponse";
+import type { PlaylistSharesResponse } from "./generated/PlaylistSharesResponse";
+import type { ShareEntry } from "./generated/ShareEntry";
 import type { ServerFeatures } from "./generated/ServerFeatures";
 import type { ReplacementAudioUploadResponse } from "./generated/ReplacementAudioUploadResponse";
 import type { SetupStatusResponse } from "./generated/SetupStatusResponse";
@@ -600,6 +603,30 @@ export class FerrotuneClient {
     await this.request(`/ferrotune/playlists/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
+  }
+
+  async getShareableUsers(): Promise<ShareableUsersResponse> {
+    return this.request("/ferrotune/users/shareable");
+  }
+
+  async getPlaylistShares(playlistId: string): Promise<PlaylistSharesResponse> {
+    return this.request(
+      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/shares`,
+    );
+  }
+
+  async setPlaylistShares(
+    playlistId: string,
+    shares: ShareEntry[],
+  ): Promise<PlaylistSharesResponse> {
+    return this.request(
+      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/shares`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shares }),
+      },
+    );
   }
 
   /**

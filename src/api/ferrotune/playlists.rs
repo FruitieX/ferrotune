@@ -35,7 +35,7 @@ pub struct PlaylistFolderResponse {
 }
 
 /// A playlist in the folder response.
-#[derive(Debug, Serialize, sqlx::FromRow, TS)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct PlaylistInFolder {
@@ -49,6 +49,15 @@ pub struct PlaylistInFolder {
     /// Total duration of all songs in the playlist (seconds)
     #[ts(type = "number")]
     pub duration: i64,
+    /// Owner username (present for shared playlists)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    /// Whether this playlist was shared with the current user
+    #[serde(default)]
+    pub shared_with_me: bool,
+    /// Whether the current user can edit this shared playlist
+    #[serde(default)]
+    pub can_edit: bool,
 }
 
 /// Response containing all folders and playlists.
@@ -79,8 +88,19 @@ pub async fn get_playlist_folders(
     .fetch_all(&state.pool)
     .await?;
 
-    // Get playlists with folder info
-    let playlists: Vec<PlaylistInFolder> = sqlx::query_as(
+    // Helper struct for SQL query
+    #[derive(sqlx::FromRow)]
+    struct PlaylistRow {
+        id: String,
+        name: String,
+        folder_id: Option<String>,
+        position: i64,
+        song_count: i64,
+        duration: i64,
+    }
+
+    // Get user's own playlists
+    let owned_rows: Vec<PlaylistRow> = sqlx::query_as(
         r#"
         SELECT p.id, p.name, p.folder_id, p.position, p.song_count,
                COALESCE((
@@ -97,6 +117,66 @@ pub async fn get_playlist_folders(
     .bind(user.user_id)
     .fetch_all(&state.pool)
     .await?;
+
+    let mut playlists: Vec<PlaylistInFolder> = owned_rows
+        .into_iter()
+        .map(|r| PlaylistInFolder {
+            id: r.id,
+            name: r.name,
+            folder_id: r.folder_id,
+            position: r.position,
+            song_count: r.song_count,
+            duration: r.duration,
+            owner: None,
+            shared_with_me: false,
+            can_edit: true,
+        })
+        .collect();
+
+    // Get playlists shared with this user
+    #[derive(sqlx::FromRow)]
+    struct SharedPlaylistRow {
+        id: String,
+        name: String,
+        song_count: i64,
+        duration: i64,
+        owner_name: String,
+        can_edit: bool,
+    }
+
+    let shared_rows: Vec<SharedPlaylistRow> = sqlx::query_as(
+        r#"
+        SELECT p.id, p.name, p.song_count,
+               COALESCE((
+                   SELECT SUM(s.duration)
+                   FROM playlist_songs ps2
+                   JOIN songs s ON s.id = ps2.song_id
+                   WHERE ps2.playlist_id = p.id
+               ), 0) as duration,
+               u.username as owner_name,
+               psh.can_edit
+        FROM playlists p
+        JOIN playlist_shares psh ON psh.playlist_id = p.id
+        JOIN users u ON u.id = p.owner_id
+        WHERE psh.shared_with_user_id = ?
+        ORDER BY p.name COLLATE NOCASE
+        "#,
+    )
+    .bind(user.user_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    playlists.extend(shared_rows.into_iter().map(|r| PlaylistInFolder {
+        id: r.id,
+        name: r.name,
+        folder_id: None, // Shared playlists appear at root
+        position: 0,
+        song_count: r.song_count,
+        duration: r.duration,
+        owner: Some(r.owner_name),
+        shared_with_me: true,
+        can_edit: r.can_edit,
+    }));
 
     Ok(Json(PlaylistFoldersResponse { folders, playlists }))
 }
@@ -412,15 +492,22 @@ pub async fn reorder_playlist_songs(
     Path(playlist_id): Path<String>,
     Json(request): Json<ReorderPlaylistRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
-    // Check playlist exists and belongs to user
-    let playlist: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
-            .bind(&playlist_id)
-            .bind(user.user_id)
-            .fetch_optional(&state.pool)
-            .await?;
+    use crate::api::common::playlist_access::get_playlist_access;
 
-    if playlist.is_none() {
+    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
+
+    let access = get_playlist_access(
+        &state.pool,
+        user.user_id,
+        playlist.owner_id,
+        &playlist_id,
+        playlist.is_public,
+    )
+    .await?;
+
+    if !access.can_edit {
         return Err(Error::NotFound("Playlist not found".to_string()).into());
     }
 
@@ -503,15 +590,22 @@ pub async fn match_missing_entry(
     Path(playlist_id): Path<String>,
     Json(request): Json<MatchMissingEntryRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
-    // Check playlist exists and belongs to user
-    let playlist: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
-            .bind(&playlist_id)
-            .bind(user.user_id)
-            .fetch_optional(&state.pool)
-            .await?;
+    use crate::api::common::playlist_access::get_playlist_access;
 
-    if playlist.is_none() {
+    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
+
+    let access = get_playlist_access(
+        &state.pool,
+        user.user_id,
+        playlist.owner_id,
+        &playlist_id,
+        playlist.is_public,
+    )
+    .await?;
+
+    if !access.can_edit {
         return Err(Error::NotFound("Playlist not found".to_string()).into());
     }
 
@@ -577,15 +671,22 @@ pub async fn unmatch_entry(
     Path(playlist_id): Path<String>,
     Json(request): Json<UnmatchEntryRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
-    // Check playlist exists and belongs to user
-    let playlist: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
-            .bind(&playlist_id)
-            .bind(user.user_id)
-            .fetch_optional(&state.pool)
-            .await?;
+    use crate::api::common::playlist_access::get_playlist_access;
 
-    if playlist.is_none() {
+    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
+
+    let access = get_playlist_access(
+        &state.pool,
+        user.user_id,
+        playlist.owner_id,
+        &playlist_id,
+        playlist.is_public,
+    )
+    .await?;
+
+    if !access.can_edit {
         return Err(Error::NotFound("Playlist not found".to_string()).into());
     }
 
@@ -665,15 +766,22 @@ pub async fn batch_match_entries(
     Path(playlist_id): Path<String>,
     Json(request): Json<BatchMatchEntriesRequest>,
 ) -> FerrotuneApiResult<Json<BatchMatchEntriesResponse>> {
-    // Check playlist exists and belongs to user
-    let playlist: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
-            .bind(&playlist_id)
-            .bind(user.user_id)
-            .fetch_optional(&state.pool)
-            .await?;
+    use crate::api::common::playlist_access::get_playlist_access;
 
-    if playlist.is_none() {
+    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
+
+    let access = get_playlist_access(
+        &state.pool,
+        user.user_id,
+        playlist.owner_id,
+        &playlist_id,
+        playlist.is_public,
+    )
+    .await?;
+
+    if !access.can_edit {
         return Err(Error::NotFound("Playlist not found".to_string()).into());
     }
 
@@ -713,17 +821,24 @@ pub async fn move_playlist_entry(
     Path(playlist_id): Path<String>,
     Json(request): Json<MovePlaylistEntryRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
+    use crate::api::common::playlist_access::get_playlist_access;
+
     let to_pos = request.to_position as i64;
 
-    // Check playlist exists and belongs to user
-    let playlist: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
-            .bind(&playlist_id)
-            .bind(user.user_id)
-            .fetch_optional(&state.pool)
-            .await?;
+    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
-    if playlist.is_none() {
+    let access = get_playlist_access(
+        &state.pool,
+        user.user_id,
+        playlist.owner_id,
+        &playlist_id,
+        playlist.is_public,
+    )
+    .await?;
+
+    if !access.can_edit {
         return Err(Error::NotFound("Playlist not found".to_string()).into());
     }
 
@@ -1080,6 +1195,12 @@ pub struct PlaylistSongsResponse {
     /// Cover art ID
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
+    /// Whether this playlist was shared with the current user
+    #[serde(default)]
+    pub shared_with_me: bool,
+    /// Whether the current user can edit this playlist
+    #[serde(default)]
+    pub can_edit: bool,
     /// Entries in the requested page (interleaved songs and missing entries)
     pub entries: Vec<PlaylistSongEntry>,
 }
@@ -1098,17 +1219,25 @@ pub async fn get_playlist_songs(
     axum::extract::Query(params): axum::extract::Query<GetPlaylistSongsParams>,
 ) -> FerrotuneApiResult<Json<PlaylistSongsResponse>> {
     use crate::api::common::browse::song_to_response_with_stats;
+    use crate::api::common::playlist_access::get_playlist_access;
     use crate::db::models::MissingEntryData;
 
-    // Get playlist metadata
     // Get playlist metadata
     let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
         .await?
         .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
-    // Check access: user must own playlist or it must be public
-    // Check access: user must own playlist or it must be public
-    if playlist.owner_id != user.user_id && !playlist.is_public {
+    // Check access using shared helper
+    let access = get_playlist_access(
+        &state.pool,
+        user.user_id,
+        playlist.owner_id,
+        &playlist_id,
+        playlist.is_public,
+    )
+    .await?;
+
+    if !access.can_read {
         return Err(Error::Forbidden("Not authorized to access this playlist".to_string()).into());
     }
 
@@ -1596,11 +1725,21 @@ pub async fn get_playlist_songs(
         None
     };
 
+    // Get owner username for shared playlists
+    let owner_name = if access.is_owner {
+        user.username.clone()
+    } else {
+        sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = ?")
+            .bind(playlist.owner_id)
+            .fetch_one(&state.pool)
+            .await?
+    };
+
     Ok(Json(PlaylistSongsResponse {
         id: playlist.id,
         name: playlist.name,
         comment: playlist.comment,
-        owner: user.username.clone(),
+        owner: owner_name,
         public: playlist.is_public,
         total_entries,
         matched_count,
@@ -1610,6 +1749,8 @@ pub async fn get_playlist_songs(
         created: format_datetime_iso_ms(playlist.created_at),
         changed: format_datetime_iso_ms(playlist.updated_at),
         cover_art,
+        shared_with_me: !access.is_owner,
+        can_edit: access.can_edit,
         entries,
     }))
 }
@@ -1624,14 +1765,53 @@ pub struct UpdatePlaylistRequest {
     pub public: Option<bool>,
 }
 
-/// Update a playlist's metadata.
-pub async fn update_playlist(
+// ============================================================================
+// Playlist sharing types and endpoints
+// ============================================================================
+
+/// A single playlist share entry in the response.
+#[derive(Debug, Serialize, sqlx::FromRow, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PlaylistShareResponse {
+    #[ts(type = "number")]
+    pub user_id: i64,
+    pub username: String,
+    pub can_edit: bool,
+}
+
+/// Response containing all shares for a playlist.
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct PlaylistSharesResponse {
+    pub shares: Vec<PlaylistShareResponse>,
+}
+
+/// A single share entry in the set-shares request.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ShareEntry {
+    #[ts(type = "number")]
+    pub user_id: i64,
+    pub can_edit: bool,
+}
+
+/// Request to set all shares for a playlist (replace-all semantics).
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct SetPlaylistSharesRequest {
+    pub shares: Vec<ShareEntry>,
+}
+
+/// GET /ferrotune/playlists/{id}/shares - Get all shares for a playlist (owner only).
+pub async fn get_playlist_shares(
     State(state): State<Arc<AppState>>,
     user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
-    Json(request): Json<UpdatePlaylistRequest>,
-) -> FerrotuneApiResult<Json<PlaylistSongsResponse>> {
-    // Check playlist exists and belongs to user
+) -> FerrotuneApiResult<Json<PlaylistSharesResponse>> {
     let playlist: Option<(String, i64)> =
         sqlx::query_as("SELECT id, owner_id FROM playlists WHERE id = ?")
             .bind(&playlist_id)
@@ -1643,6 +1823,135 @@ pub async fn update_playlist(
     };
 
     if owner_id != user.user_id {
+        return Err(Error::Forbidden(
+            "Not authorized to manage shares for this playlist".to_string(),
+        )
+        .into());
+    }
+
+    let shares: Vec<PlaylistShareResponse> = sqlx::query_as(
+        r#"
+        SELECT ps.shared_with_user_id as user_id, u.username, ps.can_edit
+        FROM playlist_shares ps
+        JOIN users u ON u.id = ps.shared_with_user_id
+        WHERE ps.playlist_id = ?
+        ORDER BY u.username COLLATE NOCASE
+        "#,
+    )
+    .bind(&playlist_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    Ok(Json(PlaylistSharesResponse { shares }))
+}
+
+/// PUT /ferrotune/playlists/{id}/shares - Set all shares for a playlist (owner only).
+pub async fn set_playlist_shares(
+    State(state): State<Arc<AppState>>,
+    user: FerrotuneAuthenticatedUser,
+    Path(playlist_id): Path<String>,
+    Json(request): Json<SetPlaylistSharesRequest>,
+) -> FerrotuneApiResult<Json<PlaylistSharesResponse>> {
+    let playlist: Option<(String, i64)> =
+        sqlx::query_as("SELECT id, owner_id FROM playlists WHERE id = ?")
+            .bind(&playlist_id)
+            .fetch_optional(&state.pool)
+            .await?;
+
+    let Some((_, owner_id)) = playlist else {
+        return Err(Error::NotFound("Playlist not found".to_string()).into());
+    };
+
+    if owner_id != user.user_id {
+        return Err(Error::Forbidden(
+            "Not authorized to manage shares for this playlist".to_string(),
+        )
+        .into());
+    }
+
+    // Cannot share with yourself
+    if request.shares.iter().any(|s| s.user_id == user.user_id) {
+        return Err(
+            Error::InvalidRequest("Cannot share a playlist with yourself".to_string()).into(),
+        );
+    }
+
+    // Validate all user IDs exist
+    for share in &request.shares {
+        let user_exists: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE id = ?")
+            .bind(share.user_id)
+            .fetch_optional(&state.pool)
+            .await?;
+        if user_exists.is_none() {
+            return Err(
+                Error::InvalidRequest(format!("User with id {} not found", share.user_id)).into(),
+            );
+        }
+    }
+
+    let mut tx = state.pool.begin().await?;
+
+    // Delete all existing shares
+    sqlx::query("DELETE FROM playlist_shares WHERE playlist_id = ?")
+        .bind(&playlist_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // Insert new shares
+    for share in &request.shares {
+        sqlx::query(
+            "INSERT INTO playlist_shares (playlist_id, shared_with_user_id, can_edit) VALUES (?, ?, ?)",
+        )
+        .bind(&playlist_id)
+        .bind(share.user_id)
+        .bind(share.can_edit)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    // Return the updated shares
+    let shares: Vec<PlaylistShareResponse> = sqlx::query_as(
+        r#"
+        SELECT ps.shared_with_user_id as user_id, u.username, ps.can_edit
+        FROM playlist_shares ps
+        JOIN users u ON u.id = ps.shared_with_user_id
+        WHERE ps.playlist_id = ?
+        ORDER BY u.username COLLATE NOCASE
+        "#,
+    )
+    .bind(&playlist_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    Ok(Json(PlaylistSharesResponse { shares }))
+}
+
+/// Update a playlist's metadata.
+pub async fn update_playlist(
+    State(state): State<Arc<AppState>>,
+    user: FerrotuneAuthenticatedUser,
+    Path(playlist_id): Path<String>,
+    Json(request): Json<UpdatePlaylistRequest>,
+) -> FerrotuneApiResult<Json<PlaylistSongsResponse>> {
+    use crate::api::common::playlist_access::get_playlist_access;
+
+    // Check playlist exists
+    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
+
+    let access = get_playlist_access(
+        &state.pool,
+        user.user_id,
+        playlist.owner_id,
+        &playlist_id,
+        playlist.is_public,
+    )
+    .await?;
+
+    if !access.can_edit {
         return Err(Error::Forbidden("Not authorized to update this playlist".to_string()).into());
     }
 
@@ -1688,11 +1997,21 @@ pub async fn update_playlist(
         .await?
         .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
+    // Get owner username for shared playlists
+    let owner_name = if access.is_owner {
+        user.username.clone()
+    } else {
+        sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = ?")
+            .bind(updated_playlist.owner_id)
+            .fetch_one(&state.pool)
+            .await?
+    };
+
     Ok(Json(PlaylistSongsResponse {
         id: updated_playlist.id.clone(),
         name: updated_playlist.name,
         comment: updated_playlist.comment,
-        owner: user.username.clone(),
+        owner: owner_name,
         public: updated_playlist.is_public,
         total_entries: updated_playlist.song_count,
         matched_count: 0, // Approximate/not calculated here
@@ -1706,6 +2025,8 @@ pub async fn update_playlist(
         } else {
             None
         },
+        shared_with_me: !access.is_owner,
+        can_edit: access.can_edit,
         entries: vec![], // Return empty entries to signal only metadata update
     }))
 }
@@ -1755,20 +2076,23 @@ pub async fn add_playlist_songs(
     Path(playlist_id): Path<String>,
     Json(request): Json<AddPlaylistSongsRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
+    use crate::api::common::playlist_access::get_playlist_access;
     use crate::db::queries::{add_entries_to_playlist, PlaylistEntry};
 
-    // Check playlist exists and belongs to user
-    let playlist: Option<(String, i64)> =
-        sqlx::query_as("SELECT id, owner_id FROM playlists WHERE id = ?")
-            .bind(&playlist_id)
-            .fetch_optional(&state.pool)
-            .await?;
+    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
-    let Some((_, owner_id)) = playlist else {
-        return Err(Error::NotFound("Playlist not found".to_string()).into());
-    };
+    let access = get_playlist_access(
+        &state.pool,
+        user.user_id,
+        playlist.owner_id,
+        &playlist_id,
+        playlist.is_public,
+    )
+    .await?;
 
-    if owner_id != user.user_id {
+    if !access.can_edit {
         return Err(Error::Forbidden("Not authorized to modify this playlist".to_string()).into());
     }
 
@@ -1807,18 +2131,22 @@ pub async fn remove_playlist_songs(
     Path(playlist_id): Path<String>,
     Json(request): Json<RemovePlaylistSongsRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
-    // Check playlist exists and belongs to user
-    let playlist: Option<(String, i64)> =
-        sqlx::query_as("SELECT id, owner_id FROM playlists WHERE id = ?")
-            .bind(&playlist_id)
-            .fetch_optional(&state.pool)
-            .await?;
+    use crate::api::common::playlist_access::get_playlist_access;
 
-    let Some((_, owner_id)) = playlist else {
-        return Err(Error::NotFound("Playlist not found".to_string()).into());
-    };
+    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
 
-    if owner_id != user.user_id {
+    let access = get_playlist_access(
+        &state.pool,
+        user.user_id,
+        playlist.owner_id,
+        &playlist_id,
+        playlist.is_public,
+    )
+    .await?;
+
+    if !access.can_edit {
         return Err(Error::Forbidden("Not authorized to modify this playlist".to_string()).into());
     }
 

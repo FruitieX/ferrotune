@@ -225,8 +225,18 @@ pub async fn get_playlist(
         .map_err(|e| Error::Internal(e.to_string()))?
         .ok_or_else(|| Error::NotFound(format!("Playlist not found: {}", id)))?;
 
-    // Check access: user must own playlist or it must be public
-    if playlist.owner_id != user.user_id && !playlist.is_public {
+    // Check access: user must own playlist, it must be public, or shared with user
+    let access = crate::api::common::playlist_access::get_playlist_access(
+        &state.pool,
+        user.user_id,
+        playlist.owner_id,
+        &id,
+        playlist.is_public,
+    )
+    .await
+    .map_err(|e| Error::Internal(e.to_string()))?;
+
+    if !access.can_read {
         return Err(Error::Forbidden(
             "Not authorized to access this playlist".to_string(),
         ));
@@ -464,8 +474,18 @@ pub async fn update_playlist(
         .map_err(|e| Error::Internal(e.to_string()))?
         .ok_or_else(|| Error::NotFound(format!("Playlist not found: {}", playlist_id)))?;
 
-    // Check ownership
-    if playlist.owner_id != user.user_id {
+    // Check edit access (owner or shared with can_edit)
+    let access = crate::api::common::playlist_access::get_playlist_access(
+        &state.pool,
+        user.user_id,
+        playlist.owner_id,
+        playlist_id,
+        playlist.is_public,
+    )
+    .await
+    .map_err(|e| Error::Internal(e.to_string()))?;
+
+    if !access.can_edit {
         return Err(Error::Forbidden(
             "Not authorized to modify this playlist".to_string(),
         ));

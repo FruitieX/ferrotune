@@ -57,14 +57,22 @@ interface PlaylistContextMenuProps {
   playlist: Playlist;
   /** Current folder ID (from API), or pass undefined to auto-detect from foldersData */
   currentFolderId?: string | null;
+  /** Whether this playlist was shared with the current user (not owned) */
+  sharedWithMe?: boolean;
+  /** Whether the current user can edit this shared playlist */
+  canEdit?: boolean;
   children: React.ReactNode;
 }
 
 export function PlaylistContextMenu({
   playlist,
   currentFolderId: externalFolderId,
+  sharedWithMe = false,
+  canEdit = false,
   children,
 }: PlaylistContextMenuProps) {
+  const isOwner = !sharedWithMe;
+  const canModify = isOwner || canEdit;
   const queryClient = useQueryClient();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -215,65 +223,76 @@ export function PlaylistContextMenu({
         <ListEnd className="w-4 h-4 mr-2" />
         Add to Queue
       </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuSub>
-        <ContextMenuSubTrigger>
-          <FolderInput className="w-4 h-4 mr-2" />
-          Move to
-        </ContextMenuSubTrigger>
-        <ContextMenuSubContent className="w-48">
-          {/* Move to root option */}
-          <ContextMenuItem
-            onClick={() => movePlaylist.mutate(null)}
-            disabled={
-              currentFolderId === null ||
-              currentFolderId === undefined ||
-              movePlaylist.isPending
-            }
-          >
-            <Home className="w-4 h-4 mr-2" />
-            Root
-            {(currentFolderId === null || currentFolderId === undefined) && (
-              <span className="ml-auto text-xs text-muted-foreground">
-                Current
-              </span>
-            )}
-          </ContextMenuItem>
-          {folders.length > 0 && <ContextMenuSeparator />}
-          {/* Folder options */}
-          {folders.map((folder) => (
+      {(canModify || isOwner) && <ContextMenuSeparator />}
+      {isOwner && (
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            <FolderInput className="w-4 h-4 mr-2" />
+            Move to
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className="w-48">
+            {/* Move to root option */}
             <ContextMenuItem
-              key={folder.id}
-              onClick={() => movePlaylist.mutate(folder.id)}
-              disabled={currentFolderId === folder.id || movePlaylist.isPending}
+              onClick={() => movePlaylist.mutate(null)}
+              disabled={
+                currentFolderId === null ||
+                currentFolderId === undefined ||
+                movePlaylist.isPending
+              }
             >
-              <Folder className="w-4 h-4 mr-2" />
-              <span className="truncate">{folder.name}</span>
-              {currentFolderId === folder.id && (
+              <Home className="w-4 h-4 mr-2" />
+              Root
+              {(currentFolderId === null || currentFolderId === undefined) && (
                 <span className="ml-auto text-xs text-muted-foreground">
                   Current
                 </span>
               )}
             </ContextMenuItem>
-          ))}
-          {folders.length === 0 && currentFolderId != null && (
-            <ContextMenuItem disabled className="text-muted-foreground text-xs">
-              No other folders
-            </ContextMenuItem>
-          )}
-        </ContextMenuSubContent>
-      </ContextMenuSub>
-      <ContextMenuItem onClick={() => setEditDialogOpen(true)}>
-        <Pencil className="w-4 h-4 mr-2" />
-        Edit Playlist
-      </ContextMenuItem>
-      <ContextMenuItem
-        onClick={() => setDeleteDialogOpen(true)}
-        className="text-destructive focus:text-destructive"
-      >
-        <Trash2 className="w-4 h-4 mr-2" />
-        Delete Playlist
-      </ContextMenuItem>
+            {folders.length > 0 && <ContextMenuSeparator />}
+            {/* Folder options */}
+            {folders.map((folder) => (
+              <ContextMenuItem
+                key={folder.id}
+                onClick={() => movePlaylist.mutate(folder.id)}
+                disabled={
+                  currentFolderId === folder.id || movePlaylist.isPending
+                }
+              >
+                <Folder className="w-4 h-4 mr-2" />
+                <span className="truncate">{folder.name}</span>
+                {currentFolderId === folder.id && (
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    Current
+                  </span>
+                )}
+              </ContextMenuItem>
+            ))}
+            {folders.length === 0 && currentFolderId != null && (
+              <ContextMenuItem
+                disabled
+                className="text-muted-foreground text-xs"
+              >
+                No other folders
+              </ContextMenuItem>
+            )}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+      )}
+      {canModify && (
+        <ContextMenuItem onClick={() => setEditDialogOpen(true)}>
+          <Pencil className="w-4 h-4 mr-2" />
+          Edit Playlist
+        </ContextMenuItem>
+      )}
+      {isOwner && (
+        <ContextMenuItem
+          onClick={() => setDeleteDialogOpen(true)}
+          className="text-destructive focus:text-destructive"
+        >
+          <Trash2 className="w-4 h-4 mr-2" />
+          Delete Playlist
+        </ContextMenuItem>
+      )}
     </>
   );
 
@@ -289,32 +308,37 @@ export function PlaylistContextMenu({
         </ContextMenuContent>
       </ContextMenu>
 
-      <EditPlaylistDialog
-        playlist={{ ...playlist, comment: playlist.comment ?? undefined }}
-        open={editDialogOpen}
-        onOpenChange={setEditDialogOpen}
-      />
+      {canModify && (
+        <EditPlaylistDialog
+          playlist={{ ...playlist, comment: playlist.comment ?? undefined }}
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          isOwner={isOwner}
+        />
+      )}
 
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Playlist</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete &quot;{playlist.name}&quot;? This
-              action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {isOwner && (
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Playlist</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete &quot;{playlist.name}&quot;?
+                This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDelete}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </>
   );
 }
@@ -323,13 +347,21 @@ export function PlaylistContextMenu({
 export function PlaylistDropdownMenu({
   playlist,
   currentFolderId: externalFolderId,
+  sharedWithMe = false,
+  canEdit = false,
   inline = false,
 }: {
   playlist: Playlist;
   /** Current folder ID (from API), or pass undefined to auto-detect from foldersData */
   currentFolderId?: string | null;
+  /** Whether this playlist was shared with the current user (not owned) */
+  sharedWithMe?: boolean;
+  /** Whether the current user can edit this shared playlist */
+  canEdit?: boolean;
   inline?: boolean;
 }) {
+  const isOwner = !sharedWithMe;
+  const canModify = isOwner || canEdit;
   const queryClient = useQueryClient();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -504,100 +536,111 @@ export function PlaylistDropdownMenu({
             <ListEnd className="w-4 h-4 mr-2" />
             Add to Queue
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <FolderInput className="w-4 h-4 mr-2" />
-              Move to
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-48">
-              {/* Move to root option */}
-              <DropdownMenuItem
-                onClick={() => movePlaylist.mutate(null)}
-                disabled={
-                  currentFolderId === null ||
-                  currentFolderId === undefined ||
-                  movePlaylist.isPending
-                }
-              >
-                <Home className="w-4 h-4 mr-2" />
-                Root
-                {(currentFolderId === null ||
-                  currentFolderId === undefined) && (
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    Current
-                  </span>
-                )}
-              </DropdownMenuItem>
-              {folders.length > 0 && <DropdownMenuSeparator />}
-              {/* Folder options */}
-              {folders.map((folder) => (
+          {(canModify || isOwner) && <DropdownMenuSeparator />}
+          {isOwner && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <FolderInput className="w-4 h-4 mr-2" />
+                Move to
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-48">
+                {/* Move to root option */}
                 <DropdownMenuItem
-                  key={folder.id}
-                  onClick={() => movePlaylist.mutate(folder.id)}
+                  onClick={() => movePlaylist.mutate(null)}
                   disabled={
-                    currentFolderId === folder.id || movePlaylist.isPending
+                    currentFolderId === null ||
+                    currentFolderId === undefined ||
+                    movePlaylist.isPending
                   }
                 >
-                  <Folder className="w-4 h-4 mr-2" />
-                  <span className="truncate">{folder.name}</span>
-                  {currentFolderId === folder.id && (
+                  <Home className="w-4 h-4 mr-2" />
+                  Root
+                  {(currentFolderId === null ||
+                    currentFolderId === undefined) && (
                     <span className="ml-auto text-xs text-muted-foreground">
                       Current
                     </span>
                   )}
                 </DropdownMenuItem>
-              ))}
-              {folders.length === 0 && currentFolderId != null && (
-                <DropdownMenuItem
-                  disabled
-                  className="text-muted-foreground text-xs"
-                >
-                  No other folders
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
-            <Pencil className="w-4 h-4 mr-2" />
-            Edit Playlist
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => setDeleteDialogOpen(true)}
-            className="text-destructive focus:text-destructive"
-          >
-            <Trash2 className="w-4 h-4 mr-2" />
-            Delete Playlist
-          </DropdownMenuItem>
+                {folders.length > 0 && <DropdownMenuSeparator />}
+                {/* Folder options */}
+                {folders.map((folder) => (
+                  <DropdownMenuItem
+                    key={folder.id}
+                    onClick={() => movePlaylist.mutate(folder.id)}
+                    disabled={
+                      currentFolderId === folder.id || movePlaylist.isPending
+                    }
+                  >
+                    <Folder className="w-4 h-4 mr-2" />
+                    <span className="truncate">{folder.name}</span>
+                    {currentFolderId === folder.id && (
+                      <span className="ml-auto text-xs text-muted-foreground">
+                        Current
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                ))}
+                {folders.length === 0 && currentFolderId != null && (
+                  <DropdownMenuItem
+                    disabled
+                    className="text-muted-foreground text-xs"
+                  >
+                    No other folders
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
+          {canModify && (
+            <DropdownMenuItem onClick={() => setEditDialogOpen(true)}>
+              <Pencil className="w-4 h-4 mr-2" />
+              Edit Playlist
+            </DropdownMenuItem>
+          )}
+          {isOwner && (
+            <DropdownMenuItem
+              onClick={() => setDeleteDialogOpen(true)}
+              className="text-destructive focus:text-destructive"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete Playlist
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <EditPlaylistDialog
-        playlist={{ ...playlist, comment: playlist.comment ?? undefined }}
-        open={editDialogOpen}
-        onOpenChange={setEditDialogOpen}
-      />
+      {canModify && (
+        <EditPlaylistDialog
+          playlist={{ ...playlist, comment: playlist.comment ?? undefined }}
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          isOwner={isOwner}
+        />
+      )}
 
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Playlist</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete &quot;{playlist.name}&quot;? This
-              action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {isOwner && (
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Playlist</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete &quot;{playlist.name}&quot;?
+                This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDelete}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </>
   );
 }

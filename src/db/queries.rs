@@ -545,8 +545,10 @@ pub async fn get_playlists_for_user(
     sqlx::query_as::<_, Playlist>(
         "SELECT * FROM playlists 
          WHERE owner_id = ? OR is_public = 1
+            OR id IN (SELECT playlist_id FROM playlist_shares WHERE shared_with_user_id = ?)
          ORDER BY name COLLATE NOCASE",
     )
+    .bind(user_id)
     .bind(user_id)
     .fetch_all(pool)
     .await

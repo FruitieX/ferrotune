@@ -242,6 +242,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(playlists::move_playlist_entry),
         )
         .route(
+            "/ferrotune/playlists/{id}/shares",
+            get(playlists::get_playlist_shares).put(playlists::set_playlist_shares),
+        )
+        .route(
             "/ferrotune/playlists/{id}/songs",
             get(playlists::get_playlist_songs)
                 .post(playlists::add_playlist_songs)
@@ -396,6 +400,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/queue/repeat", post(queue::update_repeat_mode))
         // User management endpoints (admin only)
         .route("/ferrotune/users/me", get(users::get_current_user))
+        .route(
+            "/ferrotune/users/shareable",
+            get(users::list_shareable_users),
+        )
         .route(
             "/ferrotune/users",
             get(users::list_users).post(users::create_user),

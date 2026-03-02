@@ -152,6 +152,24 @@ pub struct ApiKeysResponse {
     pub api_keys: Vec<ApiKeyInfo>,
 }
 
+/// Minimal user info for sharing UI (available to all authenticated users)
+#[derive(Debug, Serialize, sqlx::FromRow, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ShareableUser {
+    #[ts(type = "number")]
+    pub id: i64,
+    pub username: String,
+}
+
+/// Response containing shareable users
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ShareableUsersResponse {
+    pub users: Vec<ShareableUser>,
+}
+
 // ============================================================================
 // Helper: Check admin permission
 // ============================================================================
@@ -166,6 +184,21 @@ pub(crate) fn require_admin(user: &FerrotuneAuthenticatedUser) -> FerrotuneApiRe
 // ============================================================================
 // User CRUD Endpoints
 // ============================================================================
+
+/// GET /ferrotune/users/shareable - List users available for sharing (any authenticated user)
+pub async fn list_shareable_users(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+) -> FerrotuneApiResult<Json<ShareableUsersResponse>> {
+    let users: Vec<ShareableUser> = sqlx::query_as(
+        "SELECT id, username FROM users WHERE id != ? ORDER BY username COLLATE NOCASE",
+    )
+    .bind(user.user_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    Ok(Json(ShareableUsersResponse { users }))
+}
 
 /// GET /ferrotune/users/me - Get current user info (any authenticated user)
 pub async fn get_current_user(

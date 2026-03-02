@@ -36,6 +36,8 @@ export interface PlaylistMetadata {
   created: string;
   changed: string;
   coverArt: string | null;
+  sharedWithMe: boolean;
+  canEdit: boolean;
 }
 
 /**
@@ -200,6 +202,8 @@ export function usePlaylistSparsePagination({
             created: firstResponse.created,
             changed: firstResponse.changed,
             coverArt: firstResponse.coverArt,
+            sharedWithMe: firstResponse.sharedWithMe,
+            canEdit: firstResponse.canEdit,
           });
         }
 
