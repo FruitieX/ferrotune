@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { useAtom, useSetAtom } from "jotai";
-import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { User, LogOut, UserPlus, Check, X } from "lucide-react";
 import {
@@ -21,7 +20,6 @@ import { initializeClient } from "@/lib/api/client";
 
 export function AccountMenuItems() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [connection, setConnection] = useAtom(serverConnectionAtom);
   const [savedAccounts, setSavedAccounts] = useAtom(savedAccountsAtom);
   const setConnectionStatus = useSetAtom(connectionStatusAtom);
@@ -40,8 +38,6 @@ export function AccountMenuItems() {
 
       setConnection(account);
       setConnectionStatus("connected");
-
-      queryClient.clear();
 
       toast.success(`Switched to ${accountLabel(account)}`);
     } catch {
@@ -62,7 +58,6 @@ export function AccountMenuItems() {
 
   const handleLogout = () => {
     setConnection(null);
-    queryClient.clear();
     router.push("/login");
     toast.success("Logged out successfully");
   };

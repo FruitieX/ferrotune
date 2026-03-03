@@ -66,4 +66,61 @@ test.describe("Authentication", () => {
       page.getByText(/recently added|random|welcome/i),
     ).toBeVisible();
   });
+
+  test("switching accounts refetches sidebar data", async ({ page, server }) => {
+    await login(page, {
+      serverUrl: server.url,
+      username: server.username,
+      password: server.password,
+    });
+
+    await page.evaluate(() => {
+      const connection = JSON.parse(
+        localStorage.getItem("ferrotune-connection") || "null",
+      );
+      if (!connection) {
+        throw new Error("Missing active connection in localStorage");
+      }
+
+      localStorage.setItem(
+        "ferrotune-saved-accounts",
+        JSON.stringify([
+          connection,
+          {
+            ...connection,
+            serverUrl: `${connection.serverUrl}/`,
+            label: "Secondary account",
+          },
+        ]),
+      );
+    });
+
+    await page.reload();
+
+    await page.getByRole("button", { name: /testadmin@/i }).click();
+
+    const sidebarRefetch = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.status() === 200 &&
+        response.url().includes("/ferrotune/playlist-folders"),
+    );
+
+    await page
+      .getByRole("menuitem", { name: /secondary account/i })
+      .click();
+
+    await sidebarRefetch;
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const connection = JSON.parse(
+            localStorage.getItem("ferrotune-connection") || "null",
+          );
+          return connection?.serverUrl || "";
+        }),
+      )
+      .toMatch(/\/$/);
+  });
 });

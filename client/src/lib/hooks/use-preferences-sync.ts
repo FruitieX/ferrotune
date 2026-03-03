@@ -5,6 +5,7 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getClient } from "@/lib/api/client";
 import {
+  accountKey,
   serverConnectionAtom,
   isClientInitializedAtom,
 } from "@/lib/store/auth";
@@ -40,6 +41,7 @@ const CUSTOM_COLOR_DEBOUNCE_MS = 500;
 export function usePreferencesSync() {
   const queryClient = useQueryClient();
   const connection = useAtomValue(serverConnectionAtom);
+  const currentAccountKey = connection ? accountKey(connection) : null;
   const isClientInitialized = useAtomValue(isClientInitializedAtom);
   const [accentColor, setAccentColor] = useAtom(accentColorAtom);
   const [customHue, setCustomHue] = useAtom(customAccentHueAtom);
@@ -52,6 +54,7 @@ export function usePreferencesSync() {
 
   // Track if we're currently applying server values to prevent feedback loops
   const isApplyingServerValues = useRef(false);
+  const previousAccountKeyRef = useRef<string | null | undefined>(undefined);
   // Track if we've already loaded preferences for this session - use state so it can be read during render
   const [hasLoadedFromServer, setHasLoadedFromServer] = useState(false);
 
@@ -68,13 +71,14 @@ export function usePreferencesSync() {
 
   // Query to fetch preferences from server
   const { data: serverPreferences, isSuccess } = useQuery<PreferencesResponse>({
-    queryKey: ["preferences"],
+    queryKey: ["preferences", currentAccountKey],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       return client.getPreferences();
     },
-    enabled: isClientInitialized && !hasLoadedFromServer,
+    enabled:
+      isClientInitialized && !hasLoadedFromServer && currentAccountKey !== null,
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 30 * 60 * 1000, // 30 minutes
     retry: 1,
@@ -89,7 +93,9 @@ export function usePreferencesSync() {
     },
     onSuccess: (data) => {
       // Update cache with new values
-      queryClient.setQueryData(["preferences"], data);
+      if (currentAccountKey !== null) {
+        queryClient.setQueryData(["preferences", currentAccountKey], data);
+      }
     },
     onError: (error) => {
       // Silently fail - preferences are still stored locally
@@ -161,18 +167,27 @@ export function usePreferencesSync() {
     });
   };
 
-  // Reset loaded state when connection changes (user logs out/in)
+  // Reset loaded state whenever account identity changes.
   useEffect(() => {
-    if (!connection) {
-      // Schedule state reset to avoid synchronous setState in effect
-      const timeoutId = setTimeout(() => {
-        setHasLoadedFromServer(false);
-        setPreferencesLoaded(false);
-        resetServerPreferences();
-      }, 0);
-      return () => clearTimeout(timeoutId);
+    if (previousAccountKeyRef.current === undefined) {
+      previousAccountKeyRef.current = currentAccountKey;
+      return;
     }
-  }, [connection, setPreferencesLoaded]);
+
+    if (previousAccountKeyRef.current === currentAccountKey) {
+      return;
+    }
+
+    previousAccountKeyRef.current = currentAccountKey;
+    const timeoutId = setTimeout(() => {
+      setHasLoadedFromServer(false);
+      setPreferencesLoaded(false);
+      setServerPreferencesLoaded(false);
+      resetServerPreferences();
+    }, 0);
+
+    return () => clearTimeout(timeoutId);
+  }, [currentAccountKey, setPreferencesLoaded, setServerPreferencesLoaded]);
 
   return {
     syncToServer,

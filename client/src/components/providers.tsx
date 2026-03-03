@@ -1,10 +1,14 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Provider as JotaiProvider, useAtomValue } from "jotai";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useAudioEngineInit, useMediaSession } from "@/lib/audio/hooks";
 import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
 import { useDocumentTitle } from "@/lib/hooks/use-document-title";
@@ -21,6 +25,8 @@ import {
   customAccentChromaAtom,
   queuePanelOpenAtom,
 } from "@/lib/store/ui";
+import { accountKey, serverConnectionAtom } from "@/lib/store/auth";
+import { resetQueriesForAccountSwitch } from "@/lib/api/cache-invalidation";
 import { needsDarkForeground } from "@/lib/utils/color";
 
 // Component that handles clearing selection on navigation
@@ -88,6 +94,29 @@ function AccentColorProvider({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function QueryCacheResetOnAccountSwitch() {
+  const queryClient = useQueryClient();
+  const connection = useAtomValue(serverConnectionAtom);
+  const currentAccountKey = connection ? accountKey(connection) : null;
+  const previousAccountKeyRef = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (previousAccountKeyRef.current === undefined) {
+      previousAccountKeyRef.current = currentAccountKey;
+      return;
+    }
+
+    if (previousAccountKeyRef.current === currentAccountKey) {
+      return;
+    }
+
+    previousAccountKeyRef.current = currentAccountKey;
+    void resetQueriesForAccountSwitch(queryClient);
+  }, [currentAccountKey, queryClient]);
+
+  return null;
+}
+
 // Toaster with dynamic positioning based on queue panel state
 function ResponsiveToaster() {
   const _queueOpen = useAtomValue(queuePanelOpenAtom);
@@ -122,6 +151,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <JotaiProvider>
       <QueryClientProvider client={queryClient}>
+        <QueryCacheResetOnAccountSwitch />
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"

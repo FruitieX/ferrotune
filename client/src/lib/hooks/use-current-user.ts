@@ -4,7 +4,12 @@ import { useEffect } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { useQuery } from "@tanstack/react-query";
 import { getClient } from "@/lib/api/client";
-import { isConnectedAtom, isHydratedAtom } from "@/lib/store/auth";
+import {
+  accountKey,
+  isConnectedAtom,
+  isHydratedAtom,
+  serverConnectionAtom,
+} from "@/lib/store/auth";
 import { currentUserAtom, isCurrentUserAdminAtom } from "@/lib/store/user";
 
 /**
@@ -14,17 +19,19 @@ import { currentUserAtom, isCurrentUserAdminAtom } from "@/lib/store/user";
 export function useCurrentUser() {
   const isHydrated = useAtomValue(isHydratedAtom);
   const isConnected = useAtomValue(isConnectedAtom);
+  const connection = useAtomValue(serverConnectionAtom);
   const [currentUser, setCurrentUser] = useAtom(currentUserAtom);
   const isAdmin = useAtomValue(isCurrentUserAdminAtom);
+  const currentAccountKey = connection ? accountKey(connection) : null;
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["currentUser"],
+    queryKey: ["currentUser", currentAccountKey],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       return client.getCurrentUser();
     },
-    enabled: isHydrated && isConnected,
+    enabled: isHydrated && isConnected && currentAccountKey !== null,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   });
 
@@ -35,12 +42,10 @@ export function useCurrentUser() {
     }
   }, [data, setCurrentUser]);
 
-  // Clear current user when disconnected
+  // Clear stale user info immediately when account identity changes.
   useEffect(() => {
-    if (!isConnected) {
-      setCurrentUser(null);
-    }
-  }, [isConnected, setCurrentUser]);
+    setCurrentUser(null);
+  }, [currentAccountKey, setCurrentUser]);
 
   return {
     user: currentUser,
