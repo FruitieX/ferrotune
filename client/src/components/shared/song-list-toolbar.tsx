@@ -68,6 +68,7 @@ const sortOptions: { value: SortField; label: string }[] = [
 ];
 
 const columnOptions: { key: keyof ColumnVisibility; label: string }[] = [
+  { key: "trackNumber", label: "Track Number" },
   { key: "artist", label: "Artist" },
   { key: "album", label: "Album" },
   { key: "duration", label: "Duration" },

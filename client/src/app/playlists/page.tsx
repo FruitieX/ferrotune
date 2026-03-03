@@ -1108,7 +1108,7 @@ function DroppableFolderGridCard({
           ) : (
             <Folder
               className={cn(
-                "w-16 h-16 text-amber-500",
+                "w-1/3 h-1/3 text-amber-500",
                 isOver && "text-emerald-500",
               )}
             />

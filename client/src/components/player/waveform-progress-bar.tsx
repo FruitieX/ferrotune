@@ -163,13 +163,31 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const bufferedPercent =
     effectiveDuration > 0 ? (buffered / effectiveDuration) * 100 : 0;
 
-  // Ensure buffers are correctly sized
+  // Ensure buffers are correctly sized - resample existing data on resize
   useEffect(() => {
     const a = anim.current;
     if (!a.heights || a.heights.length !== displayBarCount) {
-      a.heights = new Float32Array(displayBarCount).fill(FLAT_BAR_HEIGHT);
-      a.incoming = new Float32Array(displayBarCount).fill(FLAT_BAR_HEIGHT);
-      a.outgoing = new Float32Array(displayBarCount).fill(FLAT_BAR_HEIGHT);
+      const resample = (
+        src: Float32Array | null,
+        newSize: number,
+      ): Float32Array => {
+        if (!src || src.length === 0) {
+          return new Float32Array(newSize).fill(FLAT_BAR_HEIGHT);
+        }
+        const result = new Float32Array(newSize);
+        const ratio = src.length / newSize;
+        for (let i = 0; i < newSize; i++) {
+          const srcIdx = i * ratio;
+          const lo = Math.floor(srcIdx);
+          const hi = Math.min(lo + 1, src.length - 1);
+          const frac = srcIdx - lo;
+          result[i] = src[lo] * (1 - frac) + src[hi] * frac;
+        }
+        return result;
+      };
+      a.heights = resample(a.heights, displayBarCount);
+      a.incoming = resample(a.incoming, displayBarCount);
+      a.outgoing = resample(a.outgoing, displayBarCount);
     }
   }, [displayBarCount]);
 

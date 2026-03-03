@@ -2472,6 +2472,9 @@ pub async fn save_pending_edits(
             let mut original_tags_for_replacement: Option<Vec<super::tags::TagEntry>> = None;
             let mut original_cover_for_replacement: Option<(Vec<u8>, String)> = None;
 
+            // Track if audio was replaced with a different format (e.g. .opus -> .mp3)
+            let mut replaced_ext: Option<String> = None;
+
             // Handle replacement audio if present
             if let Some(ref replacement_filename) = pending.replacement_audio_filename {
                 let replacement_dir = get_replacement_audio_dir(&user.username);
@@ -2587,6 +2590,11 @@ pub async fn save_pending_edits(
 
                                     // Update working path
                                     working_path = target_path.clone();
+
+                                    // Track the new extension for the rename block
+                                    if new_ext != old_ext {
+                                        replaced_ext = Some(new_ext.clone());
+                                    }
 
                                     // Update database path if extension changed
                                     if new_ext != old_ext {
@@ -2762,12 +2770,31 @@ pub async fn save_pending_edits(
                 .cloned()
                 .or(pending.computed_path.clone());
 
-            if let Some(ref new_rel_path) = new_relative_path {
+            if let Some(new_rel_path) = new_relative_path {
+                // If audio was replaced with a different format, update the extension
+                // in the rename path (computed_path was calculated before replacement)
+                let new_rel_path = if let Some(ref ext) = replaced_ext {
+                    if let Some(pos) = new_rel_path.rfind('.') {
+                        format!("{}.{}", &new_rel_path[..pos], ext)
+                    } else {
+                        new_rel_path
+                    }
+                } else {
+                    new_rel_path
+                };
+
+                // Compare against the current DB path (which may have been updated
+                // by audio replacement) rather than the stale song.file_path
+                let current_rel_path = working_path
+                    .strip_prefix(&folder)
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|_| song.file_path.clone());
+
                 // Only rename if path actually changed
-                if new_rel_path != &song.file_path {
+                if new_rel_path != current_rel_path {
                     rescan_recommended = true;
 
-                    let new_path = folder.join(new_rel_path);
+                    let new_path = folder.join(&new_rel_path);
 
                     // Security check: ensure new path is still within the music folder
                     match new_path.canonicalize().or_else(|_| {
@@ -2813,8 +2840,9 @@ pub async fn save_pending_edits(
                         }
                     }
 
-                    // Move the file (with cross-filesystem support)
-                    if let Err(e) = move_file_cross_fs(&current_path, &new_path).await {
+                    // Move the file (use working_path which reflects the actual
+                    // file location after audio replacement)
+                    if let Err(e) = move_file_cross_fs(&working_path, &new_path).await {
                         errors.push(SessionSaveError {
                             track_id: track_id.clone(),
                             error: format!("Failed to move file: {}", e),
@@ -2822,12 +2850,27 @@ pub async fn save_pending_edits(
                         continue;
                     }
 
-                    // Update database path
-                    if let Err(e) =
-                        queries::update_song_path(&state.pool, track_id, new_rel_path).await
-                    {
+                    // Update database path (and format if audio was replaced)
+                    let db_result = if replaced_ext.is_some() {
+                        let ext = working_path
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .unwrap_or("")
+                            .to_lowercase();
+                        queries::update_song_path_and_format(
+                            &state.pool,
+                            track_id,
+                            &new_rel_path,
+                            &ext,
+                        )
+                        .await
+                    } else {
+                        queries::update_song_path(&state.pool, track_id, &new_rel_path).await
+                    };
+
+                    if let Err(e) = db_result {
                         // Try to move back on failure
-                        let _ = move_file_cross_fs(&new_path, &current_path).await;
+                        let _ = move_file_cross_fs(&new_path, &working_path).await;
                         errors.push(SessionSaveError {
                             track_id: track_id.clone(),
                             error: format!("Failed to update database: {}", e),
@@ -3420,6 +3463,9 @@ async fn save_single_track(
 
         let mut working_path = current_path.clone();
 
+        // Track if audio was replaced with a different format (e.g. .opus -> .mp3)
+        let mut replaced_ext: Option<String> = None;
+
         // Handle replacement audio if present
         // Note: For library tracks, pending is always Some (checked above)
         let pending_ref = pending.as_ref().unwrap();
@@ -3512,15 +3558,23 @@ async fn save_single_track(
 
                 working_path = target_path.clone();
 
-                // Update database path if extension changed
+                // Update database path and format if extension changed
                 if new_ext != old_ext {
+                    replaced_ext = Some(new_ext.clone());
                     let new_rel_path = if let Some(ext_pos) = song.file_path.rfind('.') {
                         format!("{}.{}", &song.file_path[..ext_pos], new_ext)
                     } else {
                         format!("{}.{}", song.file_path, new_ext)
                     };
 
-                    if let Err(e) = queries::update_song_path(pool, track_id, &new_rel_path).await {
+                    if let Err(e) = queries::update_song_path_and_format(
+                        pool,
+                        track_id,
+                        &new_rel_path,
+                        &new_ext,
+                    )
+                    .await
+                    {
                         tracing::warn!("Failed to update song path in DB: {}", e);
                     }
                 }
@@ -3605,30 +3659,61 @@ async fn save_single_track(
             .cloned()
             .or(pending_ref.computed_path.clone())
         {
-            let new_path = folder.join(&new_rel_path);
+            // If audio was replaced with a different format, update the extension
+            // in the rename path (computed_path was calculated before replacement)
+            let new_rel_path = if let Some(ref ext) = replaced_ext {
+                if let Some(pos) = new_rel_path.rfind('.') {
+                    format!("{}.{}", &new_rel_path[..pos], ext)
+                } else {
+                    new_rel_path
+                }
+            } else {
+                new_rel_path
+            };
 
-            // Security check
-            if !new_path.starts_with(&folder) {
-                return Err("New path must be within music folder".to_string());
-            }
+            // Compare against the current working path rather than stale song.file_path
+            let current_rel_path = working_path
+                .strip_prefix(&folder)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| song.file_path.clone());
 
-            // Create parent directories
-            if let Some(parent) = new_path.parent() {
-                fs::create_dir_all(parent)
+            if new_rel_path != current_rel_path {
+                let new_path = folder.join(&new_rel_path);
+
+                // Security check
+                if !new_path.starts_with(&folder) {
+                    return Err("New path must be within music folder".to_string());
+                }
+
+                // Create parent directories
+                if let Some(parent) = new_path.parent() {
+                    fs::create_dir_all(parent)
+                        .await
+                        .map_err(|e| format!("Failed to create directory: {}", e))?;
+                }
+
+                // Move the file
+                move_file_cross_fs(&working_path, &new_path)
                     .await
-                    .map_err(|e| format!("Failed to create directory: {}", e))?;
-            }
+                    .map_err(|e| format!("Failed to move file: {}", e))?;
 
-            // Move the file
-            move_file_cross_fs(&working_path, &new_path)
-                .await
-                .map_err(|e| format!("Failed to move file: {}", e))?;
+                // Update database path (and format if audio was replaced)
+                let db_result = if replaced_ext.is_some() {
+                    let ext = working_path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    queries::update_song_path_and_format(pool, track_id, &new_rel_path, &ext).await
+                } else {
+                    queries::update_song_path(pool, track_id, &new_rel_path).await
+                };
 
-            // Update database path
-            if let Err(e) = queries::update_song_path(pool, track_id, &new_rel_path).await {
-                // Try to rollback
-                let _ = move_file_cross_fs(&new_path, &working_path).await;
-                return Err(format!("Failed to update database: {}", e));
+                if let Err(e) = db_result {
+                    // Try to rollback
+                    let _ = move_file_cross_fs(&new_path, &working_path).await;
+                    return Err(format!("Failed to update database: {}", e));
+                }
             }
         }
 

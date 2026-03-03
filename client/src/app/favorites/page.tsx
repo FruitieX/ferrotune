@@ -761,7 +761,7 @@ export default function FavoritesPage() {
                     renderItem={(song, index) => (
                       <SongRow
                         song={song}
-                        index={index}
+                        index={columnVisibility.trackNumber ? index : undefined}
                         showCover
                         inlineImagesRequested
                         showAlbum={columnVisibility.album}
@@ -864,6 +864,8 @@ export default function FavoritesPage() {
                       showYear={albumColumnVisibility.year}
                       showSongCount={albumColumnVisibility.songCount}
                       showDuration={albumColumnVisibility.duration}
+                      showGenre={albumColumnVisibility.genre}
+                      showStarred={albumColumnVisibility.starred}
                     />
                   )}
                   renderSkeleton={() => <MediaRowSkeleton showIndex />}
@@ -942,6 +944,8 @@ export default function FavoritesPage() {
                       isSelectionMode={artistSelection.hasSelection}
                       onSelect={artistSelection.handleSelect}
                       showAlbumCount={artistColumnVisibility.albumCount}
+                      showSongCount={artistColumnVisibility.songCount}
+                      showStarred={artistColumnVisibility.starred}
                     />
                   )}
                   renderSkeleton={() => <MediaRowSkeleton showIndex />}

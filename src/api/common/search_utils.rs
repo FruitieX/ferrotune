@@ -44,6 +44,7 @@ pub async fn post_process_artists(
             id: artist.id.clone(),
             name: artist.name,
             album_count: Some(artist.album_count),
+            song_count: Some(artist.song_count),
             cover_art: Some(artist.id.clone()),
             cover_art_data: artist_thumbnails.get(&artist.id).cloned(),
             starred: artist_starred.get(&artist.id).cloned(),

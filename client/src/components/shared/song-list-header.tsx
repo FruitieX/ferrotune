@@ -76,13 +76,14 @@ function SortableHeader({
  */
 export function SongListHeader({
   columnVisibility,
-  showIndex = true,
+  showIndex: showIndexProp,
   showCover = false,
   stickyTop = "72px",
   className,
   sortConfig,
   onSortChange,
 }: SongListHeaderProps) {
+  const showIndex = showIndexProp ?? columnVisibility.trackNumber;
   const handleSort = (field: SortField) => {
     if (!onSortChange) return;
     if (sortConfig?.field === field) {
@@ -99,7 +100,7 @@ export function SongListHeader({
     <div
       className={cn(
         "sticky z-10 bg-background/95 backdrop-blur-sm border-b border-border",
-        "flex items-center gap-3 px-3 py-2 h-8",
+        "flex items-center gap-4 px-4 pr-6 py-2 h-8 border-l-2 border-l-transparent",
         stickyTop === "120px" ? "top-[120px]" : "top-[72px]",
         className,
       )}
@@ -125,9 +126,6 @@ export function SongListHeader({
           onSort={handleSort}
         />
       </div>
-
-      {/* Actions placeholder - reserve space for action buttons on hover */}
-      <div className="w-[88px] shrink-0" />
 
       {/* Right content columns - match SongRow widths */}
       <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground shrink-0">
@@ -253,7 +251,7 @@ export function FilesListHeader({
     <div
       className={cn(
         "sticky z-10 bg-background/95 backdrop-blur-sm border-b border-border",
-        "flex items-center gap-3 px-3 py-2 h-8",
+        "flex items-center gap-4 px-4 pr-6 py-2 h-8 border-l-2 border-l-transparent",
         stickyTop === "120px" ? "top-[120px]" : "top-[72px]",
         className,
       )}
@@ -313,7 +311,7 @@ export function AlbumListHeader({
     <div
       className={cn(
         "sticky z-10 bg-background/95 backdrop-blur-sm border-b border-border",
-        "flex items-center gap-3 px-3 py-2 h-8",
+        "flex items-center gap-4 px-4 pr-6 py-2 h-8 border-l-2 border-l-transparent",
         stickyTop === "120px" ? "top-[120px]" : "top-[72px]",
         className,
       )}
@@ -333,17 +331,20 @@ export function AlbumListHeader({
         Album
       </div>
 
-      {/* Actions placeholder */}
-      <div className="w-[88px] shrink-0" />
-
       {/* Right content columns - match AlbumCardCompact widths */}
       <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground shrink-0">
+        {columnVisibility.starred && (
+          <span className="w-8 text-center">Fav</span>
+        )}
+        {columnVisibility.genre && (
+          <span className="w-24 text-right">Genre</span>
+        )}
         {columnVisibility.year && <span className="w-12 text-right">Year</span>}
         {columnVisibility.songCount && (
           <span className="w-12 text-right">Songs</span>
         )}
         {columnVisibility.duration && (
-          <span className="w-12 text-right">Time</span>
+          <span className="w-16 text-right">Time</span>
         )}
       </div>
     </div>
@@ -379,7 +380,7 @@ export function ArtistListHeader({
     <div
       className={cn(
         "sticky z-10 bg-background/95 backdrop-blur-sm border-b border-border",
-        "flex items-center gap-3 px-3 py-2 h-8",
+        "flex items-center gap-4 px-4 pr-6 py-2 h-8 border-l-2 border-l-transparent",
         stickyTop === "120px" ? "top-[120px]" : "top-[72px]",
         className,
       )}
@@ -399,11 +400,14 @@ export function ArtistListHeader({
         Artist
       </div>
 
-      {/* Actions placeholder */}
-      <div className="w-[88px] shrink-0" />
-
       {/* Right content columns - match ArtistCardCompact widths */}
       <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground shrink-0">
+        {columnVisibility.starred && (
+          <span className="w-8 text-center">Fav</span>
+        )}
+        {columnVisibility.songCount && (
+          <span className="w-12 text-right">Songs</span>
+        )}
         {columnVisibility.albumCount && (
           <span className="w-12 text-right">Albums</span>
         )}

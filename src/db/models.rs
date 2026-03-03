@@ -34,6 +34,7 @@ pub struct Artist {
     pub name: String,
     pub sort_name: Option<String>,
     pub album_count: i64,
+    pub song_count: i64,
     pub cover_art_hash: Option<String>,
 }
 

@@ -15,6 +15,9 @@ pub struct ArtistResponse {
     #[ts(type = "number | null")]
     pub album_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
+    pub song_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
     /// Base64-encoded JPEG thumbnail (Ferrotune extension, when inlineImages is requested)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -148,6 +151,9 @@ pub struct ArtistDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(type = "number | null")]
     pub album_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
+    pub song_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_art: Option<String>,
     /// Base64-encoded JPEG thumbnail (Ferrotune extension, when inlineImages is requested)

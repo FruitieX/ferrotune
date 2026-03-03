@@ -398,8 +398,8 @@ export function FolderDropdownMenu({
             size="icon"
             className={
               inline
-                ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                : "h-8 w-8 absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto"
+                : "h-8 w-8 absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto"
             }
             onClick={(e) => {
               e.preventDefault();

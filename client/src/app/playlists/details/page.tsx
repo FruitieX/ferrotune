@@ -1241,7 +1241,11 @@ function PlaylistDetailContent() {
                   return (
                     <SongRow
                       song={songItem.song}
-                      index={songItem.position}
+                      index={
+                        columnVisibility.trackNumber
+                          ? songItem.position
+                          : undefined
+                      }
                       showCover
                       inlineImagesRequested
                       showArtist={columnVisibility.artist}

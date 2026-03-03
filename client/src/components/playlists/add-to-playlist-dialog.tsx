@@ -309,7 +309,7 @@ export function AddToPlaylistDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-[400px] p-0 gap-0">
+        <DialogContent className="sm:max-w-[480px] p-0 gap-0 overflow-hidden">
           <DialogHeader className="px-4 pt-4 pb-2">
             <DialogTitle className="flex items-center gap-2">
               <ListMusic className="w-5 h-5" />

@@ -107,6 +107,7 @@ export const librarySortAtom = atomWithServerStorage<SortConfig>(
 
 // Library column visibility
 export interface ColumnVisibility {
+  trackNumber: boolean;
   artist: boolean;
   album: boolean;
   duration: boolean;
@@ -124,6 +125,7 @@ export interface ColumnVisibility {
 export const columnVisibilityAtom = atomWithServerStorage<ColumnVisibility>(
   "column-visibility",
   {
+    trackNumber: true,
     artist: true,
     album: true,
     duration: true,
@@ -192,6 +194,7 @@ export const playlistSortAtom = atomWithServerStorage<SortConfig>(
 );
 export const playlistColumnVisibilityAtom =
   atomWithServerStorage<ColumnVisibility>("playlist-columns", {
+    trackNumber: true,
     artist: true,
     album: true,
     duration: true,
@@ -225,6 +228,8 @@ export interface AlbumColumnVisibility {
   year: boolean;
   songCount: boolean;
   duration: boolean;
+  genre: boolean;
+  starred: boolean;
 }
 
 export const favoritesAlbumColumnVisibilityAtom =
@@ -233,6 +238,8 @@ export const favoritesAlbumColumnVisibilityAtom =
     year: true,
     songCount: true,
     duration: true,
+    genre: false,
+    starred: false,
   });
 
 // Favorites artists view settings
@@ -251,11 +258,15 @@ export const favoritesArtistSortAtom = atomWithServerStorage<SortConfig>(
 // Artist column visibility for favorites
 export interface ArtistColumnVisibility {
   albumCount: boolean;
+  songCount: boolean;
+  starred: boolean;
 }
 
 export const favoritesArtistColumnVisibilityAtom =
   atomWithServerStorage<ArtistColumnVisibility>("favorites-artist-columns", {
     albumCount: true,
+    songCount: false,
+    starred: false,
   });
 
 // Library album column visibility (for albums list view)
@@ -265,12 +276,16 @@ export const libraryAlbumColumnVisibilityAtom =
     year: true,
     songCount: true,
     duration: false,
+    genre: false,
+    starred: false,
   });
 
 // Library artist column visibility (for artists list view)
 export const libraryArtistColumnVisibilityAtom =
   atomWithServerStorage<ArtistColumnVisibility>("library-artist-columns", {
     albumCount: true,
+    songCount: false,
+    starred: false,
   });
 
 // Album details view settings (for album songs list)
@@ -287,6 +302,7 @@ export const albumDetailSortAtom = atomWithServerStorage<SortConfig>(
 );
 export const albumDetailColumnVisibilityAtom =
   atomWithServerStorage<ColumnVisibility>("album-detail-columns", {
+    trackNumber: true,
     artist: false, // Album typically has same artist
     album: false, // Already on album page
     duration: true,
@@ -315,6 +331,7 @@ export const artistDetailSortAtom = atomWithServerStorage<SortConfig>(
 );
 export const artistDetailColumnVisibilityAtom =
   atomWithServerStorage<ColumnVisibility>("artist-detail-columns", {
+    trackNumber: true,
     artist: false, // Already on artist page
     album: true,
     duration: true,
@@ -343,6 +360,7 @@ export const genreDetailSortAtom = atomWithServerStorage<SortConfig>(
 );
 export const genreDetailColumnVisibilityAtom =
   atomWithServerStorage<ColumnVisibility>("genre-detail-columns", {
+    trackNumber: true,
     artist: true,
     album: true,
     duration: true,

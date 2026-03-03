@@ -1,6 +1,6 @@
 "use client";
 
-import { Users } from "lucide-react";
+import { Users, Heart, HeartOff } from "lucide-react";
 import type { Artist } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { useStarredArtist } from "@/lib/store/starred";
@@ -57,7 +57,7 @@ export function ArtistCard({
       coverArtData={artist.coverArtData}
       title={artist.name}
       titleIcon={defaultArtistIcon}
-      subtitle={formatCount(artist.albumCount ?? 0, "album")}
+      subtitle={`${formatCount(artist.albumCount ?? 0, "album")} · ${formatCount(artist.songCount ?? 0, "song")}`}
       href={`/library/artists/details?id=${artist.id}`}
       coverShape="circle"
       colorSeed={artist.name}
@@ -97,6 +97,8 @@ interface ArtistCardCompactProps {
   className?: string;
   /** Column visibility settings */
   showAlbumCount?: boolean;
+  showSongCount?: boolean;
+  showStarred?: boolean;
 }
 
 export function ArtistCardCompact({
@@ -108,6 +110,8 @@ export function ArtistCardCompact({
   onSelect,
   className,
   showAlbumCount = true,
+  showSongCount = false,
+  showStarred = false,
 }: ArtistCardCompactProps) {
   const { isStarred, toggleStar } = useStarredArtist(
     artist.id,
@@ -131,11 +135,14 @@ export function ArtistCardCompact({
       coverArt={coverArtUrl}
       coverArtData={artist.coverArtData}
       title={artist.name}
-      subtitle={
-        showAlbumCount
-          ? formatCount(artist.albumCount ?? 0, "album")
-          : undefined
-      }
+      subtitle={(() => {
+        const parts: string[] = [];
+        if (!showAlbumCount)
+          parts.push(formatCount(artist.albumCount ?? 0, "album"));
+        if (!showSongCount)
+          parts.push(formatCount(artist.songCount ?? 0, "song"));
+        return parts.length > 0 ? parts.join(" · ") : undefined;
+      })()}
       href={`/library/artists/details?id=${artist.id}`}
       coverShape="circle"
       colorSeed={artist.name}
@@ -163,10 +170,28 @@ export function ArtistCardCompact({
         />
       }
       rightContent={
-        showAlbumCount ? (
-          <span className="text-sm text-muted-foreground tabular-nums w-12 text-right shrink-0">
-            {artist.albumCount}
-          </span>
+        showAlbumCount || showSongCount || showStarred ? (
+          <div className="flex items-center gap-4">
+            {showStarred && (
+              <span className="w-8 text-center shrink-0">
+                {isStarred ? (
+                  <Heart className="w-3.5 h-3.5 text-red-500 fill-red-500 inline" />
+                ) : (
+                  <HeartOff className="w-3.5 h-3.5 text-muted-foreground/40 inline" />
+                )}
+              </span>
+            )}
+            {showSongCount && (
+              <span className="text-sm text-muted-foreground tabular-nums w-12 text-right shrink-0">
+                {artist.songCount ?? "—"}
+              </span>
+            )}
+            {showAlbumCount && (
+              <span className="text-sm text-muted-foreground tabular-nums w-12 text-right shrink-0">
+                {artist.albumCount ?? "—"}
+              </span>
+            )}
+          </div>
         ) : undefined
       }
       className={className}

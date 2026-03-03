@@ -1554,10 +1554,11 @@ async fn resolve_missing_songs(
     .execute(&mut *tx)
     .await?;
 
-    // Update artist album counts
+    // Update artist album counts and song counts
     sqlx::query(
         "UPDATE artists SET 
-            album_count = (SELECT COUNT(DISTINCT album_id) FROM songs WHERE songs.artist_id = artists.id AND album_id IS NOT NULL)"
+            album_count = (SELECT COUNT(DISTINCT album_id) FROM songs WHERE songs.artist_id = artists.id AND album_id IS NOT NULL),
+            song_count = (SELECT COUNT(*) FROM songs WHERE songs.artist_id = artists.id)"
     )
     .execute(&mut *tx)
     .await?;
@@ -2098,12 +2099,14 @@ async fn upsert_song(
         .await?;
     }
 
-    // Update album artist's album count
+    // Update album artist's album count and song count
     sqlx::query(
         "UPDATE artists SET 
-            album_count = (SELECT COUNT(*) FROM albums WHERE artist_id = ?)
+            album_count = (SELECT COUNT(*) FROM albums WHERE artist_id = ?),
+            song_count = (SELECT COUNT(*) FROM songs WHERE artist_id = ?)
          WHERE id = ?",
     )
+    .bind(&album_artist_id)
     .bind(&album_artist_id)
     .bind(&album_artist_id)
     .execute(&mut *tx)

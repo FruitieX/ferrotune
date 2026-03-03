@@ -273,6 +273,8 @@ export default function ArtistsPage() {
                   isSelectionMode={hasSelection}
                   onSelect={handleSelect}
                   showAlbumCount={columnVisibility.albumCount}
+                  showSongCount={columnVisibility.songCount}
+                  showStarred={columnVisibility.starred}
                 />
               )}
               renderSkeleton={() => (

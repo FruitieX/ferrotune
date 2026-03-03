@@ -64,7 +64,10 @@ const albumColumnOptions: {
 const artistColumnOptions: {
   key: keyof ArtistColumnVisibility;
   label: string;
-}[] = [{ key: "albumCount", label: "Albums" }];
+}[] = [
+  { key: "albumCount", label: "Albums" },
+  { key: "songCount", label: "Songs" },
+];
 
 interface MediaListToolbarProps {
   // Filter

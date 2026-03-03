@@ -284,6 +284,8 @@ export default function AlbumsPage() {
                   showYear={columnVisibility.year}
                   showSongCount={columnVisibility.songCount}
                   showDuration={columnVisibility.duration}
+                  showGenre={columnVisibility.genre}
+                  showStarred={columnVisibility.starred}
                 />
               )}
               renderSkeleton={() => <MediaRowSkeleton showIndex />}

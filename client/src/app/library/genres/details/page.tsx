@@ -398,7 +398,7 @@ function GenreDetailContent() {
                   renderItem={(song, index) => (
                     <SongRow
                       song={song}
-                      index={index}
+                      index={columnVisibility.trackNumber ? index : undefined}
                       showCover
                       inlineImagesRequested
                       showArtist={columnVisibility.artist}

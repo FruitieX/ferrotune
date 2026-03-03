@@ -198,7 +198,7 @@ pub async fn create_music_folder(pool: &SqlitePool, name: &str, path: &str) -> s
 // Artist queries
 pub async fn get_artists(pool: &SqlitePool) -> sqlx::Result<Vec<Artist>> {
     sqlx::query_as::<_, Artist>(
-        "SELECT id, name, sort_name, album_count, cover_art_hash 
+        "SELECT id, name, sort_name, album_count, song_count, cover_art_hash 
          FROM artists 
          WHERE EXISTS (
              SELECT 1 FROM songs s 
@@ -213,7 +213,7 @@ pub async fn get_artists(pool: &SqlitePool) -> sqlx::Result<Vec<Artist>> {
 
 pub async fn get_artists_for_user(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<Artist>> {
     sqlx::query_as::<_, Artist>(
-        "SELECT id, name, sort_name, album_count, cover_art_hash
+        "SELECT id, name, sort_name, album_count, song_count, cover_art_hash
          FROM artists
          WHERE EXISTS (
              SELECT 1 FROM songs s

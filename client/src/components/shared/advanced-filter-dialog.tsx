@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import {
   AdvancedFilterBuilder,
   EMPTY_FILTERS,
+  createDefaultCondition,
   filtersToSearchParams,
   type AdvancedFilters as RuleBasedFilters,
   type FilterCondition,
@@ -295,7 +296,12 @@ export function AdvancedFilterDialog({
 
   const handleOpen = () => {
     // Sync local filters from flat filters when opening
-    setLocalFilters(flatToRules(flatFilters));
+    const filters = flatToRules(flatFilters);
+    // Pre-add an empty filter row if empty so the user doesn't have to click "Add Rule" first
+    if (filters.conditions.length === 0) {
+      filters.conditions.push(createDefaultCondition());
+    }
+    setLocalFilters(filters);
     setOpen(true);
   };
 
@@ -303,7 +309,11 @@ export function AdvancedFilterDialog({
   const handleOpenChange = (value: boolean) => {
     if (value && isControlled) {
       // Sync local filters when opening in controlled mode
-      setLocalFilters(flatToRules(flatFilters));
+      const filters = flatToRules(flatFilters);
+      if (filters.conditions.length === 0) {
+        filters.conditions.push(createDefaultCondition());
+      }
+      setLocalFilters(filters);
     }
     setOpen(value);
   };

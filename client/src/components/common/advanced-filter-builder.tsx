@@ -668,3 +668,18 @@ export const EMPTY_FILTERS: AdvancedFilters = {
   logic: "and",
   conditions: [],
 };
+
+/** Creates a default empty filter condition using the first available field */
+export function createDefaultCondition(
+  fields: FieldDefinition[] = DEFAULT_SONG_FIELDS,
+): FilterCondition {
+  const defaultField = fields[0]?.value ?? "artist";
+  const fieldType =
+    fields.find((f) => f.value === defaultField)?.type ?? "text";
+  return {
+    id: generateId(),
+    field: defaultField,
+    operator: OPERATORS[fieldType][0].value,
+    value: "",
+  };
+}

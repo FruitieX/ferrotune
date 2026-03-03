@@ -342,6 +342,7 @@ pub async fn fetch_starred_content(
                 id: artist.id.clone(),
                 name: artist.name,
                 album_count: Some(artist.album_count),
+                song_count: Some(artist.song_count),
                 cover_art: Some(artist.id.clone()),
                 cover_art_data: None,
                 starred: Some(format_datetime_iso(starred_at)),

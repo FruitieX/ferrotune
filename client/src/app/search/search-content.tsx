@@ -88,6 +88,9 @@ export function SearchPageContent() {
     }
   }, [debouncedQuery, router, addSearchHistory]);
 
+  // Search is active when we have a query long enough OR when advanced filters are set
+  const isSearchActive = debouncedQuery.length >= 2 || hasActiveFilters;
+
   // Search query for songs, albums, artists
   const {
     data: searchResults,
@@ -109,7 +112,7 @@ export function SearchPageContent() {
       });
       return response.searchResult3;
     },
-    enabled: isReady && debouncedQuery.length >= 2,
+    enabled: isReady && isSearchActive,
     refetchOnMount: "always",
   });
 
@@ -271,7 +274,7 @@ export function SearchPageContent() {
 
       {/* Content */}
       <div className="p-4 lg:p-6">
-        {!debouncedQuery ? (
+        {!isSearchActive && !debouncedQuery ? (
           searchHistory.length > 0 ? (
             <SearchHistory
               history={searchHistory}
@@ -284,7 +287,7 @@ export function SearchPageContent() {
           ) : (
             <EmptySearch />
           )
-        ) : debouncedQuery.length < 2 ? (
+        ) : !isSearchActive ? (
           <div className="py-20 text-center text-muted-foreground">
             Type at least 2 characters to search
           </div>

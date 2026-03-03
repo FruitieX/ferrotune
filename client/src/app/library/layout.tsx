@@ -102,12 +102,19 @@ const songColumnOptions: {
   key: keyof ColumnVisibility;
   label: string;
 }[] = [
+  { key: "trackNumber", label: "Track Number" },
   { key: "artist", label: "Artist" },
   { key: "album", label: "Album" },
   { key: "duration", label: "Duration" },
   { key: "playCount", label: "Play Count" },
   { key: "dateAdded", label: "Date Added" },
+  { key: "lastPlayed", label: "Last Played" },
   { key: "year", label: "Year" },
+  { key: "starred", label: "Favorited" },
+  { key: "genre", label: "Genre" },
+  { key: "bitRate", label: "Bit Rate" },
+  { key: "format", label: "Format" },
+  { key: "rating", label: "Rating" },
 ];
 
 const albumColumnOptions: {
@@ -118,12 +125,17 @@ const albumColumnOptions: {
   { key: "year", label: "Year" },
   { key: "songCount", label: "Songs" },
   { key: "duration", label: "Duration" },
+  { key: "genre", label: "Genre" },
+  { key: "starred", label: "Favorited" },
 ];
 
 const artistColumnOptions: {
   key: keyof ArtistColumnVisibility;
   label: string;
-}[] = [{ key: "albumCount", label: "Albums" }];
+}[] = [
+  { key: "albumCount", label: "Albums" },
+  { key: "starred", label: "Favorited" },
+];
 
 const filesColumnOptions: {
   key: keyof import("@/lib/store/ui").FilesColumnVisibility;

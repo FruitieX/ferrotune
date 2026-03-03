@@ -90,6 +90,10 @@ test.describe("Mobile Tests", () => {
 
     // Verify queue has content
     await expect(queueSheet.getByText("First Song")).toBeVisible();
+
+    // Close the queue to avoid polluting subsequent tests via server preferences
+    await page.keyboard.press("Escape");
+    await expect(queueSheet).not.toBeVisible();
   });
 
   test("search page is accessible", async ({ authenticatedPage: page }) => {
@@ -100,6 +104,13 @@ test.describe("Mobile Tests", () => {
 
   test("can navigate to album detail", async ({ authenticatedPage: page }) => {
     await page.goto("/library/albums");
+
+    // Dismiss any overlays that might be open (e.g., queue panel from server preferences)
+    const queueDialog = page.getByRole("dialog", { name: /queue/i });
+    if (await queueDialog.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await page.keyboard.press("Escape");
+      await expect(queueDialog).not.toBeVisible();
+    }
 
     // On mobile, open the view options menu and switch to grid view
     const moreOptionsButton = page.getByRole("button", {
@@ -174,9 +185,16 @@ test.describe("Mobile Tests", () => {
     await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
     await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 
+    // Disable CSS animations: the context menu enter animation causes Playwright
+    // to wait for stability, during which a React re-render detaches the DOM nodes.
+    await page.addStyleTag({
+      content:
+        "*, *::before, *::after { animation-duration: 0s !important; transition-duration: 0s !important; }",
+    });
+
     const firstSongRow = page.locator('[data-testid="song-row"]').first();
 
-    // Right-click to open context menu (works even in mobile emulation with Playwright)
+    // Right-click to open context menu
     await firstSongRow.click({ button: "right" });
 
     const contextMenu = page.locator('[data-slot="context-menu-content"]');
@@ -186,8 +204,7 @@ test.describe("Mobile Tests", () => {
     const starItem = contextMenu.getByRole("menuitem", {
       name: /add to favorites/i,
     });
-    await expect(starItem).toBeVisible();
-    await starItem.click({ force: true });
+    await starItem.click();
 
     // Verify the context menu closed (star action succeeded)
     await expect(contextMenu).not.toBeVisible();

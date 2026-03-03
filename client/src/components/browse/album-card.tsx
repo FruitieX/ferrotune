@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Disc } from "lucide-react";
+import { Disc, Heart, HeartOff } from "lucide-react";
 import type { Album } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { useStarredAlbum } from "@/lib/store/starred";
@@ -114,6 +114,8 @@ interface AlbumCardCompactProps {
   showYear?: boolean;
   showSongCount?: boolean;
   showDuration?: boolean;
+  showGenre?: boolean;
+  showStarred?: boolean;
 }
 
 export function AlbumCardCompact({
@@ -128,6 +130,8 @@ export function AlbumCardCompact({
   showYear = false,
   showSongCount = false,
   showDuration = false,
+  showGenre = false,
+  showStarred = false,
 }: AlbumCardCompactProps) {
   const { isStarred, toggleStar } = useStarredAlbum(album.id, !!album.starred);
 
@@ -145,13 +149,35 @@ export function AlbumCardCompact({
 
   // Build metadata columns
   const metadataColumns = [];
-  if (showYear && album.year) {
+  if (showStarred) {
+    metadataColumns.push(
+      <span key="starred" className="w-8 text-center shrink-0">
+        {isStarred ? (
+          <Heart className="w-3.5 h-3.5 text-red-500 fill-red-500 inline" />
+        ) : (
+          <HeartOff className="w-3.5 h-3.5 text-muted-foreground/40 inline" />
+        )}
+      </span>,
+    );
+  }
+  if (showGenre) {
+    metadataColumns.push(
+      <span
+        key="genre"
+        className="text-sm text-muted-foreground w-24 text-right truncate shrink-0"
+        title={album.genre ?? undefined}
+      >
+        {album.genre ?? "—"}
+      </span>,
+    );
+  }
+  if (showYear) {
     metadataColumns.push(
       <span
         key="year"
         className="text-sm text-muted-foreground tabular-nums w-12 text-right shrink-0"
       >
-        {album.year}
+        {album.year ?? "\u2014"}
       </span>,
     );
   }
@@ -169,7 +195,7 @@ export function AlbumCardCompact({
     metadataColumns.push(
       <span
         key="duration"
-        className="text-sm text-muted-foreground tabular-nums w-14 text-right shrink-0"
+        className="text-sm text-muted-foreground tabular-nums w-16 text-right shrink-0"
       >
         {formatDuration(album.duration)}
       </span>,

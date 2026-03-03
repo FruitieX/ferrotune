@@ -398,7 +398,7 @@ function ArtistDetailContent() {
                   renderItem={(song, index) => (
                     <SongRow
                       song={song}
-                      index={index}
+                      index={columnVisibility.trackNumber ? index : undefined}
                       showCover
                       showArtist={columnVisibility.artist}
                       showAlbum={columnVisibility.album}

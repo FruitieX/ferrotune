@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useAtomValue, useSetAtom } from "jotai";
-import { Check, Shuffle, Ban, Star, StarOff, Music } from "lucide-react";
+import { Check, Shuffle, Ban, Heart, HeartOff, Music } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
@@ -395,9 +395,9 @@ export function SongRow({
             {showStarred && (
               <span className="w-8 text-center">
                 {isStarred ? (
-                  <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500 inline" />
+                  <Heart className="w-3.5 h-3.5 text-red-500 fill-red-500 inline" />
                 ) : (
-                  <StarOff className="w-3.5 h-3.5 text-muted-foreground/40 inline" />
+                  <HeartOff className="w-3.5 h-3.5 text-muted-foreground/40 inline" />
                 )}
               </span>
             )}
@@ -414,8 +414,8 @@ export function SongRow({
                 {song.genre ?? "—"}
               </span>
             )}
-            {showYear && song.year && (
-              <span className="w-12 text-right">{song.year}</span>
+            {showYear && (
+              <span className="w-12 text-right">{song.year ?? "—"}</span>
             )}
             {showPlayCount && (
               <span className="w-12 text-right">{song.playCount ?? 0}</span>
@@ -425,9 +425,11 @@ export function SongRow({
                 {song.lastPlayed ? formatDate(song.lastPlayed) : "Never"}
               </span>
             )}
-            {showDateAdded && (song.created || dateAddedOverride) && (
+            {showDateAdded && (
               <span className="w-24 text-right">
-                {formatDate(dateAddedOverride ?? song.created ?? "")}
+                {song.created || dateAddedOverride
+                  ? formatDate(dateAddedOverride ?? song.created ?? "")
+                  : "—"}
               </span>
             )}
             {showBitRate && (

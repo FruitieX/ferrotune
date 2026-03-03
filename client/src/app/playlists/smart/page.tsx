@@ -482,7 +482,7 @@ function SmartPlaylistPageContent() {
                 renderItem={(song: Song, index: number) => (
                   <SongRow
                     song={song}
-                    index={index}
+                    index={columnVisibility.trackNumber ? index : undefined}
                     showCover
                     inlineImagesRequested
                     queueSource={smartPlaylistQueueSource}

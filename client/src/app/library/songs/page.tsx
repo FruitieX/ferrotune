@@ -214,7 +214,6 @@ export default function SongsPage() {
           <>
             <SongListHeader
               columnVisibility={columnVisibility}
-              showIndex
               showCover
               stickyTop="120px"
               sortConfig={sortConfig}
@@ -226,7 +225,7 @@ export default function SongsPage() {
               renderItem={(song, index) => (
                 <SongRow
                   song={song}
-                  index={index}
+                  index={columnVisibility.trackNumber ? index : undefined}
                   showCover
                   inlineImagesRequested
                   showArtist={columnVisibility.artist}
@@ -247,7 +246,12 @@ export default function SongsPage() {
                   onSelect={handleSelect}
                 />
               )}
-              renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+              renderSkeleton={() => (
+                <SongRowSkeleton
+                  showCover
+                  showIndex={columnVisibility.trackNumber}
+                />
+              )}
               getItemKey={(song) => song.id}
               estimateItemHeight={56}
               ensureRange={ensureRange}
