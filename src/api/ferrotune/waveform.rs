@@ -1,11 +1,7 @@
 //! Waveform generation endpoint.
 //!
-//! Generates waveform data by decoding audio and computing RMS values
-//! for visualization purposes. Uses streaming to return data progressively.
-//!
-//! Memory-efficient: Uses streaming processing to avoid loading entire
-//! audio files into memory. For a 2-hour mix, memory usage is ~O(resolution)
-//! instead of O(file_duration * sample_rate).
+//! Provides pre-computed waveform data from the database (computed during scanning),
+//! with a fallback SSE streaming endpoint for on-demand generation.
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
@@ -13,6 +9,7 @@ use crate::error::{Error, FerrotuneApiResult};
 use axum::{
     extract::{Path, Query, State},
     response::sse::{Event, KeepAlive, Sse},
+    Json,
 };
 use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
@@ -27,6 +24,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia_adapter_libopus::OpusDecoder;
+use ts_rs::TS;
 
 /// Custom codec registry that includes Opus support via libopus adapter.
 static CODEC_REGISTRY: LazyLock<CodecRegistry> = LazyLock::new(|| {
@@ -38,7 +36,6 @@ static CODEC_REGISTRY: LazyLock<CodecRegistry> = LazyLock::new(|| {
     registry
 });
 use tokio::sync::mpsc;
-use ts_rs::TS;
 
 /// Query parameters for waveform endpoint.
 #[derive(Deserialize)]
@@ -50,6 +47,47 @@ pub struct WaveformQuery {
 
 fn default_resolution() -> usize {
     200
+}
+
+/// Response for pre-computed waveform data.
+#[derive(Serialize, TS)]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct WaveformResponse {
+    /// Normalized heights for display (0.15 to 1.0), pre-computed during scanning.
+    pub heights: Vec<f32>,
+}
+
+/// Get pre-computed waveform data for a song.
+///
+/// Returns waveform heights that were computed during library scanning.
+/// Returns 404 if no waveform data has been computed for this song yet.
+pub async fn get_waveform(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Path(song_id): Path<String>,
+) -> FerrotuneApiResult<Json<WaveformResponse>> {
+    // Check user has access
+    if !crate::api::ferrotune::users::user_has_song_access(&state.pool, user.user_id, &song_id)
+        .await?
+    {
+        return Err(Error::Forbidden(format!("You do not have access to song {}", song_id)).into());
+    }
+
+    // Get waveform data from database
+    let row: Option<(Vec<u8>,)> = sqlx::query_as(
+        "SELECT waveform_data FROM songs WHERE id = ? AND waveform_data IS NOT NULL",
+    )
+    .bind(&song_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| Error::Internal(format!("Failed to query waveform: {}", e)))?;
+
+    let (blob,) =
+        row.ok_or_else(|| Error::NotFound(format!("No waveform data for song {}", song_id)))?;
+
+    let heights = crate::analysis::blob_to_waveform(&blob)?;
+
+    Ok(Json(WaveformResponse { heights }))
 }
 
 /// Streaming chunk for progressive waveform loading.

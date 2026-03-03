@@ -55,6 +55,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -1443,6 +1444,9 @@ export default function TaggerPage() {
                 "Upload Failed"
               )}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              File upload progress
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 flex-1 min-h-0 overflow-hidden flex flex-col">
             {/* Progress bar */}

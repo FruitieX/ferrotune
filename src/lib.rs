@@ -3,6 +3,7 @@
 //! This module exposes the core server functionality for embedding
 //! in other applications like the Tauri desktop app.
 
+pub mod analysis;
 pub mod api;
 #[cfg(feature = "bliss")]
 pub mod bliss;

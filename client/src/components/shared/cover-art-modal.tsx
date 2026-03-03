@@ -2,7 +2,12 @@
 
 import Image from "next/image";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface CoverArtModalProps {
   open: boolean;
@@ -22,6 +27,7 @@ export function CoverArtModal({
       <DialogContent className="max-w-2xl p-2">
         <VisuallyHidden>
           <DialogTitle>{alt}</DialogTitle>
+          <DialogDescription>Full size cover art</DialogDescription>
         </VisuallyHidden>
         <div className="relative w-full aspect-square">
           <Image

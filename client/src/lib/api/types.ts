@@ -232,6 +232,7 @@ export interface ScanRequest {
   dryRun?: boolean;
   analyzeReplaygain?: boolean;
   analyzeBliss?: boolean;
+  analyzeWaveform?: boolean;
 }
 
 // ============================================================================

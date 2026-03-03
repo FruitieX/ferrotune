@@ -42,6 +42,11 @@ pub struct ScanRequest {
     #[serde(default)]
     pub analyze_bliss: bool,
 
+    /// If true, compute waveform data for visualization.
+    /// When combined with ReplayGain, both share a single decode pass.
+    #[serde(default)]
+    pub analyze_waveform: bool,
+
     /// Number of files to skip in the extraction phase (for debugging).
     #[serde(default)]
     pub skip: Option<u64>,
@@ -118,6 +123,7 @@ pub async fn start_scan(
         dry_run: request.dry_run,
         analyze_replaygain: request.analyze_replaygain,
         analyze_bliss: request.analyze_bliss,
+        analyze_waveform: request.analyze_waveform,
         skip: request.skip,
     };
 
@@ -133,6 +139,9 @@ pub async fn start_scan(
             scan_state
                 .log("INFO", "Bliss audio analysis enabled (song similarity)")
                 .await;
+        }
+        if opts.analyze_waveform {
+            scan_state.log("INFO", "Waveform analysis enabled").await;
         }
 
         match crate::scanner::scan_library_with_progress(&pool, opts, Some(scan_state.clone()))

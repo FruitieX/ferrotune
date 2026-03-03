@@ -120,6 +120,7 @@ pub async fn scan_library(
             dry_run,
             analyze_replaygain,
             analyze_bliss: false,
+            analyze_waveform: false,
             skip: None,
         },
         None,
@@ -193,6 +194,7 @@ pub async fn scan_specific_files(
                 pool,
                 &path,
                 file_mtime,
+                false,
                 false,
                 false,
                 &no_analysis_semaphore,
@@ -273,6 +275,7 @@ pub struct ScanOptions {
     pub dry_run: bool,
     pub analyze_replaygain: bool,
     pub analyze_bliss: bool,
+    pub analyze_waveform: bool,
     pub skip: Option<u64>,
 }
 
@@ -506,6 +509,7 @@ pub async fn scan_library_with_progress(
             opts.dry_run,
             opts.analyze_replaygain,
             opts.analyze_bliss,
+            opts.analyze_waveform,
             opts.skip,
             scan_state.clone(),
         )
@@ -645,6 +649,7 @@ async fn scan_folder_files(
     dry_run: bool,
     analyze_replaygain: bool,
     analyze_bliss: bool,
+    analyze_waveform: bool,
     skip: Option<u64>,
     scan_state: Option<Arc<ScanState>>,
 ) -> Result<FolderMissingFiles> {
@@ -666,25 +671,31 @@ async fn scan_folder_files(
             .await;
     }
 
-    // Fetch: id, file_path, file_mtime, has_replaygain (1 if computed gain exists, 0 otherwise), has_bliss
-    let existing_paths: Vec<(String, String, Option<i64>, i32, i32)> = sqlx::query_as(
+    // Fetch: id, file_path, file_mtime, has_replaygain (1 if computed gain exists, 0 otherwise), has_bliss, has_waveform
+    let existing_paths: Vec<(String, String, Option<i64>, i32, i32, i32)> = sqlx::query_as(
         "SELECT id, file_path, file_mtime, 
                 CASE WHEN computed_replaygain_track_gain IS NOT NULL THEN 1 ELSE 0 END as has_rg,
-                CASE WHEN bliss_features IS NOT NULL THEN 1 ELSE 0 END as has_bliss
+                CASE WHEN bliss_features IS NOT NULL THEN 1 ELSE 0 END as has_bliss,
+                CASE WHEN waveform_data IS NOT NULL THEN 1 ELSE 0 END as has_waveform
          FROM songs WHERE music_folder_id = ?",
     )
     .bind(folder_id)
     .fetch_all(pool)
     .await?;
 
-    // Map: file_path -> (song_id, file_mtime, has_replaygain, has_bliss)
-    let mut unseen_files: std::collections::HashMap<String, (String, Option<i64>, bool, bool)> =
-        existing_paths
-            .into_iter()
-            .map(|(id, path, mtime, has_rg, has_bliss)| {
-                (path, (id, mtime, has_rg != 0, has_bliss != 0))
-            })
-            .collect();
+    // Map: file_path -> (song_id, file_mtime, has_replaygain, has_bliss, has_waveform)
+    let mut unseen_files: std::collections::HashMap<
+        String,
+        (String, Option<i64>, bool, bool, bool),
+    > = existing_paths
+        .into_iter()
+        .map(|(id, path, mtime, has_rg, has_bliss, has_waveform)| {
+            (
+                path,
+                (id, mtime, has_rg != 0, has_bliss != 0, has_waveform != 0),
+            )
+        })
+        .collect();
 
     tracing::info!(
         "Found {} existing songs, processing {} files...",
@@ -740,16 +751,19 @@ async fn scan_folder_files(
 
         // Check if we can skip this file in incremental mode
         if !full {
-            if let Some((_, stored_mtime, has_replaygain, has_bliss)) = &existing_info {
+            if let Some((_, stored_mtime, has_replaygain, has_bliss, has_waveform)) = &existing_info
+            {
                 // Skip if:
                 // 1. File hasn't been modified since last scan, AND
                 // 2. Either ReplayGain analysis is not requested, OR file already has ReplayGain data
                 // 3. Either bliss analysis is not requested, OR file already has bliss data
+                // 4. Either waveform analysis is not requested, OR file already has waveform data
                 let mtime_unchanged = file_mtime.is_some() && stored_mtime == &file_mtime;
                 let replaygain_ok = !analyze_replaygain || *has_replaygain;
                 let bliss_ok = !analyze_bliss || *has_bliss;
+                let waveform_ok = !analyze_waveform || *has_waveform;
 
-                if mtime_unchanged && replaygain_ok && bliss_ok {
+                if mtime_unchanged && replaygain_ok && bliss_ok && waveform_ok {
                     unchanged += 1;
                     if let Some(ref state) = scan_state {
                         state.track_unchanged(&path.to_string_lossy()).await;
@@ -855,17 +869,26 @@ async fn scan_folder_files(
             .unwrap_or_else(|| concurrency.min(4));
         let analysis_semaphore = Arc::new(Semaphore::new(analysis_concurrency));
 
-        let analysis_label = match (analyze_replaygain, analyze_bliss) {
-            (true, true) => format!(
-                " (ReplayGain + bliss analysis, {} concurrent)",
-                analysis_concurrency
-            ),
-            (true, false) => format!(
-                " (ReplayGain analysis, {} concurrent)",
-                analysis_concurrency
-            ),
-            (false, true) => format!(" (bliss analysis, {} concurrent)", analysis_concurrency),
-            (false, false) => String::new(),
+        let analysis_label = {
+            let mut parts = Vec::new();
+            if analyze_replaygain {
+                parts.push("ReplayGain");
+            }
+            if analyze_waveform {
+                parts.push("waveform");
+            }
+            if analyze_bliss {
+                parts.push("bliss");
+            }
+            if parts.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " ({} analysis, {} concurrent)",
+                    parts.join(" + "),
+                    analysis_concurrency
+                )
+            }
         };
 
         tracing::info!(
@@ -949,6 +972,7 @@ async fn scan_folder_files(
                         file_info.file_mtime,
                         analyze_replaygain,
                         analyze_bliss,
+                        analyze_waveform,
                         &analysis_semaphore,
                     )
                     .await
@@ -1150,7 +1174,7 @@ async fn scan_folder_files(
     let missing_count = unseen_files.len();
     let unseen_files: std::collections::HashMap<String, String> = unseen_files
         .into_iter()
-        .map(|(path, (id, _, _, _))| (path, id))
+        .map(|(path, (id, _, _, _, _))| (path, id))
         .collect();
 
     if let Some(ref state) = scan_state {
@@ -1603,6 +1627,8 @@ struct SongMetadata {
     // Bliss audio analysis features for song similarity
     bliss_features: Option<Vec<u8>>,
     bliss_version: Option<i32>,
+    // Pre-computed waveform data for visualization
+    waveform_data: Option<Vec<u8>>,
 }
 
 async fn extract_metadata(
@@ -1611,6 +1637,7 @@ async fn extract_metadata(
     file_mtime: Option<i64>,
     analyze_replaygain: bool,
     #[cfg_attr(not(feature = "bliss"), allow(unused))] analyze_bliss: bool,
+    analyze_waveform: bool,
     analysis_semaphore: &Semaphore,
 ) -> Result<SongMetadata> {
     let tagged_file = Probe::open(path)
@@ -1769,54 +1796,63 @@ async fn extract_metadata(
     // 5-20MB per file), and we don't need it during ReplayGain/bliss decoding.
     drop(tagged_file);
 
-    // Compute ReplayGain values via EBU R128 analysis if requested
-    let (computed_replaygain_track_gain, computed_replaygain_track_peak) = if analyze_replaygain {
-        // Acquire semaphore permit to limit concurrent audio decoding.
-        // Each decode loads the entire audio as f32 samples (~50-100MB per file).
-        let _permit = analysis_semaphore
-            .acquire()
+    // Compute ReplayGain and/or waveform in a single shared decode pass if either is requested.
+    // This avoids decoding the same file twice.
+    let (computed_replaygain_track_gain, computed_replaygain_track_peak, waveform_data) =
+        if analyze_replaygain || analyze_waveform {
+            // Acquire semaphore permit to limit concurrent audio decoding.
+            // Each decode loads the entire audio as f32 samples (~50-100MB per file).
+            let _permit = analysis_semaphore.acquire().await.map_err(|_| {
+                Error::Internal("Analysis semaphore closed unexpectedly".to_string())
+            })?;
+            let analyses: Vec<&str> = [
+                analyze_replaygain.then_some("ReplayGain"),
+                analyze_waveform.then_some("waveform"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            tracing::debug!(
+                "Starting {} analysis for {}",
+                analyses.join(" + "),
+                path.display()
+            );
+            let path_clone = path.to_path_buf();
+            let do_rg = analyze_replaygain;
+            let do_wf = analyze_waveform;
+            match tokio::task::spawn_blocking(move || {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    crate::analysis::analyze_track(&path_clone, do_rg, do_wf)
+                }))
+            })
             .await
-            .map_err(|_| Error::Internal("Analysis semaphore closed unexpectedly".to_string()))?;
-        tracing::debug!("Starting ReplayGain analysis for {}", path.display());
-        let path_clone = path.to_path_buf();
-        // Run CPU-intensive ReplayGain analysis on a blocking thread
-        match tokio::task::spawn_blocking(move || {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                crate::replaygain::analyze_track(&path_clone)
-            }))
-        })
-        .await
-        {
-            Ok(Ok(Ok(result))) => (Some(result.track_gain), Some(result.track_peak)),
-            Ok(Ok(Err(e))) => {
-                tracing::warn!("Failed to analyze ReplayGain for {}: {}", path.display(), e);
-                (None, None)
+            {
+                Ok(Ok(Ok(result))) => {
+                    let rg_gain = result.replaygain.as_ref().map(|r| r.track_gain);
+                    let rg_peak = result.replaygain.as_ref().map(|r| r.track_peak);
+                    (rg_gain, rg_peak, result.waveform)
+                }
+                Ok(Ok(Err(e))) => {
+                    tracing::warn!("Failed to analyze {}: {}", path.display(), e);
+                    (None, None, None)
+                }
+                Ok(Err(panic)) => {
+                    let msg = panic
+                        .downcast_ref::<String>()
+                        .map(|s| s.as_str())
+                        .or_else(|| panic.downcast_ref::<&str>().copied())
+                        .unwrap_or("unknown panic");
+                    tracing::error!("Analysis panicked for {}: {}", path.display(), msg);
+                    (None, None, None)
+                }
+                Err(e) => {
+                    tracing::warn!("Analysis task failed for {}: {}", path.display(), e);
+                    (None, None, None)
+                }
             }
-            Ok(Err(panic)) => {
-                let msg = panic
-                    .downcast_ref::<String>()
-                    .map(|s| s.as_str())
-                    .or_else(|| panic.downcast_ref::<&str>().copied())
-                    .unwrap_or("unknown panic");
-                tracing::error!(
-                    "ReplayGain analysis panicked for {}: {}",
-                    path.display(),
-                    msg
-                );
-                (None, None)
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "ReplayGain analysis task failed for {}: {}",
-                    path.display(),
-                    e
-                );
-                (None, None)
-            }
-        }
-    } else {
-        (None, None)
-    };
+        } else {
+            (None, None, None)
+        };
 
     // Compute bliss audio features for song similarity if requested.
     // Skip files longer than the configured limit (default 20 minutes) — bliss
@@ -1904,6 +1940,7 @@ async fn extract_metadata(
         computed_replaygain_track_peak,
         bliss_features,
         bliss_version,
+        waveform_data,
     })
 }
 
@@ -1975,6 +2012,7 @@ async fn upsert_song(
                 computed_replaygain_track_peak = COALESCE(?, computed_replaygain_track_peak),
                 bliss_features = COALESCE(?, bliss_features),
                 bliss_version = COALESCE(?, bliss_version),
+                waveform_data = COALESCE(?, waveform_data),
                 full_file_hash = NULL, updated_at = datetime('now')
              WHERE id = ?",
         )
@@ -2001,6 +2039,7 @@ async fn upsert_song(
         .bind(metadata.computed_replaygain_track_peak)
         .bind(&metadata.bliss_features)
         .bind(metadata.bliss_version)
+        .bind(&metadata.waveform_data)
         .bind(&id)
         .execute(&mut *tx)
         .await?;
@@ -2018,9 +2057,9 @@ async fn upsert_song(
                 cover_art_width, cover_art_height,
                 original_replaygain_track_gain, original_replaygain_track_peak,
                 computed_replaygain_track_gain, computed_replaygain_track_peak,
-                bliss_features, bliss_version,
+                bliss_features, bliss_version, waveform_data,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
         )
         .bind(&song_id)
         .bind(&metadata.title)
@@ -2047,6 +2086,7 @@ async fn upsert_song(
         .bind(metadata.computed_replaygain_track_peak)
         .bind(&metadata.bliss_features)
         .bind(metadata.bliss_version)
+        .bind(&metadata.waveform_data)
         .execute(&mut *tx)
         .await?;
 

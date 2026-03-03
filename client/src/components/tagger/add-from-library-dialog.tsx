@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -187,6 +188,9 @@ export function AddFromLibraryDialog({
       <DialogContent className="w-[95vw] max-w-[900px] h-[85vh] max-h-[85vh] flex flex-col overflow-hidden select-none">
         <DialogHeader className="shrink-0">
           <DialogTitle>Add from Library</DialogTitle>
+          <DialogDescription className="sr-only">
+            Search and add tracks from the library
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 flex flex-col min-h-0 gap-4">

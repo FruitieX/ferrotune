@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -490,6 +491,9 @@ export function ScriptEditorDialog({
                   ? "Edit Script"
                   : "New Script"}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Edit rename script code and preview results
+            </DialogDescription>
           </DialogHeader>
 
           <div className="flex-1 flex gap-4 min-h-0">

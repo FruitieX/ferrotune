@@ -20,7 +20,7 @@ use symphonia::core::probe::Hint;
 use symphonia_adapter_libopus::OpusDecoder;
 
 /// EBU R128 reference loudness level in LUFS
-const REFERENCE_LOUDNESS: f64 = -14.0;
+pub const REFERENCE_LOUDNESS: f64 = -14.0;
 
 /// Custom codec registry that includes Opus support via libopus adapter.
 /// Shared with waveform.rs and transcoding.rs.

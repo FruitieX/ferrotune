@@ -39,6 +39,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -2148,6 +2149,9 @@ export function TaggerGrid({
               <Loader2 className="w-4 h-4 animate-spin" />
               Replacing with File...
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              File import progress
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <Progress

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -477,6 +478,9 @@ export function AdvancedFilterDialog({
         <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Advanced Filters</DialogTitle>
+            <DialogDescription className="sr-only">
+              Configure advanced filter rules
+            </DialogDescription>
           </DialogHeader>
 
           <div className="flex-1 min-h-0 overflow-auto py-4">

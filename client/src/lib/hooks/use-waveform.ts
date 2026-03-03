@@ -116,13 +116,37 @@ export function useWaveform() {
 
     setLoadingId(trackId);
 
-    // Streaming fetch with client-side normalization
-    const fetchWaveformStreaming = async () => {
+    const fetchWaveform = async () => {
       const client = getClient();
       if (!client) return;
 
-      // Accumulate raw RMS values across all chunks
-      // We'll dynamically track where to place each chunk's RMS values
+      // Try pre-computed waveform first (fast, computed during scanning)
+      const precomputed = await client.getWaveform(trackId);
+      if (abortController.signal.aborted) return;
+
+      if (precomputed?.heights && precomputed.heights.length > 0) {
+        // Signal a full-range chunk for animation
+        setLastChunkInfo({
+          startIndex: 0,
+          endIndex: precomputed.heights.length,
+          timestamp: performance.now(),
+        });
+
+        setWaveformCache((prev) => {
+          const next = new Map(prev);
+          next.set(trackId, {
+            heights: precomputed.heights,
+            isLoaded: true,
+            actualDuration: null,
+          });
+          return next;
+        });
+        setStreamingHeights(null);
+        setLoadingId(null);
+        return;
+      }
+
+      // Fall back to SSE streaming for songs without pre-computed waveform
       const allRmsValues = new Array<number>(WAVEFORM_BAR_COUNT).fill(0);
       let currentBarIndex = 0;
 
@@ -257,7 +281,7 @@ export function useWaveform() {
       }
     };
 
-    fetchWaveformStreaming();
+    fetchWaveform();
 
     return () => {
       abortController.abort();

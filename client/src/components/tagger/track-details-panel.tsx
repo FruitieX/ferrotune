@@ -25,7 +25,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import {
   DropdownMenu,
@@ -1395,6 +1400,7 @@ export function TrackDetailsPanel({ panelWidth }: TrackDetailsPanelProps) {
         <DialogContent className="max-w-2xl p-2">
           <VisuallyHidden>
             <DialogTitle>Cover Art Preview</DialogTitle>
+            <DialogDescription>Full size cover art preview</DialogDescription>
           </VisuallyHidden>
           {coverArtModalType === "original" && originalCoverArtUrl ? (
             <div className="relative w-full aspect-square">

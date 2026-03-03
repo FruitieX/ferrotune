@@ -348,7 +348,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/scrobbles/check-duplicate",
             get(scrobbles::check_import_duplicate),
         )
-        // Waveform generation endpoint (streaming only)
+        // Waveform endpoints
+        .route(
+            "/ferrotune/songs/{id}/waveform",
+            get(waveform::get_waveform),
+        )
         .route(
             "/ferrotune/songs/{id}/waveform/stream",
             get(waveform::get_waveform_stream),

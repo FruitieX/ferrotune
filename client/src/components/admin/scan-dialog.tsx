@@ -296,6 +296,7 @@ export function ScanDialog() {
   const [dryRun, setDryRun] = useState(false);
   const [analyzeReplaygain, setAnalyzeReplaygain] = useState(false);
   const [analyzeBliss, setAnalyzeBliss] = useState(false);
+  const [analyzeWaveform, setAnalyzeWaveform] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [blissAvailable, setBlissAvailable] = useState(true);
 
@@ -365,6 +366,7 @@ export function ScanDialog() {
         dryRun: dryRun,
         analyzeReplaygain: analyzeReplaygain,
         analyzeBliss: analyzeBliss,
+        analyzeWaveform: analyzeWaveform,
         folderId: folderId ?? undefined,
       });
 
@@ -516,6 +518,21 @@ export function ScanDialog() {
                     checked={analyzeBliss}
                     onCheckedChange={setAnalyzeBliss}
                     disabled={!blissAvailable}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="analyze-waveform">Analyze Waveforms</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Pre-compute waveform data for visualization (shared decode
+                      with ReplayGain)
+                    </p>
+                  </div>
+                  <Switch
+                    id="analyze-waveform"
+                    checked={analyzeWaveform}
+                    onCheckedChange={setAnalyzeWaveform}
                   />
                 </div>
               </div>

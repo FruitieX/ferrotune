@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -49,6 +50,9 @@ export function SmartPlaylistNameDialog({
               <Sparkles className="w-5 h-5" />
               Save as Smart Playlist
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Enter a name for the new smart playlist
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">

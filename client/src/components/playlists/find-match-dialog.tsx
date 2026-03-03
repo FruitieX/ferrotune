@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -70,6 +71,9 @@ export function FindMatchDialog({
       <DialogContent className="sm:max-w-[800px] overflow-hidden">
         <DialogHeader>
           <DialogTitle>Find matching track</DialogTitle>
+          <DialogDescription className="sr-only">
+            Search for a matching track in the library
+          </DialogDescription>
         </DialogHeader>
         {open && (
           <TrackSearchPanel

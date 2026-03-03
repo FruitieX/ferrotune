@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -154,6 +155,9 @@ export function UploadDialog({ open, onOpenChange }: UploadDialogProps) {
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Upload Audio Files</DialogTitle>
+          <DialogDescription className="sr-only">
+            Upload audio files to replace track audio
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
