@@ -67,7 +67,10 @@ test.describe("Authentication", () => {
     ).toBeVisible();
   });
 
-  test("switching accounts refetches sidebar data", async ({ page, server }) => {
+  test("switching accounts refetches sidebar data", async ({
+    page,
+    server,
+  }) => {
     await login(page, {
       serverUrl: server.url,
       username: server.username,
@@ -106,9 +109,7 @@ test.describe("Authentication", () => {
         response.url().includes("/ferrotune/playlist-folders"),
     );
 
-    await page
-      .getByRole("menuitem", { name: /secondary account/i })
-      .click();
+    await page.getByRole("menuitem", { name: /secondary account/i }).click();
 
     await sidebarRefetch;
 

@@ -102,7 +102,11 @@ pub async fn create_pool(database_path: &Path) -> crate::error::Result<SqlitePoo
     let mut options =
         SqliteConnectOptions::from_str(&format!("sqlite:{}", database_path.display()))?
             .create_if_missing(true)
-            .foreign_keys(true);
+            .foreign_keys(true)
+            // Performance PRAGMAs applied per-connection during setup
+            .pragma("mmap_size", "268435456") // 256MB memory-mapped I/O
+            .pragma("cache_size", "-64000") // 64MB page cache (default ~2MB)
+            .pragma("temp_store", "memory");
 
     if let Some(timeout) = busy_timeout {
         options = options.busy_timeout(timeout);
@@ -132,6 +136,11 @@ pub async fn create_pool(database_path: &Path) -> crate::error::Result<SqlitePoo
 
     // Run data migrations (Rust-based)
     migrations::run_data_migrations(&pool).await?;
+
+    // Let SQLite update query planner statistics if stale (best-effort)
+    if let Err(e) = sqlx::query("PRAGMA optimize").execute(&pool).await {
+        tracing::warn!("Failed to run PRAGMA optimize: {}", e);
+    }
 
     Ok(pool)
 }

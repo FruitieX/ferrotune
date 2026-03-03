@@ -93,6 +93,9 @@ pub async fn get_album_list_logic(
             .await?
         }
         AlbumListType::Frequent => {
+            // Pre-aggregate scrobbles per album in a derived table instead of
+            // using a correlated subquery in the JOIN condition. This avoids
+            // re-scanning the scrobbles table for every album row.
             let since_clause = if since.is_some() {
                 "AND sc.played_at >= ?"
             } else {
@@ -102,10 +105,15 @@ pub async fn get_album_list_logic(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
-                 LEFT JOIN scrobbles sc ON sc.song_id IN (SELECT id FROM songs WHERE album_id = a.id) AND sc.user_id = ? {since_clause}
+                 LEFT JOIN (
+                     SELECT s_inner.album_id, COUNT(sc.id) as scrobble_count
+                     FROM scrobbles sc
+                     INNER JOIN songs s_inner ON sc.song_id = s_inner.id
+                     WHERE sc.user_id = ? {since_clause}
+                     GROUP BY s_inner.album_id
+                 ) freq ON freq.album_id = a.id
                  WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)
-                 GROUP BY a.id 
-                 ORDER BY COUNT(sc.id) DESC 
+                 ORDER BY COALESCE(freq.scrobble_count, 0) DESC 
                  LIMIT ? OFFSET ?"
             );
             let mut q = sqlx::query_as::<_, crate::db::models::Album>(&query);
@@ -120,17 +128,26 @@ pub async fn get_album_list_logic(
             .await?
         }
         AlbumListType::Recent => {
+            // Aggregate recently played albums in a subquery first, then join
+            // back to albums. This avoids the fan-out from joining songs and
+            // scrobbles directly which produces many duplicate album rows
+            // before DISTINCT can eliminate them.
             sqlx::query_as(
-                "SELECT DISTINCT a.*, ar.name as artist_name 
+                "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
                  INNER JOIN artists ar ON a.artist_id = ar.id 
-                 INNER JOIN songs s ON s.album_id = a.id 
-                 INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                 INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                 INNER JOIN scrobbles sc ON sc.song_id = s.id 
-                 WHERE mf.enabled = 1 AND ula.user_id = ? AND sc.user_id = ?
-                 ORDER BY sc.played_at DESC 
-                 LIMIT ? OFFSET ?"
+                 INNER JOIN (
+                     SELECT s.album_id, MAX(sc.played_at) as last_played
+                     FROM scrobbles sc
+                     INNER JOIN songs s ON sc.song_id = s.id
+                     INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+                     INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+                     WHERE sc.user_id = ? AND mf.enabled = 1 AND ula.user_id = ?
+                     GROUP BY s.album_id
+                     ORDER BY last_played DESC
+                     LIMIT ? OFFSET ?
+                 ) recent ON a.id = recent.album_id
+                 ORDER BY recent.last_played DESC"
             )
             .bind(user_id)
             .bind(user_id)
