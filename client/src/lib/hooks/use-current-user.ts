@@ -35,17 +35,11 @@ export function useCurrentUser() {
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   });
 
-  // Update global state when data changes
+  // Update global state when data changes, or clear when switching accounts
+  // (account key change causes a new query key, resetting data to undefined)
   useEffect(() => {
-    if (data) {
-      setCurrentUser(data);
-    }
+    setCurrentUser(data ?? null);
   }, [data, setCurrentUser]);
-
-  // Clear stale user info immediately when account identity changes.
-  useEffect(() => {
-    setCurrentUser(null);
-  }, [currentAccountKey, setCurrentUser]);
 
   return {
     user: currentUser,
