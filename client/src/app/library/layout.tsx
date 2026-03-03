@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAtom, useSetAtom, useAtomValue } from "jotai";
@@ -127,6 +127,8 @@ const albumColumnOptions: {
   { key: "duration", label: "Duration" },
   { key: "genre", label: "Genre" },
   { key: "starred", label: "Favorited" },
+  { key: "rating", label: "Rating" },
+  { key: "dateAdded", label: "Date Added" },
 ];
 
 const artistColumnOptions: {
@@ -134,7 +136,9 @@ const artistColumnOptions: {
   label: string;
 }[] = [
   { key: "albumCount", label: "Albums" },
+  { key: "songCount", label: "Songs" },
   { key: "starred", label: "Favorited" },
+  { key: "rating", label: "Rating" },
 ];
 
 const filesColumnOptions: {
@@ -215,6 +219,22 @@ export default function LibraryLayout({
     loadDisabledSongs();
   }, [setDisabledSongs, setDisabledSongsLoading]);
 
+  // Measure sticky header height and set CSS variable for child sticky elements
+  const stickyHeaderRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = stickyHeaderRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const height = entry.contentRect.height;
+      el.parentElement?.style.setProperty(
+        "--sticky-header-height",
+        `${height}px`,
+      );
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   // Clear filter when navigating away from library
   useEffect(() => {
     return () => {
@@ -234,6 +254,11 @@ export default function LibraryLayout({
   // For mobile advanced filter dialog
   const [advancedFilterOpen, setAdvancedFilterOpen] = useState(false);
   const showAdvancedFilters = isSongsTab || isAlbumsTab || isArtistsTab;
+  const filterViewType = isAlbumsTab
+    ? ("albums" as const)
+    : isArtistsTab
+      ? ("artists" as const)
+      : ("songs" as const);
 
   // Don't show tabs on detail pages
   const isDetailPage = pathname.includes("/details");
@@ -301,449 +326,454 @@ export default function LibraryLayout({
 
   return (
     <div>
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
-        <div className="flex items-center justify-between h-16 px-4 lg:px-6 gap-4">
-          <h1 className="text-2xl font-bold shrink-0">Library</h1>
+      {/* Header + Tab Navigation - single sticky container */}
+      <div
+        ref={stickyHeaderRef}
+        className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg"
+      >
+        <header className="border-b border-border">
+          <div className="flex items-center justify-between py-3 px-4 lg:px-6 gap-4">
+            <h1 className="text-2xl font-bold shrink-0">Library</h1>
 
-          {/* Search filter */}
-          <div className="flex-1 max-w-sm flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Filter..."
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                className="pl-9 pr-8 h-9 bg-secondary border-0 rounded-full"
-                aria-label="Filter library items"
-              />
-              {filter && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                  onClick={() => setFilter("")}
-                  aria-label="Clear filter"
-                >
-                  <X className="w-3 h-3" />
-                </Button>
+            {/* Search filter */}
+            <div className="flex-1 max-w-sm flex flex-col gap-1.5">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Filter..."
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                    className="pl-9 pr-8 h-9 bg-secondary border-0 rounded-full"
+                    aria-label="Filter library items"
+                  />
+                  {filter && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                      onClick={() => setFilter("")}
+                      aria-label="Clear filter"
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  )}
+                </div>
+                {/* Advanced filters - desktop only */}
+                {showAdvancedFilters && (
+                  <AdvancedFilterDialog
+                    className="hidden md:flex"
+                    viewType={filterViewType}
+                  />
+                )}
+              </div>
+              {/* Active filter badges - directly below search bar */}
+              {showAdvancedFilters && hasActiveFilters && (
+                <ActiveFilterBadges />
               )}
             </div>
-            {/* Advanced filters - desktop only */}
-            {showAdvancedFilters && (
-              <AdvancedFilterDialog className="hidden md:flex" />
-            )}
-          </div>
 
-          {/* Desktop controls */}
-          <div className="hidden md:flex items-center gap-2 shrink-0">
-            {/* Sort dropdown - different options for files browsing */}
-            {isFilesBrowsing ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    aria-label="Sort options"
-                  >
-                    <ArrowUpDown className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {filesSortOptions.map((option) => (
-                    <DropdownMenuItem
-                      key={option.value}
-                      onClick={() => handleFilesSort(option.value)}
-                      className="flex items-center justify-between"
+            {/* Desktop controls */}
+            <div className="hidden md:flex items-center gap-2 shrink-0">
+              {/* Sort dropdown - different options for files browsing */}
+              {isFilesBrowsing ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label="Sort options"
                     >
-                      <span>{option.label}</span>
-                      {filesSortConfig.field === option.value && (
-                        <FilesSortIcon className="w-4 h-4 text-primary" />
-                      )}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : !isFilesTab ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    aria-label="Sort options"
-                  >
-                    <ArrowUpDown className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {sortOptions.map((option) => (
-                    <DropdownMenuItem
-                      key={option.value}
-                      onClick={() => handleSort(option.value)}
-                      className="flex items-center justify-between"
+                      <ArrowUpDown className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {filesSortOptions.map((option) => (
+                      <DropdownMenuItem
+                        key={option.value}
+                        onClick={() => handleFilesSort(option.value)}
+                        className="flex items-center justify-between"
+                      >
+                        <span>{option.label}</span>
+                        {filesSortConfig.field === option.value && (
+                          <FilesSortIcon className="w-4 h-4 text-primary" />
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : !isFilesTab ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label="Sort options"
                     >
-                      <span>{option.label}</span>
-                      {sortConfig.field === option.value && (
-                        <SortIcon className="w-4 h-4 text-primary" />
-                      )}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
+                      <ArrowUpDown className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {sortOptions.map((option) => (
+                      <DropdownMenuItem
+                        key={option.value}
+                        onClick={() => handleSort(option.value)}
+                        className="flex items-center justify-between"
+                      >
+                        <span>{option.label}</span>
+                        {sortConfig.field === option.value && (
+                          <SortIcon className="w-4 h-4 text-primary" />
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
 
-            {/* Column visibility dropdown - different options for files browsing */}
-            {isFilesBrowsing ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    aria-label="Toggle columns"
-                  >
-                    <Columns className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuLabel>Visible Columns</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {filesColumnOptions.map((option) => (
-                    <DropdownMenuCheckboxItem
-                      key={option.key}
-                      checked={
-                        filesColumnVisibility[
-                          option.key as keyof typeof filesColumnVisibility
-                        ]
-                      }
-                      onCheckedChange={() =>
-                        toggleFilesColumn(
-                          option.key as keyof typeof filesColumnVisibility,
-                        )
-                      }
+              {/* Column visibility dropdown - different options for files browsing */}
+              {isFilesBrowsing ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label="Toggle columns"
                     >
-                      {option.label}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : viewMode === "list" && !isFilesTab ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    aria-label="Toggle columns"
-                  >
-                    <Columns className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuLabel>Visible Columns</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {isSongsTab &&
-                    songColumnOptions.map((option) => (
+                      <Columns className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuLabel>Visible Columns</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {filesColumnOptions.map((option) => (
                       <DropdownMenuCheckboxItem
                         key={option.key}
-                        checked={columnVisibility[option.key]}
-                        onCheckedChange={() => toggleColumn(option.key)}
+                        checked={
+                          filesColumnVisibility[
+                            option.key as keyof typeof filesColumnVisibility
+                          ]
+                        }
+                        onCheckedChange={() =>
+                          toggleFilesColumn(
+                            option.key as keyof typeof filesColumnVisibility,
+                          )
+                        }
                       >
                         {option.label}
                       </DropdownMenuCheckboxItem>
                     ))}
-                  {isAlbumsTab &&
-                    albumColumnOptions.map((option) => (
-                      <DropdownMenuCheckboxItem
-                        key={option.key}
-                        checked={albumColumnVisibility[option.key]}
-                        onCheckedChange={() => toggleAlbumColumn(option.key)}
-                      >
-                        {option.label}
-                      </DropdownMenuCheckboxItem>
-                    ))}
-                  {isArtistsTab &&
-                    artistColumnOptions.map((option) => (
-                      <DropdownMenuCheckboxItem
-                        key={option.key}
-                        checked={artistColumnVisibility[option.key]}
-                        onCheckedChange={() => toggleArtistColumn(option.key)}
-                      >
-                        {option.label}
-                      </DropdownMenuCheckboxItem>
-                    ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : viewMode === "list" && !isFilesTab ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label="Toggle columns"
+                    >
+                      <Columns className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuLabel>Visible Columns</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {isSongsTab &&
+                      songColumnOptions.map((option) => (
+                        <DropdownMenuCheckboxItem
+                          key={option.key}
+                          checked={columnVisibility[option.key]}
+                          onCheckedChange={() => toggleColumn(option.key)}
+                        >
+                          {option.label}
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    {isAlbumsTab &&
+                      albumColumnOptions.map((option) => (
+                        <DropdownMenuCheckboxItem
+                          key={option.key}
+                          checked={albumColumnVisibility[option.key]}
+                          onCheckedChange={() => toggleAlbumColumn(option.key)}
+                        >
+                          {option.label}
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    {isArtistsTab &&
+                      artistColumnOptions.map((option) => (
+                        <DropdownMenuCheckboxItem
+                          key={option.key}
+                          checked={artistColumnVisibility[option.key]}
+                          onCheckedChange={() => toggleArtistColumn(option.key)}
+                        >
+                          {option.label}
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
 
-            {/* View mode buttons - hidden on Files tab (always uses list view) */}
-            {!isFilesTab && (
-              <>
-                <Button
-                  variant={viewMode === "grid" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setViewMode("grid")}
-                  aria-label="Grid view"
-                  aria-pressed={viewMode === "grid"}
-                >
-                  <Grid className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant={viewMode === "list" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setViewMode("list")}
-                  aria-label="List view"
-                  aria-pressed={viewMode === "list"}
-                >
-                  <List className="w-4 h-4" />
-                </Button>
-              </>
-            )}
-          </div>
+              {/* View mode buttons - hidden on Files tab (always uses list view) */}
+              {!isFilesTab && (
+                <>
+                  <Button
+                    variant={viewMode === "grid" ? "secondary" : "ghost"}
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setViewMode("grid")}
+                    aria-label="Grid view"
+                    aria-pressed={viewMode === "grid"}
+                  >
+                    <Grid className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant={viewMode === "list" ? "secondary" : "ghost"}
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setViewMode("list")}
+                    aria-label="List view"
+                    aria-pressed={viewMode === "list"}
+                  >
+                    <List className="w-4 h-4" />
+                  </Button>
+                </>
+              )}
+            </div>
 
-          {/* Mobile overflow menu */}
-          <div className="md:hidden shrink-0">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 relative"
-                  aria-label="View options"
-                >
-                  <MoreHorizontal className="w-4 h-4" />
-                  {hasActiveFilters && (
-                    <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-primary rounded-full" />
+            {/* Mobile overflow menu */}
+            <div className="md:hidden shrink-0">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 relative"
+                    aria-label="View options"
+                  >
+                    <MoreHorizontal className="w-4 h-4" />
+                    {hasActiveFilters && (
+                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-primary rounded-full" />
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  {/* Advanced filters - shown only on relevant tabs */}
+                  {showAdvancedFilters && (
+                    <>
+                      <DropdownMenuItem
+                        onClick={() => setAdvancedFilterOpen(true)}
+                      >
+                        <Filter className="w-4 h-4 mr-2" />
+                        Advanced Filters
+                        {hasActiveFilters && (
+                          <span className="ml-auto text-xs text-primary">
+                            Active
+                          </span>
+                        )}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>
                   )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                {/* Advanced filters - shown only on relevant tabs */}
-                {showAdvancedFilters && (
-                  <>
-                    <DropdownMenuItem
-                      onClick={() => setAdvancedFilterOpen(true)}
-                    >
-                      <Filter className="w-4 h-4 mr-2" />
-                      Advanced Filters
-                      {hasActiveFilters && (
-                        <span className="ml-auto text-xs text-primary">
-                          Active
-                        </span>
-                      )}
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                  </>
-                )}
 
-                {/* Sort submenu */}
-                {isFilesBrowsing ? (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <ArrowUpDown className="w-4 h-4 mr-2" />
-                      Sort
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuPortal>
-                      <DropdownMenuSubContent className="w-48">
-                        {filesSortOptions.map((option) => (
-                          <DropdownMenuItem
-                            key={option.value}
-                            onClick={() => handleFilesSort(option.value)}
-                            className="flex items-center justify-between"
-                          >
-                            <span>{option.label}</span>
-                            {filesSortConfig.field === option.value && (
-                              <FilesSortIcon className="w-4 h-4 text-primary" />
-                            )}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuPortal>
-                  </DropdownMenuSub>
-                ) : !isFilesTab ? (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <ArrowUpDown className="w-4 h-4 mr-2" />
-                      Sort
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuPortal>
-                      <DropdownMenuSubContent className="w-48">
-                        {sortOptions.map((option) => (
-                          <DropdownMenuItem
-                            key={option.value}
-                            onClick={() => handleSort(option.value)}
-                            className="flex items-center justify-between"
-                          >
-                            <span>{option.label}</span>
-                            {sortConfig.field === option.value && (
-                              <SortIcon className="w-4 h-4 text-primary" />
-                            )}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuPortal>
-                  </DropdownMenuSub>
-                ) : null}
-
-                {/* Column visibility submenu */}
-                {isFilesBrowsing ? (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <Columns className="w-4 h-4 mr-2" />
-                      Columns
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuPortal>
-                      <DropdownMenuSubContent className="w-48">
-                        {filesColumnOptions.map((option) => (
-                          <DropdownMenuCheckboxItem
-                            key={option.key}
-                            checked={
-                              filesColumnVisibility[
-                                option.key as keyof typeof filesColumnVisibility
-                              ]
-                            }
-                            onCheckedChange={() =>
-                              toggleFilesColumn(
-                                option.key as keyof typeof filesColumnVisibility,
-                              )
-                            }
-                          >
-                            {option.label}
-                          </DropdownMenuCheckboxItem>
-                        ))}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuPortal>
-                  </DropdownMenuSub>
-                ) : viewMode === "list" && !isFilesTab ? (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <Columns className="w-4 h-4 mr-2" />
-                      Columns
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuPortal>
-                      <DropdownMenuSubContent className="w-48">
-                        {isSongsTab &&
-                          songColumnOptions.map((option) => (
-                            <DropdownMenuCheckboxItem
-                              key={option.key}
-                              checked={columnVisibility[option.key]}
-                              onCheckedChange={() => toggleColumn(option.key)}
+                  {/* Sort submenu */}
+                  {isFilesBrowsing ? (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <ArrowUpDown className="w-4 h-4 mr-2" />
+                        Sort
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuPortal>
+                        <DropdownMenuSubContent className="w-48">
+                          {filesSortOptions.map((option) => (
+                            <DropdownMenuItem
+                              key={option.value}
+                              onClick={() => handleFilesSort(option.value)}
+                              className="flex items-center justify-between"
                             >
-                              {option.label}
-                            </DropdownMenuCheckboxItem>
+                              <span>{option.label}</span>
+                              {filesSortConfig.field === option.value && (
+                                <FilesSortIcon className="w-4 h-4 text-primary" />
+                              )}
+                            </DropdownMenuItem>
                           ))}
-                        {isAlbumsTab &&
-                          albumColumnOptions.map((option) => (
+                        </DropdownMenuSubContent>
+                      </DropdownMenuPortal>
+                    </DropdownMenuSub>
+                  ) : !isFilesTab ? (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <ArrowUpDown className="w-4 h-4 mr-2" />
+                        Sort
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuPortal>
+                        <DropdownMenuSubContent className="w-48">
+                          {sortOptions.map((option) => (
+                            <DropdownMenuItem
+                              key={option.value}
+                              onClick={() => handleSort(option.value)}
+                              className="flex items-center justify-between"
+                            >
+                              <span>{option.label}</span>
+                              {sortConfig.field === option.value && (
+                                <SortIcon className="w-4 h-4 text-primary" />
+                              )}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuPortal>
+                    </DropdownMenuSub>
+                  ) : null}
+
+                  {/* Column visibility submenu */}
+                  {isFilesBrowsing ? (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <Columns className="w-4 h-4 mr-2" />
+                        Columns
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuPortal>
+                        <DropdownMenuSubContent className="w-48">
+                          {filesColumnOptions.map((option) => (
                             <DropdownMenuCheckboxItem
                               key={option.key}
-                              checked={albumColumnVisibility[option.key]}
+                              checked={
+                                filesColumnVisibility[
+                                  option.key as keyof typeof filesColumnVisibility
+                                ]
+                              }
                               onCheckedChange={() =>
-                                toggleAlbumColumn(option.key)
+                                toggleFilesColumn(
+                                  option.key as keyof typeof filesColumnVisibility,
+                                )
                               }
                             >
                               {option.label}
                             </DropdownMenuCheckboxItem>
                           ))}
-                        {isArtistsTab &&
-                          artistColumnOptions.map((option) => (
-                            <DropdownMenuCheckboxItem
-                              key={option.key}
-                              checked={artistColumnVisibility[option.key]}
-                              onCheckedChange={() =>
-                                toggleArtistColumn(option.key)
-                              }
-                            >
-                              {option.label}
-                            </DropdownMenuCheckboxItem>
-                          ))}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuPortal>
-                  </DropdownMenuSub>
-                ) : null}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuPortal>
+                    </DropdownMenuSub>
+                  ) : viewMode === "list" && !isFilesTab ? (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <Columns className="w-4 h-4 mr-2" />
+                        Columns
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuPortal>
+                        <DropdownMenuSubContent className="w-48">
+                          {isSongsTab &&
+                            songColumnOptions.map((option) => (
+                              <DropdownMenuCheckboxItem
+                                key={option.key}
+                                checked={columnVisibility[option.key]}
+                                onCheckedChange={() => toggleColumn(option.key)}
+                              >
+                                {option.label}
+                              </DropdownMenuCheckboxItem>
+                            ))}
+                          {isAlbumsTab &&
+                            albumColumnOptions.map((option) => (
+                              <DropdownMenuCheckboxItem
+                                key={option.key}
+                                checked={albumColumnVisibility[option.key]}
+                                onCheckedChange={() =>
+                                  toggleAlbumColumn(option.key)
+                                }
+                              >
+                                {option.label}
+                              </DropdownMenuCheckboxItem>
+                            ))}
+                          {isArtistsTab &&
+                            artistColumnOptions.map((option) => (
+                              <DropdownMenuCheckboxItem
+                                key={option.key}
+                                checked={artistColumnVisibility[option.key]}
+                                onCheckedChange={() =>
+                                  toggleArtistColumn(option.key)
+                                }
+                              >
+                                {option.label}
+                              </DropdownMenuCheckboxItem>
+                            ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuPortal>
+                    </DropdownMenuSub>
+                  ) : null}
 
-                {/* View mode - hidden on Files tab */}
-                {!isFilesTab && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                      View
-                    </DropdownMenuLabel>
-                    <DropdownMenuItem onClick={() => setViewMode("grid")}>
-                      <Grid className="w-4 h-4 mr-2" />
-                      Grid
-                      {viewMode === "grid" && (
-                        <Check className="w-4 h-4 ml-auto text-primary" />
-                      )}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setViewMode("list")}>
-                      <List className="w-4 h-4 mr-2" />
-                      List
-                      {viewMode === "list" && (
-                        <Check className="w-4 h-4 ml-auto text-primary" />
-                      )}
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  {/* View mode - hidden on Files tab */}
+                  {!isFilesTab && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        View
+                      </DropdownMenuLabel>
+                      <DropdownMenuItem onClick={() => setViewMode("grid")}>
+                        <Grid className="w-4 h-4 mr-2" />
+                        Grid
+                        {viewMode === "grid" && (
+                          <Check className="w-4 h-4 ml-auto text-primary" />
+                        )}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setViewMode("list")}>
+                        <List className="w-4 h-4 mr-2" />
+                        List
+                        {viewMode === "list" && (
+                          <Check className="w-4 h-4 ml-auto text-primary" />
+                        )}
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-            {/* Mobile advanced filter dialog (controlled) */}
-            {showAdvancedFilters && (
-              <AdvancedFilterDialog
-                open={advancedFilterOpen}
-                onOpenChange={setAdvancedFilterOpen}
-                showTrigger={false}
-              />
-            )}
+              {/* Mobile advanced filter dialog (controlled) */}
+              {showAdvancedFilters && (
+                <AdvancedFilterDialog
+                  open={advancedFilterOpen}
+                  onOpenChange={setAdvancedFilterOpen}
+                  showTrigger={false}
+                  viewType={filterViewType}
+                />
+              )}
+            </div>
           </div>
-        </div>
+        </header>
 
-        {/* Active filter badges - reserve space to prevent layout shift */}
-        <div className="px-4 lg:px-6 min-h-2">
-          {(isSongsTab || isAlbumsTab || isArtistsTab) && (
-            <ActiveFilterBadges />
-          )}
-        </div>
-      </header>
-
-      {/* Tab Navigation */}
-      <nav
-        className="sticky top-[73px] z-20 bg-background/80 backdrop-blur-lg border-b border-border"
-        aria-label="Library sections"
-      >
-        <div className="h-12 flex items-center px-4 lg:px-6 gap-1">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = pathname === tab.href;
-            return (
-              <Link
-                key={tab.href}
-                href={tab.href}
-                className={cn(
-                  "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  isActive
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent/70",
-                )}
-                aria-current={isActive ? "page" : undefined}
-              >
-                <Icon className="w-4 h-4" aria-hidden="true" />
-                <span>{tab.label}</span>
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
+        {/* Tab Navigation */}
+        <nav className="border-b border-border" aria-label="Library sections">
+          <div className="h-12 flex items-center px-4 lg:px-6 gap-1">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = pathname === tab.href;
+              return (
+                <Link
+                  key={tab.href}
+                  href={tab.href}
+                  className={cn(
+                    "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    isActive
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent/70",
+                  )}
+                  aria-current={isActive ? "page" : undefined}
+                >
+                  <Icon className="w-4 h-4" aria-hidden="true" />
+                  <span>{tab.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      </div>
 
       {/* Page Content */}
       {children}

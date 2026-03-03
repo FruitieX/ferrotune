@@ -46,3 +46,12 @@ export function useIsMobile(): boolean {
 export function useIsSmallScreen(): boolean {
   return !useMediaQuery("(min-width: 768px)");
 }
+
+/**
+ * Hook that returns true when the device has a fine pointer (mouse/trackpad).
+ * Used to decide whether to show hover-based UI like play buttons and
+ * selection checkboxes on hover, instead of basing this on viewport size.
+ */
+export function useHasFinePointer(): boolean {
+  return useMediaQuery("(hover: hover) and (pointer: fine)");
+}

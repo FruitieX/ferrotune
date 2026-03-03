@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CoverImage } from "@/components/shared/cover-image";
+import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 
 interface MediaCardProps {
   /** Cover art URL */
@@ -75,6 +76,8 @@ export function MediaCard({
   withGlow = false,
   className,
 }: MediaCardProps) {
+  const hasFinePointer = useHasFinePointer();
+
   const cardContent = (
     <article
       data-testid="media-card"
@@ -95,7 +98,9 @@ export function MediaCard({
               "absolute top-1 left-1 z-20 transition-opacity",
               isSelected || isSelectionMode
                 ? "opacity-100"
-                : "opacity-0 hidden lg:block group-hover:opacity-100",
+                : hasFinePointer
+                  ? "opacity-0 group-hover:opacity-100"
+                  : "hidden",
             )}
           >
             <button
@@ -144,7 +149,7 @@ export function MediaCard({
               <div
                 className={cn(
                   "absolute inset-0 items-center justify-center",
-                  "hidden lg:flex",
+                  hasFinePointer ? "flex" : "hidden",
                   "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
                   coverShape === "circle" && "rounded-full",
                 )}

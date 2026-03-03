@@ -81,15 +81,69 @@ export const DEFAULT_SONG_FIELDS: FieldDefinition[] = [
       { value: "aiff", label: "AIFF" },
     ],
   },
-  { value: "albumartist", label: "Album Artist", type: "text" },
-  { value: "composer", label: "Composer", type: "text" },
-  { value: "comment", label: "Comment", type: "text" },
-  // Boolean filter fields
-  { value: "coverArt", label: "Cover Art", type: "boolean" },
   { value: "starred", label: "Starred", type: "boolean" },
+  {
+    value: "coverArt",
+    label: "Cover Art",
+    type: "enum",
+    enumOptions: [
+      { value: "any", label: "Has Cover Art" },
+      { value: "embedded", label: "Has Embedded Cover Art" },
+      { value: "album", label: "Has Album Cover Art" },
+    ],
+  },
+  {
+    value: "coverArtResolution",
+    label: "Cover Art Resolution",
+    type: "number",
+  },
   { value: "shuffleExcluded", label: "Shuffle Excluded", type: "boolean" },
   { value: "disabled", label: "Disabled", type: "boolean" },
 ];
+
+/** Fields available for album filtering (matches backend build_album_filter_conditions) */
+export const DEFAULT_ALBUM_FIELDS: FieldDefinition[] = [
+  { value: "artist", label: "Artist", type: "text" },
+  { value: "year", label: "Year", type: "number" },
+  { value: "genre", label: "Genre", type: "text" },
+  { value: "rating", label: "Rating", type: "number" },
+  { value: "starred", label: "Starred", type: "boolean" },
+];
+
+/** Fields available for artist filtering (matches backend search_artists filter support) */
+export const DEFAULT_ARTIST_FIELDS: FieldDefinition[] = [
+  { value: "artist", label: "Name", type: "text" },
+  { value: "rating", label: "Rating", type: "number" },
+  { value: "starred", label: "Starred", type: "boolean" },
+];
+
+/**
+ * Build the complete fields list including dynamic library options.
+ * Use this when music folder data is available.
+ */
+export function buildFieldsWithLibraries(
+  baseFields: FieldDefinition[],
+  musicFolders: { id: number; name: string }[],
+): FieldDefinition[] {
+  if (musicFolders.length <= 1) return baseFields;
+  const libraryField: FieldDefinition = {
+    value: "library",
+    label: "Library",
+    type: "enum",
+    enumOptions: musicFolders.map((f) => ({
+      value: String(f.id),
+      label: f.name,
+    })),
+  };
+  // Insert library after "genre" for discoverability
+  const genreIndex = baseFields.findIndex((f) => f.value === "genre");
+  const insertAt = genreIndex >= 0 ? genreIndex + 1 : 0;
+  return [
+    ...baseFields.slice(0, insertAt),
+    libraryField,
+    ...baseFields.slice(insertAt),
+  ];
+}
 
 // ============================================================================
 // Operators
@@ -600,23 +654,24 @@ export function filtersToSearchParams(
         }
         break;
 
-      // Album artist, composer, comment - not yet supported as server-side filters
-      case "albumartist":
-      case "composer":
-      case "comment":
+      // Cover art enum field
+      case "coverArt":
+        // The flat search API only supports "missing cover art" boolean
+        // coverArt: "is" + "any" = has any cover art (not directly supported in flat API)
+        // coverArt: "is not" + "any" = missing cover art
+        if (operator === "neq" && value === "any") {
+          params.missingCoverArt = true;
+        }
         break;
 
-      // Boolean fields
-      case "coverArt":
-        // coverArt: "is" + true = has cover art
-        // coverArt: "is" + false = missing cover art
-        // coverArt: "is not" + true = missing cover art
-        // coverArt: "is not" + false = has cover art
-        if (
-          (operator === "eq" && value === false) ||
-          (operator === "neq" && value === true)
-        ) {
-          params.missingCoverArt = true;
+      // Cover art resolution - not supported in flat search API
+      case "coverArtResolution":
+        break;
+
+      // Library/music folder
+      case "library":
+        if (operator === "eq" && value) {
+          params.musicFolderId = Number(value);
         }
         break;
 

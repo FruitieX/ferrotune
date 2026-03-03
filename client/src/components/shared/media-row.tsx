@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CoverImage } from "@/components/shared/cover-image";
+import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 
 // Shared row container styles
 export const rowContainerStyles = cn(
@@ -111,6 +112,8 @@ export function MediaRow({
   className,
   children,
 }: MediaRowProps) {
+  const hasFinePointer = useHasFinePointer();
+
   // Index column with checkbox on hover (when onSelect is provided and no custom leftContent)
   const showIndexColumn = onSelect && index !== undefined && !leftContent;
 
@@ -129,7 +132,9 @@ export function MediaRow({
           "absolute inset-0 flex items-center justify-center transition-opacity",
           isSelected || isSelectionMode
             ? "opacity-100"
-            : "opacity-0 hidden lg:flex group-hover:opacity-100",
+            : hasFinePointer
+              ? "opacity-0 group-hover:opacity-100"
+              : "hidden",
         )}
       >
         <button
@@ -154,7 +159,9 @@ export function MediaRow({
           isActive && "text-primary",
           isSelected || isSelectionMode
             ? "opacity-0 pointer-events-none"
-            : "group-hover:opacity-0 group-hover:pointer-events-none",
+            : hasFinePointer
+              ? "group-hover:opacity-0 group-hover:pointer-events-none"
+              : "",
         )}
       >
         {index + 1}
@@ -185,7 +192,7 @@ export function MediaRow({
           aria-label={isPlaying ? "Pause" : "Play"}
           className={cn(
             "absolute inset-0 items-center justify-center",
-            "hidden lg:flex",
+            hasFinePointer ? "flex" : "hidden",
             "bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity",
             "cursor-pointer",
             coverShape === "circle" && "rounded-full",

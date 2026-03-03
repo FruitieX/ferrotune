@@ -99,6 +99,7 @@ interface ArtistCardCompactProps {
   showAlbumCount?: boolean;
   showSongCount?: boolean;
   showStarred?: boolean;
+  showRating?: boolean;
 }
 
 export function ArtistCardCompact({
@@ -112,6 +113,7 @@ export function ArtistCardCompact({
   showAlbumCount = true,
   showSongCount = false,
   showStarred = false,
+  showRating = false,
 }: ArtistCardCompactProps) {
   const { isStarred, toggleStar } = useStarredArtist(
     artist.id,
@@ -170,7 +172,7 @@ export function ArtistCardCompact({
         />
       }
       rightContent={
-        showAlbumCount || showSongCount || showStarred ? (
+        showAlbumCount || showSongCount || showStarred || showRating ? (
           <div className="flex items-center gap-4">
             {showStarred && (
               <span className="w-8 text-center shrink-0">
@@ -179,6 +181,11 @@ export function ArtistCardCompact({
                 ) : (
                   <HeartOff className="w-3.5 h-3.5 text-muted-foreground/40 inline" />
                 )}
+              </span>
+            )}
+            {showRating && (
+              <span className="text-sm text-muted-foreground w-12 text-right shrink-0">
+                {artist.userRating ? "★".repeat(artist.userRating) : "—"}
               </span>
             )}
             {showSongCount && (

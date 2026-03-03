@@ -215,7 +215,7 @@ export default function SongsPage() {
             <SongListHeader
               columnVisibility={columnVisibility}
               showCover
-              stickyTop="120px"
+              stickyTop="auto"
               sortConfig={sortConfig}
               onSortChange={setSortConfig}
             />

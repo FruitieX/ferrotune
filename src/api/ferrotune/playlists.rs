@@ -2315,7 +2315,7 @@ pub async fn get_recently_played_playlists(
     State(state): State<Arc<AppState>>,
     user: FerrotuneAuthenticatedUser,
 ) -> FerrotuneApiResult<Json<RecentPlaylistsResponse>> {
-    // Fetch recently played regular playlists
+    // Fetch recently played regular playlists (owned or shared with user)
     let regular: Vec<(String, String, i64, i64, String)> = sqlx::query_as(
         r#"
         SELECT p.id, p.name, p.song_count,
@@ -2327,11 +2327,15 @@ pub async fn get_recently_played_playlists(
                ), 0) as duration,
                strftime('%Y-%m-%dT%H:%M:%SZ', p.last_played_at) as last_played_at
         FROM playlists p
-        WHERE p.owner_id = ? AND p.last_played_at IS NOT NULL
+        WHERE (p.owner_id = ? OR EXISTS (
+            SELECT 1 FROM playlist_shares ps_share
+            WHERE ps_share.playlist_id = p.id AND ps_share.shared_with_user_id = ?
+        )) AND p.last_played_at IS NOT NULL
         ORDER BY p.last_played_at DESC
         LIMIT 50
         "#,
     )
+    .bind(user.user_id)
     .bind(user.user_id)
     .fetch_all(&state.pool)
     .await?;

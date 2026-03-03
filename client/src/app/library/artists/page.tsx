@@ -81,6 +81,8 @@ export default function ArtistsPage() {
         starredOnly: advancedFilters.starredOnly,
         minRating: advancedFilters.minRating,
         maxRating: advancedFilters.maxRating,
+        musicFolderId: advancedFilters.musicFolderId,
+        artistFilter: advancedFilters.artistFilter,
         inlineImages: viewMode === "grid" ? "medium" : "small",
       });
       const artists = response.searchResult3.artist ?? [];
@@ -275,6 +277,7 @@ export default function ArtistsPage() {
                   showAlbumCount={columnVisibility.albumCount}
                   showSongCount={columnVisibility.songCount}
                   showStarred={columnVisibility.starred}
+                  showRating={columnVisibility.rating}
                 />
               )}
               renderSkeleton={() => (

@@ -45,6 +45,35 @@ import {
 } from "@/components/shared/advanced-filter-dialog";
 import { formatDuration, formatCount } from "@/lib/utils/format";
 import type { Album, Artist, Playlist } from "@/lib/api/types";
+import type { AdvancedFilters } from "@/lib/store/ui";
+
+/** Filters that are only applicable to songs (not albums/artists) */
+const SONG_ONLY_FILTER_KEYS: (keyof AdvancedFilters)[] = [
+  "minDuration",
+  "maxDuration",
+  "minPlayCount",
+  "maxPlayCount",
+  "minBitrate",
+  "maxBitrate",
+  "shuffleExcludedOnly",
+  "disabledOnly",
+  "addedAfter",
+  "addedBefore",
+  "lastPlayedAfter",
+  "lastPlayedBefore",
+  "missingCoverArt",
+  "fileFormat",
+  "titleFilter",
+  "albumFilter",
+];
+
+/** Check if any active filters are song-specific (not supported by album/artist queries) */
+function hasSongOnlyFilters(filters: AdvancedFilters): boolean {
+  return SONG_ONLY_FILTER_KEYS.some((key) => {
+    const v = filters[key];
+    return v !== undefined && v !== false && v !== "";
+  });
+}
 
 export function SearchPageContent() {
   const router = useRouter();
@@ -103,8 +132,10 @@ export function SearchPageContent() {
       if (!client) throw new Error("Not connected");
       const response = await client.search3({
         query: debouncedQuery,
-        artistCount: hasActiveFilters ? 0 : 20, // Only show songs when filters active
-        albumCount: hasActiveFilters ? 0 : 20,
+        artistCount:
+          hasActiveFilters && hasSongOnlyFilters(advancedFilters) ? 0 : 20,
+        albumCount:
+          hasActiveFilters && hasSongOnlyFilters(advancedFilters) ? 0 : 20,
         songCount: 50,
         // Request medium thumbnails for cards (overview) and small for song rows
         inlineImages: "medium",
@@ -265,11 +296,13 @@ export function SearchPageContent() {
           </div>
         </div>
         {/* Active filter badges */}
-        <div className="px-4 lg:px-6 min-h-2 pb-2">
-          <div className="max-w-xl mx-auto">
-            <ActiveFilterBadges />
+        {hasActiveFilters && (
+          <div className="px-4 lg:px-6 pb-2">
+            <div className="max-w-xl mx-auto">
+              <ActiveFilterBadges />
+            </div>
           </div>
-        </div>
+        )}
       </header>
 
       {/* Content */}

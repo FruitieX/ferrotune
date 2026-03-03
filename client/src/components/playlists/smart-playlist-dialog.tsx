@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Sparkles, Plus, Trash2, Loader2 } from "lucide-react";
+import { Sparkles, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -25,132 +25,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getClient } from "@/lib/api/client";
-import type { MusicFolderInfo } from "@/lib/api/types";
 import type { SmartPlaylistInfo } from "@/lib/api/generated/SmartPlaylistInfo";
 import type { SmartPlaylistConditionApi } from "@/lib/api/generated/SmartPlaylistConditionApi";
-
-// Field definitions with their supported operators
-// Note: "library" field uses dynamic options from music folders API
-const STATIC_FIELDS = [
-  { value: "artist", label: "Artist", type: "text" as const },
-  { value: "album", label: "Album", type: "text" as const },
-  { value: "title", label: "Title", type: "text" as const },
-  { value: "genre", label: "Genre", type: "text" as const },
-  { value: "year", label: "Year", type: "number" as const },
-  { value: "playCount", label: "Play Count", type: "number" as const },
-  { value: "duration", label: "Duration (seconds)", type: "number" as const },
-  { value: "bitrate", label: "Bitrate (kbps)", type: "number" as const },
-  { value: "rating", label: "Rating", type: "number" as const },
-  { value: "dateAdded", label: "Date Added", type: "date" as const },
-  { value: "lastPlayed", label: "Last Played", type: "date" as const },
-  {
-    value: "fileFormat",
-    label: "File Format",
-    type: "enum" as const,
-    enumOptions: [
-      { value: "flac", label: "FLAC" },
-      { value: "mp3", label: "MP3" },
-      { value: "opus", label: "Opus" },
-      { value: "ogg", label: "Ogg Vorbis" },
-      { value: "m4a", label: "M4A/AAC" },
-      { value: "wav", label: "WAV" },
-      { value: "aiff", label: "AIFF" },
-    ],
-  },
-  { value: "starred", label: "Starred", type: "boolean" as const },
-  {
-    value: "coverArt",
-    label: "Cover Art",
-    type: "enum" as const,
-    enumOptions: [
-      { value: "any", label: "Has Cover Art" },
-      { value: "embedded", label: "Has Embedded Cover Art" },
-      { value: "album", label: "Has Album Cover Art" },
-    ],
-  },
-  {
-    value: "coverArtResolution",
-    label: "Cover Art Resolution",
-    type: "number" as const,
-  },
-  {
-    value: "shuffleExcluded",
-    label: "Shuffle Excluded",
-    type: "boolean" as const,
-  },
-];
-
-type FieldType = "text" | "number" | "date" | "boolean" | "enum";
-
-/**
- * Build the complete fields list including dynamic library options
- */
-function buildFieldsWithLibraries(
-  musicFolders: MusicFolderInfo[],
-): FieldDefinition[] {
-  const fields: FieldDefinition[] = [...STATIC_FIELDS];
-
-  // Only add library field if there are multiple music folders
-  if (musicFolders.length > 1) {
-    fields.push({
-      value: "library",
-      label: "Library",
-      type: "enum",
-      enumOptions: musicFolders.map((f) => ({
-        value: String(f.id),
-        label: f.name,
-      })),
-    });
-  }
-
-  return fields;
-}
-
-interface FieldDefinition {
-  value: string;
-  label: string;
-  type: FieldType;
-  enumOptions?: { value: string; label: string }[];
-}
-
-// Operators by type
-const OPERATORS: Record<FieldType, { value: string; label: string }[]> = {
-  text: [
-    { value: "contains", label: "contains" },
-    { value: "notContains", label: "does not contain" },
-    { value: "eq", label: "equals" },
-    { value: "neq", label: "does not equal" },
-    { value: "startsWith", label: "starts with" },
-    { value: "endsWith", label: "ends with" },
-    { value: "empty", label: "is empty" },
-    { value: "notEmpty", label: "is not empty" },
-  ],
-  number: [
-    { value: "eq", label: "equals" },
-    { value: "neq", label: "does not equal" },
-    { value: "gt", label: "greater than" },
-    { value: "gte", label: "at least" },
-    { value: "lt", label: "less than" },
-    { value: "lte", label: "at most" },
-    { value: "empty", label: "is empty" },
-    { value: "notEmpty", label: "is not empty" },
-  ],
-  date: [
-    { value: "within", label: "within last" },
-    { value: "gt", label: "after" },
-    { value: "lt", label: "before" },
-    { value: "empty", label: "never" },
-    { value: "notEmpty", label: "has value" },
-  ],
-  boolean: [
-    { value: "eq", label: "is" },
-    { value: "neq", label: "is not" },
-  ],
-  enum: [
-    { value: "eq", label: "is" },
-    { value: "neq", label: "is not" },
-  ],
-};
+import {
+  AdvancedFilterBuilder,
+  buildFieldsWithLibraries,
+  DEFAULT_SONG_FIELDS,
+  type AdvancedFilters,
+  type FilterCondition,
+} from "@/components/common/advanced-filter-builder";
 
 // Sort field options
 const SORT_FIELDS = [
@@ -165,13 +48,6 @@ const SORT_FIELDS = [
   { value: "duration", label: "Duration" },
 ];
 
-interface Condition {
-  id: string;
-  field: string;
-  operator: string;
-  value: string | number | boolean;
-}
-
 interface SmartPlaylistDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -185,7 +61,9 @@ function generateId() {
   return Math.random().toString(36).substring(2, 9);
 }
 
-function parseConditions(conditions: SmartPlaylistConditionApi[]): Condition[] {
+function parseConditions(
+  conditions: SmartPlaylistConditionApi[],
+): FilterCondition[] {
   return conditions.map((c) => ({
     id: generateId(),
     field: c.field,
@@ -215,14 +93,16 @@ export function SmartPlaylistDialog({
   });
 
   // Build dynamic fields list including library field if multiple folders exist
-  const FIELDS = buildFieldsWithLibraries(musicFolders);
+  const fields = buildFieldsWithLibraries(DEFAULT_SONG_FIELDS, musicFolders);
 
   // Form state
   const [name, setName] = useState("");
   const [comment, setComment] = useState("");
   const [isPublic, setIsPublic] = useState(false);
-  const [logic, setLogic] = useState<"and" | "or">("and");
-  const [conditions, setConditions] = useState<Condition[]>([]);
+  const [filters, setFilters] = useState<AdvancedFilters>({
+    logic: "and",
+    conditions: [],
+  });
   const [sortField, setSortField] = useState("random");
   const [sortDirection, setSortDirection] = useState("asc");
   const [maxSongs, setMaxSongs] = useState("");
@@ -240,8 +120,10 @@ export function SmartPlaylistDialog({
         setName(editPlaylist.name);
         setComment(editPlaylist.comment ?? "");
         setIsPublic(editPlaylist.isPublic);
-        setLogic((editPlaylist.rules.logic as "and" | "or") || "and");
-        setConditions(parseConditions(editPlaylist.rules.conditions));
+        setFilters({
+          logic: (editPlaylist.rules.logic as "and" | "or") || "and",
+          conditions: parseConditions(editPlaylist.rules.conditions),
+        });
         setSortField(editPlaylist.sortField ?? "random");
         setSortDirection(editPlaylist.sortDirection ?? "asc");
         setMaxSongs(editPlaylist.maxSongs?.toString() ?? "");
@@ -250,15 +132,17 @@ export function SmartPlaylistDialog({
         setName("");
         setComment("");
         setIsPublic(false);
-        setLogic("and");
-        setConditions([
-          {
-            id: generateId(),
-            field: "artist",
-            operator: "contains",
-            value: "",
-          },
-        ]);
+        setFilters({
+          logic: "and",
+          conditions: [
+            {
+              id: generateId(),
+              field: "artist",
+              operator: "contains",
+              value: "",
+            },
+          ],
+        });
         setSortField("random");
         setSortDirection("asc");
         setMaxSongs("");
@@ -272,7 +156,7 @@ export function SmartPlaylistDialog({
       const client = getClient();
       if (!client) throw new Error("Not connected");
 
-      const apiConditions = conditions.map((c) => ({
+      const apiConditions = filters.conditions.map((c) => ({
         field: c.field,
         operator: c.operator,
         value: c.value,
@@ -282,7 +166,7 @@ export function SmartPlaylistDialog({
         name,
         comment: comment || null,
         isPublic,
-        rules: { conditions: apiConditions, logic },
+        rules: { conditions: apiConditions, logic: filters.logic },
         sortField: sortField === "random" ? null : sortField,
         sortDirection: sortDirection || null,
         maxSongs: maxSongs ? parseInt(maxSongs, 10) : null,
@@ -305,7 +189,7 @@ export function SmartPlaylistDialog({
       const client = getClient();
       if (!client || !editPlaylist) throw new Error("Not connected");
 
-      const apiConditions = conditions.map((c) => ({
+      const apiConditions = filters.conditions.map((c) => ({
         field: c.field,
         operator: c.operator,
         value: c.value,
@@ -315,7 +199,7 @@ export function SmartPlaylistDialog({
         name,
         comment: comment || null,
         isPublic,
-        rules: { conditions: apiConditions, logic },
+        rules: { conditions: apiConditions, logic: filters.logic },
         sortField: sortField === "random" ? null : sortField,
         sortDirection: sortDirection || null,
         maxSongs: maxSongs ? parseInt(maxSongs, 10) : null,
@@ -352,49 +236,13 @@ export function SmartPlaylistDialog({
   // Handlers
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || conditions.length === 0) return;
+    if (!name.trim() || filters.conditions.length === 0) return;
 
     if (isEditing) {
       updateMutation.mutate();
     } else {
       createMutation.mutate();
     }
-  };
-
-  const addCondition = () => {
-    setConditions([
-      ...conditions,
-      { id: generateId(), field: "artist", operator: "contains", value: "" },
-    ]);
-  };
-
-  const removeCondition = (id: string) => {
-    if (conditions.length > 1) {
-      setConditions(conditions.filter((c) => c.id !== id));
-    }
-  };
-
-  const updateCondition = (id: string, updates: Partial<Condition>) => {
-    setConditions(
-      conditions.map((c) => {
-        if (c.id !== id) return c;
-        const updated = { ...c, ...updates };
-
-        // Reset operator and value when field changes
-        if (updates.field && updates.field !== c.field) {
-          const fieldDef = FIELDS.find((f) => f.value === updates.field);
-          const operators = OPERATORS[fieldDef?.type ?? "text"];
-          updated.operator = operators[0].value;
-          updated.value = fieldDef?.type === "boolean" ? true : "";
-        }
-
-        return updated;
-      }),
-    );
-  };
-
-  const getFieldType = (field: string) => {
-    return FIELDS.find((f) => f.value === field)?.type ?? "text";
   };
 
   return (
@@ -445,179 +293,13 @@ export function SmartPlaylistDialog({
               <Label htmlFor="sp-public">Public playlist</Label>
             </div>
 
-            {/* Conditions */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Label>Match</Label>
-                <Select
-                  value={logic}
-                  onValueChange={(v) => setLogic(v as "and" | "or")}
-                >
-                  <SelectTrigger className="w-20">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="and">all</SelectItem>
-                    <SelectItem value="or">any</SelectItem>
-                  </SelectContent>
-                </Select>
-                <span className="text-sm text-muted-foreground">
-                  of the following rules:
-                </span>
-              </div>
-
-              <div className="space-y-2 rounded-lg border p-3">
-                {conditions.map((cond) => {
-                  const fieldType = getFieldType(cond.field);
-                  const operators = OPERATORS[fieldType];
-
-                  return (
-                    <div key={cond.id} className="flex items-center gap-2">
-                      {/* Field selector */}
-                      <Select
-                        value={cond.field}
-                        onValueChange={(v) =>
-                          updateCondition(cond.id, { field: v })
-                        }
-                      >
-                        <SelectTrigger className="w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {FIELDS.map((f) => (
-                            <SelectItem key={f.value} value={f.value}>
-                              {f.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-
-                      {/* Operator selector */}
-                      <Select
-                        value={cond.operator}
-                        onValueChange={(v) =>
-                          updateCondition(cond.id, { operator: v })
-                        }
-                      >
-                        <SelectTrigger className="w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {operators.map((op) => (
-                            <SelectItem key={op.value} value={op.value}>
-                              {op.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-
-                      {/* Value input - hidden for empty/notEmpty operators */}
-                      {["empty", "notEmpty"].includes(cond.operator) ? (
-                        <div className="flex-1" /> /* Spacer */
-                      ) : fieldType === "boolean" ? (
-                        <Select
-                          value={String(cond.value)}
-                          onValueChange={(v) =>
-                            updateCondition(cond.id, { value: v === "true" })
-                          }
-                        >
-                          <SelectTrigger className="flex-1">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="true">Yes</SelectItem>
-                            <SelectItem value="false">No</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      ) : fieldType === "enum" ? (
-                        <Select
-                          value={String(cond.value)}
-                          onValueChange={(v) =>
-                            updateCondition(cond.id, { value: v })
-                          }
-                        >
-                          <SelectTrigger className="flex-1">
-                            <SelectValue placeholder="Select..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(
-                              FIELDS.find(
-                                (f) => f.value === cond.field,
-                              ) as FieldDefinition
-                            )?.enumOptions?.map((opt) => (
-                              <SelectItem key={opt.value} value={opt.value}>
-                                {opt.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : fieldType === "date" && cond.operator === "within" ? (
-                        <Input
-                          className="flex-1"
-                          placeholder="e.g., 30d, 1w, 6m"
-                          value={String(cond.value)}
-                          onChange={(e) =>
-                            updateCondition(cond.id, { value: e.target.value })
-                          }
-                        />
-                      ) : fieldType === "date" ? (
-                        <Input
-                          className="flex-1"
-                          type="date"
-                          value={String(cond.value)}
-                          onChange={(e) =>
-                            updateCondition(cond.id, { value: e.target.value })
-                          }
-                        />
-                      ) : fieldType === "number" ? (
-                        <Input
-                          className="flex-1"
-                          type="number"
-                          placeholder="0"
-                          value={String(cond.value)}
-                          onChange={(e) =>
-                            updateCondition(cond.id, {
-                              value: parseInt(e.target.value, 10) || 0,
-                            })
-                          }
-                        />
-                      ) : (
-                        <Input
-                          className="flex-1"
-                          placeholder="Value..."
-                          value={String(cond.value)}
-                          onChange={(e) =>
-                            updateCondition(cond.id, { value: e.target.value })
-                          }
-                        />
-                      )}
-
-                      {/* Remove button */}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeCondition(cond.id)}
-                        disabled={conditions.length <= 1}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  );
-                })}
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={addCondition}
-                  className="w-full"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Rule
-                </Button>
-              </div>
-            </div>
+            {/* Conditions - uses shared AdvancedFilterBuilder */}
+            <AdvancedFilterBuilder
+              value={filters}
+              onChange={setFilters}
+              fields={fields}
+              maxHeight="300px"
+            />
 
             {/* Sorting */}
             <div className="grid grid-cols-2 gap-4">
@@ -673,7 +355,9 @@ export function SmartPlaylistDialog({
             </Button>
             <Button
               type="submit"
-              disabled={!name.trim() || conditions.length === 0 || isPending}
+              disabled={
+                !name.trim() || filters.conditions.length === 0 || isPending
+              }
             >
               {isPending ? (
                 <>

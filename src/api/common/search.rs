@@ -140,6 +140,9 @@ pub struct SearchParams {
     pub last_played_after: Option<String>,
     /// Filter songs last played before this ISO 8601 date (e.g., "2024-12-31")
     pub last_played_before: Option<String>,
+    /// Filter by music folder (library) ID
+    #[ts(type = "number | null")]
+    pub music_folder_id: Option<i64>,
 }
 
 /// Get ORDER BY clause for song sorting
@@ -301,6 +304,10 @@ pub fn build_song_filter_conditions(params: &SearchParams, user_id: i64) -> Song
         let escaped_date = last_played_before.replace('\'', "''");
         conditions.push(format!("date(pc.last_played) <= '{}'", escaped_date));
     }
+    // Music folder (library) filter
+    if let Some(music_folder_id) = params.music_folder_id {
+        conditions.push(format!("s.music_folder_id = {}", music_folder_id));
+    }
 
     SongFilterConditions {
         conditions,
@@ -334,6 +341,18 @@ pub fn build_album_filter_conditions(params: &SearchParams) -> Vec<String> {
     if params.starred_only.unwrap_or(false) {
         // starred table uses composite PK (user_id, item_type, item_id) - no 'id' column
         conditions.push("st.item_id IS NOT NULL".to_string());
+    }
+    // Music folder (library) filter - albums have songs from a specific folder
+    if let Some(music_folder_id) = params.music_folder_id {
+        conditions.push(format!(
+            "EXISTS (SELECT 1 FROM songs s_mf WHERE s_mf.album_id = a.id AND s_mf.music_folder_id = {})",
+            music_folder_id
+        ));
+    }
+    // Artist name filter (case-insensitive substring match on album artist)
+    if let Some(ref artist_filter) = params.artist_filter {
+        let escaped = artist_filter.replace('\'', "''");
+        conditions.push(format!("ar.name LIKE '%{}%' COLLATE NOCASE", escaped));
     }
 
     conditions
@@ -498,6 +517,18 @@ pub async fn search_artists(
     }
     if let Some(max_rating) = params.max_rating {
         artist_filter_conds.push(format!("COALESCE(r.rating, 0) <= {}", max_rating));
+    }
+    // Music folder (library) filter - artists have songs from a specific folder
+    if let Some(music_folder_id) = params.music_folder_id {
+        artist_filter_conds.push(format!(
+            "EXISTS (SELECT 1 FROM songs s_mf WHERE s_mf.artist_id = a.id AND s_mf.music_folder_id = {})",
+            music_folder_id
+        ));
+    }
+    // Artist name filter (case-insensitive substring match)
+    if let Some(ref artist_filter) = params.artist_filter {
+        let escaped = artist_filter.replace('\'', "''");
+        artist_filter_conds.push(format!("a.name LIKE '%{}%' COLLATE NOCASE", escaped));
     }
 
     // Filter to only include artists with songs from enabled music folders

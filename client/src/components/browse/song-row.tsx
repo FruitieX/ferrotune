@@ -30,6 +30,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { NowPlayingBars } from "@/components/shared/now-playing-bars";
+import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
 
 // Track number column - shows number, now playing indicator, or selection checkbox on hover
@@ -52,6 +53,7 @@ function TrackIndex({
   isSelectionMode,
   onSelect,
 }: TrackIndexProps) {
+  const hasFinePointer = useHasFinePointer();
   const showCheckbox = isSelected || isSelectionMode;
 
   return (
@@ -65,11 +67,15 @@ function TrackIndex({
         }
       }}
     >
-      {/* Checkbox - shows when selected, in selection mode, or on hover */}
+      {/* Checkbox - shows when selected, in selection mode, or on hover (pointer devices only) */}
       <div
         className={cn(
           "absolute inset-0 flex items-center justify-center transition-opacity",
-          showCheckbox ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+          showCheckbox
+            ? "opacity-100"
+            : hasFinePointer
+              ? "opacity-0 group-hover:opacity-100"
+              : "hidden",
         )}
       >
         <button
@@ -94,7 +100,9 @@ function TrackIndex({
           isCurrentTrack && "text-primary",
           showCheckbox
             ? "opacity-0 pointer-events-none"
-            : "group-hover:opacity-0 group-hover:pointer-events-none",
+            : hasFinePointer
+              ? "group-hover:opacity-0 group-hover:pointer-events-none"
+              : "",
         )}
       >
         {isCurrentTrack ? (

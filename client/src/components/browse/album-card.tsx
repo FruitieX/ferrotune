@@ -12,7 +12,7 @@ import {
   RowDropdownTrigger,
 } from "@/components/shared/media-row";
 import { AlbumContextMenu, AlbumDropdownMenu } from "./album-context-menu";
-import { formatDuration } from "@/lib/utils/format";
+import { formatDuration, formatDate } from "@/lib/utils/format";
 
 interface AlbumCardProps {
   album: Album;
@@ -116,6 +116,8 @@ interface AlbumCardCompactProps {
   showDuration?: boolean;
   showGenre?: boolean;
   showStarred?: boolean;
+  showRating?: boolean;
+  showDateAdded?: boolean;
 }
 
 export function AlbumCardCompact({
@@ -132,6 +134,8 @@ export function AlbumCardCompact({
   showDuration = false,
   showGenre = false,
   showStarred = false,
+  showRating = false,
+  showDateAdded = false,
 }: AlbumCardCompactProps) {
   const { isStarred, toggleStar } = useStarredAlbum(album.id, !!album.starred);
 
@@ -198,6 +202,26 @@ export function AlbumCardCompact({
         className="text-sm text-muted-foreground tabular-nums w-16 text-right shrink-0"
       >
         {formatDuration(album.duration)}
+      </span>,
+    );
+  }
+  if (showRating) {
+    metadataColumns.push(
+      <span
+        key="rating"
+        className="text-sm text-muted-foreground w-12 text-right shrink-0"
+      >
+        {album.userRating ? "★".repeat(album.userRating) : "—"}
+      </span>,
+    );
+  }
+  if (showDateAdded) {
+    metadataColumns.push(
+      <span
+        key="dateAdded"
+        className="text-sm text-muted-foreground w-24 text-right shrink-0"
+      >
+        {album.created ? formatDate(album.created) : "—"}
       </span>,
     );
   }

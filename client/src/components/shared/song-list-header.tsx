@@ -23,8 +23,8 @@ interface SongListHeaderProps {
   showIndex?: boolean;
   /** Whether to show cover art column */
   showCover?: boolean;
-  /** Top offset for sticky positioning (default: 72px, use 120px for library views) */
-  stickyTop?: "72px" | "120px";
+  /** Top offset for sticky positioning. Use "auto" to read from --sticky-header-height CSS variable (library views). */
+  stickyTop?: "72px" | "auto";
   /** Additional class names */
   className?: string;
   /** Current sort config for highlighting active column */
@@ -101,9 +101,14 @@ export function SongListHeader({
       className={cn(
         "sticky z-10 bg-background/95 backdrop-blur-sm border-b border-border",
         "flex items-center gap-4 px-4 pr-6 py-2 h-8 border-l-2 border-l-transparent",
-        stickyTop === "120px" ? "top-[120px]" : "top-[72px]",
+        stickyTop === "72px" && "top-[72px]",
         className,
       )}
+      style={
+        stickyTop === "auto"
+          ? { top: "var(--sticky-header-height, 120px)" }
+          : undefined
+      }
     >
       {/* Index column */}
       {showIndex && (
@@ -232,8 +237,8 @@ export function SongListHeader({
 interface FilesListHeaderProps {
   /** Column visibility settings for files */
   columnVisibility: FilesColumnVisibility;
-  /** Top offset for sticky positioning (default: 72px, use 120px for library views) */
-  stickyTop?: "72px" | "120px";
+  /** Top offset for sticky positioning. Use "auto" to read from --sticky-header-height CSS variable (library views). */
+  stickyTop?: "72px" | "auto";
   /** Additional class names */
   className?: string;
 }
@@ -244,7 +249,7 @@ interface FilesListHeaderProps {
  */
 export function FilesListHeader({
   columnVisibility,
-  stickyTop = "120px", // Files are in library layout
+  stickyTop = "auto", // Files are in library layout
   className,
 }: FilesListHeaderProps) {
   return (
@@ -252,9 +257,14 @@ export function FilesListHeader({
       className={cn(
         "sticky z-10 bg-background/95 backdrop-blur-sm border-b border-border",
         "flex items-center gap-4 px-4 pr-6 py-2 h-8 border-l-2 border-l-transparent",
-        stickyTop === "120px" ? "top-[120px]" : "top-[72px]",
+        stickyTop === "72px" && "top-[72px]",
         className,
       )}
+      style={
+        stickyTop === "auto"
+          ? { top: "var(--sticky-header-height, 120px)" }
+          : undefined
+      }
     >
       {/* Selection checkbox placeholder */}
       <div className="w-5 shrink-0" />
@@ -291,8 +301,8 @@ interface AlbumListHeaderProps {
   columnVisibility: AlbumColumnVisibility;
   /** Whether to show index column */
   showIndex?: boolean;
-  /** Top offset for sticky positioning (default: 120px for library views) */
-  stickyTop?: "72px" | "120px";
+  /** Top offset for sticky positioning. Use "auto" to read from --sticky-header-height CSS variable (library views). */
+  stickyTop?: "72px" | "auto";
   /** Additional class names */
   className?: string;
 }
@@ -304,7 +314,7 @@ interface AlbumListHeaderProps {
 export function AlbumListHeader({
   columnVisibility,
   showIndex = true,
-  stickyTop = "120px", // Albums are in library layout
+  stickyTop = "auto", // Albums are in library layout
   className,
 }: AlbumListHeaderProps) {
   return (
@@ -312,9 +322,14 @@ export function AlbumListHeader({
       className={cn(
         "sticky z-10 bg-background/95 backdrop-blur-sm border-b border-border",
         "flex items-center gap-4 px-4 pr-6 py-2 h-8 border-l-2 border-l-transparent",
-        stickyTop === "120px" ? "top-[120px]" : "top-[72px]",
+        stickyTop === "72px" && "top-[72px]",
         className,
       )}
+      style={
+        stickyTop === "auto"
+          ? { top: "var(--sticky-header-height, 120px)" }
+          : undefined
+      }
     >
       {/* Index column */}
       {showIndex && (
@@ -346,6 +361,12 @@ export function AlbumListHeader({
         {columnVisibility.duration && (
           <span className="w-16 text-right">Time</span>
         )}
+        {columnVisibility.rating && (
+          <span className="w-12 text-right">Rating</span>
+        )}
+        {columnVisibility.dateAdded && (
+          <span className="w-24 text-right">Added</span>
+        )}
       </div>
     </div>
   );
@@ -360,8 +381,8 @@ interface ArtistListHeaderProps {
   columnVisibility: ArtistColumnVisibility;
   /** Whether to show index column */
   showIndex?: boolean;
-  /** Top offset for sticky positioning (default: 120px for library views) */
-  stickyTop?: "72px" | "120px";
+  /** Top offset for sticky positioning. Use "auto" to read from --sticky-header-height CSS variable (library views). */
+  stickyTop?: "72px" | "auto";
   /** Additional class names */
   className?: string;
 }
@@ -373,7 +394,7 @@ interface ArtistListHeaderProps {
 export function ArtistListHeader({
   columnVisibility,
   showIndex = true,
-  stickyTop = "120px", // Artists are in library layout
+  stickyTop = "auto", // Artists are in library layout
   className,
 }: ArtistListHeaderProps) {
   return (
@@ -381,9 +402,14 @@ export function ArtistListHeader({
       className={cn(
         "sticky z-10 bg-background/95 backdrop-blur-sm border-b border-border",
         "flex items-center gap-4 px-4 pr-6 py-2 h-8 border-l-2 border-l-transparent",
-        stickyTop === "120px" ? "top-[120px]" : "top-[72px]",
+        stickyTop === "72px" && "top-[72px]",
         className,
       )}
+      style={
+        stickyTop === "auto"
+          ? { top: "var(--sticky-header-height, 120px)" }
+          : undefined
+      }
     >
       {/* Index column */}
       {showIndex && (
@@ -404,6 +430,9 @@ export function ArtistListHeader({
       <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground shrink-0">
         {columnVisibility.starred && (
           <span className="w-8 text-center">Fav</span>
+        )}
+        {columnVisibility.rating && (
+          <span className="w-12 text-right">Rating</span>
         )}
         {columnVisibility.songCount && (
           <span className="w-12 text-right">Songs</span>

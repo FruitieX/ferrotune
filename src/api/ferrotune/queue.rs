@@ -1590,6 +1590,7 @@ fn build_search_params_from_json(
         title_filter: None,
         last_played_after: None,
         last_played_before: None,
+        music_folder_id: None,
     };
 
     // Parse filters
@@ -1663,6 +1664,9 @@ fn build_search_params_from_json(
             }
             if let Some(v) = obj.get("lastPlayedBefore").and_then(|v| v.as_str()) {
                 params.last_played_before = Some(v.to_string());
+            }
+            if let Some(v) = obj.get("musicFolderId").and_then(|v| v.as_i64()) {
+                params.music_folder_id = Some(v);
             }
         }
     }

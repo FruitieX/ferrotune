@@ -230,6 +230,8 @@ export interface AlbumColumnVisibility {
   duration: boolean;
   genre: boolean;
   starred: boolean;
+  rating: boolean;
+  dateAdded: boolean;
 }
 
 export const favoritesAlbumColumnVisibilityAtom =
@@ -240,6 +242,8 @@ export const favoritesAlbumColumnVisibilityAtom =
     duration: true,
     genre: false,
     starred: false,
+    rating: false,
+    dateAdded: false,
   });
 
 // Favorites artists view settings
@@ -260,6 +264,7 @@ export interface ArtistColumnVisibility {
   albumCount: boolean;
   songCount: boolean;
   starred: boolean;
+  rating: boolean;
 }
 
 export const favoritesArtistColumnVisibilityAtom =
@@ -267,6 +272,7 @@ export const favoritesArtistColumnVisibilityAtom =
     albumCount: true,
     songCount: false,
     starred: false,
+    rating: false,
   });
 
 // Library album column visibility (for albums list view)
@@ -278,6 +284,8 @@ export const libraryAlbumColumnVisibilityAtom =
     duration: false,
     genre: false,
     starred: false,
+    rating: false,
+    dateAdded: false,
   });
 
 // Library artist column visibility (for artists list view)
@@ -286,6 +294,7 @@ export const libraryArtistColumnVisibilityAtom =
     albumCount: true,
     songCount: false,
     starred: false,
+    rating: false,
   });
 
 // Album details view settings (for album songs list)
@@ -424,7 +433,7 @@ export interface AdvancedFilters {
   addedBefore?: string; // ISO 8601 date string (YYYY-MM-DD)
   missingCoverArt?: boolean; // Filter to only songs missing cover art
   fileFormat?: string; // Filter by file format (e.g., "mp3", "flac")
-  musicFolderId?: string; // Filter by library/music folder
+  musicFolderId?: number; // Filter by library/music folder
   artistFilter?: string; // Filter by artist name (substring match)
   albumFilter?: string; // Filter by album name (substring match)
   titleFilter?: string; // Filter by title (substring match)

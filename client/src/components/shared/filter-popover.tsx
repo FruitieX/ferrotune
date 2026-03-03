@@ -149,7 +149,7 @@ export function FilterPopover({
       cleanedFilters.addedAfter = localFilters.addedAfter;
     if (localFilters.addedBefore)
       cleanedFilters.addedBefore = localFilters.addedBefore;
-    if (localFilters.musicFolderId)
+    if (localFilters.musicFolderId != null)
       cleanedFilters.musicFolderId = localFilters.musicFolderId;
 
     setFilters(cleanedFilters);
@@ -557,11 +557,15 @@ export function FilterPopover({
                 Library
               </Label>
               <Select
-                value={localFilters.musicFolderId ?? "__any__"}
+                value={
+                  localFilters.musicFolderId != null
+                    ? String(localFilters.musicFolderId)
+                    : "__any__"
+                }
                 onValueChange={(value) =>
                   updateLocalFilter(
                     "musicFolderId",
-                    value === "__any__" ? undefined : value,
+                    value === "__any__" ? undefined : Number(value),
                   )
                 }
                 disabled={musicFoldersLoading}
@@ -601,6 +605,17 @@ export function FilterPopover({
 export function ActiveFilterBadges({ className }: { className?: string }) {
   const [filters, setFilters] = useAtom(advancedFiltersAtom);
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
+
+  // Fetch music folders to resolve library name from ID
+  const { data: musicFolders = [] } = useQuery({
+    queryKey: ["musicFolders"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) return [];
+      const response = await client.getAdminMusicFolders();
+      return response.musicFolders ?? [];
+    },
+  });
 
   if (!hasActiveFilters) return null;
 
@@ -686,10 +701,13 @@ export function ActiveFilterBadges({ className }: { className?: string }) {
     badges.push({ key: "addedAfter", label: `Added: ${dateLabel}` });
   }
 
-  if (filters.musicFolderId) {
+  if (filters.musicFolderId != null) {
+    const folderName =
+      musicFolders.find((f) => f.id === filters.musicFolderId)?.name ??
+      String(filters.musicFolderId);
     badges.push({
       key: "musicFolderId",
-      label: `Library: ${filters.musicFolderId}`,
+      label: `Library: ${folderName}`,
     });
   }
 

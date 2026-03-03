@@ -866,6 +866,8 @@ export default function FavoritesPage() {
                       showDuration={albumColumnVisibility.duration}
                       showGenre={albumColumnVisibility.genre}
                       showStarred={albumColumnVisibility.starred}
+                      showRating={albumColumnVisibility.rating}
+                      showDateAdded={albumColumnVisibility.dateAdded}
                     />
                   )}
                   renderSkeleton={() => <MediaRowSkeleton showIndex />}
@@ -946,6 +948,7 @@ export default function FavoritesPage() {
                       showAlbumCount={artistColumnVisibility.albumCount}
                       showSongCount={artistColumnVisibility.songCount}
                       showStarred={artistColumnVisibility.starred}
+                      showRating={artistColumnVisibility.rating}
                     />
                   )}
                   renderSkeleton={() => <MediaRowSkeleton showIndex />}

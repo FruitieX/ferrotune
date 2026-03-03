@@ -91,6 +91,8 @@ export default function AlbumsPage() {
         minRating: advancedFilters.minRating,
         maxRating: advancedFilters.maxRating,
         starredOnly: advancedFilters.starredOnly,
+        musicFolderId: advancedFilters.musicFolderId,
+        artistFilter: advancedFilters.artistFilter,
         inlineImages: "medium",
       });
       const albums = response.searchResult3.album ?? [];
@@ -286,6 +288,8 @@ export default function AlbumsPage() {
                   showDuration={columnVisibility.duration}
                   showGenre={columnVisibility.genre}
                   showStarred={columnVisibility.starred}
+                  showRating={columnVisibility.rating}
+                  showDateAdded={columnVisibility.dateAdded}
                 />
               )}
               renderSkeleton={() => <MediaRowSkeleton showIndex />}
