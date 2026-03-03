@@ -100,6 +100,17 @@ export const currentSongAtom = atom<Song | null>((get) => {
   return entry?.song ?? null;
 });
 
+// Get the current queue entry's source_entry_id (for playlist "now playing" matching)
+export const currentSourceEntryIdAtom = atom<string | null>((get) => {
+  const state = get(serverQueueStateAtom);
+  const window = get(queueWindowAtom);
+
+  if (!state || !window) return null;
+
+  const entry = window.songs.find((s) => s.position === state.currentIndex);
+  return entry?.sourceEntryId ?? null;
+});
+
 // Get the next song from the window (for gapless pre-buffering)
 export const nextSongAtom = atom<Song | null>((get) => {
   const state = get(serverQueueStateAtom);

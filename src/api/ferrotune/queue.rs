@@ -108,6 +108,9 @@ pub struct QueueWindow {
 pub struct QueueSongEntry {
     /// Unique identifier for this queue entry (allows same song multiple times)
     pub entry_id: String,
+    /// Original playlist entry_id when queue was materialized from a playlist
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_entry_id: Option<String>,
     /// Position in the queue (display order, accounts for shuffle)
     pub position: usize,
     /// The song data
@@ -294,6 +297,10 @@ pub async fn start_queue(
     // to the actual index in the materialized songs array
     let mut position_to_index_map: Option<std::collections::HashMap<i64, usize>> = None;
 
+    // Track playlist entry_ids alongside songs for "now playing" indicator stability
+    // These are kept in sync with the songs vec through all transformations
+    let mut playlist_entry_ids: Option<Vec<String>> = None;
+
     // Get songs either from explicit IDs or by materializing from source
     let songs = if let Some(ref song_ids) = request.song_ids {
         // Use explicit song IDs provided by client
@@ -333,16 +340,16 @@ pub async fn start_queue(
         // Only useful when using playlist's natural order (no custom sort or filter)
         if !has_custom_sort && !has_filter {
             let mut mapping = std::collections::HashMap::new();
-            for (idx, (position, _)) in songs_with_positions.iter().enumerate() {
+            for (idx, (position, _, _)) in songs_with_positions.iter().enumerate() {
                 mapping.insert(*position, idx);
             }
             position_to_index_map = Some(mapping);
         }
 
-        // Extract just the songs, apply filtering and sorting
-        let songs: Vec<_> = songs_with_positions
+        // Extract songs and entry_ids as paired tuples, then apply filtering and sorting
+        let mut paired: Vec<(String, crate::db::models::Song)> = songs_with_positions
             .into_iter()
-            .map(|(_, song)| song)
+            .map(|(_, entry_id, song)| (entry_id, song))
             .collect();
 
         let sort_field = request
@@ -356,7 +363,51 @@ pub async fn start_queue(
             .and_then(|s| s.get("direction"))
             .and_then(|v| v.as_str());
 
-        sorting::filter_and_sort_songs(songs, text_filter, sort_field, sort_dir)
+        // Apply filtering and sorting while keeping entry_ids paired
+        // We use filter_and_sort_songs on the songs, but need to keep the pairing.
+        // Instead, do the same operations on the paired vec.
+        if let Some(filter) = text_filter {
+            let filter_lower = filter.to_lowercase();
+            paired.retain(|(_, song)| {
+                song.title.to_lowercase().contains(&filter_lower)
+                    || song.artist_name.to_lowercase().contains(&filter_lower)
+                    || song
+                        .album_name
+                        .as_deref()
+                        .is_some_and(|n| n.to_lowercase().contains(&filter_lower))
+                    || song
+                        .genre
+                        .as_deref()
+                        .is_some_and(|g| g.to_lowercase().contains(&filter_lower))
+            });
+        }
+
+        // Sort the paired vec using the same sort logic
+        let songs_only: Vec<_> = paired.iter().map(|(_, s)| s.clone()).collect();
+        let sorted_songs = sorting::filter_and_sort_songs(songs_only, None, sort_field, sort_dir);
+
+        // Rebuild paired vec in sorted order by matching song positions
+        // Create index mapping: for each song in sorted order, find its original paired index
+        let mut sorted_paired = Vec::with_capacity(sorted_songs.len());
+        let mut used = vec![false; paired.len()];
+        for sorted_song in &sorted_songs {
+            if let Some(idx) = paired
+                .iter()
+                .enumerate()
+                .position(|(i, (_, s))| !used[i] && s.id == sorted_song.id)
+            {
+                used[idx] = true;
+                sorted_paired.push(paired[idx].clone());
+            }
+        }
+        paired = sorted_paired;
+
+        // Split into separate vecs
+        let (entry_ids, songs): (Vec<String>, Vec<crate::db::models::Song>) =
+            paired.into_iter().unzip();
+        playlist_entry_ids = Some(entry_ids);
+
+        songs
     } else {
         // Materialize songs from the source
         materialize_queue_songs(
@@ -393,10 +444,25 @@ pub async fn start_queue(
         } else {
             // Filter out disabled songs, but keep the start_song if it was explicitly requested
             let keep_song_id = request.start_song_id.as_ref();
-            songs
-                .into_iter()
-                .filter(|s| !disabled_ids.contains(&s.id) || Some(&s.id) == keep_song_id)
-                .collect()
+
+            // If we have playlist entry_ids, filter them in sync with songs
+            if let Some(ref mut entry_ids) = playlist_entry_ids {
+                let mut filtered_songs = Vec::new();
+                let mut filtered_entry_ids = Vec::new();
+                for (song, eid) in songs.into_iter().zip(entry_ids.drain(..)) {
+                    if !disabled_ids.contains(&song.id) || Some(&song.id) == keep_song_id {
+                        filtered_songs.push(song);
+                        filtered_entry_ids.push(eid);
+                    }
+                }
+                *entry_ids = filtered_entry_ids;
+                filtered_songs
+            } else {
+                songs
+                    .into_iter()
+                    .filter(|s| !disabled_ids.contains(&s.id) || Some(&s.id) == keep_song_id)
+                    .collect()
+            }
         }
     } else {
         songs
@@ -543,6 +609,7 @@ pub async fn start_queue(
             request.source_id.as_deref(),
             request.source_name.as_deref(),
             &song_ids,
+            playlist_entry_ids.as_deref(),
             current_index,
             is_shuffled,
             shuffle_seed,
@@ -1921,6 +1988,7 @@ async fn build_queue_window_range(
             );
             QueueSongEntry {
                 entry_id: entry.entry_id.clone(),
+                source_entry_id: entry.source_entry_id.clone(),
                 position: display_pos,
                 song: song_response,
             }
@@ -1984,6 +2052,7 @@ async fn build_lazy_queue_window(
 
             QueueSongEntry {
                 entry_id,
+                source_entry_id: None,
                 position: offset + idx,
                 song: song_response,
             }

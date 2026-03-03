@@ -587,17 +587,19 @@ pub async fn get_playlist_songs(
 }
 
 /// Get songs in a playlist with their original positions (for queue materialization)
-/// Returns tuples of (position, song) where position is the original playlist position
-/// This is needed to correctly map start_index when playlists have missing entries
+/// Returns tuples of (position, entry_id, song) where position is the original playlist position
+/// and entry_id is the stable playlist entry identifier.
+/// This is needed to correctly map start_index when playlists have missing entries,
+/// and to track the original playlist entry for "now playing" indicators.
 pub async fn get_playlist_songs_with_positions(
     pool: &SqlitePool,
     playlist_id: &str,
     user_id: i64,
-) -> sqlx::Result<Vec<(i64, Song)>> {
+) -> sqlx::Result<Vec<(i64, String, Song)>> {
     use sqlx::Row;
 
     let rows = sqlx::query(
-        "SELECT ps.position, s.*, ar.name as artist_name, al.name as album_name,
+        "SELECT ps.position, ps.entry_id as playlist_entry_id, s.*, ar.name as artist_name, al.name as album_name,
                 pc.play_count, pc.last_played, NULL as starred_at
          FROM songs s
          INNER JOIN artists ar ON s.artist_id = ar.id
@@ -617,6 +619,7 @@ pub async fn get_playlist_songs_with_positions(
         .into_iter()
         .map(|row| {
             let position: i64 = row.get("position");
+            let playlist_entry_id: Option<String> = row.get("playlist_entry_id");
             let song = Song {
                 id: row.get("id"),
                 title: row.get("title"),
@@ -646,7 +649,7 @@ pub async fn get_playlist_songs_with_positions(
                 computed_replaygain_track_gain: row.get("computed_replaygain_track_gain"),
                 computed_replaygain_track_peak: row.get("computed_replaygain_track_peak"),
             };
-            (position, song)
+            (position, playlist_entry_id.unwrap_or_default(), song)
         })
         .collect())
 }
@@ -1362,7 +1365,7 @@ pub async fn get_queue_entries_with_songs(
     user_id: i64,
 ) -> sqlx::Result<Vec<QueueEntryWithSong>> {
     sqlx::query_as::<_, QueueEntryWithSong>(
-        "SELECT pqe.entry_id, pqe.queue_position, s.*, ar.name as artist_name, al.name as album_name
+        "SELECT pqe.entry_id, pqe.source_entry_id, pqe.queue_position, s.*, ar.name as artist_name, al.name as album_name
          FROM play_queue_entries pqe
          INNER JOIN songs s ON pqe.song_id = s.id
          INNER JOIN artists ar ON s.artist_id = ar.id
@@ -1395,6 +1398,7 @@ pub async fn create_queue(
     source_id: Option<&str>,
     source_name: Option<&str>,
     song_ids: &[String],
+    source_entry_ids: Option<&[String]>,
     current_index: i64,
     is_shuffled: bool,
     shuffle_seed: Option<i64>,
@@ -1418,13 +1422,15 @@ pub async fn create_queue(
     // Insert new queue entries
     for (position, song_id) in song_ids.iter().enumerate() {
         let entry_id = Uuid::new_v4().to_string();
+        let source_entry_id = source_entry_ids.and_then(|ids| ids.get(position)).cloned();
         sqlx::query(
-            "INSERT INTO play_queue_entries (user_id, song_id, queue_position, entry_id) VALUES (?, ?, ?, ?)",
+            "INSERT INTO play_queue_entries (user_id, song_id, queue_position, entry_id, source_entry_id) VALUES (?, ?, ?, ?, ?)",
         )
         .bind(user_id)
         .bind(song_id)
         .bind(position as i64)
         .bind(&entry_id)
+        .bind(&source_entry_id)
         .execute(&mut *tx)
         .await?;
     }

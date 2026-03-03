@@ -27,6 +27,7 @@ import {
 import {
   startQueueAtom,
   serverQueueStateAtom,
+  currentSourceEntryIdAtom,
   toggleShuffleAtom,
 } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
@@ -125,6 +126,7 @@ function PlaylistDetailContent() {
   const startQueue = useSetAtom(startQueueAtom);
   const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
+  const currentSourceEntryId = useAtomValue(currentSourceEntryIdAtom);
   const queryClient = useQueryClient();
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -564,13 +566,14 @@ function PlaylistDetailContent() {
   };
 
   // Check if a song at a given playlist position is the currently playing track
-  // Uses the server-provided songIndex which maps directly to queue indices
-  // Returns undefined if we can't determine (falls back to song ID matching in SongRow)
+  // Uses source_entry_id matching when available (stable across playlist reorders),
+  // falls back to index-based matching, then song ID matching in SongRow
   const isCurrentQueuePosition = (
     songIndex: number | undefined,
     _songId: string,
+    playlistEntryId?: string,
   ): boolean | undefined => {
-    if (!queueState || songIndex === undefined) return undefined;
+    if (!queueState) return undefined;
 
     // Check if the queue source is this playlist
     const isPlaylistQueue =
@@ -578,6 +581,14 @@ function PlaylistDetailContent() {
       queueState.source?.id === playlistId;
 
     if (isPlaylistQueue) {
+      // Prefer source_entry_id matching — stable across playlist reorders
+      if (currentSourceEntryId && playlistEntryId) {
+        return currentSourceEntryId === playlistEntryId;
+      }
+
+      // Fallback: index-based matching (legacy queues without source_entry_id)
+      if (songIndex === undefined) return undefined;
+
       // When queue is shuffled, positions don't match the display order
       // Fall back to song ID matching in SongRow
       if (queueState.isShuffled) return undefined;
@@ -1146,6 +1157,7 @@ function PlaylistDetailContent() {
                         ? isCurrentQueuePosition(
                             songItem.songIndex,
                             songItem.song.id,
+                            songItem.entryId,
                           )
                         : undefined
                     }
@@ -1258,6 +1270,7 @@ function PlaylistDetailContent() {
                           ? isCurrentQueuePosition(
                               songItem.songIndex,
                               songItem.song.id,
+                              songItem.entryId,
                             )
                           : undefined
                       }

@@ -580,6 +580,8 @@ pub struct PlayQueueEntry {
     pub queue_position: i64,
     /// Unique identifier for this queue entry (allows same song multiple times)
     pub entry_id: String,
+    /// Original playlist entry_id when queue was materialized from a playlist
+    pub source_entry_id: Option<String>,
 }
 
 /// Queue entry with full song data - for API responses
@@ -587,6 +589,8 @@ pub struct PlayQueueEntry {
 pub struct QueueEntryWithSong {
     /// Unique identifier for this queue entry
     pub entry_id: String,
+    /// Original playlist entry_id when queue was materialized from a playlist
+    pub source_entry_id: Option<String>,
     /// Position in the queue
     pub queue_position: i64,
     /// Song ID
