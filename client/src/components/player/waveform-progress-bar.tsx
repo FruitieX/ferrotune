@@ -11,13 +11,11 @@ import {
 } from "@/lib/store/player";
 import { currentSongAtom } from "@/lib/store/server-queue";
 import { accentColorRgbAtom } from "@/lib/store/ui";
-import {
-  lastChunkInfoAtom,
-  waveformActualDurationAtom,
-} from "@/lib/store/waveform";
+import { lastChunkInfoAtom } from "@/lib/store/waveform";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { useWaveform } from "@/lib/hooks/use-waveform";
 import { FLAT_BAR_HEIGHT } from "@/lib/store/waveform";
+import { SimpleProgressBar } from "@/components/player/simple-progress-bar";
 
 interface WaveformProgressBarProps {
   className?: string;
@@ -83,12 +81,13 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   const buffered = useAtomValue(bufferedAtom);
   const primaryColor = useAtomValue(accentColorRgbAtom);
   const lastChunkInfo = useAtomValue(lastChunkInfoAtom);
-  const waveformActualDurations = useAtomValue(waveformActualDurationAtom);
   const { seekPercent } = useAudioEngine();
   const {
     heights: sourceHeights,
     barCount: sourceBarCount,
     isLoaded,
+    isAvailable,
+    isLoading,
   } = useWaveform();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -153,22 +152,12 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   // Treat "ended" playback as no track for waveform animation purposes
   // This ensures the waveform animates out when queue ends
   const trackId = isEnded ? null : rawTrackId;
-  // Use the waveform's actual decoded duration for progress calculation when available.
-  // This ensures the progress indicator is perfectly synchronized with the waveform bars,
-  // since both are derived from the same audio decoding. Falls back to the player's
-  // duration atom (which may be a truncated integer from the database).
-  const waveformDuration =
-    rawTrackId != null
-      ? (waveformActualDurations.get(rawTrackId) ?? null)
-      : null;
-  const effectiveDuration = waveformDuration ?? duration;
   const atomProgress = isEnded
     ? 0
-    : effectiveDuration > 0
-      ? (currentTime / effectiveDuration) * 100
+    : duration > 0
+      ? (currentTime / duration) * 100
       : 0;
-  const bufferedPercent =
-    effectiveDuration > 0 ? (buffered / effectiveDuration) * 100 : 0;
+  const bufferedPercent = duration > 0 ? (buffered / duration) * 100 : 0;
 
   // Ensure buffers are correctly sized - resample existing data on resize
   useEffect(() => {
@@ -730,7 +719,18 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
     seekPercent(percent);
   };
 
-  // Handle mouse move during drag (global listener)
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const touch = e.touches[0];
+    if (!touch) return;
+    e.preventDefault(); // Prevent synthetic mouse events
+    setIsDragging(true);
+    setIsHovering(true);
+    const percent = getPercentFromEvent(touch.clientX);
+    setHoverPercent(percent);
+    seekPercent(percent);
+  };
+
+  // Handle mouse/touch move during drag (global listeners)
   useEffect(() => {
     if (!isDragging) return;
 
@@ -740,16 +740,39 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
       seekPercent(percent);
     };
 
+    const handleGlobalTouchMove = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (!touch) return;
+      e.preventDefault(); // Prevent scrolling during drag
+      const percent = getPercentFromEvent(touch.clientX);
+      setHoverPercent(percent);
+      seekPercent(percent);
+    };
+
     const handleGlobalMouseUp = () => {
       setIsDragging(false);
     };
 
+    const handleGlobalTouchEnd = () => {
+      setIsDragging(false);
+      setIsHovering(false);
+      setHoverPercent(null);
+    };
+
     window.addEventListener("mousemove", handleGlobalMouseMove);
     window.addEventListener("mouseup", handleGlobalMouseUp);
+    window.addEventListener("touchmove", handleGlobalTouchMove, {
+      passive: false,
+    });
+    window.addEventListener("touchend", handleGlobalTouchEnd);
+    window.addEventListener("touchcancel", handleGlobalTouchEnd);
 
     return () => {
       window.removeEventListener("mousemove", handleGlobalMouseMove);
       window.removeEventListener("mouseup", handleGlobalMouseUp);
+      window.removeEventListener("touchmove", handleGlobalTouchMove);
+      window.removeEventListener("touchend", handleGlobalTouchEnd);
+      window.removeEventListener("touchcancel", handleGlobalTouchEnd);
     };
   }, [isDragging, seekPercent]);
 
@@ -781,12 +804,17 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
   };
 
   const hoverTime =
-    hoverPercent !== null && effectiveDuration > 0
-      ? (hoverPercent / 100) * effectiveDuration
+    hoverPercent !== null && duration > 0
+      ? (hoverPercent / 100) * duration
       : null;
   const hasTrack =
     !!currentTrack && playbackState !== "idle" && playbackState !== "ended";
   const waveformHeight = 16;
+
+  // Fall back to simple progress bar when no waveform data is available
+  if (!isAvailable && !isLoading) {
+    return <SimpleProgressBar className={className} />;
+  }
 
   return (
     <div
@@ -810,6 +838,7 @@ export function WaveformProgressBar({ className }: WaveformProgressBarProps) {
         zIndex: 10,
       }}
       onMouseDown={hasTrack ? handleMouseDown : undefined}
+      onTouchStart={hasTrack ? handleTouchStart : undefined}
       onKeyDown={hasTrack ? handleKeyDown : undefined}
       onMouseMove={hasTrack && !isDragging ? handleMouseMove : undefined}
       onMouseEnter={hasTrack ? () => setIsHovering(true) : undefined}

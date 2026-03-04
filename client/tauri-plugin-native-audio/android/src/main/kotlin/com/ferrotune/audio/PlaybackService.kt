@@ -1,8 +1,8 @@
 package com.ferrotune.audio
 
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
-import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
 import android.os.Binder
 import android.os.Bundle
@@ -11,16 +11,21 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import androidx.annotation.OptIn
+import androidx.media3.common.AdPlaybackState
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingSimpleBasePlayer
+import androidx.media3.common.SimpleBasePlayer.PeriodData
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -30,6 +35,8 @@ import androidx.media3.session.SessionResult
 import app.tauri.plugin.JSObject
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import java.util.concurrent.Executors
+import kotlin.math.pow
 
 /**
  * MediaSessionService for handling audio playback.
@@ -45,12 +52,18 @@ class PlaybackService : MediaSessionService() {
         private const val TAG = "PlaybackService"
         private const val PROGRESS_UPDATE_INTERVAL_MS = 1000L
         private const val ACTION_TOGGLE_STAR = "com.ferrotune.TOGGLE_STAR"
+        // Fetch more songs when this many or fewer remain ahead in ExoPlayer queue
+        private const val PREFETCH_THRESHOLD = 5
+        // Sync position to server every N milliseconds
+        private const val POSITION_SYNC_INTERVAL_MS = 30_000L
     }
 
     private val binder = LocalBinder()
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
     private val handler = Handler(Looper.getMainLooper())
+    // Background executor for API calls (no main thread blocking)
+    private val apiExecutor = Executors.newSingleThreadExecutor()
 
     private var eventEmitter: ((String, JSObject) -> Unit)? = null
     private var currentTrack: TrackInfo? = null
@@ -59,21 +72,57 @@ class PlaybackService : MediaSessionService() {
     // Offset of the first item in ExoPlayer's queue relative to the server queue
     private var queueOffset: Int = 0
     // Callback for skip prev/next from notification (delegated to web-side queue)
+    // (Only used in legacy JS-driven mode when autonomousMode is false)
     private var onSkipPrevious: (() -> Unit)? = null
     private var onSkipNext: (() -> Unit)? = null
     // Volume saved during track transitions (muted to prevent old track audio bleed)
     private var transitionSavedVolume: Float? = null
+    // Separate user volume and ReplayGain gain, combined via applyVolume()
+    private var userVolume: Float = 1f
+    private var replayGainLinear: Float = 1f
     // Custom session command for starring the current track
     private val starCommand = SessionCommand(ACTION_TOGGLE_STAR, Bundle.EMPTY)
     // Whether the currently playing track is starred (for WearOS button icon)
     private var isCurrentTrackStarred = false
 
-    // LoudnessEnhancer for ReplayGain boost (allows gain > 1.0)
-    private var loudnessEnhancer: LoudnessEnhancer? = null
+    // Custom AudioProcessor for ReplayGain (supports boost > 0 dB and clipping detection)
+    private val replayGainProcessor = ReplayGainAudioProcessor()
 
     // Flag: when true, the next setQueue() call will auto-play regardless
     // of the playWhenReady parameter. Set by requestPlayback() from JS.
     private var pendingPlayOnNextQueue = false
+
+    // === Autonomous queue management state ===
+    // When true, Kotlin handles queue fetching, skip, repeat, shuffle, and scrobbling
+    private var autonomousMode = false
+    val apiClient = FerrotuneApiClient()
+    private var playbackSettings = PlaybackSettings()
+    // Server queue state
+    private var serverQueueIndex: Int = 0
+    private var serverTotalCount: Int = 0
+    private var isShuffled: Boolean = false
+    private var repeatMode: String = "off"
+    // Range of server positions currently loaded in ExoPlayer
+    // e.g. if positions 10-30 are loaded: loadedRangeStart=10, loadedRangeEnd=30
+    private var loadedRangeStart: Int = 0
+    private var loadedRangeEnd: Int = -1 // exclusive
+    // Map from ExoPlayer index to server queue position
+    private var exoIndexToServerPosition: MutableList<Int> = mutableListOf()
+    // Raw QueueSong data for each ExoPlayer index (for recomputing gain on settings change)
+    private var exoIndexToQueueSong: MutableList<QueueSong?> = mutableListOf()
+    // Whether a fetch is already in progress (prevent concurrent fetches)
+    private var isFetching = false
+    // Scrobble state
+    private var accumulatedListenMs: Long = 0
+    private var hasScrobbled = false
+    private var lastProgressTimestamp: Long = 0
+    // Offset (ms) applied when seeking in transcoded streams via seek-by-reload.
+    // The server starts the stream at this offset, so ExoPlayer position is relative.
+    // Added to player.currentPosition for correct absolute position reporting.
+    private var seekTimeOffsetMs: Long = 0
+    // True when we've pre-applied the next track's ReplayGain before a gapless transition.
+    // Reset on each track change so we only pre-apply once per transition.
+    private var hasPreAppliedNextGain = false
 
     // Timeout to stop service if JS side doesn't advance after track ends
     private val endedTimeoutRunnable = Runnable {
@@ -87,7 +136,28 @@ class PlaybackService : MediaSessionService() {
         override fun run() {
             if (player.isPlaying) {
                 emitProgressEvent()
+                // Track accumulated listen time for scrobbling
+                if (autonomousMode) {
+                    val now = System.currentTimeMillis()
+                    if (lastProgressTimestamp > 0) {
+                        accumulatedListenMs += (now - lastProgressTimestamp)
+                    }
+                    lastProgressTimestamp = now
+                    checkScrobble()
+                }
+                // Pre-apply next track's ReplayGain before gapless transition
+                preApplyNextTrackGainIfNeeded()
                 handler.postDelayed(this, PROGRESS_UPDATE_INTERVAL_MS)
+            }
+        }
+    }
+
+    // Periodic position sync to server
+    private val positionSyncRunnable = object : Runnable {
+        override fun run() {
+            if (autonomousMode && player.isPlaying) {
+                syncPositionToServer()
+                handler.postDelayed(this, POSITION_SYNC_INTERVAL_MS)
             }
         }
     }
@@ -105,8 +175,32 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         Log.d(TAG, "PlaybackService created")
 
-        // Create ExoPlayer with audio attributes
-        player = ExoPlayer.Builder(this)
+        // Set up clipping detection callback (posts to main thread for event emission)
+        replayGainProcessor.setClippingCallback { peakOverDb ->
+            handler.post { emitClippingEvent(peakOverDb) }
+        }
+
+        // Create ExoPlayer with ReplayGainAudioProcessor in the audio pipeline
+        @OptIn(UnstableApi::class)
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): AudioSink {
+                Log.i(TAG, "buildAudioSink called: enableFloatOutput=$enableFloatOutput, " +
+                    "enableAudioTrackPlaybackParams=$enableAudioTrackPlaybackParams")
+                return DefaultAudioSink.Builder(context)
+                    .setAudioProcessorChain(
+                        DefaultAudioSink.DefaultAudioProcessorChain(replayGainProcessor)
+                    )
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .build()
+            }
+        }
+
+        player = ExoPlayer.Builder(this, renderersFactory)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -121,15 +215,6 @@ class PlaybackService : MediaSessionService() {
         // Add player listener
         player.addListener(PlayerListener())
 
-        // Initialize LoudnessEnhancer for ReplayGain boost
-        try {
-            loudnessEnhancer = LoudnessEnhancer(player.audioSessionId)
-            loudnessEnhancer?.enabled = true
-            Log.d(TAG, "LoudnessEnhancer initialized on session ${player.audioSessionId}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize LoudnessEnhancer", e)
-        }
-
         // Use ForwardingSimpleBasePlayer instead of ForwardingPlayer.
         // ForwardingSimpleBasePlayer uses atomic getState() which properly
         // propagates timeline/queue state to all listeners including the
@@ -138,18 +223,55 @@ class PlaybackService : MediaSessionService() {
         val forwardingPlayer = object : ForwardingSimpleBasePlayer(player) {
             override fun getState(): State {
                 val state = super.getState()
-                return state.buildUpon()
+                val offset = this@PlaybackService.seekTimeOffsetMs
+                val track = this@PlaybackService.currentTrack
+                val builder = state.buildUpon()
                     .setAvailableCommands(
                         state.availableCommands.buildUpon()
                             .add(COMMAND_SEEK_TO_NEXT)
                             .add(COMMAND_SEEK_TO_PREVIOUS)
+                            .add(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
                             .add(COMMAND_GET_TIMELINE)
                             .add(COMMAND_GET_CURRENT_MEDIA_ITEM)
+                            .add(COMMAND_GET_METADATA)
                             .add(COMMAND_SET_SHUFFLE_MODE)
                             .add(COMMAND_SET_REPEAT_MODE)
                             .build()
                     )
-                    .build()
+                // Adjust position for seek-by-reload offset so notification shows correct time
+                if (offset > 0) {
+                    builder.setContentPositionMs { state.contentPositionMsSupplier.get() + offset }
+                    builder.setContentBufferedPositionMs { state.contentBufferedPositionMsSupplier.get() + offset }
+                }
+                // Override playlist items to set correct duration from metadata.
+                // For transcoded streams, ExoPlayer reports C.TIME_UNSET for duration
+                // which prevents the notification seekbar from being interactive.
+                if (track != null && track.durationMs > 0 && state.playlist.isNotEmpty()) {
+                    val currentIdx = state.currentMediaItemIndex
+                    val durationUs = track.durationMs * 1000L
+                    val fixedPlaylist = state.playlist.mapIndexed { idx, item ->
+                        if (idx == currentIdx) {
+                            item.buildUpon()
+                                .setDurationUs(durationUs)
+                                // Mark as seekable so the notification shows a
+                                // determinate progress bar even for transcoded
+                                // streams (we handle seeking via stream reload).
+                                .setIsSeekable(true)
+                                .setPeriods(listOf(
+                                    PeriodData.Builder(item.uid)
+                                        .setDurationUs(durationUs)
+                                        .setIsPlaceholder(false)
+                                        .setAdPlaybackState(AdPlaybackState.NONE)
+                                        .build()
+                                ))
+                                .build()
+                        } else {
+                            item
+                        }
+                    }
+                    builder.setPlaylist(fixedPlaylist)
+                }
+                return builder.build()
             }
 
             override fun handleSeek(
@@ -159,7 +281,9 @@ class PlaybackService : MediaSessionService() {
             ): ListenableFuture<*> {
                 when (seekCommand) {
                     COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> {
-                        if (player.hasNextMediaItem()) {
+                        if (autonomousMode) {
+                            autonomousSkipNext()
+                        } else if (player.hasNextMediaItem()) {
                             player.seekToNextMediaItem()
                         } else {
                             onSkipNext?.invoke()
@@ -167,13 +291,19 @@ class PlaybackService : MediaSessionService() {
                         return Futures.immediateVoidFuture()
                     }
                     COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
-                        if (player.currentPosition > 3000) {
+                        if (autonomousMode) {
+                            autonomousSkipPrevious()
+                        } else if (player.currentPosition > 3000) {
                             player.seekTo(0)
                         } else if (player.hasPreviousMediaItem()) {
                             player.seekToPreviousMediaItem()
                         } else {
                             onSkipPrevious?.invoke()
                         }
+                        return Futures.immediateVoidFuture()
+                    }
+                    COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM -> {
+                        this@PlaybackService.seek(positionMs)
                         return Futures.immediateVoidFuture()
                     }
                     else -> return super.handleSeek(mediaItemIndex, positionMs, seekCommand)
@@ -255,8 +385,9 @@ class PlaybackService : MediaSessionService() {
         Log.d(TAG, "PlaybackService destroyed")
         handler.removeCallbacks(progressRunnable)
         handler.removeCallbacks(endedTimeoutRunnable)
-        loudnessEnhancer?.release()
-        loudnessEnhancer = null
+        handler.removeCallbacks(positionSyncRunnable)
+        replayGainProcessor.setClippingCallback(null)
+        apiExecutor.shutdownNow()
         mediaSession.release()
         player.release()
         super.onDestroy()
@@ -304,14 +435,487 @@ class PlaybackService : MediaSessionService() {
         player.stop()
         player.clearMediaItems()
         currentTrack = null
+        seekTimeOffsetMs = 0
         queue = emptyList()
         queueIndex = -1
+        autonomousMode = false
+        handler.removeCallbacks(positionSyncRunnable)
         emitStateChange()
     }
 
     fun seek(positionMs: Long) {
-        Log.d(TAG, "seek($positionMs)")
-        player.seekTo(positionMs)
+        Log.d(TAG, "seek($positionMs) transcoding=${playbackSettings.transcodingEnabled}")
+
+        if (playbackSettings.transcodingEnabled && currentTrack != null) {
+            // Transcoded streams don't support HTTP Range requests, so we reload
+            // the stream with a timeOffset parameter to seek server-side.
+            val track = currentTrack!!
+            val timeOffsetSeconds = positionMs / 1000
+            val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
+            seekTimeOffsetMs = positionMs
+
+            val metadataBuilder = MediaMetadata.Builder()
+                .setTitle(track.title)
+                .setArtist(track.artist)
+                .setAlbumTitle(track.album)
+                .setDurationMs(track.durationMs)
+            if (track.coverArtUrl != null) {
+                metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
+            }
+
+            val newMediaItem = MediaItem.Builder()
+                .setMediaId(track.id)
+                .setUri(Uri.parse(newUrl))
+                .setMediaMetadata(metadataBuilder.build())
+                .build()
+
+            val currentIndex = player.currentMediaItemIndex
+            val wasPlaying = player.playWhenReady
+            player.replaceMediaItem(currentIndex, newMediaItem)
+            player.seekTo(currentIndex, 0)
+            player.playWhenReady = wasPlaying
+
+            Log.d(TAG, "seek-by-reload: offset=${timeOffsetSeconds}s, seekTimeOffsetMs=$seekTimeOffsetMs")
+        } else {
+            seekTimeOffsetMs = 0
+            player.seekTo(positionMs)
+        }
+    }
+
+    // === Autonomous queue management ===
+
+    /**
+     * Initialize session config for direct API calls.
+     */
+    fun initSession(config: SessionConfig) {
+        apiClient.setSessionConfig(config)
+    }
+
+    /**
+     * Update playback settings (ReplayGain, transcoding, scrobble threshold).
+     */
+    fun updateSettings(settings: PlaybackSettings) {
+        Log.d(TAG, "updateSettings: replayGainMode=${settings.replayGainMode}, " +
+            "replayGainOffset=${settings.replayGainOffset}, " +
+            "transcodingEnabled=${settings.transcodingEnabled}")
+        playbackSettings = settings
+        // Re-apply ReplayGain to current track with new settings
+        applyTrackReplayGain(currentTrack)
+    }
+
+    /**
+     * Start autonomous playback: Kotlin takes over queue management.
+     * JS calls this after starting a queue on the server. Kotlin fetches
+     * the initial window and manages everything from here.
+     */
+    fun startAutonomousPlayback(
+        totalCount: Int,
+        currentIndex: Int,
+        isShuffled: Boolean,
+        repeatMode: String,
+        playWhenReady: Boolean,
+        startPositionMs: Long = 0,
+    ) {
+        Log.d(TAG, "startAutonomousPlayback(total=$totalCount, index=$currentIndex, " +
+            "shuffled=$isShuffled, repeat=$repeatMode, play=$playWhenReady)")
+
+        autonomousMode = true
+        serverTotalCount = totalCount
+        serverQueueIndex = currentIndex
+        this.isShuffled = isShuffled
+        this.repeatMode = repeatMode
+        isFetching = false
+        resetScrobbleState()
+
+        handler.removeCallbacks(endedTimeoutRunnable)
+
+        // Fetch initial window and start playback
+        apiExecutor.execute {
+            try {
+                val response = apiClient.getQueueWindow(20)
+                handler.post {
+                    handleQueueWindowResponse(response, currentIndex, startPositionMs, playWhenReady || pendingPlayOnNextQueue)
+                    pendingPlayOnNextQueue = false
+                    // Start position sync
+                    handler.removeCallbacks(positionSyncRunnable)
+                    handler.postDelayed(positionSyncRunnable, POSITION_SYNC_INTERVAL_MS)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch initial queue window", e)
+                handler.post {
+                    emitError("Failed to load queue: ${e.message}", null)
+                }
+            }
+        }
+    }
+
+    /**
+     * Process a queue window response and load tracks into ExoPlayer.
+     */
+    private fun handleQueueWindowResponse(
+        response: GetQueueResponse,
+        targetIndex: Int,
+        startPositionMs: Long,
+        playWhenReady: Boolean,
+    ) {
+        serverTotalCount = response.totalCount
+        this.isShuffled = response.isShuffled
+        this.repeatMode = response.repeatMode
+
+        val sortedEntries = response.window.songs.sortedBy { it.position }
+        if (sortedEntries.isEmpty()) {
+            Log.w(TAG, "Empty queue window received")
+            return
+        }
+
+        // Convert to TrackInfo and store raw song data for gain recomputation
+        val tracks = sortedEntries.map { entry ->
+            apiClient.songToTrackInfo(entry.song, playbackSettings)
+        }
+
+        // Build position mapping and raw song data
+        exoIndexToServerPosition = sortedEntries.map { it.position }.toMutableList()
+        exoIndexToQueueSong = sortedEntries.map { it.song as QueueSong? }.toMutableList()
+        loadedRangeStart = sortedEntries.first().position
+        loadedRangeEnd = sortedEntries.last().position + 1
+
+        // Find ExoPlayer start index for the target server position
+        val exoStartIndex = exoIndexToServerPosition.indexOf(targetIndex)
+            .let { if (it < 0) 0 else it }
+
+        queue = tracks
+        queueOffset = loadedRangeStart
+        queueIndex = targetIndex
+        currentTrack = tracks.getOrNull(exoStartIndex)
+        seekTimeOffsetMs = 0
+
+        applyTrackReplayGain(currentTrack)
+
+        val mediaItems = tracks.map { createMediaItem(it) }
+        player.playWhenReady = playWhenReady
+        player.setMediaItems(mediaItems, exoStartIndex, startPositionMs)
+        player.prepare()
+
+        emitTrackChange()
+        emitQueueStateChanged()
+
+        Log.d(TAG, "Loaded ${tracks.size} tracks, positions $loadedRangeStart..${loadedRangeEnd - 1}, " +
+            "exoStartIndex=$exoStartIndex, serverIndex=$targetIndex")
+    }
+
+    /**
+     * Check if we need to fetch more tracks and do so if needed.
+     */
+    private fun maybePrefetchMore() {
+        if (!autonomousMode || isFetching) return
+
+        val exoIndex = player.currentMediaItemIndex
+        val itemsRemaining = player.mediaItemCount - exoIndex - 1
+        val serverPos = exoIndexToServerPosition.getOrNull(exoIndex) ?: return
+
+        // Check if we need more songs ahead
+        val needsMoreAhead = itemsRemaining <= PREFETCH_THRESHOLD &&
+            loadedRangeEnd < serverTotalCount
+
+        // Check if we need more songs behind (for previous track navigation)
+        val needsMoreBehind = exoIndex <= PREFETCH_THRESHOLD &&
+            loadedRangeStart > 0
+
+        if (!needsMoreAhead && !needsMoreBehind) return
+
+        isFetching = true
+        Log.d(TAG, "Prefetching: ahead=$needsMoreAhead, behind=$needsMoreBehind, " +
+            "serverPos=$serverPos, loaded=$loadedRangeStart..${loadedRangeEnd - 1}")
+
+        apiExecutor.execute {
+            try {
+                val response = apiClient.getQueueWindow(20)
+                handler.post { handlePrefetchResponse(response) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Prefetch failed", e)
+                handler.post { isFetching = false }
+            }
+        }
+    }
+
+    /**
+     * Handle a prefetch response: append/prepend new songs to ExoPlayer's queue.
+     */
+    private fun handlePrefetchResponse(response: GetQueueResponse) {
+        isFetching = false
+        serverTotalCount = response.totalCount
+
+        val sortedEntries = response.window.songs.sortedBy { it.position }
+        if (sortedEntries.isEmpty()) return
+
+        // Find entries that are not yet loaded
+        val newAheadEntries = sortedEntries.filter { it.position >= loadedRangeEnd }
+        val newBehindEntries = sortedEntries.filter { it.position < loadedRangeStart }
+
+        if (newAheadEntries.isNotEmpty()) {
+            val newTracks = newAheadEntries.map { apiClient.songToTrackInfo(it.song, playbackSettings) }
+            val newMediaItems = newTracks.map { createMediaItem(it) }
+
+            queue = queue + newTracks
+            exoIndexToServerPosition.addAll(newAheadEntries.map { it.position })
+            exoIndexToQueueSong.addAll(newAheadEntries.map { it.song })
+            player.addMediaItems(newMediaItems)
+            loadedRangeEnd = newAheadEntries.last().position + 1
+
+            Log.d(TAG, "Appended ${newTracks.size} tracks, range now $loadedRangeStart..${loadedRangeEnd - 1}")
+        }
+
+        if (newBehindEntries.isNotEmpty()) {
+            val newTracks = newBehindEntries.map { apiClient.songToTrackInfo(it.song, playbackSettings) }
+            val newMediaItems = newTracks.map { createMediaItem(it) }
+            val newPositions = newBehindEntries.map { it.position }
+
+            // Prepend to ExoPlayer and our tracking structures
+            queue = newTracks + queue
+            exoIndexToServerPosition.addAll(0, newPositions)
+            exoIndexToQueueSong.addAll(0, newBehindEntries.map { it.song })
+            for (i in newMediaItems.indices) {
+                player.addMediaItem(i, newMediaItems[i])
+            }
+            loadedRangeStart = newBehindEntries.first().position
+            // Update queueOffset  
+            queueOffset = loadedRangeStart
+
+            Log.d(TAG, "Prepended ${newTracks.size} tracks, range now $loadedRangeStart..${loadedRangeEnd - 1}")
+        }
+    }
+
+    /**
+     * Handle skip-next in autonomous mode.
+     */
+    private fun autonomousSkipNext() {
+        Log.d(TAG, "autonomousSkipNext: serverIndex=$serverQueueIndex, total=$serverTotalCount")
+        val nextIndex = serverQueueIndex + 1
+
+        if (nextIndex >= serverTotalCount) {
+            if (repeatMode == "all") {
+                // Wrap around, reshuffle if needed
+                Log.d(TAG, "Repeat-all wrap: back to 0, reshuffle=$isShuffled")
+                serverQueueIndex = 0
+                resetScrobbleState()
+                apiExecutor.execute {
+                    try {
+                        apiClient.updatePosition(0, 0, reshuffle = isShuffled)
+                        val response = apiClient.getQueueWindow(20)
+                        handler.post {
+                            handleQueueWindowResponse(response, 0, 0, true)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to wrap queue", e)
+                    }
+                }
+            } else {
+                // End of queue, no repeat
+                Log.d(TAG, "End of queue, stopping")
+                player.pause()
+                emitStateChange()
+            }
+            return
+        }
+
+        serverQueueIndex = nextIndex
+        resetScrobbleState()
+
+        // Check if the next track is already loaded in ExoPlayer
+        val exoIndex = exoIndexToServerPosition.indexOf(nextIndex)
+        if (exoIndex >= 0) {
+            player.seekTo(exoIndex, 0)
+            maybePrefetchMore()
+        } else {
+            // Not loaded, fetch a new window
+            Log.d(TAG, "Next track not loaded, fetching window for position $nextIndex")
+            apiExecutor.execute {
+                try {
+                    apiClient.updatePosition(nextIndex, 0)
+                    val response = apiClient.getQueueWindow(20)
+                    handler.post {
+                        handleQueueWindowResponse(response, nextIndex, 0, true)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to fetch window for skip next", e)
+                }
+            }
+        }
+    }
+
+    /**
+     * Handle skip-previous in autonomous mode.
+     */
+    private fun autonomousSkipPrevious() {
+        Log.d(TAG, "autonomousSkipPrevious: serverIndex=$serverQueueIndex, pos=${player.currentPosition}")
+
+        // If more than 3 seconds in, restart current track
+        if (player.currentPosition > 3000) {
+            player.seekTo(0)
+            // Reset scrobble accumulation for replay
+            accumulatedListenMs = 0
+            hasScrobbled = false
+            return
+        }
+
+        val prevIndex = serverQueueIndex - 1
+        if (prevIndex < 0) {
+            if (repeatMode == "all") {
+                serverQueueIndex = serverTotalCount - 1
+                resetScrobbleState()
+                apiExecutor.execute {
+                    try {
+                        apiClient.updatePosition(serverTotalCount - 1, 0)
+                        val response = apiClient.getQueueWindow(20)
+                        handler.post {
+                            handleQueueWindowResponse(response, serverTotalCount - 1, 0, true)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to wrap queue backward", e)
+                    }
+                }
+            } else {
+                player.seekTo(0)
+            }
+            return
+        }
+
+        serverQueueIndex = prevIndex
+        resetScrobbleState()
+
+        val exoIndex = exoIndexToServerPosition.indexOf(prevIndex)
+        if (exoIndex >= 0) {
+            player.seekTo(exoIndex, 0)
+            maybePrefetchMore()
+        } else {
+            apiExecutor.execute {
+                try {
+                    apiClient.updatePosition(prevIndex, 0)
+                    val response = apiClient.getQueueWindow(20)
+                    handler.post {
+                        handleQueueWindowResponse(response, prevIndex, 0, true)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to fetch window for skip previous", e)
+                }
+            }
+        }
+    }
+
+    /**
+     * Toggle shuffle in autonomous mode.
+     */
+    fun autonomousToggleShuffle(enabled: Boolean) {
+        if (!autonomousMode) return
+        Log.d(TAG, "autonomousToggleShuffle($enabled)")
+        val currentPositionMs = player.currentPosition
+        apiExecutor.execute {
+            try {
+                val response = apiClient.toggleShuffle(enabled)
+                handler.post {
+                    isShuffled = enabled
+                    // Shuffle changes the order, need to reload
+                    // Preserve the current playback position within the track
+                    serverQueueIndex = response.currentIndex
+                    handleQueueWindowResponse(response, response.currentIndex, currentPositionMs, player.playWhenReady)
+                    eventEmitter?.invoke(AudioEvents.SHUFFLE_MODE_CHANGED, JSObject().apply {
+                        put("enabled", enabled)
+                    })
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to toggle shuffle", e)
+            }
+        }
+    }
+
+    /**
+     * Set repeat mode in autonomous mode.
+     */
+    fun autonomousSetRepeatMode(mode: String) {
+        if (!autonomousMode) return
+        Log.d(TAG, "autonomousSetRepeatMode($mode)")
+
+        repeatMode = mode
+        // Set ExoPlayer repeat mode for repeat-one
+        player.repeatMode = if (mode == "one") Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+
+        apiExecutor.execute {
+            try {
+                apiClient.setRepeatMode(mode)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to set repeat mode on server", e)
+            }
+        }
+
+        updateMediaButtonPreferences()
+        eventEmitter?.invoke(AudioEvents.REPEAT_MODE_CHANGED, JSObject().apply {
+            put("mode", mode)
+        })
+    }
+
+    /**
+     * Invalidate the queue window and refetch from server.
+     * Called when JS modifies the queue (add/remove/reorder).
+     */
+    fun invalidateQueue() {
+        if (!autonomousMode) return
+        Log.d(TAG, "invalidateQueue: refetching at position $serverQueueIndex")
+        apiExecutor.execute {
+            try {
+                val response = apiClient.getQueueWindow(20)
+                handler.post {
+                    handleQueueWindowResponse(response, response.currentIndex,
+                        player.currentPosition, player.playWhenReady)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to invalidate queue", e)
+            }
+        }
+    }
+
+    // === Scrobbling ===
+
+    private fun resetScrobbleState() {
+        accumulatedListenMs = 0
+        hasScrobbled = false
+        lastProgressTimestamp = 0
+    }
+
+    private fun checkScrobble() {
+        if (!autonomousMode || hasScrobbled) return
+        val track = currentTrack ?: return
+        val durationMs = track.durationMs
+        if (durationMs <= 0) return
+
+        val threshold = playbackSettings.scrobbleThreshold
+        if (accumulatedListenMs.toFloat() / durationMs >= threshold) {
+            hasScrobbled = true
+            Log.d(TAG, "Scrobbling track: ${track.title} (${accumulatedListenMs}ms / ${durationMs}ms)")
+            val songId = track.id
+            apiExecutor.execute {
+                try {
+                    apiClient.scrobble(songId, System.currentTimeMillis())
+                } catch (e: Exception) {
+                    Log.e(TAG, "Scrobble failed for $songId", e)
+                }
+            }
+            // Notify JS so UI can update play counts
+            eventEmitter?.invoke(AudioEvents.SCROBBLE, JSObject().apply {
+                put("trackId", songId)
+            })
+        }
+    }
+
+    private fun syncPositionToServer() {
+        if (!autonomousMode) return
+        val posMs = (player.currentPosition + seekTimeOffsetMs).coerceAtLeast(0)
+        apiExecutor.execute {
+            try {
+                apiClient.updatePosition(serverQueueIndex, posMs)
+            } catch (e: Exception) {
+                Log.w(TAG, "Position sync failed", e)
+            }
+        }
     }
 
     fun setTrack(track: TrackInfo) {
@@ -319,6 +923,7 @@ class PlaybackService : MediaSessionService() {
         handler.removeCallbacks(endedTimeoutRunnable)
 
         currentTrack = track
+        seekTimeOffsetMs = 0
         queueIndex = 0
         queue = listOf(track)
 
@@ -384,6 +989,7 @@ class PlaybackService : MediaSessionService() {
         queueOffset = offset
         queueIndex = offset + startIndex.coerceIn(0, items.size - 1)
         currentTrack = items.getOrNull(startIndex.coerceIn(0, items.size - 1))
+        seekTimeOffsetMs = 0
 
         applyTrackReplayGain(currentTrack)
 
@@ -397,14 +1003,27 @@ class PlaybackService : MediaSessionService() {
     }
 
     fun appendToQueue(items: List<TrackInfo>) {
-        Log.d(TAG, "appendToQueue(${items.size} items)")
+        Log.d(TAG, "appendToQueue(${items.size} items, autonomous=$autonomousMode)")
         queue = queue + items
+        // Keep exoIndexToQueueSong in sync — items from JS don't have QueueSong data,
+        // so add null entries. The fallback in applyTrackReplayGain will use
+        // TrackInfo.replayGainDb instead.
+        for (item in items) {
+            exoIndexToQueueSong.add(null)
+            // Also track server position if possible
+            exoIndexToServerPosition.add(loadedRangeEnd)
+            loadedRangeEnd++
+        }
         val mediaItems = items.map { createMediaItem(it) }
         player.addMediaItems(mediaItems)
     }
 
     fun setRepeatMode(mode: String) {
         Log.d(TAG, "setRepeatMode($mode)")
+        if (autonomousMode) {
+            autonomousSetRepeatMode(mode)
+            return
+        }
         player.repeatMode = when (mode) {
             "one" -> Player.REPEAT_MODE_ONE
             else -> Player.REPEAT_MODE_OFF
@@ -454,6 +1073,10 @@ class PlaybackService : MediaSessionService() {
 
     fun nextTrack() {
         Log.d(TAG, "nextTrack()")
+        if (autonomousMode) {
+            autonomousSkipNext()
+            return
+        }
         if (player.hasNextMediaItem()) {
             player.seekToNextMediaItem()
         }
@@ -461,6 +1084,10 @@ class PlaybackService : MediaSessionService() {
 
     fun previousTrack() {
         Log.d(TAG, "previousTrack()")
+        if (autonomousMode) {
+            autonomousSkipPrevious()
+            return
+        }
         // If more than 3 seconds in, restart current track
         if (player.currentPosition > 3000) {
             player.seekTo(0)
@@ -473,33 +1100,97 @@ class PlaybackService : MediaSessionService() {
 
     fun setVolume(volume: Float) {
         Log.d(TAG, "setVolume($volume)")
-        val clamped = volume.coerceIn(0f, 1f)
-        player.volume = clamped
-        // If we're in a transition, update the saved volume too
-        // so the correct value is restored when the transition completes
-        if (transitionSavedVolume != null) {
-            transitionSavedVolume = clamped
-        }
+        userVolume = volume.coerceIn(0f, 1f)
+        applyVolume()
     }
 
     /**
      * Set ReplayGain boost/attenuation in millibels.
-     * Uses Android's LoudnessEnhancer to apply digital gain,
-     * which allows boosting volume above the normal 1.0 max.
+     * Applies gain through player.volume (supports values > 1.0 for boost)
+     * and also sets on AudioProcessor for clipping detection.
      */
     fun setReplayGain(gainMb: Int) {
-        Log.d(TAG, "setReplayGain($gainMb mB)")
-        try {
-            loudnessEnhancer?.setTargetGain(gainMb)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to set ReplayGain", e)
+        val gainDb = gainMb.toFloat() / 100f
+        replayGainLinear = if (gainDb == 0f) 1f else 10f.pow(gainDb / 20f)
+        Log.d(TAG, "setReplayGain($gainMb mB -> ${String.format("%.2f", gainDb)} dB, linear=${String.format("%.4f", replayGainLinear)})")
+        replayGainProcessor.setGainDb(gainDb)
+        replayGainProcessor.resetPeakTracker()
+        applyVolume()
+    }
+
+    /**
+     * Pre-apply the next track's ReplayGain when approaching the end of the current track.
+     * This prevents a brief volume spike during gapless transitions, because ExoPlayer
+     * pre-decodes audio from the next track before onMediaItemTransition fires.
+     * By setting the gain early, samples flowing through ReplayGainAudioProcessor
+     * will already have the correct gain applied.
+     */
+    private fun preApplyNextTrackGainIfNeeded() {
+        if (hasPreAppliedNextGain) return
+        val track = currentTrack ?: return
+        if (track.durationMs <= 0) return
+
+        // Check remaining time; pre-apply when within 1 second of the end.
+        val remaining = track.durationMs - (player.currentPosition + seekTimeOffsetMs)
+        if (remaining > 1000 || remaining < 0) return
+
+        val nextExoIndex = player.currentMediaItemIndex + 1
+        if (nextExoIndex >= player.mediaItemCount) return
+
+        val nextQueueSong = exoIndexToQueueSong.getOrNull(nextExoIndex)
+        val nextTrack = queue.getOrNull(nextExoIndex)
+
+        val gainDb = if (nextQueueSong != null) {
+            apiClient.computeReplayGainDb(nextQueueSong, playbackSettings) ?: 0f
+        } else {
+            nextTrack?.replayGainDb ?: 0f
         }
+
+        hasPreAppliedNextGain = true
+        Log.d(TAG, "Pre-applying next track ReplayGain: ${String.format("%.2f", gainDb)} dB " +
+            "(remaining=${remaining}ms, nextExoIndex=$nextExoIndex)")
+        replayGainLinear = if (gainDb == 0f) 1f else 10f.pow(gainDb / 20f)
+        replayGainProcessor.setGainDb(gainDb)
+        replayGainProcessor.resetPeakTracker()
+        applyVolume()
     }
 
     private fun applyTrackReplayGain(track: TrackInfo?) {
-        val gainDb = track?.replayGainDb
-        val gainMb = if (gainDb != null) (gainDb * 100).toInt() else 0
-        setReplayGain(gainMb)
+        // Reset pre-apply flag so it can trigger again for the next transition
+        hasPreAppliedNextGain = false
+        // In autonomous mode, recompute gain fresh from QueueSong + current playbackSettings
+        // instead of relying on the stale TrackInfo.replayGainDb baked at queue-creation time.
+        val exoIndex = player.currentMediaItemIndex
+        val queueSong = exoIndexToQueueSong.getOrNull(exoIndex)
+        val gainDb = if (queueSong != null) {
+            apiClient.computeReplayGainDb(queueSong, playbackSettings) ?: 0f
+        } else {
+            track?.replayGainDb ?: 0f
+        }
+        Log.d(TAG, "applyTrackReplayGain: gainDb=${String.format("%.2f", gainDb)} dB " +
+            "(fromQueueSong=${queueSong != null}, exoIndex=$exoIndex, " +
+            "queueSongListSize=${exoIndexToQueueSong.size}, " +
+            "mode=${playbackSettings.replayGainMode}, " +
+            "offset=${playbackSettings.replayGainOffset}, " +
+            "trackReplayGainDb=${track?.replayGainDb})")
+        replayGainLinear = if (gainDb == 0f) 1f else 10f.pow(gainDb / 20f)
+        replayGainProcessor.setGainDb(gainDb)
+        replayGainProcessor.resetPeakTracker()
+        applyVolume()
+    }
+
+    /**
+     * Apply combined user volume * ReplayGain to ExoPlayer.
+     * ExoPlayer's player.volume supports values > 1.0 for amplification.
+     */
+    private fun applyVolume() {
+        val combined = userVolume * replayGainLinear
+        // If we're in a transition, update the saved volume too
+        if (transitionSavedVolume != null) {
+            transitionSavedVolume = combined
+        } else {
+            player.volume = combined
+        }
     }
 
     fun getState(): PlaybackState {
@@ -507,8 +1198,8 @@ class PlaybackService : MediaSessionService() {
             status = mapPlaybackState(player.playbackState, player.playWhenReady),
             positionMs = player.currentPosition.coerceAtLeast(0),
             durationMs = player.duration.let { if (it == C.TIME_UNSET) 0 else it },
-            volume = player.volume,
-            muted = player.volume == 0f,
+            volume = userVolume,
+            muted = userVolume == 0f,
             track = currentTrack,
             queueIndex = queueOffset + player.currentMediaItemIndex,
             queueLength = queue.size
@@ -520,6 +1211,7 @@ class PlaybackService : MediaSessionService() {
             .setTitle(track.title)
             .setArtist(track.artist)
             .setAlbumTitle(track.album)
+            .setDurationMs(track.durationMs)
 
         // Use artwork URI instead of embedding raw bitmap data.
         // Embedding bitmaps in MediaMetadata causes TransactionTooLargeException
@@ -554,13 +1246,14 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun emitProgressEvent() {
-        val duration = player.duration.let { if (it == C.TIME_UNSET) 0 else it }
+        val rawPosition = player.currentPosition
+        val duration = currentTrack?.durationMs ?: player.duration.let { if (it == C.TIME_UNSET) 0 else it }
         val buffered = player.bufferedPosition
 
         eventEmitter?.invoke(AudioEvents.PROGRESS, JSObject().apply {
-            put("positionMs", player.currentPosition)
+            put("positionMs", rawPosition + seekTimeOffsetMs)
             put("durationMs", duration)
-            put("bufferedMs", buffered)
+            put("bufferedMs", buffered + seekTimeOffsetMs)
         })
     }
 
@@ -577,6 +1270,22 @@ class PlaybackService : MediaSessionService() {
             if (trackId != null) {
                 put("trackId", trackId)
             }
+        })
+    }
+
+    private fun emitQueueStateChanged() {
+        eventEmitter?.invoke(AudioEvents.QUEUE_STATE_CHANGED, JSObject().apply {
+            put("totalCount", serverTotalCount)
+            put("currentIndex", serverQueueIndex)
+            put("isShuffled", isShuffled)
+            put("repeatMode", repeatMode)
+        })
+    }
+
+    private fun emitClippingEvent(peakOverDb: Float) {
+        eventEmitter?.invoke(AudioEvents.CLIPPING, JSObject().apply {
+            put("peakOverDb", peakOverDb.toDouble())
+            put("timestamp", System.currentTimeMillis())
         })
     }
 
@@ -597,17 +1306,28 @@ class PlaybackService : MediaSessionService() {
 
             // Start/stop progress updates
             if (playbackState == Player.STATE_READY && player.playWhenReady) {
+                lastProgressTimestamp = System.currentTimeMillis()
                 handler.post(progressRunnable)
             } else {
+                if (!player.isPlaying) {
+                    lastProgressTimestamp = 0
+                }
                 handler.removeCallbacks(progressRunnable)
             }
 
-            // When a track ends, give the JS side time to advance to the
-            // next track. If no new track is set within 60s, stop the service.
-            if (playbackState == Player.STATE_ENDED) {
-                handler.postDelayed(endedTimeoutRunnable, 60_000)
+            if (autonomousMode) {
+                // In autonomous mode, handle end-of-loaded-queue
+                if (playbackState == Player.STATE_ENDED) {
+                    // ExoPlayer ran out of loaded items, try to advance
+                    autonomousSkipNext()
+                }
             } else {
-                handler.removeCallbacks(endedTimeoutRunnable)
+                // Legacy mode: give JS time to advance
+                if (playbackState == Player.STATE_ENDED) {
+                    handler.postDelayed(endedTimeoutRunnable, 60_000)
+                } else {
+                    handler.removeCallbacks(endedTimeoutRunnable)
+                }
             }
         }
 
@@ -633,20 +1353,56 @@ class PlaybackService : MediaSessionService() {
             emitStateChange()
 
             if (playWhenReady && player.playbackState == Player.STATE_READY) {
+                lastProgressTimestamp = System.currentTimeMillis()
                 handler.post(progressRunnable)
+                if (autonomousMode) {
+                    handler.removeCallbacks(positionSyncRunnable)
+                    handler.postDelayed(positionSyncRunnable, POSITION_SYNC_INTERVAL_MS)
+                }
             } else {
+                lastProgressTimestamp = 0
                 handler.removeCallbacks(progressRunnable)
+                if (autonomousMode) {
+                    handler.removeCallbacks(positionSyncRunnable)
+                }
             }
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             Log.d(TAG, "onMediaItemTransition: ${mediaItem?.mediaId}, reason: $reason, exoIndex: ${player.currentMediaItemIndex}")
+
+            // Reset seek offset when the actual track changes (different mediaId).
+            // Don't reset on seek-by-reload (same mediaId, REASON_PLAYLIST_CHANGED).
+            if (mediaItem?.mediaId != currentTrack?.id) {
+                seekTimeOffsetMs = 0
+            }
+
             val exoIndex = player.currentMediaItemIndex
-            queueIndex = queueOffset + exoIndex
-            currentTrack = queue.getOrNull(exoIndex)
-            applyTrackReplayGain(currentTrack)
-            emitTrackChange()
-            emitStateChange()
+
+            if (autonomousMode) {
+                val serverPos = exoIndexToServerPosition.getOrNull(exoIndex)
+                if (serverPos != null) {
+                    serverQueueIndex = serverPos
+                    queueIndex = serverPos
+                } else {
+                    queueIndex = queueOffset + exoIndex
+                }
+                currentTrack = queue.getOrNull(exoIndex)
+                applyTrackReplayGain(currentTrack)
+                resetScrobbleState()
+                emitTrackChange()
+                emitStateChange()
+
+                // Sync position to server and prefetch
+                syncPositionToServer()
+                maybePrefetchMore()
+            } else {
+                queueIndex = queueOffset + exoIndex
+                currentTrack = queue.getOrNull(exoIndex)
+                applyTrackReplayGain(currentTrack)
+                emitTrackChange()
+                emitStateChange()
+            }
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -663,9 +1419,11 @@ class PlaybackService : MediaSessionService() {
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
             Log.d(TAG, "onShuffleModeEnabledChanged: $shuffleModeEnabled")
             updateMediaButtonPreferences()
-            eventEmitter?.invoke(AudioEvents.SHUFFLE_MODE_CHANGED, JSObject().apply {
-                put("enabled", shuffleModeEnabled)
-            })
+            if (!autonomousMode) {
+                eventEmitter?.invoke(AudioEvents.SHUFFLE_MODE_CHANGED, JSObject().apply {
+                    put("enabled", shuffleModeEnabled)
+                })
+            }
         }
 
         override fun onRepeatModeChanged(repeatMode: Int) {
@@ -676,9 +1434,11 @@ class PlaybackService : MediaSessionService() {
             }
             Log.d(TAG, "onRepeatModeChanged: $mode")
             updateMediaButtonPreferences()
-            eventEmitter?.invoke(AudioEvents.REPEAT_MODE_CHANGED, JSObject().apply {
-                put("mode", mode)
-            })
+            if (!autonomousMode) {
+                eventEmitter?.invoke(AudioEvents.REPEAT_MODE_CHANGED, JSObject().apply {
+                    put("mode", mode)
+                })
+            }
         }
 
         override fun onPositionDiscontinuity(

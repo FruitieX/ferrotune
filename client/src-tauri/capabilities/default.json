@@ -16,6 +16,18 @@
     "native-audio:allow-set-volume",
     "native-audio:allow-set-queue",
     "native-audio:allow-next-track",
-    "native-audio:allow-previous-track"
+    "native-audio:allow-previous-track",
+    "native-audio:allow-request-playback",
+    "native-audio:allow-set-replay-gain",
+    "native-audio:allow-set-repeat-mode",
+    "native-audio:allow-append-to-queue",
+    "native-audio:allow-update-starred-state",
+    "native-audio:allow-get-safe-area-insets",
+    "native-audio:allow-init-session",
+    "native-audio:allow-update-settings",
+    "native-audio:allow-start-autonomous-playback",
+    "native-audio:allow-invalidate-queue",
+    "native-audio:allow-toggle-shuffle",
+    "native-audio:allow-debug-log"
   ]
 }

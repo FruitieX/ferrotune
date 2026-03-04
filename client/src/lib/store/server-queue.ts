@@ -16,7 +16,25 @@ import { atom } from "jotai";
 import type { Song, QueueSourceInfo, QueueWindow } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { hasNativeAudio } from "@/lib/tauri";
-import { nativeRequestPlayback } from "@/lib/audio/native-engine";
+import {
+  nativeRequestPlayback,
+  nativeNextTrack,
+  nativePreviousTrack,
+  nativeToggleShuffle,
+  nativeSetRepeatMode,
+  nativeInvalidateQueue,
+} from "@/lib/audio/native-engine";
+
+// Module-level flag: true when Kotlin is managing playback autonomously
+let _nativeAutonomousMode = false;
+export const nativeAutonomousMode = {
+  get value() {
+    return _nativeAutonomousMode;
+  },
+  set value(v: boolean) {
+    _nativeAutonomousMode = v;
+  },
+};
 
 // Module-level flag: set to true when user explicitly starts playback
 // (startQueue, playAtIndex). Read by the audio engine to decide whether
@@ -319,6 +337,16 @@ export const fetchQueueRangeAtom = atom(
 
 // Go to next track
 export const goToNextAtom = atom(null, async (get, set) => {
+  // In autonomous mode, Kotlin handles skip + server sync + scrobble
+  if (nativeAutonomousMode.value) {
+    try {
+      await nativeNextTrack();
+    } catch (error) {
+      console.error("Failed to go to next track (native):", error);
+    }
+    return;
+  }
+
   const state = get(serverQueueStateAtom);
   if (!state) return;
 
@@ -382,6 +410,16 @@ export const goToNextAtom = atom(null, async (get, set) => {
 
 // Go to previous track
 export const goToPreviousAtom = atom(null, async (get, set) => {
+  // In autonomous mode, Kotlin handles skip + server sync
+  if (nativeAutonomousMode.value) {
+    try {
+      await nativePreviousTrack();
+    } catch (error) {
+      console.error("Failed to go to previous track (native):", error);
+    }
+    return;
+  }
+
   const state = get(serverQueueStateAtom);
   if (!state) return;
 
@@ -435,6 +473,25 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
   const client = getClient();
   if (!client) return;
 
+  // In autonomous mode, update server position then tell Kotlin to reload
+  if (nativeAutonomousMode.value) {
+    set(isQueueOperationPendingAtom, true);
+    try {
+      await client.updateServerQueuePosition(index, 0);
+      set(serverQueueStateAtom, {
+        ...state,
+        currentIndex: index,
+        positionMs: 0,
+      });
+      await nativeInvalidateQueue();
+    } catch (error) {
+      console.error("Failed to play at index (native):", error);
+    } finally {
+      set(isQueueOperationPendingAtom, false);
+    }
+    return;
+  }
+
   set(isQueueOperationPendingAtom, true);
   set(isRestoringQueueAtom, false); // User explicitly starting playback
   pendingUserPlayback.value = true;
@@ -461,10 +518,24 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
   const state = get(serverQueueStateAtom);
   if (!state) return;
 
+  const newShuffleState = !state.isShuffled;
+
+  // In autonomous mode, Kotlin handles server API + ExoPlayer reload
+  if (nativeAutonomousMode.value) {
+    set(isQueueOperationPendingAtom, true);
+    try {
+      await nativeToggleShuffle(newShuffleState);
+      // State will be updated via queue-state-changed event from Kotlin
+    } catch (error) {
+      console.error("Failed to toggle shuffle (native):", error);
+    } finally {
+      set(isQueueOperationPendingAtom, false);
+    }
+    return;
+  }
+
   const client = getClient();
   if (!client) return;
-
-  const newShuffleState = !state.isShuffled;
 
   set(isQueueOperationPendingAtom, true);
 
@@ -494,6 +565,17 @@ export const setRepeatModeAtom = atom(
   async (get, set, mode: RepeatMode) => {
     const state = get(serverQueueStateAtom);
     if (!state) return;
+
+    // In autonomous mode, Kotlin handles repeat mode + ExoPlayer update
+    if (nativeAutonomousMode.value) {
+      try {
+        await nativeSetRepeatMode(mode);
+        set(serverQueueStateAtom, { ...state, repeatMode: mode });
+      } catch (error) {
+        console.error("Failed to set repeat mode (native):", error);
+      }
+      return;
+    }
 
     const client = getClient();
     if (!client) return;

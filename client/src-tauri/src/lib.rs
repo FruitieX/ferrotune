@@ -61,7 +61,9 @@ pub fn run() {
 
     builder
         .setup(|app| {
-            if cfg!(debug_assertions) {
+            // Enable logging on Android always so Rust log::info! appears in logcat.
+            // On other platforms, only enable in debug builds.
+            if cfg!(target_os = "android") || cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
                         .level(log::LevelFilter::Info)

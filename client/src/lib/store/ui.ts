@@ -89,7 +89,8 @@ export type SortField =
   | "bitRate"
   | "format"
   | "starred"
-  | "rating";
+  | "rating"
+  | "recommended";
 export type SortDirection = "asc" | "desc";
 
 export interface SortConfig {

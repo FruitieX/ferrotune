@@ -100,6 +100,14 @@ export interface NativeAudioCallbacks {
   onToggleStar: (trackId: string, isStarred: boolean) => void;
   onShuffleModeChanged: (enabled: boolean) => void;
   onRepeatModeChanged: (mode: string) => void;
+  onQueueStateChanged?: (state: {
+    currentIndex: number;
+    totalCount: number;
+    isShuffled: boolean;
+    repeatMode: string;
+  }) => void;
+  onScrobble?: (trackId: string) => void;
+  onClipping?: (peakOverDb: number) => void;
 }
 
 /**
@@ -202,6 +210,28 @@ export async function initNativeAudioEngine(
         case "repeat-mode-changed":
           console.log("[NativeAudio] Repeat mode changed:", data?.mode);
           engineState.callbacks?.onRepeatModeChanged(data?.mode ?? "off");
+          break;
+        case "queue-state-changed":
+          console.log("[NativeAudio] Queue state changed:", data);
+          if (data) {
+            engineState.callbacks?.onQueueStateChanged?.({
+              currentIndex: data.currentIndex ?? 0,
+              totalCount: data.totalCount ?? 0,
+              isShuffled: data.isShuffled ?? false,
+              repeatMode: data.repeatMode ?? "off",
+            });
+          }
+          break;
+        case "scrobble":
+          console.log("[NativeAudio] Scrobble:", data?.trackId);
+          if (data?.trackId) {
+            engineState.callbacks?.onScrobble?.(data.trackId);
+          }
+          break;
+        case "clipping":
+          if (data?.peakOverDb != null) {
+            engineState.callbacks?.onClipping?.(data.peakOverDb);
+          }
           break;
         default:
           console.warn("[NativeAudio] Unknown event:", event);
@@ -495,4 +525,109 @@ export async function nativeUpdateStarredState(
 ): Promise<void> {
   const api = await getNativeApi();
   await api.updateStarredState(starred);
+}
+
+// ── Autonomous playback mode ────────────────────────────────────────────
+
+/**
+ * Initialize session configuration for autonomous playback.
+ * Must be called once before startAutonomousPlayback().
+ */
+export async function nativeInitSession(config: {
+  serverUrl: string;
+  username: string;
+  password?: string;
+  apiKey?: string;
+}): Promise<void> {
+  console.log("[NativeAudio] nativeInitSession() called");
+  try {
+    const api = await getNativeApi();
+    await api.initSession(config);
+    console.log("[NativeAudio] nativeInitSession() SUCCEEDED");
+  } catch (err) {
+    console.error("[NativeAudio] nativeInitSession() FAILED:", String(err));
+    throw err;
+  }
+}
+
+/**
+ * Update playback settings on the native side.
+ */
+export async function nativeUpdateSettings(settings: {
+  replayGainMode: string;
+  replayGainOffset: number;
+  scrobbleThreshold: number;
+  transcodingEnabled: boolean;
+  transcodingBitrate: number;
+}): Promise<void> {
+  console.log(
+    "[NativeAudio] nativeUpdateSettings() called:",
+    JSON.stringify(settings),
+  );
+  try {
+    const api = await getNativeApi();
+    await api.updateSettings(settings);
+    console.log("[NativeAudio] nativeUpdateSettings() SUCCEEDED");
+  } catch (err) {
+    console.error("[NativeAudio] nativeUpdateSettings() FAILED:", String(err));
+    throw err;
+  }
+}
+
+/**
+ * Start autonomous playback: Kotlin takes over queue management.
+ * The server queue must already be set up before calling this.
+ */
+export async function nativeStartAutonomousPlayback(params: {
+  totalCount: number;
+  currentIndex: number;
+  isShuffled: boolean;
+  repeatMode: string;
+  playWhenReady: boolean;
+  startPositionMs: number;
+}): Promise<void> {
+  console.log("[NativeAudio] nativeStartAutonomousPlayback() called", params);
+  try {
+    const api = await getNativeApi();
+    await api.startAutonomousPlayback(params);
+    console.log("[NativeAudio] nativeStartAutonomousPlayback() SUCCEEDED");
+  } catch (err) {
+    console.error(
+      "[NativeAudio] nativeStartAutonomousPlayback() FAILED:",
+      String(err),
+    );
+    throw err;
+  }
+}
+
+/**
+ * Invalidate the native queue window and refetch from server.
+ */
+export async function nativeInvalidateQueue(): Promise<void> {
+  console.log("[NativeAudio] nativeInvalidateQueue() called");
+  const api = await getNativeApi();
+  await api.invalidateQueue();
+}
+
+/**
+ * Toggle shuffle in autonomous mode.
+ */
+export async function nativeToggleShuffle(enabled: boolean): Promise<void> {
+  console.log("[NativeAudio] nativeToggleShuffle() called:", enabled);
+  const api = await getNativeApi();
+  await api.toggleShuffle(enabled);
+}
+
+/**
+ * Send a debug log message from JS to native logcat.
+ * These appear under the NativeAudioPlugin tag as "[JS] message".
+ * Works in both debug and release builds (unlike console.log).
+ */
+export async function nativeDebugLog(message: string): Promise<void> {
+  try {
+    const api = await getNativeApi();
+    await api.debugLog(message);
+  } catch {
+    // Silently ignore if native audio isn't available
+  }
 }

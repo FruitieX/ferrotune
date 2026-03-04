@@ -34,6 +34,43 @@ pub struct TrackInfo {
     pub duration_ms: u64,
 }
 
+/// Session configuration for connecting to the Ferrotune server
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionConfig {
+    pub server_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+}
+
+/// Playback settings that affect how tracks are prepared
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackSettingsConfig {
+    pub replay_gain_mode: String,
+    pub replay_gain_offset: f32,
+    pub scrobble_threshold: f32,
+    pub transcoding_enabled: bool,
+    pub transcoding_bitrate: u32,
+}
+
+/// Parameters for starting autonomous playback
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartAutonomousPlaybackParams {
+    pub total_count: usize,
+    pub current_index: usize,
+    pub is_shuffled: bool,
+    pub repeat_mode: String,
+    pub play_when_ready: bool,
+    #[serde(default)]
+    pub start_position_ms: u64,
+}
+
 /// Queue item for setting the playback queue
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -1,8 +1,11 @@
 use tauri::{command, AppHandle, Runtime};
 
 use crate::{
-    error::{Error, Result},
-    models::{PlaybackState, QueueItem, SafeAreaInsets, TrackInfo},
+    error::Result,
+    models::{
+        PlaybackSettingsConfig, PlaybackState, QueueItem, SafeAreaInsets, SessionConfig,
+        StartAutonomousPlaybackParams, TrackInfo,
+    },
 };
 
 #[cfg(mobile)]
@@ -288,5 +291,162 @@ pub async fn get_safe_area_insets<R: Runtime>(app: AppHandle<R>) -> Result<SafeA
             "get_safe_area_insets() called on desktop - native audio only available on mobile"
         );
         Err(Error::ServiceNotAvailable)
+    }
+}
+
+/// Initialize session configuration for direct API calls from native side
+#[command]
+pub async fn init_session<R: Runtime>(
+    app: AppHandle<R>,
+    server_url: String,
+    username: Option<String>,
+    password: Option<String>,
+    api_key: Option<String>,
+) -> Result<()> {
+    log::info!("init_session command reached");
+    let config = SessionConfig {
+        server_url,
+        username,
+        password,
+        api_key,
+    };
+
+    #[cfg(mobile)]
+    {
+        app.native_audio().init_session(&config)
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, config);
+        log::warn!("init_session() called on desktop - native audio only available on mobile");
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+/// Update playback settings (ReplayGain, transcoding, scrobble threshold)
+#[command]
+pub async fn update_settings<R: Runtime>(
+    app: AppHandle<R>,
+    replay_gain_mode: String,
+    replay_gain_offset: f32,
+    scrobble_threshold: f32,
+    transcoding_enabled: bool,
+    transcoding_bitrate: u32,
+) -> Result<()> {
+    log::info!(
+        "update_settings command reached: mode={}, offset={}, transcoding={}",
+        replay_gain_mode,
+        replay_gain_offset,
+        transcoding_enabled
+    );
+    let settings = PlaybackSettingsConfig {
+        replay_gain_mode,
+        replay_gain_offset,
+        scrobble_threshold,
+        transcoding_enabled,
+        transcoding_bitrate,
+    };
+
+    #[cfg(mobile)]
+    {
+        app.native_audio().update_settings(&settings)
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, settings);
+        log::warn!("update_settings() called on desktop - native audio only available on mobile");
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+/// Start autonomous playback: Kotlin takes over queue management
+#[command]
+pub async fn start_autonomous_playback<R: Runtime>(
+    app: AppHandle<R>,
+    total_count: usize,
+    current_index: usize,
+    is_shuffled: bool,
+    repeat_mode: String,
+    play_when_ready: bool,
+    start_position_ms: Option<u64>,
+) -> Result<()> {
+    log::info!(
+        "start_autonomous_playback command reached: total={}, index={}, shuffled={}",
+        total_count,
+        current_index,
+        is_shuffled
+    );
+    let params = StartAutonomousPlaybackParams {
+        total_count,
+        current_index,
+        is_shuffled,
+        repeat_mode,
+        play_when_ready,
+        start_position_ms: start_position_ms.unwrap_or(0),
+    };
+
+    #[cfg(mobile)]
+    {
+        app.native_audio().start_autonomous_playback(&params)
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, params);
+        log::warn!(
+            "start_autonomous_playback() called on desktop - native audio only available on mobile"
+        );
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+/// Invalidate the queue window and refetch from server
+#[command]
+pub async fn invalidate_queue<R: Runtime>(app: AppHandle<R>) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().invalidate_queue()
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        log::warn!("invalidate_queue() called on desktop - native audio only available on mobile");
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+/// Toggle shuffle in autonomous mode
+#[command]
+pub async fn toggle_shuffle<R: Runtime>(app: AppHandle<R>, enabled: bool) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().toggle_shuffle(enabled)
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, enabled);
+        log::warn!("toggle_shuffle() called on desktop - native audio only available on mobile");
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
+/// Debug log: send a message from JS to native logcat
+#[command]
+pub async fn debug_log<R: Runtime>(app: AppHandle<R>, message: String) -> Result<()> {
+    log::info!("[JS] {}", message);
+
+    #[cfg(mobile)]
+    {
+        app.native_audio().debug_log(&message)
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Ok(())
     }
 }

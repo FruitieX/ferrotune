@@ -60,6 +60,58 @@ pub fn sort_songs(mut songs: Vec<Song>, sort: Option<&str>, sort_dir: Option<&st
         return songs;
     }
 
+    // For "recommended" sort, compute a relevance score for each song
+    if field == "recommended" {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as f64;
+        let hour_seed = (now_secs / 3600.0) as i64;
+
+        let mut scored: Vec<(f64, usize)> = songs
+            .iter()
+            .enumerate()
+            .map(|(i, song)| {
+                // Recency score (0-40): recently played songs score higher
+                let recency = song
+                    .last_played
+                    .map(|lp| {
+                        let diff_days = (now_secs - lp.timestamp() as f64) / 86400.0;
+                        ((30.0 - diff_days) / 30.0).clamp(0.0, 1.0) * 40.0
+                    })
+                    .unwrap_or(0.0);
+                // Frequency score (0-25)
+                let frequency = (song.play_count.unwrap_or(0) as f64 * 3.0).min(25.0);
+                // Freshness score (0-15): recently added songs score higher
+                let freshness = {
+                    let diff_days = (now_secs - song.created_at.timestamp() as f64) / 86400.0;
+                    ((30.0 - diff_days) / 30.0).clamp(0.0, 1.0) * 15.0
+                };
+                // Pseudo-random component (0-20), seeded by hour
+                let random = ((song.id.as_bytes()[0] as i64)
+                    .wrapping_mul(hour_seed)
+                    .unsigned_abs()
+                    % 200) as f64
+                    * 0.1;
+                (recency + frequency + freshness + random, i)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        if direction == "asc" {
+            scored.reverse();
+        }
+        let indices: Vec<usize> = scored.into_iter().map(|(_, i)| i).collect();
+        // Reorder songs by computed indices
+        let mut indexed: Vec<(usize, Song)> = songs.into_iter().enumerate().collect();
+        let mut pos_map: Vec<usize> = vec![0; indexed.len()];
+        for (new_pos, &orig_idx) in indices.iter().enumerate() {
+            pos_map[orig_idx] = new_pos;
+        }
+        indexed.sort_by_key(|(orig_idx, _)| pos_map[*orig_idx]);
+        return indexed.into_iter().map(|(_, song)| song).collect();
+    }
+
     songs.sort_by(|a, b| {
         let cmp = match field {
             "name" | "title" => a.title.to_lowercase().cmp(&b.title.to_lowercase()),

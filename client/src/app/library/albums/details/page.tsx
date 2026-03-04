@@ -388,7 +388,11 @@ function AlbumDetailContent() {
           ) : (
             <div className="space-y-1">
               {Array.from({ length: 10 }).map((_, i) => (
-                <SongRowSkeleton key={i} showCover showIndex />
+                <SongRowSkeleton
+                  key={i}
+                  showCover
+                  showIndex={columnVisibility.trackNumber}
+                />
               ))}
             </div>
           )
@@ -413,7 +417,6 @@ function AlbumDetailContent() {
             <>
               <SongListHeader
                 columnVisibility={columnVisibility}
-                showIndex
                 showCover
                 sortConfig={sortConfig}
                 onSortChange={setSortConfig}
@@ -443,7 +446,12 @@ function AlbumDetailContent() {
                     onSelect={selection.handleSelect}
                   />
                 )}
-                renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+                renderSkeleton={() => (
+                  <SongRowSkeleton
+                    showCover
+                    showIndex={columnVisibility.trackNumber}
+                  />
+                )}
                 getItemKey={(song) => song.id}
                 estimateItemHeight={56}
               />

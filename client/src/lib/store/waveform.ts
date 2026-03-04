@@ -12,9 +12,6 @@ export interface WaveformData {
   heights: number[];
   // Whether the waveform has been loaded
   isLoaded: boolean;
-  // Actual decoded audio duration in seconds (precise, from actual decoding)
-  // Used for waveform-to-playback synchronization
-  actualDuration: number | null;
 }
 
 // Cache of waveform data per track ID
@@ -35,8 +32,3 @@ export interface ChunkAnimationInfo {
 }
 
 export const lastChunkInfoAtom = atom<ChunkAnimationInfo | null>(null);
-
-// Actual decoded duration for the current waveform, keyed by track ID
-// This is the precise duration from actual audio decoding, used for
-// synchronizing the waveform progress with audio playback
-export const waveformActualDurationAtom = atom<Map<string, number>>(new Map());

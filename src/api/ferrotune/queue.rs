@@ -1566,6 +1566,8 @@ fn build_search_params_from_json(
         song_sort_dir: None,
         album_sort: None,
         album_sort_dir: None,
+        artist_sort: None,
+        artist_sort_dir: None,
         min_year: None,
         max_year: None,
         genre: None,

@@ -173,7 +173,18 @@ export function MediaRow({
       className={cn(
         "group/cover relative w-10 h-10 overflow-hidden shrink-0",
         coverShape === "circle" ? "rounded-full" : "rounded",
+        // On mobile, make the entire cover art area clickable for songs (no href)
+        !hasFinePointer && onPlay && !href && "cursor-pointer",
       )}
+      onClick={
+        !hasFinePointer && onPlay && !href
+          ? (e: React.MouseEvent) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onPlay();
+            }
+          : undefined
+      }
     >
       <CoverImage
         src={coverArt}

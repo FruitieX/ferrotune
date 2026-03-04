@@ -1199,19 +1199,6 @@ export class FerrotuneClient {
     return this.request(endpoint);
   }
 
-  // Streaming waveform URL (Admin API - returns URL for SSE endpoint)
-  // Deprecated: Use getWaveform() for pre-computed waveform data instead.
-  getWaveformStreamUrl(songId: string, resolution: number = 200): string {
-    // Build URL with resolution param
-    const baseUrl = this.buildAdminUrl(
-      `/ferrotune/songs/${encodeURIComponent(songId)}/waveform/stream`,
-    );
-    const params = new URLSearchParams({
-      resolution: resolution.toString(),
-    });
-    return `${baseUrl}?${params.toString()}`;
-  }
-
   // Get pre-computed waveform data for a song.
   // Returns normalized heights array, or null if no waveform data is available.
   async getWaveform(songId: string): Promise<{ heights: number[] } | null> {

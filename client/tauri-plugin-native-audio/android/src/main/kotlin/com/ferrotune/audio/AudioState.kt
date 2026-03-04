@@ -96,4 +96,7 @@ object AudioEvents {
     const val TOGGLE_STAR = "toggle-star"
     const val SHUFFLE_MODE_CHANGED = "shuffle-mode-changed"
     const val REPEAT_MODE_CHANGED = "repeat-mode-changed"
+    const val QUEUE_STATE_CHANGED = "queue-state-changed"
+    const val SCROBBLE = "scrobble"
+    const val CLIPPING = "clipping"
 }

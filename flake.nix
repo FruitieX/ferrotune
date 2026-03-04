@@ -132,6 +132,12 @@
             echo ""
             echo "To run on Android emulator:"
             echo "  moon run client:tauri-android-dev"
+            echo ""
+            echo "Deploy:"
+            echo "  moon run client:tauri-android-deploy"
+            echo ""
+            echo "Logs:"
+            echo "  adb logcat -v color,threadtime -s ReplayGainProcessor:* PlaybackService:* NativeAudioPlugin:* Tauri:* chromium:* NativeAudio:* Tauri\/Console:*"
           '';
         };
       };

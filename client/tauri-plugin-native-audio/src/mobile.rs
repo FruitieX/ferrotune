@@ -6,7 +6,10 @@ use tauri::{
 
 use crate::{
     error::Result,
-    models::{PlaybackState, QueueItem, SafeAreaInsets, TrackInfo},
+    models::{
+        PlaybackSettingsConfig, PlaybackState, QueueItem, SafeAreaInsets, SessionConfig,
+        StartAutonomousPlaybackParams, TrackInfo,
+    },
 };
 
 #[cfg(target_os = "android")]
@@ -136,6 +139,75 @@ impl<R: Runtime> NativeAudio<R> {
                 "updateStarredState",
                 serde_json::json!({ "starred": starred }),
             )
+            .map_err(Into::into)
+    }
+
+    /// Initialize session configuration for direct API calls
+    pub fn init_session(&self, config: &SessionConfig) -> Result<()> {
+        self.0
+            .run_mobile_plugin(
+                "initSession",
+                serde_json::json!({
+                    "serverUrl": config.server_url,
+                    "username": config.username,
+                    "password": config.password,
+                    "apiKey": config.api_key,
+                }),
+            )
+            .map_err(Into::into)
+    }
+
+    /// Update playback settings
+    pub fn update_settings(&self, settings: &PlaybackSettingsConfig) -> Result<()> {
+        self.0
+            .run_mobile_plugin(
+                "updateSettings",
+                serde_json::json!({
+                    "replayGainMode": settings.replay_gain_mode,
+                    "replayGainOffset": settings.replay_gain_offset,
+                    "scrobbleThreshold": settings.scrobble_threshold,
+                    "transcodingEnabled": settings.transcoding_enabled,
+                    "transcodingBitrate": settings.transcoding_bitrate,
+                }),
+            )
+            .map_err(Into::into)
+    }
+
+    /// Start autonomous playback mode
+    pub fn start_autonomous_playback(&self, params: &StartAutonomousPlaybackParams) -> Result<()> {
+        self.0
+            .run_mobile_plugin(
+                "startAutonomousPlayback",
+                serde_json::json!({
+                    "totalCount": params.total_count,
+                    "currentIndex": params.current_index,
+                    "isShuffled": params.is_shuffled,
+                    "repeatMode": params.repeat_mode,
+                    "playWhenReady": params.play_when_ready,
+                    "startPositionMs": params.start_position_ms,
+                }),
+            )
+            .map_err(Into::into)
+    }
+
+    /// Invalidate queue window and refetch from server
+    pub fn invalidate_queue(&self) -> Result<()> {
+        self.0
+            .run_mobile_plugin("invalidateQueue", ())
+            .map_err(Into::into)
+    }
+
+    /// Toggle shuffle in autonomous mode
+    pub fn toggle_shuffle(&self, enabled: bool) -> Result<()> {
+        self.0
+            .run_mobile_plugin("toggleShuffle", serde_json::json!({ "enabled": enabled }))
+            .map_err(Into::into)
+    }
+
+    /// Debug log: forward a message from JS to native logcat
+    pub fn debug_log(&self, message: &str) -> Result<()> {
+        self.0
+            .run_mobile_plugin("debugLog", serde_json::json!({ "message": message }))
             .map_err(Into::into)
     }
 }

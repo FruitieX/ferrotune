@@ -13,6 +13,7 @@ import { currentSongAtom } from "@/lib/store/server-queue";
 import { accentColorRgbAtom } from "@/lib/store/ui";
 import { useAudioEngine, getGlobalAudio } from "@/lib/audio/hooks";
 import { hasNativeAudio } from "@/lib/tauri";
+import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 
 interface SimpleProgressBarProps {
   className?: string;
@@ -140,7 +141,8 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
 
   const hasTrack =
     !!currentTrack && playbackState !== "idle" && playbackState !== "ended";
-  const barHeight = 4; // pixels
+  const isSmallScreen = useIsSmallScreen();
+  const barHeight = isSmallScreen ? 8 : 4; // pixels
 
   return (
     <div
@@ -192,7 +194,7 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
       {/* Hover indicator line */}
       {isHovering && hoverPercent !== null && (
         <div
-          className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-foreground/80 pointer-events-none"
+          className="absolute top-1/2 -translate-y-1/2 w-0.5 h-4 md:h-3 bg-foreground/80 pointer-events-none"
           style={{ left: `${hoverPercent}%` }}
         />
       )}

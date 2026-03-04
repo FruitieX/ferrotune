@@ -388,7 +388,6 @@ function ArtistDetailContent() {
               <>
                 <SongListHeader
                   columnVisibility={columnVisibility}
-                  showIndex
                   showCover
                   sortConfig={sortConfig}
                   onSortChange={setSortConfig}
@@ -418,7 +417,12 @@ function ArtistDetailContent() {
                       onSelect={selection.handleSelect}
                     />
                   )}
-                  renderSkeleton={() => <SongRowSkeleton showCover showIndex />}
+                  renderSkeleton={() => (
+                    <SongRowSkeleton
+                      showCover
+                      showIndex={columnVisibility.trackNumber}
+                    />
+                  )}
                   getItemKey={(song) => song.id}
                   estimateItemHeight={56}
                   autoScrollMargin

@@ -59,6 +59,12 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::append_to_queue,
             commands::update_starred_state,
             commands::get_safe_area_insets,
+            commands::init_session,
+            commands::update_settings,
+            commands::start_autonomous_playback,
+            commands::invalidate_queue,
+            commands::toggle_shuffle,
+            commands::debug_log,
         ])
         .setup(|app, api| {
             #[cfg(mobile)]

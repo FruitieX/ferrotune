@@ -95,6 +95,43 @@ internal class AppendToQueueArgs {
     var items: Array<QueueItem> = emptyArray()
 }
 
+@InvokeArg
+internal class InitSessionArgs {
+    lateinit var serverUrl: String
+    lateinit var username: String
+    var password: String? = null
+    var apiKey: String? = null
+}
+
+@InvokeArg
+internal class UpdateSettingsArgs {
+    var replayGainMode: String = "none"
+    var replayGainOffset: Float = 0f
+    var scrobbleThreshold: Float = 0.5f
+    var transcodingEnabled: Boolean = false
+    var transcodingBitrate: Int = 192
+}
+
+@InvokeArg
+internal class StartAutonomousPlaybackArgs {
+    var totalCount: Int = 0
+    var currentIndex: Int = 0
+    var isShuffled: Boolean = false
+    var repeatMode: String = "off"
+    var playWhenReady: Boolean = true
+    var startPositionMs: Long = 0
+}
+
+@InvokeArg
+internal class ToggleShuffleArgs {
+    var enabled: Boolean = false
+}
+
+@InvokeArg
+internal class DebugLogArgs {
+    var message: String = ""
+}
+
 /**
  * Tauri plugin for native audio playback on Android.
  * Uses Media3 (ExoPlayer) with MediaSessionService for background playback.
@@ -354,6 +391,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
 
     @Command
     fun seek(invoke: Invoke) {
+        Log.d(TAG, "seek command received")
         scope.launch {
             try {
                 val args = invoke.parseArgs(SeekArgs::class.java)
@@ -614,6 +652,138 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                 Log.e(TAG, "Error in updateStarredState()", e)
                 invoke.reject(e.message)
             }
+        }
+    }
+
+    @Command
+    fun initSession(invoke: Invoke) {
+        scope.launch {
+            try {
+                val args = invoke.parseArgs(InitSessionArgs::class.java)
+                val service = awaitService()
+                if (service == null) {
+                    Log.e(TAG, "initSession() failed: Service not available after timeout")
+                    invoke.reject("Service not available - try again")
+                    return@launch
+                }
+                service.initSession(SessionConfig(
+                    serverUrl = args.serverUrl,
+                    username = args.username,
+                    password = args.password,
+                    apiKey = args.apiKey
+                ))
+                invoke.resolve()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in initSession()", e)
+                invoke.reject(e.message)
+            }
+        }
+    }
+
+    @Command
+    fun updateSettings(invoke: Invoke) {
+        Log.d(TAG, "updateSettings command received, raw args: ${invoke.getRawArgs()}")
+        scope.launch {
+            try {
+                val args = invoke.parseArgs(UpdateSettingsArgs::class.java)
+                Log.d(TAG, "updateSettings parsed: mode=${args.replayGainMode}, offset=${args.replayGainOffset}, transcoding=${args.transcodingEnabled}")
+                val settings = PlaybackSettings(
+                    replayGainMode = args.replayGainMode,
+                    replayGainOffset = args.replayGainOffset,
+                    scrobbleThreshold = args.scrobbleThreshold,
+                    transcodingEnabled = args.transcodingEnabled,
+                    transcodingBitrate = args.transcodingBitrate
+                )
+                val service = awaitService()
+                if (service == null) {
+                    Log.e(TAG, "updateSettings() failed: Service not available after timeout")
+                    invoke.reject("Service not available - try again")
+                    return@launch
+                }
+                service.updateSettings(settings)
+                invoke.resolve()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in updateSettings()", e)
+                invoke.reject(e.message)
+            }
+        }
+    }
+
+    @Command
+    fun startAutonomousPlayback(invoke: Invoke) {
+        scope.launch {
+            try {
+                val args = invoke.parseArgs(StartAutonomousPlaybackArgs::class.java)
+                val service = awaitService()
+                if (service == null) {
+                    Log.e(TAG, "startAutonomousPlayback() failed: Service not available after timeout")
+                    invoke.reject("Service not available - try again")
+                    return@launch
+                }
+                service.startAutonomousPlayback(
+                    totalCount = args.totalCount,
+                    currentIndex = args.currentIndex,
+                    isShuffled = args.isShuffled,
+                    repeatMode = args.repeatMode,
+                    playWhenReady = args.playWhenReady,
+                    startPositionMs = args.startPositionMs
+                )
+                invoke.resolve()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in startAutonomousPlayback()", e)
+                invoke.reject(e.message)
+            }
+        }
+    }
+
+    @Command
+    fun invalidateQueue(invoke: Invoke) {
+        scope.launch {
+            try {
+                val service = awaitService()
+                if (service == null) {
+                    Log.e(TAG, "invalidateQueue() failed: Service not available after timeout")
+                    invoke.reject("Service not available - try again")
+                    return@launch
+                }
+                service.invalidateQueue()
+                invoke.resolve()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in invalidateQueue()", e)
+                invoke.reject(e.message)
+            }
+        }
+    }
+
+    @Command
+    fun toggleShuffle(invoke: Invoke) {
+        scope.launch {
+            try {
+                val args = invoke.parseArgs(ToggleShuffleArgs::class.java)
+                val service = awaitService()
+                if (service == null) {
+                    Log.e(TAG, "toggleShuffle() failed: Service not available after timeout")
+                    invoke.reject("Service not available - try again")
+                    return@launch
+                }
+                service.autonomousToggleShuffle(args.enabled)
+                invoke.resolve()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in toggleShuffle()", e)
+                invoke.reject(e.message)
+            }
+        }
+    }
+
+    @Command
+    fun debugLog(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(DebugLogArgs::class.java)
+            Log.d(TAG, "[JS] ${args.message}")
+            invoke.resolve()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in debugLog()", e)
+            invoke.reject(e.message)
         }
     }
 }

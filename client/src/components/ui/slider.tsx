@@ -37,8 +37,10 @@ function Slider({
         data-slot="slider-track"
         className={cn(
           "bg-muted relative grow overflow-hidden rounded-full transition-all duration-150",
-          "data-[orientation=horizontal]:h-1.5 data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-1.5",
-          "group-hover:data-[orientation=horizontal]:h-2 group-hover:data-[orientation=vertical]:w-2",
+          "data-[orientation=horizontal]:h-2.5 data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-2.5",
+          "md:data-[orientation=horizontal]:h-1.5 md:data-[orientation=vertical]:w-1.5",
+          "group-hover:data-[orientation=horizontal]:h-2.5 group-hover:data-[orientation=vertical]:w-2.5",
+          "md:group-hover:data-[orientation=horizontal]:h-2 md:group-hover:data-[orientation=vertical]:w-2",
         )}
       >
         <SliderPrimitive.Range
@@ -53,9 +55,9 @@ function Slider({
           data-slot="slider-thumb"
           key={index}
           className={cn(
-            "block size-4 shrink-0 rounded-full border border-primary bg-white shadow-sm",
+            "block size-5 md:size-4 shrink-0 rounded-full border border-primary bg-white shadow-sm",
             "transition-all duration-150",
-            "opacity-0 group-hover:opacity-100",
+            "opacity-100 md:opacity-0 md:group-hover:opacity-100",
             "ring-ring/50 hover:ring-4 hover:scale-110",
             "focus-visible:ring-4 focus-visible:outline-hidden focus-visible:opacity-100",
             "disabled:pointer-events-none disabled:opacity-50",

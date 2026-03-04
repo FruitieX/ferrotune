@@ -50,6 +50,66 @@ identifier = "allow-previous-track"
 description = "Allows skipping to the previous track"
 commands.allow = ["previous_track"]
 
+[[permission]]
+identifier = "allow-request-playback"
+description = "Allows requesting playback on next queue set"
+commands.allow = ["request_playback"]
+
+[[permission]]
+identifier = "allow-set-replay-gain"
+description = "Allows setting ReplayGain level"
+commands.allow = ["set_replay_gain"]
+
+[[permission]]
+identifier = "allow-set-repeat-mode"
+description = "Allows setting the repeat mode"
+commands.allow = ["set_repeat_mode"]
+
+[[permission]]
+identifier = "allow-append-to-queue"
+description = "Allows appending items to the playback queue"
+commands.allow = ["append_to_queue"]
+
+[[permission]]
+identifier = "allow-update-starred-state"
+description = "Allows updating the starred state of the current track"
+commands.allow = ["update_starred_state"]
+
+[[permission]]
+identifier = "allow-get-safe-area-insets"
+description = "Allows getting safe area insets"
+commands.allow = ["get_safe_area_insets"]
+
+[[permission]]
+identifier = "allow-init-session"
+description = "Allows initializing the session for autonomous playback"
+commands.allow = ["init_session"]
+
+[[permission]]
+identifier = "allow-update-settings"
+description = "Allows updating playback settings"
+commands.allow = ["update_settings"]
+
+[[permission]]
+identifier = "allow-start-autonomous-playback"
+description = "Allows starting autonomous playback mode"
+commands.allow = ["start_autonomous_playback"]
+
+[[permission]]
+identifier = "allow-invalidate-queue"
+description = "Allows invalidating the native queue window"
+commands.allow = ["invalidate_queue"]
+
+[[permission]]
+identifier = "allow-toggle-shuffle"
+description = "Allows toggling shuffle mode"
+commands.allow = ["toggle_shuffle"]
+
+[[permission]]
+identifier = "allow-debug-log"
+description = "Allows sending debug log messages to native logcat"
+commands.allow = ["debug_log"]
+
 [[set]]
 identifier = "default"
 description = "Default permissions for native audio playback"
@@ -63,5 +123,17 @@ permissions = [
   "allow-set-volume",
   "allow-set-queue",
   "allow-next-track",
-  "allow-previous-track"
+  "allow-previous-track",
+  "allow-request-playback",
+  "allow-set-replay-gain",
+  "allow-set-repeat-mode",
+  "allow-append-to-queue",
+  "allow-update-starred-state",
+  "allow-get-safe-area-insets",
+  "allow-init-session",
+  "allow-update-settings",
+  "allow-start-autonomous-playback",
+  "allow-invalidate-queue",
+  "allow-toggle-shuffle",
+  "allow-debug-log"
 ]

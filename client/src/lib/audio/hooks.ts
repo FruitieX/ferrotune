@@ -60,7 +60,6 @@ import {
   nativeSeek,
   nativeSetTrack,
   nativeSetVolume,
-  nativeSetReplayGain,
   nativeNextTrack,
   nativePreviousTrack,
   nativeSetQueue,
@@ -68,8 +67,13 @@ import {
   nativeAppendToQueue,
   nativeGetState,
   nativeUpdateStarredState,
+  nativeInitSession,
+  nativeUpdateSettings,
+  nativeStartAutonomousPlayback,
+  nativeInvalidateQueue,
   type NativeStreamOptions,
 } from "@/lib/audio/native-engine";
+import { nativeAutonomousMode } from "@/lib/store/server-queue";
 
 /** Build NativeStreamOptions from the current transcoding settings */
 function getNativeStreamOptions(state: {
@@ -567,6 +571,7 @@ export function useAudioEngineInit() {
     replayGainOffset,
     clippingDetectionEnabled,
     starredItems,
+    serverConnection,
   });
 
   // Keep refs in sync
@@ -586,6 +591,7 @@ export function useAudioEngineInit() {
       replayGainOffset,
       clippingDetectionEnabled,
       starredItems,
+      serverConnection,
     };
   });
 
@@ -832,7 +838,10 @@ export function useAudioEngineInit() {
                 const qs = stateRef.current.queueState;
                 if (!qs) return;
 
-                // Check how many items remain ahead in ExoPlayer's queue
+                // In autonomous mode, Kotlin handles queue prefetching.
+                // JS-side appending would desync the exoIndexToQueueSong mapping
+                // and break ReplayGain computation on auto-advanced tracks.
+                if (nativeAutonomousMode.value) return;
                 const exoIndex = queueIndex - nativeQueueOffset;
                 const remainingInExo = nativeQueueLength - exoIndex - 1;
 
@@ -945,17 +954,52 @@ export function useAudioEngineInit() {
             prev ? { ...prev, repeatMode } : prev,
           );
         },
-      }).catch((error) => {
-        console.error("[Audio] Failed to initialize native audio:", error);
-        // Fall back to web audio
-        usingNativeAudio = false;
-        nativeAudioReady = null;
-        const fallbackAudio = getGlobalAudio();
-        const fallbackAudio1 = audioElements[1];
-        if (fallbackAudio && fallbackAudio1) {
-          initializeWebAudio(fallbackAudio, fallbackAudio1);
-        }
-      });
+        onQueueStateChanged: (queueState) => {
+          // Autonomous mode: Kotlin syncs queue state back to JS for UI
+          console.log(
+            "[NativeAudio] Queue state changed (autonomous):",
+            queueState,
+          );
+          settersRef.current.setServerQueueState((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  currentIndex: queueState.currentIndex,
+                  totalCount: queueState.totalCount,
+                  isShuffled: queueState.isShuffled,
+                  repeatMode: queueState.repeatMode as "off" | "all" | "one",
+                }
+              : prev,
+          );
+        },
+        onScrobble: (trackId) => {
+          // Autonomous mode: Kotlin scrobbled a track, invalidate play count caches
+          console.log("[NativeAudio] Scrobble from native:", trackId);
+          settersRef.current.invalidatePlayCountQueries();
+        },
+        onClipping: (peakOverDb) => {
+          settersRef.current.setClippingState({
+            peakOverDbAt100: peakOverDb,
+            lastClipTime: Date.now(),
+          });
+        },
+      })
+        .then(() => {
+          console.log(
+            "[NativeAudio] initNativeAudioEngine completed successfully",
+          );
+        })
+        .catch((error) => {
+          console.error("[Audio] Failed to initialize native audio:", error);
+          // Fall back to web audio
+          usingNativeAudio = false;
+          nativeAudioReady = null;
+          const fallbackAudio = getGlobalAudio();
+          const fallbackAudio1 = audioElements[1];
+          if (fallbackAudio && fallbackAudio1) {
+            initializeWebAudio(fallbackAudio, fallbackAudio1);
+          }
+        });
 
       return () => {
         cleanupNativeAudioEngine();
@@ -963,6 +1007,7 @@ export function useAudioEngineInit() {
         initializedRef.current = false;
         usingNativeAudio = false;
         nativeAudioReady = null;
+        nativeAutonomousMode.value = false;
       };
     }
 
@@ -1439,27 +1484,118 @@ export function useAudioEngineInit() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally run once on mount; setAudioElement is stable
   }, []);
 
+  // Initialize native session for autonomous mode once serverConnection becomes available.
+  // This is separate from the main init effect because serverConnection may not be
+  // hydrated yet when the native audio engine finishes initializing.
+  useEffect(() => {
+    if (!usingNativeAudio || !serverConnection || nativeAutonomousMode.value) {
+      console.log(
+        `[NativeAudio] autonomous init: skipped (native=${usingNativeAudio}, conn=${!!serverConnection}, autonomousAlready=${nativeAutonomousMode.value})`,
+      );
+      return;
+    }
+
+    let cancelled = false;
+
+    const initSession = async () => {
+      // Wait for native audio engine to be fully ready
+      if (nativeAudioReady) {
+        console.log(
+          "[NativeAudio] autonomous init: awaiting nativeAudioReady...",
+        );
+        await nativeAudioReady;
+      }
+      if (cancelled) return;
+
+      try {
+        console.log(
+          `[NativeAudio] autonomous init: calling nativeInitSession(url=${serverConnection.serverUrl})`,
+        );
+        await nativeInitSession({
+          serverUrl: serverConnection.serverUrl,
+          username: serverConnection.username ?? "",
+          password: serverConnection.password,
+          apiKey: serverConnection.apiKey,
+        });
+        if (cancelled) return;
+        console.log(
+          "[NativeAudio] autonomous init: calling nativeUpdateSettings...",
+        );
+        await nativeUpdateSettings({
+          replayGainMode: stateRef.current.replayGainMode,
+          replayGainOffset: stateRef.current.replayGainOffset,
+          scrobbleThreshold: stateRef.current.scrobbleThreshold,
+          transcodingEnabled: stateRef.current.transcodingEnabled,
+          transcodingBitrate: stateRef.current.transcodingBitrate,
+        });
+        if (cancelled) return;
+        nativeAutonomousMode.value = true;
+        console.log(
+          "[NativeAudio] autonomous init: SUCCESS - autonomous mode enabled",
+        );
+      } catch (err) {
+        console.error(`[NativeAudio] autonomous init: FAILED: ${String(err)}`);
+        nativeAutonomousMode.value = false;
+      }
+    };
+
+    initSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [serverConnection]);
+
   // Update volume on both elements
   useEffect(() => {
     if (usingNativeAudio) {
-      // For native audio, set user volume and ReplayGain separately.
-      // Volume goes through ExoPlayer's volume (0.0-1.0).
-      // ReplayGain goes through LoudnessEnhancer which can boost above 1.0.
+      // For native audio, only send user volume. Kotlin handles ReplayGain
+      // internally via applyTrackReplayGain() and updateSettings().
       nativeSetVolume(effectiveVolume).catch(console.error);
-
-      if (replayGainMode !== "disabled" && currentSong) {
-        const trackGain = getTrackReplayGain(currentSong, replayGainMode);
-        const totalGain = trackGain + replayGainOffset;
-        nativeSetReplayGain(totalGain).catch(console.error);
-      } else {
-        nativeSetReplayGain(0).catch(console.error);
-      }
     } else {
       for (const el of audioElements) {
         if (el) el.volume = effectiveVolume;
       }
     }
-  }, [effectiveVolume, replayGainMode, replayGainOffset, currentSong]);
+  }, [effectiveVolume]);
+
+  // Push playback settings to native service when they change.
+  // This ensures autonomous mode always uses the latest ReplayGain/transcoding settings
+  // for computing gain on new tracks and recomputing gain on the current track.
+  useEffect(() => {
+    if (!usingNativeAudio) {
+      console.log(
+        "[NativeAudio] settings sync: skipped (usingNativeAudio=false)",
+      );
+      return;
+    }
+    console.log(
+      `[NativeAudio] settings sync: mode=${replayGainMode}, offset=${replayGainOffset}, transcoding=${transcodingEnabled}, bitrate=${transcodingBitrate}`,
+    );
+    nativeUpdateSettings({
+      replayGainMode,
+      replayGainOffset,
+      scrobbleThreshold,
+      transcodingEnabled,
+      transcodingBitrate,
+    })
+      .then(() => {
+        console.log(
+          "[NativeAudio] settings sync: nativeUpdateSettings succeeded",
+        );
+      })
+      .catch((err) => {
+        console.error(
+          `[NativeAudio] settings sync: nativeUpdateSettings FAILED: ${String(err)}`,
+        );
+      });
+  }, [
+    replayGainMode,
+    replayGainOffset,
+    scrobbleThreshold,
+    transcodingEnabled,
+    transcodingBitrate,
+  ]);
 
   // Start/stop clipping detection when the setting changes
   useEffect(() => {
@@ -1621,6 +1757,54 @@ export function useAudioEngineInit() {
       const doNativeLoad = async () => {
         if (nativeAudioReady) {
           await nativeAudioReady;
+        }
+
+        // In autonomous mode, tell Kotlin to fetch & manage the queue itself
+        if (nativeAutonomousMode.value) {
+          const qs = stateRef.current.queueState;
+          if (!qs) return;
+
+          // Send latest settings before starting/restarting playback
+          const s = stateRef.current;
+          await nativeUpdateSettings({
+            replayGainMode: s.replayGainMode,
+            replayGainOffset: s.replayGainOffset,
+            scrobbleThreshold: s.scrobbleThreshold,
+            transcodingEnabled: s.transcodingEnabled,
+            transcodingBitrate: s.transcodingBitrate,
+          });
+
+          // If only transcoding settings changed (not a new queue), just
+          // invalidate so Kotlin refetches with new stream URLs
+          if (transcodingChanged && !signalChanged) {
+            await nativeInvalidateQueue();
+            return;
+          }
+
+          setHasScrobbled(false);
+          setCurrentTime(0);
+          setDuration(currentSong.duration || 0);
+
+          await nativeStartAutonomousPlayback({
+            totalCount: qs.totalCount,
+            currentIndex: qs.currentIndex,
+            isShuffled: qs.isShuffled,
+            repeatMode: qs.repeatMode,
+            playWhenReady: shouldPlay,
+            startPositionMs: qs.positionMs,
+          });
+
+          if (!shouldPlay) {
+            setPlaybackState("paused");
+          } else {
+            setPlaybackState("loading");
+          }
+
+          // Sync star state to WearOS button icon
+          const isStarred =
+            stateRef.current.starredItems.get(currentSong.id) ?? false;
+          await nativeUpdateStarredState(isStarred);
+          return;
         }
 
         // Build the queue from the queue window. Sort songs by position and
@@ -1957,7 +2141,7 @@ export function useAudioEngineInit() {
   useEffect(() => {
     if (!currentSong) return;
 
-    // Native audio: ReplayGain is applied via volume (handled in volume effect above)
+    // Native audio: ReplayGain is handled entirely by Kotlin (PlaybackService)
     if (usingNativeAudio) return;
 
     if (!gainNodes[activeIndex]) return;

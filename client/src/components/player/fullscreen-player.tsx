@@ -777,7 +777,7 @@ export function FullscreenPlayer() {
                   className="space-y-2 mb-6"
                 >
                   {/* Progress bar - waveform or simple based on preference */}
-                  <div className="relative h-4">
+                  <div className="relative h-6 md:h-4">
                     {progressBarStyle === "waveform" ? (
                       <WaveformProgressBar className="absolute inset-x-0 top-1/2" />
                     ) : (

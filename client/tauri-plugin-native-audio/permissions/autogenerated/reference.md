@@ -10,6 +10,84 @@
 <tr>
 <td>
 
+`native-audio:allow-append-to-queue`
+
+</td>
+<td>
+
+Enables the append_to_queue command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-append-to-queue`
+
+</td>
+<td>
+
+Denies the append_to_queue command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-debug-log`
+
+</td>
+<td>
+
+Enables the debug_log command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-debug-log`
+
+</td>
+<td>
+
+Denies the debug_log command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-get-safe-area-insets`
+
+</td>
+<td>
+
+Enables the get_safe_area_insets command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-get-safe-area-insets`
+
+</td>
+<td>
+
+Denies the get_safe_area_insets command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-audio:allow-get-state`
 
 </td>
@@ -29,6 +107,58 @@ Enables the get_state command without any pre-configured scope.
 <td>
 
 Denies the get_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-init-session`
+
+</td>
+<td>
+
+Enables the init_session command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-init-session`
+
+</td>
+<td>
+
+Denies the init_session command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-invalidate-queue`
+
+</td>
+<td>
+
+Enables the invalidate_queue command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-invalidate-queue`
+
+</td>
+<td>
+
+Denies the invalidate_queue command without any pre-configured scope.
 
 </td>
 </tr>
@@ -140,6 +270,32 @@ Denies the previous_track command without any pre-configured scope.
 <tr>
 <td>
 
+`native-audio:allow-request-playback`
+
+</td>
+<td>
+
+Enables the request_playback command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-request-playback`
+
+</td>
+<td>
+
+Denies the request_playback command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-audio:allow-seek`
 
 </td>
@@ -185,6 +341,58 @@ Enables the set_queue command without any pre-configured scope.
 <td>
 
 Denies the set_queue command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-set-repeat-mode`
+
+</td>
+<td>
+
+Enables the set_repeat_mode command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-set-repeat-mode`
+
+</td>
+<td>
+
+Denies the set_repeat_mode command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-set-replay-gain`
+
+</td>
+<td>
+
+Enables the set_replay_gain command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-set-replay-gain`
+
+</td>
+<td>
+
+Denies the set_replay_gain command without any pre-configured scope.
 
 </td>
 </tr>
@@ -244,6 +452,32 @@ Denies the set_volume command without any pre-configured scope.
 <tr>
 <td>
 
+`native-audio:allow-start-autonomous-playback`
+
+</td>
+<td>
+
+Enables the start_autonomous_playback command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-start-autonomous-playback`
+
+</td>
+<td>
+
+Denies the start_autonomous_playback command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-audio:allow-stop`
 
 </td>
@@ -263,6 +497,84 @@ Enables the stop command without any pre-configured scope.
 <td>
 
 Denies the stop command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-toggle-shuffle`
+
+</td>
+<td>
+
+Enables the toggle_shuffle command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-toggle-shuffle`
+
+</td>
+<td>
+
+Denies the toggle_shuffle command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-update-settings`
+
+</td>
+<td>
+
+Enables the update_settings command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-update-settings`
+
+</td>
+<td>
+
+Denies the update_settings command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-update-starred-state`
+
+</td>
+<td>
+
+Enables the update_starred_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-update-starred-state`
+
+</td>
+<td>
+
+Denies the update_starred_state command without any pre-configured scope.
 
 </td>
 </tr>
@@ -406,6 +718,162 @@ Allows skipping to the next track
 <td>
 
 Allows skipping to the previous track
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-request-playback`
+
+</td>
+<td>
+
+Allows requesting playback on next queue set
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-set-replay-gain`
+
+</td>
+<td>
+
+Allows setting ReplayGain level
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-set-repeat-mode`
+
+</td>
+<td>
+
+Allows setting the repeat mode
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-append-to-queue`
+
+</td>
+<td>
+
+Allows appending items to the playback queue
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-update-starred-state`
+
+</td>
+<td>
+
+Allows updating the starred state of the current track
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-get-safe-area-insets`
+
+</td>
+<td>
+
+Allows getting safe area insets
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-init-session`
+
+</td>
+<td>
+
+Allows initializing the session for autonomous playback
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-update-settings`
+
+</td>
+<td>
+
+Allows updating playback settings
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-start-autonomous-playback`
+
+</td>
+<td>
+
+Allows starting autonomous playback mode
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-invalidate-queue`
+
+</td>
+<td>
+
+Allows invalidating the native queue window
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-toggle-shuffle`
+
+</td>
+<td>
+
+Allows toggling shuffle mode
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-debug-log`
+
+</td>
+<td>
+
+Allows sending debug log messages to native logcat
 
 </td>
 </tr>

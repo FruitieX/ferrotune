@@ -12,6 +12,7 @@ import { useSparsePagination } from "@/lib/hooks/use-sparse-pagination";
 import {
   albumViewModeAtom,
   libraryFilterAtom,
+  librarySortAtom,
   advancedFiltersAtom,
   hasActiveFiltersAtom,
   libraryArtistColumnVisibilityAtom,
@@ -42,6 +43,7 @@ export default function ArtistsPage() {
   });
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
+  const sortConfig = useAtomValue(librarySortAtom);
   const debouncedFilter = useDebounce(filter, 300);
   const advancedFilters = useAtomValue(advancedFiltersAtom);
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
@@ -65,6 +67,8 @@ export default function ArtistsPage() {
       "artists",
       "all",
       debouncedFilter,
+      sortConfig.field,
+      sortConfig.direction,
       advancedFilters,
       viewMode, // Include viewMode because inline image size depends on it
     ],
@@ -78,6 +82,8 @@ export default function ArtistsPage() {
         artistOffset: offset,
         albumCount: 0,
         songCount: 0,
+        artistSort: sortConfig.field,
+        artistSortDir: sortConfig.direction,
         starredOnly: advancedFilters.starredOnly,
         minRating: advancedFilters.minRating,
         maxRating: advancedFilters.maxRating,

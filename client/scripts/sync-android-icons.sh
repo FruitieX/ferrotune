@@ -25,13 +25,26 @@ EOF
 # Remove the incorrect default Android Studio background drawable if present
 rm -f "$RES_DIR/drawable/ic_launcher_background.xml"
 
-# Adaptive icon foreground: use the Tauri-generated foreground PNG directly
-# (no extra inset needed since the PNG already has proper adaptive icon padding)
+# Adaptive icon foreground: wrap the Tauri-generated foreground PNG in an inset
+# to add padding for Android's adaptive icon safe zone. Without this, the icon
+# appears too zoomed in because Android clips adaptive icons to a ~66dp circle/
+# squircle from the 108dp canvas. The 12dp inset shrinks the foreground to fit
+# comfortably within the safe zone.
+cat > "$RES_DIR/drawable/ic_launcher_foreground_inset.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@mipmap/ic_launcher_foreground"
+    android:insetLeft="12dp"
+    android:insetTop="12dp"
+    android:insetRight="12dp"
+    android:insetBottom="12dp" />
+EOF
+
 cat > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background" />
-    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground_inset" />
 </adaptive-icon>
 EOF
 
@@ -82,12 +95,9 @@ cat > "$RES_DIR/mipmap-anydpi-v33/ic_launcher.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background" />
-    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground_inset" />
     <monochrome android:drawable="@drawable/ic_launcher_monochrome_inset" />
 </adaptive-icon>
 EOF
-
-# Clean up unused foreground inset drawable
-rm -f "$RES_DIR/drawable/ic_launcher_foreground_inset.xml"
 
 echo "Synced Android launcher icon resources with adaptive insets and monochrome layer."

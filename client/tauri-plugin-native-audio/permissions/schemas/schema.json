@@ -295,6 +295,42 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the append_to_queue command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-append-to-queue",
+          "markdownDescription": "Enables the append_to_queue command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the append_to_queue command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-append-to-queue",
+          "markdownDescription": "Denies the append_to_queue command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the debug_log command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-debug-log",
+          "markdownDescription": "Enables the debug_log command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the debug_log command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-debug-log",
+          "markdownDescription": "Denies the debug_log command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_safe_area_insets command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-safe-area-insets",
+          "markdownDescription": "Enables the get_safe_area_insets command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_safe_area_insets command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-safe-area-insets",
+          "markdownDescription": "Denies the get_safe_area_insets command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_state command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-state",
@@ -305,6 +341,30 @@
           "type": "string",
           "const": "deny-get-state",
           "markdownDescription": "Denies the get_state command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the init_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-init-session",
+          "markdownDescription": "Enables the init_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the init_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-init-session",
+          "markdownDescription": "Denies the init_session command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the invalidate_queue command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-invalidate-queue",
+          "markdownDescription": "Enables the invalidate_queue command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the invalidate_queue command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-invalidate-queue",
+          "markdownDescription": "Denies the invalidate_queue command without any pre-configured scope."
         },
         {
           "description": "Enables the next_track command without any pre-configured scope.",
@@ -355,6 +415,18 @@
           "markdownDescription": "Denies the previous_track command without any pre-configured scope."
         },
         {
+          "description": "Enables the request_playback command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-request-playback",
+          "markdownDescription": "Enables the request_playback command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the request_playback command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-request-playback",
+          "markdownDescription": "Denies the request_playback command without any pre-configured scope."
+        },
+        {
           "description": "Enables the seek command without any pre-configured scope.",
           "type": "string",
           "const": "allow-seek",
@@ -377,6 +449,30 @@
           "type": "string",
           "const": "deny-set-queue",
           "markdownDescription": "Denies the set_queue command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_repeat_mode command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-repeat-mode",
+          "markdownDescription": "Enables the set_repeat_mode command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_repeat_mode command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-repeat-mode",
+          "markdownDescription": "Denies the set_repeat_mode command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_replay_gain command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-replay-gain",
+          "markdownDescription": "Enables the set_replay_gain command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_replay_gain command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-replay-gain",
+          "markdownDescription": "Denies the set_replay_gain command without any pre-configured scope."
         },
         {
           "description": "Enables the set_track command without any pre-configured scope.",
@@ -403,6 +499,18 @@
           "markdownDescription": "Denies the set_volume command without any pre-configured scope."
         },
         {
+          "description": "Enables the start_autonomous_playback command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-start-autonomous-playback",
+          "markdownDescription": "Enables the start_autonomous_playback command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the start_autonomous_playback command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-start-autonomous-playback",
+          "markdownDescription": "Denies the start_autonomous_playback command without any pre-configured scope."
+        },
+        {
           "description": "Enables the stop command without any pre-configured scope.",
           "type": "string",
           "const": "allow-stop",
@@ -415,10 +523,46 @@
           "markdownDescription": "Denies the stop command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-track`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-set-queue`\n- `allow-next-track`\n- `allow-previous-track`",
+          "description": "Enables the toggle_shuffle command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-toggle-shuffle",
+          "markdownDescription": "Enables the toggle_shuffle command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the toggle_shuffle command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-toggle-shuffle",
+          "markdownDescription": "Denies the toggle_shuffle command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-settings",
+          "markdownDescription": "Enables the update_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-settings",
+          "markdownDescription": "Denies the update_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_starred_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-starred-state",
+          "markdownDescription": "Enables the update_starred_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_starred_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-starred-state",
+          "markdownDescription": "Denies the update_starred_state command without any pre-configured scope."
+        },
+        {
+          "description": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-track`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-set-queue`\n- `allow-next-track`\n- `allow-previous-track`\n- `allow-request-playback`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-append-to-queue`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-autonomous-playback`\n- `allow-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-track`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-set-queue`\n- `allow-next-track`\n- `allow-previous-track`"
+          "markdownDescription": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-track`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-set-queue`\n- `allow-next-track`\n- `allow-previous-track`\n- `allow-request-playback`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-append-to-queue`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-autonomous-playback`\n- `allow-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`"
         },
         {
           "description": "Allows starting or resuming audio playback",
@@ -479,6 +623,78 @@
           "type": "string",
           "const": "allow-previous-track",
           "markdownDescription": "Allows skipping to the previous track"
+        },
+        {
+          "description": "Allows requesting playback on next queue set",
+          "type": "string",
+          "const": "allow-request-playback",
+          "markdownDescription": "Allows requesting playback on next queue set"
+        },
+        {
+          "description": "Allows setting ReplayGain level",
+          "type": "string",
+          "const": "allow-set-replay-gain",
+          "markdownDescription": "Allows setting ReplayGain level"
+        },
+        {
+          "description": "Allows setting the repeat mode",
+          "type": "string",
+          "const": "allow-set-repeat-mode",
+          "markdownDescription": "Allows setting the repeat mode"
+        },
+        {
+          "description": "Allows appending items to the playback queue",
+          "type": "string",
+          "const": "allow-append-to-queue",
+          "markdownDescription": "Allows appending items to the playback queue"
+        },
+        {
+          "description": "Allows updating the starred state of the current track",
+          "type": "string",
+          "const": "allow-update-starred-state",
+          "markdownDescription": "Allows updating the starred state of the current track"
+        },
+        {
+          "description": "Allows getting safe area insets",
+          "type": "string",
+          "const": "allow-get-safe-area-insets",
+          "markdownDescription": "Allows getting safe area insets"
+        },
+        {
+          "description": "Allows initializing the session for autonomous playback",
+          "type": "string",
+          "const": "allow-init-session",
+          "markdownDescription": "Allows initializing the session for autonomous playback"
+        },
+        {
+          "description": "Allows updating playback settings",
+          "type": "string",
+          "const": "allow-update-settings",
+          "markdownDescription": "Allows updating playback settings"
+        },
+        {
+          "description": "Allows starting autonomous playback mode",
+          "type": "string",
+          "const": "allow-start-autonomous-playback",
+          "markdownDescription": "Allows starting autonomous playback mode"
+        },
+        {
+          "description": "Allows invalidating the native queue window",
+          "type": "string",
+          "const": "allow-invalidate-queue",
+          "markdownDescription": "Allows invalidating the native queue window"
+        },
+        {
+          "description": "Allows toggling shuffle mode",
+          "type": "string",
+          "const": "allow-toggle-shuffle",
+          "markdownDescription": "Allows toggling shuffle mode"
+        },
+        {
+          "description": "Allows sending debug log messages to native logcat",
+          "type": "string",
+          "const": "allow-debug-log",
+          "markdownDescription": "Allows sending debug log messages to native logcat"
         }
       ]
     }

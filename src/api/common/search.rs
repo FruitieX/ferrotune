@@ -91,6 +91,10 @@ pub struct SearchParams {
     pub album_sort: Option<String>,
     /// Ferrotune extension: sort direction for albums (asc, desc)
     pub album_sort_dir: Option<String>,
+    /// Ferrotune extension: sort field for artists (name, albumCount, songCount, recommended)
+    pub artist_sort: Option<String>,
+    /// Ferrotune extension: sort direction for artists (asc, desc)
+    pub artist_sort_dir: Option<String>,
     /// Ferrotune extension: inline thumbnail size ("small" or "medium")
     pub inline_images: Option<String>,
     // ===== Advanced Filter Parameters (Ferrotune extension) =====
@@ -145,6 +149,18 @@ pub struct SearchParams {
     pub music_folder_id: Option<i64>,
 }
 
+/// Generate an hourly-rotating seed for pseudo-random ordering.
+/// Combines hour and day-of-year so the order changes every hour and varies across days.
+fn hour_seed() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    // Divide by 3600 to get an hour-resolution counter
+    (secs / 3600) as i64
+}
+
 /// Get ORDER BY clause for song sorting
 pub fn get_song_order_clause(sort: Option<&String>, sort_dir: Option<&String>) -> String {
     get_song_order_clause_for_search(sort, sort_dir, false)
@@ -170,14 +186,31 @@ pub fn get_song_order_clause_for_search(
         Some("playCount") => format!("COALESCE(play_count, 0) {dir}, s.title COLLATE NOCASE {dir}"),
         Some("lastPlayed") => format!("last_played {dir} NULLS LAST, s.title COLLATE NOCASE {dir}"),
         Some("dateAdded") => format!("s.created_at {dir}, s.title COLLATE NOCASE {dir}"),
+        Some("recommended") => {
+            let seed = hour_seed();
+            // Personalized score: recency (0-40) + frequency (0-25) + freshness (0-15) + random (0-20)
+            format!(
+                "(CASE WHEN pc.last_played IS NOT NULL \
+                  THEN MAX(0.0, (30.0 - (julianday('now') - julianday(pc.last_played))) / 30.0) * 40 \
+                  ELSE 0 END \
+                 + MIN(COALESCE(pc.play_count, 0) * 3, 25) \
+                 + MAX(0.0, (30.0 - (julianday('now') - julianday(s.created_at))) / 30.0) * 15 \
+                 + (ABS(s.id * {seed}) % 200) * 0.1) DESC"
+            )
+        }
         Some("relevance") => "fts.rank".to_string(), // explicit relevance sort
         None if is_fts_query => "fts.rank, s.title COLLATE NOCASE ASC".to_string(), // default to relevance for FTS
         _ => format!("s.title COLLATE NOCASE {dir}"),                               // default: name
     }
 }
 
-/// Get ORDER BY clause for album sorting  
-pub fn get_album_order_clause(sort: Option<&String>, sort_dir: Option<&String>) -> String {
+/// Get ORDER BY clause for album sorting.
+/// `user_id` is required for the "recommended" sort (personalized scoring).
+pub fn get_album_order_clause(
+    sort: Option<&String>,
+    sort_dir: Option<&String>,
+    user_id: Option<i64>,
+) -> String {
     let dir = match sort_dir.map(|s| s.as_str()) {
         Some("desc") => "DESC",
         _ => "ASC",
@@ -188,6 +221,53 @@ pub fn get_album_order_clause(sort: Option<&String>, sort_dir: Option<&String>) 
         Some("year") => format!("a.year {dir}, a.name COLLATE NOCASE {dir}"),
         Some("dateAdded") => format!("a.created_at {dir}, a.name COLLATE NOCASE {dir}"),
         Some("songCount") => format!("a.song_count {dir}, a.name COLLATE NOCASE {dir}"),
+        Some("recommended") => {
+            let seed = hour_seed();
+            let uid = user_id.unwrap_or(0);
+            // Score: recent plays of album songs (0-40) + total plays (0-25) + freshness (0-15) + random (0-20)
+            format!(
+                "(COALESCE((SELECT MAX(0.0, (30.0 - (julianday('now') - julianday(MAX(sc.played_at)))) / 30.0) * 40 \
+                            FROM scrobbles sc JOIN songs si ON sc.song_id = si.id \
+                            WHERE si.album_id = a.id AND sc.user_id = {uid} AND sc.submission = 1), 0) \
+                 + MIN(COALESCE((SELECT SUM(sc2.play_count) \
+                                 FROM scrobbles sc2 JOIN songs si2 ON sc2.song_id = si2.id \
+                                 WHERE si2.album_id = a.id AND sc2.user_id = {uid} AND sc2.submission = 1), 0) * 2, 25) \
+                 + MAX(0.0, (30.0 - (julianday('now') - julianday(a.created_at))) / 30.0) * 15 \
+                 + (ABS(a.id * {seed}) % 200) * 0.1) DESC"
+            )
+        }
+        _ => format!("a.name COLLATE NOCASE {dir}"), // default: name
+    }
+}
+
+/// Get ORDER BY clause for artist sorting.
+/// `user_id` is required for the "recommended" sort (personalized scoring).
+pub fn get_artist_order_clause(
+    sort: Option<&String>,
+    sort_dir: Option<&String>,
+    user_id: i64,
+) -> String {
+    let dir = match sort_dir.map(|s| s.as_str()) {
+        Some("desc") => "DESC",
+        _ => "ASC",
+    };
+
+    match sort.map(|s| s.as_str()) {
+        Some("albumCount") => format!("a.album_count {dir}, a.name COLLATE NOCASE {dir}"),
+        Some("songCount") => format!("a.song_count {dir}, a.name COLLATE NOCASE {dir}"),
+        Some("recommended") => {
+            let seed = hour_seed();
+            // Score: recent plays of artist songs (0-40) + total plays (0-25) + random (0-20)
+            format!(
+                "(COALESCE((SELECT MAX(0.0, (30.0 - (julianday('now') - julianday(MAX(sc.played_at)))) / 30.0) * 40 \
+                            FROM scrobbles sc JOIN songs si ON sc.song_id = si.id \
+                            WHERE si.artist_id = a.id AND sc.user_id = {user_id} AND sc.submission = 1), 0) \
+                 + MIN(COALESCE((SELECT SUM(sc2.play_count) \
+                                 FROM scrobbles sc2 JOIN songs si2 ON sc2.song_id = si2.id \
+                                 WHERE si2.artist_id = a.id AND sc2.user_id = {user_id} AND sc2.submission = 1), 0) * 2, 25) \
+                 + (ABS(a.id * {seed}) % 200) * 0.1) DESC"
+            )
+        }
         _ => format!("a.name COLLATE NOCASE {dir}"), // default: name
     }
 }
@@ -534,13 +614,20 @@ pub async fn search_artists(
     // Filter to only include artists with songs from enabled music folders
     let artist_enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE s_check.artist_id = a.id AND mf_check.enabled = 1 AND ula_check.user_id = ?)";
 
+    // Determine artist sort order (supports \"recommended\" personalized sort)
+    let artist_order = get_artist_order_clause(
+        params.artist_sort.as_ref(),
+        params.artist_sort_dir.as_ref(),
+        user_id,
+    );
+
     let (artists, total) = if is_wildcard {
         let mut all_conditions = vec![artist_enabled_condition.to_string()];
         all_conditions.extend(artist_filter_conds.clone());
         let where_clause = format!("WHERE {}", all_conditions.join(" AND "));
 
         let query_str = format!(
-            "SELECT a.* FROM artists a {artist_joins} {where_clause} ORDER BY a.name COLLATE NOCASE LIMIT ? OFFSET ?"
+            "SELECT a.* FROM artists a {artist_joins} {where_clause} ORDER BY {artist_order} LIMIT ? OFFSET ?"
         );
         let mut query_builder = sqlx::query_as(&query_str);
         for join_user_id in &artist_join_user_ids {
@@ -575,7 +662,7 @@ pub async fn search_artists(
              {artist_joins}
              INNER JOIN artists_fts fts ON a.id = fts.artist_id
              {where_clause}
-             ORDER BY a.name COLLATE NOCASE
+             ORDER BY {artist_order}
              LIMIT ? OFFSET ?"
         );
         let mut query_builder = sqlx::query_as(&query_str);
@@ -633,8 +720,11 @@ pub async fn search_albums(
     };
     let is_wildcard = is_wildcard || fts_query.is_none();
 
-    let album_order =
-        get_album_order_clause(params.album_sort.as_ref(), params.album_sort_dir.as_ref());
+    let album_order = get_album_order_clause(
+        params.album_sort.as_ref(),
+        params.album_sort_dir.as_ref(),
+        Some(user_id),
+    );
 
     let album_filter_conds = build_album_filter_conditions(params);
     let album_has_rating_filter = params.min_rating.is_some() || params.max_rating.is_some();

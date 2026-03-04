@@ -53,7 +53,7 @@
 //! - `POST /ferrotune/play-queue` - Save play queue (JSON body, scalable alternative to OpenSubsonic)
 //! - `POST /ferrotune/listening` - Log a listening session
 //! - `GET /ferrotune/listening/stats` - Get listening statistics
-//! - `GET /ferrotune/songs/:id/waveform/stream` - Get waveform data as SSE stream
+//! - `GET /ferrotune/songs/:id/waveform` - Get pre-computed waveform data for a song
 //! - `GET /ferrotune/songs/:id/shuffle-exclude` - Get shuffle exclude status for a song
 //! - `PUT /ferrotune/songs/:id/shuffle-exclude` - Set shuffle exclude status for a song
 //! - `GET /ferrotune/shuffle-excludes` - Get all songs excluded from shuffle
@@ -352,10 +352,6 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/ferrotune/songs/{id}/waveform",
             get(waveform::get_waveform),
-        )
-        .route(
-            "/ferrotune/songs/{id}/waveform/stream",
-            get(waveform::get_waveform_stream),
         )
         // Shuffle exclude endpoints
         .route(
