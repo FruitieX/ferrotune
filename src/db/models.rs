@@ -441,6 +441,8 @@ pub enum QueueSourceType {
     DirectoryFlat,
     /// Song radio - similar songs based on bliss audio analysis
     SongRadio,
+    /// Album list - songs from albums matching a list type (newest, frequent, recent, random, etc.)
+    AlbumList,
     #[default]
     Other,
 }
@@ -460,6 +462,7 @@ impl QueueSourceType {
             QueueSourceType::DirectoryFlat => "directoryFlat",
             QueueSourceType::SmartPlaylist => "smartPlaylist",
             QueueSourceType::SongRadio => "songRadio",
+            QueueSourceType::AlbumList => "albumList",
             QueueSourceType::Other => "other",
         }
     }
@@ -482,6 +485,7 @@ impl std::str::FromStr for QueueSourceType {
             "directory" => QueueSourceType::Directory,
             "directoryFlat" => QueueSourceType::DirectoryFlat,
             "songRadio" => QueueSourceType::SongRadio,
+            "albumList" => QueueSourceType::AlbumList,
             _ => QueueSourceType::Other,
         })
     }

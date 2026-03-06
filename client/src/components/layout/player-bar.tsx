@@ -66,6 +66,7 @@ import { useStarred } from "@/lib/store/starred";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
+import { hasNativeAudio } from "@/lib/tauri";
 
 import {
   SongContextMenu,
@@ -948,25 +949,27 @@ function MobileMoreMenu() {
             <ListMusic className="w-4 h-4" />
             Queue
           </Button>
-          {/* Volume */}
-          <div className="flex items-center gap-2 px-3 py-1.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 p-0"
-              onClick={toggleMute}
-            >
-              <VolumeIcon className="w-4 h-4" />
-            </Button>
-            <Slider
-              value={[isMuted ? 0 : volume * 100]}
-              max={100}
-              step={1}
-              className="w-24"
-              onValueChange={([value]) => changeVolume(value / 100)}
-              aria-label="Volume"
-            />
-          </div>
+          {/* Volume - hidden on native audio (Android) where system volume is used */}
+          {!hasNativeAudio() && (
+            <div className="flex items-center gap-2 px-3 py-1.5">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 p-0"
+                onClick={toggleMute}
+              >
+                <VolumeIcon className="w-4 h-4" />
+              </Button>
+              <Slider
+                value={[isMuted ? 0 : volume * 100]}
+                max={100}
+                step={1}
+                className="w-24"
+                onValueChange={([value]) => changeVolume(value / 100)}
+                aria-label="Volume"
+              />
+            </div>
+          )}
           {/* Shuffle */}
           <Button
             variant="ghost"

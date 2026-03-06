@@ -19,7 +19,6 @@ import {
   startQueueAtom,
   addToQueueAtom,
   serverQueueStateAtom,
-  toggleShuffleAtom,
 } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -78,7 +77,6 @@ function SmartPlaylistPageContent() {
   const { isReady } = useAuth({ redirectToLogin: true });
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
-  const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
 
   // UI state
@@ -203,10 +201,6 @@ function SmartPlaylistPageContent() {
 
   const handlePlay = () => {
     if (loadedSongs.length === 0 || !id) return;
-    // If currently shuffled, turn off shuffle first so playback starts from first track
-    if (queueState?.isShuffled) {
-      toggleShuffle();
-    }
     startQueue({
       sourceType: "smartPlaylist",
       sourceId: id,
@@ -471,7 +465,6 @@ function SmartPlaylistPageContent() {
             <>
               <SongListHeader
                 columnVisibility={columnVisibility}
-                showIndex
                 showCover
                 sortConfig={sortConfig}
                 onSortChange={setSortConfig}

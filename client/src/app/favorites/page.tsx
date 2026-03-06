@@ -824,7 +824,10 @@ export default function FavoritesPage() {
               ) : (
                 <div className="space-y-1">
                   {Array.from({ length: 10 }).map((_, i) => (
-                    <MediaRowSkeleton key={i} showIndex />
+                    <MediaRowSkeleton
+                      key={i}
+                      showIndex={albumColumnVisibility.showIndex}
+                    />
                   ))}
                 </div>
               )
@@ -855,7 +858,9 @@ export default function FavoritesPage() {
                   renderItem={(album, index) => (
                     <AlbumCardCompact
                       album={album}
-                      index={index}
+                      index={
+                        albumColumnVisibility.showIndex ? index : undefined
+                      }
                       onPlay={() => handlePlayAlbum(album)}
                       isSelected={albumSelection.isSelected(album.id)}
                       isSelectionMode={albumSelection.hasSelection}
@@ -870,7 +875,11 @@ export default function FavoritesPage() {
                       showDateAdded={albumColumnVisibility.dateAdded}
                     />
                   )}
-                  renderSkeleton={() => <MediaRowSkeleton showIndex />}
+                  renderSkeleton={() => (
+                    <MediaRowSkeleton
+                      showIndex={albumColumnVisibility.showIndex}
+                    />
+                  )}
                   getItemKey={(album) => album.id}
                   estimateItemHeight={56}
                   ensureRange={ensureAlbumsRange}
@@ -909,7 +918,10 @@ export default function FavoritesPage() {
               ) : (
                 <div className="space-y-1">
                   {Array.from({ length: 10 }).map((_, i) => (
-                    <MediaRowSkeleton key={i} showIndex />
+                    <MediaRowSkeleton
+                      key={i}
+                      showIndex={artistColumnVisibility.showIndex}
+                    />
                   ))}
                 </div>
               )
@@ -940,7 +952,9 @@ export default function FavoritesPage() {
                   renderItem={(artist, index) => (
                     <ArtistCardCompact
                       artist={artist}
-                      index={index}
+                      index={
+                        artistColumnVisibility.showIndex ? index : undefined
+                      }
                       onPlay={() => handlePlayArtist(artist)}
                       isSelected={artistSelection.isSelected(artist.id)}
                       isSelectionMode={artistSelection.hasSelection}
@@ -951,7 +965,11 @@ export default function FavoritesPage() {
                       showRating={artistColumnVisibility.rating}
                     />
                   )}
-                  renderSkeleton={() => <MediaRowSkeleton showIndex />}
+                  renderSkeleton={() => (
+                    <MediaRowSkeleton
+                      showIndex={artistColumnVisibility.showIndex}
+                    />
+                  )}
                   getItemKey={(artist) => artist.id}
                   estimateItemHeight={56}
                   ensureRange={ensureArtistsRange}

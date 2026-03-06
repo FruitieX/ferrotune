@@ -228,7 +228,7 @@ class FerrotuneApiClient {
     /**
      * POST /ferrotune/queue/shuffle
      */
-    fun toggleShuffle(enabled: Boolean): GetQueueResponse {
+    fun toggleShuffle(enabled: Boolean): QueueSuccessResponse {
         val json = JSONObject().apply {
             put("enabled", enabled)
         }
@@ -238,7 +238,14 @@ class FerrotuneApiClient {
             .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
             .also { addAuthHeaders(it) }
             .build()
-        return executeRequest(request) { body -> parseGetQueueResponse(JSONObject(body)) }
+        return executeRequest(request) { body ->
+            val obj = JSONObject(body)
+            QueueSuccessResponse(
+                success = obj.optBoolean("success", true),
+                newIndex = if (obj.has("newIndex")) obj.getInt("newIndex") else null,
+                totalCount = if (obj.has("totalCount")) obj.getInt("totalCount") else null,
+            )
+        }
     }
 
     /**

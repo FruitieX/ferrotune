@@ -53,6 +53,7 @@ const playlistColumnOptions: {
   key: keyof PlaylistColumnVisibility;
   label: string;
 }[] = [
+  { key: "showIndex", label: "Row Number" },
   { key: "songCount", label: "Songs" },
   { key: "duration", label: "Duration" },
   { key: "owner", label: "Owner" },

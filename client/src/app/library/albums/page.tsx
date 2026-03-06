@@ -270,14 +270,17 @@ export default function AlbumsPage() {
           />
         ) : (
           <>
-            <AlbumListHeader columnVisibility={columnVisibility} showIndex />
+            <AlbumListHeader
+              columnVisibility={columnVisibility}
+              showIndex={columnVisibility.showIndex}
+            />
             <VirtualizedList
               items={displayAlbums}
               totalCount={totalAlbums}
               renderItem={(album, index) => (
                 <AlbumCardCompact
                   album={album}
-                  index={index}
+                  index={columnVisibility.showIndex ? index : undefined}
                   onPlay={handlePlayAlbum}
                   isSelected={isSelected(album.id)}
                   isSelectionMode={hasSelection}
@@ -292,7 +295,9 @@ export default function AlbumsPage() {
                   showDateAdded={columnVisibility.dateAdded}
                 />
               )}
-              renderSkeleton={() => <MediaRowSkeleton showIndex />}
+              renderSkeleton={() => (
+                <MediaRowSkeleton showIndex={columnVisibility.showIndex} />
+              )}
               getItemKey={(album) => album.id}
               estimateItemHeight={56}
               ensureRange={ensureRange}

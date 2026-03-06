@@ -53,9 +53,11 @@ import {
 import { useStarred } from "@/lib/store/starred";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { formatDuration } from "@/lib/utils/format";
+import { hasNativeAudio } from "@/lib/tauri";
 import { getClient } from "@/lib/api/client";
 import { SongDropdownMenu } from "@/components/browse/song-context-menu";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
+import { cancelFullscreenOpen } from "@/components/layout/swipeable-footer";
 import {
   useClippingIndicator,
   formatClippingTooltip,
@@ -184,6 +186,9 @@ export function FullscreenPlayer() {
   // Track if we're in the middle of a gesture-based close animation
   // This is set to true when the user releases a drag that should close
   const [isClosingViaGesture, setIsClosingViaGesture] = useState(false);
+
+  // Ref to track whether a close gesture animation is pending (can be cancelled on re-open)
+  const closePendingRef = useRef(false);
 
   // Track if user is actively dragging the sheet (for backdrop opacity)
   const [isDraggingSheet, setIsDraggingSheet] = useState(false);
@@ -345,18 +350,40 @@ export function FullscreenPlayer() {
   }, []);
 
   // Close queue panel when fullscreen opens to avoid showing it on top unexpectedly
+  // Also cancel any pending close animation timeout to prevent stale closes
   useLayoutEffect(() => {
     if (isOpen) {
-      setQueuePanelOpen(false);
-    }
-  }, [isOpen, setQueuePanelOpen]);
+      // Reset the open gesture motion value now that fullscreen has taken over.
+      // Done in useLayoutEffect (after render, before paint) so style.y has
+      // already switched from openGestureY to dragY — avoids a visible snap
+      // to offscreen when the MotionValue transform returns "100%" at value 0.
+      fullscreenOpenDragY.set(0);
 
-  // Reset drag position when closed (like queue sheet does)
-  useEffect(() => {
-    if (!isOpen) {
+      setQueuePanelOpen(false);
+      // Cancel any pending gesture-close animation so it doesn't
+      // close the drawer after the user re-opened it
+      if (closePendingRef.current) {
+        closePendingRef.current = false;
+        // Defer setState to avoid synchronous set-state-in-effect lint rule.
+        // The derived useCloseGestureStyles uses && !isOpen, so render is
+        // correct even before this microtask fires.
+        queueMicrotask(() => setIsClosingViaGesture(false));
+      }
+      // Always reset dragY when opening — a previous close gesture may have
+      // left it at window.innerHeight if the close and open raced.
       dragY.set(0);
     }
-  }, [isOpen, dragY]);
+  }, [isOpen, setQueuePanelOpen, dragY]);
+
+  // Reset drag position when closed (like queue sheet does)
+  // Guard with isClosingViaGesture to avoid snapping dragY back during gesture close
+  useEffect(() => {
+    if (!isOpen && !isClosingViaGesture) {
+      dragY.set(0);
+      // Safety: clear any lingering open gesture state so shouldRender goes false
+      queueMicrotask(() => setIsOpeningWithGesture(false));
+    }
+  }, [isOpen, isClosingViaGesture, dragY]);
 
   // Handle Escape key to close fullscreen
   // Only close if there are no higher-priority overlays that should handle Escape first
@@ -436,6 +463,24 @@ export function FullscreenPlayer() {
     };
   }, [isOpen, setIsOpen]);
 
+  // Force WebView repaint when resuming from background on Android.
+  // backdrop-filter GPU layers can go stale when the app is backgrounded,
+  // resulting in a black/grey screen until the user interacts.
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        // Nudge framer-motion values to trigger a repaint/recomposite
+        dragY.set(dragY.get());
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [isOpen, dragY]);
+
   // Get cover art URL
   const coverArtUrl = currentTrack?.coverArt
     ? getClient()?.getCoverArtUrl(currentTrack.coverArt, 500)
@@ -492,21 +537,40 @@ export function FullscreenPlayer() {
     const shouldClose = offset.y > 100 || velocity.y > 500;
 
     if (shouldClose) {
+      // If isOpen is still false we're dismissing during the opening gesture.
+      // Cancel the open spring so its onComplete never fires, then let the
+      // component unmount naturally via shouldRender going false.
+      if (!isOpen) {
+        cancelFullscreenOpen();
+        // fullscreenOpenDragY is already reset to 0 by cancelFullscreenOpen,
+        // which will cause isOpeningWithGesture → false → shouldRender → false
+        // and AnimatePresence will handle the exit.
+        dragY.set(0);
+        return;
+      }
+
       // Mark that we're closing via gesture so we use motion values instead of AnimatePresence
       setIsClosingViaGesture(true);
-      // Animate off-screen then close
-      const animDuration = 400; // ms
+      closePendingRef.current = true;
+      // Animate off-screen then close. The .then() fires exactly when
+      // the animation finishes, avoiding setTimeout timing issues.
       animate(dragY, window.innerHeight, {
         type: "tween",
-        duration: animDuration / 1000,
+        duration: 0.4,
         ease: [0.32, 0.72, 0, 1],
-      });
-      // Schedule the close after animation completes
-      setTimeout(() => {
-        // Reset gesture state and close
-        setIsClosingViaGesture(false);
+      }).then(() => {
+        // If cancelled (user re-opened), bail out
+        if (!closePendingRef.current) return;
+        closePendingRef.current = false;
+        // Close first while isClosingViaGesture is still true so the exit render
+        // uses the instant exit path (useCloseGestureStyles = true)
         setIsOpen(false);
-      }, animDuration);
+        // Reset gesture state and dragY after the exit render
+        requestAnimationFrame(() => {
+          setIsClosingViaGesture(false);
+          dragY.set(0);
+        });
+      });
     } else {
       // Snap back to origin
       animate(dragY, 0, { type: "spring", stiffness: 500, damping: 30 });
@@ -537,31 +601,40 @@ export function FullscreenPlayer() {
   const useOpenGestureBackdrop = useGestureAnimation;
   // Use close gesture styles only when actively animating the close (not during drag)
   // During drag, animate prop stays active and framer-motion handles the coordination
-  const useCloseGestureStyles = isClosingViaGesture;
+  const useCloseGestureStyles = isClosingViaGesture && !isOpen;
   // Use motion value for backdrop during drag OR close animation
+  // Include isClosingViaGesture (not just useCloseGestureStyles) because isOpen is still
+  // true during the close animation timeout, but we still need the backdrop to fade
   const useDragBackdrop = isDraggingSheet || isClosingViaGesture;
 
+  // Safety: ensure all state is clean after AnimatePresence finishes exit
+  const handleExitComplete = () => {
+    closePendingRef.current = false;
+    setIsClosingViaGesture(false);
+    setIsOpeningWithGesture(false);
+    setIsDraggingSheet(false);
+    dragY.set(0);
+  };
+
   return (
-    <AnimatePresence>
+    <AnimatePresence onExitComplete={handleExitComplete}>
       {shouldRender && (
         <>
           {/* Backdrop - fades in/out */}
           <motion.div
             key="fullscreen-backdrop"
-            initial={{ opacity: 0 }}
-            animate={
-              useOpenGestureBackdrop || useCloseGestureStyles
-                ? undefined // Let style.opacity (motion value) control it during gesture open/close
-                : { opacity: 1 }
-            }
+            initial={useOpenGestureBackdrop ? { opacity: 0 } : { opacity: 0 }}
+            animate={{ opacity: 1 }}
             exit={
-              isClosingViaGesture
+              useCloseGestureStyles
                 ? { transition: { duration: 0 } } // Skip exit animation - already handled by closeBackdropOpacity
                 : { opacity: 0 }
             }
-            transition={{
-              duration: 0.3,
-            }}
+            transition={
+              useOpenGestureBackdrop || useDragBackdrop
+                ? { duration: 0 } // Instant - motion value controls opacity during gestures
+                : { duration: 0.3 }
+            }
             style={
               useOpenGestureBackdrop
                 ? { opacity: openBackdropOpacity }
@@ -575,22 +648,18 @@ export function FullscreenPlayer() {
           {/* Content - slides up/down, also draggable to close on small screens */}
           <motion.div
             key="fullscreen-content"
-            initial={{ y: "100%" }}
-            animate={
-              useGestureAnimation || useCloseGestureStyles
-                ? undefined // Let style.y (motion value) control it during gesture open/close
-                : { y: 0 } // Normal open animation - framer-motion coordinates with style.y motion value
-            }
+            initial={useGestureAnimation ? false : { y: "100%" }}
+            animate={{ y: 0 }}
             exit={
-              isClosingViaGesture
+              useCloseGestureStyles
                 ? { transition: { duration: 0 } } // Skip exit animation - already handled by dragY
                 : { y: "100%" }
             }
-            transition={{
-              type: "tween",
-              duration: 0.4,
-              ease: [0.32, 0.72, 0, 1],
-            }}
+            transition={
+              useGestureAnimation || isClosingViaGesture
+                ? { duration: 0 } // Instant - motion value controls position during gestures
+                : { type: "tween", duration: 0.4, ease: [0.32, 0.72, 0, 1] }
+            }
             style={
               useGestureAnimation
                 ? {
@@ -875,20 +944,22 @@ export function FullscreenPlayer() {
                   transition={{ delay: 0.5 }}
                   className="flex items-center justify-between pb-4"
                 >
-                  {/* Volume */}
-                  <FullscreenVolumeControls
-                    volumeContainerRef={volumeContainerRef}
-                    volume={volume}
-                    isMuted={isMuted}
-                    setVolume={setVolume}
-                    setIsMuted={setIsMuted}
-                  />
+                  {/* Volume - hidden on native audio (Android) where system volume is used */}
+                  {!hasNativeAudio() && (
+                    <FullscreenVolumeControls
+                      volumeContainerRef={volumeContainerRef}
+                      volume={volume}
+                      isMuted={isMuted}
+                      setVolume={setVolume}
+                      setIsMuted={setIsMuted}
+                    />
+                  )}
 
                   {/* Queue button */}
                   <Button
                     variant="outline"
                     size="sm"
-                    className="rounded-full gap-2"
+                    className="ml-auto rounded-full gap-2"
                     onClick={openQueue}
                   >
                     <ListMusic className="w-4 h-4" />

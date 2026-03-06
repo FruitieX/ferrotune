@@ -33,11 +33,13 @@ import {
   filesColumnVisibilityAtom,
   libraryAlbumColumnVisibilityAtom,
   libraryArtistColumnVisibilityAtom,
+  libraryGenreColumnVisibilityAtom,
   type SortField,
   type FilesSortField,
   type ColumnVisibility,
   type AlbumColumnVisibility,
   type ArtistColumnVisibility,
+  type GenreColumnVisibility,
 } from "@/lib/store/ui";
 import {
   shuffleExcludesAtom,
@@ -122,6 +124,7 @@ const albumColumnOptions: {
   key: keyof AlbumColumnVisibility;
   label: string;
 }[] = [
+  { key: "showIndex", label: "Row Number" },
   { key: "artist", label: "Artist" },
   { key: "year", label: "Year" },
   { key: "songCount", label: "Songs" },
@@ -136,11 +139,17 @@ const artistColumnOptions: {
   key: keyof ArtistColumnVisibility;
   label: string;
 }[] = [
+  { key: "showIndex", label: "Row Number" },
   { key: "albumCount", label: "Albums" },
   { key: "songCount", label: "Songs" },
   { key: "starred", label: "Favorited" },
   { key: "rating", label: "Rating" },
 ];
+
+const genreColumnOptions: {
+  key: keyof GenreColumnVisibility;
+  label: string;
+}[] = [{ key: "showIndex", label: "Row Number" }];
 
 const filesColumnOptions: {
   key: keyof import("@/lib/store/ui").FilesColumnVisibility;
@@ -168,6 +177,9 @@ export default function LibraryLayout({
   );
   const [artistColumnVisibility, setArtistColumnVisibility] = useAtom(
     libraryArtistColumnVisibilityAtom,
+  );
+  const [genreColumnVisibility, setGenreColumnVisibility] = useAtom(
+    libraryGenreColumnVisibilityAtom,
   );
   const [filesSortConfig, setFilesSortConfig] = useAtom(filesSortAtom);
   const [filesColumnVisibility, setFilesColumnVisibility] = useAtom(
@@ -248,6 +260,7 @@ export default function LibraryLayout({
   const isSongsTab = pathname === "/library/songs";
   const isAlbumsTab = pathname === "/library/albums";
   const isArtistsTab = pathname === "/library/artists";
+  const isGenresTab = pathname === "/library/genres";
   const isFilesTab = pathname === "/library/files";
   // Files tab is "browsing" when it has a libraryId param (showing directory contents)
   const isFilesBrowsing = isFilesTab && searchParams.has("libraryId");
@@ -309,6 +322,13 @@ export default function LibraryLayout({
 
   const toggleArtistColumn = (key: keyof ArtistColumnVisibility) => {
     setArtistColumnVisibility((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const toggleGenreColumn = (key: keyof GenreColumnVisibility) => {
+    setGenreColumnVisibility((prev) => ({
       ...prev,
       [key]: !prev[key],
     }));
@@ -518,6 +538,16 @@ export default function LibraryLayout({
                           {option.label}
                         </DropdownMenuCheckboxItem>
                       ))}
+                    {isGenresTab &&
+                      genreColumnOptions.map((option) => (
+                        <DropdownMenuCheckboxItem
+                          key={option.key}
+                          checked={genreColumnVisibility[option.key]}
+                          onCheckedChange={() => toggleGenreColumn(option.key)}
+                        >
+                          {option.label}
+                        </DropdownMenuCheckboxItem>
+                      ))}
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : null}
@@ -699,6 +729,18 @@ export default function LibraryLayout({
                                 checked={artistColumnVisibility[option.key]}
                                 onCheckedChange={() =>
                                   toggleArtistColumn(option.key)
+                                }
+                              >
+                                {option.label}
+                              </DropdownMenuCheckboxItem>
+                            ))}
+                          {isGenresTab &&
+                            genreColumnOptions.map((option) => (
+                              <DropdownMenuCheckboxItem
+                                key={option.key}
+                                checked={genreColumnVisibility[option.key]}
+                                onCheckedChange={() =>
+                                  toggleGenreColumn(option.key)
                                 }
                               >
                                 {option.label}

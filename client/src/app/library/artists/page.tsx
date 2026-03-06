@@ -268,14 +268,17 @@ export default function ArtistsPage() {
           />
         ) : (
           <>
-            <ArtistListHeader columnVisibility={columnVisibility} showIndex />
+            <ArtistListHeader
+              columnVisibility={columnVisibility}
+              showIndex={columnVisibility.showIndex}
+            />
             <VirtualizedList
               items={displayArtists}
               totalCount={totalArtists}
               renderItem={(artist, index) => (
                 <ArtistCardCompact
                   artist={artist}
-                  index={index}
+                  index={columnVisibility.showIndex ? index : undefined}
                   onPlay={handlePlayArtist}
                   isSelected={isSelected(artist.id)}
                   isSelectionMode={hasSelection}
@@ -287,7 +290,10 @@ export default function ArtistsPage() {
                 />
               )}
               renderSkeleton={() => (
-                <MediaRowSkeleton coverShape="circle" showIndex />
+                <MediaRowSkeleton
+                  coverShape="circle"
+                  showIndex={columnVisibility.showIndex}
+                />
               )}
               getItemKey={(artist) => artist.id}
               estimateItemHeight={56}

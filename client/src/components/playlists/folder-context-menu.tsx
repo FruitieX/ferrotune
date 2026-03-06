@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { getClient } from "@/lib/api/client";
+import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 import { EditFolderDialog } from "@/components/playlists/edit-folder-dialog";
 import { type PlaylistFolder } from "@/lib/utils/playlist-folders";
 import type { Playlist } from "@/lib/api/types";
@@ -310,6 +311,7 @@ export function FolderDropdownMenu({
   onCreatePlaylist,
 }: FolderDropdownMenuProps) {
   const queryClient = useQueryClient();
+  const hasFinePointer = useHasFinePointer();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
 
@@ -398,8 +400,12 @@ export function FolderDropdownMenu({
             size="icon"
             className={
               inline
-                ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto"
-                : "h-8 w-8 absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto"
+                ? hasFinePointer
+                  ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto"
+                  : "hidden"
+                : hasFinePointer
+                  ? "h-8 w-8 absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto"
+                  : "hidden"
             }
             onClick={(e) => {
               e.preventDefault();

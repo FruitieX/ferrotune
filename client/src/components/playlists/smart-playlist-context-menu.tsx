@@ -51,6 +51,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
+import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 import { SmartPlaylistDialog } from "./smart-playlist-dialog";
 import { parsePlaylistPath } from "@/lib/utils/playlist-folders";
 import type { SmartPlaylistInfo } from "@/lib/api/generated/SmartPlaylistInfo";
@@ -378,6 +379,7 @@ export function SmartPlaylistDropdownMenu({
   const queryClient = useQueryClient();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
+  const hasFinePointer = useHasFinePointer();
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
@@ -549,8 +551,12 @@ export function SmartPlaylistDropdownMenu({
             size="icon"
             className={
               inline
-                ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity mr-3"
-                : "h-8 w-8 absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                ? hasFinePointer
+                  ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity mr-3"
+                  : "hidden"
+                : hasFinePointer
+                  ? "h-8 w-8 absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                  : "hidden"
             }
             onClick={(e) => {
               e.preventDefault();

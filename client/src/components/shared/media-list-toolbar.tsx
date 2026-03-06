@@ -54,6 +54,7 @@ const albumColumnOptions: {
   key: keyof AlbumColumnVisibility;
   label: string;
 }[] = [
+  { key: "showIndex", label: "Row Number" },
   { key: "artist", label: "Artist" },
   { key: "year", label: "Year" },
   { key: "songCount", label: "Songs" },
@@ -65,6 +66,7 @@ const artistColumnOptions: {
   key: keyof ArtistColumnVisibility;
   label: string;
 }[] = [
+  { key: "showIndex", label: "Row Number" },
   { key: "albumCount", label: "Albums" },
   { key: "songCount", label: "Songs" },
 ];

@@ -9,7 +9,11 @@ import { useAuth } from "@/lib/hooks/use-auth";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useVirtualizedScrollRestoration } from "@/lib/hooks/use-virtualized-scroll-restoration";
 import { useItemSelection } from "@/lib/hooks/use-track-selection";
-import { albumViewModeAtom, libraryFilterAtom } from "@/lib/store/ui";
+import {
+  albumViewModeAtom,
+  libraryFilterAtom,
+  libraryGenreColumnVisibilityAtom,
+} from "@/lib/store/ui";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,6 +37,7 @@ export default function GenresPage() {
   });
   const [viewMode] = useAtom(albumViewModeAtom);
   const filter = useAtomValue(libraryFilterAtom);
+  const genreColumnVisibility = useAtomValue(libraryGenreColumnVisibilityAtom);
   const debouncedFilter = useDebounce(filter, 300);
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
@@ -202,13 +207,15 @@ export default function GenresPage() {
             renderItem={(genre, index) => (
               <GenreRow
                 genre={genre}
-                index={index}
+                index={genreColumnVisibility.showIndex ? index : undefined}
                 isSelected={isSelected(genre.id)}
                 isSelectionMode={hasSelection}
                 onSelect={(e) => handleSelect(genre.id, e)}
               />
             )}
-            renderSkeleton={() => <GenreRowSkeleton />}
+            renderSkeleton={() => (
+              <GenreRowSkeleton showIndex={genreColumnVisibility.showIndex} />
+            )}
             getItemKey={(genre) => genre.value}
             estimateItemHeight={56}
             initialOffset={getInitialOffset()}

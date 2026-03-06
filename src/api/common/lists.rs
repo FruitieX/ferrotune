@@ -301,7 +301,30 @@ pub async fn get_album_list_logic(
             .await?;
             Some(count.0)
         }
-        AlbumListType::Random | AlbumListType::Recent => None,
+        AlbumListType::Random => {
+            let count: (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM albums a WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)"
+            )
+                .bind(user_id)
+                .fetch_one(pool)
+                .await?;
+            Some(count.0)
+        }
+        AlbumListType::Recent => {
+            let count: (i64,) = sqlx::query_as(
+                "SELECT COUNT(DISTINCT s.album_id)
+                 FROM scrobbles sc
+                 INNER JOIN songs s ON sc.song_id = s.id
+                 INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+                 INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+                 WHERE sc.user_id = ? AND mf.enabled = 1 AND ula.user_id = ?",
+            )
+            .bind(user_id)
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?;
+            Some(count.0)
+        }
     };
 
     let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();

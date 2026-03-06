@@ -239,8 +239,10 @@ export function GenreRow({
   );
 }
 
-export function GenreRowSkeleton() {
-  return <MediaRowSkeleton showIndex />;
+export function GenreRowSkeleton({
+  showIndex = true,
+}: { showIndex?: boolean } = {}) {
+  return <MediaRowSkeleton showIndex={showIndex} />;
 }
 
 // Context menu for genres

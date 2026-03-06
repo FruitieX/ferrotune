@@ -28,7 +28,6 @@ import {
   startQueueAtom,
   serverQueueStateAtom,
   currentSourceEntryIdAtom,
-  toggleShuffleAtom,
 } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -124,7 +123,6 @@ function PlaylistDetailContent() {
     redirectToLogin: true,
   });
   const startQueue = useSetAtom(startQueueAtom);
-  const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const currentSourceEntryId = useAtomValue(currentSourceEntryIdAtom);
   const queryClient = useQueryClient();
@@ -830,10 +828,6 @@ function PlaylistDetailContent() {
 
   const handlePlayAll = () => {
     if (displaySongs.length > 0) {
-      // If currently shuffled, turn off shuffle first
-      if (queueState?.isShuffled) {
-        toggleShuffle();
-      }
       startQueue({
         sourceType: "playlist",
         sourceId: playlistId ?? undefined,
@@ -1186,7 +1180,6 @@ function PlaylistDetailContent() {
             <>
               <SongListHeader
                 columnVisibility={columnVisibility}
-                showIndex
                 showCover
                 sortConfig={sortConfig}
                 onSortChange={setSortConfig}

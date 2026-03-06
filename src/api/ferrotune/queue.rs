@@ -1541,6 +1541,51 @@ async fn materialize_queue_songs(
             #[cfg(not(feature = "bliss"))]
             Err(Error::InvalidRequest("Song radio requires the 'bliss' feature".to_string()).into())
         }
+        QueueSourceType::AlbumList => {
+            // If albumIds are provided in filters, use those directly (e.g. for
+            // random lists where the client already has the displayed album IDs)
+            let album_ids: Option<Vec<String>> = filters
+                .and_then(|f| f.get("albumIds"))
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                });
+
+            let album_ids = if let Some(ids) = album_ids {
+                ids
+            } else {
+                let list_type_str = source_id
+                    .ok_or_else(|| Error::InvalidRequest("Album list type required".to_string()))?;
+                let list_type: crate::api::common::lists::AlbumListType =
+                    serde_json::from_value(serde_json::Value::String(list_type_str.to_string()))
+                        .map_err(|_| {
+                            Error::InvalidRequest(format!(
+                                "Invalid album list type: {}",
+                                list_type_str
+                            ))
+                        })?;
+                let since = filters
+                    .and_then(|f| f.get("since"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let result = crate::api::common::lists::get_album_list_logic(
+                    pool, user_id, list_type, 100, 0, None, None, None, None, since,
+                )
+                .await?;
+                result.albums.into_iter().map(|a| a.id).collect()
+            };
+
+            // Fetch songs for each album
+            let mut songs = Vec::new();
+            for album_id in &album_ids {
+                let album_songs =
+                    queries::get_songs_by_album_for_user(pool, album_id, user_id).await?;
+                songs.extend(album_songs);
+            }
+            Ok(songs)
+        }
         QueueSourceType::Other => {
             // For "other" source with no song IDs, treat as library
             let search_params = build_search_params_from_json(filters, sort);

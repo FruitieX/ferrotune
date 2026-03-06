@@ -1,15 +1,10 @@
 "use client";
 
-import { useSetAtom, useAtomValue } from "jotai";
+import { useSetAtom } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useItemSelection } from "./use-track-selection";
-import {
-  startQueueAtom,
-  addToQueueAtom,
-  toggleShuffleAtom,
-  serverQueueStateAtom,
-} from "@/lib/store/server-queue";
+import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import type { Playlist, Song } from "@/lib/api/types";
 
@@ -31,8 +26,6 @@ export function usePlaylistSelection(playlists: Playlist[]) {
 
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
-  const toggleShuffle = useSetAtom(toggleShuffleAtom);
-  const queueState = useAtomValue(serverQueueStateAtom);
   const queryClient = useQueryClient();
 
   // Get selected playlists (type-safe alias)
@@ -69,10 +62,6 @@ export function usePlaylistSelection(playlists: Playlist[]) {
     if (songs.length === 0) {
       toast.error("Selected playlists are empty");
       return;
-    }
-    // Turn off shuffle if currently shuffled
-    if (queueState?.isShuffled) {
-      toggleShuffle();
     }
     startQueue({
       sourceType: "playlist",

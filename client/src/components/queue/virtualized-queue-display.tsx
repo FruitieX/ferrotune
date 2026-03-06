@@ -34,6 +34,7 @@ import {
   SongDropdownMenu,
 } from "@/components/browse/song-context-menu";
 import { MoveToPositionDialog } from "@/components/shared/move-to-position-dialog";
+import { isTauriMobile } from "@/lib/tauri";
 import { formatDuration } from "@/lib/utils/format";
 import type { QueueSongEntry } from "@/lib/api/types";
 
@@ -202,27 +203,29 @@ function VirtualQueueItem({
           </p>
         </div>
 
-        {/* Actions */}
-        <SongDropdownMenu
-          song={song}
-          songIndex={entry.position}
-          hideQueueActions={isCurrent}
-          showRemoveFromQueue={!isCurrent}
-          onRemoveFromQueue={onRemove}
-          showMoveToPosition={!isCurrent}
-          onMoveToPosition={onMoveToPosition}
-          moveToPositionLabel="Move to Position"
-          trigger={
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <MoreHorizontal className="w-4 h-4" />
-            </Button>
-          }
-        />
+        {/* Actions - hidden on Tauri mobile where long-press context menu is used */}
+        {!isTauriMobile() && (
+          <SongDropdownMenu
+            song={song}
+            songIndex={entry.position}
+            hideQueueActions={isCurrent}
+            showRemoveFromQueue={!isCurrent}
+            onRemoveFromQueue={onRemove}
+            showMoveToPosition={!isCurrent}
+            onMoveToPosition={onMoveToPosition}
+            moveToPositionLabel="Move to Position"
+            trigger={
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground shrink-0"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </Button>
+            }
+          />
+        )}
 
         {/* Duration */}
         <span className="text-xs text-muted-foreground tabular-nums shrink-0">

@@ -49,6 +49,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { startQueueAtom, addToQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
+import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 import { EditPlaylistDialog } from "./edit-playlist-dialog";
 import { getPlaylistDisplayName } from "@/lib/utils/playlist-folders";
 import type { Playlist } from "@/lib/api/types";
@@ -365,6 +366,7 @@ export function PlaylistDropdownMenu({
   const queryClient = useQueryClient();
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
+  const hasFinePointer = useHasFinePointer();
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
@@ -502,8 +504,12 @@ export function PlaylistDropdownMenu({
             size="icon"
             className={
               inline
-                ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                : "h-8 w-8 absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                ? hasFinePointer
+                  ? "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                  : "hidden"
+                : hasFinePointer
+                  ? "h-8 w-8 absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                  : "hidden"
             }
             onClick={(e) => {
               e.preventDefault();

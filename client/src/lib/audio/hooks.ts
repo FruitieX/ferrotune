@@ -46,7 +46,11 @@ import {
   pendingUserPlayback,
   type RepeatMode,
 } from "@/lib/store/server-queue";
-import { serverConnectionAtom, isHydratedAtom } from "@/lib/store/auth";
+import {
+  serverConnectionAtom,
+  isHydratedAtom,
+  accountKey,
+} from "@/lib/store/auth";
 import { getClient } from "@/lib/api/client";
 import { invalidatePlayCountQueries as invalidatePlayCounts } from "@/lib/api/cache-invalidation";
 import { starredItemsAtom } from "@/lib/store/starred";
@@ -611,6 +615,73 @@ export function useAudioEngineInit() {
     hasInitialFetchRef.current = true;
     fetchQueue();
   }, [isHydrated, serverConnection, fetchQueue]);
+
+  // Reset playback and queue when user account changes (user switch)
+  const previousAccountKeyRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const currentKey = serverConnection ? accountKey(serverConnection) : null;
+
+    // Skip on initial mount
+    if (previousAccountKeyRef.current === undefined) {
+      previousAccountKeyRef.current = currentKey;
+      return;
+    }
+
+    // Skip if same account
+    if (previousAccountKeyRef.current === currentKey) {
+      return;
+    }
+
+    previousAccountKeyRef.current = currentKey;
+
+    // Stop playback and reset all audio state
+    if (usingNativeAudio) {
+      nativeStop().catch(console.error);
+      // Reset autonomous mode so session can be re-initialized with new credentials
+      nativeAutonomousMode.value = false;
+    } else {
+      const audio = getActiveAudio();
+      if (audio) {
+        isIntentionalStop = true;
+        audio.pause();
+        audio.removeAttribute("src");
+        audio.load();
+        isIntentionalStop = false;
+      }
+    }
+
+    // Reset module-level state
+    currentLoadedTrackId = null;
+    nativeQueueOffset = 0;
+    nativeQueueLength = 0;
+    nativeAutoAdvanced = false;
+    pendingUserPlayback.value = false;
+    lastProcessedSignalRef.current = -1;
+
+    // Reset atoms
+    setPlaybackState("idle");
+    setCurrentTime(0);
+    setDuration(0);
+    setBuffered(0);
+    setHasScrobbled(false);
+    setServerQueueState(null);
+    setQueueWindow(null);
+
+    // Re-fetch queue for new user (allow hasInitialFetchRef to be re-triggered)
+    if (currentKey) {
+      fetchQueue();
+    }
+  }, [
+    serverConnection,
+    fetchQueue,
+    setPlaybackState,
+    setCurrentTime,
+    setDuration,
+    setBuffered,
+    setHasScrobbled,
+    setServerQueueState,
+    setQueueWindow,
+  ]);
 
   // Initialize audio elements and event listeners ONCE
   useEffect(() => {
@@ -1549,9 +1620,10 @@ export function useAudioEngineInit() {
   // Update volume on both elements
   useEffect(() => {
     if (usingNativeAudio) {
-      // For native audio, only send user volume. Kotlin handles ReplayGain
-      // internally via applyTrackReplayGain() and updateSettings().
-      nativeSetVolume(effectiveVolume).catch(console.error);
+      // On native audio (Android/Tauri), always use 100% volume.
+      // Users control volume via the system hardware buttons.
+      // ReplayGain is handled natively via the audio processor.
+      nativeSetVolume(1.0).catch(console.error);
     } else {
       for (const el of audioElements) {
         if (el) el.volume = effectiveVolume;
@@ -2553,6 +2625,16 @@ export function useAudioEngine() {
     const audio = getActiveAudio();
     if (audio && audio.currentTime > 3) {
       audio.currentTime = 0;
+      return;
+    }
+
+    // At start of queue with no previous track: restart current track
+    if (
+      queueState &&
+      queueState.currentIndex === 0 &&
+      queueState.repeatMode !== "all"
+    ) {
+      if (audio) audio.currentTime = 0;
       return;
     }
 

@@ -225,6 +225,7 @@ export const favoritesAlbumSortAtom = atomWithServerStorage<SortConfig>(
 
 // Album column visibility for favorites
 export interface AlbumColumnVisibility {
+  showIndex: boolean;
   artist: boolean;
   year: boolean;
   songCount: boolean;
@@ -237,6 +238,7 @@ export interface AlbumColumnVisibility {
 
 export const favoritesAlbumColumnVisibilityAtom =
   atomWithServerStorage<AlbumColumnVisibility>("favorites-album-columns", {
+    showIndex: true,
     artist: true,
     year: true,
     songCount: true,
@@ -262,6 +264,7 @@ export const favoritesArtistSortAtom = atomWithServerStorage<SortConfig>(
 
 // Artist column visibility for favorites
 export interface ArtistColumnVisibility {
+  showIndex: boolean;
   albumCount: boolean;
   songCount: boolean;
   starred: boolean;
@@ -270,6 +273,7 @@ export interface ArtistColumnVisibility {
 
 export const favoritesArtistColumnVisibilityAtom =
   atomWithServerStorage<ArtistColumnVisibility>("favorites-artist-columns", {
+    showIndex: true,
     albumCount: true,
     songCount: false,
     starred: false,
@@ -279,6 +283,7 @@ export const favoritesArtistColumnVisibilityAtom =
 // Library album column visibility (for albums list view)
 export const libraryAlbumColumnVisibilityAtom =
   atomWithServerStorage<AlbumColumnVisibility>("library-album-columns", {
+    showIndex: true,
     artist: true,
     year: true,
     songCount: true,
@@ -292,10 +297,21 @@ export const libraryAlbumColumnVisibilityAtom =
 // Library artist column visibility (for artists list view)
 export const libraryArtistColumnVisibilityAtom =
   atomWithServerStorage<ArtistColumnVisibility>("library-artist-columns", {
+    showIndex: true,
     albumCount: true,
     songCount: false,
     starred: false,
     rating: false,
+  });
+
+// Genre column visibility (for genres list view)
+export interface GenreColumnVisibility {
+  showIndex: boolean;
+}
+
+export const libraryGenreColumnVisibilityAtom =
+  atomWithServerStorage<GenreColumnVisibility>("library-genre-columns", {
+    showIndex: true,
   });
 
 // Album details view settings (for album songs list)
@@ -400,6 +416,7 @@ export const playlistsSortAtom = atomWithServerStorage<SortConfig>(
 
 // Playlist column visibility (for list view of playlists)
 export interface PlaylistColumnVisibility {
+  showIndex: boolean;
   songCount: boolean;
   duration: boolean;
   owner: boolean;
@@ -408,6 +425,7 @@ export interface PlaylistColumnVisibility {
 
 export const playlistsColumnVisibilityAtom =
   atomWithServerStorage<PlaylistColumnVisibility>("playlists-columns", {
+    showIndex: true,
     songCount: true,
     duration: true,
     owner: false,

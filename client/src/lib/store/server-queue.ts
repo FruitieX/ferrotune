@@ -67,6 +67,7 @@ export type QueueSourceType =
   | "directory"
   | "directoryFlat"
   | "songRadio"
+  | "albumList"
   | "other";
 
 export type RepeatMode = "off" | "all" | "one";
@@ -214,9 +215,9 @@ export const startQueueAtom = atom(
     if (hasNativeAudio()) nativeRequestPlayback();
 
     try {
-      // Persist current shuffle state when not explicitly specified
-      const currentState = get(serverQueueStateAtom);
-      const shuffle = params.shuffle ?? currentState?.isShuffled ?? false;
+      // Default to no shuffle when starting a new queue.
+      // Shuffle is only enabled when explicitly requested (e.g. shuffle button).
+      const shuffle = params.shuffle ?? false;
 
       const response = await client.startQueue({
         sourceType: params.sourceType,
@@ -542,15 +543,16 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
   try {
     const response = await client.toggleServerShuffle(newShuffleState);
 
-    // Update state with new shuffle state and index
+    // Fetch new window since order has changed
+    const queueResponse = await client.getQueueCurrentWindow(20, "small");
+
+    // Update state and window atomically to avoid a transient mismatch
+    // where currentIndex points to a different song in the old window
     set(serverQueueStateAtom, {
       ...state,
       isShuffled: newShuffleState,
       currentIndex: response.newIndex ?? state.currentIndex,
     });
-
-    // Fetch new window since order may have changed
-    const queueResponse = await client.getQueueCurrentWindow(20, "small");
     set(queueWindowAtom, queueResponse.window);
   } catch (error) {
     console.error("Failed to toggle shuffle:", error);

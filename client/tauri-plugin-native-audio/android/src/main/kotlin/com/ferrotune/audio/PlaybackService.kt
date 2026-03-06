@@ -56,11 +56,17 @@ class PlaybackService : MediaSessionService() {
         private const val PREFETCH_THRESHOLD = 5
         // Sync position to server every N milliseconds
         private const val POSITION_SYNC_INTERVAL_MS = 30_000L
+        // How many ms before track end to pre-apply next track's ReplayGain.
+        // This should be long enough to cover ExoPlayer's gapless pre-decode buffer
+        // but short enough that the volume difference on the current track's tail is inaudible.
+        private const val REPLAYGAIN_PRE_APPLY_LEAD_MS = 500L
     }
 
     private val binder = LocalBinder()
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
+    private var sessionPlayer: ForwardingSimpleBasePlayer? = null
+    private var invalidateSessionPlayerState: (() -> Unit)? = null
     private val handler = Handler(Looper.getMainLooper())
     // Background executor for API calls (no main thread blocking)
     private val apiExecutor = Executors.newSingleThreadExecutor()
@@ -145,8 +151,6 @@ class PlaybackService : MediaSessionService() {
                     lastProgressTimestamp = now
                     checkScrobble()
                 }
-                // Pre-apply next track's ReplayGain before gapless transition
-                preApplyNextTrackGainIfNeeded()
                 handler.postDelayed(this, PROGRESS_UPDATE_INTERVAL_MS)
             }
         }
@@ -257,6 +261,11 @@ class PlaybackService : MediaSessionService() {
                                 // determinate progress bar even for transcoded
                                 // streams (we handle seeking via stream reload).
                                 .setIsSeekable(true)
+                                // Mark as non-placeholder so the notification
+                                // doesn't show an indeterminate progress bar
+                                // (ExoPlayer can't determine duration from chunked
+                                // transcoded streams without Content-Length).
+                                .setIsPlaceholder(false)
                                 .setPeriods(listOf(
                                     PeriodData.Builder(item.uid)
                                         .setDurationUs(durationUs)
@@ -319,7 +328,12 @@ class PlaybackService : MediaSessionService() {
                 player.repeatMode = repeatMode
                 return Futures.immediateVoidFuture()
             }
+
+            init {
+                this@PlaybackService.invalidateSessionPlayerState = { invalidateState() }
+            }
         }
+        sessionPlayer = forwardingPlayer
 
         // Create pending intent for the app
         val pendingIntent = PendingIntent.getActivity(
@@ -386,6 +400,7 @@ class PlaybackService : MediaSessionService() {
         handler.removeCallbacks(progressRunnable)
         handler.removeCallbacks(endedTimeoutRunnable)
         handler.removeCallbacks(positionSyncRunnable)
+        handler.removeCallbacks(preApplyGainRunnable)
         replayGainProcessor.setClippingCallback(null)
         apiExecutor.shutdownNow()
         mediaSession.release()
@@ -440,6 +455,7 @@ class PlaybackService : MediaSessionService() {
         queueIndex = -1
         autonomousMode = false
         handler.removeCallbacks(positionSyncRunnable)
+        handler.removeCallbacks(preApplyGainRunnable)
         emitStateChange()
     }
 
@@ -480,6 +496,9 @@ class PlaybackService : MediaSessionService() {
             seekTimeOffsetMs = 0
             player.seekTo(positionMs)
         }
+        // Reschedule pre-apply since position changed
+        hasPreAppliedNextGain = false
+        scheduleReplayGainPreApply()
     }
 
     // === Autonomous queue management ===
@@ -689,6 +708,7 @@ class PlaybackService : MediaSessionService() {
      * Handle skip-next in autonomous mode.
      */
     private fun autonomousSkipNext() {
+        seekTimeOffsetMs = 0
         Log.d(TAG, "autonomousSkipNext: serverIndex=$serverQueueIndex, total=$serverTotalCount")
         val nextIndex = serverQueueIndex + 1
 
@@ -724,6 +744,7 @@ class PlaybackService : MediaSessionService() {
         // Check if the next track is already loaded in ExoPlayer
         val exoIndex = exoIndexToServerPosition.indexOf(nextIndex)
         if (exoIndex >= 0) {
+            player.playWhenReady = true
             player.seekTo(exoIndex, 0)
             maybePrefetchMore()
         } else {
@@ -751,13 +772,14 @@ class PlaybackService : MediaSessionService() {
 
         // If more than 3 seconds in, restart current track
         if (player.currentPosition > 3000) {
-            player.seekTo(0)
-            // Reset scrobble accumulation for replay
+            player.playWhenReady = true
+            seek(0) // Use seek() to properly reload transcoded streams from beginning
             accumulatedListenMs = 0
             hasScrobbled = false
             return
         }
 
+        seekTimeOffsetMs = 0
         val prevIndex = serverQueueIndex - 1
         if (prevIndex < 0) {
             if (repeatMode == "all") {
@@ -785,6 +807,7 @@ class PlaybackService : MediaSessionService() {
 
         val exoIndex = exoIndexToServerPosition.indexOf(prevIndex)
         if (exoIndex >= 0) {
+            player.playWhenReady = true
             player.seekTo(exoIndex, 0)
             maybePrefetchMore()
         } else {
@@ -811,13 +834,15 @@ class PlaybackService : MediaSessionService() {
         val currentPositionMs = player.currentPosition
         apiExecutor.execute {
             try {
-                val response = apiClient.toggleShuffle(enabled)
+                val shuffleResponse = apiClient.toggleShuffle(enabled)
+                val newIndex = shuffleResponse.newIndex ?: serverQueueIndex
+                // Fetch the reordered queue window
+                apiClient.updatePosition(newIndex, currentPositionMs)
+                val queueResponse = apiClient.getQueueWindow(20)
                 handler.post {
                     isShuffled = enabled
-                    // Shuffle changes the order, need to reload
-                    // Preserve the current playback position within the track
-                    serverQueueIndex = response.currentIndex
-                    handleQueueWindowResponse(response, response.currentIndex, currentPositionMs, player.playWhenReady)
+                    serverQueueIndex = newIndex
+                    handleQueueWindowResponse(queueResponse, newIndex, currentPositionMs, player.playWhenReady)
                     eventEmitter?.invoke(AudioEvents.SHUFFLE_MODE_CHANGED, JSObject().apply {
                         put("enabled", enabled)
                     })
@@ -1077,6 +1102,7 @@ class PlaybackService : MediaSessionService() {
             autonomousSkipNext()
             return
         }
+        seekTimeOffsetMs = 0
         if (player.hasNextMediaItem()) {
             player.seekToNextMediaItem()
         }
@@ -1090,11 +1116,14 @@ class PlaybackService : MediaSessionService() {
         }
         // If more than 3 seconds in, restart current track
         if (player.currentPosition > 3000) {
-            player.seekTo(0)
-        } else if (player.hasPreviousMediaItem()) {
-            player.seekToPreviousMediaItem()
+            seek(0) // Use seek() to properly reload transcoded streams from beginning
         } else {
-            player.seekTo(0)
+            seekTimeOffsetMs = 0
+            if (player.hasPreviousMediaItem()) {
+                player.seekToPreviousMediaItem()
+            } else {
+                seek(0)
+            }
         }
     }
 
@@ -1106,8 +1135,7 @@ class PlaybackService : MediaSessionService() {
 
     /**
      * Set ReplayGain boost/attenuation in millibels.
-     * Applies gain through player.volume (supports values > 1.0 for boost)
-     * and also sets on AudioProcessor for clipping detection.
+     * Gain is applied exclusively via ReplayGainAudioProcessor at the PCM level.
      */
     fun setReplayGain(gainMb: Int) {
         val gainDb = gainMb.toFloat() / 100f
@@ -1115,7 +1143,6 @@ class PlaybackService : MediaSessionService() {
         Log.d(TAG, "setReplayGain($gainMb mB -> ${String.format("%.2f", gainDb)} dB, linear=${String.format("%.4f", replayGainLinear)})")
         replayGainProcessor.setGainDb(gainDb)
         replayGainProcessor.resetPeakTracker()
-        applyVolume()
     }
 
     /**
@@ -1124,15 +1151,12 @@ class PlaybackService : MediaSessionService() {
      * pre-decodes audio from the next track before onMediaItemTransition fires.
      * By setting the gain early, samples flowing through ReplayGainAudioProcessor
      * will already have the correct gain applied.
+     *
+     * Called by a scheduled handler callback at precisely (duration - REPLAYGAIN_PRE_APPLY_LEAD_MS)
+     * rather than polling, for accurate and reliable timing.
      */
-    private fun preApplyNextTrackGainIfNeeded() {
+    private fun preApplyNextTrackGain() {
         if (hasPreAppliedNextGain) return
-        val track = currentTrack ?: return
-        if (track.durationMs <= 0) return
-
-        // Check remaining time; pre-apply when within 1 second of the end.
-        val remaining = track.durationMs - (player.currentPosition + seekTimeOffsetMs)
-        if (remaining > 1000 || remaining < 0) return
 
         val nextExoIndex = player.currentMediaItemIndex + 1
         if (nextExoIndex >= player.mediaItemCount) return
@@ -1148,11 +1172,35 @@ class PlaybackService : MediaSessionService() {
 
         hasPreAppliedNextGain = true
         Log.d(TAG, "Pre-applying next track ReplayGain: ${String.format("%.2f", gainDb)} dB " +
-            "(remaining=${remaining}ms, nextExoIndex=$nextExoIndex)")
+            "(nextExoIndex=$nextExoIndex)")
         replayGainLinear = if (gainDb == 0f) 1f else 10f.pow(gainDb / 20f)
         replayGainProcessor.setGainDb(gainDb)
         replayGainProcessor.resetPeakTracker()
-        applyVolume()
+    }
+
+    private val preApplyGainRunnable = Runnable { preApplyNextTrackGain() }
+
+    /**
+     * Schedule pre-application of the next track's ReplayGain at a precise time
+     * before the current track ends. Uses Handler.postDelayed based on the player's
+     * current position and the track's duration for accurate scheduling.
+     */
+    private fun scheduleReplayGainPreApply() {
+        handler.removeCallbacks(preApplyGainRunnable)
+        val track = currentTrack ?: return
+        if (track.durationMs <= 0) return
+        if (player.currentMediaItemIndex + 1 >= player.mediaItemCount) return
+
+        val currentPos = player.currentPosition + seekTimeOffsetMs
+        val remaining = track.durationMs - currentPos
+        val delay = remaining - REPLAYGAIN_PRE_APPLY_LEAD_MS
+
+        if (delay <= 0) {
+            // Already past the pre-apply point, apply immediately
+            preApplyNextTrackGain()
+        } else {
+            handler.postDelayed(preApplyGainRunnable, delay)
+        }
     }
 
     private fun applyTrackReplayGain(track: TrackInfo?) {
@@ -1176,20 +1224,21 @@ class PlaybackService : MediaSessionService() {
         replayGainLinear = if (gainDb == 0f) 1f else 10f.pow(gainDb / 20f)
         replayGainProcessor.setGainDb(gainDb)
         replayGainProcessor.resetPeakTracker()
-        applyVolume()
+        // Schedule pre-application of next track's gain before this track ends
+        scheduleReplayGainPreApply()
     }
 
     /**
-     * Apply combined user volume * ReplayGain to ExoPlayer.
-     * ExoPlayer's player.volume supports values > 1.0 for amplification.
+     * Apply user volume to ExoPlayer.
+     * ReplayGain is handled exclusively by ReplayGainAudioProcessor at the PCM level,
+     * so player.volume only reflects the user's volume setting.
      */
     private fun applyVolume() {
-        val combined = userVolume * replayGainLinear
         // If we're in a transition, update the saved volume too
         if (transitionSavedVolume != null) {
-            transitionSavedVolume = combined
+            transitionSavedVolume = userVolume
         } else {
-            player.volume = combined
+            player.volume = userVolume
         }
     }
 
@@ -1300,6 +1349,11 @@ class PlaybackService : MediaSessionService() {
                     player.volume = savedVol
                     transitionSavedVolume = null
                 }
+                // Force the forwarding player to re-emit state so the
+                // notification picks up our duration/placeholder overrides
+                // (important for transcoded streams where ExoPlayer reports
+                // TIME_UNSET until the source is prepared).
+                invalidateSessionPlayerState?.invoke()
             }
 
             emitStateChange()

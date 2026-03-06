@@ -5,8 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSetAtom } from "jotai";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
-import { useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
+import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import {
   Play,
   Clock,
@@ -16,11 +15,9 @@ import {
   Search,
   ListMusic,
 } from "lucide-react";
-import { toast } from "sonner";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { startQueueAtom } from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,26 +28,21 @@ import {
 } from "@/components/ui/tooltip";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { MediaCard } from "@/components/shared/media-card";
+import { VirtualizedHorizontalScroll } from "@/components/shared/virtualized-horizontal-scroll";
 import { MobileProfileMenu } from "@/components/layout/mobile-profile-menu";
+import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { formatDuration } from "@/lib/utils/format";
-import type { Album, Song } from "@/lib/api/types";
+import type { Album } from "@/lib/api/types";
 import type { RecentPlaylistEntry } from "@/lib/api/generated/RecentPlaylistEntry";
 
-// Helper to fetch all songs for albums
-async function fetchAlbumsSongs(albums: Album[]): Promise<Song[]> {
-  const client = getClient();
-  if (!client || !albums.length) return [];
+// Maximum items per home page section to avoid tiny scrollbars
+const MAX_SECTION_ITEMS = 100;
 
-  try {
-    const songsPromises = albums.map((album) =>
-      client.getAlbum(album.id).then((res) => res.album.song ?? []),
-    );
-    const songsArrays = await Promise.all(songsPromises);
-    return songsArrays.flat();
-  } catch (error) {
-    console.error("Failed to fetch songs:", error);
-    return [];
-  }
+// Compute page size based on viewport width to avoid loading too many items on mobile
+function getPageSize(viewportWidth: number, itemWidth: number, gap: number) {
+  const itemsPerScreen = Math.ceil(viewportWidth / (itemWidth + gap));
+  // Load ~2 screenfuls per page for smooth scrolling
+  return Math.max(6, itemsPerScreen * 2);
 }
 
 // Section header component
@@ -123,63 +115,65 @@ function SectionHeader({
   );
 }
 
-// Section component for album rows
+// Section component for album rows with virtualization and infinite scroll
 function AlbumSection({
   title,
-  icon: Icon,
+  icon,
   albums,
+  totalCount,
   isLoading,
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
   onPlayAlbum,
   onPlayAll,
   onShuffleAll,
+  itemWidth,
+  itemGap,
+  paddingX,
 }: {
   title: string;
   icon: React.ElementType;
-  albums?: Album[];
+  albums: Album[];
+  totalCount?: number;
   isLoading: boolean;
+  hasNextPage?: boolean;
+  isFetchingNextPage?: boolean;
+  fetchNextPage?: () => void;
   onPlayAlbum: (album: Album) => void;
   onPlayAll?: () => void;
   onShuffleAll?: () => void;
+  itemWidth: number;
+  itemGap: number;
+  paddingX: number;
 }) {
   return (
     <section className="space-y-2 sm:space-y-4">
       <SectionHeader
         title={title}
-        icon={Icon}
-        hasItems={!!albums?.length}
+        icon={icon}
+        hasItems={albums.length > 0}
         isLoading={isLoading}
         onPlayAll={onPlayAll}
         onShuffleAll={onShuffleAll}
       />
-
-      <ScrollArea className="w-full">
-        <div className="flex gap-2 sm:gap-4 px-3 sm:px-4 lg:px-6 pb-4">
-          {isLoading ? (
-            Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="w-[130px] sm:w-[180px] shrink-0">
-                <AlbumCardSkeleton />
-              </div>
-            ))
-          ) : albums && albums.length > 0 ? (
-            albums.map((album) => (
-              <motion.div
-                key={album.id}
-                className="w-[130px] sm:w-[180px] shrink-0"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.3 }}
-              >
-                <AlbumCard album={album} onPlay={() => onPlayAlbum(album)} />
-              </motion.div>
-            ))
-          ) : (
-            <p className="text-muted-foreground text-sm py-8">
-              No albums found
-            </p>
-          )}
-        </div>
-        <ScrollBar orientation="horizontal" />
-      </ScrollArea>
+      <VirtualizedHorizontalScroll<Album>
+        items={albums}
+        totalCount={totalCount}
+        isLoading={isLoading}
+        itemWidth={itemWidth}
+        gap={itemGap}
+        paddingX={paddingX}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        fetchNextPage={fetchNextPage}
+        renderItem={(album) => (
+          <AlbumCard album={album} onPlay={() => onPlayAlbum(album)} />
+        )}
+        renderSkeleton={() => <AlbumCardSkeleton />}
+        getItemKey={(album) => album.id}
+        emptyMessage="No albums found"
+      />
     </section>
   );
 }
@@ -239,80 +233,196 @@ export default function HomePage() {
   const startQueue = useSetAtom(startQueueAtom);
   const isMounted = useIsMounted();
   const [searchQuery, setSearchQuery] = useState("");
+  const isSmallScreen = useIsSmallScreen();
+
+  // Responsive item dimensions
+  const itemWidth = isSmallScreen ? 130 : 180;
+  const itemGap = isSmallScreen ? 8 : 16;
+  const paddingX = isSmallScreen ? 12 : 24;
+
+  // Dynamic page size based on viewport width
+  const pageSize =
+    typeof window !== "undefined"
+      ? getPageSize(window.innerWidth, itemWidth, itemGap)
+      : 15;
 
   // Navigate to search when user starts typing
   const handleSearchFocus = () => {
     router.push("/search");
   };
 
-  // Fetch recently added albums
-  const { data: newestAlbums, isLoading: loadingNewest } = useQuery({
-    queryKey: ["albums", "newest"],
-    queryFn: async () => {
+  // --- Infinite queries for album sections ---
+
+  const {
+    data: newestData,
+    isLoading: loadingNewest,
+    hasNextPage: hasNextNewest,
+    isFetchingNextPage: fetchingNextNewest,
+    fetchNextPage: fetchNextNewest,
+  } = useInfiniteQuery({
+    queryKey: ["albums", "newest", "home"],
+    queryFn: async ({ pageParam }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getAlbumList2({
         type: "newest",
-        size: 50,
+        size: pageSize,
+        offset: pageParam,
         inlineImages: "medium",
       });
-      return response.albumList2.album;
+      return {
+        albums: response.albumList2.album ?? [],
+        total: response.albumList2.total,
+        nextOffset: pageParam + pageSize,
+        pageSize,
+      };
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (lastPage.nextOffset >= MAX_SECTION_ITEMS) return undefined;
+      const cap =
+        lastPage.total != null
+          ? Math.min(lastPage.total, MAX_SECTION_ITEMS)
+          : MAX_SECTION_ITEMS;
+      if (lastPage.total == null) {
+        return lastPage.albums.length >= lastPage.pageSize
+          ? lastPage.nextOffset
+          : undefined;
+      }
+      return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
     enabled: isReady,
   });
 
-  // Fetch random albums
-  const { data: randomAlbums, isLoading: loadingRandom } = useQuery({
-    queryKey: ["albums", "random"],
-    queryFn: async () => {
+  const {
+    data: randomData,
+    isLoading: loadingRandom,
+    hasNextPage: hasNextRandom,
+    isFetchingNextPage: fetchingNextRandom,
+    fetchNextPage: fetchNextRandom,
+  } = useInfiniteQuery({
+    queryKey: ["albums", "random", "home"],
+    queryFn: async ({ pageParam }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getAlbumList2({
         type: "random",
-        size: 50,
+        size: pageSize,
+        offset: pageParam,
         inlineImages: "medium",
       });
-      return response.albumList2.album;
+      return {
+        albums: response.albumList2.album ?? [],
+        total: response.albumList2.total,
+        nextOffset: pageParam + pageSize,
+        pageSize,
+      };
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (lastPage.nextOffset >= MAX_SECTION_ITEMS) return undefined;
+      const cap =
+        lastPage.total != null
+          ? Math.min(lastPage.total, MAX_SECTION_ITEMS)
+          : MAX_SECTION_ITEMS;
+      if (lastPage.total == null) {
+        return lastPage.albums.length >= lastPage.pageSize
+          ? lastPage.nextOffset
+          : undefined;
+      }
+      return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
     enabled: isReady,
   });
 
-  // Fetch most played albums (last 30 days)
-  const { data: frequentAlbums, isLoading: loadingFrequent } = useQuery({
-    queryKey: ["albums", "frequent-recent"],
-    queryFn: async () => {
+  const {
+    data: frequentData,
+    isLoading: loadingFrequent,
+    hasNextPage: hasNextFrequent,
+    isFetchingNextPage: fetchingNextFrequent,
+    fetchNextPage: fetchNextFrequent,
+  } = useInfiniteQuery({
+    queryKey: ["albums", "frequent-recent", "home"],
+    queryFn: async ({ pageParam }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const since = new Date();
       since.setDate(since.getDate() - 30);
       const response = await client.getAlbumList2({
         type: "frequent",
-        size: 50,
+        size: pageSize,
+        offset: pageParam,
         inlineImages: "medium",
         since: since.toISOString(),
       });
-      return response.albumList2.album;
+      return {
+        albums: response.albumList2.album ?? [],
+        total: response.albumList2.total,
+        nextOffset: pageParam + pageSize,
+        pageSize,
+      };
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (lastPage.nextOffset >= MAX_SECTION_ITEMS) return undefined;
+      const cap =
+        lastPage.total != null
+          ? Math.min(lastPage.total, MAX_SECTION_ITEMS)
+          : MAX_SECTION_ITEMS;
+      if (lastPage.total == null) {
+        return lastPage.albums.length >= lastPage.pageSize
+          ? lastPage.nextOffset
+          : undefined;
+      }
+      return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
     enabled: isReady,
   });
 
-  // Fetch recently played albums
-  const { data: recentAlbums, isLoading: loadingRecent } = useQuery({
-    queryKey: ["albums", "recent"],
-    queryFn: async () => {
+  // --- Continue Listening: merge recent albums + playlists ---
+  // Recent albums use infinite query for pagination
+  const {
+    data: recentData,
+    isLoading: loadingRecent,
+    hasNextPage: hasNextRecent,
+    isFetchingNextPage: fetchingNextRecent,
+    fetchNextPage: fetchNextRecent,
+  } = useInfiniteQuery({
+    queryKey: ["albums", "recent", "home"],
+    queryFn: async ({ pageParam }) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getAlbumList2({
         type: "recent",
-        size: 50,
+        size: pageSize,
+        offset: pageParam,
         inlineImages: "medium",
       });
-      return response.albumList2.album;
+      return {
+        albums: response.albumList2.album ?? [],
+        total: response.albumList2.total,
+        nextOffset: pageParam + pageSize,
+        pageSize,
+      };
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (lastPage.nextOffset >= MAX_SECTION_ITEMS) return undefined;
+      const cap =
+        lastPage.total != null
+          ? Math.min(lastPage.total, MAX_SECTION_ITEMS)
+          : MAX_SECTION_ITEMS;
+      if (lastPage.total == null) {
+        return lastPage.albums.length >= lastPage.pageSize
+          ? lastPage.nextOffset
+          : undefined;
+      }
+      return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
     enabled: isReady,
   });
 
-  // Fetch recently played playlists
+  // Playlists don't support pagination - fetch all at once
   const { data: recentPlaylists, isLoading: loadingRecentPlaylists } = useQuery(
     {
       queryKey: ["playlists", "recently-played"],
@@ -326,6 +436,25 @@ export default function HomePage() {
     },
   );
 
+  // Flatten infinite query pages and cap totals at MAX_SECTION_ITEMS
+  const newestAlbums = newestData?.pages.flatMap((p) => p.albums) ?? [];
+  const newestTotal =
+    newestData?.pages[0]?.total != null
+      ? Math.min(newestData.pages[0].total, MAX_SECTION_ITEMS)
+      : undefined;
+  const randomAlbums = randomData?.pages.flatMap((p) => p.albums) ?? [];
+  const randomTotal =
+    randomData?.pages[0]?.total != null
+      ? Math.min(randomData.pages[0].total, MAX_SECTION_ITEMS)
+      : undefined;
+  const frequentAlbums = frequentData?.pages.flatMap((p) => p.albums) ?? [];
+  const frequentTotal =
+    frequentData?.pages[0]?.total != null
+      ? Math.min(frequentData.pages[0].total, MAX_SECTION_ITEMS)
+      : undefined;
+  const recentAlbums = recentData?.pages.flatMap((p) => p.albums) ?? [];
+  const recentAlbumTotal = recentData?.pages[0]?.total;
+
   // Merge recently played albums and playlists, sorted by last played time
   type ContinueListeningItem =
     | { type: "album"; album: Album; lastPlayed: string }
@@ -336,7 +465,7 @@ export default function HomePage() {
       };
 
   const continueListeningItems: ContinueListeningItem[] = [];
-  if (recentAlbums) {
+  if (recentAlbums.length > 0) {
     for (const album of recentAlbums) {
       if (album.played) {
         continueListeningItems.push({
@@ -361,17 +490,25 @@ export default function HomePage() {
       new Date(b.lastPlayed).getTime() - new Date(a.lastPlayed).getTime(),
   );
 
-  // Play album - uses server-side queue
+  // Compute total for Continue Listening: album total + playlist count, capped
+  const playlistCount = recentPlaylists?.length ?? 0;
+  const continueListeningTotal =
+    recentAlbumTotal != null
+      ? Math.min(recentAlbumTotal + playlistCount, MAX_SECTION_ITEMS)
+      : undefined;
+
+  // Play album - uses server-side queue (always disables shuffle)
   const handlePlayAlbum = async (album: Album) => {
     startQueue({
       sourceType: "album",
       sourceId: album.id,
       sourceName: album.name,
       startIndex: 0,
+      shuffle: false,
     });
   };
 
-  // Play playlist
+  // Play playlist (always disables shuffle)
   const handlePlayPlaylist = (
     id: string,
     name: string,
@@ -382,56 +519,40 @@ export default function HomePage() {
       sourceId: id,
       sourceName: name,
       startIndex: 0,
+      shuffle: false,
     });
   };
 
-  // Play all albums in a section - fetch songs and start with explicit IDs
-  const handlePlayAllAlbums = async (
-    albums: Album[] | undefined,
+  // Play all albums in a section via server-side queue materialization
+  const handlePlayAllAlbums = (
+    listType: string,
     sectionName: string,
+    filters?: Record<string, unknown>,
   ) => {
-    if (!albums?.length) return;
-
-    toast.loading("Loading songs...");
-    const songs = await fetchAlbumsSongs(albums);
-    toast.dismiss();
-
-    if (songs.length > 0) {
-      startQueue({
-        sourceType: "other",
-        sourceName: sectionName,
-        startIndex: 0,
-        songIds: songs.map((s) => s.id),
-      });
-      toast.success(`Playing ${songs.length} songs`);
-    } else {
-      toast.error("No songs found");
-    }
+    startQueue({
+      sourceType: "albumList",
+      sourceId: listType,
+      sourceName: sectionName,
+      startIndex: 0,
+      shuffle: false,
+      filters,
+    });
   };
 
-  // Shuffle all albums in a section
-  const handleShuffleAllAlbums = async (
-    albums: Album[] | undefined,
+  // Shuffle all albums in a section via server-side queue materialization
+  const handleShuffleAllAlbums = (
+    listType: string,
     sectionName: string,
+    filters?: Record<string, unknown>,
   ) => {
-    if (!albums?.length) return;
-
-    toast.loading("Loading songs...");
-    const songs = await fetchAlbumsSongs(albums);
-    toast.dismiss();
-
-    if (songs.length > 0) {
-      startQueue({
-        sourceType: "other",
-        sourceName: sectionName,
-        startIndex: 0,
-        shuffle: true,
-        songIds: songs.map((s) => s.id),
-      });
-      toast.success(`Shuffling ${songs.length} songs`);
-    } else {
-      toast.error("No songs found");
-    }
+    startQueue({
+      sourceType: "albumList",
+      sourceId: listType,
+      sourceName: sectionName,
+      startIndex: 0,
+      shuffle: true,
+      filters,
+    });
   };
 
   // Always render the same loading state on server and during hydration
@@ -475,6 +596,30 @@ export default function HomePage() {
     );
   }
 
+  // Render function for continue listening items
+  const renderContinueListeningItem = (item: ContinueListeningItem) => {
+    if (item.type === "playlist") {
+      return (
+        <HomePlaylistCard
+          playlist={item.playlist}
+          onPlay={() =>
+            handlePlayPlaylist(
+              item.playlist.id,
+              item.playlist.name,
+              item.playlist.playlistType as "playlist" | "smartPlaylist",
+            )
+          }
+        />
+      );
+    }
+    return (
+      <AlbumCard
+        album={item.album}
+        onPlay={() => handlePlayAlbum(item.album)}
+      />
+    );
+  };
+
   return (
     <div className="min-h-dvh">
       {/* Header */}
@@ -508,66 +653,31 @@ export default function HomePage() {
             hasItems={continueListeningItems.length > 0}
             isLoading={loadingRecent || loadingRecentPlaylists}
             onPlayAll={() =>
-              handlePlayAllAlbums(recentAlbums, "Continue Listening")
+              handlePlayAllAlbums("recent", "Continue Listening")
             }
             onShuffleAll={() =>
-              handleShuffleAllAlbums(recentAlbums, "Continue Listening")
+              handleShuffleAllAlbums("recent", "Continue Listening")
             }
           />
-          <ScrollArea className="w-full">
-            <div className="flex gap-2 sm:gap-4 px-3 sm:px-4 lg:px-6 pb-4">
-              {loadingRecent || loadingRecentPlaylists ? (
-                Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="w-[130px] sm:w-[180px] shrink-0">
-                    <AlbumCardSkeleton />
-                  </div>
-                ))
-              ) : continueListeningItems.length > 0 ? (
-                continueListeningItems.map((item) =>
-                  item.type === "playlist" ? (
-                    <motion.div
-                      key={`pl-${item.playlist.id}`}
-                      className="w-[130px] sm:w-[180px] shrink-0"
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <HomePlaylistCard
-                        playlist={item.playlist}
-                        onPlay={() =>
-                          handlePlayPlaylist(
-                            item.playlist.id,
-                            item.playlist.name,
-                            item.playlist.playlistType as
-                              | "playlist"
-                              | "smartPlaylist",
-                          )
-                        }
-                      />
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key={item.album.id}
-                      className="w-[130px] sm:w-[180px] shrink-0"
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <AlbumCard
-                        album={item.album}
-                        onPlay={() => handlePlayAlbum(item.album)}
-                      />
-                    </motion.div>
-                  ),
-                )
-              ) : (
-                <p className="text-muted-foreground text-sm py-8">
-                  No recently played items
-                </p>
-              )}
-            </div>
-            <ScrollBar orientation="horizontal" />
-          </ScrollArea>
+          <VirtualizedHorizontalScroll<ContinueListeningItem>
+            items={continueListeningItems}
+            totalCount={continueListeningTotal}
+            isLoading={loadingRecent || loadingRecentPlaylists}
+            itemWidth={itemWidth}
+            gap={itemGap}
+            paddingX={paddingX}
+            hasNextPage={hasNextRecent}
+            isFetchingNextPage={fetchingNextRecent}
+            fetchNextPage={fetchNextRecent}
+            renderItem={(item) => renderContinueListeningItem(item)}
+            renderSkeleton={() => <AlbumCardSkeleton />}
+            getItemKey={(item) =>
+              item.type === "playlist"
+                ? `pl-${item.playlist.id}`
+                : item.album.id
+            }
+            emptyMessage="No recently played items"
+          />
         </section>
 
         {/* Most Played Recently */}
@@ -575,14 +685,29 @@ export default function HomePage() {
           title="Most Played Recently"
           icon={TrendingUp}
           albums={frequentAlbums}
+          totalCount={frequentTotal}
           isLoading={loadingFrequent}
+          hasNextPage={hasNextFrequent}
+          isFetchingNextPage={fetchingNextFrequent}
+          fetchNextPage={fetchNextFrequent}
           onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() =>
-            handlePlayAllAlbums(frequentAlbums, "Most Played Recently")
-          }
-          onShuffleAll={() =>
-            handleShuffleAllAlbums(frequentAlbums, "Most Played Recently")
-          }
+          onPlayAll={() => {
+            const since = new Date();
+            since.setDate(since.getDate() - 30);
+            handlePlayAllAlbums("frequent", "Most Played Recently", {
+              since: since.toISOString(),
+            });
+          }}
+          onShuffleAll={() => {
+            const since = new Date();
+            since.setDate(since.getDate() - 30);
+            handleShuffleAllAlbums("frequent", "Most Played Recently", {
+              since: since.toISOString(),
+            });
+          }}
+          itemWidth={itemWidth}
+          itemGap={itemGap}
+          paddingX={paddingX}
         />
 
         {/* Discover */}
@@ -590,10 +715,25 @@ export default function HomePage() {
           title="Discover Something New"
           icon={Sparkles}
           albums={randomAlbums}
+          totalCount={randomTotal}
           isLoading={loadingRandom}
+          hasNextPage={hasNextRandom}
+          isFetchingNextPage={fetchingNextRandom}
+          fetchNextPage={fetchNextRandom}
           onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() => handlePlayAllAlbums(randomAlbums, "Discover")}
-          onShuffleAll={() => handleShuffleAllAlbums(randomAlbums, "Discover")}
+          onPlayAll={() =>
+            handlePlayAllAlbums("random", "Discover", {
+              albumIds: randomAlbums.map((a) => a.id),
+            })
+          }
+          onShuffleAll={() =>
+            handleShuffleAllAlbums("random", "Discover", {
+              albumIds: randomAlbums.map((a) => a.id),
+            })
+          }
+          itemWidth={itemWidth}
+          itemGap={itemGap}
+          paddingX={paddingX}
         />
 
         {/* Recently Added */}
@@ -601,12 +741,19 @@ export default function HomePage() {
           title="Recently Added"
           icon={Clock}
           albums={newestAlbums}
+          totalCount={newestTotal}
           isLoading={loadingNewest}
+          hasNextPage={hasNextNewest}
+          isFetchingNextPage={fetchingNextNewest}
+          fetchNextPage={fetchNextNewest}
           onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() => handlePlayAllAlbums(newestAlbums, "Recently Added")}
+          onPlayAll={() => handlePlayAllAlbums("newest", "Recently Added")}
           onShuffleAll={() =>
-            handleShuffleAllAlbums(newestAlbums, "Recently Added")
+            handleShuffleAllAlbums("newest", "Recently Added")
           }
+          itemWidth={itemWidth}
+          itemGap={itemGap}
+          paddingX={paddingX}
         />
       </div>
     </div>

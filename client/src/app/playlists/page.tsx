@@ -842,6 +842,7 @@ function PlaylistsPageContent() {
                     <DroppableFolderListRow
                       folder={item.data}
                       index={index}
+                      showIndex={columnVisibility.showIndex}
                       currentPath={currentPath}
                       onNavigate={navigateToFolder}
                       onCreateSubfolder={handleCreateSubfolder}
@@ -854,6 +855,7 @@ function PlaylistsPageContent() {
                     <SmartPlaylistListRow
                       smartPlaylist={item.data}
                       index={index}
+                      showIndex={columnVisibility.showIndex}
                       onPlay={() => handlePlaySmartPlaylist(item.data.id)}
                       isSelected={isSmartPlaylistSelected(item.data.id)}
                       isSelectionMode={hasSelection}
@@ -873,7 +875,12 @@ function PlaylistsPageContent() {
                     />
                   )
                 }
-                renderSkeleton={() => <MediaRowSkeleton showRightContent />}
+                renderSkeleton={() => (
+                  <MediaRowSkeleton
+                    showIndex={columnVisibility.showIndex}
+                    showRightContent
+                  />
+                )}
                 getItemKey={(item) =>
                   item.type === "folder"
                     ? `folder-${item.data.path}`
@@ -1141,6 +1148,7 @@ function DroppableFolderGridCard({
 interface DroppableFolderListRowProps {
   folder: PlaylistFolder;
   index: number;
+  showIndex?: boolean;
   currentPath: string;
   onNavigate: (path: string) => void;
   onCreateSubfolder: (parentPath: string, parentFolderId?: string) => void;
@@ -1153,6 +1161,7 @@ interface DroppableFolderListRowProps {
 function DroppableFolderListRow({
   folder,
   index,
+  showIndex = true,
   onNavigate,
   onCreateSubfolder,
   onCreatePlaylist,
@@ -1201,28 +1210,30 @@ function DroppableFolderListRow({
         )}
       >
         {/* Index or selection checkbox */}
-        <div className="w-8 flex items-center justify-center">
-          {isSelectionMode ? (
-            <div
-              className={cn(
-                "w-4 h-4 rounded border-2 flex items-center justify-center transition-colors",
-                isSelected
-                  ? "bg-primary border-primary text-primary-foreground"
-                  : "border-muted-foreground/50 hover:border-primary",
-              )}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect?.(e);
-              }}
-            >
-              {isSelected && <Check className="w-3 h-3" />}
-            </div>
-          ) : (
-            <span className="text-sm text-muted-foreground tabular-nums">
-              {index + 1}
-            </span>
-          )}
-        </div>
+        {(showIndex || isSelectionMode) && (
+          <div className="w-8 flex items-center justify-center">
+            {isSelectionMode ? (
+              <div
+                className={cn(
+                  "w-4 h-4 rounded border-2 flex items-center justify-center transition-colors",
+                  isSelected
+                    ? "bg-primary border-primary text-primary-foreground"
+                    : "border-muted-foreground/50 hover:border-primary",
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelect?.(e);
+                }}
+              >
+                {isSelected && <Check className="w-3 h-3" />}
+              </div>
+            ) : (
+              <span className="text-sm text-muted-foreground tabular-nums">
+                {index + 1}
+              </span>
+            )}
+          </div>
+        )}
         {folderCoverArtUrl ? (
           <CoverImage
             src={folderCoverArtUrl}
@@ -1359,6 +1370,7 @@ interface DraggablePlaylistListRowProps {
   onSelect: (e: React.MouseEvent) => void;
   onPlay?: () => void;
   columnVisibility: {
+    showIndex: boolean;
     songCount: boolean;
     duration: boolean;
     owner: boolean;
@@ -1410,7 +1422,7 @@ function DraggablePlaylistListRow({
         href={`/playlists/details?id=${playlist.id}`}
         coverType="playlist"
         colorSeed={playlist.name}
-        index={index}
+        index={columnVisibility.showIndex ? index : undefined}
         isSelected={isSelected}
         isSelectionMode={isSelectionMode}
         onSelect={onSelect}
@@ -1479,6 +1491,7 @@ function SmartPlaylistGridCard({
 interface SmartPlaylistListRowProps {
   smartPlaylist: SmartPlaylistInfo;
   index: number;
+  showIndex?: boolean;
   onPlay?: () => void;
   isSelected?: boolean;
   isSelectionMode?: boolean;
@@ -1488,6 +1501,7 @@ interface SmartPlaylistListRowProps {
 function SmartPlaylistListRow({
   smartPlaylist,
   index,
+  showIndex = true,
   onPlay,
   isSelected,
   isSelectionMode,
@@ -1503,7 +1517,7 @@ function SmartPlaylistListRow({
     <SmartPlaylistContextMenu smartPlaylist={smartPlaylist}>
       <div className="group relative">
         <MediaRow
-          index={index}
+          index={showIndex ? index : undefined}
           title={
             parsePlaylistPath(smartPlaylist.name).displayName ||
             smartPlaylist.name

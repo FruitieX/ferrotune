@@ -204,39 +204,80 @@ pub fn get_song_order_clause_for_search(
     }
 }
 
+/// Result of album order clause generation, including any extra JOINs needed.
+pub struct AlbumOrderClause {
+    pub order_by: String,
+    /// Extra JOIN clause to prepend (for pre-aggregated stats).
+    pub extra_join: Option<String>,
+    /// User IDs to bind for the extra JOIN (in order).
+    pub extra_join_user_ids: Vec<i64>,
+}
+
 /// Get ORDER BY clause for album sorting.
 /// `user_id` is required for the "recommended" sort (personalized scoring).
 pub fn get_album_order_clause(
     sort: Option<&String>,
     sort_dir: Option<&String>,
     user_id: Option<i64>,
-) -> String {
+) -> AlbumOrderClause {
     let dir = match sort_dir.map(|s| s.as_str()) {
         Some("desc") => "DESC",
         _ => "ASC",
     };
 
     match sort.map(|s| s.as_str()) {
-        Some("artist") => format!("ar.name COLLATE NOCASE {dir}, a.name COLLATE NOCASE {dir}"),
-        Some("year") => format!("a.year {dir}, a.name COLLATE NOCASE {dir}"),
-        Some("dateAdded") => format!("a.created_at {dir}, a.name COLLATE NOCASE {dir}"),
-        Some("songCount") => format!("a.song_count {dir}, a.name COLLATE NOCASE {dir}"),
+        Some("artist") => AlbumOrderClause {
+            order_by: format!("ar.name COLLATE NOCASE {dir}, a.name COLLATE NOCASE {dir}"),
+            extra_join: None,
+            extra_join_user_ids: vec![],
+        },
+        Some("year") => AlbumOrderClause {
+            order_by: format!("a.year {dir}, a.name COLLATE NOCASE {dir}"),
+            extra_join: None,
+            extra_join_user_ids: vec![],
+        },
+        Some("dateAdded") => AlbumOrderClause {
+            order_by: format!("a.created_at {dir}, a.name COLLATE NOCASE {dir}"),
+            extra_join: None,
+            extra_join_user_ids: vec![],
+        },
+        Some("songCount") => AlbumOrderClause {
+            order_by: format!("a.song_count {dir}, a.name COLLATE NOCASE {dir}"),
+            extra_join: None,
+            extra_join_user_ids: vec![],
+        },
         Some("recommended") => {
             let seed = hour_seed();
             let uid = user_id.unwrap_or(0);
-            // Score: recent plays of album songs (0-40) + total plays (0-25) + freshness (0-15) + random (0-20)
-            format!(
-                "(COALESCE((SELECT MAX(0.0, (30.0 - (julianday('now') - julianday(MAX(sc.played_at)))) / 30.0) * 40 \
-                            FROM scrobbles sc JOIN songs si ON sc.song_id = si.id \
-                            WHERE si.album_id = a.id AND sc.user_id = {uid} AND sc.submission = 1), 0) \
-                 + MIN(COALESCE((SELECT SUM(sc2.play_count) \
-                                 FROM scrobbles sc2 JOIN songs si2 ON sc2.song_id = si2.id \
-                                 WHERE si2.album_id = a.id AND sc2.user_id = {uid} AND sc2.submission = 1), 0) * 2, 25) \
+            // Pre-aggregate album play stats in a JOIN instead of correlated subqueries
+            let extra_join = "LEFT JOIN (\
+                    SELECT si.album_id, \
+                           MAX(sc.played_at) AS last_album_play, \
+                           SUM(sc.play_count) AS total_album_plays \
+                    FROM scrobbles sc \
+                    JOIN songs si ON sc.song_id = si.id \
+                    WHERE sc.user_id = ? AND sc.submission = 1 \
+                    GROUP BY si.album_id\
+                ) _album_stats ON _album_stats.album_id = a.id"
+                .to_string();
+            // Score: recent plays (0-40) + total plays (0-25) + freshness (0-15) + random (0-20)
+            let order_by = format!(
+                "(COALESCE(MAX(0.0, (30.0 - (julianday('now') - julianday(_album_stats.last_album_play))) / 30.0) * 40, 0) \
+                 + MIN(COALESCE(_album_stats.total_album_plays, 0) * 2, 25) \
                  + MAX(0.0, (30.0 - (julianday('now') - julianday(a.created_at))) / 30.0) * 15 \
                  + (ABS(a.id * {seed}) % 200) * 0.1) DESC"
-            )
+            );
+            AlbumOrderClause {
+                order_by,
+                extra_join: Some(extra_join),
+                extra_join_user_ids: vec![uid],
+            }
         }
-        _ => format!("a.name COLLATE NOCASE {dir}"), // default: name
+        _ => AlbumOrderClause {
+            order_by: format!("a.name COLLATE NOCASE {dir}"),
+            extra_join: None,
+            extra_join_user_ids: vec![],
+        },
     }
 }
 
@@ -720,11 +761,12 @@ pub async fn search_albums(
     };
     let is_wildcard = is_wildcard || fts_query.is_none();
 
-    let album_order = get_album_order_clause(
+    let album_order_clause = get_album_order_clause(
         params.album_sort.as_ref(),
         params.album_sort_dir.as_ref(),
         Some(user_id),
     );
+    let album_order = &album_order_clause.order_by;
 
     let album_filter_conds = build_album_filter_conditions(params);
     let album_has_rating_filter = params.min_rating.is_some() || params.max_rating.is_some();
@@ -733,6 +775,12 @@ pub async fn search_albums(
     // Build JOIN clauses - always need artists for artist_name
     let mut album_joins = String::from("INNER JOIN artists ar ON a.artist_id = ar.id");
     let mut album_join_user_ids = Vec::new();
+    // Add pre-aggregated stats JOIN for recommended sort
+    if let Some(ref extra_join) = album_order_clause.extra_join {
+        album_joins.push(' ');
+        album_joins.push_str(extra_join);
+        album_join_user_ids.extend(&album_order_clause.extra_join_user_ids);
+    }
     if album_has_rating_filter {
         album_joins.push_str(
             " LEFT JOIN ratings r ON r.item_id = a.id AND r.item_type = 'album' AND r.user_id = ?",

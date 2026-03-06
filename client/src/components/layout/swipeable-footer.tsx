@@ -1,11 +1,33 @@
 "use client";
 
 import { ReactNode, useRef } from "react";
-import { motion, animate, type PanInfo } from "framer-motion";
+import {
+  motion,
+  animate,
+  type PanInfo,
+  type AnimationPlaybackControls,
+} from "framer-motion";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { fullscreenPlayerOpenAtom, fullscreenOpenDragY } from "@/lib/store/ui";
 import { currentSongAtom } from "@/lib/store/server-queue";
+
+// Module-level handle for the open animation so the fullscreen player
+// can cancel it when the user dismisses during the opening spring.
+let openAnimationControls: AnimationPlaybackControls | null = null;
+
+/**
+ * Cancel a pending fullscreen-open animation (if any).
+ * Called by the fullscreen player when the user swipes down to dismiss
+ * before the open animation has completed.
+ */
+export function cancelFullscreenOpen() {
+  if (openAnimationControls) {
+    openAnimationControls.stop();
+    openAnimationControls = null;
+  }
+  fullscreenOpenDragY.set(0);
+}
 
 interface SwipeableFooterProps {
   children: ReactNode;
@@ -60,16 +82,22 @@ export function SwipeableFooter({ children }: SwipeableFooterProps) {
 
     if (shouldOpenFullscreen && currentTrack) {
       // Animate to fully open position then set state
-      animate(fullscreenOpenDragY, -window.innerHeight, {
-        type: "spring",
-        stiffness: 400,
-        damping: 35,
-        onComplete: () => {
-          setFullscreenOpen(true);
-          // Reset after fullscreen takes over (it will animate from 0)
-          setTimeout(() => fullscreenOpenDragY.set(0), 50);
+      openAnimationControls = animate(
+        fullscreenOpenDragY,
+        -window.innerHeight,
+        {
+          type: "spring",
+          stiffness: 400,
+          damping: 35,
+          onComplete: () => {
+            openAnimationControls = null;
+            setFullscreenOpen(true);
+            // Reset immediately - the fullscreen player's animate prop uses instant
+            // transition during gesture mode so this won't cause a visible animation
+            fullscreenOpenDragY.set(0);
+          },
         },
-      });
+      );
     } else {
       // Snap back - animate the motion value back to 0
       animate(fullscreenOpenDragY, 0, {
