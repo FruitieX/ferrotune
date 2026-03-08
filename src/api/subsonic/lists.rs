@@ -72,6 +72,7 @@ pub async fn get_album_list2(
         params.genre,
         inline_size,
         None,
+        None, // No seed for OpenSubsonic compatibility
     )
     .await?;
 

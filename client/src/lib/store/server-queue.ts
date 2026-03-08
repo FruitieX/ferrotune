@@ -68,6 +68,7 @@ export type QueueSourceType =
   | "directoryFlat"
   | "songRadio"
   | "albumList"
+  | "continueListening"
   | "other";
 
 export type RepeatMode = "off" | "all" | "one";

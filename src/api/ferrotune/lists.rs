@@ -41,6 +41,9 @@ pub struct AlbumListParams {
     pub inline_images: Option<String>,
     /// Only count scrobbles since this ISO date (for Frequent type)
     pub since: Option<String>,
+    /// Random seed for reproducible random ordering (for Random type)
+    #[serde(default)]
+    pub seed: Option<i64>,
 }
 
 /// Response for album list
@@ -53,6 +56,10 @@ pub struct FerrotuneAlbumListResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(type = "number | null")]
     pub total: Option<i64>,
+    /// Random seed used for the Random list type (for reproducible ordering)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
+    pub seed: Option<i64>,
 }
 
 /// GET /ferrotune/albums - Get lists of albums
@@ -84,12 +91,14 @@ pub async fn get_album_list(
         params.genre,
         inline_size,
         params.since,
+        params.seed,
     )
     .await?;
 
     Ok(Json(FerrotuneAlbumListResponse {
         album: result.albums,
         total: result.total,
+        seed: result.seed,
     }))
 }
 

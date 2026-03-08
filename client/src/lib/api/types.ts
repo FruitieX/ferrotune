@@ -94,9 +94,12 @@ export type { GenresResponse } from "./generated";
 // getAlbumList2 response
 export type { AlbumList2Response } from "./generated";
 export type { AlbumList2Content } from "./generated";
-// Client alias for backward compat
+// Client alias with seed extension (Ferrotune-specific)
 import type { AlbumList2Response as _AlbumList2Response } from "./generated";
-export type AlbumListResponse = _AlbumList2Response;
+import type { AlbumList2Content as _AlbumList2Content } from "./generated";
+export type AlbumListResponse = {
+  albumList2: _AlbumList2Content & { seed?: number };
+};
 
 // getRandomSongs response
 export type { RandomSongsResponse } from "./generated";

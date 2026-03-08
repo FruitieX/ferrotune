@@ -1853,6 +1853,41 @@ export function useAudioEngineInit() {
             return;
           }
 
+          // Check if the native player already has this track loaded
+          // (e.g. webview was killed and recreated while playing in background).
+          // In that case, just sync JS state from the native side without
+          // touching ExoPlayer's playlist.
+          if (isRestoringQueue) {
+            try {
+              const nativeState = await nativeGetState();
+              if (
+                nativeState.trackId === currentSong.id &&
+                (nativeState.state === "playing" ||
+                  nativeState.state === "paused" ||
+                  nativeState.state === "loading")
+              ) {
+                console.log(
+                  "[NativeAudio] Native player already has track loaded, syncing state without reloading",
+                );
+                currentLoadedTrackId = currentSong.id;
+                settersRef.current.setPlaybackState(nativeState.state);
+                settersRef.current.setCurrentTime(nativeState.positionSeconds);
+                settersRef.current.setDuration(nativeState.durationSeconds);
+
+                // Sync star state to WearOS button icon
+                const isStarred =
+                  stateRef.current.starredItems.get(currentSong.id) ?? false;
+                await nativeUpdateStarredState(isStarred);
+                return;
+              }
+            } catch (err) {
+              console.warn(
+                "[NativeAudio] Failed to check native state, proceeding with queue send:",
+                err,
+              );
+            }
+          }
+
           setHasScrobbled(false);
           setCurrentTime(0);
           setDuration(currentSong.duration || 0);

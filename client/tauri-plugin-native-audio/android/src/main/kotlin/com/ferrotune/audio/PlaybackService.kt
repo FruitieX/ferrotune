@@ -3,6 +3,8 @@ package com.ferrotune.audio
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Binder
 import android.os.Bundle
@@ -129,6 +131,11 @@ class PlaybackService : MediaSessionService() {
     // True when we've pre-applied the next track's ReplayGain before a gapless transition.
     // Reset on each track change so we only pre-apply once per transition.
     private var hasPreAppliedNextGain = false
+
+    // Track retry count for network errors to prevent infinite loops
+    private var networkRetryCount = 0
+    private val MAX_NETWORK_RETRIES = 2
+    private val NETWORK_RETRY_DELAY_MS = 1500L
 
     // Timeout to stop service if JS side doesn't advance after track ends
     private val endedTimeoutRunnable = Runnable {
@@ -627,6 +634,7 @@ class PlaybackService : MediaSessionService() {
      */
     private fun maybePrefetchMore() {
         if (!autonomousMode || isFetching) return
+        if (!isNetworkAvailable()) return
 
         val exoIndex = player.currentMediaItemIndex
         val itemsRemaining = player.mediaItemCount - exoIndex - 1
@@ -933,6 +941,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun syncPositionToServer() {
         if (!autonomousMode) return
+        if (!isNetworkAvailable()) return
         val posMs = (player.currentPosition + seekTimeOffsetMs).coerceAtLeast(0)
         apiExecutor.execute {
             try {
@@ -1242,6 +1251,18 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * Check if network connectivity is available.
+     * Used to skip background API calls when offline.
+     */
+    private fun isNetworkAvailable(): Boolean {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return true // Assume available if we can't check
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
     fun getState(): PlaybackState {
         return PlaybackState(
             status = mapPlaybackState(player.playbackState, player.playWhenReady),
@@ -1344,6 +1365,9 @@ class PlaybackService : MediaSessionService() {
 
             // Restore volume after track transition completes
             if (playbackState == Player.STATE_READY) {
+                // Reset network retry counter on successful playback
+                networkRetryCount = 0
+
                 transitionSavedVolume?.let { savedVol ->
                     Log.d(TAG, "Restoring volume after transition: $savedVol")
                     player.volume = savedVol
@@ -1425,6 +1449,9 @@ class PlaybackService : MediaSessionService() {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             Log.d(TAG, "onMediaItemTransition: ${mediaItem?.mediaId}, reason: $reason, exoIndex: ${player.currentMediaItemIndex}")
 
+            // Reset network retry counter on track change
+            networkRetryCount = 0
+
             // Reset seek offset when the actual track changes (different mediaId).
             // Don't reset on seek-by-reload (same mediaId, REASON_PLAYLIST_CHANGED).
             if (mediaItem?.mediaId != currentTrack?.id) {
@@ -1461,6 +1488,58 @@ class PlaybackService : MediaSessionService() {
 
         override fun onPlayerError(error: PlaybackException) {
             Log.e(TAG, "onPlayerError: ${error.message}", error)
+
+            // Retry on network errors (IO_ERROR) if we haven't exceeded the limit.
+            // For transcoded streams, reload with the correct timeOffset to avoid
+            // restarting playback from position 0.
+            val isNetworkError = error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
+                error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+                error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+
+            if (isNetworkError && networkRetryCount < MAX_NETWORK_RETRIES && currentTrack != null) {
+                networkRetryCount++
+                Log.d(TAG, "Network error retry $networkRetryCount/$MAX_NETWORK_RETRIES for track: ${currentTrack?.title}")
+                handler.postDelayed({
+                    val track = currentTrack ?: return@postDelayed
+                    if (playbackSettings.transcodingEnabled) {
+                        // For transcoded streams, rebuild URL with the current position
+                        val positionMs = player.currentPosition + seekTimeOffsetMs
+                        val timeOffsetSeconds = positionMs / 1000
+                        seekTimeOffsetMs = positionMs
+                        val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
+
+                        val metadataBuilder = MediaMetadata.Builder()
+                            .setTitle(track.title)
+                            .setArtist(track.artist)
+                            .setAlbumTitle(track.album)
+                            .setDurationMs(track.durationMs)
+                        if (track.coverArtUrl != null) {
+                            metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
+                        }
+
+                        val newMediaItem = MediaItem.Builder()
+                            .setMediaId(track.id)
+                            .setUri(Uri.parse(newUrl))
+                            .setMediaMetadata(metadataBuilder.build())
+                            .build()
+
+                        val currentIndex = player.currentMediaItemIndex
+                        player.replaceMediaItem(currentIndex, newMediaItem)
+                        player.seekTo(currentIndex, 0)
+                        player.playWhenReady = true
+                        player.prepare()
+                        Log.d(TAG, "Network retry: reloaded transcoded stream at offset ${timeOffsetSeconds}s")
+                    } else {
+                        // For non-transcoded streams, just re-prepare at the current position
+                        player.playWhenReady = true
+                        player.prepare()
+                        Log.d(TAG, "Network retry: re-prepared non-transcoded stream")
+                    }
+                }, NETWORK_RETRY_DELAY_MS)
+                return
+            }
+
             emitError(error.message ?: "Unknown playback error", currentTrack?.id)
             emitStateChange()
         }

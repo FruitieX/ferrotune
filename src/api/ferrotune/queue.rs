@@ -1542,8 +1542,7 @@ async fn materialize_queue_songs(
             Err(Error::InvalidRequest("Song radio requires the 'bliss' feature".to_string()).into())
         }
         QueueSourceType::AlbumList => {
-            // If albumIds are provided in filters, use those directly (e.g. for
-            // random lists where the client already has the displayed album IDs)
+            // If albumIds are provided in filters, use those directly (backward compat)
             let album_ids: Option<Vec<String>> = filters
                 .and_then(|f| f.get("albumIds"))
                 .and_then(|v| v.as_array())
@@ -1570,8 +1569,10 @@ async fn materialize_queue_songs(
                     .and_then(|f| f.get("since"))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
+                let seed = filters.and_then(|f| f.get("seed")).and_then(|v| v.as_i64());
+                // Use a large limit to fetch ALL matching albums for queue materialization
                 let result = crate::api::common::lists::get_album_list_logic(
-                    pool, user_id, list_type, 100, 0, None, None, None, None, since,
+                    pool, user_id, list_type, 100_000, 0, None, None, None, None, since, seed,
                 )
                 .await?;
                 result.albums.into_iter().map(|a| a.id).collect()
@@ -1583,6 +1584,138 @@ async fn materialize_queue_songs(
                 let album_songs =
                     queries::get_songs_by_album_for_user(pool, album_id, user_id).await?;
                 songs.extend(album_songs);
+            }
+            Ok(songs)
+        }
+        QueueSourceType::ContinueListening => {
+            // Materialize recently played albums and playlists merged by last played time.
+            // For each item, fetch songs in order (album track order / playlist order).
+
+            // Fetch recently played albums (no limit)
+            let recent_result = crate::api::common::lists::get_album_list_logic(
+                pool,
+                user_id,
+                crate::api::common::lists::AlbumListType::Recent,
+                100_000,
+                0,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await?;
+
+            // Fetch recently played regular playlists
+            let regular_playlists: Vec<(String, String)> = sqlx::query_as(
+                "SELECT p.id, strftime('%Y-%m-%dT%H:%M:%SZ', p.last_played_at) as last_played_at
+                 FROM playlists p
+                 WHERE (p.owner_id = ? OR EXISTS (
+                     SELECT 1 FROM playlist_shares ps_share
+                     WHERE ps_share.playlist_id = p.id AND ps_share.shared_with_user_id = ?
+                 )) AND p.last_played_at IS NOT NULL
+                 ORDER BY p.last_played_at DESC",
+            )
+            .bind(user_id)
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?;
+
+            // Fetch recently played smart playlists
+            let smart_playlists: Vec<(String, String)> = sqlx::query_as(
+                "SELECT sp.id, strftime('%Y-%m-%dT%H:%M:%SZ', sp.last_played_at) as last_played_at
+                 FROM smart_playlists sp
+                 WHERE sp.owner_id = ? AND sp.last_played_at IS NOT NULL
+                 ORDER BY sp.last_played_at DESC",
+            )
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?;
+
+            // Build a merged list of (last_played, source) sorted by last_played DESC
+            enum ContinueItem {
+                Album(String, String),         // (album_id, last_played)
+                Playlist(String, String),      // (playlist_id, last_played)
+                SmartPlaylist(String, String), // (smart_playlist_id, last_played)
+            }
+
+            let mut items: Vec<ContinueItem> = Vec::new();
+
+            // Add albums with their played timestamps
+            // We need album play timestamps - get them from scrobbles
+            if !recent_result.albums.is_empty() {
+                let album_ids: Vec<&str> =
+                    recent_result.albums.iter().map(|a| a.id.as_str()).collect();
+                let placeholders: Vec<&str> = album_ids.iter().map(|_| "?").collect();
+                let query = format!(
+                    "SELECT a.id, MAX(sc.played_at) as last_played
+                     FROM albums a
+                     INNER JOIN songs s ON s.album_id = a.id
+                     INNER JOIN scrobbles sc ON sc.song_id = s.id
+                     WHERE sc.user_id = ? AND a.id IN ({})
+                     GROUP BY a.id",
+                    placeholders.join(",")
+                );
+                let mut q = sqlx::query_as::<_, (String, String)>(&query);
+                q = q.bind(user_id);
+                for id in &album_ids {
+                    q = q.bind(id);
+                }
+                let played_map: std::collections::HashMap<String, String> =
+                    q.fetch_all(pool).await?.into_iter().collect();
+
+                for album in &recent_result.albums {
+                    if let Some(played) = played_map.get(&album.id) {
+                        items.push(ContinueItem::Album(album.id.clone(), played.clone()));
+                    }
+                }
+            }
+
+            for (id, last_played) in &regular_playlists {
+                items.push(ContinueItem::Playlist(id.clone(), last_played.clone()));
+            }
+
+            for (id, last_played) in &smart_playlists {
+                items.push(ContinueItem::SmartPlaylist(id.clone(), last_played.clone()));
+            }
+
+            // Sort by last_played descending
+            items.sort_by(|a, b| {
+                let ts_a = match a {
+                    ContinueItem::Album(_, ts)
+                    | ContinueItem::Playlist(_, ts)
+                    | ContinueItem::SmartPlaylist(_, ts) => ts,
+                };
+                let ts_b = match b {
+                    ContinueItem::Album(_, ts)
+                    | ContinueItem::Playlist(_, ts)
+                    | ContinueItem::SmartPlaylist(_, ts) => ts,
+                };
+                ts_b.cmp(ts_a)
+            });
+
+            // Fetch songs for each item in order
+            let mut songs = Vec::new();
+            for item in &items {
+                match item {
+                    ContinueItem::Album(album_id, _) => {
+                        let album_songs =
+                            queries::get_songs_by_album_for_user(pool, album_id, user_id).await?;
+                        songs.extend(album_songs);
+                    }
+                    ContinueItem::Playlist(playlist_id, _) => {
+                        let playlist_songs =
+                            queries::get_playlist_songs(pool, playlist_id, user_id).await?;
+                        songs.extend(playlist_songs);
+                    }
+                    ContinueItem::SmartPlaylist(sp_id, _) => {
+                        let sp_songs =
+                            get_smart_playlist_songs_by_id(pool, sp_id, user_id, None, None)
+                                .await?;
+                        songs.extend(sp_songs);
+                    }
+                }
             }
             Ok(songs)
         }

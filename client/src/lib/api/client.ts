@@ -189,6 +189,19 @@ export class FerrotuneApiError extends Error {
   }
 }
 
+// Rate-limit network error toasts to avoid spam when offline
+const NETWORK_ERROR_TOAST_INTERVAL_MS = 10_000;
+let lastNetworkErrorToastTime = 0;
+
+function showNetworkErrorToast(message: string) {
+  // Suppress when the browser reports offline — we know the network is down
+  if (typeof navigator !== "undefined" && !navigator.onLine) return;
+  const now = Date.now();
+  if (now - lastNetworkErrorToastTime < NETWORK_ERROR_TOAST_INTERVAL_MS) return;
+  lastNetworkErrorToastTime = now;
+  toast.error(message);
+}
+
 /**
  * Get a user-friendly error message based on status code and error details
  */
@@ -325,6 +338,7 @@ export class FerrotuneClient {
       Partial<Omit<AlbumListParams, "type">> & {
         inlineImages?: "small" | "medium";
         since?: string;
+        seed?: number;
       },
   ): Promise<AlbumListResponse> {
     const endpoint = buildEndpoint("/ferrotune/albums", params);
@@ -335,6 +349,7 @@ export class FerrotuneClient {
       albumList2: {
         album: res.album,
         total: res.total ?? undefined,
+        seed: res.seed ?? undefined,
       },
     };
   }
@@ -824,7 +839,7 @@ export class FerrotuneClient {
       // Network error (offline, connection refused, etc.)
       const message = "Network error. Please check your connection.";
       if (!silent) {
-        toast.error(message);
+        showNetworkErrorToast(message);
       }
       throw new FerrotuneApiError(0, message);
     }
@@ -838,7 +853,13 @@ export class FerrotuneClient {
       );
 
       if (!silent) {
-        toast.error(userMessage);
+        // Rate-limit server unavailability errors (502/503/504) the same as
+        // network errors to avoid toast spam during connectivity issues
+        if (response.status >= 502 && response.status <= 504) {
+          showNetworkErrorToast(userMessage);
+        } else {
+          toast.error(userMessage);
+        }
       }
 
       throw new FerrotuneApiError(

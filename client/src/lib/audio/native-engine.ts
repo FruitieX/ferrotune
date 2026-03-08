@@ -504,6 +504,7 @@ export async function nativeGetState(): Promise<{
   durationSeconds: number;
   volume: number;
   queueIndex: number;
+  trackId?: string;
 }> {
   const api = await getNativeApi();
   const nativeState = await api.getState();
@@ -514,6 +515,7 @@ export async function nativeGetState(): Promise<{
     durationSeconds: nativeState.durationMs / 1000,
     volume: nativeState.volume,
     queueIndex: nativeState.queueIndex,
+    trackId: nativeState.track?.id,
   };
 }
 

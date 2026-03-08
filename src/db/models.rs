@@ -443,6 +443,8 @@ pub enum QueueSourceType {
     SongRadio,
     /// Album list - songs from albums matching a list type (newest, frequent, recent, random, etc.)
     AlbumList,
+    /// Continue listening - recently played albums and playlists merged by last played time
+    ContinueListening,
     #[default]
     Other,
 }
@@ -463,6 +465,7 @@ impl QueueSourceType {
             QueueSourceType::SmartPlaylist => "smartPlaylist",
             QueueSourceType::SongRadio => "songRadio",
             QueueSourceType::AlbumList => "albumList",
+            QueueSourceType::ContinueListening => "continueListening",
             QueueSourceType::Other => "other",
         }
     }
@@ -486,6 +489,7 @@ impl std::str::FromStr for QueueSourceType {
             "directoryFlat" => QueueSourceType::DirectoryFlat,
             "songRadio" => QueueSourceType::SongRadio,
             "albumList" => QueueSourceType::AlbumList,
+            "continueListening" => QueueSourceType::ContinueListening,
             _ => QueueSourceType::Other,
         })
     }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSetAtom } from "jotai";
@@ -234,6 +234,8 @@ export default function HomePage() {
   const isMounted = useIsMounted();
   const [searchQuery, setSearchQuery] = useState("");
   const isSmallScreen = useIsSmallScreen();
+  // Store the random seed from the first Discover page for consistent pagination
+  const discoverSeedRef = useRef<number | undefined>(undefined);
 
   // Responsive item dimensions
   const itemWidth = isSmallScreen ? 130 : 180;
@@ -310,10 +312,16 @@ export default function HomePage() {
         size: pageSize,
         offset: pageParam,
         inlineImages: "medium",
+        seed: discoverSeedRef.current,
       });
+      // Store the seed from the first page for consistent pagination
+      if (pageParam === 0 && response.albumList2.seed != null) {
+        discoverSeedRef.current = response.albumList2.seed;
+      }
       return {
         albums: response.albumList2.album ?? [],
         total: response.albumList2.total,
+        seed: response.albumList2.seed,
         nextOffset: pageParam + pageSize,
         pageSize,
       };
@@ -653,10 +661,20 @@ export default function HomePage() {
             hasItems={continueListeningItems.length > 0}
             isLoading={loadingRecent || loadingRecentPlaylists}
             onPlayAll={() =>
-              handlePlayAllAlbums("recent", "Continue Listening")
+              startQueue({
+                sourceType: "continueListening",
+                sourceName: "Continue Listening",
+                startIndex: 0,
+                shuffle: false,
+              })
             }
             onShuffleAll={() =>
-              handleShuffleAllAlbums("recent", "Continue Listening")
+              startQueue({
+                sourceType: "continueListening",
+                sourceName: "Continue Listening",
+                startIndex: 0,
+                shuffle: true,
+              })
             }
           />
           <VirtualizedHorizontalScroll<ContinueListeningItem>
@@ -723,12 +741,12 @@ export default function HomePage() {
           onPlayAlbum={handlePlayAlbum}
           onPlayAll={() =>
             handlePlayAllAlbums("random", "Discover", {
-              albumIds: randomAlbums.map((a) => a.id),
+              seed: discoverSeedRef.current,
             })
           }
           onShuffleAll={() =>
             handleShuffleAllAlbums("random", "Discover", {
-              albumIds: randomAlbums.map((a) => a.id),
+              seed: discoverSeedRef.current,
             })
           }
           itemWidth={itemWidth}

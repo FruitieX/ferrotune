@@ -5,6 +5,9 @@ use crate::api::common::utils::format_datetime_iso_ms;
 use crate::api::subsonic::inline_thumbnails::get_album_thumbnails_base64;
 use crate::db::models::ItemType;
 use crate::thumbnails::ThumbnailSize;
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use ts_rs::TS;
@@ -29,6 +32,8 @@ pub enum AlbumListType {
 pub struct AlbumListResult {
     pub albums: Vec<AlbumResponse>,
     pub total: Option<i64>,
+    /// Random seed used for the Random list type (for reproducible ordering)
+    pub seed: Option<i64>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -43,24 +48,69 @@ pub async fn get_album_list_logic(
     genre: Option<String>,
     inline_image_size: Option<ThumbnailSize>,
     since: Option<String>,
+    seed: Option<i64>,
 ) -> crate::error::Result<AlbumListResult> {
     let size = size.min(500);
+    let mut result_seed: Option<i64> = None;
 
     let albums: Vec<crate::db::models::Album> = match list_type {
         AlbumListType::Random => {
-            sqlx::query_as(
-                "SELECT a.*, ar.name as artist_name 
-                 FROM albums a 
-                 INNER JOIN artists ar ON a.artist_id = ar.id 
-                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)
-                 ORDER BY RANDOM() 
-                 LIMIT ? OFFSET ?"
+            // Use Rust-side Fisher-Yates shuffle with a deterministic seed
+            // so that pagination returns consistent results and the client
+            // can reproduce the same order for queue materialization.
+            let actual_seed = seed.unwrap_or_else(rand::random::<i64>);
+            result_seed = Some(actual_seed);
+
+            // Fetch all matching album IDs (lightweight query)
+            let all_ids: Vec<(String,)> = sqlx::query_as(
+                "SELECT a.id
+                 FROM albums a
+                 INNER JOIN artists ar ON a.artist_id = ar.id
+                 WHERE EXISTS (SELECT 1 FROM songs s JOIN music_folders mf ON s.music_folder_id = mf.id JOIN user_library_access ula ON ula.music_folder_id = mf.id WHERE s.album_id = a.id AND mf.enabled = 1 AND ula.user_id = ?)"
             )
             .bind(user_id)
-            .bind(size)
-            .bind(offset)
             .fetch_all(pool)
-            .await?
+            .await?;
+
+            let mut ids: Vec<String> = all_ids.into_iter().map(|(id,)| id).collect();
+
+            // Shuffle deterministically using the seed
+            let mut rng = StdRng::seed_from_u64(actual_seed as u64);
+            ids.shuffle(&mut rng);
+
+            // Slice for pagination
+            let start = (offset as usize).min(ids.len());
+            let end = (start + size as usize).min(ids.len());
+            let page_ids = &ids[start..end];
+
+            if page_ids.is_empty() {
+                Vec::new()
+            } else {
+                // Fetch full album data for the page IDs
+                let placeholders: Vec<&str> = page_ids.iter().map(|_| "?").collect();
+                let query = format!(
+                    "SELECT a.*, ar.name as artist_name
+                     FROM albums a
+                     INNER JOIN artists ar ON a.artist_id = ar.id
+                     WHERE a.id IN ({})",
+                    placeholders.join(",")
+                );
+                let mut q = sqlx::query_as::<_, crate::db::models::Album>(&query);
+                for id in page_ids {
+                    q = q.bind(id);
+                }
+                let albums = q.fetch_all(pool).await?;
+
+                // Reorder to match the shuffled order
+                let order_map: std::collections::HashMap<&str, usize> = page_ids
+                    .iter()
+                    .enumerate()
+                    .map(|(i, id)| (id.as_str(), i))
+                    .collect();
+                let mut sorted = albums;
+                sorted.sort_by_key(|a| order_map.get(a.id.as_str()).copied().unwrap_or(usize::MAX));
+                sorted
+            }
         }
         AlbumListType::Newest => {
             sqlx::query_as(
@@ -132,6 +182,8 @@ pub async fn get_album_list_logic(
             // back to albums. This avoids the fan-out from joining songs and
             // scrobbles directly which produces many duplicate album rows
             // before DISTINCT can eliminate them.
+            // Require at least 2 distinct songs played from the album to filter
+            // out albums that only appeared due to playlist/radio playback.
             sqlx::query_as(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
@@ -144,6 +196,7 @@ pub async fn get_album_list_logic(
                      INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
                      WHERE sc.user_id = ? AND mf.enabled = 1 AND ula.user_id = ?
                      GROUP BY s.album_id
+                     HAVING COUNT(DISTINCT sc.song_id) >= 2
                      ORDER BY last_played DESC
                      LIMIT ? OFFSET ?
                  ) recent ON a.id = recent.album_id
@@ -312,12 +365,16 @@ pub async fn get_album_list_logic(
         }
         AlbumListType::Recent => {
             let count: (i64,) = sqlx::query_as(
-                "SELECT COUNT(DISTINCT s.album_id)
-                 FROM scrobbles sc
-                 INNER JOIN songs s ON sc.song_id = s.id
-                 INNER JOIN music_folders mf ON s.music_folder_id = mf.id
-                 INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-                 WHERE sc.user_id = ? AND mf.enabled = 1 AND ula.user_id = ?",
+                "SELECT COUNT(*) FROM (
+                     SELECT s.album_id
+                     FROM scrobbles sc
+                     INNER JOIN songs s ON sc.song_id = s.id
+                     INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+                     INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+                     WHERE sc.user_id = ? AND mf.enabled = 1 AND ula.user_id = ?
+                     GROUP BY s.album_id
+                     HAVING COUNT(DISTINCT sc.song_id) >= 2
+                 )",
             )
             .bind(user_id)
             .bind(user_id)
@@ -392,6 +449,7 @@ pub async fn get_album_list_logic(
     Ok(AlbumListResult {
         albums: album_responses,
         total,
+        seed: result_seed,
     })
 }
 
