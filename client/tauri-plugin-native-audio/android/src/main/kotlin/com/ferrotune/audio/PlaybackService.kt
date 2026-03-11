@@ -463,6 +463,7 @@ class PlaybackService : MediaSessionService() {
         autonomousMode = false
         handler.removeCallbacks(positionSyncRunnable)
         handler.removeCallbacks(preApplyGainRunnable)
+        replayGainProcessor.clearPendingGain()
         emitStateChange()
     }
 
@@ -505,6 +506,7 @@ class PlaybackService : MediaSessionService() {
         }
         // Reschedule pre-apply since position changed
         hasPreAppliedNextGain = false
+        replayGainProcessor.clearPendingGain()
         scheduleReplayGainPreApply()
     }
 
@@ -1158,11 +1160,11 @@ class PlaybackService : MediaSessionService() {
      * Pre-apply the next track's ReplayGain when approaching the end of the current track.
      * This prevents a brief volume spike during gapless transitions, because ExoPlayer
      * pre-decodes audio from the next track before onMediaItemTransition fires.
-     * By setting the gain early, samples flowing through ReplayGainAudioProcessor
-     * will already have the correct gain applied.
+     * Instead of changing the gain immediately (which would affect the current track's
+     * remaining audio), we set a pending gain on the processor that activates at the
+     * exact PCM boundary between tracks (via onQueueEndOfStream/onFlush).
      *
-     * Called by a scheduled handler callback at precisely (duration - REPLAYGAIN_PRE_APPLY_LEAD_MS)
-     * rather than polling, for accurate and reliable timing.
+     * Called by a scheduled handler callback before the current track ends.
      */
     private fun preApplyNextTrackGain() {
         if (hasPreAppliedNextGain) return
@@ -1180,11 +1182,9 @@ class PlaybackService : MediaSessionService() {
         }
 
         hasPreAppliedNextGain = true
-        Log.d(TAG, "Pre-applying next track ReplayGain: ${String.format("%.2f", gainDb)} dB " +
+        Log.d(TAG, "Pre-applying next track ReplayGain (pending): ${String.format("%.2f", gainDb)} dB " +
             "(nextExoIndex=$nextExoIndex)")
-        replayGainLinear = if (gainDb == 0f) 1f else 10f.pow(gainDb / 20f)
-        replayGainProcessor.setGainDb(gainDb)
-        replayGainProcessor.resetPeakTracker()
+        replayGainProcessor.setPendingGainDb(gainDb)
     }
 
     private val preApplyGainRunnable = Runnable { preApplyNextTrackGain() }
@@ -1215,6 +1215,8 @@ class PlaybackService : MediaSessionService() {
     private fun applyTrackReplayGain(track: TrackInfo?) {
         // Reset pre-apply flag so it can trigger again for the next transition
         hasPreAppliedNextGain = false
+        // Clear any pending gain from a previous pre-apply (e.g., manual skip)
+        replayGainProcessor.clearPendingGain()
         // In autonomous mode, recompute gain fresh from QueueSong + current playbackSettings
         // instead of relying on the stale TrackInfo.replayGainDb baked at queue-creation time.
         val exoIndex = player.currentMediaItemIndex

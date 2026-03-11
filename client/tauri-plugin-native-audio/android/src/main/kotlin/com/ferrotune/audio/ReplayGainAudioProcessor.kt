@@ -45,6 +45,13 @@ class ReplayGainAudioProcessor : BaseAudioProcessor() {
     private var hasLoggedFirstInput = false
     private var hasLoggedConfigure = false
 
+    // Pending gain for the next track, activated at the exact audio boundary
+    // via onQueueEndOfStream() / onFlush() instead of a time-based pre-apply.
+    @Volatile
+    private var pendingGainDb: Float? = null
+    @Volatile
+    private var pendingGainLinear: Float? = null
+
     /**
      * Set the gain in decibels. Can be positive (boost) or negative (attenuate).
      * Thread-safe: can be called from any thread while audio is processing.
@@ -72,6 +79,44 @@ class ReplayGainAudioProcessor : BaseAudioProcessor() {
         lastClipReportTime = 0
     }
 
+    /**
+     * Set a pending gain for the next track. The gain will NOT be applied immediately;
+     * instead it is activated at the exact PCM boundary between tracks when ExoPlayer
+     * calls onQueueEndOfStream() or onFlush().
+     * Thread-safe: can be called from any thread.
+     */
+    fun setPendingGainDb(db: Float) {
+        pendingGainDb = db
+        pendingGainLinear = if (db == 0f) 1f else 10f.pow(db / 20f)
+        Log.d(TAG, "setPendingGainDb(${String.format("%.2f", db)}) -> pending linear=${String.format("%.4f", pendingGainLinear)}")
+    }
+
+    /**
+     * Clear any pending gain (e.g., on seek or manual track change).
+     */
+    fun clearPendingGain() {
+        if (pendingGainDb != null) {
+            Log.d(TAG, "clearPendingGain()")
+            pendingGainDb = null
+            pendingGainLinear = null
+        }
+    }
+
+    /**
+     * Activate the pending gain, making it the current active gain.
+     * Called at the exact audio boundary between tracks.
+     */
+    private fun activatePendingGain() {
+        val pDb = pendingGainDb ?: return
+        val pLinear = pendingGainLinear ?: return
+        Log.d(TAG, "activatePendingGain: ${String.format("%.2f", pDb)} dB -> linear=${String.format("%.4f", pLinear)}")
+        gainDb = pDb
+        gainLinear = pLinear
+        pendingGainDb = null
+        pendingGainLinear = null
+        resetPeakTracker()
+    }
+
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         if (!hasLoggedConfigure) {
             hasLoggedConfigure = true
@@ -93,6 +138,21 @@ class ReplayGainAudioProcessor : BaseAudioProcessor() {
         // active chain until the next format change. Returning true unconditionally
         // eliminates any timing/visibility issues. The cost of 1x gain multiply is negligible.
         return true
+    }
+
+    override fun onQueueEndOfStream() {
+        // Called at the exact PCM boundary when the current track's audio stream ends
+        // during gapless playback. Activate pending gain so the next track's samples
+        // are processed with the correct gain from the very first sample.
+        activatePendingGain()
+        super.onQueueEndOfStream()
+    }
+
+    override fun onFlush() {
+        // Called on format changes between tracks. Serves as a backup activation
+        // point for transitions where onQueueEndOfStream() may not fire.
+        activatePendingGain()
+        super.onFlush()
     }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
