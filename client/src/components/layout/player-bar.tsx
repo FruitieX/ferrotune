@@ -639,7 +639,10 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
       <Button
         variant="ghost"
         size="icon"
-        className={cn("hidden md:flex h-8 w-8", isShuffled && "text-primary")}
+        className={cn(
+          "hidden md:flex h-8 w-8",
+          isShuffled && "text-primary hover:text-primary",
+        )}
         onClick={toggleShuffle}
         aria-label="Shuffle"
       >
@@ -718,7 +721,7 @@ function PlaybackControls({ hasTrack, playbackState }: PlaybackControlsProps) {
         size="icon"
         className={cn(
           "hidden md:flex h-8 w-8",
-          repeatMode !== "off" && "text-primary",
+          repeatMode !== "off" && "text-primary hover:text-primary",
         )}
         onClick={cycleRepeatMode}
         aria-label="Repeat"
@@ -974,7 +977,10 @@ function MobileMoreMenu() {
           <Button
             variant="ghost"
             size="sm"
-            className={cn("justify-start gap-2", isShuffled && "text-primary")}
+            className={cn(
+              "justify-start gap-2",
+              isShuffled && "text-primary hover:text-primary",
+            )}
             onClick={toggleShuffle}
           >
             <Shuffle className="w-4 h-4" />
@@ -986,7 +992,7 @@ function MobileMoreMenu() {
             size="sm"
             className={cn(
               "justify-start gap-2",
-              repeatMode !== "off" && "text-primary",
+              repeatMode !== "off" && "text-primary hover:text-primary",
             )}
             onClick={cycleRepeatMode}
           >

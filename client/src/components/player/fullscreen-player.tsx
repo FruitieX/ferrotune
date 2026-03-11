@@ -880,7 +880,8 @@ export function FullscreenPlayer() {
                     size="icon"
                     className={cn(
                       "rounded-full",
-                      queueState?.isShuffled && "text-primary",
+                      queueState?.isShuffled &&
+                        "text-primary hover:text-primary",
                     )}
                     onClick={() => toggleShuffle()}
                   >
@@ -922,7 +923,7 @@ export function FullscreenPlayer() {
                     size="icon"
                     className={cn(
                       "rounded-full",
-                      repeatMode !== "off" && "text-primary",
+                      repeatMode !== "off" && "text-primary hover:text-primary",
                     )}
                     onClick={cycleRepeat}
                   >
