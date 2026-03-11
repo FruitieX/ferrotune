@@ -2,12 +2,14 @@ use crate::api::common::browse::{get_song_play_stats, song_to_response_with_stat
 use crate::api::common::models::{AlbumResponse, SongResponse};
 use crate::api::common::starring::{get_ratings_map, get_starred_map};
 use crate::api::common::utils::format_datetime_iso_ms;
-use crate::api::subsonic::inline_thumbnails::get_album_thumbnails_base64;
+use crate::api::subsonic::inline_thumbnails::{
+    get_album_thumbnails_base64, get_song_thumbnails_base64,
+};
 use crate::db::models::ItemType;
 use crate::thumbnails::ThumbnailSize;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use ts_rs::TS;
@@ -58,7 +60,9 @@ pub async fn get_album_list_logic(
             // Use Rust-side Fisher-Yates shuffle with a deterministic seed
             // so that pagination returns consistent results and the client
             // can reproduce the same order for queue materialization.
-            let actual_seed = seed.unwrap_or_else(rand::random::<i64>);
+            // Constrain seed to JS Number.MAX_SAFE_INTEGER to avoid precision loss during JSON round-trip
+            let actual_seed =
+                seed.unwrap_or_else(|| rand::thread_rng().gen_range(0..=9_007_199_254_740_991i64));
             result_seed = Some(actual_seed);
 
             // Fetch all matching album IDs (lightweight query)
@@ -587,4 +591,137 @@ pub async fn get_songs_by_genre_logic(
     }
 
     Ok(song_responses)
+}
+
+pub struct ForgottenFavoritesResult {
+    pub songs: Vec<SongResponse>,
+    pub total: i64,
+    pub seed: i64,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn get_forgotten_favorites_logic(
+    pool: &SqlitePool,
+    user_id: i64,
+    size: i64,
+    offset: i64,
+    min_plays: i64,
+    not_played_since_days: i64,
+    inline_image_size: Option<ThumbnailSize>,
+    seed: Option<i64>,
+) -> crate::error::Result<ForgottenFavoritesResult> {
+    let size = size.min(1000);
+    // Constrain seed to JS Number.MAX_SAFE_INTEGER to avoid precision loss during JSON round-trip
+    let actual_seed =
+        seed.unwrap_or_else(|| rand::thread_rng().gen_range(0..=9_007_199_254_740_991i64));
+
+    // Find songs with high play counts that haven't been played recently
+    let since_modifier = format!("-{} days", not_played_since_days);
+    let qualifying: Vec<(String,)> = sqlx::query_as(
+        "SELECT sc.song_id
+         FROM scrobbles sc
+         INNER JOIN songs s ON sc.song_id = s.id
+         INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+         INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id AND ula.user_id = ?
+         WHERE sc.user_id = ? AND sc.submission = 1 AND mf.enabled = 1
+           AND s.marked_for_deletion_at IS NULL
+         GROUP BY sc.song_id
+         HAVING SUM(sc.play_count) >= ?
+           AND MAX(sc.played_at) < datetime('now', ?)",
+    )
+    .bind(user_id)
+    .bind(user_id)
+    .bind(min_plays)
+    .bind(&since_modifier)
+    .fetch_all(pool)
+    .await?;
+
+    let total = qualifying.len() as i64;
+    let mut ids: Vec<String> = qualifying.into_iter().map(|(id,)| id).collect();
+
+    // Seeded shuffle for deterministic pagination with randomness per session
+    let mut rng = StdRng::seed_from_u64(actual_seed as u64);
+    ids.shuffle(&mut rng);
+
+    // Paginate
+    let start = (offset as usize).min(ids.len());
+    let end = (start + size as usize).min(ids.len());
+    let page_ids = &ids[start..end];
+
+    if page_ids.is_empty() {
+        return Ok(ForgottenFavoritesResult {
+            songs: Vec::new(),
+            total,
+            seed: actual_seed,
+        });
+    }
+
+    // Fetch full song data for the page
+    let placeholders: Vec<&str> = page_ids.iter().map(|_| "?").collect();
+    let query = format!(
+        "SELECT s.*, ar.name as artist_name, al.name as album_name
+         FROM songs s
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         WHERE s.id IN ({})",
+        placeholders.join(",")
+    );
+    let mut q = sqlx::query_as::<_, crate::db::models::Song>(&query);
+    for id in page_ids {
+        q = q.bind(id);
+    }
+    let songs = q.fetch_all(pool).await?;
+
+    // Reorder to match the shuffled order
+    let order_map: std::collections::HashMap<&str, usize> = page_ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| (id.as_str(), i))
+        .collect();
+    let mut songs = songs;
+    songs.sort_by_key(|s| order_map.get(s.id.as_str()).copied().unwrap_or(usize::MAX));
+
+    // Get starred/rating maps and play stats
+    let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
+    let starred_map = get_starred_map(pool, user_id, ItemType::Song, &song_ids).await?;
+    let ratings_map = get_ratings_map(pool, user_id, ItemType::Song, &song_ids).await?;
+
+    // Get inline thumbnails if requested
+    let thumbnails = if let Some(thumb_size) = inline_image_size {
+        let song_album_pairs: Vec<(String, Option<String>)> = songs
+            .iter()
+            .map(|s| (s.id.clone(), s.album_id.clone()))
+            .collect();
+        get_song_thumbnails_base64(pool, &song_album_pairs, thumb_size).await
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    let mut song_responses = Vec::new();
+    for song in songs {
+        let album = if let Some(album_id) = &song.album_id {
+            crate::db::queries::get_album_by_id(pool, album_id).await?
+        } else {
+            None
+        };
+        let play_stats = get_song_play_stats(pool, user_id, &song.id).await?;
+        let starred = starred_map.get(&song.id).cloned();
+        let user_rating = ratings_map.get(&song.id).copied();
+        let cover_art_data = thumbnails.get(&song.id).cloned();
+        song_responses.push(song_to_response_with_stats(
+            song,
+            album.as_ref(),
+            starred,
+            user_rating,
+            Some(play_stats),
+            None,
+            cover_art_data,
+        ));
+    }
+
+    Ok(ForgottenFavoritesResult {
+        songs: song_responses,
+        total,
+        seed: actual_seed,
+    })
 }

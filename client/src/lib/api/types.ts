@@ -107,6 +107,9 @@ export type { RandomSongsResponse } from "./generated";
 // getSongsByGenre response
 export type { SongsByGenreResponse } from "./generated";
 
+// getForgottenFavorites response
+export type { ForgottenFavoritesResponse } from "./generated";
+
 // search3 response
 export type { SearchResult3 } from "./generated";
 export type { SearchContent } from "./generated";

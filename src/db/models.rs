@@ -445,6 +445,8 @@ pub enum QueueSourceType {
     AlbumList,
     /// Continue listening - recently played albums and playlists merged by last played time
     ContinueListening,
+    /// Forgotten favorites - songs with high play counts not played recently
+    ForgottenFavorites,
     #[default]
     Other,
 }
@@ -466,6 +468,7 @@ impl QueueSourceType {
             QueueSourceType::SongRadio => "songRadio",
             QueueSourceType::AlbumList => "albumList",
             QueueSourceType::ContinueListening => "continueListening",
+            QueueSourceType::ForgottenFavorites => "forgottenFavorites",
             QueueSourceType::Other => "other",
         }
     }
@@ -490,6 +493,7 @@ impl std::str::FromStr for QueueSourceType {
             "songRadio" => QueueSourceType::SongRadio,
             "albumList" => QueueSourceType::AlbumList,
             "continueListening" => QueueSourceType::ContinueListening,
+            "forgottenFavorites" => QueueSourceType::ForgottenFavorites,
             _ => QueueSourceType::Other,
         })
     }

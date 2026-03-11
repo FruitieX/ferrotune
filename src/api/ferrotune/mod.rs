@@ -144,6 +144,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/albums", get(lists::get_album_list))
         .route("/ferrotune/songs/random", get(lists::get_random_songs))
         .route("/ferrotune/songs/by-genre", get(lists::get_songs_by_genre))
+        .route(
+            "/ferrotune/songs/forgotten-favorites",
+            get(lists::get_forgotten_favorites),
+        )
         // Search endpoint (migrated from OpenSubsonic)
         .route("/ferrotune/search", get(search::search))
         // Media endpoints (migrated from OpenSubsonic)

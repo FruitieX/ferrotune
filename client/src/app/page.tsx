@@ -14,6 +14,7 @@ import {
   Shuffle,
   Search,
   ListMusic,
+  Heart,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { startQueueAtom } from "@/lib/store/server-queue";
@@ -27,12 +28,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
+import { SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { MediaCard } from "@/components/shared/media-card";
 import { VirtualizedHorizontalScroll } from "@/components/shared/virtualized-horizontal-scroll";
 import { MobileProfileMenu } from "@/components/layout/mobile-profile-menu";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { formatDuration } from "@/lib/utils/format";
-import type { Album } from "@/lib/api/types";
+import type { Album, Song } from "@/lib/api/types";
 import type { RecentPlaylistEntry } from "@/lib/api/generated/RecentPlaylistEntry";
 
 // Maximum items per home page section to avoid tiny scrollbars
@@ -236,6 +238,8 @@ export default function HomePage() {
   const isSmallScreen = useIsSmallScreen();
   // Store the random seed from the first Discover page for consistent pagination
   const discoverSeedRef = useRef<number | undefined>(undefined);
+  // Store the random seed for Forgotten Favorites for consistent pagination
+  const forgottenFavSeedRef = useRef<number | undefined>(undefined);
 
   // Responsive item dimensions
   const itemWidth = isSmallScreen ? 130 : 180;
@@ -387,6 +391,45 @@ export default function HomePage() {
     enabled: isReady,
   });
 
+  // --- Forgotten Favorites: songs played a lot long ago but not recently ---
+  const {
+    data: forgottenFavData,
+    isLoading: loadingForgottenFav,
+    hasNextPage: hasNextForgottenFav,
+    isFetchingNextPage: fetchingNextForgottenFav,
+    fetchNextPage: fetchNextForgottenFav,
+  } = useInfiniteQuery({
+    queryKey: ["songs", "forgotten-favorites", "home"],
+    queryFn: async ({ pageParam }) => {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      const response = await client.getForgottenFavorites({
+        size: pageSize,
+        offset: pageParam,
+        inlineImages: "medium",
+        seed: forgottenFavSeedRef.current,
+      });
+      // Store the seed from the first page for consistent pagination
+      if (pageParam === 0) {
+        forgottenFavSeedRef.current = response.seed;
+      }
+      return {
+        songs: response.song ?? [],
+        total: response.total,
+        seed: response.seed,
+        nextOffset: pageParam + pageSize,
+        pageSize,
+      };
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (lastPage.nextOffset >= MAX_SECTION_ITEMS) return undefined;
+      const cap = Math.min(lastPage.total, MAX_SECTION_ITEMS);
+      return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
+    },
+    enabled: isReady,
+  });
+
   // --- Continue Listening: merge recent albums + playlists ---
   // Recent albums use infinite query for pagination
   const {
@@ -459,6 +502,12 @@ export default function HomePage() {
   const frequentTotal =
     frequentData?.pages[0]?.total != null
       ? Math.min(frequentData.pages[0].total, MAX_SECTION_ITEMS)
+      : undefined;
+  const forgottenFavSongs =
+    forgottenFavData?.pages.flatMap((p) => p.songs) ?? [];
+  const forgottenFavTotal =
+    forgottenFavData?.pages[0]?.total != null
+      ? Math.min(forgottenFavData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
   const recentAlbums = recentData?.pages.flatMap((p) => p.albums) ?? [];
   const recentAlbumTotal = recentData?.pages[0]?.total;
@@ -727,6 +776,62 @@ export default function HomePage() {
           itemGap={itemGap}
           paddingX={paddingX}
         />
+
+        {/* Forgotten Favorites */}
+        {(forgottenFavSongs.length > 0 || loadingForgottenFav) && (
+          <section className="space-y-2 sm:space-y-4">
+            <SectionHeader
+              title="Forgotten Favorites"
+              icon={Heart}
+              hasItems={forgottenFavSongs.length > 0}
+              isLoading={loadingForgottenFav}
+              onPlayAll={() =>
+                startQueue({
+                  sourceType: "forgottenFavorites",
+                  sourceName: "Forgotten Favorites",
+                  startIndex: 0,
+                  shuffle: false,
+                  filters: { seed: forgottenFavSeedRef.current },
+                })
+              }
+              onShuffleAll={() =>
+                startQueue({
+                  sourceType: "forgottenFavorites",
+                  sourceName: "Forgotten Favorites",
+                  startIndex: 0,
+                  shuffle: true,
+                  filters: { seed: forgottenFavSeedRef.current },
+                })
+              }
+            />
+            <VirtualizedHorizontalScroll<Song>
+              items={forgottenFavSongs}
+              totalCount={forgottenFavTotal}
+              isLoading={loadingForgottenFav}
+              itemWidth={itemWidth}
+              gap={itemGap}
+              paddingX={paddingX}
+              hasNextPage={hasNextForgottenFav}
+              isFetchingNextPage={fetchingNextForgottenFav}
+              fetchNextPage={fetchNextForgottenFav}
+              renderItem={(song, index) => (
+                <SongCard
+                  song={song}
+                  index={index}
+                  queueSource={{
+                    type: "forgottenFavorites",
+                    name: "Forgotten Favorites",
+                    filters: { seed: forgottenFavSeedRef.current },
+                  }}
+                  inlineImagesRequested
+                />
+              )}
+              renderSkeleton={() => <SongCardSkeleton />}
+              getItemKey={(song) => song.id}
+              emptyMessage="No forgotten favorites"
+            />
+          </section>
+        )}
 
         {/* Discover */}
         <AlbumSection

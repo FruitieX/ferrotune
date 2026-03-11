@@ -1570,33 +1570,36 @@ async fn materialize_queue_songs(
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
                 let seed = filters.and_then(|f| f.get("seed")).and_then(|v| v.as_i64());
-                // Use a large limit to fetch ALL matching albums for queue materialization
                 let result = crate::api::common::lists::get_album_list_logic(
-                    pool, user_id, list_type, 100_000, 0, None, None, None, None, since, seed,
+                    pool, user_id, list_type, 500, 0, None, None, None, None, since, seed,
                 )
                 .await?;
                 result.albums.into_iter().map(|a| a.id).collect()
             };
 
-            // Fetch songs for each album
+            // Fetch songs for each album, capping total at 1000
             let mut songs = Vec::new();
             for album_id in &album_ids {
+                if songs.len() >= 1000 {
+                    break;
+                }
                 let album_songs =
                     queries::get_songs_by_album_for_user(pool, album_id, user_id).await?;
                 songs.extend(album_songs);
             }
+            songs.truncate(1000);
             Ok(songs)
         }
         QueueSourceType::ContinueListening => {
             // Materialize recently played albums and playlists merged by last played time.
             // For each item, fetch songs in order (album track order / playlist order).
 
-            // Fetch recently played albums (no limit)
+            // Fetch recently played albums
             let recent_result = crate::api::common::lists::get_album_list_logic(
                 pool,
                 user_id,
                 crate::api::common::lists::AlbumListType::Recent,
-                100_000,
+                500,
                 0,
                 None,
                 None,
@@ -1695,9 +1698,12 @@ async fn materialize_queue_songs(
                 ts_b.cmp(ts_a)
             });
 
-            // Fetch songs for each item in order
+            // Fetch songs for each item in order, capping total at 1000
             let mut songs = Vec::new();
             for item in &items {
+                if songs.len() >= 1000 {
+                    break;
+                }
                 match item {
                     ContinueItem::Album(album_id, _) => {
                         let album_songs =
@@ -1717,7 +1723,35 @@ async fn materialize_queue_songs(
                     }
                 }
             }
+            songs.truncate(1000);
             Ok(songs)
+        }
+        QueueSourceType::ForgottenFavorites => {
+            let seed = filters.and_then(|f| f.get("seed")).and_then(|v| v.as_i64());
+            let min_plays = filters
+                .and_then(|f| f.get("minPlays"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(10);
+            let not_played_since_days = filters
+                .and_then(|f| f.get("notPlayedSinceDays"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(90);
+
+            let result = crate::api::common::lists::get_forgotten_favorites_logic(
+                pool,
+                user_id,
+                1000,
+                0,
+                min_plays,
+                not_played_since_days,
+                None,
+                seed,
+            )
+            .await?;
+
+            // Re-fetch as Song models in the same shuffled order
+            let song_ids: Vec<String> = result.songs.iter().map(|s| s.id.clone()).collect();
+            Ok(queries::get_songs_by_ids_for_user(pool, &song_ids, user_id).await?)
         }
         QueueSourceType::Other => {
             // For "other" source with no song IDs, treat as library

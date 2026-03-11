@@ -5,7 +5,8 @@
 
 pub use crate::api::common::lists::AlbumListType;
 use crate::api::common::lists::{
-    get_album_list_logic, get_random_songs_logic, get_songs_by_genre_logic,
+    get_album_list_logic, get_forgotten_favorites_logic, get_random_songs_logic,
+    get_songs_by_genre_logic,
 };
 use crate::api::common::models::{AlbumResponse, SongResponse};
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
@@ -203,4 +204,79 @@ pub async fn get_songs_by_genre(
     .await?;
 
     Ok(Json(FerrotuneSongsByGenreResponse { song: songs }))
+}
+
+// ============================================================================
+// Forgotten Favorites Endpoint
+// ============================================================================
+
+/// Query params for forgotten favorites
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgottenFavoritesParams {
+    /// Number of songs to return (default 50)
+    pub size: Option<i64>,
+    /// Offset for pagination (default 0)
+    pub offset: Option<i64>,
+    /// Random seed for reproducible ordering across pagination
+    #[serde(default)]
+    pub seed: Option<i64>,
+    /// Minimum total play count threshold (default 10)
+    pub min_plays: Option<i64>,
+    /// Days since last play to qualify as "forgotten" (default 90)
+    pub not_played_since_days: Option<i64>,
+    /// Include inline cover art thumbnails (small or medium)
+    pub inline_images: Option<String>,
+}
+
+/// Response for forgotten favorites
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ForgottenFavoritesResponse {
+    pub song: Vec<SongResponse>,
+    /// Total number of qualifying songs
+    #[ts(type = "number")]
+    pub total: i64,
+    /// Random seed used for ordering (pass back for pagination)
+    #[ts(type = "number")]
+    pub seed: i64,
+}
+
+/// GET /ferrotune/songs/forgotten-favorites - Get songs the user used to play a lot but hasn't listened to recently
+pub async fn get_forgotten_favorites(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ForgottenFavoritesParams>,
+) -> FerrotuneApiResult<Json<ForgottenFavoritesResponse>> {
+    use crate::thumbnails::ThumbnailSize;
+
+    let size = params.size.unwrap_or(50).min(500);
+    let offset = params.offset.unwrap_or(0);
+    let min_plays = params.min_plays.unwrap_or(10);
+    let not_played_since_days = params.not_played_since_days.unwrap_or(90);
+
+    let inline_size: Option<ThumbnailSize> = match params.inline_images.as_deref() {
+        Some("small") | Some("s") => Some(ThumbnailSize::Small),
+        Some("medium") | Some("m") => Some(ThumbnailSize::Medium),
+        _ => None,
+    };
+
+    let result = get_forgotten_favorites_logic(
+        &state.pool,
+        user.user_id,
+        size,
+        offset,
+        min_plays,
+        not_played_since_days,
+        inline_size,
+        params.seed,
+    )
+    .await?;
+
+    Ok(Json(ForgottenFavoritesResponse {
+        song: result.songs,
+        total: result.total,
+        seed: result.seed,
+    }))
 }

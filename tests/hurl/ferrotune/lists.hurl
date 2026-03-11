@@ -106,3 +106,37 @@ jsonpath "$.song" isCollection
 # Unauthenticated request should fail
 GET {{base_url}}/ferrotune/songs/by-genre?genre=test
 HTTP 401
+
+# ============================================================================
+# GET /ferrotune/songs/forgotten-favorites
+# ============================================================================
+
+# Get forgotten favorites with default params (returns 200 even if empty)
+GET {{base_url}}/ferrotune/songs/forgotten-favorites
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.song" isCollection
+jsonpath "$.total" isInteger
+jsonpath "$.seed" isInteger
+
+# Get forgotten favorites with explicit params
+GET {{base_url}}/ferrotune/songs/forgotten-favorites?size=5&minPlays=1&notPlayedSinceDays=1
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.song" isCollection
+jsonpath "$.total" isInteger
+jsonpath "$.seed" isInteger
+
+# Pagination with seed for consistent ordering
+GET {{base_url}}/ferrotune/songs/forgotten-favorites?size=5&offset=0&seed=12345
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.song" isCollection
+jsonpath "$.seed" == 12345
+
+# Unauthenticated request should fail
+GET {{base_url}}/ferrotune/songs/forgotten-favorites
+HTTP 401
