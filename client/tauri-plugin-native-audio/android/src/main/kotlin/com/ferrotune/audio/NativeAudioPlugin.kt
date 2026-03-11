@@ -3,6 +3,7 @@ package com.ferrotune.audio
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.ServiceConnection
 import android.os.Handler
 import android.os.IBinder
@@ -141,6 +142,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
 
     companion object {
         private const val TAG = "NativeAudioPlugin"
+        private const val NATIVE_APP_RESUME_EVENT = "ferrotune:native-app-resume"
     }
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -231,6 +233,46 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
             "document.documentElement.style.setProperty('--safe-area-bottom', '${safeAreaBottom}px');",
             null
         )
+    }
+
+    /**
+     * Force a WebView redraw after resume/config changes so Android does not
+     * wait for the next touch gesture before recompositing blurred layers.
+     */
+    private fun refreshWebView(dispatchResumeEvent: Boolean) {
+        val webView = webViewRef ?: return
+
+        webView.post {
+            applySafeAreaInsets(webView)
+            webView.requestLayout()
+            webView.invalidate()
+            activity.window.decorView.requestLayout()
+            activity.window.decorView.invalidate()
+
+            if (dispatchResumeEvent) {
+                webView.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('$NATIVE_APP_RESUME_EVENT'))",
+                    null
+                )
+                webView.postDelayed({
+                    webView.requestLayout()
+                    webView.invalidate()
+                    activity.window.decorView.requestLayout()
+                    activity.window.decorView.invalidate()
+                }, 32)
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        Log.d(TAG, "NativeAudioPlugin onResume")
+        refreshWebView(dispatchResumeEvent = true)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        refreshWebView(dispatchResumeEvent = false)
     }
 
     // Note: Plugin base class doesn't have onDestroy hook

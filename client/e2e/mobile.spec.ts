@@ -30,6 +30,37 @@ test.describe("Mobile Tests", () => {
     await expect(page.locator("h1:has-text('Home')").first()).toBeVisible();
   });
 
+  test("native resume repaint hook responds on normal screens", async ({
+    page,
+    server,
+  }) => {
+    await login(page, {
+      serverUrl: server.url,
+      username: server.username,
+      password: server.password,
+    });
+
+    const initialToken = await page.evaluate(
+      () => document.documentElement.dataset.lastResumeRepaintToken ?? "",
+    );
+
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent("ferrotune:native-app-resume"));
+    });
+
+    await page.waitForFunction(
+      (previousToken) =>
+        (document.documentElement.dataset.lastResumeRepaintToken ?? "") !==
+        previousToken,
+      initialToken,
+    );
+
+    await page.waitForFunction(
+      () => !document.documentElement.hasAttribute("data-app-resume-repaint"),
+    );
+    await expect(page.locator("h1:has-text('Home')").first()).toBeVisible();
+  });
+
   test("bottom navigation to library works", async ({
     authenticatedPage: page,
   }) => {

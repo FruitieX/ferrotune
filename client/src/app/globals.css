@@ -233,6 +233,9 @@
       "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
       "Noto Color Emoji";
   }
+  html[data-app-resume-repaint] body {
+    opacity: 0.9999;
+  }
 }
 
 /* Custom scrollbar */

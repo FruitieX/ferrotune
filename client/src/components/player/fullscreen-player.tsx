@@ -53,6 +53,7 @@ import {
 import { useStarred } from "@/lib/store/starred";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { formatDuration } from "@/lib/utils/format";
+import { appResumeRepaintEvent } from "@/lib/utils/app-resume-repaint";
 import { hasNativeAudio } from "@/lib/tauri";
 import { getClient } from "@/lib/api/client";
 import { SongDropdownMenu } from "@/components/browse/song-context-menu";
@@ -463,22 +464,18 @@ export function FullscreenPlayer() {
     };
   }, [isOpen, setIsOpen]);
 
-  // Force WebView repaint when resuming from background on Android.
-  // backdrop-filter GPU layers can go stale when the app is backgrounded,
-  // resulting in a black/grey screen until the user interacts.
+  // Nudge the motion layer when the app-wide resume repaint runs so the
+  // fullscreen compositor follows the shared Android redraw path as well.
   useEffect(() => {
     if (!isOpen) return;
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        // Nudge framer-motion values to trigger a repaint/recomposite
-        dragY.set(dragY.get());
-      }
+    const handleResumeRepaint = () => {
+      dragY.set(dragY.get());
     };
 
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener(appResumeRepaintEvent, handleResumeRepaint);
     return () =>
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener(appResumeRepaintEvent, handleResumeRepaint);
   }, [isOpen, dragY]);
 
   // Get cover art URL
