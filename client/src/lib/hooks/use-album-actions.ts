@@ -69,6 +69,7 @@ export function useAlbumActions(album: Album): UseAlbumActionsReturn {
       sourceId: album.id,
       sourceName: album.name,
       startIndex: 0,
+      shuffle: false,
     });
     toast.success(`Playing "${album.name}"`);
   };

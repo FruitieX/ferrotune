@@ -142,6 +142,7 @@ export default function SongsPage() {
         sourceType: "library",
         sourceName: "Library (selection)",
         songIds: ids,
+        shuffle: false,
       });
       clearSelection();
     }

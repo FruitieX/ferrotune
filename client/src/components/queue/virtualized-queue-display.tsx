@@ -188,7 +188,7 @@ function VirtualQueueItem({
               <>
                 {" · "}
                 <Link
-                  href={`/library/albums/details?id=${song.albumId}`}
+                  href={`/library/albums/details?id=${song.albumId}&songId=${song.id}`}
                   className="hover:underline hover:text-foreground transition-colors"
                   onClick={(e) => {
                     e.stopPropagation();

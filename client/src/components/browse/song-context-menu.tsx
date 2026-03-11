@@ -893,6 +893,7 @@ export function SongContextMenu({
                   setConfirmDeletionOpen,
                 }}
                 song={{
+                  id: song.id,
                   artistId: song.artistId,
                   albumId: song.albumId,
                 }}
@@ -1128,6 +1129,7 @@ export function SongDropdownMenu({
               setConfirmDeletionOpen,
             }}
             song={{
+              id: song.id,
               artistId: song.artistId,
               albumId: song.albumId,
             }}

@@ -415,6 +415,7 @@ export default function ReviewPage() {
       sourceId: artistId,
       sourceName: artistName,
       startIndex: 0,
+      shuffle: false,
     });
     toast.success(`Playing "${artistName}"`);
   };
@@ -425,6 +426,7 @@ export default function ReviewPage() {
       sourceId: albumId,
       sourceName: albumName,
       startIndex: 0,
+      shuffle: false,
     });
     toast.success(`Playing "${albumName}"`);
   };

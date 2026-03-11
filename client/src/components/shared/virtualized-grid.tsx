@@ -303,6 +303,8 @@ interface VirtualizedListProps<T> {
    * This is useful when the virtualized list is not at the top of the scroll container
    */
   autoScrollMargin?: boolean;
+  /** Index to scroll to after initial render */
+  scrollToIndex?: number;
 }
 
 export function VirtualizedList<T>({
@@ -321,6 +323,7 @@ export function VirtualizedList<T>({
   initialOffset = 0,
   onScrollChange,
   autoScrollMargin = false,
+  scrollToIndex,
 }: VirtualizedListProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
@@ -383,6 +386,23 @@ export function VirtualizedList<T>({
   });
 
   const virtualItems = virtualizer.getVirtualItems();
+
+  // Scroll to a specific index when requested
+  const hasScrolledRef = useRef(false);
+  useEffect(() => {
+    if (scrollToIndex == null) return;
+    if (scrollToIndex < 0 || scrollToIndex >= effectiveTotalCount) return;
+    if (hasScrolledRef.current) return;
+
+    // Use setTimeout to allow layout calculations (including scroll margin
+    // from ResizeObserver) to settle before scrolling
+    const timeoutId = setTimeout(() => {
+      hasScrolledRef.current = true;
+      virtualizer.scrollToIndex(scrollToIndex, { align: "center" });
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [scrollToIndex, effectiveTotalCount, virtualizer, scrollMargin]);
 
   // Ref to track last fetch to prevent duplicate calls
   const lastFetchedIndexRef = useRef<number>(-1);

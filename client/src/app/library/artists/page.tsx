@@ -133,6 +133,7 @@ export default function ArtistsPage() {
         sourceType: "library",
         sourceName: "Library",
         songIds: songs.map((s) => s.id),
+        shuffle: false,
       });
       clearSelection();
       toast.success(
@@ -202,6 +203,7 @@ export default function ArtistsPage() {
       sourceType: "artist",
       sourceId: artist.id,
       sourceName: artist.name,
+      shuffle: false,
     });
   };
 

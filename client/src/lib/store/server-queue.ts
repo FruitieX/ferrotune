@@ -217,9 +217,11 @@ export const startQueueAtom = atom(
     if (hasNativeAudio()) nativeRequestPlayback();
 
     try {
-      // Default to no shuffle when starting a new queue.
-      // Shuffle is only enabled when explicitly requested (e.g. shuffle button).
-      const shuffle = params.shuffle ?? false;
+      // Preserve current shuffle state when not explicitly specified.
+      // Play buttons pass shuffle: false, Shuffle buttons pass shuffle: true,
+      // and song clicks omit it to preserve the current setting.
+      const shuffle =
+        params.shuffle ?? get(serverQueueStateAtom)?.isShuffled ?? false;
 
       const response = await client.startQueue({
         sourceType: params.sourceType,

@@ -161,7 +161,7 @@ function NowPlayingInfo({ track, isEnded }: NowPlayingInfoProps) {
         </motion.div>
         <div className="min-w-0">
           <Link
-            href={`/library/albums/details?id=${track.albumId}`}
+            href={`/library/albums/details?id=${track.albumId}&songId=${track.id}`}
             className="block text-sm font-medium text-foreground truncate hover:underline"
           >
             {track.title}

@@ -67,6 +67,7 @@ export function usePlaylistSelection(playlists: Playlist[]) {
       sourceType: "playlist",
       sourceName: `${getSelectedPlaylists().length} playlists`,
       songIds: songs.map((s: Song) => s.id),
+      shuffle: false,
     });
     toast.success(
       `Playing ${songs.length} songs from ${getSelectedPlaylists().length} playlists`,

@@ -83,6 +83,7 @@ export function useArtistActions(artist: Artist): UseArtistActionsReturn {
       sourceId: artist.id,
       sourceName: artist.name,
       startIndex: 0,
+      shuffle: false,
     });
     toast.success(`Playing "${artist.name}"`);
   };

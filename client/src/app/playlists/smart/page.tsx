@@ -205,6 +205,7 @@ function SmartPlaylistPageContent() {
       sourceType: "smartPlaylist",
       sourceId: id,
       sourceName: smartPlaylist?.name,
+      shuffle: false,
       // Pass filter and sort options so server materializes with same order as displayed
       filters: debouncedFilter ? { filter: debouncedFilter } : undefined,
       sort:
@@ -259,6 +260,7 @@ function SmartPlaylistPageContent() {
       sourceType: "other",
       sourceName: `Selected from ${smartPlaylist?.name}`,
       songIds: selected.map((s) => s.id),
+      shuffle: false,
     });
     clearSelection();
   };

@@ -152,6 +152,7 @@ function ArtistDetailContent() {
         sourceId: id,
         sourceName: artistData?.name,
         startIndex: 0,
+        shuffle: false,
         filters: debouncedFilter.trim()
           ? { filter: debouncedFilter.trim() }
           : undefined,
@@ -195,6 +196,7 @@ function ArtistDetailContent() {
         sourceType: "other",
         sourceName: `${artistData?.name} (selection)`,
         songIds: selectedSongs.map((s) => s.id),
+        shuffle: false,
       });
       selection.clearSelection();
     }
@@ -206,6 +208,7 @@ function ArtistDetailContent() {
       sourceId: album.id,
       sourceName: album.name,
       startIndex: 0,
+      shuffle: false,
     });
   };
 

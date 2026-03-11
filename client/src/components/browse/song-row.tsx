@@ -174,6 +174,8 @@ interface SongRowProps {
    * Don't make separate cover art requests for songs missing inline data.
    */
   inlineImagesRequested?: boolean;
+  /** Whether this row should be visually highlighted (e.g. when linked from another page) */
+  isHighlighted?: boolean;
   className?: string;
 }
 
@@ -209,6 +211,7 @@ export function SongRow({
   onUnmatch,
   isCurrentQueuePosition,
   inlineImagesRequested = false,
+  isHighlighted = false,
   className,
 }: SongRowProps) {
   const currentSong = useAtomValue(currentSongAtom);
@@ -306,7 +309,7 @@ export function SongRow({
       {showArtist && showAlbum && <span className="shrink-0">•</span>}
       {showAlbum && (
         <Link
-          href={`/library/albums/details?id=${song.albumId}`}
+          href={`/library/albums/details?id=${song.albumId}&songId=${song.id}`}
           prefetch={false}
           className="hover:underline hover:text-foreground truncate"
           onClick={(e) => e.stopPropagation()}
@@ -323,7 +326,21 @@ export function SongRow({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       onClick={handleClick}
+      className="relative"
     >
+      {isHighlighted ? (
+        <motion.div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-10 rounded-md border-2 border-primary bg-primary/20"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: [0, 1, 1, 0] }}
+          transition={{
+            duration: 3,
+            ease: "easeOut",
+            times: [0, 0.08, 0.7, 1],
+          }}
+        />
+      ) : null}
       <MediaRow
         coverArt={showCover ? coverArtUrl : undefined}
         coverArtData={showCover ? song.coverArtData : undefined}
@@ -665,7 +682,7 @@ export function SongCard({
       title={song.title}
       titleIcon={defaultSongIcon}
       subtitleContent={subtitleContent}
-      href={`/library/albums/details?id=${song.albumId}`}
+      href={`/library/albums/details?id=${song.albumId}&songId=${song.id}`}
       colorSeed={song.album ?? undefined}
       coverType="song"
       onPlay={handlePlay}

@@ -136,6 +136,7 @@ export default function AlbumsPage() {
         sourceType: "library",
         sourceName: "Library",
         songIds: songs.map((s) => s.id),
+        shuffle: false,
       });
       clearSelection();
       toast.success(
@@ -203,6 +204,7 @@ export default function AlbumsPage() {
         sourceType: "album",
         sourceId: album.id,
         sourceName: album.name,
+        shuffle: false,
       });
     }
   };

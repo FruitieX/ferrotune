@@ -821,6 +821,7 @@ function PlaylistDetailContent() {
         sourceId: playlistId ?? undefined,
         sourceName: displayName,
         songIds: selected.map((s) => s.id),
+        shuffle: false,
       });
       clearAllSelection();
     }
@@ -832,6 +833,7 @@ function PlaylistDetailContent() {
         sourceType: "playlist",
         sourceId: playlistId ?? undefined,
         sourceName: displayName,
+        shuffle: false,
         filters: debouncedFilter.trim()
           ? { filter: debouncedFilter.trim() }
           : undefined,

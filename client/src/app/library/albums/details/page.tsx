@@ -58,6 +58,7 @@ import { cn } from "@/lib/utils";
 function AlbumDetailContent() {
   const searchParams = useSearchParams();
   const id = searchParams.get("id");
+  const songId = searchParams.get("songId");
   const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({
     redirectToLogin: true,
@@ -128,6 +129,11 @@ function AlbumDetailContent() {
   // Songs come directly from server response - already sorted and filtered
   const displaySongs = albumData?.song ?? [];
 
+  // Find highlighted song index from songId query param
+  const highlightedSongIndex = songId
+    ? displaySongs.findIndex((s) => s.id === songId)
+    : -1;
+
   // Multi-selection support
   const selection = useTrackSelection(displaySongs);
 
@@ -168,6 +174,7 @@ function AlbumDetailContent() {
         sourceId: id,
         sourceName: albumData?.name,
         startIndex: 0,
+        shuffle: false,
         filters: debouncedFilter.trim()
           ? { filter: debouncedFilter.trim() }
           : undefined,
@@ -211,6 +218,7 @@ function AlbumDetailContent() {
         sourceType: "other",
         sourceName: `${albumData?.name} (selection)`,
         songIds: selectedSongs.map((s) => s.id),
+        shuffle: false,
       });
       selection.clearSelection();
     }
@@ -444,6 +452,7 @@ function AlbumDetailContent() {
                     isSelected={selection.isSelected(song.id)}
                     isSelectionMode={selection.hasSelection}
                     onSelect={selection.handleSelect}
+                    isHighlighted={!!songId && song.id === songId}
                   />
                 )}
                 renderSkeleton={() => (
@@ -454,6 +463,10 @@ function AlbumDetailContent() {
                 )}
                 getItemKey={(song) => song.id}
                 estimateItemHeight={56}
+                scrollToIndex={
+                  highlightedSongIndex >= 0 ? highlightedSongIndex : undefined
+                }
+                autoScrollMargin
               />
             </>
           )

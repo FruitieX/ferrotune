@@ -524,6 +524,7 @@ export interface SongMenuItemsNavigationProps {
     setConfirmDeletionOpen?: (open: boolean) => void;
   };
   song: {
+    id: string;
     artistId: string;
     albumId?: string | null;
   };
@@ -558,7 +559,7 @@ export function SongMenuItemsNavigation({
           {
             icon: Disc,
             label: "Go to Album",
-            href: `/library/albums/details?id=${song.albumId}`,
+            href: `/library/albums/details?id=${song.albumId}&songId=${song.id}`,
           },
         )}
       {/* Mark for Editing, Rescan, and Mark for Deletion grouped together */}
