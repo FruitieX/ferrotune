@@ -315,8 +315,9 @@ export function MobileQueueSheet() {
               // Only use motion value during drag, otherwise let framer handle opacity
               opacity:
                 isDragging || isClosingViaGesture ? backdropOpacity : undefined,
-              // Disable pointer events during close animation
-              pointerEvents: closeAnimationComplete ? "none" : "auto",
+              // Disable pointer events during close animation and exit animation
+              pointerEvents:
+                closeAnimationComplete || !isOpen ? "none" : "auto",
             }}
             className="fixed inset-0 z-[60] bg-black/50"
             onClick={() => setIsOpen(false)}
@@ -342,7 +343,8 @@ export function MobileQueueSheet() {
             style={{
               x: dragX,
               opacity: sheetOpacity,
-              pointerEvents: closeAnimationComplete ? "none" : "auto",
+              pointerEvents:
+                closeAnimationComplete || !isOpen ? "none" : "auto",
             }}
             drag="x"
             dragConstraints={{ left: 0, right: 0 }}

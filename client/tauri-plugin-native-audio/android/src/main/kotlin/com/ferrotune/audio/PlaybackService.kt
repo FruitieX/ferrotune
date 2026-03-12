@@ -39,6 +39,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import java.util.concurrent.Executors
 import kotlin.math.pow
+import kotlinx.coroutines.CompletableDeferred
 
 /**
  * MediaSessionService for handling audio playback.
@@ -839,8 +840,12 @@ class PlaybackService : MediaSessionService() {
      * Toggle shuffle in autonomous mode.
      * Surgically updates surrounding tracks without interrupting the currently playing track.
      */
-    fun autonomousToggleShuffle(enabled: Boolean) {
-        if (!autonomousMode) return
+    fun autonomousToggleShuffle(enabled: Boolean): CompletableDeferred<Unit> {
+        val deferred = CompletableDeferred<Unit>()
+        if (!autonomousMode) {
+            deferred.complete(Unit)
+            return deferred
+        }
         Log.d(TAG, "autonomousToggleShuffle($enabled)")
         val currentPositionMs = player.currentPosition
         apiExecutor.execute {
@@ -857,11 +862,14 @@ class PlaybackService : MediaSessionService() {
                     eventEmitter?.invoke(AudioEvents.SHUFFLE_MODE_CHANGED, JSObject().apply {
                         put("enabled", enabled)
                     })
+                    deferred.complete(Unit)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to toggle shuffle", e)
+                deferred.completeExceptionally(e)
             }
         }
+        return deferred
     }
 
     /**
@@ -926,8 +934,10 @@ class PlaybackService : MediaSessionService() {
         queueOffset = loadedRangeStart
         queueIndex = targetIndex
         // Don't update currentTrack or emit track change — the same track is still playing
-
-        emitQueueStateChanged()
+        // Don't emit queue-state-changed here: the JS toggleShuffleAtom updates both
+        // serverQueueStateAtom and queueWindowAtom atomically after nativeToggleShuffle
+        // resolves. Emitting the event here would cause a transient mismatch where
+        // currentIndex points to a different song in the old window.
 
         Log.d(TAG, "Shuffle update: ${tracks.size} tracks, positions $loadedRangeStart..${loadedRangeEnd - 1}, " +
             "targetExoIndex=$targetExoIndex, serverIndex=$targetIndex")

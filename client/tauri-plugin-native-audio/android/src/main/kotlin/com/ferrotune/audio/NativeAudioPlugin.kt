@@ -808,7 +808,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                     invoke.reject("Service not available - try again")
                     return@launch
                 }
-                service.autonomousToggleShuffle(args.enabled)
+                service.autonomousToggleShuffle(args.enabled).await()
                 invoke.resolve()
             } catch (e: Exception) {
                 Log.e(TAG, "Error in toggleShuffle()", e)

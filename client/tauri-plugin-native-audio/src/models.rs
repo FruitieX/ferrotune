@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 
 /// Represents the current playback state
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-#[serde(rename_all = "camelCase")]
 pub enum PlaybackStatus {
     #[default]
     Idle,

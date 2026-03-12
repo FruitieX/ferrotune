@@ -525,16 +525,27 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
 
   const newShuffleState = !state.isShuffled;
 
-  // In autonomous mode, Kotlin handles server API + ExoPlayer queue update
+  // In autonomous mode, Kotlin handles server API + ExoPlayer queue update.
+  // nativeToggleShuffle only resolves after Kotlin finishes the server toggle
+  // and ExoPlayer queue update, so the queue window fetch returns consistent data.
   if (nativeAutonomousMode.value) {
     set(isQueueOperationPendingAtom, true);
     try {
       await nativeToggleShuffle(newShuffleState);
-      // State will be updated via queue-state-changed event from Kotlin.
-      // Also fetch the updated queue window so the JS UI reflects the new order.
+      // Kotlin has finished: fetch updated queue window for the UI.
+      // Update both atoms atomically to avoid a transient mismatch where
+      // currentIndex points to a different song in the old/new window,
+      // which would cause the audio effect to restart playback.
       const client = getClient();
       if (client) {
         const queueResponse = await client.getQueueCurrentWindow(20, "small");
+        set(serverQueueStateAtom, {
+          ...state,
+          isShuffled: queueResponse.isShuffled,
+          currentIndex: queueResponse.currentIndex,
+          totalCount: queueResponse.totalCount,
+          repeatMode: queueResponse.repeatMode as "off" | "all" | "one",
+        });
         set(queueWindowAtom, queueResponse.window);
       }
     } catch (error) {

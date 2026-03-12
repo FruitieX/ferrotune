@@ -2276,6 +2276,14 @@ export function useAudioEngineInit() {
       return;
     }
 
+    // In autonomous mode, Kotlin manages ExoPlayer's queue directly.
+    // Re-syncing from JS would conflict with Kotlin's queue management
+    // and can cause playback to restart unexpectedly.
+    if (nativeAutonomousMode.value) {
+      prevQueueWindowRef.current = queueWindow;
+      return;
+    }
+
     // Skip if the window update came from onTrackChange (auto-advance)
     if (suppressQueueWindowSync) {
       suppressQueueWindowSync = false;

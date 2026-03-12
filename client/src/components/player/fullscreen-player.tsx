@@ -699,13 +699,15 @@ export function FullscreenPlayer() {
                   >
                     <ChevronDown className="w-6 h-6" />
                   </Button>
-                  <div className="text-center">
+                  <div className="text-center min-w-0 flex-1 mx-2">
                     <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                      {isEnded ? "Queue Ended" : "Now Playing"}
+                      {isEnded ? "Queue Ended" : "Playing from"}
                     </p>
-                    <p className="text-sm font-medium">
-                      {(queueState?.currentIndex ?? 0) + 1} /{" "}
-                      {queueState?.totalCount ?? 0}
+                    <p className="text-sm font-medium truncate">
+                      {queueState?.source?.name ||
+                        (queueState?.source?.type === "library"
+                          ? "Library"
+                          : "Queue")}
                     </p>
                   </div>
                   <SongDropdownMenu
