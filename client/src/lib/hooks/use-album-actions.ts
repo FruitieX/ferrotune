@@ -9,6 +9,8 @@ import { getClient } from "@/lib/api/client";
 import { useStar } from "./use-star";
 import type { Album, Song } from "@/lib/api/types";
 
+type AlbumLike = Omit<Album, "played"> & { played?: string | null };
+
 interface UseAlbumActionsReturn {
   // Star state
   isStarred: boolean;
@@ -35,7 +37,7 @@ interface UseAlbumActionsReturn {
  * Hook encapsulating all album context menu actions.
  * Eliminates duplication between AlbumContextMenu and AlbumDropdownMenu.
  */
-export function useAlbumActions(album: Album): UseAlbumActionsReturn {
+export function useAlbumActions(album: AlbumLike): UseAlbumActionsReturn {
   const startQueue = useSetAtom(startQueueAtom);
   const addToQueue = useSetAtom(addToQueueAtom);
   const disabledSongs = useAtomValue(disabledSongsAtom);

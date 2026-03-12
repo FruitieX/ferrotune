@@ -34,10 +34,14 @@ interface ActionBarProps {
   children?: ReactNode;
   /** Content for mobile overflow menu - if provided, shows a mobile-only overflow button */
   mobileMenuContent?: ReactNode;
-  /** Filter input that should be visible on mobile (when mobileMenuContent hides the toolbar) */
+  /** Filter input that should be visible on mobile (when toolbar is hidden) */
   mobileFilter?: ReactNode;
-  /** Whether to show the shuffle button on mobile when mobileMenuContent is provided (default: false) */
+  /** Whether to show the shuffle button on mobile when compact layout is active (default: false) */
   showShuffleOnMobile?: boolean;
+  /** Whether to use compact mobile layout (hide toolbar/actions on mobile). Auto-enabled when mobileMenuContent is provided. */
+  compactMobile?: boolean;
+  /** Actions always visible on both mobile and desktop (e.g., entity context menu) */
+  alwaysVisibleChildren?: ReactNode;
 }
 
 export function ActionBar({
@@ -51,7 +55,10 @@ export function ActionBar({
   mobileMenuContent,
   mobileFilter,
   showShuffleOnMobile = false,
+  compactMobile: compactMobileProp = false,
+  alwaysVisibleChildren,
 }: ActionBarProps) {
+  const compactMobile = !!mobileMenuContent || compactMobileProp;
   return (
     <div
       className={cn(
@@ -72,16 +79,14 @@ export function ActionBar({
             <span className="hidden md:inline">Play</span>
           </Button>
         )}
-        {/* Shuffle button - hidden on mobile when mobileMenuContent is provided (unless showShuffleOnMobile) */}
+        {/* Shuffle button - hidden on mobile in compact layout (unless showShuffleOnMobile) */}
         {onShuffle && (
           <Button
             variant="outline"
             size="lg"
             className={cn(
               "rounded-full gap-2",
-              mobileMenuContent &&
-                !showShuffleOnMobile &&
-                "hidden md:inline-flex",
+              compactMobile && !showShuffleOnMobile && "hidden md:inline-flex",
             )}
             onClick={onShuffle}
             disabled={disablePlay}
@@ -91,38 +96,44 @@ export function ActionBar({
           </Button>
         )}
 
-        {/* Additional actions - hidden on mobile when mobileMenuContent is provided */}
+        {/* Additional actions - hidden on mobile in compact layout */}
         {actions && (
-          <div className={cn(mobileMenuContent && "hidden md:flex")}>
-            {actions}
-          </div>
+          <div className={cn(compactMobile && "hidden md:flex")}>{actions}</div>
         )}
 
-        {/* Spacer - hidden on mobile when mobileMenuContent is provided (filter takes over) */}
-        <div className={cn("flex-1", mobileMenuContent && "hidden md:block")} />
+        {/* Spacer - hidden on mobile in compact layout (filter takes over) */}
+        <div className={cn("flex-1", compactMobile && "hidden md:block")} />
 
-        {/* Toolbar (filter, sort, columns, view mode) - hidden on mobile when mobileMenuContent is provided */}
+        {/* Toolbar (filter, sort, columns, view mode) - hidden on mobile in compact layout */}
         {toolbar && (
-          <div className={cn(mobileMenuContent && "hidden md:flex")}>
-            {toolbar}
-          </div>
+          <div className={cn(compactMobile && "hidden md:flex")}>{toolbar}</div>
         )}
 
         {/* Desktop children (typically a More dropdown) */}
         {children && (
-          <div className={cn(mobileMenuContent && "hidden md:flex")}>
+          <div
+            className={cn(
+              "flex items-center",
+              compactMobile && "hidden md:flex",
+            )}
+          >
             {children}
           </div>
         )}
 
-        {/* Mobile filter (visible when mobileMenuContent hides the toolbar) */}
-        {mobileFilter && mobileMenuContent && (
+        {/* Mobile filter (visible when compact layout hides the toolbar) */}
+        {mobileFilter && compactMobile && (
           <div className="md:hidden flex-1 min-w-0">{mobileFilter}</div>
         )}
 
         {/* Mobile overflow menu */}
         {mobileMenuContent && (
           <div className="md:hidden">{mobileMenuContent}</div>
+        )}
+
+        {/* Always-visible actions (both mobile and desktop) */}
+        {alwaysVisibleChildren && (
+          <div className="flex items-center">{alwaysVisibleChildren}</div>
         )}
       </div>
     </div>

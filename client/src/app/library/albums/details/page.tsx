@@ -4,47 +4,35 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAtom, useSetAtom } from "jotai";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { Heart, MoreHorizontal, FolderPlus, ListEnd } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { MoreHorizontal } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useTrackSelection } from "@/lib/hooks/use-track-selection";
-import {
-  startQueueAtom,
-  addToQueueAtom,
-  type QueueSourceType,
-} from "@/lib/store/server-queue";
+import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
 import {
   albumDetailViewModeAtom,
   albumDetailSortAtom,
   albumDetailColumnVisibilityAtom,
 } from "@/lib/store/ui";
-import { useStarredAlbum } from "@/lib/store/starred";
 import { getClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   SongRow,
   SongRowSkeleton,
   SongCard,
   SongCardSkeleton,
 } from "@/components/browse/song-row";
-import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
+import { AlbumDropdownMenu } from "@/components/browse/album-context-menu";
 import { BulkActionsBar } from "@/components/shared/bulk-actions-bar";
 import { DetailHeader } from "@/components/shared/detail-header";
 import { ActionBar } from "@/components/shared/action-bar";
 import {
   SongListToolbar,
   MobileFilterInput,
-  AlbumDetailMobileMenu,
+  AlbumDetailDrawerMenuItems,
 } from "@/components/shared/song-list-toolbar";
 import { SongListHeader } from "@/components/shared/song-list-header";
 import {
@@ -65,9 +53,6 @@ function AlbumDetailContent() {
   });
   const isMounted = useIsMounted();
   const startQueue = useSetAtom(startQueueAtom);
-  const addToQueue = useSetAtom(addToQueueAtom);
-  const queryClient = useQueryClient();
-  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
 
   // Filter state
   const [filter, setFilter] = useState("");
@@ -111,20 +96,6 @@ function AlbumDetailContent() {
     // Keep previous data while fetching new sort/filter results
     placeholderData: (previousData) => previousData,
   });
-
-  // Use album star hook - manages the starred state and handles API calls
-  const { isStarred, toggleStar } = useStarredAlbum(
-    id ?? "",
-    !!albumData?.starred,
-  );
-
-  // Handle starring with additional album query invalidation
-  const handleToggleStar = async () => {
-    await toggleStar();
-    // Also invalidate album queries to update album list views
-    queryClient.invalidateQueries({ queryKey: ["albums"] });
-    queryClient.invalidateQueries({ queryKey: ["album", id] });
-  };
 
   // Songs come directly from server response - already sorted and filtered
   const displaySongs = albumData?.song ?? [];
@@ -323,61 +294,32 @@ function AlbumDetailContent() {
             placeholder="Filter songs..."
           />
         }
-        mobileMenuContent={
-          <AlbumDetailMobileMenu
-            sortConfig={sortConfig}
-            onSortChange={setSortConfig}
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-            columnVisibility={columnVisibility}
-            onColumnVisibilityChange={setColumnVisibility}
-            showTrackNumber
-          />
+        compactMobile
+        alwaysVisibleChildren={
+          albumData && (
+            <AlbumDropdownMenu
+              album={albumData}
+              onPlay={handlePlayAll}
+              drawerExtraContent={
+                <AlbumDetailDrawerMenuItems
+                  sortConfig={sortConfig}
+                  onSortChange={setSortConfig}
+                  viewMode={viewMode}
+                  onViewModeChange={setViewMode}
+                  columnVisibility={columnVisibility}
+                  onColumnVisibilityChange={setColumnVisibility}
+                  showTrackNumber
+                />
+              }
+              trigger={
+                <Button variant="ghost" size="icon" className="h-10 w-10">
+                  <MoreHorizontal className="w-5 h-5" />
+                </Button>
+              }
+            />
+          )
         }
-      >
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-10 w-10"
-          onClick={handleToggleStar}
-          disabled={!albumData}
-        >
-          <Heart
-            className={cn("w-5 h-5", isStarred && "fill-red-500 text-red-500")}
-          />
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-10 w-10">
-              <MoreHorizontal className="w-5 h-5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => {
-                if (displaySongs.length > 0) {
-                  addToQueue({
-                    songIds: displaySongs.map((s) => s.id),
-                    position: "end",
-                  });
-                  toast.success(`Added ${displaySongs.length} songs to queue`);
-                }
-              }}
-              disabled={displaySongs.length === 0}
-            >
-              <ListEnd className="w-4 h-4 mr-2" />
-              Add all to Queue
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => setAddToPlaylistOpen(true)}
-              disabled={displaySongs.length === 0}
-            >
-              <FolderPlus className="w-4 h-4 mr-2" />
-              Add all to Playlist
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </ActionBar>
+      />
 
       {/* Song list */}
       <div
@@ -496,15 +438,6 @@ function AlbumDetailContent() {
 
       {/* Spacer for player bar */}
       <div className="h-24" />
-
-      {/* Add to Playlist Dialog */}
-      {displaySongs.length > 0 && (
-        <AddToPlaylistDialog
-          open={addToPlaylistOpen}
-          onOpenChange={setAddToPlaylistOpen}
-          songs={displaySongs}
-        />
-      )}
     </div>
   );
 }

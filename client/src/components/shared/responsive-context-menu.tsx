@@ -29,6 +29,13 @@ import {
   DrawerMenuCollapsibleTrigger,
   DrawerMenuCollapsibleContent,
 } from "@/components/shared/drawer-menu";
+export {
+  DrawerMenuItem,
+  DrawerMenuSeparator,
+  DrawerMenuCollapsible,
+  DrawerMenuCollapsibleTrigger,
+  DrawerMenuCollapsibleContent,
+};
 import type { MenuComponents } from "@/components/shared/media-menu-items";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 
@@ -152,6 +159,8 @@ interface ResponsiveDropdownMenuProps {
   drawerTitle?: string;
   drawerSubtitle?: string;
   drawerThumbnail?: string;
+  /** Extra content only shown in the mobile drawer (e.g., sort/view settings) */
+  drawerExtraContent?: ReactNode;
 }
 
 export function ResponsiveDropdownMenu({
@@ -163,6 +172,7 @@ export function ResponsiveDropdownMenu({
   drawerTitle,
   drawerSubtitle,
   drawerThumbnail,
+  drawerExtraContent,
 }: ResponsiveDropdownMenuProps) {
   const hasFinePointer = useHasFinePointer();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -209,6 +219,7 @@ export function ResponsiveDropdownMenu({
         thumbnail={drawerThumbnail}
       >
         {renderMenuContent(drawerMenuComponents)}
+        {drawerExtraContent}
       </DrawerMenu>
     </>
   );

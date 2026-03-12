@@ -16,8 +16,10 @@ import type { Album } from "@/lib/api/types";
 import { MoreHorizontal } from "lucide-react";
 import { getClient } from "@/lib/api/client";
 
+type AlbumLike = Omit<Album, "played"> & { played?: string | null };
+
 interface AlbumContextMenuProps {
-  album: Album;
+  album: AlbumLike;
   children: React.ReactNode;
 }
 
@@ -76,7 +78,7 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
         />
       )}
       <DetailsDialog
-        item={{ type: "album", data: album }}
+        item={{ type: "album", data: album as Album }}
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
       />
@@ -86,15 +88,18 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
 
 // Dropdown variant for album cards
 interface AlbumDropdownMenuProps {
-  album: Album;
+  album: AlbumLike;
   onPlay?: () => void;
   trigger?: React.ReactNode;
+  /** Extra content only shown in the mobile drawer (e.g., sort/view settings) */
+  drawerExtraContent?: React.ReactNode;
 }
 
 export function AlbumDropdownMenu({
   album,
   onPlay,
   trigger,
+  drawerExtraContent,
 }: AlbumDropdownMenuProps) {
   const {
     isStarred,
@@ -157,6 +162,7 @@ export function AlbumDropdownMenu({
         drawerTitle={album.name}
         drawerSubtitle={album.artist}
         drawerThumbnail={coverArtUrl ?? undefined}
+        drawerExtraContent={drawerExtraContent}
       />
       {albumSongs && (
         <AddToPlaylistDialog
@@ -166,7 +172,7 @@ export function AlbumDropdownMenu({
         />
       )}
       <DetailsDialog
-        item={{ type: "album", data: album }}
+        item={{ type: "album", data: album as Album }}
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
       />

@@ -11,6 +11,7 @@ import {
   List,
   Check,
   MoreHorizontal,
+  SlidersHorizontal,
   Shuffle,
   Pencil,
   Trash2,
@@ -36,6 +37,13 @@ import {
   AdvancedFilterDialog,
   ActiveFilterBadges,
 } from "@/components/shared/advanced-filter-dialog";
+import {
+  DrawerMenuItem,
+  DrawerMenuSeparator,
+  DrawerMenuCollapsible,
+  DrawerMenuCollapsibleTrigger,
+  DrawerMenuCollapsibleContent,
+} from "@/components/shared/responsive-context-menu";
 import type {
   SortField,
   SortDirection,
@@ -616,9 +624,9 @@ export function AlbumDetailMobileMenu({
           variant="ghost"
           size="icon"
           className="h-8 w-8"
-          aria-label="More options"
+          aria-label="Sort and view options"
         >
-          <MoreHorizontal className="w-4 h-4" />
+          <SlidersHorizontal className="w-4 h-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-40">
@@ -699,5 +707,128 @@ export function AlbumDetailMobileMenu({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+// ===================================
+// Drawer-compatible sort/view/column items for mobile merged menus
+// ===================================
+
+interface AlbumDetailDrawerMenuItemsProps {
+  sortConfig: SortConfig;
+  onSortChange: (config: SortConfig) => void;
+  showTrackNumber?: boolean;
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
+  columnVisibility?: ColumnVisibility;
+  onColumnVisibilityChange?: (visibility: ColumnVisibility) => void;
+  showCustomSort?: boolean;
+  showAddedToPlaylist?: boolean;
+}
+
+export function AlbumDetailDrawerMenuItems({
+  sortConfig,
+  onSortChange,
+  showTrackNumber = false,
+  viewMode,
+  onViewModeChange,
+  columnVisibility,
+  onColumnVisibilityChange,
+  showCustomSort = false,
+  showAddedToPlaylist = false,
+}: AlbumDetailDrawerMenuItemsProps) {
+  const handleSort = (field: SortField) => {
+    if (field === "custom") {
+      onSortChange({ field, direction: "asc" });
+      return;
+    }
+    if (sortConfig.field === field) {
+      onSortChange({
+        field,
+        direction: sortConfig.direction === "asc" ? "desc" : "asc",
+      });
+    } else {
+      onSortChange({ field, direction: "asc" });
+    }
+  };
+
+  const handleColumnToggle = (key: keyof ColumnVisibility) => {
+    if (!columnVisibility || !onColumnVisibilityChange) return;
+    onColumnVisibilityChange({
+      ...columnVisibility,
+      [key]: !columnVisibility[key],
+    });
+  };
+
+  const SortIcon = sortConfig.direction === "asc" ? ArrowUp : ArrowDown;
+
+  return (
+    <>
+      <DrawerMenuSeparator />
+      <DrawerMenuCollapsible>
+        <DrawerMenuCollapsibleTrigger>
+          <ArrowUpDown className="w-4 h-4 mr-2" />
+          Sort
+        </DrawerMenuCollapsibleTrigger>
+        <DrawerMenuCollapsibleContent>
+          {sortOptions
+            .filter(
+              (option) =>
+                (showTrackNumber || option.value !== "trackNumber") &&
+                (showCustomSort || option.value !== "custom") &&
+                (showAddedToPlaylist || option.value !== "addedToPlaylist"),
+            )
+            .map((option) => (
+              <DrawerMenuItem
+                key={option.value}
+                onClick={() => handleSort(option.value)}
+              >
+                <span>{option.label}</span>
+                {sortConfig.field === option.value && (
+                  <SortIcon className="w-4 h-4 ml-auto text-primary!" />
+                )}
+              </DrawerMenuItem>
+            ))}
+        </DrawerMenuCollapsibleContent>
+      </DrawerMenuCollapsible>
+
+      {viewMode === "list" && columnVisibility && onColumnVisibilityChange && (
+        <DrawerMenuCollapsible>
+          <DrawerMenuCollapsibleTrigger>
+            <Columns className="w-4 h-4 mr-2" />
+            Columns
+          </DrawerMenuCollapsibleTrigger>
+          <DrawerMenuCollapsibleContent>
+            {columnOptions.map((option) => (
+              <DrawerMenuItem
+                key={option.key}
+                onClick={() => handleColumnToggle(option.key)}
+              >
+                <span>{option.label}</span>
+                {columnVisibility[option.key] && (
+                  <Check className="w-4 h-4 ml-auto text-primary!" />
+                )}
+              </DrawerMenuItem>
+            ))}
+          </DrawerMenuCollapsibleContent>
+        </DrawerMenuCollapsible>
+      )}
+
+      <DrawerMenuSeparator />
+      <DrawerMenuItem onClick={() => onViewModeChange("grid")}>
+        <Grid className="w-4 h-4 mr-2" />
+        Grid
+        {viewMode === "grid" && (
+          <Check className="w-4 h-4 ml-auto text-primary!" />
+        )}
+      </DrawerMenuItem>
+      <DrawerMenuItem onClick={() => onViewModeChange("list")}>
+        <List className="w-4 h-4 mr-2" />
+        List
+        {viewMode === "list" && (
+          <Check className="w-4 h-4 ml-auto text-primary!" />
+        )}
+      </DrawerMenuItem>
+    </>
   );
 }
