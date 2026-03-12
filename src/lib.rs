@@ -208,6 +208,7 @@ pub async fn initialize_app_state(config: Config) -> Result<Arc<api::AppState>> 
         pool: pool.clone(),
         config: config.clone(),
         scan_state: scan_state.clone(),
+        shuffle_cache: Default::default(),
     });
 
     // Start the file watcher for directories with watch_enabled=true

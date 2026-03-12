@@ -1378,6 +1378,60 @@ pub async fn get_queue_entries_with_songs(
     .await
 }
 
+/// Get queue entries at specific positions (for efficient window fetching of shuffled queues).
+/// Positions need not be contiguous – the returned entries are in the order they appear in the DB.
+pub async fn get_queue_entries_at_positions(
+    pool: &SqlitePool,
+    user_id: i64,
+    positions: &[usize],
+) -> sqlx::Result<Vec<QueueEntryWithSong>> {
+    if positions.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Build a dynamic IN clause – SQLite supports up to 999 bind params but
+    // our window is at most ~200 entries, so this is safe.
+    let placeholders: String = positions.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT pqe.entry_id, pqe.source_entry_id, pqe.queue_position, s.*, ar.name as artist_name, al.name as album_name
+         FROM play_queue_entries pqe
+         INNER JOIN songs s ON pqe.song_id = s.id
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         WHERE pqe.user_id = ? AND pqe.queue_position IN ({placeholders})
+         ORDER BY pqe.queue_position ASC"
+    );
+
+    let mut query = sqlx::query_as::<_, QueueEntryWithSong>(&sql).bind(user_id);
+    for &pos in positions {
+        query = query.bind(pos as i64);
+    }
+    query.fetch_all(pool).await
+}
+
+/// Get queue entries in a contiguous range (for efficient window fetching of non-shuffled queues).
+pub async fn get_queue_entries_range(
+    pool: &SqlitePool,
+    user_id: i64,
+    offset: usize,
+    limit: usize,
+) -> sqlx::Result<Vec<QueueEntryWithSong>> {
+    sqlx::query_as::<_, QueueEntryWithSong>(
+        "SELECT pqe.entry_id, pqe.source_entry_id, pqe.queue_position, s.*, ar.name as artist_name, al.name as album_name
+         FROM play_queue_entries pqe
+         INNER JOIN songs s ON pqe.song_id = s.id
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         WHERE pqe.user_id = ? AND pqe.queue_position >= ? AND pqe.queue_position < ?
+         ORDER BY pqe.queue_position ASC",
+    )
+    .bind(user_id)
+    .bind(offset as i64)
+    .bind((offset + limit) as i64)
+    .fetch_all(pool)
+    .await
+}
+
 /// Get all song IDs in queue order (for shuffle operations)
 pub async fn get_queue_song_ids(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<String>> {
     let rows: Vec<(String,)> = sqlx::query_as(
@@ -1419,20 +1473,38 @@ pub async fn create_queue(
         .execute(&mut *tx)
         .await?;
 
-    // Insert new queue entries
-    for (position, song_id) in song_ids.iter().enumerate() {
-        let entry_id = Uuid::new_v4().to_string();
-        let source_entry_id = source_entry_ids.and_then(|ids| ids.get(position)).cloned();
-        sqlx::query(
-            "INSERT INTO play_queue_entries (user_id, song_id, queue_position, entry_id, source_entry_id) VALUES (?, ?, ?, ?, ?)",
-        )
-        .bind(user_id)
-        .bind(song_id)
-        .bind(position as i64)
-        .bind(&entry_id)
-        .bind(&source_entry_id)
-        .execute(&mut *tx)
-        .await?;
+    // Insert new queue entries in batches for much better performance on large queues.
+    // SQLite has a limit of 999 bind parameters per statement; each row uses 5 params,
+    // so we batch at 199 rows (995 params).
+    const BATCH_SIZE: usize = 199;
+    for chunk_start in (0..song_ids.len()).step_by(BATCH_SIZE) {
+        let chunk_end = (chunk_start + BATCH_SIZE).min(song_ids.len());
+        let chunk = &song_ids[chunk_start..chunk_end];
+        let row_count = chunk.len();
+
+        let mut sql = String::from(
+            "INSERT INTO play_queue_entries (user_id, song_id, queue_position, entry_id, source_entry_id) VALUES ",
+        );
+        for i in 0..row_count {
+            if i > 0 {
+                sql.push_str(", ");
+            }
+            sql.push_str("(?, ?, ?, ?, ?)");
+        }
+
+        let mut query = sqlx::query(&sql);
+        for (i, song_id) in chunk.iter().enumerate() {
+            let position = chunk_start + i;
+            let entry_id = Uuid::new_v4().to_string();
+            let source_entry_id = source_entry_ids.and_then(|ids| ids.get(position)).cloned();
+            query = query
+                .bind(user_id)
+                .bind(song_id)
+                .bind(position as i64)
+                .bind(entry_id)
+                .bind(source_entry_id);
+        }
+        query.execute(&mut *tx).await?;
     }
 
     // Upsert queue metadata

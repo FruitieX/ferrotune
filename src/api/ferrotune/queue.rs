@@ -587,6 +587,9 @@ pub async fn start_queue(
         )
         .await?;
 
+        // Invalidate shuffle cache since queue changed
+        invalidate_shuffle_cache(&state, user.user_id).await;
+
         // Build initial window from the materialized songs we already have
         let window_start = (current_index as usize).saturating_sub(20);
         let window_end = (current_index as usize + 21).min(total_count);
@@ -621,18 +624,25 @@ pub async fn start_queue(
         )
         .await?;
 
-        // Fetch entries with entry_ids from database
-        let all_entries = queries::get_queue_entries_with_songs(&state.pool, user.user_id).await?;
+        // Invalidate shuffle cache since queue changed
+        invalidate_shuffle_cache(&state, user.user_id).await;
 
-        // Build initial window (±20 songs around current position)
-        build_queue_window(
+        // Build initial window using the efficient path (fetches only needed entries)
+        let queue = queries::get_play_queue(&state.pool, user.user_id)
+            .await?
+            .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
+
+        let start = (current_index as usize).saturating_sub(20);
+        let end = (current_index as usize + 21).min(total_count);
+
+        build_queue_window_efficient(
             &state.pool,
+            &state,
             user.user_id,
-            &all_entries,
-            current_index as usize,
-            20,
-            is_shuffled,
-            shuffle_indices.as_deref(),
+            &queue,
+            total_count,
+            start,
+            end - start,
             inline_size,
         )
         .await?
@@ -739,18 +749,17 @@ pub async fn get_queue(
 
         (total, window)
     } else {
-        // Original behavior: get all entries from database
-        let all_entries = queries::get_queue_entries_with_songs(&state.pool, user.user_id).await?;
-        let total = all_entries.len();
+        // Efficient fetch: only load the entries we need for this window
+        let total = get_queue_total_count(&state.pool, &queue, user.user_id).await?;
 
-        let window = build_queue_window_range(
+        let window = build_queue_window_efficient(
             &state.pool,
+            &state,
             user.user_id,
-            &all_entries,
+            &queue,
+            total,
             offset,
             limit,
-            queue.is_shuffled,
-            queue.shuffle_indices_json.as_deref(),
             inline_size,
         )
         .await?;
@@ -839,18 +848,21 @@ pub async fn get_current_window(
 
         (total, window)
     } else {
-        // Original behavior: get all entries from database
-        let all_entries = queries::get_queue_entries_with_songs(&state.pool, user.user_id).await?;
-        let total = all_entries.len();
+        // Efficient fetch: only load the entries we need for this window
+        let total = get_queue_total_count(&state.pool, &queue, user.user_id).await?;
 
-        let window = build_queue_window(
+        let start = current_index.saturating_sub(radius);
+        let end = (current_index + radius + 1).min(total);
+        let limit = end - start;
+
+        let window = build_queue_window_efficient(
             &state.pool,
+            &state,
             user.user_id,
-            &all_entries,
-            current_index,
-            radius,
-            queue.is_shuffled,
-            queue.shuffle_indices_json.as_deref(),
+            &queue,
+            total,
+            start,
+            limit,
             inline_size,
         )
         .await?;
@@ -975,6 +987,8 @@ pub async fn add_to_queue(
             queue.current_index,
         )
         .await?;
+
+        invalidate_shuffle_cache(&state, user.user_id).await;
     }
 
     let added_count = song_ids.len();
@@ -1062,6 +1076,8 @@ pub async fn remove_from_queue(
             shuffled_current,
         )
         .await?;
+
+        invalidate_shuffle_cache(&state, user.user_id).await;
     } else {
         queries::update_queue_position(
             &state.pool,
@@ -1130,6 +1146,8 @@ pub async fn move_in_queue(
             new_current,
         )
         .await?;
+
+        invalidate_shuffle_cache(&state, user.user_id).await;
 
         Ok(Json(QueueSuccessResponse {
             success: true,
@@ -1207,10 +1225,15 @@ pub async fn toggle_shuffle(
         // For a non-shuffled queue, current_index IS the original index.
         let original_index = if queue.is_shuffled {
             // Already shuffled — look up the original index from existing shuffle indices
-            queue
-                .shuffle_indices()
-                .and_then(|indices| indices.get(current_index).copied())
-                .unwrap_or(current_index)
+            let indices = get_shuffle_indices(
+                &state,
+                user.user_id,
+                queue.shuffle_seed,
+                queue.shuffle_indices_json.as_deref(),
+                total_count,
+            )
+            .await;
+            indices.get(current_index).copied().unwrap_or(current_index)
         } else {
             current_index
         };
@@ -1229,6 +1252,9 @@ pub async fn toggle_shuffle(
         )
         .await?;
 
+        // Invalidate old cache and prime the new one
+        invalidate_shuffle_cache(&state, user.user_id).await;
+
         Ok(Json(QueueSuccessResponse {
             success: true,
             new_index: Some(0),
@@ -1238,10 +1264,15 @@ pub async fn toggle_shuffle(
     } else {
         // Disable shuffle - restore original order
         // Look up the original index of the currently-playing song from shuffle indices
-        let original_index = queue
-            .shuffle_indices()
-            .and_then(|indices| indices.get(current_index).copied())
-            .unwrap_or(current_index);
+        let indices = get_shuffle_indices(
+            &state,
+            user.user_id,
+            queue.shuffle_seed,
+            queue.shuffle_indices_json.as_deref(),
+            total_count,
+        )
+        .await;
+        let original_index = indices.get(current_index).copied().unwrap_or(current_index);
 
         queries::update_queue_shuffle(
             &state.pool,
@@ -1252,6 +1283,9 @@ pub async fn toggle_shuffle(
             original_index as i64,
         )
         .await?;
+
+        // Invalidate shuffle cache
+        invalidate_shuffle_cache(&state, user.user_id).await;
 
         Ok(Json(QueueSuccessResponse {
             success: true,
@@ -1298,6 +1332,8 @@ pub async fn update_position(
             0, // Start at position 0 in the new shuffled order
         )
         .await?;
+
+        invalidate_shuffle_cache(&state, user.user_id).await;
 
         return Ok(Json(QueueSuccessResponse {
             success: true,
@@ -2068,87 +2104,153 @@ fn generate_shuffle_indices(total: usize, current_index: usize, seed: u64) -> Ve
     indices
 }
 
-/// Build a window of songs around a position
-#[allow(clippy::too_many_arguments)]
-async fn build_queue_window(
-    pool: &sqlx::SqlitePool,
+/// Get shuffle indices from the in-memory cache, or parse from JSON and cache.
+async fn get_shuffle_indices(
+    state: &AppState,
     user_id: i64,
-    all_entries: &[crate::db::models::QueueEntryWithSong],
-    center_position: usize,
-    radius: usize,
-    is_shuffled: bool,
+    shuffle_seed: Option<i64>,
     shuffle_indices_json: Option<&str>,
-    inline_size: Option<crate::thumbnails::ThumbnailSize>,
-) -> FerrotuneApiResult<QueueWindow> {
-    let total = all_entries.len();
-    if total == 0 {
-        return Ok(QueueWindow {
-            offset: 0,
-            songs: vec![],
-        });
+    total: usize,
+) -> Vec<usize> {
+    let seed = match shuffle_seed {
+        Some(s) => s,
+        None => {
+            // No seed → can't cache, parse directly
+            return shuffle_indices_json
+                .and_then(|json| serde_json::from_str(json).ok())
+                .unwrap_or_else(|| (0..total).collect());
+        }
+    };
+
+    // Try read cache first
+    {
+        let cache = state.shuffle_cache.read().await;
+        if let Some(indices) = cache.get(&(user_id, seed)) {
+            return (**indices).clone();
+        }
     }
 
-    let start = center_position.saturating_sub(radius);
-    let end = (center_position + radius + 1).min(total);
+    // Parse and fill cache
+    let indices: Vec<usize> = shuffle_indices_json
+        .and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or_else(|| (0..total).collect());
 
-    build_queue_window_range(
-        pool,
-        user_id,
-        all_entries,
-        start,
-        end - start,
-        is_shuffled,
-        shuffle_indices_json,
-        inline_size,
-    )
-    .await
+    let indices_arc = Arc::new(indices.clone());
+    {
+        let mut cache = state.shuffle_cache.write().await;
+        cache.insert((user_id, seed), indices_arc);
+    }
+
+    indices
 }
 
-/// Build a window of songs for a range
+/// Invalidate the shuffle indices cache for a user.
+async fn invalidate_shuffle_cache(state: &AppState, user_id: i64) {
+    let mut cache = state.shuffle_cache.write().await;
+    cache.retain(|&(uid, _), _| uid != user_id);
+}
+
+/// Build a queue window efficiently by fetching only the needed entries from the database.
+/// For non-shuffled queues, fetches a contiguous range.
+/// For shuffled queues, maps display positions to original positions and fetches only those.
 #[allow(clippy::too_many_arguments)]
-async fn build_queue_window_range(
+async fn build_queue_window_efficient(
     pool: &sqlx::SqlitePool,
+    state: &AppState,
     user_id: i64,
-    all_entries: &[crate::db::models::QueueEntryWithSong],
+    queue: &crate::db::models::PlayQueue,
+    total_count: usize,
     offset: usize,
     limit: usize,
-    is_shuffled: bool,
-    shuffle_indices_json: Option<&str>,
     inline_size: Option<crate::thumbnails::ThumbnailSize>,
 ) -> FerrotuneApiResult<QueueWindow> {
-    let total = all_entries.len();
-    if total == 0 {
+    if total_count == 0 {
         return Ok(QueueWindow {
             offset,
             songs: vec![],
         });
     }
 
-    let shuffle_indices: Vec<usize> = if is_shuffled {
-        shuffle_indices_json
-            .and_then(|json| serde_json::from_str(json).ok())
-            .unwrap_or_else(|| (0..total).collect())
+    let end = (offset + limit).min(total_count);
+    if offset >= end {
+        return Ok(QueueWindow {
+            offset,
+            songs: vec![],
+        });
+    }
+
+    if queue.is_shuffled {
+        // Shuffled: map display positions to original positions, fetch those
+        let shuffle_indices = get_shuffle_indices(
+            state,
+            user_id,
+            queue.shuffle_seed,
+            queue.shuffle_indices_json.as_deref(),
+            total_count,
+        )
+        .await;
+
+        // Collect (display_position, original_position) pairs
+        let position_mapping: Vec<(usize, usize)> = (offset..end)
+            .filter_map(|display_pos| {
+                shuffle_indices
+                    .get(display_pos)
+                    .map(|&orig| (display_pos, orig))
+            })
+            .collect();
+
+        let original_positions: Vec<usize> =
+            position_mapping.iter().map(|&(_, orig)| orig).collect();
+
+        let entries =
+            queries::get_queue_entries_at_positions(pool, user_id, &original_positions).await?;
+
+        // Build a lookup from queue_position to entry
+        let entry_map: std::collections::HashMap<i64, &crate::db::models::QueueEntryWithSong> =
+            entries.iter().map(|e| (e.queue_position, e)).collect();
+
+        // Collect window entries in display order
+        let window_entries: Vec<(&crate::db::models::QueueEntryWithSong, usize)> = position_mapping
+            .iter()
+            .filter_map(|&(display_pos, orig)| {
+                entry_map.get(&(orig as i64)).map(|e| (*e, display_pos))
+            })
+            .collect();
+
+        build_window_from_entries(pool, user_id, &window_entries, offset, inline_size).await
     } else {
-        (0..total).collect()
-    };
+        // Non-shuffled: fetch a contiguous range
+        let entries = queries::get_queue_entries_range(pool, user_id, offset, end - offset).await?;
 
-    let end = (offset + limit).min(total);
+        let window_entries: Vec<(&crate::db::models::QueueEntryWithSong, usize)> = entries
+            .iter()
+            .map(|e| (e, e.queue_position as usize))
+            .collect();
 
-    // Collect song IDs and album IDs in the window for starred/rating/thumbnail lookup
-    let window_entries: Vec<(&crate::db::models::QueueEntryWithSong, usize)> = (offset..end)
-        .filter_map(|display_pos| {
-            let orig_idx = *shuffle_indices.get(display_pos)?;
-            let entry = all_entries.get(orig_idx)?;
-            Some((entry, display_pos))
-        })
-        .collect();
+        build_window_from_entries(pool, user_id, &window_entries, offset, inline_size).await
+    }
+}
+
+/// Build a QueueWindow from a list of (entry, display_position) pairs.
+async fn build_window_from_entries(
+    pool: &sqlx::SqlitePool,
+    user_id: i64,
+    window_entries: &[(&crate::db::models::QueueEntryWithSong, usize)],
+    offset: usize,
+    inline_size: Option<crate::thumbnails::ThumbnailSize>,
+) -> FerrotuneApiResult<QueueWindow> {
+    if window_entries.is_empty() {
+        return Ok(QueueWindow {
+            offset,
+            songs: vec![],
+        });
+    }
 
     let window_song_ids: Vec<String> = window_entries.iter().map(|(e, _)| e.id.clone()).collect();
 
     let starred_map = get_starred_map(pool, user_id, ItemType::Song, &window_song_ids).await?;
     let ratings_map = get_ratings_map(pool, user_id, ItemType::Song, &window_song_ids).await?;
 
-    // Get inline thumbnails if requested
     let thumbnails = if let Some(size) = inline_size {
         let song_thumbnail_data: Vec<(String, Option<String>)> = window_entries
             .iter()
@@ -2160,12 +2262,11 @@ async fn build_queue_window_range(
     };
 
     let songs: Vec<QueueSongEntry> = window_entries
-        .into_iter()
+        .iter()
         .map(|(entry, display_pos)| {
             let starred = starred_map.get(&entry.id).cloned();
             let user_rating = ratings_map.get(&entry.id).copied();
             let cover_art_data = thumbnails.get(&entry.id).cloned();
-            // Convert QueueEntryWithSong to Song for song_to_response
             let song = crate::db::models::Song {
                 id: entry.id.clone(),
                 title: entry.title.clone(),
@@ -2207,7 +2308,7 @@ async fn build_queue_window_range(
             QueueSongEntry {
                 entry_id: entry.entry_id.clone(),
                 source_entry_id: entry.source_entry_id.clone(),
-                position: display_pos,
+                position: *display_pos,
                 song: song_response,
             }
         })

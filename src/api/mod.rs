@@ -21,15 +21,23 @@ pub use subsonic::QsQuery;
 
 use serde::Deserialize;
 use sqlx::SqlitePool;
+use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 pub use ferrotune::scan_state::{create_scan_state, ScanState};
+
+/// Cached shuffle indices keyed by (user_id, shuffle_seed).
+pub type ShuffleIndicesCache = RwLock<HashMap<(i64, i64), Arc<Vec<usize>>>>;
 
 /// Shared application state for all API handlers.
 pub struct AppState {
     pub pool: SqlitePool,
     pub config: crate::config::Config,
     pub scan_state: Arc<ScanState>,
+    /// Cache of parsed shuffle indices.
+    /// Avoids re-parsing large JSON arrays on every queue window request.
+    pub shuffle_cache: ShuffleIndicesCache,
 }
 
 /// Common query parameters for OpenSubsonic API requests.
