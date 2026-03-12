@@ -869,7 +869,6 @@ function QueueButton() {
 function MobileMoreMenu() {
   const [isOpen, setIsOpen] = useState(false);
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
-  const [queuePanelOpen, setQueuePanelOpen] = useAtom(queuePanelOpenAtom);
   const { isShuffled, toggleShuffle } = useShuffle();
   const { repeatMode, cycleRepeatMode } = useRepeatMode();
   const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
@@ -884,11 +883,6 @@ function MobileMoreMenu() {
   const handleFullscreen = () => {
     setIsOpen(false);
     setFullscreenOpen(true);
-  };
-
-  const handleQueue = () => {
-    setIsOpen(false);
-    setQueuePanelOpen(!queuePanelOpen);
   };
 
   return (
@@ -939,19 +933,6 @@ function MobileMoreMenu() {
               <SkipForward className="w-4 h-4" />
             </Button>
           </div>
-          {/* Queue */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "justify-start gap-2",
-              queuePanelOpen && "text-primary",
-            )}
-            onClick={handleQueue}
-          >
-            <ListMusic className="w-4 h-4" />
-            Queue
-          </Button>
           {/* Volume - hidden on native audio (Android) where system volume is used */}
           {!hasNativeAudio() && (
             <div className="flex items-center gap-2 px-3 py-1.5">
@@ -1128,10 +1109,8 @@ export function PlayerBar() {
               playbackState={playbackState}
             />
           </div>
-          {/* Desktop-only queue button (on mobile it's in more menu) */}
-          <div className="hidden md:block">
-            <QueueButton />
-          </div>
+          {/* Queue button */}
+          <QueueButton />
           {/* Desktop volume controls */}
           <VolumeControls />
           {/* Cast button - shows when Chromecast devices are available */}
@@ -1158,9 +1137,9 @@ export function PlayerBarSkeleton() {
       {/* Progress bar placeholder */}
       <div className="absolute top-0 left-0 right-0 h-1 bg-muted" />
 
-      <div className="flex items-center h-full px-4 gap-4">
+      <div className="flex items-center h-full px-4 gap-2 md:gap-4">
         {/* Now Playing Info - skeleton */}
-        <div className="flex items-center gap-3 w-[30%] min-w-0">
+        <div className="flex items-center gap-3 flex-1 md:flex-none md:w-[30%] min-w-0">
           <Skeleton className="w-14 h-14 rounded-md shrink-0" />
           <div className="min-w-0 space-y-2">
             <Skeleton className="w-24 h-4" />
@@ -1168,80 +1147,60 @@ export function PlayerBarSkeleton() {
           </div>
         </div>
 
-        {/* Center Controls - static buttons */}
-        <div className="flex flex-col items-center gap-1 flex-1 max-w-[40%]">
-          <div className="flex items-center gap-1 sm:gap-2">
+        {/* Center Controls - hidden on mobile, visible on desktop */}
+        <div className="hidden md:flex flex-col items-center gap-1 flex-1 max-w-[40%]">
+          <div className="flex items-center gap-2">
             {/* Shuffle */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="hidden sm:flex h-8 w-8"
-              disabled
-            >
+            <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
               <Shuffle className="w-4 h-4" />
             </Button>
             {/* Previous */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 sm:h-9 sm:w-9"
-              disabled
-            >
-              <SkipBack className="w-4 h-4 sm:w-5 sm:h-5" />
+            <Button variant="ghost" size="icon" className="h-9 w-9" disabled>
+              <SkipBack className="w-5 h-5" />
             </Button>
             {/* Play */}
             <Button
               variant="default"
               size="icon"
-              className="h-9 w-9 sm:h-10 sm:w-10 rounded-full"
+              className="h-10 w-10 rounded-full"
               disabled
             >
-              <Play className="w-4 h-4 sm:w-5 sm:h-5 ml-0.5" />
+              <Play className="w-5 h-5 ml-0.5" />
             </Button>
             {/* Next */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 sm:h-9 sm:w-9"
-              disabled
-            >
-              <SkipForward className="w-4 h-4 sm:w-5 sm:h-5" />
+            <Button variant="ghost" size="icon" className="h-9 w-9" disabled>
+              <SkipForward className="w-5 h-5" />
             </Button>
             {/* Repeat */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="hidden sm:flex h-8 w-8"
-              disabled
-            >
+            <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
               <Repeat className="w-4 h-4" />
             </Button>
           </div>
           {/* Time slider skeleton */}
-          <div className="hidden sm:flex items-center gap-2 w-full max-w-md text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 w-full max-w-md text-xs text-muted-foreground">
             <span className="w-10 text-right tabular-nums">0:00</span>
             <Slider value={[0]} max={100} className="flex-1" disabled />
             <span className="w-10 tabular-nums">0:00</span>
           </div>
         </div>
 
-        {/* Right Controls - static buttons */}
-        <div className="flex items-center gap-1 sm:gap-2 w-[30%] justify-end">
+        {/* Right Controls */}
+        <div className="flex items-center gap-1 md:gap-2 md:w-[30%] justify-end">
+          {/* Mobile-only play button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="flex md:hidden h-9 w-9 rounded-full"
+            disabled
+          >
+            <Play className="w-4 h-4 ml-0.5" />
+          </Button>
           {/* Queue */}
           <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
             <ListMusic className="w-4 h-4" />
           </Button>
-          {/* Volume - mobile popover trigger */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 sm:hidden"
-            disabled
-          >
-            <Volume2 className="w-4 h-4" />
-          </Button>
           {/* Volume - desktop */}
-          <div className="hidden sm:flex items-center gap-2 w-32">
+          <div className="hidden md:flex items-center gap-2 w-32">
             <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
               <Volume2 className="w-4 h-4" />
             </Button>
@@ -1251,7 +1210,7 @@ export function PlayerBarSkeleton() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 sm:hidden"
+            className="h-8 w-8 md:hidden"
             disabled
           >
             <MoreHorizontal className="w-4 h-4" />
@@ -1260,7 +1219,7 @@ export function PlayerBarSkeleton() {
           <Button
             variant="ghost"
             size="icon"
-            className="hidden sm:flex h-8 w-8"
+            className="hidden md:flex h-8 w-8"
             disabled
           >
             <Maximize2 className="w-4 h-4" />

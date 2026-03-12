@@ -1,6 +1,6 @@
 "use client";
 
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtom } from "jotai";
 import { useTheme } from "next-themes";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -9,8 +9,6 @@ import {
   Settings as SettingsIcon,
   Server,
   Volume2,
-  Repeat,
-  Shuffle,
   Palette,
   Check,
   ExternalLink,
@@ -37,8 +35,6 @@ import { useAccentColor } from "@/lib/hooks/use-preferences-sync";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import {
-  volumeAtom,
-  repeatModeAtom,
   replayGainModeAtom,
   replayGainOffsetAtom,
   transcodingEnabledAtom,
@@ -48,10 +44,7 @@ import {
   type ReplayGainMode,
   type SeekMode,
 } from "@/lib/store/player";
-import {
-  serverQueueStateAtom,
-  toggleShuffleAtom,
-} from "@/lib/store/server-queue";
+
 import { getClient } from "@/lib/api/client";
 import {
   ACCENT_PRESETS,
@@ -94,10 +87,8 @@ export default function SettingsPage() {
   const isMounted = useIsMounted();
   const { isAdmin } = useCurrentUser();
   const [connection] = useAtom(serverConnectionAtom);
-  const [volume, setVolume] = useAtom(volumeAtom);
   const [progressBarStyle, setProgressBarStyle] = useAtom(progressBarStyleAtom);
   const [sidebarItemSize, setSidebarItemSize] = useAtom(sidebarItemSizeAtom);
-  const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);
   const [replayGainMode, setReplayGainMode] = useAtom(replayGainModeAtom);
   const [replayGainOffset, setReplayGainOffset] = useAtom(replayGainOffsetAtom);
   const [clippingDetectionEnabled, setClippingDetectionEnabled] = useAtom(
@@ -112,12 +103,7 @@ export default function SettingsPage() {
   const [transcodingSeekMode, setTranscodingSeekMode] = useAtom(
     transcodingSeekModeAtom,
   );
-  const queueState = useAtomValue(serverQueueStateAtom);
-  const toggleShuffle = useSetAtom(toggleShuffleAtom);
   const { theme, setTheme } = useTheme();
-
-  // Derive shuffle state from server queue state
-  const isShuffled = queueState?.isShuffled ?? false;
 
   // Fetch server stats
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -473,68 +459,6 @@ export default function SettingsPage() {
               <CardDescription>Audio playback preferences</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Volume */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 font-medium">
-                    <Volume2 className="w-4 h-4" />
-                    Default Volume
-                  </label>
-                  <span className="text-sm text-muted-foreground">
-                    {Math.round(volume * 100)}%
-                  </span>
-                </div>
-                <Slider
-                  value={[volume]}
-                  onValueChange={([v]) => setVolume(v)}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  className="w-full"
-                />
-              </div>
-
-              <Separator />
-
-              {/* Repeat Mode */}
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 font-medium">
-                  <Repeat className="w-4 h-4" />
-                  Repeat Mode
-                </label>
-                <Select
-                  value={repeatMode}
-                  onValueChange={(v: string) =>
-                    setRepeatMode(v as typeof repeatMode)
-                  }
-                >
-                  <SelectTrigger className="w-32">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="off">Off</SelectItem>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="one">One</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Separator />
-
-              {/* Shuffle */}
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 font-medium">
-                  <Shuffle className="w-4 h-4" />
-                  Shuffle by Default
-                </label>
-                <Switch
-                  checked={isShuffled}
-                  onCheckedChange={() => toggleShuffle()}
-                />
-              </div>
-
-              <Separator />
-
               {/* Transcoding */}
               <div className="flex items-center justify-between">
                 <div className="space-y-1">

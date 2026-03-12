@@ -82,7 +82,7 @@ export function MediaCard({
     <article
       data-testid="media-card"
       className={cn(
-        "group relative p-2 sm:p-4 rounded-lg bg-card media-card",
+        "group relative p-2 md:p-4 rounded-lg bg-card media-card",
         "hover:bg-accent/70 transition-all cursor-pointer",
         "hover:shadow-lg hover:shadow-black/20",
         isSelected && "ring-2 ring-primary bg-primary/10",
@@ -90,7 +90,7 @@ export function MediaCard({
       )}
     >
       {/* Cover art container - relative positioning for buttons outside overflow-hidden */}
-      <div className="relative mb-2 sm:mb-4">
+      <div className="relative mb-2 md:mb-4">
         {/* Selection checkbox (top-left corner of cover art) - outside overflow-hidden */}
         {onSelect && (
           <div

@@ -145,7 +145,7 @@ function ContextMenuSubContent({
 
 function ContextMenuContent({
   className,
-  collisionPadding,
+  collisionPadding = { left: 8, right: 8 },
   ...props
 }: ComponentProps<typeof ContextMenuPrimitive.Content>) {
   return (

@@ -525,12 +525,18 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
 
   const newShuffleState = !state.isShuffled;
 
-  // In autonomous mode, Kotlin handles server API + ExoPlayer reload
+  // In autonomous mode, Kotlin handles server API + ExoPlayer queue update
   if (nativeAutonomousMode.value) {
     set(isQueueOperationPendingAtom, true);
     try {
       await nativeToggleShuffle(newShuffleState);
-      // State will be updated via queue-state-changed event from Kotlin
+      // State will be updated via queue-state-changed event from Kotlin.
+      // Also fetch the updated queue window so the JS UI reflects the new order.
+      const client = getClient();
+      if (client) {
+        const queueResponse = await client.getQueueCurrentWindow(20, "small");
+        set(queueWindowAtom, queueResponse.window);
+      }
     } catch (error) {
       console.error("Failed to toggle shuffle (native):", error);
     } finally {
@@ -664,6 +670,12 @@ export const addToQueueAtom = atom(
       // Refresh window
       const queueResponse = await client.getQueueCurrentWindow(20, "small");
       set(queueWindowAtom, queueResponse.window);
+
+      // Tell Kotlin to refetch its ExoPlayer playlist
+      if (_nativeAutonomousMode) {
+        await nativeInvalidateQueue();
+      }
+
       return { success: true, addedCount: response.addedCount ?? 0 };
     } catch (error) {
       console.error("Failed to add to queue:", error);
@@ -699,6 +711,11 @@ export const removeFromQueueAtom = atom(
       // Refresh window
       const queueResponse = await client.getQueueCurrentWindow(20, "small");
       set(queueWindowAtom, queueResponse.window);
+
+      // Tell Kotlin to refetch its ExoPlayer playlist
+      if (_nativeAutonomousMode) {
+        await nativeInvalidateQueue();
+      }
     } catch (error) {
       console.error("Failed to remove from queue:", error);
     } finally {
@@ -797,6 +814,11 @@ export const moveInQueueAtom = atom(
       // Refresh window to get authoritative state
       const queueResponse = await client.getQueueCurrentWindow(20, "small");
       set(queueWindowAtom, queueResponse.window);
+
+      // Tell Kotlin to refetch its ExoPlayer playlist
+      if (_nativeAutonomousMode) {
+        await nativeInvalidateQueue();
+      }
     } catch (error) {
       console.error("Failed to move in queue:", error);
       // On error, refetch to restore correct state

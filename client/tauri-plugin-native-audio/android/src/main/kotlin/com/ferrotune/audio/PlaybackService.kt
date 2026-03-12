@@ -837,6 +837,7 @@ class PlaybackService : MediaSessionService() {
 
     /**
      * Toggle shuffle in autonomous mode.
+     * Surgically updates surrounding tracks without interrupting the currently playing track.
      */
     fun autonomousToggleShuffle(enabled: Boolean) {
         if (!autonomousMode) return
@@ -852,7 +853,7 @@ class PlaybackService : MediaSessionService() {
                 handler.post {
                     isShuffled = enabled
                     serverQueueIndex = newIndex
-                    handleQueueWindowResponse(queueResponse, newIndex, currentPositionMs, player.playWhenReady)
+                    handleShuffleQueueUpdate(queueResponse, newIndex)
                     eventEmitter?.invoke(AudioEvents.SHUFFLE_MODE_CHANGED, JSObject().apply {
                         put("enabled", enabled)
                     })
@@ -861,6 +862,75 @@ class PlaybackService : MediaSessionService() {
                 Log.e(TAG, "Failed to toggle shuffle", e)
             }
         }
+    }
+
+    /**
+     * Handle a queue window update after shuffle toggle without interrupting playback.
+     * Instead of rebuilding the entire ExoPlayer playlist (which causes audio interruption),
+     * this method surgically removes and re-adds surrounding tracks while keeping the
+     * currently playing track in place.
+     */
+    private fun handleShuffleQueueUpdate(
+        response: GetQueueResponse,
+        targetIndex: Int,
+    ) {
+        serverTotalCount = response.totalCount
+        this.isShuffled = response.isShuffled
+        this.repeatMode = response.repeatMode
+
+        val sortedEntries = response.window.songs.sortedBy { it.position }
+        if (sortedEntries.isEmpty()) return
+
+        val tracks = sortedEntries.map { entry ->
+            apiClient.songToTrackInfo(entry.song, playbackSettings)
+        }
+        val newPositions = sortedEntries.map { it.position }
+
+        // Find which entry in the new window corresponds to the current track
+        val targetExoIndex = newPositions.indexOf(targetIndex)
+            .let { if (it < 0) 0 else it }
+
+        // Get current ExoPlayer state before modifications
+        val currentExoIndex = player.currentMediaItemIndex
+        val itemCount = player.mediaItemCount
+
+        // Remove all items AFTER the current track
+        if (currentExoIndex < itemCount - 1) {
+            player.removeMediaItems(currentExoIndex + 1, itemCount)
+        }
+        // Remove all items BEFORE the current track
+        if (currentExoIndex > 0) {
+            player.removeMediaItems(0, currentExoIndex)
+        }
+        // Now ExoPlayer has only the current track at index 0
+
+        // Create and add MediaItems for tracks before the current track
+        if (targetExoIndex > 0) {
+            val beforeItems = tracks.subList(0, targetExoIndex).map { createMediaItem(it) }
+            player.addMediaItems(0, beforeItems)
+        }
+
+        // Create and add MediaItems for tracks after the current track
+        if (targetExoIndex + 1 < tracks.size) {
+            val afterItems = tracks.subList(targetExoIndex + 1, tracks.size).map { createMediaItem(it) }
+            player.addMediaItems(player.mediaItemCount, afterItems)
+        }
+
+        // Update tracking structures
+        exoIndexToServerPosition = newPositions.toMutableList()
+        exoIndexToQueueSong = sortedEntries.map { it.song as QueueSong? }.toMutableList()
+        loadedRangeStart = sortedEntries.first().position
+        loadedRangeEnd = sortedEntries.last().position + 1
+
+        queue = tracks
+        queueOffset = loadedRangeStart
+        queueIndex = targetIndex
+        // Don't update currentTrack or emit track change — the same track is still playing
+
+        emitQueueStateChanged()
+
+        Log.d(TAG, "Shuffle update: ${tracks.size} tracks, positions $loadedRangeStart..${loadedRangeEnd - 1}, " +
+            "targetExoIndex=$targetExoIndex, serverIndex=$targetIndex")
     }
 
     /**

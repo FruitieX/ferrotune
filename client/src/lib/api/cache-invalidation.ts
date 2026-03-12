@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { del } from "idb-keyval";
 
 /**
  * Invalidate all queries that display song data.
@@ -86,4 +87,7 @@ export async function resetQueriesForAccountSwitch(
   await queryClient.cancelQueries();
   queryClient.removeQueries({ type: "inactive" });
   await queryClient.resetQueries({ type: "active" });
+  // Clear persisted cache so the new user doesn't see stale data from the
+  // previous account on the next cold start.
+  await del("REACT_QUERY_OFFLINE_CACHE").catch(() => {});
 }

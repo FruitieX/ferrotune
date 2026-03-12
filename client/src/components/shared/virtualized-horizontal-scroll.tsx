@@ -109,7 +109,10 @@ export function VirtualizedHorizontalScroll<T>({
   return (
     <div
       ref={scrollRef}
-      className={cn("overflow-x-auto overflow-y-hidden pb-4", className)}
+      className={cn(
+        "overflow-x-auto overflow-y-hidden scrollbar-hide",
+        className,
+      )}
     >
       <div
         style={{

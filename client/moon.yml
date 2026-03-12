@@ -502,6 +502,15 @@ tasks:
       runInCI: false
       cache: false
 
+  tauri-android-clean-daemons:
+    command: "bash"
+    args: "scripts/clean-android-daemons.sh"
+    env:
+      JAVA_HOME: "${JAVA_HOME}"
+    options:
+      runInCI: false
+      cache: false
+
   # ============================================================================
   # CI PIPELINE
   # ============================================================================

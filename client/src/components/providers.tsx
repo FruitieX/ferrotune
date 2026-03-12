@@ -1,10 +1,7 @@
 "use client";
 
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { QueryClient, useQueryClient } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { Provider as JotaiProvider, useAtomValue } from "jotai";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
@@ -19,6 +16,12 @@ import { useAppResumeRepaint } from "@/lib/hooks/use-app-resume-repaint";
 import { useScanProgressStream } from "@/lib/hooks/use-scan-progress-stream";
 import { useCastInit } from "@/lib/hooks/use-cast";
 import { DynamicFavicon } from "@/components/dynamic-favicon";
+import {
+  asyncStoragePersister,
+  PERSIST_MAX_AGE_MS,
+  PERSIST_GC_TIME_MS,
+  shouldPersistQuery,
+} from "@/lib/query-persister";
 import {
   accentColorAtom,
   customAccentHueAtom,
@@ -144,6 +147,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         defaultOptions: {
           queries: {
             staleTime: 60 * 1000, // 1 minute
+            gcTime: PERSIST_GC_TIME_MS,
             refetchOnWindowFocus: false,
           },
         },
@@ -152,7 +156,25 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <JotaiProvider>
-      <QueryClientProvider client={queryClient}>
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{
+          persister: asyncStoragePersister,
+          maxAge: PERSIST_MAX_AGE_MS,
+          dehydrateOptions: {
+            shouldDehydrateQuery: (query) =>
+              query.state.status === "success" &&
+              shouldPersistQuery(query.queryKey),
+          },
+        }}
+        onSuccess={() => {
+          // After restoring cached data from IndexedDB, trigger a
+          // background refetch of all active queries so the cache gets
+          // updated for the next visit. The home page uses structuralSharing
+          // to freeze displayed content and prevent visual swaps.
+          queryClient.invalidateQueries();
+        }}
+      >
         <QueryCacheResetOnAccountSwitch />
         <ThemeProvider
           attribute="class"
@@ -169,7 +191,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           </AccentColorProvider>
           <ResponsiveToaster />
         </ThemeProvider>
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </JotaiProvider>
   );
 }

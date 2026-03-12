@@ -302,7 +302,7 @@ export default function HomePage() {
 
   const {
     data: randomData,
-    isLoading: loadingRandom,
+    isFetching: fetchingRandom,
     hasNextPage: hasNextRandom,
     isFetchingNextPage: fetchingNextRandom,
     fetchNextPage: fetchNextRandom,
@@ -318,8 +318,13 @@ export default function HomePage() {
         inlineImages: "medium",
         seed: discoverSeedRef.current,
       });
-      // Store the seed from the first page for consistent pagination
-      if (pageParam === 0 && response.albumList2.seed != null) {
+      // Only store seed on initial fetch (ref still null) — background
+      // refetches must not overwrite the displayed seed used for pagination
+      if (
+        pageParam === 0 &&
+        discoverSeedRef.current == null &&
+        response.albumList2.seed != null
+      ) {
         discoverSeedRef.current = response.albumList2.seed;
       }
       return {
@@ -394,7 +399,7 @@ export default function HomePage() {
   // --- Forgotten Favorites: songs played a lot long ago but not recently ---
   const {
     data: forgottenFavData,
-    isLoading: loadingForgottenFav,
+    isFetching: fetchingForgottenFav,
     hasNextPage: hasNextForgottenFav,
     isFetchingNextPage: fetchingNextForgottenFav,
     fetchNextPage: fetchNextForgottenFav,
@@ -409,8 +414,8 @@ export default function HomePage() {
         inlineImages: "medium",
         seed: forgottenFavSeedRef.current,
       });
-      // Store the seed from the first page for consistent pagination
-      if (pageParam === 0) {
+      // Only store seed on initial fetch (ref still null)
+      if (pageParam === 0 && forgottenFavSeedRef.current == null) {
         forgottenFavSeedRef.current = response.seed;
       }
       return {
@@ -493,7 +498,10 @@ export default function HomePage() {
     newestData?.pages[0]?.total != null
       ? Math.min(newestData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
-  const randomAlbums = randomData?.pages.flatMap((p) => p.albums) ?? [];
+  // Don't show stale cached data for seeded sections — show skeletons until fresh data arrives
+  const randomAlbums = fetchingRandom
+    ? []
+    : (randomData?.pages.flatMap((p) => p.albums) ?? []);
   const randomTotal =
     randomData?.pages[0]?.total != null
       ? Math.min(randomData.pages[0].total, MAX_SECTION_ITEMS)
@@ -503,8 +511,9 @@ export default function HomePage() {
     frequentData?.pages[0]?.total != null
       ? Math.min(frequentData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
-  const forgottenFavSongs =
-    forgottenFavData?.pages.flatMap((p) => p.songs) ?? [];
+  const forgottenFavSongs = fetchingForgottenFav
+    ? []
+    : (forgottenFavData?.pages.flatMap((p) => p.songs) ?? []);
   const forgottenFavTotal =
     forgottenFavData?.pages[0]?.total != null
       ? Math.min(forgottenFavData.pages[0].total, MAX_SECTION_ITEMS)
@@ -620,6 +629,7 @@ export default function HomePage() {
         {/* Header */}
         <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border">
           <div className="flex items-center gap-4 h-16 px-4 lg:px-6">
+            <Skeleton className="w-9 h-9 rounded-md shrink-0 lg:hidden" />
             <h1 className="text-2xl font-bold">Home</h1>
             <div className="flex-1 flex justify-center">
               <div className="relative w-full max-w-md">
@@ -701,7 +711,7 @@ export default function HomePage() {
       </header>
 
       {/* Content */}
-      <div className="py-4 sm:py-6 space-y-6 sm:space-y-8">
+      <div className="py-4 sm:py-6 space-y-4 sm:space-y-6">
         {/* Continue Listening (Recently Played Albums + Playlists, sorted by last played) */}
         <section className="space-y-2 sm:space-y-4">
           <SectionHeader
@@ -777,21 +787,43 @@ export default function HomePage() {
           paddingX={paddingX}
         />
 
+        {/* Recently Added */}
+        <AlbumSection
+          title="Recently Added"
+          icon={Clock}
+          albums={newestAlbums}
+          totalCount={newestTotal}
+          isLoading={loadingNewest}
+          hasNextPage={hasNextNewest}
+          isFetchingNextPage={fetchingNextNewest}
+          fetchNextPage={fetchNextNewest}
+          onPlayAlbum={handlePlayAlbum}
+          onPlayAll={() => handlePlayAllAlbums("newest", "Recently Added")}
+          onShuffleAll={() =>
+            handleShuffleAllAlbums("newest", "Recently Added")
+          }
+          itemWidth={itemWidth}
+          itemGap={itemGap}
+          paddingX={paddingX}
+        />
+
         {/* Forgotten Favorites */}
-        {(forgottenFavSongs.length > 0 || loadingForgottenFav) && (
+        {(forgottenFavSongs.length > 0 || fetchingForgottenFav) && (
           <section className="space-y-2 sm:space-y-4">
             <SectionHeader
               title="Forgotten Favorites"
               icon={Heart}
               hasItems={forgottenFavSongs.length > 0}
-              isLoading={loadingForgottenFav}
+              isLoading={fetchingForgottenFav}
               onPlayAll={() =>
                 startQueue({
                   sourceType: "forgottenFavorites",
                   sourceName: "Forgotten Favorites",
                   startIndex: 0,
                   shuffle: false,
-                  filters: { seed: forgottenFavSeedRef.current },
+                  filters: {
+                    seed: forgottenFavData?.pages[0]?.seed,
+                  },
                 })
               }
               onShuffleAll={() =>
@@ -800,14 +832,16 @@ export default function HomePage() {
                   sourceName: "Forgotten Favorites",
                   startIndex: 0,
                   shuffle: true,
-                  filters: { seed: forgottenFavSeedRef.current },
+                  filters: {
+                    seed: forgottenFavData?.pages[0]?.seed,
+                  },
                 })
               }
             />
             <VirtualizedHorizontalScroll<Song>
               items={forgottenFavSongs}
               totalCount={forgottenFavTotal}
-              isLoading={loadingForgottenFav}
+              isLoading={fetchingForgottenFav}
               itemWidth={itemWidth}
               gap={itemGap}
               paddingX={paddingX}
@@ -821,7 +855,9 @@ export default function HomePage() {
                   queueSource={{
                     type: "forgottenFavorites",
                     name: "Forgotten Favorites",
-                    filters: { seed: forgottenFavSeedRef.current },
+                    filters: {
+                      seed: forgottenFavData?.pages[0]?.seed,
+                    },
                   }}
                   inlineImagesRequested
                 />
@@ -839,40 +875,20 @@ export default function HomePage() {
           icon={Sparkles}
           albums={randomAlbums}
           totalCount={randomTotal}
-          isLoading={loadingRandom}
+          isLoading={fetchingRandom}
           hasNextPage={hasNextRandom}
           isFetchingNextPage={fetchingNextRandom}
           fetchNextPage={fetchNextRandom}
           onPlayAlbum={handlePlayAlbum}
           onPlayAll={() =>
             handlePlayAllAlbums("random", "Discover", {
-              seed: discoverSeedRef.current,
+              seed: randomData?.pages[0]?.seed,
             })
           }
           onShuffleAll={() =>
             handleShuffleAllAlbums("random", "Discover", {
-              seed: discoverSeedRef.current,
+              seed: randomData?.pages[0]?.seed,
             })
-          }
-          itemWidth={itemWidth}
-          itemGap={itemGap}
-          paddingX={paddingX}
-        />
-
-        {/* Recently Added */}
-        <AlbumSection
-          title="Recently Added"
-          icon={Clock}
-          albums={newestAlbums}
-          totalCount={newestTotal}
-          isLoading={loadingNewest}
-          hasNextPage={hasNextNewest}
-          isFetchingNextPage={fetchingNextNewest}
-          fetchNextPage={fetchNextNewest}
-          onPlayAlbum={handlePlayAlbum}
-          onPlayAll={() => handlePlayAllAlbums("newest", "Recently Added")}
-          onShuffleAll={() =>
-            handleShuffleAllAlbums("newest", "Recently Added")
           }
           itemWidth={itemWidth}
           itemGap={itemGap}
