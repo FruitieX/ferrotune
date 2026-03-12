@@ -43,6 +43,7 @@ interface MenuItemProps {
   asChild?: boolean;
   children: ReactNode;
   className?: string;
+  disabled?: boolean;
 }
 
 // ===================================
@@ -76,7 +77,9 @@ export function renderMenuItem(
   if (config.href) {
     return (
       <Item key={key} asChild>
-        <Link href={config.href}>{content}</Link>
+        <Link href={config.href} onClick={config.onClick}>
+          {content}
+        </Link>
       </Item>
     );
   }
@@ -102,6 +105,7 @@ export interface AlbumMenuItemsProps {
     handleAddToPlaylist: () => void;
     toggleStar: () => void;
     setDetailsOpen: (open: boolean) => void;
+    onNavigate?: () => void;
   };
   state: {
     isStarred: boolean;
@@ -168,6 +172,7 @@ export function AlbumMenuItems({
           icon: User,
           label: "Go to Artist",
           href: `/library/artists/details?id=${album.artistId}`,
+          onClick: handlers.onNavigate,
         },
       )}
       {renderMenuItem(
@@ -522,6 +527,7 @@ export interface SongMenuItemsNavigationProps {
     handleRescan?: () => void;
     setDetailsOpen: (open: boolean) => void;
     setConfirmDeletionOpen?: (open: boolean) => void;
+    onNavigate?: () => void;
   };
   song: {
     id: string;
@@ -551,6 +557,7 @@ export function SongMenuItemsNavigation({
           icon: User,
           label: "Go to Artist",
           href: `/library/artists/details?id=${song.artistId}`,
+          onClick: handlers.onNavigate,
         },
       )}
       {song.albumId &&
@@ -560,6 +567,7 @@ export function SongMenuItemsNavigation({
             icon: Disc,
             label: "Go to Album",
             href: `/library/albums/details?id=${song.albumId}&songId=${song.id}`,
+            onClick: handlers.onNavigate,
           },
         )}
       {/* Mark for Editing, Rescan, and Mark for Deletion grouped together */}

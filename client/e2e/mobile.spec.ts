@@ -195,11 +195,11 @@ test.describe("Mobile Tests", () => {
     // On mobile, try using context menu (long press simulation via right click)
     await songRow.click({ button: "right" });
 
-    // Should open a context menu
-    const contextMenu = page.locator('[data-slot="context-menu-content"]');
-    if (await contextMenu.isVisible({ timeout: 3000 }).catch(() => false)) {
+    // On mobile, the context menu opens as a bottom drawer
+    const drawer = page.locator("[data-vaul-drawer]");
+    if (await drawer.isVisible({ timeout: 3000 }).catch(() => false)) {
       await expect(
-        contextMenu.getByRole("menuitem", { name: /^play$/i }),
+        page.locator("button", { hasText: /^play$/i }),
       ).toBeVisible();
     }
   });
@@ -216,7 +216,7 @@ test.describe("Mobile Tests", () => {
     await page.waitForURL(/\/library\/albums\//, { timeout: 10000 });
     await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
 
-    // Disable CSS animations: the context menu enter animation causes Playwright
+    // Disable CSS animations: the drawer/context menu animations cause Playwright
     // to wait for stability, during which a React re-render detaches the DOM nodes.
     await page.addStyleTag({
       content:
@@ -225,20 +225,21 @@ test.describe("Mobile Tests", () => {
 
     const firstSongRow = page.locator('[data-testid="song-row"]').first();
 
-    // Right-click to open context menu
+    // Right-click to open context menu (on mobile, opens as a drawer)
     await firstSongRow.click({ button: "right" });
 
-    const contextMenu = page.locator('[data-slot="context-menu-content"]');
-    await expect(contextMenu).toBeVisible({ timeout: 5000 });
+    // On mobile, the context menu opens as a bottom drawer
+    const drawer = page.locator("[data-vaul-drawer]");
+    await expect(drawer).toBeVisible({ timeout: 5000 });
 
-    // Star via context menu
-    const starItem = contextMenu.getByRole("menuitem", {
-      name: /add to favorites/i,
+    // Star via drawer menu
+    const starItem = page.locator("button", {
+      hasText: /add to favorites/i,
     });
     await starItem.click();
 
-    // Verify the context menu closed (star action succeeded)
-    await expect(contextMenu).not.toBeVisible();
+    // Verify the drawer closed (star action succeeded)
+    await expect(drawer).not.toBeVisible({ timeout: 10000 });
   });
 
   test("playlist page is accessible", async ({ authenticatedPage: page }) => {

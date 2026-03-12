@@ -19,25 +19,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  ResponsiveContextMenu,
+  ResponsiveDropdownMenu,
+} from "@/components/shared/responsive-context-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -90,26 +74,6 @@ function dismissContextMenu() {
     );
   }
 }
-
-// ===================================
-// Menu component adapters
-// ===================================
-
-const contextMenuComponents: MenuComponents = {
-  Item: ContextMenuItem,
-  Separator: ContextMenuSeparator,
-  Sub: ContextMenuSub,
-  SubTrigger: ContextMenuSubTrigger,
-  SubContent: ContextMenuSubContent,
-};
-
-const dropdownMenuComponents: MenuComponents = {
-  Item: DropdownMenuItem,
-  Separator: DropdownMenuSeparator,
-  Sub: DropdownMenuSub,
-  SubTrigger: DropdownMenuSubTrigger,
-  SubContent: DropdownMenuSubContent,
-};
 
 // ===================================
 // Shared hook for mark for editing
@@ -736,6 +700,7 @@ interface SongContextMenuProps {
   collisionPadding?:
     | number
     | { top?: number; right?: number; bottom?: number; left?: number };
+  onNavigate?: () => void;
 }
 
 export function SongContextMenu({
@@ -757,6 +722,7 @@ export function SongContextMenu({
   showUnmatch = false,
   onUnmatch,
   collisionPadding,
+  onNavigate,
 }: SongContextMenuProps) {
   // Single song actions
   const {
@@ -801,107 +767,118 @@ export function SongContextMenu({
   // Determine if we should show bulk actions
   const showBulkMenu = bulkActions.shouldShowBulkActions(song.id);
 
+  // Cover art URL for drawer header
+  const coverArtUrl = song.coverArt
+    ? getClient()?.getCoverArtUrl(song.coverArt, "small")
+    : undefined;
+
+  const renderMenuContent = (components: MenuComponents) =>
+    showBulkMenu ? (
+      <BulkSongMenuContent
+        components={components}
+        selectedCount={bulkActions.selectedCount}
+        handlers={{
+          handlePlay: bulkActions.handlePlay,
+          handleShuffle: bulkActions.handleShuffle,
+          handlePlayNext: bulkActions.handlePlayNext,
+          handleAddToQueue: bulkActions.handleAddToQueue,
+          handleStar: bulkActions.handleStar,
+          handleUnstar: bulkActions.handleUnstar,
+          handleExcludeFromShuffle: bulkActions.handleExcludeFromShuffle,
+          handleIncludeInShuffle: bulkActions.handleIncludeInShuffle,
+          handleDisable: bulkActions.handleDisable,
+          handleEnable: bulkActions.handleEnable,
+          handleMarkForEditing: bulkActions.handleMarkForEditing,
+          setConfirmDeletionOpen: bulkActions.setConfirmDeletionOpen,
+          setAddToPlaylistOpen: bulkActions.setAddToPlaylistOpen,
+        }}
+      />
+    ) : (
+      <>
+        <SongMenuItemsQueue
+          components={components}
+          handlers={{
+            handlePlay,
+            handleStartRadio,
+            handlePlayNext,
+            handleAddToQueue,
+            setAddToPlaylistOpen: setSingleAddToPlaylistOpen,
+          }}
+          options={{
+            hideQueueActions,
+            showRemoveFromQueue,
+            onRemoveFromQueue,
+            showRemoveFromPlaylist,
+            onRemoveFromPlaylist: onRemoveFromPlaylist
+              ? () => onRemoveFromPlaylist(song.id)
+              : undefined,
+            showMoveToPosition: showMoveToPosition && songIndex !== undefined,
+            onMoveToPosition:
+              onMoveToPosition && songIndex !== undefined
+                ? () => onMoveToPosition(song, songIndex)
+                : undefined,
+            moveToPositionLabel,
+            showRefineMatch: showRefineMatch && songIndex !== undefined,
+            onRefineMatch:
+              onRefineMatch && songIndex !== undefined
+                ? () => onRefineMatch(song, songIndex)
+                : undefined,
+            showUnmatch: showUnmatch && songIndex !== undefined,
+            onUnmatch:
+              onUnmatch && songIndex !== undefined
+                ? () => onUnmatch(song, songIndex)
+                : undefined,
+          }}
+        />
+        <SongMenuItemsStarring
+          components={components}
+          handlers={{
+            toggleStar,
+            handleToggleShuffleExclude,
+            handleToggleDisabled,
+            handleRate,
+          }}
+          state={{
+            isStarred,
+            isExcludedFromShuffle,
+            isDisabled,
+            currentRating,
+          }}
+        />
+        <SongMenuItemsNavigation
+          components={components}
+          handlers={{
+            handleDownload,
+            handleMarkForEditing,
+            handleRescan,
+            setDetailsOpen,
+            setConfirmDeletionOpen,
+            onNavigate,
+          }}
+          song={{
+            id: song.id,
+            artistId: song.artistId,
+            albumId: song.albumId,
+          }}
+        />
+      </>
+    );
+
   return (
     <>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent
-          className="w-56"
-          onDoubleClick={(e) => e.stopPropagation()}
-          collisionPadding={collisionPadding}
-        >
-          {showBulkMenu ? (
-            <BulkSongMenuContent
-              components={contextMenuComponents}
-              selectedCount={bulkActions.selectedCount}
-              handlers={{
-                handlePlay: bulkActions.handlePlay,
-                handleShuffle: bulkActions.handleShuffle,
-                handlePlayNext: bulkActions.handlePlayNext,
-                handleAddToQueue: bulkActions.handleAddToQueue,
-                handleStar: bulkActions.handleStar,
-                handleUnstar: bulkActions.handleUnstar,
-                handleExcludeFromShuffle: bulkActions.handleExcludeFromShuffle,
-                handleIncludeInShuffle: bulkActions.handleIncludeInShuffle,
-                handleDisable: bulkActions.handleDisable,
-                handleEnable: bulkActions.handleEnable,
-                handleMarkForEditing: bulkActions.handleMarkForEditing,
-                setConfirmDeletionOpen: bulkActions.setConfirmDeletionOpen,
-                setAddToPlaylistOpen: bulkActions.setAddToPlaylistOpen,
-              }}
-            />
-          ) : (
-            <>
-              <SongMenuItemsQueue
-                components={contextMenuComponents}
-                handlers={{
-                  handlePlay,
-                  handleStartRadio,
-                  handlePlayNext,
-                  handleAddToQueue,
-                  setAddToPlaylistOpen: setSingleAddToPlaylistOpen,
-                }}
-                options={{
-                  hideQueueActions,
-                  showRemoveFromQueue,
-                  onRemoveFromQueue,
-                  showRemoveFromPlaylist,
-                  onRemoveFromPlaylist: onRemoveFromPlaylist
-                    ? () => onRemoveFromPlaylist(song.id)
-                    : undefined,
-                  showMoveToPosition:
-                    showMoveToPosition && songIndex !== undefined,
-                  onMoveToPosition:
-                    onMoveToPosition && songIndex !== undefined
-                      ? () => onMoveToPosition(song, songIndex)
-                      : undefined,
-                  moveToPositionLabel,
-                  showRefineMatch: showRefineMatch && songIndex !== undefined,
-                  onRefineMatch:
-                    onRefineMatch && songIndex !== undefined
-                      ? () => onRefineMatch(song, songIndex)
-                      : undefined,
-                  showUnmatch: showUnmatch && songIndex !== undefined,
-                  onUnmatch:
-                    onUnmatch && songIndex !== undefined
-                      ? () => onUnmatch(song, songIndex)
-                      : undefined,
-                }}
-              />
-              <SongMenuItemsStarring
-                components={contextMenuComponents}
-                handlers={{
-                  toggleStar,
-                  handleToggleShuffleExclude,
-                  handleToggleDisabled,
-                  handleRate,
-                }}
-                state={{
-                  isStarred,
-                  isExcludedFromShuffle,
-                  isDisabled,
-                  currentRating,
-                }}
-              />
-              <SongMenuItemsNavigation
-                components={contextMenuComponents}
-                handlers={{
-                  handleDownload,
-                  handleMarkForEditing,
-                  handleRescan,
-                  setDetailsOpen,
-                  setConfirmDeletionOpen,
-                }}
-                song={{
-                  id: song.id,
-                  artistId: song.artistId,
-                  albumId: song.albumId,
-                }}
-              />
-            </>
-          )}
-        </ContextMenuContent>
-      </ContextMenu>
+      <ResponsiveContextMenu
+        renderMenuContent={renderMenuContent}
+        collisionPadding={collisionPadding}
+        drawerTitle={
+          showBulkMenu
+            ? `${bulkActions.selectedCount} songs selected`
+            : song.title
+        }
+        drawerSubtitle={showBulkMenu ? undefined : song.artist}
+        drawerThumbnail={showBulkMenu ? undefined : (coverArtUrl ?? undefined)}
+      >
+        {children}
+      </ResponsiveContextMenu>
 
       {/* Dialogs for single song actions */}
       <SongDialogs
@@ -980,6 +957,7 @@ interface SongDropdownMenuProps {
   onRefineMatch?: (song: Song, index: number) => void;
   showUnmatch?: boolean;
   onUnmatch?: (song: Song, index: number) => void;
+  onNavigate?: () => void;
 }
 
 export function SongDropdownMenu({
@@ -1000,6 +978,7 @@ export function SongDropdownMenu({
   onRefineMatch,
   showUnmatch = false,
   onUnmatch,
+  onNavigate,
 }: SongDropdownMenuProps) {
   const {
     isStarred,
@@ -1052,6 +1031,82 @@ export function SongDropdownMenu({
     </Button>
   );
 
+  // Cover art URL for drawer header
+  const coverArtUrl = song.coverArt
+    ? getClient()?.getCoverArtUrl(song.coverArt, "small")
+    : undefined;
+
+  const renderMenuContent = (components: MenuComponents) => (
+    <>
+      <SongMenuItemsQueue
+        components={components}
+        handlers={{
+          handlePlay,
+          handleStartRadio,
+          handlePlayNext,
+          handleAddToQueue,
+          setAddToPlaylistOpen,
+        }}
+        options={{
+          hideQueueActions,
+          showRemoveFromQueue,
+          onRemoveFromQueue,
+          showRemoveFromPlaylist,
+          onRemoveFromPlaylist: onRemoveFromPlaylist
+            ? () => onRemoveFromPlaylist(song.id)
+            : undefined,
+          showMoveToPosition: showMoveToPosition && songIndex !== undefined,
+          onMoveToPosition:
+            onMoveToPosition && songIndex !== undefined
+              ? () => onMoveToPosition(song, songIndex)
+              : undefined,
+          moveToPositionLabel,
+          showRefineMatch: showRefineMatch && songIndex !== undefined,
+          onRefineMatch:
+            onRefineMatch && songIndex !== undefined
+              ? () => onRefineMatch(song, songIndex)
+              : undefined,
+          showUnmatch: showUnmatch && songIndex !== undefined,
+          onUnmatch:
+            onUnmatch && songIndex !== undefined
+              ? () => onUnmatch(song, songIndex)
+              : undefined,
+        }}
+      />
+      <SongMenuItemsStarring
+        components={components}
+        handlers={{
+          toggleStar,
+          handleToggleShuffleExclude,
+          handleToggleDisabled,
+          handleRate,
+        }}
+        state={{
+          isStarred,
+          isExcludedFromShuffle,
+          isDisabled,
+          currentRating,
+        }}
+      />
+      <SongMenuItemsNavigation
+        components={components}
+        handlers={{
+          handleDownload,
+          handleMarkForEditing,
+          handleRescan,
+          setDetailsOpen,
+          setConfirmDeletionOpen,
+          onNavigate,
+        }}
+        song={{
+          id: song.id,
+          artistId: song.artistId,
+          albumId: song.albumId,
+        }}
+      />
+    </>
+  );
+
   const handleDropdownOpenChange = (open: boolean) => {
     if (open) {
       dismissContextMenu();
@@ -1060,82 +1115,14 @@ export function SongDropdownMenu({
 
   return (
     <>
-      <DropdownMenu onOpenChange={handleDropdownOpenChange}>
-        <DropdownMenuTrigger asChild>
-          {trigger ?? defaultTrigger}
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="w-56"
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          <SongMenuItemsQueue
-            components={dropdownMenuComponents}
-            handlers={{
-              handlePlay,
-              handleStartRadio,
-              handlePlayNext,
-              handleAddToQueue,
-              setAddToPlaylistOpen,
-            }}
-            options={{
-              hideQueueActions,
-              showRemoveFromQueue,
-              onRemoveFromQueue,
-              showRemoveFromPlaylist,
-              onRemoveFromPlaylist: onRemoveFromPlaylist
-                ? () => onRemoveFromPlaylist(song.id)
-                : undefined,
-              showMoveToPosition: showMoveToPosition && songIndex !== undefined,
-              onMoveToPosition:
-                onMoveToPosition && songIndex !== undefined
-                  ? () => onMoveToPosition(song, songIndex)
-                  : undefined,
-              moveToPositionLabel,
-              showRefineMatch: showRefineMatch && songIndex !== undefined,
-              onRefineMatch:
-                onRefineMatch && songIndex !== undefined
-                  ? () => onRefineMatch(song, songIndex)
-                  : undefined,
-              showUnmatch: showUnmatch && songIndex !== undefined,
-              onUnmatch:
-                onUnmatch && songIndex !== undefined
-                  ? () => onUnmatch(song, songIndex)
-                  : undefined,
-            }}
-          />
-          <SongMenuItemsStarring
-            components={dropdownMenuComponents}
-            handlers={{
-              toggleStar,
-              handleToggleShuffleExclude,
-              handleToggleDisabled,
-              handleRate,
-            }}
-            state={{
-              isStarred,
-              isExcludedFromShuffle,
-              isDisabled,
-              currentRating,
-            }}
-          />
-          <SongMenuItemsNavigation
-            components={dropdownMenuComponents}
-            handlers={{
-              handleDownload,
-              handleMarkForEditing,
-              handleRescan,
-              setDetailsOpen,
-              setConfirmDeletionOpen,
-            }}
-            song={{
-              id: song.id,
-              artistId: song.artistId,
-              albumId: song.albumId,
-            }}
-          />
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <ResponsiveDropdownMenu
+        trigger={trigger ?? defaultTrigger}
+        renderMenuContent={renderMenuContent}
+        onOpenChange={handleDropdownOpenChange}
+        drawerTitle={song.title}
+        drawerSubtitle={song.artist}
+        drawerThumbnail={coverArtUrl ?? undefined}
+      />
       <SongDialogs
         song={song}
         addToPlaylistOpen={addToPlaylistOpen}

@@ -120,6 +120,7 @@ function VirtualQueueItem({
       showMoveToPosition={!isCurrent}
       onMoveToPosition={onMoveToPosition}
       moveToPositionLabel="Move to Position"
+      onNavigate={onNavigate}
     >
       <div
         className={cn(
@@ -214,6 +215,7 @@ function VirtualQueueItem({
             showMoveToPosition={!isCurrent}
             onMoveToPosition={onMoveToPosition}
             moveToPositionLabel="Move to Position"
+            onNavigate={onNavigate}
             trigger={
               <Button
                 variant="ghost"

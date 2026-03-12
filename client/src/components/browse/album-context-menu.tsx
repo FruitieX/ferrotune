@@ -1,41 +1,20 @@
 "use client";
 
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  ResponsiveContextMenu,
+  ResponsiveDropdownMenu,
+} from "@/components/shared/responsive-context-menu";
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
 import {
   AlbumMenuItems,
-  MenuComponents,
+  type MenuComponents,
 } from "@/components/shared/media-menu-items";
 import { useAlbumActions } from "@/lib/hooks/use-album-actions";
 import type { Album } from "@/lib/api/types";
 import { MoreHorizontal } from "lucide-react";
-
-// Component adapters for ContextMenu
-const contextMenuComponents: MenuComponents = {
-  Item: ContextMenuItem,
-  Separator: ContextMenuSeparator,
-};
-
-// Component adapters for DropdownMenu
-const dropdownMenuComponents: MenuComponents = {
-  Item: DropdownMenuItem,
-  Separator: DropdownMenuSeparator,
-};
+import { getClient } from "@/lib/api/client";
 
 interface AlbumContextMenuProps {
   album: Album;
@@ -58,30 +37,37 @@ export function AlbumContextMenu({ album, children }: AlbumContextMenuProps) {
     setDetailsOpen,
   } = useAlbumActions(album);
 
+  const coverArtUrl = album.coverArt
+    ? getClient()?.getCoverArtUrl(album.coverArt, "small")
+    : undefined;
+
+  const renderMenuContent = (components: MenuComponents) => (
+    <AlbumMenuItems
+      components={components}
+      handlers={{
+        handlePlay,
+        handleShuffle,
+        handlePlayNext,
+        handleAddToQueue,
+        handleAddToPlaylist,
+        toggleStar,
+        setDetailsOpen,
+      }}
+      state={{ isStarred }}
+      album={{ artistId: album.artistId }}
+    />
+  );
+
   return (
     <>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent
-          className="w-56"
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          <AlbumMenuItems
-            components={contextMenuComponents}
-            handlers={{
-              handlePlay,
-              handleShuffle,
-              handlePlayNext,
-              handleAddToQueue,
-              handleAddToPlaylist,
-              toggleStar,
-              setDetailsOpen,
-            }}
-            state={{ isStarred }}
-            album={{ artistId: album.artistId }}
-          />
-        </ContextMenuContent>
-      </ContextMenu>
+      <ResponsiveContextMenu
+        renderMenuContent={renderMenuContent}
+        drawerTitle={album.name}
+        drawerSubtitle={album.artist}
+        drawerThumbnail={coverArtUrl ?? undefined}
+      >
+        {children}
+      </ResponsiveContextMenu>
       {albumSongs && (
         <AddToPlaylistDialog
           open={addToPlaylistOpen}
@@ -128,6 +114,10 @@ export function AlbumDropdownMenu({
   // Use custom onPlay if provided, otherwise use hook's handlePlay
   const handlePlay = onPlay ?? hookHandlePlay;
 
+  const coverArtUrl = album.coverArt
+    ? getClient()?.getCoverArtUrl(album.coverArt, "small")
+    : undefined;
+
   const defaultTrigger = (
     <Button
       variant="ghost"
@@ -142,33 +132,32 @@ export function AlbumDropdownMenu({
     </Button>
   );
 
+  const renderMenuContent = (components: MenuComponents) => (
+    <AlbumMenuItems
+      components={components}
+      handlers={{
+        handlePlay,
+        handleShuffle,
+        handlePlayNext,
+        handleAddToQueue,
+        handleAddToPlaylist,
+        toggleStar,
+        setDetailsOpen,
+      }}
+      state={{ isStarred }}
+      album={{ artistId: album.artistId }}
+    />
+  );
+
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          {trigger ?? defaultTrigger}
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="w-56"
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          <AlbumMenuItems
-            components={dropdownMenuComponents}
-            handlers={{
-              handlePlay,
-              handleShuffle,
-              handlePlayNext,
-              handleAddToQueue,
-              handleAddToPlaylist,
-              toggleStar,
-              setDetailsOpen,
-            }}
-            state={{ isStarred }}
-            album={{ artistId: album.artistId }}
-          />
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <ResponsiveDropdownMenu
+        trigger={trigger ?? defaultTrigger}
+        renderMenuContent={renderMenuContent}
+        drawerTitle={album.name}
+        drawerSubtitle={album.artist}
+        drawerThumbnail={coverArtUrl ?? undefined}
+      />
       {albumSongs && (
         <AddToPlaylistDialog
           open={addToPlaylistOpen}

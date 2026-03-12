@@ -13,16 +13,8 @@ import {
   Folder,
   Home,
 } from "lucide-react";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
-} from "@/components/ui/context-menu";
+import { ResponsiveContextMenu } from "@/components/shared/responsive-context-menu";
+import type { MenuComponents } from "@/components/shared/media-menu-items";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -166,95 +158,90 @@ export function FolderContextMenu({
   // Current parent folder ID
   const currentParentId = folder.parentId ?? null;
 
-  const menuItems = (
-    <>
-      <ContextMenuItem onClick={() => onCreatePlaylist?.(folder.path)}>
-        <ListPlus className="w-4 h-4 mr-2" />
-        New Playlist
-      </ContextMenuItem>
-      <ContextMenuItem onClick={() => onCreateSubfolder?.(folder.path)}>
-        <FolderPlus className="w-4 h-4 mr-2" />
-        New Subfolder
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      {folder.id && (
-        <ContextMenuSub>
-          <ContextMenuSubTrigger>
-            <FolderInput className="w-4 h-4 mr-2" />
-            Move to
-          </ContextMenuSubTrigger>
-          <ContextMenuSubContent className="w-48">
-            {/* Move to root option */}
-            <ContextMenuItem
-              onClick={() => moveFolderMutation.mutate(null)}
-              disabled={
-                currentParentId === null || moveFolderMutation.isPending
-              }
-            >
-              <Home className="w-4 h-4 mr-2" />
-              Root
-              {currentParentId === null && (
-                <span className="ml-auto text-xs text-muted-foreground">
-                  Current
-                </span>
-              )}
-            </ContextMenuItem>
-            {availableFolders.length > 0 && <ContextMenuSeparator />}
-            {/* Folder options */}
-            {availableFolders.map((targetFolder) => (
-              <ContextMenuItem
-                key={targetFolder.id}
-                onClick={() => moveFolderMutation.mutate(targetFolder.id)}
+  const renderMenuContent = (components: MenuComponents) => {
+    const { Item, Separator, Sub, SubTrigger, SubContent } = components;
+    return (
+      <>
+        <Item onClick={() => onCreatePlaylist?.(folder.path)}>
+          <ListPlus className="w-4 h-4 mr-2" />
+          New Playlist
+        </Item>
+        <Item onClick={() => onCreateSubfolder?.(folder.path)}>
+          <FolderPlus className="w-4 h-4 mr-2" />
+          New Subfolder
+        </Item>
+        <Separator />
+        {folder.id && Sub && SubTrigger && SubContent && (
+          <Sub>
+            <SubTrigger>
+              <FolderInput className="w-4 h-4 mr-2" />
+              Move to
+            </SubTrigger>
+            <SubContent>
+              <Item
+                onClick={() => moveFolderMutation.mutate(null)}
                 disabled={
-                  currentParentId === targetFolder.id ||
-                  moveFolderMutation.isPending
+                  currentParentId === null || moveFolderMutation.isPending
                 }
               >
-                <Folder className="w-4 h-4 mr-2" />
-                <span className="truncate">{targetFolder.name}</span>
-                {currentParentId === targetFolder.id && (
+                <Home className="w-4 h-4 mr-2" />
+                Root
+                {currentParentId === null && (
                   <span className="ml-auto text-xs text-muted-foreground">
                     Current
                   </span>
                 )}
-              </ContextMenuItem>
-            ))}
-            {availableFolders.length === 0 && currentParentId != null && (
-              <ContextMenuItem
-                disabled
-                className="text-muted-foreground text-xs"
-              >
-                No available folders
-              </ContextMenuItem>
-            )}
-          </ContextMenuSubContent>
-        </ContextMenuSub>
-      )}
-      <ContextMenuItem onClick={() => setEditDialogOpen(true)}>
-        <Pencil className="w-4 h-4 mr-2" />
-        Edit Folder
-      </ContextMenuItem>
-      <ContextMenuItem
-        onClick={() => setDeleteDialogOpen(true)}
-        className="text-destructive focus:text-destructive"
-      >
-        <Trash2 className="w-4 h-4 mr-2" />
-        Delete Folder
-      </ContextMenuItem>
-    </>
-  );
+              </Item>
+              {availableFolders.length > 0 && <Separator />}
+              {availableFolders.map((targetFolder) => (
+                <Item
+                  key={targetFolder.id}
+                  onClick={() => moveFolderMutation.mutate(targetFolder.id)}
+                  disabled={
+                    currentParentId === targetFolder.id ||
+                    moveFolderMutation.isPending
+                  }
+                >
+                  <Folder className="w-4 h-4 mr-2" />
+                  <span className="truncate">{targetFolder.name}</span>
+                  {currentParentId === targetFolder.id && (
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      Current
+                    </span>
+                  )}
+                </Item>
+              ))}
+              {availableFolders.length === 0 && currentParentId != null && (
+                <Item disabled className="text-muted-foreground text-xs">
+                  No available folders
+                </Item>
+              )}
+            </SubContent>
+          </Sub>
+        )}
+        <Item onClick={() => setEditDialogOpen(true)}>
+          <Pencil className="w-4 h-4 mr-2" />
+          Edit Folder
+        </Item>
+        <Item
+          onClick={() => setDeleteDialogOpen(true)}
+          className="text-destructive focus:text-destructive"
+        >
+          <Trash2 className="w-4 h-4 mr-2" />
+          Delete Folder
+        </Item>
+      </>
+    );
+  };
 
   return (
     <>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent
-          className="w-56"
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          {menuItems}
-        </ContextMenuContent>
-      </ContextMenu>
+      <ResponsiveContextMenu
+        renderMenuContent={renderMenuContent}
+        drawerTitle={folder.name}
+      >
+        {children}
+      </ResponsiveContextMenu>
 
       {/* Edit Folder Dialog */}
       <EditFolderDialog

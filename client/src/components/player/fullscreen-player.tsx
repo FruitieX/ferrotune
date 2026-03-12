@@ -712,6 +712,7 @@ export function FullscreenPlayer() {
                   </div>
                   <SongDropdownMenu
                     song={currentTrack}
+                    onNavigate={() => setIsOpen(false)}
                     trigger={
                       <Button
                         variant="ghost"

@@ -1,42 +1,21 @@
 "use client";
 
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  ResponsiveContextMenu,
+  ResponsiveDropdownMenu,
+} from "@/components/shared/responsive-context-menu";
 import { Button } from "@/components/ui/button";
 import { AddToPlaylistDialog } from "@/components/playlists/add-to-playlist-dialog";
 import { DetailsDialog } from "@/components/shared/details-dialog";
 import {
   ArtistMenuItems,
-  MenuComponents,
+  type MenuComponents,
 } from "@/components/shared/media-menu-items";
 import { useArtistActions } from "@/lib/hooks/use-artist-actions";
 import { useStar } from "@/lib/hooks/use-star";
 import type { Artist } from "@/lib/api/types";
 import { MoreHorizontal } from "lucide-react";
-
-// Component adapters for ContextMenu
-const contextMenuComponents: MenuComponents = {
-  Item: ContextMenuItem,
-  Separator: ContextMenuSeparator,
-};
-
-// Component adapters for DropdownMenu
-const dropdownMenuComponents: MenuComponents = {
-  Item: DropdownMenuItem,
-  Separator: DropdownMenuSeparator,
-};
+import { getClient } from "@/lib/api/client";
 
 interface ArtistContextMenuProps {
   artist: Artist;
@@ -62,29 +41,35 @@ export function ArtistContextMenu({
     setDetailsOpen,
   } = useArtistActions(artist);
 
+  const coverArtUrl = artist.coverArt
+    ? getClient()?.getCoverArtUrl(artist.coverArt, "small")
+    : undefined;
+
+  const renderMenuContent = (components: MenuComponents) => (
+    <ArtistMenuItems
+      components={components}
+      handlers={{
+        handlePlay,
+        handleShuffle,
+        handlePlayNext,
+        handleAddToQueue,
+        handleAddToPlaylist,
+        toggleStar,
+        setDetailsOpen,
+      }}
+      state={{ isStarred }}
+    />
+  );
+
   return (
     <>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent
-          className="w-56"
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          <ArtistMenuItems
-            components={contextMenuComponents}
-            handlers={{
-              handlePlay,
-              handleShuffle,
-              handlePlayNext,
-              handleAddToQueue,
-              handleAddToPlaylist,
-              toggleStar,
-              setDetailsOpen,
-            }}
-            state={{ isStarred }}
-          />
-        </ContextMenuContent>
-      </ContextMenu>
+      <ResponsiveContextMenu
+        renderMenuContent={renderMenuContent}
+        drawerTitle={artist.name}
+        drawerThumbnail={coverArtUrl ?? undefined}
+      >
+        {children}
+      </ResponsiveContextMenu>
       {artistSongs && (
         <AddToPlaylistDialog
           open={addToPlaylistOpen}
@@ -134,6 +119,10 @@ export function ArtistDropdownMenu({
   const handlePlay = onPlay ?? hookHandlePlay;
   const handleShuffle = onShuffle ?? hookHandleShuffle;
 
+  const coverArtUrl = artist.coverArt
+    ? getClient()?.getCoverArtUrl(artist.coverArt, "small")
+    : undefined;
+
   const defaultTrigger = (
     <Button
       variant="ghost"
@@ -148,32 +137,30 @@ export function ArtistDropdownMenu({
     </Button>
   );
 
+  const renderMenuContent = (components: MenuComponents) => (
+    <ArtistMenuItems
+      components={components}
+      handlers={{
+        handlePlay,
+        handleShuffle,
+        handlePlayNext,
+        handleAddToQueue,
+        handleAddToPlaylist,
+        toggleStar,
+        setDetailsOpen,
+      }}
+      state={{ isStarred }}
+    />
+  );
+
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          {trigger ?? defaultTrigger}
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="w-56"
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          <ArtistMenuItems
-            components={dropdownMenuComponents}
-            handlers={{
-              handlePlay,
-              handleShuffle,
-              handlePlayNext,
-              handleAddToQueue,
-              handleAddToPlaylist,
-              toggleStar,
-              setDetailsOpen,
-            }}
-            state={{ isStarred }}
-          />
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <ResponsiveDropdownMenu
+        trigger={trigger ?? defaultTrigger}
+        renderMenuContent={renderMenuContent}
+        drawerTitle={artist.name}
+        drawerThumbnail={coverArtUrl ?? undefined}
+      />
       {artistSongs && (
         <AddToPlaylistDialog
           open={addToPlaylistOpen}

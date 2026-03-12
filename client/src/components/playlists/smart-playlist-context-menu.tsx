@@ -18,16 +18,8 @@ import {
   Home,
   Save,
 } from "lucide-react";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
-} from "@/components/ui/context-menu";
+import { ResponsiveContextMenu } from "@/components/shared/responsive-context-menu";
+import type { MenuComponents } from "@/components/shared/media-menu-items";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -238,104 +230,108 @@ export function SmartPlaylistContextMenu({
     }
   };
 
-  const menuItems = (
-    <>
-      <ContextMenuItem onClick={handlePlay}>
-        <Play className="w-4 h-4 mr-2" />
-        Play
-      </ContextMenuItem>
-      <ContextMenuItem onClick={handleShuffle}>
-        <Shuffle className="w-4 h-4 mr-2" />
-        Shuffle
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem onClick={handlePlayNext}>
-        <ListPlus className="w-4 h-4 mr-2" />
-        Play Next
-      </ContextMenuItem>
-      <ContextMenuItem onClick={handleAddToQueue}>
-        <ListEnd className="w-4 h-4 mr-2" />
-        Add to Queue
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuSub>
-        <ContextMenuSubTrigger>
-          <FolderInput className="w-4 h-4 mr-2" />
-          Move to
-        </ContextMenuSubTrigger>
-        <ContextMenuSubContent className="w-48">
-          {/* Move to root option */}
-          <ContextMenuItem
-            onClick={() => moveSmartPlaylist.mutate(null)}
-            disabled={!smartPlaylist.folderId || moveSmartPlaylist.isPending}
-          >
-            <Home className="w-4 h-4 mr-2" />
-            Root
-            {!smartPlaylist.folderId && (
-              <span className="ml-auto text-xs text-muted-foreground">
-                Current
-              </span>
-            )}
-          </ContextMenuItem>
-          {allFolders.length > 0 && <ContextMenuSeparator />}
-          {/* Folder options */}
-          {allFolders.map((folder) => (
-            <ContextMenuItem
-              key={folder.id}
-              onClick={() => moveSmartPlaylist.mutate(folder.id)}
-              disabled={
-                smartPlaylist.folderId === folder.id ||
-                moveSmartPlaylist.isPending
-              }
-            >
-              <Folder className="w-4 h-4 mr-2" />
-              <span className="truncate">{folder.name}</span>
-              {smartPlaylist.folderId === folder.id && (
-                <span className="ml-auto text-xs text-muted-foreground">
-                  Current
-                </span>
+  const renderMenuContent = (components: MenuComponents) => {
+    const { Item, Separator, Sub, SubTrigger, SubContent } = components;
+    return (
+      <>
+        <Item onClick={handlePlay}>
+          <Play className="w-4 h-4 mr-2" />
+          Play
+        </Item>
+        <Item onClick={handleShuffle}>
+          <Shuffle className="w-4 h-4 mr-2" />
+          Shuffle
+        </Item>
+        <Separator />
+        <Item onClick={handlePlayNext}>
+          <ListPlus className="w-4 h-4 mr-2" />
+          Play Next
+        </Item>
+        <Item onClick={handleAddToQueue}>
+          <ListEnd className="w-4 h-4 mr-2" />
+          Add to Queue
+        </Item>
+        <Separator />
+        {Sub && SubTrigger && SubContent && (
+          <Sub>
+            <SubTrigger>
+              <FolderInput className="w-4 h-4 mr-2" />
+              Move to
+            </SubTrigger>
+            <SubContent>
+              <Item
+                onClick={() => moveSmartPlaylist.mutate(null)}
+                disabled={
+                  !smartPlaylist.folderId || moveSmartPlaylist.isPending
+                }
+              >
+                <Home className="w-4 h-4 mr-2" />
+                Root
+                {!smartPlaylist.folderId && (
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    Current
+                  </span>
+                )}
+              </Item>
+              {allFolders.length > 0 && <Separator />}
+              {allFolders.map((folder) => (
+                <Item
+                  key={folder.id}
+                  onClick={() => moveSmartPlaylist.mutate(folder.id)}
+                  disabled={
+                    smartPlaylist.folderId === folder.id ||
+                    moveSmartPlaylist.isPending
+                  }
+                >
+                  <Folder className="w-4 h-4 mr-2" />
+                  <span className="truncate">{folder.name}</span>
+                  {smartPlaylist.folderId === folder.id && (
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      Current
+                    </span>
+                  )}
+                </Item>
+              ))}
+              {allFolders.length === 0 && smartPlaylist.folderId && (
+                <Item disabled className="text-muted-foreground text-xs">
+                  No other folders
+                </Item>
               )}
-            </ContextMenuItem>
-          ))}
-          {allFolders.length === 0 && smartPlaylist.folderId && (
-            <ContextMenuItem disabled className="text-muted-foreground text-xs">
-              No other folders
-            </ContextMenuItem>
-          )}
-        </ContextMenuSubContent>
-      </ContextMenuSub>
-      <ContextMenuItem
-        onClick={() => materializePlaylist.mutate()}
-        disabled={materializePlaylist.isPending}
-      >
-        <Save className="w-4 h-4 mr-2" />
-        {materializePlaylist.isPending ? "Saving..." : "Save as Playlist"}
-      </ContextMenuItem>
-      <ContextMenuItem onClick={() => setEditDialogOpen(true)}>
-        <Pencil className="w-4 h-4 mr-2" />
-        Edit Playlist
-      </ContextMenuItem>
-      <ContextMenuItem
-        onClick={() => setDeleteDialogOpen(true)}
-        className="text-destructive focus:text-destructive"
-      >
-        <Trash2 className="w-4 h-4 mr-2" />
-        Delete
-      </ContextMenuItem>
-    </>
-  );
+            </SubContent>
+          </Sub>
+        )}
+        <Item
+          onClick={() => materializePlaylist.mutate()}
+          disabled={materializePlaylist.isPending}
+        >
+          <Save className="w-4 h-4 mr-2" />
+          {materializePlaylist.isPending ? "Saving..." : "Save as Playlist"}
+        </Item>
+        <Item onClick={() => setEditDialogOpen(true)}>
+          <Pencil className="w-4 h-4 mr-2" />
+          Edit Playlist
+        </Item>
+        <Item
+          onClick={() => setDeleteDialogOpen(true)}
+          className="text-destructive focus:text-destructive"
+        >
+          <Trash2 className="w-4 h-4 mr-2" />
+          Delete
+        </Item>
+      </>
+    );
+  };
+
+  const displayName = getSmartPlaylistDisplayName(smartPlaylist);
 
   return (
     <>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent
-          className="w-56"
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          {menuItems}
-        </ContextMenuContent>
-      </ContextMenu>
+      <ResponsiveContextMenu
+        renderMenuContent={renderMenuContent}
+        drawerTitle={displayName}
+      >
+        {children}
+      </ResponsiveContextMenu>
 
       <SmartPlaylistDialog
         open={editDialogOpen}

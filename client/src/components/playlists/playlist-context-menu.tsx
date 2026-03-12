@@ -16,16 +16,8 @@ import {
   Folder,
   Home,
 } from "lucide-react";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
-} from "@/components/ui/context-menu";
+import { ResponsiveContextMenu } from "@/components/shared/responsive-context-menu";
+import type { MenuComponents } from "@/components/shared/media-menu-items";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -205,109 +197,111 @@ export function PlaylistContextMenu({
     }
   };
 
-  const menuItems = (
-    <>
-      <ContextMenuItem onClick={handlePlay}>
-        <Play className="w-4 h-4 mr-2" />
-        Play
-      </ContextMenuItem>
-      <ContextMenuItem onClick={handleShuffle}>
-        <Shuffle className="w-4 h-4 mr-2" />
-        Shuffle
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem onClick={handlePlayNext}>
-        <ListPlus className="w-4 h-4 mr-2" />
-        Play Next
-      </ContextMenuItem>
-      <ContextMenuItem onClick={handleAddToQueue}>
-        <ListEnd className="w-4 h-4 mr-2" />
-        Add to Queue
-      </ContextMenuItem>
-      {(canModify || isOwner) && <ContextMenuSeparator />}
-      {isOwner && (
-        <ContextMenuSub>
-          <ContextMenuSubTrigger>
-            <FolderInput className="w-4 h-4 mr-2" />
-            Move to
-          </ContextMenuSubTrigger>
-          <ContextMenuSubContent className="w-48">
-            {/* Move to root option */}
-            <ContextMenuItem
-              onClick={() => movePlaylist.mutate(null)}
-              disabled={
-                currentFolderId === null ||
-                currentFolderId === undefined ||
-                movePlaylist.isPending
-              }
-            >
-              <Home className="w-4 h-4 mr-2" />
-              Root
-              {(currentFolderId === null || currentFolderId === undefined) && (
-                <span className="ml-auto text-xs text-muted-foreground">
-                  Current
-                </span>
-              )}
-            </ContextMenuItem>
-            {folders.length > 0 && <ContextMenuSeparator />}
-            {/* Folder options */}
-            {folders.map((folder) => (
-              <ContextMenuItem
-                key={folder.id}
-                onClick={() => movePlaylist.mutate(folder.id)}
+  const renderMenuContent = (components: MenuComponents) => {
+    const { Item, Separator, Sub, SubTrigger, SubContent } = components;
+    return (
+      <>
+        <Item onClick={handlePlay}>
+          <Play className="w-4 h-4 mr-2" />
+          Play
+        </Item>
+        <Item onClick={handleShuffle}>
+          <Shuffle className="w-4 h-4 mr-2" />
+          Shuffle
+        </Item>
+        <Separator />
+        <Item onClick={handlePlayNext}>
+          <ListPlus className="w-4 h-4 mr-2" />
+          Play Next
+        </Item>
+        <Item onClick={handleAddToQueue}>
+          <ListEnd className="w-4 h-4 mr-2" />
+          Add to Queue
+        </Item>
+        {(canModify || isOwner) && <Separator />}
+        {isOwner && Sub && SubTrigger && SubContent && (
+          <Sub>
+            <SubTrigger>
+              <FolderInput className="w-4 h-4 mr-2" />
+              Move to
+            </SubTrigger>
+            <SubContent>
+              <Item
+                onClick={() => movePlaylist.mutate(null)}
                 disabled={
-                  currentFolderId === folder.id || movePlaylist.isPending
+                  currentFolderId === null ||
+                  currentFolderId === undefined ||
+                  movePlaylist.isPending
                 }
               >
-                <Folder className="w-4 h-4 mr-2" />
-                <span className="truncate">{folder.name}</span>
-                {currentFolderId === folder.id && (
+                <Home className="w-4 h-4 mr-2" />
+                Root
+                {(currentFolderId === null ||
+                  currentFolderId === undefined) && (
                   <span className="ml-auto text-xs text-muted-foreground">
                     Current
                   </span>
                 )}
-              </ContextMenuItem>
-            ))}
-            {folders.length === 0 && currentFolderId != null && (
-              <ContextMenuItem
-                disabled
-                className="text-muted-foreground text-xs"
-              >
-                No other folders
-              </ContextMenuItem>
-            )}
-          </ContextMenuSubContent>
-        </ContextMenuSub>
-      )}
-      {canModify && (
-        <ContextMenuItem onClick={() => setEditDialogOpen(true)}>
-          <Pencil className="w-4 h-4 mr-2" />
-          Edit Playlist
-        </ContextMenuItem>
-      )}
-      {isOwner && (
-        <ContextMenuItem
-          onClick={() => setDeleteDialogOpen(true)}
-          className="text-destructive focus:text-destructive"
-        >
-          <Trash2 className="w-4 h-4 mr-2" />
-          Delete Playlist
-        </ContextMenuItem>
-      )}
-    </>
-  );
+              </Item>
+              {folders.length > 0 && <Separator />}
+              {folders.map((folder) => (
+                <Item
+                  key={folder.id}
+                  onClick={() => movePlaylist.mutate(folder.id)}
+                  disabled={
+                    currentFolderId === folder.id || movePlaylist.isPending
+                  }
+                >
+                  <Folder className="w-4 h-4 mr-2" />
+                  <span className="truncate">{folder.name}</span>
+                  {currentFolderId === folder.id && (
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      Current
+                    </span>
+                  )}
+                </Item>
+              ))}
+              {folders.length === 0 && currentFolderId != null && (
+                <Item disabled className="text-muted-foreground text-xs">
+                  No other folders
+                </Item>
+              )}
+            </SubContent>
+          </Sub>
+        )}
+        {canModify && (
+          <Item onClick={() => setEditDialogOpen(true)}>
+            <Pencil className="w-4 h-4 mr-2" />
+            Edit Playlist
+          </Item>
+        )}
+        {isOwner && (
+          <Item
+            onClick={() => setDeleteDialogOpen(true)}
+            className="text-destructive focus:text-destructive"
+          >
+            <Trash2 className="w-4 h-4 mr-2" />
+            Delete Playlist
+          </Item>
+        )}
+      </>
+    );
+  };
+
+  const displayName = getPlaylistDisplayName(playlist);
+  const coverArtUrl = playlist.coverArt
+    ? getClient()?.getCoverArtUrl(playlist.coverArt, "small")
+    : undefined;
 
   return (
     <>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent
-          className="w-56"
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          {menuItems}
-        </ContextMenuContent>
-      </ContextMenu>
+      <ResponsiveContextMenu
+        renderMenuContent={renderMenuContent}
+        drawerTitle={displayName}
+        drawerThumbnail={coverArtUrl ?? undefined}
+      >
+        {children}
+      </ResponsiveContextMenu>
 
       {canModify && (
         <EditPlaylistDialog
