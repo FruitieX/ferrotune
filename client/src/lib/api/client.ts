@@ -662,6 +662,20 @@ export class FerrotuneClient {
     );
   }
 
+  async transferPlaylistOwnership(
+    playlistId: string,
+    newOwnerId: number,
+  ): Promise<void> {
+    await this.request(
+      `/ferrotune/playlists/${encodeURIComponent(playlistId)}/transfer-ownership`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newOwnerId }),
+      },
+    );
+  }
+
   /**
    * Get playlists that contain the specified songs.
    * Returns a map of songId -> list of playlists containing that song.

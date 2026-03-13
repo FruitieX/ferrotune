@@ -1556,11 +1556,48 @@ async fn materialize_queue_songs(
             ))
         }
         QueueSourceType::History => {
-            // History requires explicit song IDs from the client
-            Err(
-                Error::InvalidRequest("History source requires explicit song IDs".to_string())
-                    .into(),
+            // Fetch play history songs (deduplicated, most recent play per song)
+            let songs: Vec<crate::db::models::Song> = sqlx::query_as(
+                r#"SELECT s.id, s.title, s.album_id, al.name as album_name, s.artist_id, ar.name as artist_name,
+                          s.track_number, s.disc_number, s.year, s.genre, s.duration,
+                          s.bitrate, s.file_path, s.file_size, s.file_format,
+                          s.created_at, s.updated_at, s.cover_art_hash,
+                          s.cover_art_width, s.cover_art_height,
+                          s.original_replaygain_track_gain, s.original_replaygain_track_peak,
+                          s.computed_replaygain_track_gain, s.computed_replaygain_track_peak,
+                          pc.play_count,
+                          sc.played_at as last_played,
+                          NULL as starred_at
+                   FROM scrobbles sc
+                   INNER JOIN songs s ON sc.song_id = s.id
+                   INNER JOIN artists ar ON s.artist_id = ar.id
+                   LEFT JOIN albums al ON s.album_id = al.id
+                   LEFT JOIN (
+                       SELECT song_id, COUNT(*) as play_count
+                       FROM scrobbles WHERE submission = 1 AND user_id = ?
+                       GROUP BY song_id
+                   ) pc ON s.id = pc.song_id
+                   WHERE sc.user_id = ? AND sc.submission = 1
+                     AND sc.played_at = (
+                       SELECT MAX(sc2.played_at)
+                       FROM scrobbles sc2
+                       WHERE sc2.song_id = sc.song_id AND sc2.user_id = sc.user_id AND sc2.submission = 1
+                     )
+                   ORDER BY sc.played_at DESC
+                   LIMIT 500"#,
             )
+            .bind(user_id)
+            .bind(user_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| FerrotuneApiError(Error::NotFound(e.to_string())))?;
+
+            Ok(sorting::filter_and_sort_songs(
+                songs,
+                text_filter,
+                sort_field.as_deref(),
+                sort_dir.as_deref(),
+            ))
         }
         QueueSourceType::SongRadio => {
             #[cfg(feature = "bliss")]

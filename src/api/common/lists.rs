@@ -627,7 +627,7 @@ pub async fn get_forgotten_favorites_logic(
            AND s.marked_for_deletion_at IS NULL
          GROUP BY sc.song_id
          HAVING SUM(sc.play_count) >= ?
-           AND MAX(sc.played_at) < datetime('now', ?)",
+           AND (MAX(sc.played_at) IS NULL OR MAX(sc.played_at) < datetime('now', ?))",
     )
     .bind(user_id)
     .bind(user_id)

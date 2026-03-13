@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Search,
   X,
@@ -23,11 +24,17 @@ import {
   DropdownMenuTrigger,
   DropdownMenuLabel,
   DropdownMenuCheckboxItem,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
-  DropdownMenuPortal,
 } from "@/components/ui/dropdown-menu";
+import {
+  DrawerMenu,
+  DrawerMenuItem,
+  DrawerMenuSeparator,
+  DrawerMenuCollapsible,
+  DrawerMenuCollapsibleTrigger,
+  DrawerMenuCollapsibleContent,
+  DrawerMenuCheckboxItem,
+  DrawerMenuLabel,
+} from "@/components/shared/drawer-menu";
 import type {
   SortField,
   SortDirection,
@@ -278,6 +285,8 @@ export function PlaylistsMobileMenu({
   columnVisibility,
   onColumnVisibilityChange,
 }: PlaylistsMobileMenuProps) {
+  const [open, setOpen] = useState(false);
+
   const handleSort = (field: SortField) => {
     if (sortConfig.field === field) {
       onSortChange({
@@ -300,125 +309,113 @@ export function PlaylistsMobileMenu({
   const SortIcon = sortConfig.direction === "asc" ? ArrowUp : ArrowDown;
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          aria-label="More options"
-        >
-          <MoreHorizontal className="w-4 h-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-40">
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8"
+        aria-label="More options"
+        onClick={() => setOpen(true)}
+      >
+        <MoreHorizontal className="w-4 h-4" />
+      </Button>
+      <DrawerMenu open={open} onOpenChange={setOpen} title="Options">
         {/* New submenu */}
         {(onNewPlaylist || onNewSmartPlaylist || onNewFolder || onImport) && (
           <>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Plus className="w-4 h-4 mr-2" />
+            <DrawerMenuCollapsible>
+              <DrawerMenuCollapsibleTrigger>
+                <Plus className="w-4 h-4" />
                 New
-              </DropdownMenuSubTrigger>
-              <DropdownMenuPortal>
-                <DropdownMenuSubContent className="w-40">
-                  {onNewPlaylist && (
-                    <DropdownMenuItem onClick={onNewPlaylist}>
-                      Playlist
-                    </DropdownMenuItem>
-                  )}
-                  {onNewSmartPlaylist && (
-                    <DropdownMenuItem onClick={onNewSmartPlaylist}>
-                      Smart Playlist
-                    </DropdownMenuItem>
-                  )}
-                  {onNewFolder && (
-                    <DropdownMenuItem onClick={onNewFolder}>
-                      Folder
-                    </DropdownMenuItem>
-                  )}
-                  {onImport && (
-                    <DropdownMenuItem onClick={onImport}>
-                      Import Playlist
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuSubContent>
-              </DropdownMenuPortal>
-            </DropdownMenuSub>
-            <DropdownMenuSeparator />
+              </DrawerMenuCollapsibleTrigger>
+              <DrawerMenuCollapsibleContent>
+                {onNewPlaylist && (
+                  <DrawerMenuItem onClick={onNewPlaylist}>
+                    Playlist
+                  </DrawerMenuItem>
+                )}
+                {onNewSmartPlaylist && (
+                  <DrawerMenuItem onClick={onNewSmartPlaylist}>
+                    Smart Playlist
+                  </DrawerMenuItem>
+                )}
+                {onNewFolder && (
+                  <DrawerMenuItem onClick={onNewFolder}>Folder</DrawerMenuItem>
+                )}
+                {onImport && (
+                  <DrawerMenuItem onClick={onImport}>
+                    Import Playlist
+                  </DrawerMenuItem>
+                )}
+              </DrawerMenuCollapsibleContent>
+            </DrawerMenuCollapsible>
+            <DrawerMenuSeparator />
           </>
         )}
 
-        {/* Sort submenu */}
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <ArrowUpDown className="w-4 h-4 mr-2" />
+        {/* Sort collapsible */}
+        <DrawerMenuCollapsible>
+          <DrawerMenuCollapsibleTrigger>
+            <ArrowUpDown className="w-4 h-4" />
             Sort
-          </DropdownMenuSubTrigger>
-          <DropdownMenuPortal>
-            <DropdownMenuSubContent className="w-40">
-              {playlistSortOptions.map((option) => (
-                <DropdownMenuItem
-                  key={option.value}
-                  onClick={() => handleSort(option.value)}
-                  className="flex items-center justify-between"
-                >
-                  <span>{option.label}</span>
-                  {sortConfig.field === option.value && (
-                    <SortIcon className="w-4 h-4 text-primary" />
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuPortal>
-        </DropdownMenuSub>
+          </DrawerMenuCollapsibleTrigger>
+          <DrawerMenuCollapsibleContent>
+            {playlistSortOptions.map((option) => (
+              <DrawerMenuItem
+                key={option.value}
+                onClick={() => handleSort(option.value)}
+              >
+                <span className="flex-1">{option.label}</span>
+                {sortConfig.field === option.value && (
+                  <SortIcon className="w-4 h-4 text-primary" />
+                )}
+              </DrawerMenuItem>
+            ))}
+          </DrawerMenuCollapsibleContent>
+        </DrawerMenuCollapsible>
 
-        {/* Column visibility submenu - only in list view */}
+        {/* Column visibility collapsible - only in list view */}
         {viewMode === "list" &&
           columnVisibility &&
           onColumnVisibilityChange && (
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Columns className="w-4 h-4 mr-2" />
+            <DrawerMenuCollapsible>
+              <DrawerMenuCollapsibleTrigger>
+                <Columns className="w-4 h-4" />
                 Columns
-              </DropdownMenuSubTrigger>
-              <DropdownMenuPortal>
-                <DropdownMenuSubContent className="w-40">
-                  {playlistColumnOptions.map((option) => (
-                    <DropdownMenuCheckboxItem
-                      key={option.key}
-                      checked={columnVisibility[option.key]}
-                      onCheckedChange={() => handleColumnToggle(option.key)}
-                    >
-                      {option.label}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuPortal>
-            </DropdownMenuSub>
+              </DrawerMenuCollapsibleTrigger>
+              <DrawerMenuCollapsibleContent>
+                {playlistColumnOptions.map((option) => (
+                  <DrawerMenuCheckboxItem
+                    key={option.key}
+                    checked={columnVisibility[option.key]}
+                    onCheckedChange={() => handleColumnToggle(option.key)}
+                  >
+                    {option.label}
+                  </DrawerMenuCheckboxItem>
+                ))}
+              </DrawerMenuCollapsibleContent>
+            </DrawerMenuCollapsible>
           )}
 
         {/* View mode */}
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
-          View
-        </DropdownMenuLabel>
-        <DropdownMenuItem onClick={() => onViewModeChange("grid")}>
-          <Grid className="w-4 h-4 mr-2" />
+        <DrawerMenuSeparator />
+        <DrawerMenuLabel>View</DrawerMenuLabel>
+        <DrawerMenuItem onClick={() => onViewModeChange("grid")}>
+          <Grid className="w-4 h-4" />
           Grid
           {viewMode === "grid" && (
             <Check className="w-4 h-4 ml-auto text-primary" />
           )}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => onViewModeChange("list")}>
-          <List className="w-4 h-4 mr-2" />
+        </DrawerMenuItem>
+        <DrawerMenuItem onClick={() => onViewModeChange("list")}>
+          <List className="w-4 h-4" />
           List
           {viewMode === "list" && (
             <Check className="w-4 h-4 ml-auto text-primary" />
           )}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </DrawerMenuItem>
+      </DrawerMenu>
+    </>
   );
 }
 

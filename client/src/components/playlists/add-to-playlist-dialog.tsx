@@ -309,7 +309,11 @@ export function AddToPlaylistDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-[480px] p-0 gap-0 overflow-hidden">
+        <DialogContent
+          className="sm:max-w-[480px] p-0 gap-0 overflow-hidden"
+          overlayClassName="z-[70]"
+          style={{ zIndex: 70 }}
+        >
           <DialogHeader className="px-4 pt-4 pb-2">
             <DialogTitle className="flex items-center gap-2">
               <ListMusic className="w-5 h-5" />
@@ -330,7 +334,7 @@ export function AddToPlaylistDialog({
             />
           </div>
 
-          <ScrollArea className="max-h-[300px]">
+          <ScrollArea className="max-h-[300px] min-w-0">
             <div className="px-2 pb-2">
               {/* Create new playlist option */}
               {!showCreateNew ? (
@@ -518,7 +522,7 @@ function PlaylistOption({
       onClick={onSelect}
       disabled={disabled}
       className={cn(
-        "flex items-center gap-3 w-full p-2 rounded-md transition-colors text-left",
+        "flex items-center gap-3 w-full p-2 rounded-md transition-colors text-left overflow-hidden",
         "hover:bg-accent/70",
         isSelected && "bg-accent/50",
         disabled && "opacity-50 cursor-not-allowed",

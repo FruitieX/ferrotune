@@ -735,7 +735,7 @@ export function FullscreenPlayer() {
                 {/* Album Art */}
                 <div
                   ref={albumArtContainerRef}
-                  className="flex-1 flex items-center justify-center py-4 xl:py-8 min-h-0 overflow-hidden relative"
+                  className="flex-1 flex items-center justify-center py-6 xl:py-10 min-h-0 overflow-hidden relative"
                 >
                   {/* Previous track preview (swipe right) */}
                   {isSmallScreen && prevTrack && isSwipingAlbumArt && (
@@ -759,7 +759,7 @@ export function FullscreenPlayer() {
                     initial={{ scale: 0.9, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     transition={{ delay: 0.1 }}
-                    className="w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] aspect-square"
+                    className="w-full max-w-[min(80vh,600px)] xl:max-w-[min(60vh,800px)] max-h-full aspect-square"
                     style={
                       isSmallScreen
                         ? {

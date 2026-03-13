@@ -3,7 +3,7 @@
 import { ReactNode, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useNavigateBack } from "@/lib/hooks/use-navigate-back";
 import { Button } from "@/components/ui/button";
 import { CoverImage, stringToHue } from "./cover-image";
 import { CoverArtModal } from "./cover-art-modal";
@@ -95,7 +95,7 @@ export function DetailHeader({
   isLoading = false,
   children,
 }: DetailHeaderProps) {
-  const router = useRouter();
+  const navigateBack = useNavigateBack();
   const [coverModalOpen, setCoverModalOpen] = useState(false);
   const shouldBlur = useBlurredBackground && coverUrl;
 
@@ -148,7 +148,7 @@ export function DetailHeader({
             variant="ghost"
             size="icon"
             className="h-10 w-10 rounded-full bg-background/50 hover:bg-background/80"
-            onClick={() => router.back()}
+            onClick={() => navigateBack()}
             aria-label="Go back"
           >
             <ArrowLeft className="w-5 h-5" />

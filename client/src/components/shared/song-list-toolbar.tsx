@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Search,
   X,
@@ -28,22 +29,21 @@ import {
   DropdownMenuTrigger,
   DropdownMenuCheckboxItem,
   DropdownMenuLabel,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
-  DropdownMenuPortal,
 } from "@/components/ui/dropdown-menu";
 import {
   AdvancedFilterDialog,
   ActiveFilterBadges,
 } from "@/components/shared/advanced-filter-dialog";
 import {
+  DrawerMenu,
   DrawerMenuItem,
   DrawerMenuSeparator,
   DrawerMenuCollapsible,
   DrawerMenuCollapsibleTrigger,
   DrawerMenuCollapsibleContent,
-} from "@/components/shared/responsive-context-menu";
+  DrawerMenuCheckboxItem,
+  DrawerMenuLabel,
+} from "@/components/shared/drawer-menu";
 import type {
   SortField,
   SortDirection,
@@ -353,6 +353,8 @@ export function SongListMobileMenu({
   columnVisibility,
   onColumnVisibilityChange,
 }: SongListMobileMenuProps) {
+  const [open, setOpen] = useState(false);
+
   const handleSort = (field: SortField) => {
     if (field === "custom") {
       onSortChange({ field, direction: "asc" });
@@ -386,138 +388,130 @@ export function SongListMobileMenu({
     onDeletePlaylist;
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          aria-label="More options"
-        >
-          <MoreHorizontal className="w-4 h-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-40">
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8"
+        aria-label="More options"
+        onClick={() => setOpen(true)}
+      >
+        <MoreHorizontal className="w-4 h-4" />
+      </Button>
+      <DrawerMenu open={open} onOpenChange={setOpen} title="Options">
         {/* Shuffle */}
         {onShuffle && (
           <>
-            <DropdownMenuItem onClick={onShuffle} disabled={disableShuffle}>
-              <Shuffle className="w-4 h-4 mr-2" />
+            <DrawerMenuItem onClick={onShuffle} disabled={disableShuffle}>
+              <Shuffle className="w-4 h-4" />
               Shuffle
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            </DrawerMenuItem>
+            <DrawerMenuSeparator />
           </>
         )}
 
-        {/* Playlist actions - inline */}
+        {/* Playlist actions */}
         {onEditPlaylist && (
-          <DropdownMenuItem onClick={onEditPlaylist}>
-            <Pencil className="w-4 h-4 mr-2" />
+          <DrawerMenuItem onClick={onEditPlaylist}>
+            <Pencil className="w-4 h-4" />
             Edit Playlist
-          </DropdownMenuItem>
+          </DrawerMenuItem>
         )}
         {onAddSong && (
-          <DropdownMenuItem onClick={onAddSong}>
-            <Plus className="w-4 h-4 mr-2" />
+          <DrawerMenuItem onClick={onAddSong}>
+            <Plus className="w-4 h-4" />
             Add Song
-          </DropdownMenuItem>
+          </DrawerMenuItem>
         )}
         {showResolveMissing && onResolveMissing && (
-          <DropdownMenuItem onClick={onResolveMissing}>
-            <RefreshCw className="w-4 h-4 mr-2" />
+          <DrawerMenuItem onClick={onResolveMissing}>
+            <RefreshCw className="w-4 h-4" />
             Resolve Missing
-          </DropdownMenuItem>
+          </DrawerMenuItem>
         )}
         {onDeletePlaylist && (
-          <DropdownMenuItem
+          <DrawerMenuItem
             onClick={onDeletePlaylist}
             className="text-destructive"
           >
-            <Trash2 className="w-4 h-4 mr-2" />
+            <Trash2 className="w-4 h-4" />
             Delete Playlist
-          </DropdownMenuItem>
+          </DrawerMenuItem>
         )}
-        {hasMoreActions && <DropdownMenuSeparator />}
+        {hasMoreActions && <DrawerMenuSeparator />}
 
-        {/* Sort submenu */}
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <ArrowUpDown className="w-4 h-4 mr-2" />
+        {/* Sort collapsible */}
+        <DrawerMenuCollapsible>
+          <DrawerMenuCollapsibleTrigger>
+            <ArrowUpDown className="w-4 h-4" />
             Sort
-          </DropdownMenuSubTrigger>
-          <DropdownMenuPortal>
-            <DropdownMenuSubContent className="w-40">
-              {sortOptions
-                .filter(
-                  (option) =>
-                    (showCustomSort || option.value !== "custom") &&
-                    (showAddedToPlaylist || option.value !== "addedToPlaylist"),
-                )
-                .map((option) => (
-                  <DropdownMenuItem
-                    key={option.value}
-                    onClick={() => handleSort(option.value)}
-                    className="flex items-center justify-between"
-                  >
-                    <span>{option.label}</span>
-                    {sortConfig.field === option.value &&
-                      (option.value === "custom" ? (
-                        <Check className="w-4 h-4 text-primary" />
-                      ) : (
-                        <SortIcon className="w-4 h-4 text-primary" />
-                      ))}
-                  </DropdownMenuItem>
-                ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuPortal>
-        </DropdownMenuSub>
+          </DrawerMenuCollapsibleTrigger>
+          <DrawerMenuCollapsibleContent>
+            {sortOptions
+              .filter(
+                (option) =>
+                  (showCustomSort || option.value !== "custom") &&
+                  (showAddedToPlaylist || option.value !== "addedToPlaylist"),
+              )
+              .map((option) => (
+                <DrawerMenuItem
+                  key={option.value}
+                  onClick={() => handleSort(option.value)}
+                >
+                  <span className="flex-1">{option.label}</span>
+                  {sortConfig.field === option.value &&
+                    (option.value === "custom" ? (
+                      <Check className="w-4 h-4 text-primary" />
+                    ) : (
+                      <SortIcon className="w-4 h-4 text-primary" />
+                    ))}
+                </DrawerMenuItem>
+              ))}
+          </DrawerMenuCollapsibleContent>
+        </DrawerMenuCollapsible>
 
-        {/* Column visibility submenu - only in list view */}
+        {/* Column visibility collapsible - only in list view */}
         {viewMode === "list" &&
           columnVisibility &&
           onColumnVisibilityChange && (
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Columns className="w-4 h-4 mr-2" />
+            <DrawerMenuCollapsible>
+              <DrawerMenuCollapsibleTrigger>
+                <Columns className="w-4 h-4" />
                 Columns
-              </DropdownMenuSubTrigger>
-              <DropdownMenuPortal>
-                <DropdownMenuSubContent className="w-40">
-                  {columnOptions.map((option) => (
-                    <DropdownMenuCheckboxItem
-                      key={option.key}
-                      checked={columnVisibility[option.key]}
-                      onCheckedChange={() => handleColumnToggle(option.key)}
-                    >
-                      {option.label}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuPortal>
-            </DropdownMenuSub>
+              </DrawerMenuCollapsibleTrigger>
+              <DrawerMenuCollapsibleContent>
+                {columnOptions.map((option) => (
+                  <DrawerMenuCheckboxItem
+                    key={option.key}
+                    checked={columnVisibility[option.key]}
+                    onCheckedChange={() => handleColumnToggle(option.key)}
+                  >
+                    {option.label}
+                  </DrawerMenuCheckboxItem>
+                ))}
+              </DrawerMenuCollapsibleContent>
+            </DrawerMenuCollapsible>
           )}
 
         {/* View mode */}
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
-          View
-        </DropdownMenuLabel>
-        <DropdownMenuItem onClick={() => onViewModeChange("grid")}>
-          <Grid className="w-4 h-4 mr-2" />
+        <DrawerMenuSeparator />
+        <DrawerMenuLabel>View</DrawerMenuLabel>
+        <DrawerMenuItem onClick={() => onViewModeChange("grid")}>
+          <Grid className="w-4 h-4" />
           Grid
           {viewMode === "grid" && (
             <Check className="w-4 h-4 ml-auto text-primary" />
           )}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => onViewModeChange("list")}>
-          <List className="w-4 h-4 mr-2" />
+        </DrawerMenuItem>
+        <DrawerMenuItem onClick={() => onViewModeChange("list")}>
+          <List className="w-4 h-4" />
           List
           {viewMode === "list" && (
             <Check className="w-4 h-4 ml-auto text-primary" />
           )}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </DrawerMenuItem>
+      </DrawerMenu>
+    </>
   );
 }
 
@@ -591,6 +585,8 @@ export function AlbumDetailMobileMenu({
   columnVisibility,
   onColumnVisibilityChange,
 }: AlbumDetailMobileMenuProps) {
+  const [open, setOpen] = useState(false);
+
   const handleSort = (field: SortField) => {
     // For "custom" sort (playlist order), don't toggle direction
     if (field === "custom") {
@@ -618,95 +614,87 @@ export function AlbumDetailMobileMenu({
   const SortIcon = sortConfig.direction === "asc" ? ArrowUp : ArrowDown;
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          aria-label="Sort and view options"
-        >
-          <SlidersHorizontal className="w-4 h-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-40">
-        {/* Sort submenu */}
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <ArrowUpDown className="w-4 h-4 mr-2" />
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8"
+        aria-label="Sort and view options"
+        onClick={() => setOpen(true)}
+      >
+        <SlidersHorizontal className="w-4 h-4" />
+      </Button>
+      <DrawerMenu open={open} onOpenChange={setOpen} title="Sort & View">
+        {/* Sort collapsible */}
+        <DrawerMenuCollapsible>
+          <DrawerMenuCollapsibleTrigger>
+            <ArrowUpDown className="w-4 h-4" />
             Sort
-          </DropdownMenuSubTrigger>
-          <DropdownMenuPortal>
-            <DropdownMenuSubContent className="w-40">
-              {sortOptions
-                .filter(
-                  (option) =>
-                    (showTrackNumber || option.value !== "trackNumber") &&
-                    option.value !== "custom" &&
-                    option.value !== "addedToPlaylist",
-                )
-                .map((option) => (
-                  <DropdownMenuItem
-                    key={option.value}
-                    onClick={() => handleSort(option.value)}
-                    className="flex items-center justify-between"
-                  >
-                    <span>{option.label}</span>
-                    {sortConfig.field === option.value && (
-                      <SortIcon className="w-4 h-4 text-primary" />
-                    )}
-                  </DropdownMenuItem>
-                ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuPortal>
-        </DropdownMenuSub>
+          </DrawerMenuCollapsibleTrigger>
+          <DrawerMenuCollapsibleContent>
+            {sortOptions
+              .filter(
+                (option) =>
+                  (showTrackNumber || option.value !== "trackNumber") &&
+                  option.value !== "custom" &&
+                  option.value !== "addedToPlaylist",
+              )
+              .map((option) => (
+                <DrawerMenuItem
+                  key={option.value}
+                  onClick={() => handleSort(option.value)}
+                >
+                  <span className="flex-1">{option.label}</span>
+                  {sortConfig.field === option.value && (
+                    <SortIcon className="w-4 h-4 text-primary" />
+                  )}
+                </DrawerMenuItem>
+              ))}
+          </DrawerMenuCollapsibleContent>
+        </DrawerMenuCollapsible>
 
-        {/* Column visibility submenu - only in list view */}
+        {/* Column visibility collapsible - only in list view */}
         {viewMode === "list" &&
           columnVisibility &&
           onColumnVisibilityChange && (
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Columns className="w-4 h-4 mr-2" />
+            <DrawerMenuCollapsible>
+              <DrawerMenuCollapsibleTrigger>
+                <Columns className="w-4 h-4" />
                 Columns
-              </DropdownMenuSubTrigger>
-              <DropdownMenuPortal>
-                <DropdownMenuSubContent className="w-40">
-                  {columnOptions.map((option) => (
-                    <DropdownMenuCheckboxItem
-                      key={option.key}
-                      checked={columnVisibility[option.key]}
-                      onCheckedChange={() => handleColumnToggle(option.key)}
-                    >
-                      {option.label}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuPortal>
-            </DropdownMenuSub>
+              </DrawerMenuCollapsibleTrigger>
+              <DrawerMenuCollapsibleContent>
+                {columnOptions.map((option) => (
+                  <DrawerMenuCheckboxItem
+                    key={option.key}
+                    checked={columnVisibility[option.key]}
+                    onCheckedChange={() => handleColumnToggle(option.key)}
+                  >
+                    {option.label}
+                  </DrawerMenuCheckboxItem>
+                ))}
+              </DrawerMenuCollapsibleContent>
+            </DrawerMenuCollapsible>
           )}
 
         {/* View mode */}
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
-          View
-        </DropdownMenuLabel>
-        <DropdownMenuItem onClick={() => onViewModeChange("grid")}>
-          <Grid className="w-4 h-4 mr-2" />
+        <DrawerMenuSeparator />
+        <DrawerMenuLabel>View</DrawerMenuLabel>
+        <DrawerMenuItem onClick={() => onViewModeChange("grid")}>
+          <Grid className="w-4 h-4" />
           Grid
           {viewMode === "grid" && (
             <Check className="w-4 h-4 ml-auto text-primary" />
           )}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => onViewModeChange("list")}>
-          <List className="w-4 h-4 mr-2" />
+        </DrawerMenuItem>
+        <DrawerMenuItem onClick={() => onViewModeChange("list")}>
+          <List className="w-4 h-4" />
           List
           {viewMode === "list" && (
             <Check className="w-4 h-4 ml-auto text-primary" />
           )}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </DrawerMenuItem>
+      </DrawerMenu>
+    </>
   );
 }
 

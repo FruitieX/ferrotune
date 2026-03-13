@@ -2,7 +2,7 @@
 
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
-import { Provider as JotaiProvider, useAtomValue } from "jotai";
+import { Provider as JotaiProvider, useAtomValue, useSetAtom } from "jotai";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { useState, useEffect, useRef, Suspense } from "react";
@@ -31,6 +31,12 @@ import {
 } from "@/lib/store/ui";
 import { accountKey, serverConnectionAtom } from "@/lib/store/auth";
 import { resetQueriesForAccountSwitch } from "@/lib/api/cache-invalidation";
+import { starredItemsAtom } from "@/lib/store/starred";
+import { waveformCacheAtom } from "@/lib/store/waveform";
+import {
+  resetServerPreferences,
+  refreshServerPreferences,
+} from "@/lib/store/server-storage";
 import { needsDarkForeground } from "@/lib/utils/color";
 
 // Component that handles clearing selection on navigation
@@ -104,6 +110,8 @@ function QueryCacheResetOnAccountSwitch() {
   const connection = useAtomValue(serverConnectionAtom);
   const currentAccountKey = connection ? accountKey(connection) : null;
   const previousAccountKeyRef = useRef<string | null | undefined>(undefined);
+  const setStarredItems = useSetAtom(starredItemsAtom);
+  const setWaveformCache = useSetAtom(waveformCacheAtom);
 
   useEffect(() => {
     if (previousAccountKeyRef.current === undefined) {
@@ -116,8 +124,18 @@ function QueryCacheResetOnAccountSwitch() {
     }
 
     previousAccountKeyRef.current = currentAccountKey;
+
+    // Reset React Query cache
     void resetQueriesForAccountSwitch(queryClient);
-  }, [currentAccountKey, queryClient]);
+
+    // Reset user-specific Jotai atoms
+    setStarredItems(new Map());
+    setWaveformCache(new Map());
+
+    // Reset and reload server-stored preferences for the new account
+    resetServerPreferences();
+    void refreshServerPreferences();
+  }, [currentAccountKey, queryClient, setStarredItems, setWaveformCache]);
 
   return null;
 }

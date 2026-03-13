@@ -250,6 +250,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(playlists::get_playlist_shares).put(playlists::set_playlist_shares),
         )
         .route(
+            "/ferrotune/playlists/{id}/transfer-ownership",
+            post(playlists::transfer_playlist_ownership),
+        )
+        .route(
             "/ferrotune/playlists/{id}/songs",
             get(playlists::get_playlist_songs)
                 .post(playlists::add_playlist_songs)

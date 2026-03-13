@@ -134,6 +134,7 @@ export default function HistoryPage() {
         sourceType: "history",
         sourceName: "Recently Played",
         startIndex: 0,
+        sort: historyQueueSource.sort,
       });
     }
   };
@@ -145,6 +146,7 @@ export default function HistoryPage() {
         sourceName: "Recently Played",
         startIndex: 0,
         shuffle: true,
+        sort: historyQueueSource.sort,
       });
     }
   };

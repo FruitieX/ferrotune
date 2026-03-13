@@ -3,7 +3,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Pencil, Loader2, X, UserPlus, Users } from "lucide-react";
+import {
+  Pencil,
+  Loader2,
+  X,
+  UserPlus,
+  Users,
+  ArrowRightLeft,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +38,16 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { getClient } from "@/lib/api/client";
 import type { ShareEntry } from "@/lib/api/generated/ShareEntry";
 
@@ -63,6 +80,12 @@ export function EditPlaylistDialog({
   const [shares, setShares] = useState<ShareState[]>([]);
   const [sharesLoaded, setSharesLoaded] = useState(false);
   const [addUserOpen, setAddUserOpen] = useState(false);
+  const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+  const [transferTargetUser, setTransferTargetUser] = useState<{
+    id: number;
+    username: string;
+  } | null>(null);
+  const [transferUserOpen, setTransferUserOpen] = useState(false);
   const queryClient = useQueryClient();
 
   // Update form when playlist changes (React-recommended pattern for adjusting state when props change)
@@ -158,6 +181,32 @@ export function EditPlaylistDialog({
     },
   });
 
+  const transferOwnership = useMutation({
+    mutationFn: async (newOwnerId: number) => {
+      const client = getClient();
+      if (!client || !playlist) throw new Error("Not connected");
+      await client.transferPlaylistOwnership(playlist.id, newOwnerId);
+    },
+    onSuccess: () => {
+      toast.success(`Ownership transferred to ${transferTargetUser?.username}`);
+      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      queryClient.invalidateQueries({ queryKey: ["playlistFolders"] });
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlist?.id],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["playlistShares", playlist?.id],
+      });
+      setTransferDialogOpen(false);
+      setTransferTargetUser(null);
+      onOpenChange(false);
+    },
+    onError: (error) => {
+      toast.error("Failed to transfer ownership");
+      console.error("Transfer ownership error:", error);
+    },
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim()) {
@@ -183,161 +232,269 @@ export function EditPlaylistDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[480px]">
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Pencil className="w-5 h-5" />
-              Edit Playlist
-            </DialogTitle>
-            <DialogDescription>
-              Update your playlist&apos;s name and description.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="playlist-name">Name</Label>
-              <Input
-                id="playlist-name"
-                placeholder="My Playlist"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="playlist-comment">Description</Label>
-              <Textarea
-                id="playlist-comment"
-                placeholder="Add a description..."
-                value={comment}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                  setComment(e.target.value)
-                }
-                rows={3}
-              />
-            </div>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-[480px]">
+          <form onSubmit={handleSubmit}>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Pencil className="w-5 h-5" />
+                Edit Playlist
+              </DialogTitle>
+              <DialogDescription>
+                Update your playlist&apos;s name and description.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="playlist-name">Name</Label>
+                <Input
+                  id="playlist-name"
+                  placeholder="My Playlist"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="playlist-comment">Description</Label>
+                <Textarea
+                  id="playlist-comment"
+                  placeholder="Add a description..."
+                  value={comment}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                    setComment(e.target.value)
+                  }
+                  rows={3}
+                />
+              </div>
 
-            {isOwner && (
-              <>
-                <Separator />
-                <div className="grid gap-3">
-                  <div className="flex items-center gap-2">
-                    <Users className="w-4 h-4 text-muted-foreground" />
-                    <Label>Sharing</Label>
-                  </div>
-
-                  {shares.length > 0 && (
-                    <div className="space-y-2">
-                      {shares.map((share) => (
-                        <div
-                          key={share.userId}
-                          className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
-                        >
-                          <span className="text-sm font-medium truncate">
-                            {share.username}
-                          </span>
-                          <div className="flex items-center gap-3 shrink-0">
-                            <div className="flex items-center gap-2">
-                              <Label
-                                htmlFor={`edit-${share.userId}`}
-                                className="text-xs text-muted-foreground"
-                              >
-                                Can edit
-                              </Label>
-                              <Switch
-                                id={`edit-${share.userId}`}
-                                checked={share.canEdit}
-                                onCheckedChange={() =>
-                                  toggleCanEdit(share.userId)
-                                }
-                              />
-                            </div>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => removeShare(share.userId)}
-                            >
-                              <X className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
+              {isOwner && (
+                <>
+                  <Separator />
+                  <div className="grid gap-3">
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-muted-foreground" />
+                      <Label>Sharing</Label>
                     </div>
-                  )}
 
-                  {availableUsers.length > 0 && (
-                    <Popover open={addUserOpen} onOpenChange={setAddUserOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="w-fit"
-                        >
-                          <UserPlus className="w-4 h-4 mr-2" />
-                          Share with user
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="p-0 w-[200px]" align="start">
-                        <Command>
-                          <CommandInput placeholder="Search users..." />
-                          <CommandList>
-                            <CommandEmpty>No users found.</CommandEmpty>
-                            <CommandGroup>
-                              {availableUsers.map((user) => (
-                                <CommandItem
-                                  key={user.id}
-                                  onSelect={() =>
-                                    addShare(user.id, user.username)
-                                  }
+                    {shares.length > 0 && (
+                      <div className="space-y-2">
+                        {shares.map((share) => (
+                          <div
+                            key={share.userId}
+                            className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
+                          >
+                            <span className="text-sm font-medium truncate">
+                              {share.username}
+                            </span>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <div className="flex items-center gap-2">
+                                <Label
+                                  htmlFor={`edit-${share.userId}`}
+                                  className="text-xs text-muted-foreground"
                                 >
-                                  {user.username}
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                  )}
+                                  Can edit
+                                </Label>
+                                <Switch
+                                  id={`edit-${share.userId}`}
+                                  checked={share.canEdit}
+                                  onCheckedChange={() =>
+                                    toggleCanEdit(share.userId)
+                                  }
+                                />
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => removeShare(share.userId)}
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
-                  {shares.length === 0 && availableUsers.length === 0 && (
+                    {availableUsers.length > 0 && (
+                      <Popover open={addUserOpen} onOpenChange={setAddUserOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="w-fit"
+                          >
+                            <UserPlus className="w-4 h-4 mr-2" />
+                            Share with user
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="p-0 w-[200px]" align="start">
+                          <Command>
+                            <CommandInput placeholder="Search users..." />
+                            <CommandList>
+                              <CommandEmpty>No users found.</CommandEmpty>
+                              <CommandGroup>
+                                {availableUsers.map((user) => (
+                                  <CommandItem
+                                    key={user.id}
+                                    onSelect={() =>
+                                      addShare(user.id, user.username)
+                                    }
+                                  >
+                                    {user.username}
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    )}
+
+                    {shares.length === 0 && availableUsers.length === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        No other users to share with.
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {isOwner && shareableUsers && shareableUsers.users.length > 0 && (
+                <>
+                  <Separator />
+                  <div className="grid gap-3">
+                    <div className="flex items-center gap-2">
+                      <ArrowRightLeft className="w-4 h-4 text-muted-foreground" />
+                      <Label>Transfer Ownership</Label>
+                    </div>
                     <p className="text-sm text-muted-foreground">
-                      No other users to share with.
+                      Transfer this playlist to another user. You will need the
+                      new owner to transfer it back if you change your mind.
                     </p>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
+                    <div className="flex items-center gap-2">
+                      <Popover
+                        open={transferUserOpen}
+                        onOpenChange={setTransferUserOpen}
+                      >
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="w-fit"
+                          >
+                            {transferTargetUser
+                              ? transferTargetUser.username
+                              : "Select user..."}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="p-0 w-[200px]" align="start">
+                          <Command>
+                            <CommandInput placeholder="Search users..." />
+                            <CommandList>
+                              <CommandEmpty>No users found.</CommandEmpty>
+                              <CommandGroup>
+                                {shareableUsers.users.map((user) => (
+                                  <CommandItem
+                                    key={user.id}
+                                    onSelect={() => {
+                                      setTransferTargetUser({
+                                        id: user.id,
+                                        username: user.username,
+                                      });
+                                      setTransferUserOpen(false);
+                                    }}
+                                  >
+                                    {user.username}
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        disabled={!transferTargetUser}
+                        onClick={() => setTransferDialogOpen(true)}
+                      >
+                        Transfer
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={!name.trim() || updatePlaylist.isPending}
+              >
+                {updatePlaylist.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={transferDialogOpen}
+        onOpenChange={setTransferDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Transfer Ownership</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to transfer ownership of &quot;
+              {playlist?.name}&quot; to{" "}
+              <strong>{transferTargetUser?.username}</strong>? The new owner
+              will have full control over this playlist. You will need them to
+              transfer it back if you change your mind.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (transferTargetUser) {
+                  transferOwnership.mutate(transferTargetUser.id);
+                }
+              }}
+              disabled={transferOwnership.isPending}
             >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={!name.trim() || updatePlaylist.isPending}
-            >
-              {updatePlaylist.isPending ? (
+              {transferOwnership.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Saving...
+                  Transferring...
                 </>
               ) : (
-                "Save"
+                "Transfer Ownership"
               )}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useState, createContext, useContext } from "react";
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CoverImage } from "@/components/shared/cover-image";
 import {
@@ -206,4 +206,60 @@ export function DrawerMenuCollapsibleContent({
   if (!open) return null;
 
   return <div className="ml-4 border-l border-border pl-2">{children}</div>;
+}
+
+// ===================================
+// DrawerMenuCheckboxItem
+// ===================================
+
+interface DrawerMenuCheckboxItemProps {
+  checked: boolean;
+  onCheckedChange: () => void;
+  children: ReactNode;
+  className?: string;
+}
+
+export function DrawerMenuCheckboxItem({
+  checked,
+  onCheckedChange,
+  children,
+  className,
+}: DrawerMenuCheckboxItemProps) {
+  return (
+    <button
+      type="button"
+      onClick={onCheckedChange}
+      className={cn(
+        "flex w-full cursor-default items-center gap-3 rounded-lg px-3 py-3 text-sm outline-none select-none active:bg-accent",
+        className,
+      )}
+    >
+      <div className="flex size-5 items-center justify-center">
+        {checked && <Check className="size-4 text-primary" />}
+      </div>
+      {children}
+    </button>
+  );
+}
+
+// ===================================
+// DrawerMenuLabel
+// ===================================
+
+interface DrawerMenuLabelProps {
+  children: ReactNode;
+  className?: string;
+}
+
+export function DrawerMenuLabel({ children, className }: DrawerMenuLabelProps) {
+  return (
+    <div
+      className={cn(
+        "px-3 py-1.5 text-xs font-medium text-muted-foreground",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
 }

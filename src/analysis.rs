@@ -276,7 +276,7 @@ fn downsample_fine_windows(windows: &[f64], target: usize) -> Vec<f32> {
 /// Matches the client-side normalization logic: dB compression with
 /// configurable floor, mapping to a height range of [MIN_HEIGHT, 1.0].
 fn normalize_rms_to_heights(rms_values: &[f32]) -> Vec<f32> {
-    const MIN_HEIGHT: f32 = 0.15;
+    const MIN_HEIGHT: f32 = 0.0;
     const DB_MIN: f32 = -10.0;
 
     let peak_rms = rms_values.iter().copied().fold(0.0f32, |a, b| a.max(b));
@@ -331,9 +331,9 @@ mod tests {
         let rms = vec![0.0, 0.5, 1.0];
         let heights = normalize_rms_to_heights(&rms);
         assert_eq!(heights.len(), 3);
-        assert_eq!(heights[0], 0.15); // silence → minimum
+        assert_eq!(heights[0], 0.0); // silence → minimum
         assert_eq!(heights[2], 1.0); // peak → maximum
-        assert!(heights[1] > 0.15 && heights[1] < 1.0); // mid value
+        assert!(heights[1] > 0.0 && heights[1] < 1.0); // mid value
     }
 
     #[test]

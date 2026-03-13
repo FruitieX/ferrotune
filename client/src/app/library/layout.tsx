@@ -792,7 +792,7 @@ export default function LibraryLayout({
 
         {/* Tab Navigation */}
         <nav className="border-b border-border" aria-label="Library sections">
-          <div className="h-12 flex items-center px-4 lg:px-6 gap-1">
+          <div className="h-12 flex items-center px-4 lg:px-6 gap-1 overflow-x-auto scrollbar-hide">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = pathname === tab.href;
@@ -801,7 +801,7 @@ export default function LibraryLayout({
                   key={tab.href}
                   href={tab.href}
                   className={cn(
-                    "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                    "inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     isActive
                       ? "bg-accent text-accent-foreground"

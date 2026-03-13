@@ -2031,6 +2031,73 @@ pub async fn update_playlist(
     }))
 }
 
+// ============================================================================
+// Playlist ownership transfer
+// ============================================================================
+
+/// Request to transfer playlist ownership.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct TransferPlaylistOwnershipRequest {
+    /// The user ID of the new owner
+    #[ts(type = "number")]
+    pub new_owner_id: i64,
+}
+
+/// Transfer ownership of a playlist to another user.
+/// Only the current owner can transfer ownership.
+pub async fn transfer_playlist_ownership(
+    State(state): State<Arc<AppState>>,
+    user: FerrotuneAuthenticatedUser,
+    Path(playlist_id): Path<String>,
+    Json(request): Json<TransferPlaylistOwnershipRequest>,
+) -> FerrotuneApiResult<StatusCode> {
+    // Get playlist and verify current user is the owner
+    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
+
+    if playlist.owner_id != user.user_id {
+        return Err(
+            Error::Forbidden("Only the playlist owner can transfer ownership".to_string()).into(),
+        );
+    }
+
+    // Verify the new owner exists
+    let new_owner_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)")
+            .bind(request.new_owner_id)
+            .fetch_one(&state.pool)
+            .await?;
+
+    if !new_owner_exists {
+        return Err(Error::NotFound("Target user not found".to_string()).into());
+    }
+
+    if request.new_owner_id == user.user_id {
+        return Err(
+            Error::InvalidRequest("Cannot transfer ownership to yourself".to_string()).into(),
+        );
+    }
+
+    // Transfer ownership
+    sqlx::query("UPDATE playlists SET owner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+        .bind(request.new_owner_id)
+        .bind(&playlist_id)
+        .execute(&state.pool)
+        .await?;
+
+    // Remove any existing share entries for the new owner (since they're now the owner)
+    sqlx::query("DELETE FROM playlist_shares WHERE playlist_id = ? AND user_id = ?")
+        .bind(&playlist_id)
+        .bind(request.new_owner_id)
+        .execute(&state.pool)
+        .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Delete a playlist.
 pub async fn delete_playlist(
     State(state): State<Arc<AppState>>,

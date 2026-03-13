@@ -74,7 +74,7 @@ export function MoveToPositionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md z-[70]" overlayClassName="z-[70]">
         <DialogHeader>
           <DialogTitle>Move to Position</DialogTitle>
           <DialogDescription>
