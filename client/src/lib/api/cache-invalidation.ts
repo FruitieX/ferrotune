@@ -1,5 +1,4 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { del } from "idb-keyval";
 
 /**
  * Invalidate all queries that display song data.
@@ -72,22 +71,4 @@ export function invalidateSmartPlaylistQueries(queryClient: QueryClient): void {
  */
 export function invalidateRecycleBinQueries(queryClient: QueryClient): void {
   queryClient.invalidateQueries({ queryKey: ["recycleBin"] });
-}
-
-/**
- * Reset user-scoped queries after auth account changes.
- *
- * - Cancels in-flight requests so old-account responses cannot race into cache
- * - Removes inactive queries to prevent stale data flashes on navigation
- * - Resets active queries so mounted views refetch immediately
- */
-export async function resetQueriesForAccountSwitch(
-  queryClient: QueryClient,
-): Promise<void> {
-  await queryClient.cancelQueries();
-  queryClient.removeQueries({ type: "inactive" });
-  await queryClient.resetQueries({ type: "active" });
-  // Clear persisted cache so the new user doesn't see stale data from the
-  // previous account on the next cold start.
-  await del("REACT_QUERY_OFFLINE_CACHE").catch(() => {});
 }

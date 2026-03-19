@@ -32,6 +32,10 @@ pub struct ScrobbleParams {
     /// Defaults to true for Ferrotune API as we typically use it for submission.
     #[serde(default = "default_submission")]
     pub submission: bool,
+    /// The queue source type at the time of playback (e.g., "album", "playlist", "library")
+    pub queue_source_type: Option<String>,
+    /// The specific source ID (e.g., album ID, playlist ID) at the time of playback
+    pub queue_source_id: Option<String>,
 }
 
 fn default_submission() -> bool {
@@ -66,11 +70,13 @@ pub async fn scrobble(
         if !duplicate {
             // Record scrobble
             sqlx::query(
-                "INSERT INTO scrobbles (user_id, song_id, played_at, submission) VALUES (?, ?, ?, 1)",
+                "INSERT INTO scrobbles (user_id, song_id, played_at, submission, queue_source_type, queue_source_id) VALUES (?, ?, ?, 1, ?, ?)",
             )
             .bind(user.user_id)
             .bind(&params.id)
             .bind(played_at)
+            .bind(&params.queue_source_type)
+            .bind(&params.queue_source_id)
             .execute(&state.pool)
             .await?;
         }

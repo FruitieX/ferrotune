@@ -32,16 +32,42 @@ export function shouldPersistQuery(queryKey: readonly unknown[]): boolean {
   return typeof prefix === "string" && PERSISTED_QUERY_PREFIXES.has(prefix);
 }
 
-export const asyncStoragePersister = createAsyncStoragePersister({
-  storage: {
-    getItem: async (key: string) => (await get(key)) ?? null,
-    setItem: async (key: string, value: string) => {
-      await set(key, value);
-    },
-    removeItem: async (key: string) => {
-      await del(key);
-    },
+const idbStorage = {
+  getItem: async (key: string) => (await get(key)) ?? null,
+  setItem: async (key: string, value: string) => {
+    await set(key, value);
   },
-  // Throttle writes so rapid query updates don't hammer IndexedDB
-  throttleTime: 2000,
-});
+  removeItem: async (key: string) => {
+    await del(key);
+  },
+};
+
+const persisterCache = new Map<
+  string,
+  ReturnType<typeof createAsyncStoragePersister>
+>();
+
+/**
+ * Returns a per-account IndexedDB persister so each account keeps its own
+ * cache. Persisters are cached by account key for reuse.
+ */
+export function getAccountPersister(accountKeyStr: string) {
+  let persister = persisterCache.get(accountKeyStr);
+  if (!persister) {
+    persister = createAsyncStoragePersister({
+      storage: idbStorage,
+      key: `REACT_QUERY_CACHE_${accountKeyStr}`,
+      throttleTime: 2000,
+    });
+    persisterCache.set(accountKeyStr, persister);
+  }
+  return persister;
+}
+
+/**
+ * Remove the legacy unified cache key that was used before per-account
+ * persistence was introduced. Safe to call multiple times (no-op if missing).
+ */
+export function cleanupLegacyCache() {
+  del("REACT_QUERY_OFFLINE_CACHE").catch(() => {});
+}

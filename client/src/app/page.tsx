@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSetAtom } from "jotai";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
-import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import {
   Play,
   Clock,
@@ -15,6 +15,7 @@ import {
   Search,
   ListMusic,
   Heart,
+  History,
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { startQueueAtom } from "@/lib/store/server-queue";
@@ -35,7 +36,8 @@ import { MobileProfileMenu } from "@/components/layout/mobile-profile-menu";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { formatDuration } from "@/lib/utils/format";
 import type { Album, Song } from "@/lib/api/types";
-import type { RecentPlaylistEntry } from "@/lib/api/generated/RecentPlaylistEntry";
+import type { ContinueListeningEntry } from "@/lib/api/generated/ContinueListeningEntry";
+import type { HomePageResponse } from "@/lib/api/generated/HomePageResponse";
 
 // Maximum items per home page section to avoid tiny scrollbars
 const MAX_SECTION_ITEMS = 100;
@@ -257,6 +259,29 @@ export default function HomePage() {
     router.push("/search");
   };
 
+  // --- Batch fetch for initial home page load ---
+  // All initial page fetches (page 0) go through one HTTP request to /ferrotune/home.
+  // Subsequent pages (infinite scroll) use individual endpoints.
+  const batchPromiseRef = useRef<Promise<HomePageResponse> | null>(null);
+  const fetchBatch = (): Promise<HomePageResponse> => {
+    if (!batchPromiseRef.current) {
+      const client = getClient();
+      if (!client) throw new Error("Not connected");
+      batchPromiseRef.current = client.getHomePage({
+        size: pageSize,
+        inlineImages: "medium",
+      });
+      // After the batch resolves, clear the ref so that future resets
+      // (e.g., account switch) create a fresh request
+      batchPromiseRef.current.finally(() => {
+        setTimeout(() => {
+          batchPromiseRef.current = null;
+        }, 100);
+      });
+    }
+    return batchPromiseRef.current;
+  };
+
   // --- Infinite queries for album sections ---
 
   const {
@@ -268,6 +293,15 @@ export default function HomePage() {
   } = useInfiniteQuery({
     queryKey: ["albums", "newest", "home"],
     queryFn: async ({ pageParam }) => {
+      if (pageParam === 0) {
+        const batch = await fetchBatch();
+        return {
+          albums: batch.recentlyAdded.album,
+          total: batch.recentlyAdded.total,
+          nextOffset: pageSize,
+          pageSize,
+        };
+      }
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getAlbumList2({
@@ -302,13 +336,28 @@ export default function HomePage() {
 
   const {
     data: randomData,
-    isFetching: fetchingRandom,
+    isLoading: loadingRandom,
     hasNextPage: hasNextRandom,
     isFetchingNextPage: fetchingNextRandom,
     fetchNextPage: fetchNextRandom,
   } = useInfiniteQuery({
     queryKey: ["albums", "random", "home"],
     queryFn: async ({ pageParam }) => {
+      // Reset seed on initial page fetch (supports account switch / cache reset)
+      if (pageParam === 0) {
+        discoverSeedRef.current = undefined;
+        const batch = await fetchBatch();
+        if (batch.discover.seed != null) {
+          discoverSeedRef.current = batch.discover.seed;
+        }
+        return {
+          albums: batch.discover.album,
+          total: batch.discover.total,
+          seed: batch.discover.seed,
+          nextOffset: pageSize,
+          pageSize,
+        };
+      }
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getAlbumList2({
@@ -318,15 +367,6 @@ export default function HomePage() {
         inlineImages: "medium",
         seed: discoverSeedRef.current,
       });
-      // Only store seed on initial fetch (ref still null) — background
-      // refetches must not overwrite the displayed seed used for pagination
-      if (
-        pageParam === 0 &&
-        discoverSeedRef.current == null &&
-        response.albumList2.seed != null
-      ) {
-        discoverSeedRef.current = response.albumList2.seed;
-      }
       return {
         albums: response.albumList2.album ?? [],
         total: response.albumList2.total,
@@ -350,6 +390,10 @@ export default function HomePage() {
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
     enabled: isReady,
+    // Fetch once per session — seeded sections should not refetch in the background
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   const {
@@ -361,6 +405,15 @@ export default function HomePage() {
   } = useInfiniteQuery({
     queryKey: ["albums", "frequent-recent", "home"],
     queryFn: async ({ pageParam }) => {
+      if (pageParam === 0) {
+        const batch = await fetchBatch();
+        return {
+          albums: batch.mostPlayedRecently.album,
+          total: batch.mostPlayedRecently.total,
+          nextOffset: pageSize,
+          pageSize,
+        };
+      }
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const since = new Date();
@@ -399,13 +452,26 @@ export default function HomePage() {
   // --- Forgotten Favorites: songs played a lot long ago but not recently ---
   const {
     data: forgottenFavData,
-    isFetching: fetchingForgottenFav,
+    isLoading: loadingForgottenFav,
     hasNextPage: hasNextForgottenFav,
     isFetchingNextPage: fetchingNextForgottenFav,
     fetchNextPage: fetchNextForgottenFav,
   } = useInfiniteQuery({
     queryKey: ["songs", "forgotten-favorites", "home"],
     queryFn: async ({ pageParam }) => {
+      // Reset seed on initial page fetch (supports account switch / cache reset)
+      if (pageParam === 0) {
+        forgottenFavSeedRef.current = undefined;
+        const batch = await fetchBatch();
+        forgottenFavSeedRef.current = batch.forgottenFavorites.seed;
+        return {
+          songs: batch.forgottenFavorites.song,
+          total: batch.forgottenFavorites.total,
+          seed: batch.forgottenFavorites.seed,
+          nextOffset: pageSize,
+          pageSize,
+        };
+      }
       const client = getClient();
       if (!client) throw new Error("Not connected");
       const response = await client.getForgottenFavorites({
@@ -414,10 +480,6 @@ export default function HomePage() {
         inlineImages: "medium",
         seed: forgottenFavSeedRef.current,
       });
-      // Only store seed on initial fetch (ref still null)
-      if (pageParam === 0 && forgottenFavSeedRef.current == null) {
-        forgottenFavSeedRef.current = response.seed;
-      }
       return {
         songs: response.song ?? [],
         total: response.total,
@@ -433,30 +495,41 @@ export default function HomePage() {
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
     enabled: isReady,
+    // Fetch once per session — seeded sections should not refetch in the background
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
-  // --- Continue Listening: merge recent albums + playlists ---
-  // Recent albums use infinite query for pagination
+  // --- Continue Listening: unified endpoint with albums + playlists ---
   const {
-    data: recentData,
-    isLoading: loadingRecent,
-    hasNextPage: hasNextRecent,
-    isFetchingNextPage: fetchingNextRecent,
-    fetchNextPage: fetchNextRecent,
+    data: continueListeningData,
+    isLoading: loadingContinueListening,
+    hasNextPage: hasNextContinueListening,
+    isFetchingNextPage: fetchingNextContinueListening,
+    fetchNextPage: fetchNextContinueListening,
   } = useInfiniteQuery({
-    queryKey: ["albums", "recent", "home"],
+    queryKey: ["continue-listening", "home"],
     queryFn: async ({ pageParam }) => {
+      if (pageParam === 0) {
+        const batch = await fetchBatch();
+        return {
+          entries: batch.continueListening.entries,
+          total: batch.continueListening.total,
+          nextOffset: pageSize,
+          pageSize,
+        };
+      }
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      const response = await client.getAlbumList2({
-        type: "recent",
+      const response = await client.getContinueListening({
         size: pageSize,
         offset: pageParam,
         inlineImages: "medium",
       });
       return {
-        albums: response.albumList2.album ?? [],
-        total: response.albumList2.total,
+        entries: response.entries,
+        total: response.total,
         nextOffset: pageParam + pageSize,
         pageSize,
       };
@@ -464,33 +537,11 @@ export default function HomePage() {
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
       if (lastPage.nextOffset >= MAX_SECTION_ITEMS) return undefined;
-      const cap =
-        lastPage.total != null
-          ? Math.min(lastPage.total, MAX_SECTION_ITEMS)
-          : MAX_SECTION_ITEMS;
-      if (lastPage.total == null) {
-        return lastPage.albums.length >= lastPage.pageSize
-          ? lastPage.nextOffset
-          : undefined;
-      }
+      const cap = Math.min(lastPage.total, MAX_SECTION_ITEMS);
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
     enabled: isReady,
   });
-
-  // Playlists don't support pagination - fetch all at once
-  const { data: recentPlaylists, isLoading: loadingRecentPlaylists } = useQuery(
-    {
-      queryKey: ["playlists", "recently-played"],
-      queryFn: async () => {
-        const client = getClient();
-        if (!client) throw new Error("Not connected");
-        const response = await client.getRecentlyPlayedPlaylists();
-        return response.playlists;
-      },
-      enabled: isReady,
-    },
-  );
 
   // Flatten infinite query pages and cap totals at MAX_SECTION_ITEMS
   const newestAlbums = newestData?.pages.flatMap((p) => p.albums) ?? [];
@@ -498,10 +549,7 @@ export default function HomePage() {
     newestData?.pages[0]?.total != null
       ? Math.min(newestData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
-  // Don't show stale cached data for seeded sections — show skeletons until fresh data arrives
-  const randomAlbums = fetchingRandom
-    ? []
-    : (randomData?.pages.flatMap((p) => p.albums) ?? []);
+  const randomAlbums = randomData?.pages.flatMap((p) => p.albums) ?? [];
   const randomTotal =
     randomData?.pages[0]?.total != null
       ? Math.min(randomData.pages[0].total, MAX_SECTION_ITEMS)
@@ -511,56 +559,18 @@ export default function HomePage() {
     frequentData?.pages[0]?.total != null
       ? Math.min(frequentData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
-  const forgottenFavSongs = fetchingForgottenFav
-    ? []
-    : (forgottenFavData?.pages.flatMap((p) => p.songs) ?? []);
+  const forgottenFavSongs =
+    forgottenFavData?.pages.flatMap((p) => p.songs) ?? [];
   const forgottenFavTotal =
     forgottenFavData?.pages[0]?.total != null
       ? Math.min(forgottenFavData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
-  const recentAlbums = recentData?.pages.flatMap((p) => p.albums) ?? [];
-  const recentAlbumTotal = recentData?.pages[0]?.total;
-
-  // Merge recently played albums and playlists, sorted by last played time
-  type ContinueListeningItem =
-    | { type: "album"; album: Album; lastPlayed: string }
-    | {
-        type: "playlist";
-        playlist: RecentPlaylistEntry;
-        lastPlayed: string;
-      };
-
-  const continueListeningItems: ContinueListeningItem[] = [];
-  if (recentAlbums.length > 0) {
-    for (const album of recentAlbums) {
-      if (album.played) {
-        continueListeningItems.push({
-          type: "album",
-          album,
-          lastPlayed: album.played,
-        });
-      }
-    }
-  }
-  if (recentPlaylists) {
-    for (const pl of recentPlaylists) {
-      continueListeningItems.push({
-        type: "playlist",
-        playlist: pl,
-        lastPlayed: pl.lastPlayedAt,
-      });
-    }
-  }
-  continueListeningItems.sort(
-    (a, b) =>
-      new Date(b.lastPlayed).getTime() - new Date(a.lastPlayed).getTime(),
-  );
-
-  // Compute total for Continue Listening: album total + playlist count, capped
-  const playlistCount = recentPlaylists?.length ?? 0;
+  // Continue listening items come pre-merged and sorted from the server
+  const continueListeningItems =
+    continueListeningData?.pages.flatMap((p) => p.entries) ?? [];
   const continueListeningTotal =
-    recentAlbumTotal != null
-      ? Math.min(recentAlbumTotal + playlistCount, MAX_SECTION_ITEMS)
+    continueListeningData?.pages[0]?.total != null
+      ? Math.min(continueListeningData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
 
   // Play album - uses server-side queue (always disables shuffle)
@@ -664,27 +674,33 @@ export default function HomePage() {
   }
 
   // Render function for continue listening items
-  const renderContinueListeningItem = (item: ContinueListeningItem) => {
-    if (item.type === "playlist") {
+  const renderContinueListeningItem = (item: ContinueListeningEntry) => {
+    if (
+      (item.type === "playlist" || item.type === "smartPlaylist") &&
+      item.playlist
+    ) {
       return (
         <HomePlaylistCard
           playlist={item.playlist}
           onPlay={() =>
             handlePlayPlaylist(
-              item.playlist.id,
-              item.playlist.name,
-              item.playlist.playlistType as "playlist" | "smartPlaylist",
+              item.playlist!.id,
+              item.playlist!.name,
+              item.playlist!.playlistType as "playlist" | "smartPlaylist",
             )
           }
         />
       );
     }
-    return (
-      <AlbumCard
-        album={item.album}
-        onPlay={() => handlePlayAlbum(item.album)}
-      />
-    );
+    if (item.album) {
+      return (
+        <AlbumCard
+          album={item.album}
+          onPlay={() => handlePlayAlbum(item.album!)}
+        />
+      );
+    }
+    return null;
   };
 
   return (
@@ -712,13 +728,33 @@ export default function HomePage() {
 
       {/* Content */}
       <div className="py-4 sm:py-6 space-y-4 sm:space-y-6">
+        {/* Mobile quick access - Favorites & Recently Played (hidden on desktop where sidebar is available) */}
+        <div className="flex gap-2 px-3 sm:px-4 lg:hidden">
+          <Link
+            href="/favorites"
+            className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors"
+          >
+            <Heart className="w-4 h-4 text-primary shrink-0" />
+            <span className="text-sm font-medium truncate">Favorites</span>
+          </Link>
+          <Link
+            href="/history"
+            className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors"
+          >
+            <History className="w-4 h-4 text-primary shrink-0" />
+            <span className="text-sm font-medium truncate">
+              Recently Played
+            </span>
+          </Link>
+        </div>
+
         {/* Continue Listening (Recently Played Albums + Playlists, sorted by last played) */}
         <section className="space-y-2 sm:space-y-4">
           <SectionHeader
             title="Continue Listening"
             icon={Play}
             hasItems={continueListeningItems.length > 0}
-            isLoading={loadingRecent || loadingRecentPlaylists}
+            isLoading={loadingContinueListening}
             onPlayAll={() =>
               startQueue({
                 sourceType: "continueListening",
@@ -736,22 +772,22 @@ export default function HomePage() {
               })
             }
           />
-          <VirtualizedHorizontalScroll<ContinueListeningItem>
+          <VirtualizedHorizontalScroll<ContinueListeningEntry>
             items={continueListeningItems}
             totalCount={continueListeningTotal}
-            isLoading={loadingRecent || loadingRecentPlaylists}
+            isLoading={loadingContinueListening}
             itemWidth={itemWidth}
             gap={itemGap}
             paddingX={paddingX}
-            hasNextPage={hasNextRecent}
-            isFetchingNextPage={fetchingNextRecent}
-            fetchNextPage={fetchNextRecent}
+            hasNextPage={hasNextContinueListening}
+            isFetchingNextPage={fetchingNextContinueListening}
+            fetchNextPage={fetchNextContinueListening}
             renderItem={(item) => renderContinueListeningItem(item)}
             renderSkeleton={() => <AlbumCardSkeleton />}
             getItemKey={(item) =>
-              item.type === "playlist"
-                ? `pl-${item.playlist.id}`
-                : item.album.id
+              item.type === "playlist" || item.type === "smartPlaylist"
+                ? `pl-${item.playlist?.id}`
+                : `al-${item.album?.id}`
             }
             emptyMessage="No recently played items"
           />
@@ -808,13 +844,13 @@ export default function HomePage() {
         />
 
         {/* Forgotten Favorites */}
-        {(forgottenFavSongs.length > 0 || fetchingForgottenFav) && (
+        {(forgottenFavSongs.length > 0 || loadingForgottenFav) && (
           <section className="space-y-2 sm:space-y-4">
             <SectionHeader
               title="Forgotten Favorites"
               icon={Heart}
               hasItems={forgottenFavSongs.length > 0}
-              isLoading={fetchingForgottenFav}
+              isLoading={loadingForgottenFav}
               onPlayAll={() =>
                 startQueue({
                   sourceType: "forgottenFavorites",
@@ -841,7 +877,7 @@ export default function HomePage() {
             <VirtualizedHorizontalScroll<Song>
               items={forgottenFavSongs}
               totalCount={forgottenFavTotal}
-              isLoading={fetchingForgottenFav}
+              isLoading={loadingForgottenFav}
               itemWidth={itemWidth}
               gap={itemGap}
               paddingX={paddingX}
@@ -875,7 +911,7 @@ export default function HomePage() {
           icon={Sparkles}
           albums={randomAlbums}
           totalCount={randomTotal}
-          isLoading={fetchingRandom}
+          isLoading={loadingRandom}
           hasNextPage={hasNextRandom}
           isFetchingNextPage={fetchingNextRandom}
           fetchNextPage={fetchNextRandom}

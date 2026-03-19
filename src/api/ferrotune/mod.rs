@@ -87,6 +87,7 @@ mod disabled_songs;
 mod duplicates;
 mod filesystem;
 mod history;
+mod home;
 mod listening;
 mod lists;
 mod match_dictionary;
@@ -132,6 +133,12 @@ pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/ferrotune/health", get(health))
         .route("/ferrotune/features", get(features))
+        // Home page batch endpoint
+        .route("/ferrotune/home", get(home::get_home))
+        .route(
+            "/ferrotune/continue-listening",
+            get(home::get_continue_listening),
+        )
         // Browse endpoints (migrated from OpenSubsonic)
         .route("/ferrotune/ping", get(browse::ping))
         .route("/ferrotune/artists", get(browse::get_artists))

@@ -342,7 +342,11 @@ export function MobileQueueSheet() {
             }}
             style={{
               x: dragX,
-              opacity: sheetOpacity,
+              // Only apply drag-based opacity during active drag or gesture close.
+              // During normal enter/exit animations, let framer-motion handle opacity
+              // to avoid NaN from percentage-based initial values interacting with useTransform.
+              opacity:
+                isDragging || isClosingViaGesture ? sheetOpacity : undefined,
               pointerEvents:
                 closeAnimationComplete || !isOpen ? "none" : "auto",
             }}

@@ -807,7 +807,13 @@ export function useAudioEngineInit() {
             settersRef.current.setHasScrobbled(true);
             if (state.currentSong) {
               getClient()
-                ?.scrobble(state.currentSong.id)
+                ?.scrobble(
+                  state.currentSong.id,
+                  undefined,
+                  true,
+                  state.queueState?.source?.type,
+                  state.queueState?.source?.id ?? undefined,
+                )
                 .then(() => {
                   settersRef.current.invalidatePlayCountQueries();
                 })
@@ -1292,7 +1298,13 @@ export function useAudioEngineInit() {
           settersRef.current.setHasScrobbled(true);
           if (state.currentSong) {
             getClient()
-              ?.scrobble(state.currentSong.id)
+              ?.scrobble(
+                state.currentSong.id,
+                undefined,
+                true,
+                state.queueState?.source?.type,
+                state.queueState?.source?.id ?? undefined,
+              )
               .then(() => {
                 settersRef.current.invalidatePlayCountQueries();
               })

@@ -1,11 +1,11 @@
 "use client";
 
-import { QueryClient, useQueryClient } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { Provider as JotaiProvider, useAtomValue, useSetAtom } from "jotai";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useEffect, useRef, Suspense } from "react";
 import { useAudioEngineInit, useMediaSession } from "@/lib/audio/hooks";
 import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
 import { useDocumentTitle } from "@/lib/hooks/use-document-title";
@@ -17,7 +17,8 @@ import { useScanProgressStream } from "@/lib/hooks/use-scan-progress-stream";
 import { useCastInit } from "@/lib/hooks/use-cast";
 import { DynamicFavicon } from "@/components/dynamic-favicon";
 import {
-  asyncStoragePersister,
+  getAccountPersister,
+  cleanupLegacyCache,
   PERSIST_MAX_AGE_MS,
   PERSIST_GC_TIME_MS,
   shouldPersistQuery,
@@ -30,7 +31,6 @@ import {
   queuePanelOpenAtom,
 } from "@/lib/store/ui";
 import { accountKey, serverConnectionAtom } from "@/lib/store/auth";
-import { resetQueriesForAccountSwitch } from "@/lib/api/cache-invalidation";
 import { starredItemsAtom } from "@/lib/store/starred";
 import { waveformCacheAtom } from "@/lib/store/waveform";
 import {
@@ -105,8 +105,12 @@ function AccentColorProvider({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function QueryCacheResetOnAccountSwitch() {
-  const queryClient = useQueryClient();
+/**
+ * Resets user-specific Jotai atoms when the account changes.
+ * Lives outside the per-account QueryClientProvider so it is NOT remounted
+ * when the PersistQueryClientProvider key changes.
+ */
+function AccountSwitchStateResetter() {
   const connection = useAtomValue(serverConnectionAtom);
   const currentAccountKey = connection ? accountKey(connection) : null;
   const previousAccountKeyRef = useRef<string | null | undefined>(undefined);
@@ -125,9 +129,6 @@ function QueryCacheResetOnAccountSwitch() {
 
     previousAccountKeyRef.current = currentAccountKey;
 
-    // Reset React Query cache
-    void resetQueriesForAccountSwitch(queryClient);
-
     // Reset user-specific Jotai atoms
     setStarredItems(new Map());
     setWaveformCache(new Map());
@@ -135,9 +136,82 @@ function QueryCacheResetOnAccountSwitch() {
     // Reset and reload server-stored preferences for the new account
     resetServerPreferences();
     void refreshServerPreferences();
-  }, [currentAccountKey, queryClient, setStarredItems, setWaveformCache]);
+  }, [currentAccountKey, setStarredItems, setWaveformCache]);
 
   return null;
+}
+
+/**
+ * Creates a per-account QueryClient + IndexedDB persister.
+ *
+ * Each account gets its own QueryClient (keyed by accountKey) and its own
+ * IndexedDB cache entry. When switching between accounts the in-memory
+ * QueryClient is kept alive so switching back is instant.
+ *
+ * The React `key` on PersistQueryClientProvider forces a remount when the
+ * account changes, which triggers a persistence restore for the new account.
+ */
+
+// Module-level map of per-account QueryClients so switching back is instant
+const queryClientsByAccount = new Map<string, QueryClient>();
+
+function getOrCreateQueryClient(key: string): QueryClient {
+  let client = queryClientsByAccount.get(key);
+  if (!client) {
+    client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          staleTime: 60 * 1000,
+          gcTime: PERSIST_GC_TIME_MS,
+          refetchOnWindowFocus: false,
+        },
+      },
+    });
+    queryClientsByAccount.set(key, client);
+  }
+  return client;
+}
+
+function AccountScopedQueryProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const connection = useAtomValue(serverConnectionAtom);
+  const currentKey = connection ? accountKey(connection) : "__no_account__";
+
+  const queryClient = getOrCreateQueryClient(currentKey);
+  const persister = getAccountPersister(currentKey);
+
+  // One-time cleanup of the legacy unified cache key
+  useEffect(() => {
+    cleanupLegacyCache();
+  }, []);
+
+  return (
+    <PersistQueryClientProvider
+      key={currentKey}
+      client={queryClient}
+      persistOptions={{
+        persister,
+        maxAge: PERSIST_MAX_AGE_MS,
+        dehydrateOptions: {
+          shouldDehydrateQuery: (query) =>
+            query.state.status === "success" &&
+            shouldPersistQuery(query.queryKey),
+        },
+      }}
+      onSuccess={() => {
+        // After restoring cached data from IndexedDB, trigger a
+        // background refetch of all active queries so the cache gets
+        // updated for the next visit. The home page uses structuralSharing
+        // to freeze displayed content and prevent visual swaps.
+        queryClient.invalidateQueries();
+      }}
+    >
+      {children}
+    </PersistQueryClientProvider>
+  );
 }
 
 // Toaster with dynamic positioning based on queue panel state
@@ -159,41 +233,10 @@ function ResponsiveToaster() {
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 60 * 1000, // 1 minute
-            gcTime: PERSIST_GC_TIME_MS,
-            refetchOnWindowFocus: false,
-          },
-        },
-      }),
-  );
-
   return (
     <JotaiProvider>
-      <PersistQueryClientProvider
-        client={queryClient}
-        persistOptions={{
-          persister: asyncStoragePersister,
-          maxAge: PERSIST_MAX_AGE_MS,
-          dehydrateOptions: {
-            shouldDehydrateQuery: (query) =>
-              query.state.status === "success" &&
-              shouldPersistQuery(query.queryKey),
-          },
-        }}
-        onSuccess={() => {
-          // After restoring cached data from IndexedDB, trigger a
-          // background refetch of all active queries so the cache gets
-          // updated for the next visit. The home page uses structuralSharing
-          // to freeze displayed content and prevent visual swaps.
-          queryClient.invalidateQueries();
-        }}
-      >
-        <QueryCacheResetOnAccountSwitch />
+      <AccountSwitchStateResetter />
+      <AccountScopedQueryProvider>
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
@@ -209,7 +252,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           </AccentColorProvider>
           <ResponsiveToaster />
         </ThemeProvider>
-      </PersistQueryClientProvider>
+      </AccountScopedQueryProvider>
     </JotaiProvider>
   );
 }

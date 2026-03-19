@@ -186,8 +186,6 @@ pub async fn get_album_list_logic(
             // back to albums. This avoids the fan-out from joining songs and
             // scrobbles directly which produces many duplicate album rows
             // before DISTINCT can eliminate them.
-            // Require at least 2 distinct songs played from the album to filter
-            // out albums that only appeared due to playlist/radio playback.
             sqlx::query_as(
                 "SELECT a.*, ar.name as artist_name 
                  FROM albums a 
@@ -200,7 +198,6 @@ pub async fn get_album_list_logic(
                      INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
                      WHERE sc.user_id = ? AND mf.enabled = 1 AND ula.user_id = ?
                      GROUP BY s.album_id
-                     HAVING COUNT(DISTINCT sc.song_id) >= 2
                      ORDER BY last_played DESC
                      LIMIT ? OFFSET ?
                  ) recent ON a.id = recent.album_id
@@ -377,7 +374,6 @@ pub async fn get_album_list_logic(
                      INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
                      WHERE sc.user_id = ? AND mf.enabled = 1 AND ula.user_id = ?
                      GROUP BY s.album_id
-                     HAVING COUNT(DISTINCT sc.song_id) >= 2
                  )",
             )
             .bind(user_id)
@@ -723,5 +719,329 @@ pub async fn get_forgotten_favorites_logic(
         songs: song_responses,
         total,
         seed: actual_seed,
+    })
+}
+
+// ============================================================================
+// Continue Listening
+// ============================================================================
+
+/// A single entry in the "continue listening" section.
+/// Can be an album, playlist, or smart playlist.
+#[derive(Debug, Serialize, Clone, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ContinueListeningEntry {
+    /// "album" | "playlist" | "smartPlaylist"
+    #[serde(rename = "type")]
+    pub entry_type: String,
+    /// ISO 8601 timestamp of the last scrobble from this source
+    pub last_played: String,
+    /// Present when entry_type = "album"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album: Option<AlbumResponse>,
+    /// Present when entry_type = "playlist" or "smartPlaylist"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub playlist: Option<ContinueListeningPlaylist>,
+}
+
+/// Minimal playlist info for continue listening entries.
+#[derive(Debug, Serialize, Clone, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ContinueListeningPlaylist {
+    pub id: String,
+    pub name: String,
+    /// "playlist" or "smartPlaylist"
+    pub playlist_type: String,
+    #[ts(type = "number")]
+    pub song_count: i64,
+    #[ts(type = "number")]
+    pub duration: i64,
+    pub cover_art: Option<String>,
+}
+
+pub struct ContinueListeningResult {
+    pub entries: Vec<ContinueListeningEntry>,
+    pub total: i64,
+}
+
+/// Get the "continue listening" list: recent playback sources grouped by
+/// the actual source (album, playlist, smart playlist).
+///
+/// Scrobbles with `queue_source_type` in ("playlist", "smartPlaylist") that
+/// have a valid `queue_source_id` are grouped by that playlist. Everything
+/// else is grouped by the song's album.
+pub async fn get_continue_listening_logic(
+    pool: &SqlitePool,
+    user_id: i64,
+    size: i64,
+    offset: i64,
+    inline_image_size: Option<ThumbnailSize>,
+) -> crate::error::Result<ContinueListeningResult> {
+    let size = size.min(500);
+
+    // Step 1: Get the most recent unique sources from scrobbles.
+    // Playlist/smartPlaylist sources with a source_id are grouped by playlist.
+    // Everything else is grouped by the song's album_id.
+    let sources: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT source_type, source_id, last_played FROM (
+             SELECT
+                 CASE
+                     WHEN sc.queue_source_type IN ('playlist', 'smartPlaylist')
+                          AND sc.queue_source_id IS NOT NULL
+                         THEN sc.queue_source_type
+                     ELSE 'album'
+                 END as source_type,
+                 CASE
+                     WHEN sc.queue_source_type IN ('playlist', 'smartPlaylist')
+                          AND sc.queue_source_id IS NOT NULL
+                         THEN sc.queue_source_id
+                     ELSE s.album_id
+                 END as source_id,
+                 MAX(sc.played_at) as last_played
+             FROM scrobbles sc
+             INNER JOIN songs s ON sc.song_id = s.id
+             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+             INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+             WHERE sc.user_id = ? AND mf.enabled = 1 AND ula.user_id = ?
+             GROUP BY source_type, source_id
+             ORDER BY last_played DESC
+         )
+         LIMIT ? OFFSET ?",
+    )
+    .bind(user_id)
+    .bind(user_id)
+    .bind(size)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    // Step 2: Count total unique sources
+    let total: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM (
+             SELECT 1
+             FROM scrobbles sc
+             INNER JOIN songs s ON sc.song_id = s.id
+             INNER JOIN music_folders mf ON s.music_folder_id = mf.id
+             INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
+             WHERE sc.user_id = ? AND mf.enabled = 1 AND ula.user_id = ?
+             GROUP BY
+                 CASE
+                     WHEN sc.queue_source_type IN ('playlist', 'smartPlaylist')
+                          AND sc.queue_source_id IS NOT NULL
+                         THEN sc.queue_source_type
+                     ELSE 'album'
+                 END,
+                 CASE
+                     WHEN sc.queue_source_type IN ('playlist', 'smartPlaylist')
+                          AND sc.queue_source_id IS NOT NULL
+                         THEN sc.queue_source_id
+                     ELSE s.album_id
+                 END
+         )",
+    )
+    .bind(user_id)
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+
+    if sources.is_empty() {
+        return Ok(ContinueListeningResult {
+            entries: Vec::new(),
+            total: total.0,
+        });
+    }
+
+    // Step 3: Collect IDs by type for batch fetching
+    let mut album_ids: Vec<String> = Vec::new();
+    let mut playlist_ids: Vec<String> = Vec::new();
+    let mut smart_playlist_ids: Vec<String> = Vec::new();
+
+    for (source_type, source_id, _) in &sources {
+        match source_type.as_str() {
+            "album" => album_ids.push(source_id.clone()),
+            "playlist" => playlist_ids.push(source_id.clone()),
+            "smartPlaylist" => smart_playlist_ids.push(source_id.clone()),
+            _ => {}
+        }
+    }
+
+    // Step 4: Batch-fetch album details
+    let album_map: std::collections::HashMap<String, AlbumResponse> = if !album_ids.is_empty() {
+        let placeholders: String = album_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let query = format!(
+            "SELECT a.*, ar.name as artist_name
+             FROM albums a
+             INNER JOIN artists ar ON a.artist_id = ar.id
+             WHERE a.id IN ({})",
+            placeholders
+        );
+        let mut q = sqlx::query_as::<_, crate::db::models::Album>(&query);
+        for id in &album_ids {
+            q = q.bind(id);
+        }
+        let albums = q.fetch_all(pool).await?;
+
+        let ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
+        let starred_map = get_starred_map(pool, user_id, ItemType::Album, &ids).await?;
+        let ratings_map = get_ratings_map(pool, user_id, ItemType::Album, &ids).await?;
+        let thumbnails = if let Some(size) = inline_image_size {
+            get_album_thumbnails_base64(pool, &ids, size).await
+        } else {
+            std::collections::HashMap::new()
+        };
+
+        albums
+            .into_iter()
+            .map(|album| {
+                let id = album.id.clone();
+                let response = AlbumResponse {
+                    id: album.id.clone(),
+                    name: album.name,
+                    artist: album.artist_name,
+                    artist_id: album.artist_id,
+                    cover_art: Some(album.id.clone()),
+                    cover_art_data: thumbnails.get(&album.id).cloned(),
+                    song_count: album.song_count,
+                    duration: album.duration,
+                    year: album.year,
+                    genre: album.genre,
+                    created: format_datetime_iso_ms(album.created_at),
+                    starred: starred_map.get(&album.id).cloned(),
+                    user_rating: ratings_map.get(&album.id).copied(),
+                    played: None, // will be set from source data
+                };
+                (id, response)
+            })
+            .collect()
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    // Step 5: Batch-fetch regular playlist details
+    let playlist_map: std::collections::HashMap<String, ContinueListeningPlaylist> =
+        if !playlist_ids.is_empty() {
+            let placeholders: String = playlist_ids
+                .iter()
+                .map(|_| "?")
+                .collect::<Vec<_>>()
+                .join(",");
+            let query = format!(
+                "SELECT p.id, p.name, p.song_count,
+                        COALESCE((
+                            SELECT SUM(s.duration)
+                            FROM playlist_songs ps
+                            JOIN songs s ON s.id = ps.song_id
+                            WHERE ps.playlist_id = p.id
+                        ), 0) as duration
+                 FROM playlists p
+                 WHERE p.id IN ({})",
+                placeholders
+            );
+            let mut q = sqlx::query_as::<_, (String, String, i64, i64)>(&query);
+            for id in &playlist_ids {
+                q = q.bind(id);
+            }
+            q.fetch_all(pool)
+                .await?
+                .into_iter()
+                .map(|(id, name, song_count, duration)| {
+                    (
+                        id.clone(),
+                        ContinueListeningPlaylist {
+                            cover_art: Some(id.clone()),
+                            id,
+                            name,
+                            playlist_type: "playlist".to_string(),
+                            song_count,
+                            duration,
+                        },
+                    )
+                })
+                .collect()
+        } else {
+            std::collections::HashMap::new()
+        };
+
+    // Step 6: Batch-fetch smart playlist details
+    let smart_playlist_map: std::collections::HashMap<String, ContinueListeningPlaylist> =
+        if !smart_playlist_ids.is_empty() {
+            let placeholders: String = smart_playlist_ids
+                .iter()
+                .map(|_| "?")
+                .collect::<Vec<_>>()
+                .join(",");
+            let query = format!(
+                "SELECT sp.id, sp.name FROM smart_playlists sp WHERE sp.id IN ({})",
+                placeholders
+            );
+            let mut q = sqlx::query_as::<_, (String, String)>(&query);
+            for id in &smart_playlist_ids {
+                q = q.bind(id);
+            }
+            q.fetch_all(pool)
+                .await?
+                .into_iter()
+                .map(|(id, name)| {
+                    let cover_art = Some(format!("sp-{}", id));
+                    (
+                        id.clone(),
+                        ContinueListeningPlaylist {
+                            id,
+                            name,
+                            playlist_type: "smartPlaylist".to_string(),
+                            song_count: 0,
+                            duration: 0,
+                            cover_art,
+                        },
+                    )
+                })
+                .collect()
+        } else {
+            std::collections::HashMap::new()
+        };
+
+    // Step 7: Assemble entries in source order (already sorted by last_played DESC)
+    let entries: Vec<ContinueListeningEntry> = sources
+        .into_iter()
+        .filter_map(
+            |(source_type, source_id, last_played)| match source_type.as_str() {
+                "album" => {
+                    let mut album = album_map.get(&source_id).cloned()?;
+                    album.played = Some(last_played.clone());
+                    Some(ContinueListeningEntry {
+                        entry_type: "album".to_string(),
+                        last_played,
+                        album: Some(album),
+                        playlist: None,
+                    })
+                }
+                "playlist" => {
+                    let playlist = playlist_map.get(&source_id).cloned()?;
+                    Some(ContinueListeningEntry {
+                        entry_type: "playlist".to_string(),
+                        last_played,
+                        album: None,
+                        playlist: Some(playlist),
+                    })
+                }
+                "smartPlaylist" => {
+                    let playlist = smart_playlist_map.get(&source_id).cloned()?;
+                    Some(ContinueListeningEntry {
+                        entry_type: "smartPlaylist".to_string(),
+                        last_played,
+                        album: None,
+                        playlist: Some(playlist),
+                    })
+                }
+                _ => None,
+            },
+        )
+        .collect();
+
+    Ok(ContinueListeningResult {
+        entries,
+        total: total.0,
     })
 }

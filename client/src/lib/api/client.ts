@@ -124,6 +124,8 @@ import type { SetupStatusResponse } from "./generated/SetupStatusResponse";
 import type { FerrotuneAlbumListResponse } from "./generated/FerrotuneAlbumListResponse";
 import type { FerrotuneSearchResponse } from "./generated/FerrotuneSearchResponse";
 import type { FerrotunePlayHistoryResponse } from "./generated/FerrotunePlayHistoryResponse";
+import type { HomePageResponse } from "./generated/HomePageResponse";
+import type { HomeContinueListeningSection } from "./generated/HomeContinueListeningSection";
 import { PlaylistInFolder } from "./generated";
 
 // Ping response is empty
@@ -390,6 +392,29 @@ export class FerrotuneClient {
     return this.request<ForgottenFavoritesResponse>(endpoint);
   }
 
+  async getHomePage(
+    params: {
+      size?: number;
+      inlineImages?: "small" | "medium";
+      discoverSeed?: number;
+      forgottenFavSeed?: number;
+    } = {},
+  ): Promise<HomePageResponse> {
+    const endpoint = buildEndpoint("/ferrotune/home", params);
+    return this.request<HomePageResponse>(endpoint);
+  }
+
+  async getContinueListening(
+    params: {
+      size?: number;
+      offset?: number;
+      inlineImages?: "small" | "medium";
+    } = {},
+  ): Promise<HomeContinueListeningSection> {
+    const endpoint = buildEndpoint("/ferrotune/continue-listening", params);
+    return this.request<HomeContinueListeningSection>(endpoint);
+  }
+
   // Search endpoint
   // SearchParams requires 'query', other fields are optional
   async search3(
@@ -475,10 +500,22 @@ export class FerrotuneClient {
     return this.request<StarredResponse>("/ferrotune/starred");
   }
 
-  async scrobble(id: string, time?: number, submission = true): Promise<void> {
+  async scrobble(
+    id: string,
+    time?: number,
+    submission = true,
+    queueSourceType?: string,
+    queueSourceId?: string,
+  ): Promise<void> {
     await this.request("/ferrotune/scrobbles", {
       method: "POST",
-      body: JSON.stringify({ id, time, submission }),
+      body: JSON.stringify({
+        id,
+        time,
+        submission,
+        queueSourceType,
+        queueSourceId,
+      }),
     });
   }
 
