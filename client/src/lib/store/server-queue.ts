@@ -24,6 +24,7 @@ import {
   nativeSetRepeatMode,
   nativeInvalidateQueue,
 } from "@/lib/audio/native-engine";
+import { effectiveSessionIdAtom } from "./session";
 
 // Module-level flag: true when Kotlin is managing playback autonomously
 let _nativeAutonomousMode = false;
@@ -223,6 +224,8 @@ export const startQueueAtom = atom(
       const shuffle =
         params.shuffle ?? get(serverQueueStateAtom)?.isShuffled ?? false;
 
+      const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
       const response = await client.startQueue({
         sourceType: params.sourceType,
         sourceId: params.sourceId,
@@ -234,6 +237,7 @@ export const startQueueAtom = atom(
         sort: params.sort,
         songIds: params.songIds,
         inlineImages: "small", // Always request small thumbnails for queue
+        sessionId,
       });
 
       set(serverQueueStateAtom, {
@@ -264,8 +268,10 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
   // Mark as restoring so audio doesn't auto-play (browser blocks autoplay without interaction)
   set(isRestoringQueueAtom, true);
 
+  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
   try {
-    const response = await client.getQueueCurrentWindow(20, "small");
+    const response = await client.getQueueCurrentWindow(20, "small", sessionId);
 
     // Empty queue (totalCount 0) means no queue exists yet
     if (response.totalCount === 0) {
@@ -304,11 +310,14 @@ export const fetchQueueRangeAtom = atom(
     const client = getClient();
     if (!client) return null;
 
+    const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
     try {
       const response = await client.getServerQueue({
         ...params,
         inlineImages: "small",
         signal: params.signal,
+        sessionId,
       });
 
       // Merge the new window into existing state
@@ -378,6 +387,8 @@ export const goToNextAtom = atom(null, async (get, set) => {
   if (hasNativeAudio()) nativeRequestPlayback();
 
   try {
+    const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
     // When wrapping around with shuffle + repeat-all, request a reshuffle
     // so the next cycle has a fresh random order
     const shouldReshuffle = isWrapping && state.isShuffled;
@@ -385,6 +396,7 @@ export const goToNextAtom = atom(null, async (get, set) => {
       nextIndex,
       0,
       shouldReshuffle,
+      sessionId,
     );
 
     const newIndex = response.newIndex ?? nextIndex;
@@ -403,7 +415,7 @@ export const goToNextAtom = atom(null, async (get, set) => {
       shouldReshuffle ||
       !window?.songs.some((s) => s.position === newIndex)
     ) {
-      const queueResponse = await client.getQueueCurrentWindow(20, "small");
+      const queueResponse = await client.getQueueCurrentWindow(20, "small", sessionId);
       set(queueWindowAtom, queueResponse.window);
     }
   } catch (error) {
@@ -445,8 +457,10 @@ export const goToPreviousAtom = atom(null, async (get, set) => {
   pendingUserPlayback.value = true;
   if (hasNativeAudio()) nativeRequestPlayback();
 
+  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
   try {
-    await client.updateServerQueuePosition(prevIndex, 0);
+    await client.updateServerQueuePosition(prevIndex, 0, false, sessionId);
 
     set(serverQueueStateAtom, {
       ...state,
@@ -459,7 +473,7 @@ export const goToPreviousAtom = atom(null, async (get, set) => {
     if (window) {
       const needsFetch = !window.songs.some((s) => s.position === prevIndex);
       if (needsFetch) {
-        const response = await client.getQueueCurrentWindow(20, "small");
+        const response = await client.getQueueCurrentWindow(20, "small", sessionId);
         set(queueWindowAtom, response.window);
       }
     }
@@ -478,11 +492,13 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
   const client = getClient();
   if (!client) return;
 
+  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
   // In autonomous mode, update server position then tell Kotlin to reload
   if (nativeAutonomousMode.value) {
     set(isQueueOperationPendingAtom, true);
     try {
-      await client.updateServerQueuePosition(index, 0);
+      await client.updateServerQueuePosition(index, 0, false, sessionId);
       set(serverQueueStateAtom, {
         ...state,
         currentIndex: index,
@@ -503,13 +519,13 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
   if (hasNativeAudio()) nativeRequestPlayback();
 
   try {
-    await client.updateServerQueuePosition(index, 0);
+    await client.updateServerQueuePosition(index, 0, false, sessionId);
 
     set(serverQueueStateAtom, { ...state, currentIndex: index, positionMs: 0 });
     set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
 
     // Fetch new window centered on the new position
-    const response = await client.getQueueCurrentWindow(20, "small");
+    const response = await client.getQueueCurrentWindow(20, "small", sessionId);
     set(queueWindowAtom, response.window);
   } catch (error) {
     console.error("Failed to play at index:", error);
@@ -524,6 +540,7 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
   if (!state) return;
 
   const newShuffleState = !state.isShuffled;
+  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
 
   // In autonomous mode, Kotlin handles server API + ExoPlayer queue update.
   // nativeToggleShuffle only resolves after Kotlin finishes the server toggle
@@ -538,7 +555,7 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
       // which would cause the audio effect to restart playback.
       const client = getClient();
       if (client) {
-        const queueResponse = await client.getQueueCurrentWindow(20, "small");
+        const queueResponse = await client.getQueueCurrentWindow(20, "small", sessionId);
         set(serverQueueStateAtom, {
           ...state,
           isShuffled: queueResponse.isShuffled,
@@ -562,10 +579,10 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
   set(isQueueOperationPendingAtom, true);
 
   try {
-    const response = await client.toggleServerShuffle(newShuffleState);
+    const response = await client.toggleServerShuffle(newShuffleState, sessionId);
 
     // Fetch new window since order has changed
-    const queueResponse = await client.getQueueCurrentWindow(20, "small");
+    const queueResponse = await client.getQueueCurrentWindow(20, "small", sessionId);
 
     // Update state and window atomically to avoid a transient mismatch
     // where currentIndex points to a different song in the old window
@@ -603,8 +620,10 @@ export const setRepeatModeAtom = atom(
     const client = getClient();
     if (!client) return;
 
+    const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
     try {
-      await client.updateServerRepeatMode(mode);
+      await client.updateServerRepeatMode(mode, sessionId);
       set(serverQueueStateAtom, { ...state, repeatMode: mode });
     } catch (error) {
       console.error("Failed to set repeat mode:", error);
@@ -631,6 +650,7 @@ export const addToQueueAtom = atom(
 
     const state = get(serverQueueStateAtom);
     const hasQueue = state !== null && state.totalCount > 0;
+    const sessionId = get(effectiveSessionIdAtom) ?? undefined;
 
     set(isQueueOperationPendingAtom, true);
 
@@ -643,6 +663,7 @@ export const addToQueueAtom = atom(
           songIds: params.songIds,
           startIndex: 0,
           inlineImages: "small",
+          sessionId,
         });
 
         set(serverQueueStateAtom, {
@@ -664,6 +685,7 @@ export const addToQueueAtom = atom(
         position: params.position,
         sourceType: params.sourceType,
         sourceId: params.sourceId,
+        sessionId,
       });
 
       // Update total count
@@ -679,7 +701,7 @@ export const addToQueueAtom = atom(
       }
 
       // Refresh window
-      const queueResponse = await client.getQueueCurrentWindow(20, "small");
+      const queueResponse = await client.getQueueCurrentWindow(20, "small", sessionId);
       set(queueWindowAtom, queueResponse.window);
 
       // Tell Kotlin to refetch its ExoPlayer playlist
@@ -704,10 +726,12 @@ export const removeFromQueueAtom = atom(
     const client = getClient();
     if (!client) return;
 
+    const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
     set(isQueueOperationPendingAtom, true);
 
     try {
-      const response = await client.removeFromServerQueue(position);
+      const response = await client.removeFromServerQueue(position, sessionId);
 
       // Update state
       const state = get(serverQueueStateAtom);
@@ -720,7 +744,7 @@ export const removeFromQueueAtom = atom(
       }
 
       // Refresh window
-      const queueResponse = await client.getQueueCurrentWindow(20, "small");
+      const queueResponse = await client.getQueueCurrentWindow(20, "small", sessionId);
       set(queueWindowAtom, queueResponse.window);
 
       // Tell Kotlin to refetch its ExoPlayer playlist
@@ -744,6 +768,8 @@ export const moveInQueueAtom = atom(
 
     const { fromPosition, toPosition } = params;
     if (fromPosition === toPosition) return;
+
+    const sessionId = get(effectiveSessionIdAtom) ?? undefined;
 
     // Optimistic update: reorder the local window immediately
     const currentWindow = get(queueWindowAtom);
@@ -808,7 +834,7 @@ export const moveInQueueAtom = atom(
     set(isQueueOperationPendingAtom, true);
 
     try {
-      const response = await client.moveInServerQueue(fromPosition, toPosition);
+      const response = await client.moveInServerQueue(fromPosition, toPosition, sessionId);
 
       // Update current index from server response (authoritative)
       if (
@@ -823,7 +849,7 @@ export const moveInQueueAtom = atom(
       }
 
       // Refresh window to get authoritative state
-      const queueResponse = await client.getQueueCurrentWindow(20, "small");
+      const queueResponse = await client.getQueueCurrentWindow(20, "small", sessionId);
       set(queueWindowAtom, queueResponse.window);
 
       // Tell Kotlin to refetch its ExoPlayer playlist
@@ -834,7 +860,7 @@ export const moveInQueueAtom = atom(
       console.error("Failed to move in queue:", error);
       // On error, refetch to restore correct state
       try {
-        const queueResponse = await client.getQueueCurrentWindow(20, "small");
+        const queueResponse = await client.getQueueCurrentWindow(20, "small", sessionId);
         set(queueWindowAtom, queueResponse.window);
       } catch {
         // Ignore refetch errors
@@ -850,10 +876,12 @@ export const clearQueueAtom = atom(null, async (get, set) => {
   const client = getClient();
   if (!client) return;
 
+  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
   set(isQueueOperationPendingAtom, true);
 
   try {
-    await client.clearServerQueue();
+    await client.clearServerQueue(sessionId);
     set(serverQueueStateAtom, null);
     set(queueWindowAtom, null);
   } catch (error) {
@@ -864,12 +892,14 @@ export const clearQueueAtom = atom(null, async (get, set) => {
 });
 
 // Stop playback and clear queue
-export const stopPlaybackAtom = atom(null, async (_get, set) => {
+export const stopPlaybackAtom = atom(null, async (get, set) => {
   const client = getClient();
   if (!client) return;
 
+  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
   try {
-    await client.clearServerQueue();
+    await client.clearServerQueue(sessionId);
     set(serverQueueStateAtom, null);
     set(queueWindowAtom, null);
   } catch (error) {
@@ -883,6 +913,8 @@ export const previewSongAtom = atom(null, async (get, set, song: Song) => {
   const client = getClient();
   if (!client) return;
 
+  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
   set(isQueueOperationPendingAtom, true);
   set(isRestoringQueueAtom, false);
 
@@ -893,6 +925,7 @@ export const previewSongAtom = atom(null, async (get, set, song: Song) => {
       songIds: [song.id],
       startIndex: 0,
       inlineImages: "small",
+      sessionId,
     });
 
     set(serverQueueStateAtom, {

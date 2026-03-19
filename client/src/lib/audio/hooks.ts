@@ -78,6 +78,10 @@ import {
   type NativeStreamOptions,
 } from "@/lib/audio/native-engine";
 import { nativeAutonomousMode } from "@/lib/store/server-queue";
+import {
+  isRemoteControllingAtom,
+  controllingSessionIdAtom,
+} from "@/lib/store/session";
 
 /** Build NativeStreamOptions from the current transcoding settings */
 function getNativeStreamOptions(state: {
@@ -502,6 +506,9 @@ export function useAudioEngineInit() {
   const goToNext = useSetAtom(goToNextAtom);
   const goToPrevious = useSetAtom(goToPreviousAtom);
   const fetchQueue = useSetAtom(fetchQueueAtom);
+
+  // Remote control awareness
+  const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
 
   // Track connection state for initial queue fetch
   const serverConnection = useAtomValue(serverConnectionAtom);
@@ -1716,6 +1723,9 @@ export function useAudioEngineInit() {
   // Load new track when current song changes (triggered by trackChangeSignal or currentSong)
   // Also reload when transcoding settings change
   useEffect(() => {
+    // Don't load audio when remote-controlling another session
+    if (isRemoteControlling) return;
+
     const audio = getActiveAudio();
     const client = getClient();
 
@@ -2247,6 +2257,7 @@ export function useAudioEngineInit() {
     currentSong,
     trackChangeSignal,
     isRestoringQueue,
+    isRemoteControlling,
     transcodingEnabled,
     transcodingBitrate,
     setPlaybackState,
@@ -2390,6 +2401,10 @@ export function useAudioEngine() {
   const setIsRestoring = useSetAtom(isRestoringQueueAtom);
   const setTrackChangeSignal = useSetAtom(trackChangeSignalAtom);
 
+  // Remote control awareness
+  const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
+  const controllingSessionId = useAtomValue(controllingSessionIdAtom);
+
   // Transcoding settings (needed for time-offset seeking)
   const transcodingEnabled = useAtomValue(transcodingEnabledAtom);
   const transcodingBitrate = useAtomValue(transcodingBitrateAtom);
@@ -2436,7 +2451,23 @@ export function useAudioEngine() {
     }
   };
 
+  // Helper: send a remote command to the controlling session
+  const sendRemoteCommand = async (action: string, positionMs?: number) => {
+    if (!controllingSessionId) return;
+    const client = getClient();
+    if (!client) return;
+    try {
+      await client.sendSessionCommand(controllingSessionId, action, positionMs);
+    } catch (error) {
+      console.error(`Failed to send remote command '${action}':`, error);
+    }
+  };
+
   const play = async () => {
+    if (isRemoteControlling) {
+      await sendRemoteCommand("play");
+      return;
+    }
     setIsRestoring(false);
     if (usingNativeAudio) {
       nativePlay().catch(console.error);
@@ -2450,6 +2481,10 @@ export function useAudioEngine() {
   };
 
   const pause = () => {
+    if (isRemoteControlling) {
+      sendRemoteCommand("pause");
+      return;
+    }
     if (usingNativeAudio) {
       nativePause().catch(console.error);
     } else {
@@ -2458,6 +2493,13 @@ export function useAudioEngine() {
   };
 
   const togglePlayPause = () => {
+    if (isRemoteControlling) {
+      // For remote control, toggle based on the remote session's state
+      // Since we don't have the remote state locally, send a toggle that the
+      // remote session can handle
+      sendRemoteCommand("play");
+      return;
+    }
     if (!usingNativeAudio && !getActiveAudio()) return;
 
     if (playbackState === "playing") {
@@ -2530,6 +2572,10 @@ export function useAudioEngine() {
 
   // General seek function that chooses the right strategy
   const seek = (time: number) => {
+    if (isRemoteControlling) {
+      sendRemoteCommand("seek", Math.round(time * 1000));
+      return;
+    }
     if (usingNativeAudio) {
       nativeSeek(time).catch(console.error);
       setCurrentTime(time);
@@ -2650,6 +2696,10 @@ export function useAudioEngine() {
   };
 
   const next = () => {
+    if (isRemoteControlling) {
+      sendRemoteCommand("next");
+      return;
+    }
     logListeningTimeAndReset(true);
     setIsRestoring(false);
     // Invalidate any pre-buffer since user is explicitly skipping
@@ -2666,6 +2716,10 @@ export function useAudioEngine() {
   };
 
   const previous = () => {
+    if (isRemoteControlling) {
+      sendRemoteCommand("previous");
+      return;
+    }
     setIsRestoring(false);
 
     if (usingNativeAudio) {

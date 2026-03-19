@@ -209,6 +209,7 @@ pub async fn initialize_app_state(config: Config) -> Result<Arc<api::AppState>> 
         config: config.clone(),
         scan_state: scan_state.clone(),
         shuffle_cache: Default::default(),
+        session_manager: Arc::new(api::SessionManager::new()),
     });
 
     // Start the file watcher for directories with watch_enabled=true

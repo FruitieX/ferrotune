@@ -1314,13 +1314,144 @@ pub async fn update_song_path_and_format(
 }
 
 // ============================================================================
+// Playback Session queries
+// ============================================================================
+
+/// Create a new playback session for a user
+pub async fn create_playback_session(
+    pool: &SqlitePool,
+    user_id: i64,
+    name: &str,
+    client_name: &str,
+) -> sqlx::Result<String> {
+    let id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO playback_sessions (id, user_id, name, client_name, is_playing, last_heartbeat, created_at)
+         VALUES (?, ?, ?, ?, 0, datetime('now'), datetime('now'))",
+    )
+    .bind(&id)
+    .bind(user_id)
+    .bind(name)
+    .bind(client_name)
+    .execute(pool)
+    .await?;
+    Ok(id)
+}
+
+/// List active sessions for a user (heartbeat within the last 2 minutes)
+pub async fn get_active_sessions(
+    pool: &SqlitePool,
+    user_id: i64,
+) -> sqlx::Result<Vec<PlaybackSession>> {
+    sqlx::query_as::<_, PlaybackSession>(
+        "SELECT * FROM playback_sessions
+         WHERE user_id = ? AND last_heartbeat >= datetime('now', '-2 minutes')
+         ORDER BY last_heartbeat DESC",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// Get a specific session by id (only if it belongs to the given user)
+pub async fn get_session(
+    pool: &SqlitePool,
+    session_id: &str,
+    user_id: i64,
+) -> sqlx::Result<Option<PlaybackSession>> {
+    sqlx::query_as::<_, PlaybackSession>(
+        "SELECT * FROM playback_sessions WHERE id = ? AND user_id = ?",
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Update session heartbeat and playback state
+pub async fn update_session_heartbeat(
+    pool: &SqlitePool,
+    session_id: &str,
+    is_playing: bool,
+    current_song_id: Option<&str>,
+    current_song_title: Option<&str>,
+    current_song_artist: Option<&str>,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query(
+        "UPDATE playback_sessions
+         SET last_heartbeat = datetime('now'),
+             is_playing = ?,
+             current_song_id = ?,
+             current_song_title = ?,
+             current_song_artist = ?
+         WHERE id = ?",
+    )
+    .bind(is_playing)
+    .bind(current_song_id)
+    .bind(current_song_title)
+    .bind(current_song_artist)
+    .bind(session_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Delete a playback session (cascade deletes its queue via FK)
+pub async fn delete_session(pool: &SqlitePool, session_id: &str) -> sqlx::Result<bool> {
+    let result = sqlx::query("DELETE FROM playback_sessions WHERE id = ?")
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Count active sessions for a user (for auto-naming: "Web N")
+pub async fn count_active_sessions(pool: &SqlitePool, user_id: i64) -> sqlx::Result<i64> {
+    let (count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM playback_sessions
+         WHERE user_id = ? AND last_heartbeat >= datetime('now', '-2 minutes')",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(count)
+}
+
+/// Get the most recently active session for a user (for Subsonic backward compat)
+pub async fn get_most_recent_session(
+    pool: &SqlitePool,
+    user_id: i64,
+) -> sqlx::Result<Option<PlaybackSession>> {
+    sqlx::query_as::<_, PlaybackSession>(
+        "SELECT * FROM playback_sessions
+         WHERE user_id = ?
+         ORDER BY last_heartbeat DESC
+         LIMIT 1",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+}
+
+// ============================================================================
 // Play Queue queries (server-side queue management)
 // ============================================================================
 
-/// Get the current play queue for a user
+/// Get the current play queue for a user (legacy — used by Subsonic compat)
 pub async fn get_play_queue(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Option<PlayQueue>> {
     sqlx::query_as::<_, PlayQueue>("SELECT * FROM play_queues WHERE user_id = ?")
         .bind(user_id)
+        .fetch_optional(pool)
+        .await
+}
+
+/// Get the play queue for a session
+pub async fn get_play_queue_by_session(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> sqlx::Result<Option<PlayQueue>> {
+    sqlx::query_as::<_, PlayQueue>("SELECT * FROM play_queues WHERE session_id = ?")
+        .bind(session_id)
         .fetch_optional(pool)
         .await
 }
@@ -1924,6 +2055,543 @@ pub async fn clear_queue(pool: &SqlitePool, user_id: i64) -> sqlx::Result<()> {
 
     sqlx::query("DELETE FROM play_queues WHERE user_id = ?")
         .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+// ============================================================================
+// Session-aware Play Queue queries
+// ============================================================================
+
+/// Get queue length by session
+pub async fn get_queue_length_by_session(pool: &SqlitePool, session_id: &str) -> sqlx::Result<i64> {
+    let result: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM play_queue_entries WHERE session_id = ?")
+            .bind(session_id)
+            .fetch_one(pool)
+            .await?;
+    Ok(result.0)
+}
+
+/// Get queue entries with full song data by session
+pub async fn get_queue_entries_with_songs_by_session(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> sqlx::Result<Vec<QueueEntryWithSong>> {
+    sqlx::query_as::<_, QueueEntryWithSong>(
+        "SELECT pqe.entry_id, pqe.source_entry_id, pqe.queue_position, s.*, ar.name as artist_name, al.name as album_name
+         FROM play_queue_entries pqe
+         INNER JOIN songs s ON pqe.song_id = s.id
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         WHERE pqe.session_id = ?
+         ORDER BY pqe.queue_position ASC",
+    )
+    .bind(session_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// Get queue entries at specific positions by session
+pub async fn get_queue_entries_at_positions_by_session(
+    pool: &SqlitePool,
+    session_id: &str,
+    positions: &[usize],
+) -> sqlx::Result<Vec<QueueEntryWithSong>> {
+    if positions.is_empty() {
+        return Ok(vec![]);
+    }
+    let placeholders: String = positions.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT pqe.entry_id, pqe.source_entry_id, pqe.queue_position, s.*, ar.name as artist_name, al.name as album_name
+         FROM play_queue_entries pqe
+         INNER JOIN songs s ON pqe.song_id = s.id
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         WHERE pqe.session_id = ? AND pqe.queue_position IN ({placeholders})
+         ORDER BY pqe.queue_position ASC"
+    );
+    let mut query = sqlx::query_as::<_, QueueEntryWithSong>(&sql).bind(session_id);
+    for &pos in positions {
+        query = query.bind(pos as i64);
+    }
+    query.fetch_all(pool).await
+}
+
+/// Get queue entries in a contiguous range by session
+pub async fn get_queue_entries_range_by_session(
+    pool: &SqlitePool,
+    session_id: &str,
+    offset: usize,
+    limit: usize,
+) -> sqlx::Result<Vec<QueueEntryWithSong>> {
+    sqlx::query_as::<_, QueueEntryWithSong>(
+        "SELECT pqe.entry_id, pqe.source_entry_id, pqe.queue_position, s.*, ar.name as artist_name, al.name as album_name
+         FROM play_queue_entries pqe
+         INNER JOIN songs s ON pqe.song_id = s.id
+         INNER JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         WHERE pqe.session_id = ? AND pqe.queue_position >= ? AND pqe.queue_position < ?
+         ORDER BY pqe.queue_position ASC",
+    )
+    .bind(session_id)
+    .bind(offset as i64)
+    .bind((offset + limit) as i64)
+    .fetch_all(pool)
+    .await
+}
+
+/// Get all song IDs in queue order by session
+pub async fn get_queue_song_ids_by_session(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> sqlx::Result<Vec<String>> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT song_id FROM play_queue_entries WHERE session_id = ? ORDER BY queue_position",
+    )
+    .bind(session_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
+}
+
+/// Create or replace the play queue for a session
+#[allow(clippy::too_many_arguments)]
+pub async fn create_queue_for_session(
+    pool: &SqlitePool,
+    user_id: i64,
+    session_id: &str,
+    source_type: &str,
+    source_id: Option<&str>,
+    source_name: Option<&str>,
+    song_ids: &[String],
+    source_entry_ids: Option<&[String]>,
+    current_index: i64,
+    is_shuffled: bool,
+    shuffle_seed: Option<i64>,
+    shuffle_indices_json: Option<&str>,
+    repeat_mode: &str,
+    filters_json: Option<&str>,
+    sort_json: Option<&str>,
+    changed_by: &str,
+) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
+
+    let instance_id = Uuid::new_v4().to_string();
+
+    // Delete existing queue entries for this session
+    sqlx::query("DELETE FROM play_queue_entries WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // Also delete old queue row for this session (if any)
+    sqlx::query("DELETE FROM play_queues WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // Insert new queue entries in batches
+    const BATCH_SIZE: usize = 199;
+    for chunk_start in (0..song_ids.len()).step_by(BATCH_SIZE) {
+        let chunk_end = (chunk_start + BATCH_SIZE).min(song_ids.len());
+        let chunk = &song_ids[chunk_start..chunk_end];
+        let row_count = chunk.len();
+
+        let mut sql = String::from(
+            "INSERT INTO play_queue_entries (user_id, song_id, queue_position, entry_id, source_entry_id, session_id) VALUES ",
+        );
+        for i in 0..row_count {
+            if i > 0 {
+                sql.push_str(", ");
+            }
+            sql.push_str("(?, ?, ?, ?, ?, ?)");
+        }
+
+        let mut query = sqlx::query(&sql);
+        for (i, song_id) in chunk.iter().enumerate() {
+            let position = chunk_start + i;
+            let entry_id = Uuid::new_v4().to_string();
+            let source_entry_id = source_entry_ids.and_then(|ids| ids.get(position)).cloned();
+            query = query
+                .bind(user_id)
+                .bind(song_id)
+                .bind(position as i64)
+                .bind(entry_id)
+                .bind(source_entry_id)
+                .bind(session_id);
+        }
+        query.execute(&mut *tx).await?;
+    }
+
+    // Insert queue metadata (session_id is unique per queue now)
+    sqlx::query(
+        "INSERT INTO play_queues (user_id, source_type, source_id, source_name, current_index,
+         position_ms, is_shuffled, shuffle_seed, shuffle_indices_json, repeat_mode,
+         filters_json, sort_json, created_at, updated_at, changed_by, total_count, is_lazy, song_ids_json, instance_id, session_id)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, 0, NULL, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(source_type)
+    .bind(source_id)
+    .bind(source_name)
+    .bind(current_index)
+    .bind(is_shuffled)
+    .bind(shuffle_seed)
+    .bind(shuffle_indices_json)
+    .bind(repeat_mode)
+    .bind(filters_json)
+    .bind(sort_json)
+    .bind(changed_by)
+    .bind(song_ids.len() as i64)
+    .bind(&instance_id)
+    .bind(session_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Create a lazy queue for a session
+#[allow(clippy::too_many_arguments)]
+pub async fn create_lazy_queue_for_session(
+    pool: &SqlitePool,
+    user_id: i64,
+    session_id: &str,
+    source_type: &str,
+    source_id: Option<&str>,
+    source_name: Option<&str>,
+    total_count: i64,
+    current_index: i64,
+    is_shuffled: bool,
+    shuffle_seed: Option<i64>,
+    shuffle_indices_json: Option<&str>,
+    repeat_mode: &str,
+    filters_json: Option<&str>,
+    sort_json: Option<&str>,
+    song_ids_json: Option<&str>,
+    changed_by: &str,
+) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
+
+    let instance_id = Uuid::new_v4().to_string();
+
+    // Delete existing queue entries (lazy queues don't use entries table)
+    sqlx::query("DELETE FROM play_queue_entries WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // Delete old queue row for this session
+    sqlx::query("DELETE FROM play_queues WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // Insert queue metadata with is_lazy = true
+    sqlx::query(
+        "INSERT INTO play_queues (user_id, source_type, source_id, source_name, current_index,
+         position_ms, is_shuffled, shuffle_seed, shuffle_indices_json, repeat_mode,
+         filters_json, sort_json, created_at, updated_at, changed_by, total_count, is_lazy, song_ids_json, instance_id, session_id)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, 1, ?, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(source_type)
+    .bind(source_id)
+    .bind(source_name)
+    .bind(current_index)
+    .bind(is_shuffled)
+    .bind(shuffle_seed)
+    .bind(shuffle_indices_json)
+    .bind(repeat_mode)
+    .bind(filters_json)
+    .bind(sort_json)
+    .bind(changed_by)
+    .bind(total_count)
+    .bind(song_ids_json)
+    .bind(&instance_id)
+    .bind(session_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Update queue position by session
+pub async fn update_queue_position_by_session(
+    pool: &SqlitePool,
+    session_id: &str,
+    current_index: i64,
+    position_ms: i64,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query(
+        "UPDATE play_queues SET current_index = ?, position_ms = ?, updated_at = datetime('now')
+         WHERE session_id = ?",
+    )
+    .bind(current_index)
+    .bind(position_ms)
+    .bind(session_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Update queue shuffle state by session
+pub async fn update_queue_shuffle_by_session(
+    pool: &SqlitePool,
+    session_id: &str,
+    is_shuffled: bool,
+    shuffle_seed: Option<i64>,
+    shuffle_indices_json: Option<&str>,
+    current_index: i64,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query(
+        "UPDATE play_queues SET
+         is_shuffled = ?, shuffle_seed = ?, shuffle_indices_json = ?,
+         current_index = ?, updated_at = datetime('now')
+         WHERE session_id = ?",
+    )
+    .bind(is_shuffled)
+    .bind(shuffle_seed)
+    .bind(shuffle_indices_json)
+    .bind(current_index)
+    .bind(session_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Update queue repeat mode by session
+pub async fn update_queue_repeat_mode_by_session(
+    pool: &SqlitePool,
+    session_id: &str,
+    repeat_mode: &str,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query(
+        "UPDATE play_queues SET repeat_mode = ?, updated_at = datetime('now') WHERE session_id = ?",
+    )
+    .bind(repeat_mode)
+    .bind(session_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Add songs to queue by session
+pub async fn add_to_queue_by_session(
+    pool: &SqlitePool,
+    user_id: i64,
+    session_id: &str,
+    song_ids: &[String],
+    position: i64,
+) -> sqlx::Result<i64> {
+    if song_ids.is_empty() {
+        return get_queue_length_by_session(pool, session_id).await;
+    }
+
+    let mut tx = pool.begin().await?;
+
+    let (queue_len,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM play_queue_entries WHERE session_id = ?")
+            .bind(session_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+    let insert_pos = if position < 0 { queue_len } else { position };
+
+    if insert_pos < queue_len {
+        let positions: Vec<(i64,)> = sqlx::query_as(
+            "SELECT queue_position FROM play_queue_entries
+             WHERE session_id = ? AND queue_position >= ?
+             ORDER BY queue_position DESC",
+        )
+        .bind(session_id)
+        .bind(insert_pos)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let shift_amount = song_ids.len() as i64;
+        for (pos,) in positions {
+            sqlx::query(
+                "UPDATE play_queue_entries
+                 SET queue_position = queue_position + ?
+                 WHERE session_id = ? AND queue_position = ?",
+            )
+            .bind(shift_amount)
+            .bind(session_id)
+            .bind(pos)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    for (i, song_id) in song_ids.iter().enumerate() {
+        let entry_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO play_queue_entries (user_id, song_id, queue_position, entry_id, session_id) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(user_id)
+        .bind(song_id)
+        .bind(insert_pos + i as i64)
+        .bind(&entry_id)
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    sqlx::query("UPDATE play_queues SET updated_at = datetime('now') WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(queue_len + song_ids.len() as i64)
+}
+
+/// Remove song from queue by session
+pub async fn remove_from_queue_by_session(
+    pool: &SqlitePool,
+    session_id: &str,
+    position: i64,
+) -> sqlx::Result<bool> {
+    let mut tx = pool.begin().await?;
+
+    let result =
+        sqlx::query("DELETE FROM play_queue_entries WHERE session_id = ? AND queue_position = ?")
+            .bind(session_id)
+            .bind(position)
+            .execute(&mut *tx)
+            .await?;
+
+    if result.rows_affected() == 0 {
+        return Ok(false);
+    }
+
+    sqlx::query(
+        "UPDATE play_queue_entries
+         SET queue_position = queue_position - 1
+         WHERE session_id = ? AND queue_position > ?",
+    )
+    .bind(session_id)
+    .bind(position)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query("UPDATE play_queues SET updated_at = datetime('now') WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(true)
+}
+
+/// Move song in queue by session
+pub async fn move_in_queue_by_session(
+    pool: &SqlitePool,
+    session_id: &str,
+    from_position: i64,
+    to_position: i64,
+) -> sqlx::Result<bool> {
+    if from_position == to_position {
+        return Ok(true);
+    }
+
+    let mut tx = pool.begin().await?;
+
+    let exists: Option<(i64,)> = sqlx::query_as(
+        "SELECT 1 FROM play_queue_entries WHERE session_id = ? AND queue_position = ?",
+    )
+    .bind(session_id)
+    .bind(from_position)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if exists.is_none() {
+        return Ok(false);
+    }
+
+    let temp_position = -1i64;
+
+    sqlx::query(
+        "UPDATE play_queue_entries SET queue_position = ? WHERE session_id = ? AND queue_position = ?",
+    )
+    .bind(temp_position)
+    .bind(session_id)
+    .bind(from_position)
+    .execute(&mut *tx)
+    .await?;
+
+    if from_position < to_position {
+        sqlx::query(
+            "UPDATE play_queue_entries
+             SET queue_position = queue_position - 1
+             WHERE session_id = ? AND queue_position > ? AND queue_position <= ?",
+        )
+        .bind(session_id)
+        .bind(from_position)
+        .bind(to_position)
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        let positions: Vec<(i64,)> = sqlx::query_as(
+            "SELECT queue_position FROM play_queue_entries
+             WHERE session_id = ? AND queue_position >= ? AND queue_position < ?
+             ORDER BY queue_position DESC",
+        )
+        .bind(session_id)
+        .bind(to_position)
+        .bind(from_position)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        for (pos,) in positions {
+            sqlx::query(
+                "UPDATE play_queue_entries
+                 SET queue_position = queue_position + 1
+                 WHERE session_id = ? AND queue_position = ?",
+            )
+            .bind(session_id)
+            .bind(pos)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    sqlx::query(
+        "UPDATE play_queue_entries SET queue_position = ? WHERE session_id = ? AND queue_position = ?",
+    )
+    .bind(to_position)
+    .bind(session_id)
+    .bind(temp_position)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query("UPDATE play_queues SET updated_at = datetime('now') WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(true)
+}
+
+/// Clear queue by session
+pub async fn clear_queue_by_session(pool: &SqlitePool, session_id: &str) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query("DELETE FROM play_queue_entries WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query("DELETE FROM play_queues WHERE session_id = ?")
+        .bind(session_id)
         .execute(&mut *tx)
         .await?;
 

@@ -103,6 +103,7 @@ pub mod scan_state;
 mod scrobbles;
 mod search;
 mod server_config;
+mod sessions;
 mod setup;
 mod shuffle_exclude;
 pub mod smart_playlists;
@@ -413,6 +414,27 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/ferrotune/queue/shuffle", post(queue::toggle_shuffle))
         .route("/ferrotune/queue/position", post(queue::update_position))
         .route("/ferrotune/queue/repeat", post(queue::update_repeat_mode))
+        // Playback session endpoints
+        .route(
+            "/ferrotune/sessions",
+            get(sessions::list_sessions).post(sessions::create_session),
+        )
+        .route(
+            "/ferrotune/sessions/{id}",
+            delete(sessions::delete_session),
+        )
+        .route(
+            "/ferrotune/sessions/{id}/heartbeat",
+            post(sessions::session_heartbeat),
+        )
+        .route(
+            "/ferrotune/sessions/{id}/events",
+            get(sessions::session_events),
+        )
+        .route(
+            "/ferrotune/sessions/{id}/command",
+            post(sessions::session_command),
+        )
         // User management endpoints (admin only)
         .route("/ferrotune/users/me", get(users::get_current_user))
         .route(

@@ -113,6 +113,10 @@ import type { TaggerSessionResponse } from "./generated/TaggerSessionResponse";
 import type { TaggerPendingEditsResponse } from "./generated/TaggerPendingEditsResponse";
 // TaggerPendingEditData import removed - now using individual track sync
 import type { TaggerScriptsResponse } from "./generated/TaggerScriptsResponse";
+import type { SessionResponse } from "./generated/SessionResponse";
+import type { SessionListResponse } from "./generated/SessionListResponse";
+import type { CreateSessionResponse } from "./generated/CreateSessionResponse";
+import type { SessionSuccessResponse } from "./generated/SessionSuccessResponse";
 import type { TaggerScriptData } from "./generated/TaggerScriptData";
 import type { SongPlaylistsResponse } from "./generated/SongPlaylistsResponse";
 import type { ShareableUsersResponse } from "./generated/ShareableUsersResponse";
@@ -1415,6 +1419,8 @@ export class FerrotuneClient {
     songIds?: string[];
     /** Request inline cover art thumbnails */
     inlineImages?: "small" | "medium";
+    /** Playback session ID for multi-session support */
+    sessionId?: string;
   }): Promise<StartQueueResponse> {
     return this.request("/ferrotune/queue/start", {
       method: "POST",
@@ -1431,6 +1437,7 @@ export class FerrotuneClient {
       limit?: number;
       inlineImages?: "small" | "medium";
       signal?: AbortSignal;
+      sessionId?: string;
     } = {},
   ): Promise<GetQueueResponse> {
     const query = new URLSearchParams();
@@ -1438,6 +1445,7 @@ export class FerrotuneClient {
     if (params.limit !== undefined) query.set("limit", String(params.limit));
     if (params.inlineImages !== undefined)
       query.set("inlineImages", params.inlineImages);
+    if (params.sessionId !== undefined) query.set("sessionId", params.sessionId);
     const queryStr = query.toString();
     return this.request(`/ferrotune/queue${queryStr ? `?${queryStr}` : ""}`, {
       signal: params.signal,
@@ -1450,10 +1458,12 @@ export class FerrotuneClient {
   async getQueueCurrentWindow(
     radius: number = 20,
     inlineImages?: "small" | "medium",
+    sessionId?: string,
   ): Promise<GetQueueResponse> {
     const params = new URLSearchParams();
     params.set("radius", String(radius));
     if (inlineImages !== undefined) params.set("inlineImages", inlineImages);
+    if (sessionId !== undefined) params.set("sessionId", sessionId);
     return this.request(`/ferrotune/queue/current-window?${params.toString()}`);
   }
 
@@ -1465,6 +1475,7 @@ export class FerrotuneClient {
     position: "next" | "end" | number;
     sourceType?: string;
     sourceId?: string;
+    sessionId?: string;
   }): Promise<QueueSuccessResponse> {
     return this.request("/ferrotune/queue/add", {
       method: "POST",
@@ -1473,6 +1484,7 @@ export class FerrotuneClient {
         position: params.position,
         sourceType: params.sourceType,
         sourceId: params.sourceId,
+        sessionId: params.sessionId,
       }),
     });
   }
@@ -1480,8 +1492,9 @@ export class FerrotuneClient {
   /**
    * Remove a song from the queue at a position
    */
-  async removeFromServerQueue(position: number): Promise<QueueSuccessResponse> {
-    return this.request(`/ferrotune/queue/${position}`, {
+  async removeFromServerQueue(position: number, sessionId?: string): Promise<QueueSuccessResponse> {
+    const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+    return this.request(`/ferrotune/queue/${position}${query}`, {
       method: "DELETE",
     });
   }
@@ -1492,12 +1505,14 @@ export class FerrotuneClient {
   async moveInServerQueue(
     fromPosition: number,
     toPosition: number,
+    sessionId?: string,
   ): Promise<QueueSuccessResponse> {
     return this.request("/ferrotune/queue/move", {
       method: "POST",
       body: JSON.stringify({
         fromPosition,
         toPosition,
+        sessionId,
       }),
     });
   }
@@ -1505,10 +1520,10 @@ export class FerrotuneClient {
   /**
    * Toggle shuffle mode
    */
-  async toggleServerShuffle(enabled: boolean): Promise<QueueSuccessResponse> {
+  async toggleServerShuffle(enabled: boolean, sessionId?: string): Promise<QueueSuccessResponse> {
     return this.request("/ferrotune/queue/shuffle", {
       method: "POST",
-      body: JSON.stringify({ enabled }),
+      body: JSON.stringify({ enabled, sessionId }),
     });
   }
 
@@ -1519,6 +1534,7 @@ export class FerrotuneClient {
     currentIndex: number,
     positionMs: number = 0,
     reshuffle: boolean = false,
+    sessionId?: string,
   ): Promise<QueueSuccessResponse> {
     return this.request("/ferrotune/queue/position", {
       method: "POST",
@@ -1526,6 +1542,7 @@ export class FerrotuneClient {
         currentIndex,
         positionMs,
         ...(reshuffle && { reshuffle: true }),
+        sessionId,
       }),
     });
   }
@@ -1535,18 +1552,20 @@ export class FerrotuneClient {
    */
   async updateServerRepeatMode(
     mode: "off" | "all" | "one",
+    sessionId?: string,
   ): Promise<QueueSuccessResponse> {
     return this.request("/ferrotune/queue/repeat", {
       method: "POST",
-      body: JSON.stringify({ mode }),
+      body: JSON.stringify({ mode, sessionId }),
     });
   }
 
   /**
    * Clear the entire queue
    */
-  async clearServerQueue(): Promise<QueueSuccessResponse> {
-    return this.request("/ferrotune/queue", {
+  async clearServerQueue(sessionId?: string): Promise<QueueSuccessResponse> {
+    const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+    return this.request(`/ferrotune/queue${query}`, {
       method: "DELETE",
     });
   }
@@ -1795,6 +1814,85 @@ export class FerrotuneClient {
    */
   getScanProgressStreamUrl(): string {
     return this.buildAdminUrl("/ferrotune/scan/progress");
+  }
+
+  // ============================================================================
+  // Playback Sessions API
+  // ============================================================================
+
+  /**
+   * Create a new playback session
+   */
+  async createSession(clientName: string = "ferrotune-web"): Promise<CreateSessionResponse> {
+    return this.request("/ferrotune/sessions", {
+      method: "POST",
+      body: JSON.stringify({ clientName }),
+    });
+  }
+
+  /**
+   * List active sessions for the current user
+   */
+  async listSessions(): Promise<SessionListResponse> {
+    return this.request("/ferrotune/sessions");
+  }
+
+  /**
+   * Delete (end) a session
+   */
+  async deleteSession(sessionId: string): Promise<SessionSuccessResponse> {
+    return this.request(`/ferrotune/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+    });
+  }
+
+  /**
+   * Send heartbeat for a session (keeps it alive, updates playback state)
+   */
+  async sessionHeartbeat(
+    sessionId: string,
+    params: {
+      isPlaying?: boolean;
+      currentIndex?: number;
+      positionMs?: number;
+      currentSongId?: string;
+      currentSongTitle?: string;
+      currentSongArtist?: string;
+    } = {},
+  ): Promise<SessionSuccessResponse> {
+    return this.request(
+      `/ferrotune/sessions/${encodeURIComponent(sessionId)}/heartbeat`,
+      {
+        method: "POST",
+        body: JSON.stringify(params),
+      },
+    );
+  }
+
+  /**
+   * Send a remote command to a session (play, pause, next, etc.)
+   */
+  async sendSessionCommand(
+    sessionId: string,
+    action: string,
+    positionMs?: number,
+  ): Promise<SessionSuccessResponse> {
+    return this.request(
+      `/ferrotune/sessions/${encodeURIComponent(sessionId)}/command`,
+      {
+        method: "POST",
+        body: JSON.stringify({ action, positionMs }),
+      },
+    );
+  }
+
+  /**
+   * Get the SSE stream URL for session events
+   */
+  getSessionEventsUrl(sessionId: string): string {
+    return this.buildAdminUrl(
+      `/ferrotune/sessions/${encodeURIComponent(sessionId)}/events`,
+    );
   }
 
   // ==========================================

@@ -14,7 +14,9 @@ import { useClearSelectionOnNavigate } from "@/lib/hooks/use-clear-selection-on-
 import { useBackButtonClose } from "@/lib/hooks/use-back-button-close";
 import { useAppResumeRepaint } from "@/lib/hooks/use-app-resume-repaint";
 import { useScanProgressStream } from "@/lib/hooks/use-scan-progress-stream";
+import { useSessionInit } from "@/lib/hooks/use-session-init";
 import { useCastInit } from "@/lib/hooks/use-cast";
+import { SessionEventHandler } from "@/components/session-event-handler";
 import { DynamicFavicon } from "@/components/dynamic-favicon";
 import {
   getAccountPersister,
@@ -54,10 +56,16 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   useDocumentTitle();
   usePreferencesSync(); // Load and sync user preferences from server
   useScanProgressStream(); // Monitor scan progress in background
+  useSessionInit(); // Initialize playback session + heartbeat
   useBackButtonClose(); // Handle Android back button to close menus
   useAppResumeRepaint(); // Force Android WebView redraws after resume
   useCastInit(); // Initialize Chromecast SDK
-  return <>{children}</>;
+  return (
+    <>
+      <SessionEventHandler />
+      {children}
+    </>
+  );
 }
 
 // Component that applies accent color

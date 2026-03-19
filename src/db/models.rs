@@ -531,6 +531,21 @@ impl std::str::FromStr for RepeatMode {
     }
 }
 
+/// A playback session — represents one active client (browser tab, app instance)
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PlaybackSession {
+    pub id: String,
+    pub user_id: i64,
+    pub name: String,
+    pub client_name: String,
+    pub is_playing: bool,
+    pub current_song_id: Option<String>,
+    pub current_song_title: Option<String>,
+    pub current_song_artist: Option<String>,
+    pub last_heartbeat: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
 /// Server-side play queue state
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PlayQueue {
@@ -557,6 +572,8 @@ pub struct PlayQueue {
     pub song_ids_json: Option<String>,
     /// Unique identifier for this queue instance (UUID, generated on each queue start)
     pub instance_id: Option<String>,
+    /// Playback session this queue belongs to
+    pub session_id: Option<String>,
 }
 
 impl PlayQueue {

@@ -263,12 +263,60 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
 
     // Create shared app state
     let scan_state = api::create_scan_state();
+    let session_manager = Arc::new(api::SessionManager::new());
     let state = Arc::new(api::AppState {
         pool: pool.clone(),
         config: config.clone(),
         scan_state: scan_state.clone(),
         shuffle_cache: Default::default(),
+        session_manager: session_manager.clone(),
     });
+
+    // Spawn background task to clean up stale playback sessions (every 30s, 2min timeout)
+    {
+        let pool = pool.clone();
+        let sm = session_manager.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                // Find sessions with heartbeat older than 2 minutes
+                let stale: Vec<(String,)> = match sqlx::query_as(
+                    "SELECT id FROM playback_sessions WHERE last_heartbeat < datetime('now', '-2 minutes')",
+                )
+                .fetch_all(&pool)
+                .await
+                {
+                    Ok(rows) => rows,
+                    Err(e) => {
+                        tracing::warn!("Failed to query stale sessions: {}", e);
+                        continue;
+                    }
+                };
+
+                for (session_id,) in &stale {
+                    // Broadcast SessionEnded to any listeners
+                    sm.broadcast(session_id, api::SessionEvent::SessionEnded)
+                        .await;
+                    sm.remove(session_id).await;
+                }
+
+                if !stale.is_empty() {
+                    let ids: Vec<&str> = stale.iter().map(|(id,)| id.as_str()).collect();
+                    tracing::debug!("Cleaning up {} stale sessions: {:?}", ids.len(), ids);
+
+                    if let Err(e) = sqlx::query(
+                        "DELETE FROM playback_sessions WHERE last_heartbeat < datetime('now', '-2 minutes')",
+                    )
+                    .execute(&pool)
+                    .await
+                    {
+                        tracing::warn!("Failed to clean stale sessions: {}", e);
+                    }
+                }
+            }
+        });
+    }
 
     // Start the file watcher for directories with watch_enabled=true
     let (watcher, watcher_rx) = watcher::LibraryWatcher::new(pool, scan_state);
