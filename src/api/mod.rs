@@ -68,11 +68,17 @@ pub struct SessionManager {
     channels: RwLock<HashMap<String, broadcast::Sender<SessionEvent>>>,
 }
 
-impl SessionManager {
-    pub fn new() -> Self {
+impl Default for SessionManager {
+    fn default() -> Self {
         Self {
             channels: RwLock::new(HashMap::new()),
         }
+    }
+}
+
+impl SessionManager {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Get or create a broadcast channel for a session.
