@@ -24,10 +24,18 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -37,6 +45,7 @@ import androidx.media3.session.SessionResult
 import app.tauri.plugin.JSObject
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import java.io.File
 import java.util.concurrent.Executors
 import kotlin.math.pow
 import kotlinx.coroutines.CompletableDeferred
@@ -63,6 +72,11 @@ class PlaybackService : MediaSessionService() {
         // This should be long enough to cover ExoPlayer's gapless pre-decode buffer
         // but short enough that the volume difference on the current track's tail is inaudible.
         private const val REPLAYGAIN_PRE_APPLY_LEAD_MS = 500L
+        // Cache size for transcoded audio streams (200 MB)
+        private const val STREAM_CACHE_MAX_BYTES = 200L * 1024 * 1024
+        // SimpleCache is a singleton — only one instance may exist per cache directory.
+        // We keep it in the companion object so it survives service re-creation.
+        private var streamCache: SimpleCache? = null
     }
 
     private val binder = LocalBinder()
@@ -212,7 +226,64 @@ class PlaybackService : MediaSessionService() {
             }
         }
 
+        // Initialize the stream cache (singleton — only one per directory)
+        @OptIn(UnstableApi::class)
+        if (streamCache == null) {
+            val cacheDir = File(cacheDir, "exo-stream-cache")
+            val evictor = LeastRecentlyUsedCacheEvictor(STREAM_CACHE_MAX_BYTES)
+            val databaseProvider = StandaloneDatabaseProvider(this)
+            streamCache = SimpleCache(cacheDir, evictor, databaseProvider)
+        }
+
+        // CacheDataSource wraps the default HTTP data source: bytes are written
+        // to the local cache as they arrive and served from there on re-reads.
+        // This means ExoPlayer can resume from the cache after a network blip
+        // without re-requesting already-received data from the server.
+        @OptIn(UnstableApi::class)
+        val cacheDataSourceFactory = CacheDataSource.Factory()
+            .setCache(streamCache!!)
+            .setUpstreamDataSourceFactory(DefaultHttpDataSource.Factory())
+            // Allow reading from the cache even while the upstream connection
+            // is still open (progressive caching).
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+        // Custom load error policy: for transcoded (chunked) streams the server
+        // does not support Range requests, so ExoPlayer's default retry (which
+        // tries to resume from the last byte) is counter-productive — it would
+        // restart from byte 0. Disable source-level retries so errors surface
+        // immediately to onPlayerError where we handle them with timeOffset.
+        @OptIn(UnstableApi::class)
+        val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
+            override fun getMinimumLoadableRetryCount(dataType: Int): Int {
+                // When transcoding is active, skip data-source-level retries.
+                // The cache covers brief blips; longer outages are handled by
+                // onPlayerError's timeOffset retry logic.
+                return if (playbackSettings.transcodingEnabled) 0
+                    else super.getMinimumLoadableRetryCount(dataType)
+            }
+        }
+
+        @OptIn(UnstableApi::class)
+        val mediaSourceFactory = DefaultMediaSourceFactory(cacheDataSourceFactory)
+            .setLoadErrorHandlingPolicy(loadErrorPolicy)
+
+        // Allow ExoPlayer to buffer the full track into the cache in a burst
+        // instead of the default ~50 s ceiling. This avoids hammering the
+        // network with repeated small fetches and makes brief outages
+        // invisible to the user because the audio is already on disk.
+        @OptIn(UnstableApi::class)
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs  */   DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                /* maxBufferMs  */   20 * 60 * 1000,   // 20 minutes — enough for any track
+                /* bufferForPlaybackMs */          DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                /* bufferForPlaybackAfterRebufferMs */ DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+            )
+            .build()
+
         player = ExoPlayer.Builder(this, renderersFactory)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .setLoadControl(loadControl)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -413,6 +484,10 @@ class PlaybackService : MediaSessionService() {
         apiExecutor.shutdownNow()
         mediaSession.release()
         player.release()
+        // Release the stream cache so its file locks are freed.
+        // The null-check in onCreate will re-create it if the service restarts.
+        streamCache?.release()
+        streamCache = null
         super.onDestroy()
     }
 
