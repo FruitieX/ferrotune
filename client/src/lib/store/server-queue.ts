@@ -23,6 +23,7 @@ import {
   nativeToggleShuffle,
   nativeSetRepeatMode,
   nativeInvalidateQueue,
+  nativeSoftInvalidateQueue,
 } from "@/lib/audio/native-engine";
 import { effectiveSessionIdAtom } from "./session";
 
@@ -415,7 +416,11 @@ export const goToNextAtom = atom(null, async (get, set) => {
       shouldReshuffle ||
       !window?.songs.some((s) => s.position === newIndex)
     ) {
-      const queueResponse = await client.getQueueCurrentWindow(20, "small", sessionId);
+      const queueResponse = await client.getQueueCurrentWindow(
+        20,
+        "small",
+        sessionId,
+      );
       set(queueWindowAtom, queueResponse.window);
     }
   } catch (error) {
@@ -473,7 +478,11 @@ export const goToPreviousAtom = atom(null, async (get, set) => {
     if (window) {
       const needsFetch = !window.songs.some((s) => s.position === prevIndex);
       if (needsFetch) {
-        const response = await client.getQueueCurrentWindow(20, "small", sessionId);
+        const response = await client.getQueueCurrentWindow(
+          20,
+          "small",
+          sessionId,
+        );
         set(queueWindowAtom, response.window);
       }
     }
@@ -504,6 +513,8 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
         currentIndex: index,
         positionMs: 0,
       });
+      // Request playback before invalidating so Kotlin starts playing
+      if (hasNativeAudio()) nativeRequestPlayback();
       await nativeInvalidateQueue();
     } catch (error) {
       console.error("Failed to play at index (native):", error);
@@ -555,7 +566,11 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
       // which would cause the audio effect to restart playback.
       const client = getClient();
       if (client) {
-        const queueResponse = await client.getQueueCurrentWindow(20, "small", sessionId);
+        const queueResponse = await client.getQueueCurrentWindow(
+          20,
+          "small",
+          sessionId,
+        );
         set(serverQueueStateAtom, {
           ...state,
           isShuffled: queueResponse.isShuffled,
@@ -579,10 +594,17 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
   set(isQueueOperationPendingAtom, true);
 
   try {
-    const response = await client.toggleServerShuffle(newShuffleState, sessionId);
+    const response = await client.toggleServerShuffle(
+      newShuffleState,
+      sessionId,
+    );
 
     // Fetch new window since order has changed
-    const queueResponse = await client.getQueueCurrentWindow(20, "small", sessionId);
+    const queueResponse = await client.getQueueCurrentWindow(
+      20,
+      "small",
+      sessionId,
+    );
 
     // Update state and window atomically to avoid a transient mismatch
     // where currentIndex points to a different song in the old window
@@ -701,12 +723,17 @@ export const addToQueueAtom = atom(
       }
 
       // Refresh window
-      const queueResponse = await client.getQueueCurrentWindow(20, "small", sessionId);
+      const queueResponse = await client.getQueueCurrentWindow(
+        20,
+        "small",
+        sessionId,
+      );
       set(queueWindowAtom, queueResponse.window);
 
-      // Tell Kotlin to refetch its ExoPlayer playlist
-      if (_nativeAutonomousMode) {
-        await nativeInvalidateQueue();
+      // Tell Kotlin to update total count and prefetch without rebuilding
+      // the ExoPlayer playlist (avoids briefly interrupting playback)
+      if (_nativeAutonomousMode && response.totalCount != null) {
+        await nativeSoftInvalidateQueue(response.totalCount);
       }
 
       return { success: true, addedCount: response.addedCount ?? 0 };
@@ -744,7 +771,11 @@ export const removeFromQueueAtom = atom(
       }
 
       // Refresh window
-      const queueResponse = await client.getQueueCurrentWindow(20, "small", sessionId);
+      const queueResponse = await client.getQueueCurrentWindow(
+        20,
+        "small",
+        sessionId,
+      );
       set(queueWindowAtom, queueResponse.window);
 
       // Tell Kotlin to refetch its ExoPlayer playlist
@@ -834,7 +865,11 @@ export const moveInQueueAtom = atom(
     set(isQueueOperationPendingAtom, true);
 
     try {
-      const response = await client.moveInServerQueue(fromPosition, toPosition, sessionId);
+      const response = await client.moveInServerQueue(
+        fromPosition,
+        toPosition,
+        sessionId,
+      );
 
       // Update current index from server response (authoritative)
       if (
@@ -849,7 +884,11 @@ export const moveInQueueAtom = atom(
       }
 
       // Refresh window to get authoritative state
-      const queueResponse = await client.getQueueCurrentWindow(20, "small", sessionId);
+      const queueResponse = await client.getQueueCurrentWindow(
+        20,
+        "small",
+        sessionId,
+      );
       set(queueWindowAtom, queueResponse.window);
 
       // Tell Kotlin to refetch its ExoPlayer playlist
@@ -860,7 +899,11 @@ export const moveInQueueAtom = atom(
       console.error("Failed to move in queue:", error);
       // On error, refetch to restore correct state
       try {
-        const queueResponse = await client.getQueueCurrentWindow(20, "small", sessionId);
+        const queueResponse = await client.getQueueCurrentWindow(
+          20,
+          "small",
+          sessionId,
+        );
         set(queueWindowAtom, queueResponse.window);
       } catch {
         // Ignore refetch errors

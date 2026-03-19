@@ -208,6 +208,15 @@ export async function invalidateQueue(): Promise<void> {
 }
 
 /**
+ * Soft invalidate: update total count and prefetch without rebuilding
+ * the ExoPlayer playlist. Use for add-to-queue operations to avoid
+ * interrupting current playback.
+ */
+export async function softInvalidateQueue(totalCount: number): Promise<void> {
+  await invoke("plugin:native-audio|soft_invalidate_queue", { totalCount });
+}
+
+/**
  * Toggle shuffle in autonomous mode.
  * Tells the server to shuffle/unshuffle, then refetches the queue window.
  */

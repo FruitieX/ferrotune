@@ -197,6 +197,13 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(Into::into)
     }
 
+    /// Soft invalidate: update total count and prefetch without rebuilding
+    pub fn soft_invalidate_queue(&self, total_count: i32) -> Result<()> {
+        self.0
+            .run_mobile_plugin("softInvalidateQueue", serde_json::json!({ "totalCount": total_count }))
+            .map_err(Into::into)
+    }
+
     /// Toggle shuffle in autonomous mode
     pub fn toggle_shuffle(&self, enabled: bool) -> Result<()> {
         self.0

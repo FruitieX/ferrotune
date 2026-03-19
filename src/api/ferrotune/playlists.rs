@@ -58,6 +58,8 @@ pub struct PlaylistInFolder {
     /// Whether the current user can edit this shared playlist
     #[serde(default)]
     pub can_edit: bool,
+    /// When the playlist was last updated (ISO 8601)
+    pub updated_at: String,
 }
 
 /// Response containing all folders and playlists.
@@ -97,6 +99,7 @@ pub async fn get_playlist_folders(
         position: i64,
         song_count: i64,
         duration: i64,
+        updated_at: String,
     }
 
     // Get user's own playlists
@@ -108,7 +111,8 @@ pub async fn get_playlist_folders(
                    FROM playlist_songs ps
                    JOIN songs s ON s.id = ps.song_id
                    WHERE ps.playlist_id = p.id
-               ), 0) as duration
+               ), 0) as duration,
+               strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
         FROM playlists p
         WHERE p.owner_id = ?
         ORDER BY p.position, p.name COLLATE NOCASE
@@ -130,6 +134,7 @@ pub async fn get_playlist_folders(
             owner: None,
             shared_with_me: false,
             can_edit: true,
+            updated_at: r.updated_at,
         })
         .collect();
 
@@ -142,6 +147,7 @@ pub async fn get_playlist_folders(
         duration: i64,
         owner_name: String,
         can_edit: bool,
+        updated_at: String,
     }
 
     let shared_rows: Vec<SharedPlaylistRow> = sqlx::query_as(
@@ -154,7 +160,8 @@ pub async fn get_playlist_folders(
                    WHERE ps2.playlist_id = p.id
                ), 0) as duration,
                u.username as owner_name,
-               psh.can_edit
+               psh.can_edit,
+               strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
         FROM playlists p
         JOIN playlist_shares psh ON psh.playlist_id = p.id
         JOIN users u ON u.id = p.owner_id
@@ -176,6 +183,7 @@ pub async fn get_playlist_folders(
         owner: Some(r.owner_name),
         shared_with_me: true,
         can_edit: r.can_edit,
+        updated_at: r.updated_at,
     }));
 
     Ok(Json(PlaylistFoldersResponse { folders, playlists }))

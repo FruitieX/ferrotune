@@ -242,10 +242,8 @@ export function AddToPlaylistDialog({
       const bContains = containingPlaylistIds.has(b.id);
       if (aContains && !bContains) return -1;
       if (!aContains && bContains) return 1;
-      // Otherwise sort by full path
-      const aPath = getPlaylistFullPath(a.name, a.folderId, folderPathMap);
-      const bPath = getPlaylistFullPath(b.name, b.folderId, folderPathMap);
-      return aPath.localeCompare(bPath);
+      // Otherwise sort by most recently updated
+      return b.updatedAt.localeCompare(a.updatedAt);
     });
 
   const handleAddToPlaylist = async (

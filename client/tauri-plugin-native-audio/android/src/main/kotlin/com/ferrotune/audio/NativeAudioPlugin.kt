@@ -129,6 +129,11 @@ internal class ToggleShuffleArgs {
 }
 
 @InvokeArg
+internal class SoftInvalidateQueueArgs {
+    var totalCount: Int = 0
+}
+
+@InvokeArg
 internal class DebugLogArgs {
     var message: String = ""
 }
@@ -792,6 +797,26 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                 invoke.resolve()
             } catch (e: Exception) {
                 Log.e(TAG, "Error in invalidateQueue()", e)
+                invoke.reject(e.message)
+            }
+        }
+    }
+
+    @Command
+    fun softInvalidateQueue(invoke: Invoke) {
+        scope.launch {
+            try {
+                val args = invoke.parseArgs(SoftInvalidateQueueArgs::class.java)
+                val service = awaitService()
+                if (service == null) {
+                    Log.e(TAG, "softInvalidateQueue() failed: Service not available after timeout")
+                    invoke.reject("Service not available - try again")
+                    return@launch
+                }
+                service.softInvalidateQueue(args.totalCount)
+                invoke.resolve()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in softInvalidateQueue()", e)
                 invoke.reject(e.message)
             }
         }

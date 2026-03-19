@@ -418,6 +418,22 @@ pub async fn invalidate_queue<R: Runtime>(app: AppHandle<R>) -> Result<()> {
     }
 }
 
+/// Soft invalidate: update total count and prefetch without rebuilding ExoPlayer playlist
+#[command]
+pub async fn soft_invalidate_queue<R: Runtime>(app: AppHandle<R>, total_count: i32) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().soft_invalidate_queue(total_count)
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, total_count);
+        log::warn!("soft_invalidate_queue() called on desktop - native audio only available on mobile");
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
 /// Toggle shuffle in autonomous mode
 #[command]
 pub async fn toggle_shuffle<R: Runtime>(app: AppHandle<R>, enabled: bool) -> Result<()> {

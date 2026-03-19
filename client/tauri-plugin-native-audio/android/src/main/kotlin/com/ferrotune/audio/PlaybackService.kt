@@ -1054,13 +1054,28 @@ class PlaybackService : MediaSessionService() {
             try {
                 val response = apiClient.getQueueWindow(20)
                 handler.post {
+                    val shouldPlay = player.playWhenReady || pendingPlayOnNextQueue
+                    pendingPlayOnNextQueue = false
                     handleQueueWindowResponse(response, response.currentIndex,
-                        player.currentPosition, player.playWhenReady)
+                        player.currentPosition, shouldPlay)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to invalidate queue", e)
             }
         }
+    }
+
+    /**
+     * Soft invalidate: update the total count and prefetch new songs without
+     * rebuilding the ExoPlayer playlist. Used for "play next" / "add to queue"
+     * to avoid briefly interrupting playback.
+     */
+    fun softInvalidateQueue(newTotalCount: Int) {
+        if (!autonomousMode) return
+        Log.d(TAG, "softInvalidateQueue: totalCount $serverTotalCount -> $newTotalCount")
+        serverTotalCount = newTotalCount
+        // Trigger prefetch to pick up new songs appended/inserted near current position
+        maybePrefetchMore()
     }
 
     // === Scrobbling ===
