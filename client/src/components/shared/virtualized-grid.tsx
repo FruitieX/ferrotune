@@ -43,6 +43,10 @@ interface VirtualizedGridProps<T> {
    * This is useful when the virtualized grid is not at the top of the scroll container
    */
   autoScrollMargin?: boolean;
+  /** Index to scroll to after initial render */
+  scrollToIndex?: number;
+  /** Called when the first visible item index changes (for cross-view scroll restoration) */
+  onFirstVisibleIndexChange?: (index: number) => void;
 }
 
 export function VirtualizedGrid<T>({
@@ -63,6 +67,8 @@ export function VirtualizedGrid<T>({
   initialOffset = 0,
   onScrollChange,
   autoScrollMargin = false,
+  scrollToIndex,
+  onFirstVisibleIndexChange,
 }: VirtualizedGridProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [columnCount, setColumnCount] = useState(columns.default);
@@ -70,6 +76,11 @@ export function VirtualizedGrid<T>({
 
   // Use ref for onScrollChange to avoid recreating virtualizer options
   const onScrollChangeRef = useRef(onScrollChange);
+  onScrollChangeRef.current = onScrollChange;
+
+  // Use ref for onFirstVisibleIndexChange to avoid effect dependency changes
+  const onFirstVisibleIndexChangeRef = useRef(onFirstVisibleIndexChange);
+  onFirstVisibleIndexChangeRef.current = onFirstVisibleIndexChange;
   onScrollChangeRef.current = onScrollChange;
 
   // Get scroll element (main content area) - stored in ref for stability
@@ -157,6 +168,38 @@ export function VirtualizedGrid<T>({
   });
 
   const virtualRows = virtualizer.getVirtualItems();
+
+  // Scroll to a specific item index when requested
+  const hasScrolledToIndexRef = useRef(false);
+  useEffect(() => {
+    if (scrollToIndex == null) return;
+    if (scrollToIndex < 0 || scrollToIndex >= effectiveTotalCount) return;
+    if (hasScrolledToIndexRef.current) return;
+
+    const targetRow = Math.floor(scrollToIndex / columnCount);
+    const timeoutId = setTimeout(() => {
+      hasScrolledToIndexRef.current = true;
+      virtualizer.scrollToIndex(targetRow, { align: "start" });
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    scrollToIndex,
+    effectiveTotalCount,
+    virtualizer,
+    columnCount,
+    scrollMargin,
+  ]);
+
+  // Report first visible item index for cross-view scroll restoration
+  useEffect(() => {
+    if (!onFirstVisibleIndexChangeRef.current || virtualRows.length === 0)
+      return;
+    const firstVisibleRow = virtualRows[0];
+    if (firstVisibleRow) {
+      onFirstVisibleIndexChangeRef.current(firstVisibleRow.index * columnCount);
+    }
+  }, [virtualRows, columnCount]);
 
   // Ref to track last fetch to prevent duplicate calls
   const lastFetchedRowRef = useRef<number>(-1);
@@ -305,6 +348,8 @@ interface VirtualizedListProps<T> {
   autoScrollMargin?: boolean;
   /** Index to scroll to after initial render */
   scrollToIndex?: number;
+  /** Called when the first visible item index changes (for cross-view scroll restoration) */
+  onFirstVisibleIndexChange?: (index: number) => void;
 }
 
 export function VirtualizedList<T>({
@@ -324,6 +369,7 @@ export function VirtualizedList<T>({
   onScrollChange,
   autoScrollMargin = false,
   scrollToIndex,
+  onFirstVisibleIndexChange,
 }: VirtualizedListProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
@@ -336,6 +382,10 @@ export function VirtualizedList<T>({
   // Use ref for onScrollChange to avoid recreating virtualizer options
   const onScrollChangeRef = useRef(onScrollChange);
   onScrollChangeRef.current = onScrollChange;
+
+  // Use ref for onFirstVisibleIndexChange to avoid effect dependency changes
+  const onFirstVisibleIndexChangeRef = useRef(onFirstVisibleIndexChange);
+  onFirstVisibleIndexChangeRef.current = onFirstVisibleIndexChange;
 
   // Measure scroll margin when autoScrollMargin is enabled
   useEffect(() => {
@@ -403,6 +453,16 @@ export function VirtualizedList<T>({
 
     return () => clearTimeout(timeoutId);
   }, [scrollToIndex, effectiveTotalCount, virtualizer, scrollMargin]);
+
+  // Report first visible item index for cross-view scroll restoration
+  useEffect(() => {
+    if (!onFirstVisibleIndexChangeRef.current || virtualItems.length === 0)
+      return;
+    const firstVisibleItem = virtualItems[0];
+    if (firstVisibleItem) {
+      onFirstVisibleIndexChangeRef.current(firstVisibleItem.index);
+    }
+  }, [virtualItems]);
 
   // Ref to track last fetch to prevent duplicate calls
   const lastFetchedIndexRef = useRef<number>(-1);

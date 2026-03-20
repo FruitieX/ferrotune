@@ -79,19 +79,33 @@ pub async fn scrobble(
             .bind(&params.queue_source_id)
             .execute(&state.pool)
             .await?;
+
+            // Forward to Last.fm in background (non-blocking)
+            {
+                let pool = state.pool.clone();
+                let uid = user.user_id;
+                let song_id = params.id.clone();
+                let ts = played_at.timestamp();
+                tokio::spawn(async move {
+                    if let Err(e) = super::lastfm::forward_scrobble(&pool, uid, &song_id, ts).await
+                    {
+                        tracing::warn!("Last.fm scrobble failed: {}", e);
+                    }
+                });
+            }
         }
-
-        // Update play count and last played in the simple play_count/last_played fields in songs table (if we had them)
-        // But we rely on the scrobbles table for stats, so insertion is enough.
-        // However, OpenSubsonic updates the 'last_played' field on the song/file itself sometimes,
-        // but our schema relies on joining scrobbles for play counts.
-
-        // We might want to update the "last_played" on the user_data or similar if we had it,
-        // but for now, inserting into scrobbles is the source of truth.
     } else {
-        // "Now playing" - currently we just log it or update a transient state
-        // For now, we can ignore "now playing" or implement it later.
-        // The implementation in subsonic/lists.rs also behaves similarly (handles submission).
+        // "Now playing" notification - forward to Last.fm
+        {
+            let pool = state.pool.clone();
+            let uid = user.user_id;
+            let song_id = params.id.clone();
+            tokio::spawn(async move {
+                if let Err(e) = super::lastfm::update_now_playing(&pool, uid, &song_id).await {
+                    tracing::warn!("Last.fm now playing update failed: {}", e);
+                }
+            });
+        }
     }
 
     Ok(StatusCode::NO_CONTENT)

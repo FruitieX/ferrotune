@@ -42,6 +42,7 @@ interface TaggerGridContextMenuProps {
   onRunOneOffScript: () => void;
   onSave: () => void;
   onRemove: () => void;
+  onMarkForDeletion: () => void;
   onImportFromFile?: () => void;
   onRevertImportFromFile?: () => void;
   // State
@@ -50,6 +51,7 @@ interface TaggerGridContextMenuProps {
   canRevert: boolean;
   canSave: boolean;
   canRemove: boolean;
+  canMarkForDeletion: boolean;
   canImportFromFile: boolean;
   hasAnyReplacementAudio: boolean;
   importFromFileLabel: string;
@@ -73,6 +75,7 @@ export function TaggerGridContextMenu({
   onRunOneOffScript,
   onSave,
   onRemove,
+  onMarkForDeletion,
   onImportFromFile,
   onRevertImportFromFile,
   canUndo,
@@ -80,6 +83,7 @@ export function TaggerGridContextMenu({
   canRevert,
   canSave,
   canRemove,
+  canMarkForDeletion,
   canImportFromFile,
   hasAnyReplacementAudio,
   importFromFileLabel,
@@ -229,6 +233,13 @@ export function TaggerGridContextMenu({
           <Trash2 className="w-4 h-4" />
           <span>Remove from Tagger</span>
         </DropdownMenuItem>
+
+        {canMarkForDeletion && (
+          <DropdownMenuItem onClick={onMarkForDeletion} variant="destructive">
+            <Trash2 className="w-4 h-4" />
+            <span>Mark for Deletion</span>
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

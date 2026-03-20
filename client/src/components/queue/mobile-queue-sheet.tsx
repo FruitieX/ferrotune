@@ -325,6 +325,7 @@ export function MobileQueueSheet() {
 
           {/* Sheet */}
           <motion.div
+            data-queue-panel="open"
             role="dialog"
             aria-label="Queue"
             aria-modal="true"

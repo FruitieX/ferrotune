@@ -38,13 +38,22 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { CoverImage } from "@/components/shared/cover-image";
+
+interface DeleteProgress {
+  current: number;
+  total: number;
+}
 
 export function RecycleBin() {
   const queryClient = useQueryClient();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEmptyDialog, setShowEmptyDialog] = useState(false);
+  const [deleteProgress, setDeleteProgress] = useState<DeleteProgress | null>(
+    null,
+  );
 
   // Fetch recycle bin contents
   const {
@@ -79,12 +88,38 @@ export function RecycleBin() {
     },
   });
 
-  // Delete permanently mutation
+  // Delete permanently mutation - processes items one at a time for progress tracking
   const deleteMutation = useMutation({
     mutationFn: async (songIds: string[]) => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      return client.deletePermanently(songIds);
+      const total = songIds.length;
+      let deletedCount = 0;
+      const errors: string[] = [];
+      for (let i = 0; i < total; i++) {
+        setDeleteProgress({ current: i + 1, total });
+        try {
+          const result = await client.deletePermanently([songIds[i]]);
+          deletedCount += result.deletedCount;
+          if (!result.success) {
+            errors.push(...(result.errors ?? []));
+          }
+        } catch (e) {
+          errors.push(
+            `Failed to delete song: ${e instanceof Error ? e.message : "Unknown error"}`,
+          );
+        }
+      }
+      setDeleteProgress(null);
+      return {
+        success: errors.length === 0,
+        deletedCount,
+        message:
+          errors.length > 0
+            ? `Deleted ${deletedCount} of ${total} songs. ${errors.length} error(s).`
+            : `Permanently deleted ${deletedCount} song${deletedCount !== 1 ? "s" : ""}`,
+        errors,
+      };
     },
     onSuccess: (data) => {
       if (data.success) {
@@ -93,21 +128,58 @@ export function RecycleBin() {
         toast.warning(data.message);
       }
       queryClient.invalidateQueries({ queryKey: ["recycleBin"] });
+      invalidateSongQueries(queryClient);
       setSelectedIds(new Set());
       setShowDeleteDialog(false);
     },
     onError: (error: Error) => {
+      setDeleteProgress(null);
       toast.error(error.message || "Failed to delete songs");
       setShowDeleteDialog(false);
     },
   });
 
-  // Empty recycle bin mutation
+  // Empty recycle bin mutation - processes items one at a time for progress tracking
   const emptyMutation = useMutation({
     mutationFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");
-      return client.emptyRecycleBin();
+      const bin = await client.getRecycleBin({ limit: 10000 });
+      if (bin.songs.length === 0) {
+        return {
+          success: true,
+          deletedCount: 0,
+          message: "Recycle bin is already empty",
+          errors: [] as string[],
+        };
+      }
+      const total = bin.songs.length;
+      let deletedCount = 0;
+      const errors: string[] = [];
+      for (let i = 0; i < total; i++) {
+        setDeleteProgress({ current: i + 1, total });
+        try {
+          const result = await client.deletePermanently([bin.songs[i].id]);
+          deletedCount += result.deletedCount;
+          if (!result.success) {
+            errors.push(...(result.errors ?? []));
+          }
+        } catch (e) {
+          errors.push(
+            `Failed to delete song: ${e instanceof Error ? e.message : "Unknown error"}`,
+          );
+        }
+      }
+      setDeleteProgress(null);
+      return {
+        success: errors.length === 0,
+        deletedCount,
+        message:
+          errors.length > 0
+            ? `Deleted ${deletedCount} of ${total} songs. ${errors.length} error(s).`
+            : `Permanently deleted ${deletedCount} song${deletedCount !== 1 ? "s" : ""}`,
+        errors,
+      };
     },
     onSuccess: (data) => {
       if (data.success) {
@@ -116,10 +188,12 @@ export function RecycleBin() {
         toast.warning(data.message);
       }
       queryClient.invalidateQueries({ queryKey: ["recycleBin"] });
+      invalidateSongQueries(queryClient);
       setSelectedIds(new Set());
       setShowEmptyDialog(false);
     },
     onError: (error: Error) => {
+      setDeleteProgress(null);
       toast.error(error.message || "Failed to empty recycle bin");
       setShowEmptyDialog(false);
     },
@@ -355,7 +429,12 @@ export function RecycleBin() {
       </Card>
 
       {/* Delete confirmation dialog */}
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      <AlertDialog
+        open={showDeleteDialog}
+        onOpenChange={(open) =>
+          !deleteMutation.isPending && setShowDeleteDialog(open)
+        }
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Permanently Delete Songs?</AlertDialogTitle>
@@ -365,24 +444,55 @@ export function RecycleBin() {
               be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {deleteProgress && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  Deleting {deleteProgress.current} of {deleteProgress.total}...
+                </span>
+                <span className="text-muted-foreground tabular-nums">
+                  {Math.round(
+                    (deleteProgress.current / deleteProgress.total) * 100,
+                  )}
+                  %
+                </span>
+              </div>
+              <Progress
+                value={(deleteProgress.current / deleteProgress.total) * 100}
+                className="h-2"
+              />
+            </div>
+          )}
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive hover:bg-destructive/90"
               onClick={confirmDelete}
               disabled={deleteMutation.isPending}
             >
-              {deleteMutation.isPending && (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              {deleteMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting {deleteProgress?.current ?? 0}/
+                  {deleteProgress?.total ?? 0}
+                </>
+              ) : (
+                "Delete Permanently"
               )}
-              Delete Permanently
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       {/* Empty recycle bin confirmation dialog */}
-      <AlertDialog open={showEmptyDialog} onOpenChange={setShowEmptyDialog}>
+      <AlertDialog
+        open={showEmptyDialog}
+        onOpenChange={(open) =>
+          !emptyMutation.isPending && setShowEmptyDialog(open)
+        }
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Empty Recycle Bin?</AlertDialogTitle>
@@ -393,17 +503,43 @@ export function RecycleBin() {
               action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {deleteProgress && emptyMutation.isPending && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  Deleting {deleteProgress.current} of {deleteProgress.total}...
+                </span>
+                <span className="text-muted-foreground tabular-nums">
+                  {Math.round(
+                    (deleteProgress.current / deleteProgress.total) * 100,
+                  )}
+                  %
+                </span>
+              </div>
+              <Progress
+                value={(deleteProgress.current / deleteProgress.total) * 100}
+                className="h-2"
+              />
+            </div>
+          )}
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={emptyMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive hover:bg-destructive/90"
               onClick={() => emptyMutation.mutate()}
               disabled={emptyMutation.isPending}
             >
-              {emptyMutation.isPending && (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              {emptyMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting {deleteProgress?.current ?? 0}/
+                  {deleteProgress?.total ?? 0}
+                </>
+              ) : (
+                "Empty Recycle Bin"
               )}
-              Empty Recycle Bin
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

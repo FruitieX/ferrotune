@@ -11,8 +11,6 @@ projects:
   ferrotune: '.'
   client: 'client'
 
-defaultProject: 'ferrotune'
-
 # Version control
 vcs:
   defaultBranch: 'main'

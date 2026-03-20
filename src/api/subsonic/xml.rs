@@ -213,6 +213,22 @@ pub struct XmlMusicFolder {
     pub name: String,
 }
 
+// Scan status response
+xml_response!(
+    XmlScanStatusResponse,
+    "scanStatus",
+    XmlScanStatusInner,
+    scan_status
+);
+
+#[derive(Serialize)]
+pub struct XmlScanStatusInner {
+    #[serde(rename = "@scanning")]
+    pub scanning: bool,
+    #[serde(rename = "@count")]
+    pub count: u64,
+}
+
 // OpenSubsonic extensions response
 xml_response!(
     XmlOpenSubsonicExtensionsResponse,
@@ -493,6 +509,20 @@ pub struct XmlGenre {
     pub name: String,
 }
 
+// Album list response (getAlbumList - non-ID3)
+xml_response!(
+    XmlAlbumListResponse,
+    "albumList",
+    XmlAlbumListInner,
+    album_list
+);
+
+#[derive(Serialize)]
+pub struct XmlAlbumListInner {
+    #[serde(rename = "album", default)]
+    pub album: Vec<XmlAlbum>,
+}
+
 // Album list response (getAlbumList2)
 xml_response!(
     XmlAlbumList2Response,
@@ -692,12 +722,16 @@ use crate::api::subsonic::browse::{
     AlbumDetailResponse, ArtistDetailResponse, ArtistInfo2Response, ArtistsResponse,
     GenresResponse, SimilarSongs2Response, SongDetailResponse,
 };
-use crate::api::subsonic::lists::{AlbumList2Response, RandomSongsResponse, SongsByGenreResponse};
+use crate::api::subsonic::lists::{
+    AlbumList2Response, AlbumListResponse, RandomSongsResponse, SongsByGenreResponse,
+};
 use crate::api::subsonic::playlists::{PlaylistWithSongsResponse, PlaylistsResponse};
 use crate::api::subsonic::playqueue::PlayQueueResponse;
 use crate::api::subsonic::search::SearchResult3;
 use crate::api::subsonic::starring::{Starred2Response, StarredResponse};
-use crate::api::subsonic::system::{License, MusicFolders, OpenSubsonicExtensions};
+use crate::api::subsonic::system::{
+    License, MusicFolders, OpenSubsonicExtensions, ScanStatusWrapper,
+};
 
 // --- Helper conversion functions ---
 
@@ -815,6 +849,17 @@ impl ToXml for MusicFolders {
     }
 }
 
+impl ToXml for ScanStatusWrapper {
+    type XmlType = XmlScanStatusResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlScanStatusResponse::ok(XmlScanStatusInner {
+            scanning: self.scan_status.scanning,
+            count: self.scan_status.count,
+        })
+    }
+}
+
 // --- browse.rs ToXml implementations ---
 
 impl ToXml for ArtistsResponse {
@@ -924,6 +969,16 @@ impl ToXml for GenresResponse {
 }
 
 // --- lists.rs ToXml implementations ---
+
+impl ToXml for AlbumListResponse {
+    type XmlType = XmlAlbumListResponse;
+
+    fn to_xml(&self) -> Self::XmlType {
+        XmlAlbumListResponse::ok(XmlAlbumListInner {
+            album: self.album_list.album.iter().map(album_to_xml).collect(),
+        })
+    }
+}
 
 impl ToXml for AlbumList2Response {
     type XmlType = XmlAlbumList2Response;

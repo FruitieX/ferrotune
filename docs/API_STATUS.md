@@ -2,13 +2,15 @@
 
 This document tracks the implementation status of OpenSubsonic API endpoints in Ferrotune.
 
-## ✅ Implemented Endpoints (26)
+## ✅ Implemented Endpoints (34)
 
 ### System
 - `ping` - Server health check
 - `getLicense` - License info (always returns valid)
 - `getOpenSubsonicExtensions` - Supported extensions
 - `getMusicFolders` - Configured music directories
+- `startScan` - Trigger library scan
+- `getScanStatus` - Check scan progress
 
 ### Browse
 - `getArtists` - Artist index with album counts
@@ -17,11 +19,14 @@ This document tracks the implementation status of OpenSubsonic API endpoints in 
 - `getAlbum` - Album with songs
 - `getSong` - Single song details
 - `getGenres` - Available genres
+- `getSimilarSongs2` - Similar songs via bliss audio analysis
+- `getIndexes` - Directory-based artist browsing
+- `getMusicDirectory` - Directory listing for artist/album
 
 ### Media
-- `stream` - Audio streaming with HTTP range requests
+- `stream` - Audio streaming with HTTP range requests and transcoding
 - `download` - File download
-- `getCoverArt` - Album artwork
+- `getCoverArt` - Album artwork with inline thumbnail support
 
 ### Annotation
 - `star` - Star songs/albums/artists
@@ -29,14 +34,16 @@ This document tracks the implementation status of OpenSubsonic API endpoints in 
 - `setRating` - Rate items 1-5 (0 removes rating)
 - `getStarred` - List starred items
 - `getStarred2` - List starred items (ID3 format)
-- `scrobble` - Track play history
+- `scrobble` - Track play history (with optional Last.fm forwarding)
 
 ### Lists
-- `getAlbumList2` - Album lists by various criteria
+- `getAlbumList` - Non-ID3 album lists
+- `getAlbumList2` - Album lists by various criteria (ID3)
 - `getRandomSongs` - Random song selection
+- `getSongsByGenre` - Filter songs by genre
 
 ### Search
-- `search3` - Full-text search across library
+- `search3` - Full-text search with fuzzy fallback
 
 ### Playlists
 - `getPlaylists` - List all playlists
@@ -49,26 +56,22 @@ This document tracks the implementation status of OpenSubsonic API endpoints in 
 - `savePlayQueue` - Save current play queue (returns success without persisting)
 - `getPlayQueue` - Retrieve play queue (always returns empty)
 
+### History (Ferrotune Extension)
+- `getPlayHistory` - Play history with pagination
+
+### Transcoding (OpenSubsonic Extension)
+- `getTranscodeDecision` - Negotiate transcoding parameters
+- `getTranscodeStream` - Transcoded audio streaming
+
 ---
 
 ## ❌ Missing Endpoints
-
-### High Priority (Commonly used by clients)
-| Endpoint | Purpose |
-|----------|---------|
-| `startScan` | Trigger library scan via API |
-| `getScanStatus` | Check scan progress |
-| `getIndexes` | Directory-based browsing |
-| `getMusicDirectory` | Directory listing |
-| `getAlbumList` | Non-ID3 album lists |
-| `getSongsByGenre` | Filter songs by genre |
 
 ### Medium Priority
 | Endpoint | Purpose |
 |----------|---------|
 | `getAlbumInfo2` | External album metadata |
-| `getArtistInfo` | External artist metadata |
-| `getSimilarSongs2` | Song recommendations |
+| `getArtistInfo` | External artist metadata (non-ID3) |
 | `getTopSongs` | Top songs for artist |
 | `getNowPlaying` | Currently playing |
 | `getLyricsBySongId` | Song lyrics |
@@ -104,23 +107,3 @@ This document tracks the implementation status of OpenSubsonic API endpoints in 
 - Video support
 - Chat (deprecated)
 - Jukebox control
-
----
-
-## Ferrotune Custom API
-
-The Admin API runs on a separate port (default 4041) and provides modern REST endpoints.
-
-### Current Endpoints
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/health` | Health check with version |
-| POST | `/scan` | Trigger library scan |
-| GET | `/scan/status` | Scan progress ⚠️ stub |
-
-### Planned Features
-- Async scanning with WebSocket progress updates
-- User management API
-- Library statistics
-- Configuration management
-- Backup/restore

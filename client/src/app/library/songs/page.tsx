@@ -48,10 +48,12 @@ export default function SongsPage() {
   const startQueue = useSetAtom(startQueueAtom);
 
   // Virtualized scroll restoration - pass viewMode to store separate positions per view
-  const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration(
-    "main-scroll-container",
-    viewMode,
-  );
+  const {
+    getInitialOffset,
+    saveOffset,
+    getScrollToIndex,
+    saveFirstVisibleIndex,
+  } = useVirtualizedScrollRestoration("main-scroll-container", viewMode);
 
   // Fetch songs using sparse pagination for random-access scrolling
   // Server-side sorting is applied via songSort and songSortDir parameters
@@ -210,6 +212,8 @@ export default function SongsPage() {
             ensureRange={ensureRange}
             initialOffset={getInitialOffset()}
             onScrollChange={saveOffset}
+            scrollToIndex={getScrollToIndex()}
+            onFirstVisibleIndexChange={saveFirstVisibleIndex}
           />
         ) : (
           <>
@@ -258,6 +262,8 @@ export default function SongsPage() {
               ensureRange={ensureRange}
               initialOffset={getInitialOffset()}
               onScrollChange={saveOffset}
+              scrollToIndex={getScrollToIndex()}
+              onFirstVisibleIndexChange={saveFirstVisibleIndex}
             />
           </>
         )

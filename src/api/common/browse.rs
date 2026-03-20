@@ -62,7 +62,7 @@ pub async fn get_artists_logic(
     let mut indexes: Vec<ArtistIndex> = grouped
         .into_iter()
         .map(|(name, mut artists)| {
-            artists.sort_by(|a, b| a.name.cmp(&b.name));
+            artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
             ArtistIndex {
                 name,
                 artist: artists,
@@ -70,7 +70,7 @@ pub async fn get_artists_logic(
         })
         .collect();
 
-    indexes.sort_by(|a, b| a.name.cmp(&b.name));
+    indexes.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     Ok(ArtistsIndex { index: indexes })
 }
@@ -292,7 +292,7 @@ pub async fn get_genres_logic(pool: &SqlitePool, user_id: i64) -> crate::error::
          INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
          WHERE s.genre IS NOT NULL AND mf.enabled = 1 AND ula.user_id = ?
          GROUP BY s.genre 
-         ORDER BY s.genre",
+         ORDER BY s.genre COLLATE NOCASE",
     )
     .bind(user_id)
     .fetch_all(pool)
@@ -407,7 +407,7 @@ pub async fn get_indexes_logic(
             ("#", "#") => std::cmp::Ordering::Equal,
             ("#", _) => std::cmp::Ordering::Greater,
             (_, "#") => std::cmp::Ordering::Less,
-            _ => a.name.cmp(&b.name),
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
         }
     });
 

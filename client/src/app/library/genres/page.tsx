@@ -43,10 +43,12 @@ export default function GenresPage() {
   const addToQueue = useSetAtom(addToQueueAtom);
 
   // Virtualized scroll restoration - pass viewMode to store separate positions per view
-  const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration(
-    "main-scroll-container",
-    viewMode,
-  );
+  const {
+    getInitialOffset,
+    saveOffset,
+    getScrollToIndex,
+    saveFirstVisibleIndex,
+  } = useVirtualizedScrollRestoration("main-scroll-container", viewMode);
 
   // Fetch genres
   const { data: genresData, isLoading } = useQuery({
@@ -200,6 +202,8 @@ export default function GenresPage() {
             columns={{ default: 3, sm: 3, md: 4, lg: 4, xl: 4 }}
             initialOffset={getInitialOffset()}
             onScrollChange={saveOffset}
+            scrollToIndex={getScrollToIndex()}
+            onFirstVisibleIndexChange={saveFirstVisibleIndex}
           />
         ) : (
           <VirtualizedList
@@ -220,6 +224,7 @@ export default function GenresPage() {
             estimateItemHeight={56}
             initialOffset={getInitialOffset()}
             onScrollChange={saveOffset}
+            onFirstVisibleIndexChange={saveFirstVisibleIndex}
           />
         )
       ) : (

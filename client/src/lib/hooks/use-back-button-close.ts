@@ -48,6 +48,8 @@ export function useBackButtonClose() {
       // Priority 2: Modal overlays (dialogs, sheets)
       '[data-state="open"][data-slot="dialog-content"]',
       '[data-state="open"][data-slot="sheet-content"]',
+      // Priority 2.5: Queue panel (above fullscreen player)
+      '[data-queue-panel="open"]',
       // Priority 3: Fullscreen player
       '[data-fullscreen-player="true"]',
     ];

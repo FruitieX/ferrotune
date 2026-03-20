@@ -36,6 +36,7 @@ import { SongContextMenu, SongDropdownMenu } from "./song-context-menu";
 // Track number column - shows number, now playing indicator, or selection checkbox on hover
 interface TrackIndexProps {
   index: number;
+  trackNumber?: number | null;
   songId: string;
   isCurrentTrack: boolean;
   isPlaying: boolean;
@@ -46,6 +47,7 @@ interface TrackIndexProps {
 
 function TrackIndex({
   index,
+  trackNumber,
   songId,
   isCurrentTrack,
   isPlaying,
@@ -82,7 +84,7 @@ function TrackIndex({
           type="button"
           role="checkbox"
           aria-checked={isSelected}
-          aria-label={`Select track ${index + 1}`}
+          aria-label={`Select track ${trackNumber ?? index + 1}`}
           className={cn(
             "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
             isSelected
@@ -108,7 +110,7 @@ function TrackIndex({
         {isCurrentTrack ? (
           <NowPlayingBars isAnimating={isPlaying} />
         ) : (
-          index + 1
+          (trackNumber ?? index + 1)
         )}
       </span>
     </div>
@@ -129,6 +131,7 @@ export interface QueueSource {
 interface SongRowProps {
   song: Song;
   index?: number;
+  trackNumber?: number | null;
   showAlbum?: boolean;
   showArtist?: boolean;
   showCover?: boolean;
@@ -176,12 +179,15 @@ interface SongRowProps {
   inlineImagesRequested?: boolean;
   /** Whether this row should be visually highlighted (e.g. when linked from another page) */
   isHighlighted?: boolean;
+  /** Disc number to show as a header above this row (for multi-disc albums) */
+  discHeader?: number;
   className?: string;
 }
 
 export function SongRow({
   song,
   index,
+  trackNumber,
   showAlbum = true,
   showArtist = true,
   showCover = false,
@@ -212,6 +218,7 @@ export function SongRow({
   isCurrentQueuePosition,
   inlineImagesRequested = false,
   isHighlighted = false,
+  discHeader,
   className,
 }: SongRowProps) {
   const currentSong = useAtomValue(currentSongAtom);
@@ -321,194 +328,205 @@ export function SongRow({
   );
 
   return (
-    <motion.div
-      data-testid="song-row"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      onClick={handleClick}
-      className="relative"
-    >
-      {isHighlighted ? (
-        <motion.div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-10 rounded-md border-2 border-primary bg-primary/20"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: [0, 1, 1, 0] }}
-          transition={{
-            duration: 3,
-            ease: "easeOut",
-            times: [0, 0.08, 0.7, 1],
-          }}
-        />
-      ) : null}
-      <MediaRow
-        coverArt={showCover ? coverArtUrl : undefined}
-        coverArtData={showCover ? song.coverArtData : undefined}
-        title={song.title}
-        colorSeed={song.album ?? undefined}
-        coverType="song"
-        isActive={isCurrentTrack}
-        isPlaying={isPlaying}
-        isSelected={isSelected}
-        onPlay={showCover ? handlePlay : undefined}
-        onDoubleClick={handlePlay}
-        leftContent={
-          index !== undefined ? (
-            <TrackIndex
-              index={index}
-              songId={song.id}
-              isCurrentTrack={isCurrentTrack}
-              isPlaying={isPlaying}
-              isSelected={isSelected}
-              isSelectionMode={isSelectionMode}
-              onSelect={onSelect}
-            />
-          ) : undefined
-        }
-        actions={
-          <RowActions
-            onStar={handleStar}
-            isStarred={isStarred}
-            dropdownMenu={
-              <SongDropdownMenu
-                song={song}
-                queueSongs={queueSongs}
-                songIndex={index}
-                queueSource={queueSource}
-                showRemoveFromPlaylist={showRemoveFromPlaylist}
-                onRemoveFromPlaylist={onRemoveFromPlaylist}
-                showMoveToPosition={showMoveToPosition}
-                onMoveToPosition={onMoveToPosition}
-                moveToPositionLabel="Move to Position"
-                showRefineMatch={showRefineMatch}
-                onRefineMatch={onRefineMatch}
-                showUnmatch={showUnmatch}
-                onUnmatch={onUnmatch}
-              />
-            }
-          />
-        }
-        rightContent={
-          <div className="flex items-center gap-4 text-sm text-muted-foreground tabular-nums shrink-0">
-            {isDisabled && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="relative hidden sm:inline-flex items-center justify-center w-4 h-4">
-                    <Ban className="w-3.5 h-3.5 text-muted-foreground/60" />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>Track disabled - excluded from automatic playback</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {isExcludedFromShuffle && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="relative hidden sm:inline-flex items-center justify-center w-4 h-4">
-                    <Shuffle className="w-3.5 h-3.5 text-muted-foreground/60" />
-                    <span className="absolute inset-0 flex items-center justify-center">
-                      <span className="w-px h-5 bg-muted-foreground/60 rotate-45 transform" />
-                    </span>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>Excluded from shuffle when playing the full library</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {showStarred && (
-              <span className="w-8 text-center">
-                {isStarred ? (
-                  <Heart className="w-3.5 h-3.5 text-red-500 fill-red-500 inline" />
-                ) : (
-                  <HeartOff className="w-3.5 h-3.5 text-muted-foreground/40 inline" />
-                )}
-              </span>
-            )}
-            {showRating && (
-              <span className="w-12 text-right">
-                {song.userRating ? "★".repeat(song.userRating) : "—"}
-              </span>
-            )}
-            {showGenre && (
-              <span
-                className="w-24 text-right truncate"
-                title={song.genre ?? undefined}
-              >
-                {song.genre ?? "—"}
-              </span>
-            )}
-            {showYear && (
-              <span className="w-12 text-right">{song.year ?? "—"}</span>
-            )}
-            {showPlayCount && (
-              <span className="w-12 text-right">{song.playCount ?? 0}</span>
-            )}
-            {showLastPlayed && (
-              <span className="w-24 text-right">
-                {song.lastPlayed ? formatDate(song.lastPlayed) : "Never"}
-              </span>
-            )}
-            {showDateAdded && (
-              <span className="w-24 text-right">
-                {song.created || dateAddedOverride
-                  ? formatDate(dateAddedOverride ?? song.created ?? "")
-                  : "—"}
-              </span>
-            )}
-            {showBitRate && (
-              <span className="w-16 text-right">
-                {song.bitRate ? `${song.bitRate}k` : "—"}
-              </span>
-            )}
-            {showFormat && (
-              <span className="w-14 text-right uppercase">
-                {song.suffix ?? "—"}
-              </span>
-            )}
-            {showDuration && (
-              <span className="w-12 text-right">
-                {formatDuration(song.duration)}
-              </span>
-            )}
+    <>
+      {discHeader !== undefined && (
+        <div className="flex items-center gap-3 pt-4 pb-2 first:pt-0">
+          <div className="text-sm font-medium text-muted-foreground">
+            Disc {discHeader}
           </div>
-        }
-        contextMenu={(children) => (
-          <SongContextMenu
-            song={song}
-            queueSongs={queueSongs}
-            songIndex={index}
-            queueSource={queueSource}
-            showRemoveFromPlaylist={showRemoveFromPlaylist}
-            onRemoveFromPlaylist={onRemoveFromPlaylist}
-            showMoveToPosition={showMoveToPosition}
-            onMoveToPosition={onMoveToPosition}
-            moveToPositionLabel="Move to Position"
-            showRefineMatch={showRefineMatch}
-            onRefineMatch={onRefineMatch}
-            showUnmatch={showUnmatch}
-            onUnmatch={onUnmatch}
-          >
-            {children}
-          </SongContextMenu>
-        )}
-        className={cn(className, isDisabled && "opacity-50")}
-      >
-        {/* Custom content with clickable links */}
-        <div className="min-w-0 flex flex-col flex-1">
-          <span
-            className={cn(
-              "text-sm font-medium truncate",
-              isCurrentTrack && "text-primary",
-            )}
-          >
-            {song.title}
-          </span>
-          {(showArtist || showAlbum) && subtitle}
+          <div className="flex-1 h-px bg-border" />
         </div>
-      </MediaRow>
-    </motion.div>
+      )}
+      <motion.div
+        data-testid="song-row"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        onClick={handleClick}
+        className="relative"
+      >
+        {isHighlighted ? (
+          <motion.div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 z-10 rounded-md border-2 border-primary bg-primary/20"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: [0, 1, 1, 0] }}
+            transition={{
+              duration: 3,
+              ease: "easeOut",
+              times: [0, 0.08, 0.7, 1],
+            }}
+          />
+        ) : null}
+        <MediaRow
+          coverArt={showCover ? coverArtUrl : undefined}
+          coverArtData={showCover ? song.coverArtData : undefined}
+          title={song.title}
+          colorSeed={song.album ?? undefined}
+          coverType="song"
+          isActive={isCurrentTrack}
+          isPlaying={isPlaying}
+          isSelected={isSelected}
+          onPlay={showCover ? handlePlay : undefined}
+          onDoubleClick={handlePlay}
+          leftContent={
+            index !== undefined ? (
+              <TrackIndex
+                index={index}
+                trackNumber={trackNumber}
+                songId={song.id}
+                isCurrentTrack={isCurrentTrack}
+                isPlaying={isPlaying}
+                isSelected={isSelected}
+                isSelectionMode={isSelectionMode}
+                onSelect={onSelect}
+              />
+            ) : undefined
+          }
+          actions={
+            <RowActions
+              onStar={handleStar}
+              isStarred={isStarred}
+              dropdownMenu={
+                <SongDropdownMenu
+                  song={song}
+                  queueSongs={queueSongs}
+                  songIndex={index}
+                  queueSource={queueSource}
+                  showRemoveFromPlaylist={showRemoveFromPlaylist}
+                  onRemoveFromPlaylist={onRemoveFromPlaylist}
+                  showMoveToPosition={showMoveToPosition}
+                  onMoveToPosition={onMoveToPosition}
+                  moveToPositionLabel="Move to Position"
+                  showRefineMatch={showRefineMatch}
+                  onRefineMatch={onRefineMatch}
+                  showUnmatch={showUnmatch}
+                  onUnmatch={onUnmatch}
+                />
+              }
+            />
+          }
+          rightContent={
+            <div className="flex items-center gap-4 text-sm text-muted-foreground tabular-nums shrink-0">
+              {isDisabled && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="relative hidden sm:inline-flex items-center justify-center w-4 h-4">
+                      <Ban className="w-3.5 h-3.5 text-muted-foreground/60" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    <p>Track disabled - excluded from automatic playback</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {isExcludedFromShuffle && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="relative hidden sm:inline-flex items-center justify-center w-4 h-4">
+                      <Shuffle className="w-3.5 h-3.5 text-muted-foreground/60" />
+                      <span className="absolute inset-0 flex items-center justify-center">
+                        <span className="w-px h-5 bg-muted-foreground/60 rotate-45 transform" />
+                      </span>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    <p>Excluded from shuffle when playing the full library</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {showStarred && (
+                <span className="w-8 text-center">
+                  {isStarred ? (
+                    <Heart className="w-3.5 h-3.5 text-red-500 fill-red-500 inline" />
+                  ) : (
+                    <HeartOff className="w-3.5 h-3.5 text-muted-foreground/40 inline" />
+                  )}
+                </span>
+              )}
+              {showRating && (
+                <span className="w-12 text-right">
+                  {song.userRating ? "★".repeat(song.userRating) : "—"}
+                </span>
+              )}
+              {showGenre && (
+                <span
+                  className="w-24 text-right truncate"
+                  title={song.genre ?? undefined}
+                >
+                  {song.genre ?? "—"}
+                </span>
+              )}
+              {showYear && (
+                <span className="w-12 text-right">{song.year ?? "—"}</span>
+              )}
+              {showPlayCount && (
+                <span className="w-12 text-right">{song.playCount ?? 0}</span>
+              )}
+              {showLastPlayed && (
+                <span className="w-24 text-right">
+                  {song.lastPlayed ? formatDate(song.lastPlayed) : "Never"}
+                </span>
+              )}
+              {showDateAdded && (
+                <span className="w-24 text-right">
+                  {song.created || dateAddedOverride
+                    ? formatDate(dateAddedOverride ?? song.created ?? "")
+                    : "—"}
+                </span>
+              )}
+              {showBitRate && (
+                <span className="w-16 text-right">
+                  {song.bitRate ? `${song.bitRate}k` : "—"}
+                </span>
+              )}
+              {showFormat && (
+                <span className="w-14 text-right uppercase">
+                  {song.suffix ?? "—"}
+                </span>
+              )}
+              {showDuration && (
+                <span className="w-12 text-right">
+                  {formatDuration(song.duration)}
+                </span>
+              )}
+            </div>
+          }
+          contextMenu={(children) => (
+            <SongContextMenu
+              song={song}
+              queueSongs={queueSongs}
+              songIndex={index}
+              queueSource={queueSource}
+              showRemoveFromPlaylist={showRemoveFromPlaylist}
+              onRemoveFromPlaylist={onRemoveFromPlaylist}
+              showMoveToPosition={showMoveToPosition}
+              onMoveToPosition={onMoveToPosition}
+              moveToPositionLabel="Move to Position"
+              showRefineMatch={showRefineMatch}
+              onRefineMatch={onRefineMatch}
+              showUnmatch={showUnmatch}
+              onUnmatch={onUnmatch}
+            >
+              {children}
+            </SongContextMenu>
+          )}
+          className={cn(className, isDisabled && "opacity-50")}
+        >
+          {/* Custom content with clickable links */}
+          <div className="min-w-0 flex flex-col flex-1">
+            <span
+              className={cn(
+                "text-sm font-medium truncate",
+                isCurrentTrack && "text-primary",
+              )}
+            >
+              {song.title}
+            </span>
+            {(showArtist || showAlbum) && subtitle}
+          </div>
+        </MediaRow>
+      </motion.div>
+    </>
   );
 }
 

@@ -51,10 +51,12 @@ export default function AlbumsPage() {
   const invalidateFavorites = useInvalidateFavorites();
 
   // Virtualized scroll restoration - pass viewMode to store separate positions per view
-  const { getInitialOffset, saveOffset } = useVirtualizedScrollRestoration(
-    "main-scroll-container",
-    viewMode,
-  );
+  const {
+    getInitialOffset,
+    saveOffset,
+    getScrollToIndex,
+    saveFirstVisibleIndex,
+  } = useVirtualizedScrollRestoration("main-scroll-container", viewMode);
 
   // Fetch albums using sparse pagination for random-access scrolling
   // Note: We request "medium" thumbnails for both views to prevent refetching when toggling view mode.
@@ -269,6 +271,8 @@ export default function AlbumsPage() {
             ensureRange={ensureRange}
             initialOffset={getInitialOffset()}
             onScrollChange={saveOffset}
+            scrollToIndex={getScrollToIndex()}
+            onFirstVisibleIndexChange={saveFirstVisibleIndex}
           />
         ) : (
           <>
@@ -305,6 +309,8 @@ export default function AlbumsPage() {
               ensureRange={ensureRange}
               initialOffset={getInitialOffset()}
               onScrollChange={saveOffset}
+              scrollToIndex={getScrollToIndex()}
+              onFirstVisibleIndexChange={saveFirstVisibleIndex}
             />
           </>
         )

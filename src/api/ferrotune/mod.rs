@@ -88,6 +88,7 @@ mod duplicates;
 mod filesystem;
 mod history;
 mod home;
+pub mod lastfm;
 mod listening;
 mod lists;
 mod match_dictionary;
@@ -363,6 +364,15 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/ferrotune/scrobbles/check-duplicate",
             get(scrobbles::check_import_duplicate),
+        )
+        // Last.fm integration endpoints
+        .route("/ferrotune/lastfm/auth-url", get(lastfm::get_auth_url))
+        .route("/ferrotune/lastfm/callback", post(lastfm::callback))
+        .route("/ferrotune/lastfm/status", get(lastfm::status))
+        .route("/ferrotune/lastfm/disconnect", post(lastfm::disconnect))
+        .route(
+            "/ferrotune/lastfm/config",
+            get(lastfm::get_config).put(lastfm::save_config),
         )
         // Waveform endpoints
         .route(

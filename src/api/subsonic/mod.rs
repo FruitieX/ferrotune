@@ -57,6 +57,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route("/rest/getMusicFolders", get(system::get_music_folders))
         .route("/rest/getMusicFolders.view", get(system::get_music_folders))
+        .route("/rest/startScan", get(system::start_scan))
+        .route("/rest/startScan.view", get(system::start_scan))
+        .route("/rest/getScanStatus", get(system::get_scan_status))
+        .route("/rest/getScanStatus.view", get(system::get_scan_status))
         // Browse endpoints
         .route("/rest/getArtists", get(browse::get_artists))
         .route("/rest/getArtists.view", get(browse::get_artists))
@@ -112,6 +116,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/rest/getPlayQueue", get(playqueue::get_play_queue))
         .route("/rest/getPlayQueue.view", get(playqueue::get_play_queue))
         // List endpoints
+        .route("/rest/getAlbumList", get(lists::get_album_list))
+        .route("/rest/getAlbumList.view", get(lists::get_album_list))
         .route("/rest/getAlbumList2", get(lists::get_album_list2))
         .route("/rest/getAlbumList2.view", get(lists::get_album_list2))
         .route("/rest/getRandomSongs", get(lists::get_random_songs))

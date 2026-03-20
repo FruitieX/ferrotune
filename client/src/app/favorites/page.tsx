@@ -751,6 +751,10 @@ export default function FavoritesPage() {
                   ensureRange={ensureSongsRange}
                   initialOffset={songScrollRestoration.getInitialOffset()}
                   onScrollChange={songScrollRestoration.saveOffset}
+                  scrollToIndex={songScrollRestoration.getScrollToIndex()}
+                  onFirstVisibleIndexChange={
+                    songScrollRestoration.saveFirstVisibleIndex
+                  }
                 />
               ) : (
                 <>
@@ -796,6 +800,9 @@ export default function FavoritesPage() {
                     ensureRange={ensureSongsRange}
                     initialOffset={songScrollRestoration.getInitialOffset()}
                     onScrollChange={songScrollRestoration.saveOffset}
+                    onFirstVisibleIndexChange={
+                      songScrollRestoration.saveFirstVisibleIndex
+                    }
                   />
                 </>
               )
@@ -856,6 +863,10 @@ export default function FavoritesPage() {
                   ensureRange={ensureAlbumsRange}
                   initialOffset={albumScrollRestoration.getInitialOffset()}
                   onScrollChange={albumScrollRestoration.saveOffset}
+                  scrollToIndex={albumScrollRestoration.getScrollToIndex()}
+                  onFirstVisibleIndexChange={
+                    albumScrollRestoration.saveFirstVisibleIndex
+                  }
                 />
               ) : (
                 <VirtualizedList
@@ -891,6 +902,9 @@ export default function FavoritesPage() {
                   ensureRange={ensureAlbumsRange}
                   initialOffset={albumScrollRestoration.getInitialOffset()}
                   onScrollChange={albumScrollRestoration.saveOffset}
+                  onFirstVisibleIndexChange={
+                    albumScrollRestoration.saveFirstVisibleIndex
+                  }
                 />
               )
             ) : (
@@ -950,6 +964,10 @@ export default function FavoritesPage() {
                   ensureRange={ensureArtistsRange}
                   initialOffset={artistScrollRestoration.getInitialOffset()}
                   onScrollChange={artistScrollRestoration.saveOffset}
+                  scrollToIndex={artistScrollRestoration.getScrollToIndex()}
+                  onFirstVisibleIndexChange={
+                    artistScrollRestoration.saveFirstVisibleIndex
+                  }
                 />
               ) : (
                 <VirtualizedList
@@ -981,6 +999,9 @@ export default function FavoritesPage() {
                   ensureRange={ensureArtistsRange}
                   initialOffset={artistScrollRestoration.getInitialOffset()}
                   onScrollChange={artistScrollRestoration.saveOffset}
+                  onFirstVisibleIndexChange={
+                    artistScrollRestoration.saveFirstVisibleIndex
+                  }
                 />
               )
             ) : (

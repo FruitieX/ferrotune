@@ -110,3 +110,94 @@ pub async fn get_music_folders(
 
     Ok(FormatResponse::new(user.format, response))
 }
+
+// Scan status types (Subsonic API: startScan / getScanStatus)
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ScanStatusWrapper {
+    pub scan_status: ScanStatusInner,
+}
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ScanStatusInner {
+    pub scanning: bool,
+    #[ts(type = "number")]
+    pub count: u64,
+}
+
+/// Subsonic-compatible startScan endpoint.
+///
+/// Triggers a library scan and returns the current scan status.
+pub async fn start_scan(
+    user: AuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+) -> crate::error::Result<FormatResponse<ScanStatusWrapper>> {
+    // Start an incremental scan (Subsonic spec doesn't expose full/dry-run options)
+    let started = state.scan_state.start("incremental".to_string()).await;
+
+    if started {
+        let pool = state.pool.clone();
+        let scan_state = state.scan_state.clone();
+        let opts = crate::scanner::ScanOptions {
+            full: false,
+            folder_id: None,
+            dry_run: false,
+            analyze_replaygain: false,
+            analyze_bliss: false,
+            analyze_waveform: false,
+            skip: None,
+        };
+        tokio::spawn(async move {
+            scan_state.log("INFO", "Starting library scan...").await;
+            match crate::scanner::scan_library_with_progress(&pool, opts, Some(scan_state.clone()))
+                .await
+            {
+                Ok(()) => {
+                    scan_state
+                        .log("INFO", "Library scan completed successfully")
+                        .await;
+                    scan_state.complete().await;
+                }
+                Err(e) => {
+                    let error_msg = e.to_string();
+                    if error_msg.contains("Scan cancelled") {
+                        scan_state.complete().await;
+                    } else {
+                        let error_msg = format!("Scan failed: {}", e);
+                        tracing::error!("{}", error_msg);
+                        scan_state.log("ERROR", &error_msg).await;
+                        scan_state.fail(error_msg).await;
+                    }
+                }
+            }
+        });
+    }
+
+    let progress = state.scan_state.get_progress().await;
+    let response = ScanStatusWrapper {
+        scan_status: ScanStatusInner {
+            scanning: progress.scanning,
+            count: progress.scanned,
+        },
+    };
+    Ok(FormatResponse::new(user.format, response))
+}
+
+/// Subsonic-compatible getScanStatus endpoint.
+pub async fn get_scan_status(
+    user: AuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+) -> crate::error::Result<FormatResponse<ScanStatusWrapper>> {
+    let progress = state.scan_state.get_progress().await;
+    let response = ScanStatusWrapper {
+        scan_status: ScanStatusInner {
+            scanning: progress.scanning,
+            count: progress.scanned,
+        },
+    };
+    Ok(FormatResponse::new(user.format, response))
+}

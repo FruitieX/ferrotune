@@ -76,6 +76,10 @@ import type { SaveMatchDictionaryRequest } from "./generated/SaveMatchDictionary
 import type { SaveMatchDictionaryResponse } from "./generated/SaveMatchDictionaryResponse";
 import type { ImportScrobblesRequest } from "./generated/ImportScrobblesRequest";
 import type { ImportScrobblesResponse } from "./generated/ImportScrobblesResponse";
+import type { LastfmAuthUrlResponse } from "./generated/LastfmAuthUrlResponse";
+import type { LastfmConfigResponse } from "./generated/LastfmConfigResponse";
+import type { LastfmConnectResponse } from "./generated/LastfmConnectResponse";
+import type { LastfmStatusResponse } from "./generated/LastfmStatusResponse";
 import type { ImportWithTimestampsRequest } from "./generated/ImportWithTimestampsRequest";
 import type { ImportWithTimestampsResponse } from "./generated/ImportWithTimestampsResponse";
 import type { GetPlayCountsRequest } from "./generated/GetPlayCountsRequest";
@@ -520,6 +524,41 @@ export class FerrotuneClient {
         queueSourceId,
       }),
     });
+  }
+
+  // Last.fm integration
+  async getLastfmStatus(): Promise<LastfmStatusResponse> {
+    return this.request("/ferrotune/lastfm/status");
+  }
+
+  async getLastfmConfig(): Promise<LastfmConfigResponse> {
+    return this.request("/ferrotune/lastfm/config");
+  }
+
+  async saveLastfmConfig(
+    apiKey: string,
+    apiSecret: string,
+  ): Promise<LastfmConfigResponse> {
+    return this.request("/ferrotune/lastfm/config", {
+      method: "PUT",
+      body: JSON.stringify({ apiKey, apiSecret }),
+    });
+  }
+
+  async getLastfmAuthUrl(callbackUrl: string): Promise<LastfmAuthUrlResponse> {
+    const endpoint = buildEndpoint("/ferrotune/lastfm/auth-url", {
+      callbackUrl,
+    });
+    return this.request(endpoint);
+  }
+
+  async lastfmCallback(token: string): Promise<LastfmConnectResponse> {
+    const endpoint = buildEndpoint("/ferrotune/lastfm/callback", { token });
+    return this.request(endpoint, { method: "POST" });
+  }
+
+  async disconnectLastfm(): Promise<LastfmConnectResponse> {
+    return this.request("/ferrotune/lastfm/disconnect", { method: "POST" });
   }
 
   // Playlist endpoints

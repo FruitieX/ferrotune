@@ -3,6 +3,7 @@
 import { useAtom } from "jotai";
 import { useTheme } from "next-themes";
 import { useQuery } from "@tanstack/react-query";
+import { LastfmCard } from "./lastfm-card";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import {
@@ -899,6 +900,9 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </motion.div>
+
+        {/* Last.fm Scrobbling */}
+        <LastfmCard />
 
         {/* About */}
         <motion.div

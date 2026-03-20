@@ -4,6 +4,7 @@
 //! the OpenSubsonic API and the Ferrotune Admin API.
 
 use serde::{Deserialize, Serialize};
+use strsim::normalized_levenshtein;
 use ts_rs::TS;
 
 /// Convert a user query into an FTS5-safe query with prefix matching.
@@ -68,6 +69,69 @@ pub fn text_matches_query(text: &str, query: &str) -> bool {
     tokens
         .iter()
         .all(|token| text_words.iter().any(|word| word.starts_with(token)))
+}
+
+/// Score how well a text matches a query using normalized Levenshtein similarity.
+/// Returns a score between 0.0 (no match) and 1.0 (exact match).
+/// Compares each query token against each word in the text, taking the best match per token.
+fn fuzzy_score(text: &str, query: &str) -> f64 {
+    let tokens = parse_search_tokens(query);
+    if tokens.is_empty() {
+        return 1.0;
+    }
+
+    let text_lower = text.to_lowercase();
+    let text_words: Vec<&str> = text_lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if text_words.is_empty() {
+        return 0.0;
+    }
+
+    let mut total_score = 0.0;
+    for token in &tokens {
+        let best = text_words
+            .iter()
+            .map(|word| {
+                // Exact prefix match scores highest
+                if word.starts_with(token.as_str()) {
+                    1.0
+                } else {
+                    normalized_levenshtein(token, word)
+                }
+            })
+            .fold(0.0_f64, f64::max);
+        total_score += best;
+    }
+    total_score / tokens.len() as f64
+}
+
+/// Build a SQL LIKE pattern from a query for fuzzy matching fallback.
+/// Each token becomes `%token%` combined with AND.
+/// Returns (WHERE clause fragment, bind values).
+fn build_like_conditions(query: &str, columns: &[&str]) -> Option<(String, Vec<String>)> {
+    let tokens = parse_search_tokens(query);
+    if tokens.is_empty() {
+        return None;
+    }
+
+    // For each token, at least one column must match
+    let mut conditions = Vec::new();
+    let mut bind_values = Vec::new();
+    for token in &tokens {
+        let col_conditions: Vec<String> = columns
+            .iter()
+            .map(|_col| format!("{} LIKE ? COLLATE NOCASE", _col))
+            .collect();
+        conditions.push(format!("({})", col_conditions.join(" OR ")));
+        for _ in columns {
+            bind_values.push(format!("%{}%", token));
+        }
+    }
+
+    Some((conditions.join(" AND "), bind_values))
 }
 
 /// Search parameters shared by both OpenSubsonic search3 and Ferrotune search endpoints.
@@ -733,6 +797,28 @@ pub async fn search_artists(
         (vec![], Some(0))
     };
 
+    // Fuzzy fallback: if FTS returned fewer results than requested and we're on the first page,
+    // supplement with LIKE-based matches scored by edit distance
+    let artists = if !is_wildcard && offset == 0 && (artists.len() as i64) < limit {
+        match fuzzy_supplement_artists(
+            pool,
+            user_id,
+            trimmed_query,
+            &artists,
+            limit,
+            &artist_joins,
+            &artist_join_user_ids,
+            &artist_filter_conds,
+        )
+        .await
+        {
+            Ok(supplemented) => supplemented,
+            Err(_) => artists,
+        }
+    } else {
+        artists
+    };
+
     Ok(ArtistSearchResult { artists, total })
 }
 
@@ -874,6 +960,16 @@ pub async fn search_albums(
         (vec![], Some(0))
     };
 
+    // Fuzzy fallback for albums
+    let albums = if !is_wildcard && offset == 0 && (albums.len() as i64) < limit {
+        match fuzzy_supplement_albums(pool, user_id, trimmed_query, &albums, limit).await {
+            Ok(supplemented) => supplemented,
+            Err(_) => albums,
+        }
+    } else {
+        albums
+    };
+
     Ok(AlbumSearchResult { albums, total })
 }
 
@@ -1011,5 +1107,159 @@ pub async fn search_songs(
         (vec![], Some(0))
     };
 
+    // Fuzzy fallback for songs
+    let songs = if !is_wildcard && offset == 0 && (songs.len() as i64) < limit {
+        match fuzzy_supplement_songs(pool, user_id, trimmed_query, &songs, limit).await {
+            Ok(supplemented) => supplemented,
+            Err(_) => songs,
+        }
+    } else {
+        songs
+    };
+
     Ok(SongSearchResult { songs, total })
+}
+
+/// Minimum fuzzy score threshold for including a LIKE-based fallback result.
+const FUZZY_THRESHOLD: f64 = 0.5;
+
+/// Supplement artist results with LIKE-based fuzzy matches.
+#[allow(clippy::too_many_arguments)]
+async fn fuzzy_supplement_artists(
+    pool: &sqlx::SqlitePool,
+    user_id: i64,
+    query: &str,
+    existing: &[crate::db::models::Artist],
+    limit: i64,
+    joins: &str,
+    join_user_ids: &[i64],
+    filter_conds: &[String],
+) -> crate::error::Result<Vec<crate::db::models::Artist>> {
+    let (like_clause, like_binds) = match build_like_conditions(query, &["a.name", "a.sort_name"]) {
+        Some(v) => v,
+        None => return Ok(existing.to_vec()),
+    };
+
+    let enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE s_check.artist_id = a.id AND mf_check.enabled = 1 AND ula_check.user_id = ?)";
+
+    let mut all_conditions = vec![enabled_condition.to_string(), like_clause];
+    all_conditions.extend(filter_conds.iter().cloned());
+    let where_clause = format!("WHERE {}", all_conditions.join(" AND "));
+
+    let query_str = format!("SELECT a.* FROM artists a {joins} {where_clause} LIMIT ?");
+    let mut qb = sqlx::query_as::<_, crate::db::models::Artist>(&query_str);
+    for uid in join_user_ids {
+        qb = qb.bind(*uid);
+    }
+    qb = qb.bind(user_id);
+    for val in &like_binds {
+        qb = qb.bind(val);
+    }
+    // Fetch up to limit candidates for scoring
+    let candidates = qb.bind(limit * 3).fetch_all(pool).await?;
+
+    merge_results(existing, candidates, query, limit, |a| &a.name, |a| &a.id)
+}
+
+/// Supplement album results with LIKE-based fuzzy matches.
+async fn fuzzy_supplement_albums(
+    pool: &sqlx::SqlitePool,
+    user_id: i64,
+    query: &str,
+    existing: &[crate::db::models::Album],
+    limit: i64,
+) -> crate::error::Result<Vec<crate::db::models::Album>> {
+    let (like_clause, like_binds) = match build_like_conditions(query, &["a.name", "ar.name"]) {
+        Some(v) => v,
+        None => return Ok(existing.to_vec()),
+    };
+
+    let enabled_condition = "EXISTS (SELECT 1 FROM songs s_check JOIN music_folders mf_check ON s_check.music_folder_id = mf_check.id JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE s_check.album_id = a.id AND mf_check.enabled = 1 AND ula_check.user_id = ?)";
+
+    let where_clause = format!("WHERE {} AND {}", enabled_condition, like_clause);
+
+    let query_str = format!(
+        "SELECT a.*, ar.name as artist_name FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id {where_clause} LIMIT ?"
+    );
+    let mut qb = sqlx::query_as::<_, crate::db::models::Album>(&query_str);
+    qb = qb.bind(user_id);
+    for val in &like_binds {
+        qb = qb.bind(val);
+    }
+    let candidates = qb.bind(limit * 3).fetch_all(pool).await?;
+
+    merge_results(existing, candidates, query, limit, |a| &a.name, |a| &a.id)
+}
+
+/// Supplement song results with LIKE-based fuzzy matches.
+async fn fuzzy_supplement_songs(
+    pool: &sqlx::SqlitePool,
+    user_id: i64,
+    query: &str,
+    existing: &[crate::db::models::Song],
+    limit: i64,
+) -> crate::error::Result<Vec<crate::db::models::Song>> {
+    let (like_clause, like_binds) =
+        match build_like_conditions(query, &["s.title", "ar.name", "al.name"]) {
+            Some(v) => v,
+            None => return Ok(existing.to_vec()),
+        };
+
+    let enabled_condition = "EXISTS (SELECT 1 FROM music_folders mf_check JOIN user_library_access ula_check ON ula_check.music_folder_id = mf_check.id WHERE mf_check.id = s.music_folder_id AND mf_check.enabled = 1 AND ula_check.user_id = ?)";
+
+    let where_clause = format!("WHERE {} AND {}", enabled_condition, like_clause);
+
+    let query_str = format!(
+        "SELECT s.*, ar.name as artist_name, al.name as album_name, NULL as play_count, NULL as last_played, NULL as starred_at
+         FROM songs s
+         LEFT JOIN artists ar ON s.artist_id = ar.id
+         LEFT JOIN albums al ON s.album_id = al.id
+         {where_clause}
+         LIMIT ?"
+    );
+    let mut qb = sqlx::query_as::<_, crate::db::models::Song>(&query_str);
+    qb = qb.bind(user_id);
+    for val in &like_binds {
+        qb = qb.bind(val);
+    }
+    let candidates = qb.bind(limit * 3).fetch_all(pool).await?;
+
+    merge_results(existing, candidates, query, limit, |s| &s.title, |s| &s.id)
+}
+
+/// Merge FTS results with LIKE-based fuzzy candidates, deduplicating and ranking by fuzzy score.
+fn merge_results<T: Clone>(
+    existing: &[T],
+    candidates: Vec<T>,
+    query: &str,
+    limit: i64,
+    get_name: impl Fn(&T) -> &str,
+    get_id: impl Fn(&T) -> &str,
+) -> crate::error::Result<Vec<T>> {
+    use std::collections::HashSet;
+
+    let existing_ids: HashSet<&str> = existing.iter().map(&get_id).collect();
+
+    // Score and filter new candidates
+    let mut scored: Vec<(T, f64)> = candidates
+        .into_iter()
+        .filter(|item| !existing_ids.contains(get_id(item)))
+        .filter_map(|item| {
+            let score = fuzzy_score(get_name(&item), query);
+            if score >= FUZZY_THRESHOLD {
+                Some((item, score))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Append fuzzy results after FTS results (FTS results are more relevant)
+    let mut result: Vec<T> = existing.to_vec();
+    let remaining = (limit as usize).saturating_sub(result.len());
+    result.extend(scored.into_iter().take(remaining).map(|(item, _)| item));
+
+    Ok(result)
 }

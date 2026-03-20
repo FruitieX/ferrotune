@@ -55,7 +55,7 @@ export function useSessionInit() {
     sessionIdRef.current = sessionId;
   });
 
-  const refreshSessions = async () => {
+  const refreshSessionsRef = useRef(async () => {
     const client = getClient();
     if (!client) return;
     try {
@@ -64,9 +64,9 @@ export function useSessionInit() {
     } catch {
       // Silently ignore
     }
-  };
+  });
 
-  const sendHeartbeat = async () => {
+  const sendHeartbeatRef = useRef(async () => {
     const sid = sessionIdRef.current;
     if (!sid) return;
 
@@ -89,14 +89,6 @@ export function useSessionInit() {
     } catch {
       // Silently ignore heartbeat failures
     }
-  };
-
-  // Stable refs for effect callbacks to avoid re-triggering intervals
-  const refreshSessionsRef = useRef(refreshSessions);
-  const sendHeartbeatRef = useRef(sendHeartbeat);
-  useEffect(() => {
-    refreshSessionsRef.current = refreshSessions;
-    sendHeartbeatRef.current = sendHeartbeat;
   });
 
   // Initialize session when client becomes ready
@@ -196,6 +188,4 @@ export function useSessionInit() {
     const interval = setInterval(() => refreshSessionsRef.current(), 60_000);
     return () => clearInterval(interval);
   }, [isClientInitialized]);
-
-  return { refreshSessions };
 }

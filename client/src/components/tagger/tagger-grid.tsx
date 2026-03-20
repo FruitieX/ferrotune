@@ -46,6 +46,17 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Loader2 } from "lucide-react";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useRouter } from "next/navigation";
+import {
   ImportFromFileDialog,
   type ImportFromFileOptions,
 } from "./import-from-file-dialog";
@@ -69,6 +80,7 @@ export function TaggerGrid({
   const startQueue = useSetAtom(startQueueAtom);
   const { runOnTracks } = useRenameScript();
   const previewAudio = usePreviewAudio();
+  const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -624,6 +636,55 @@ export function TaggerGrid({
     if (targetIds.length === 0) return;
 
     onRemoveTracks?.(targetIds);
+  }
+
+  // Mark for deletion - moves library tracks to recycle bin
+  const [confirmDeletionOpen, setConfirmDeletionOpen] = useState(false);
+  const [deletionTargetIds, setDeletionTargetIds] = useState<string[]>([]);
+
+  function handleContextMenuMarkForDeletion() {
+    const targetIds = getContextMenuTargetIds(contextMenuRowId);
+    // Filter to only library tracks (not staged)
+    const libraryTrackIds = targetIds.filter((id) => {
+      const state = tracks.get(id);
+      return state && !state.track.isStaged;
+    });
+    if (libraryTrackIds.length === 0) return;
+    setDeletionTargetIds(libraryTrackIds);
+    setConfirmDeletionOpen(true);
+  }
+
+  async function handleConfirmDeletion() {
+    const client = getClient();
+    if (!client || deletionTargetIds.length === 0) return;
+
+    try {
+      await client.markForDeletion(deletionTargetIds);
+      setConfirmDeletionOpen(false);
+      // Remove the deleted tracks from the tagger
+      onRemoveTracks?.(deletionTargetIds);
+      toast.success(
+        `${deletionTargetIds.length} song${deletionTargetIds.length > 1 ? "s" : ""} moved to recycle bin`,
+        {
+          description: "Files will be permanently deleted in 30 days",
+          action: {
+            label: "View Recycle Bin",
+            onClick: () => router.push("/admin/recycle-bin"),
+          },
+        },
+      );
+    } catch (error) {
+      toast.error("Failed to mark for deletion");
+      console.error(error);
+    }
+  }
+
+  function getCanMarkForDeletion(): boolean {
+    const targetIds = getContextMenuTargetIds(contextMenuRowId);
+    return targetIds.some((id) => {
+      const state = tracks.get(id);
+      return state && !state.track.isStaged;
+    });
   }
 
   // Import from file - works for library tracks (single or batch)
@@ -2109,6 +2170,7 @@ export function TaggerGrid({
         onRunOneOffScript={() => onOpenOneOffScript?.()}
         onSave={handleContextMenuSave}
         onRemove={handleContextMenuRemove}
+        onMarkForDeletion={handleContextMenuMarkForDeletion}
         onImportFromFile={handleImportFromFile}
         onRevertImportFromFile={handleRevertImportFromFile}
         canUndo={canUndo}
@@ -2116,6 +2178,7 @@ export function TaggerGrid({
         canRevert={!!onRevertTracks}
         canSave={!!onSaveTracks}
         canRemove={!!onRemoveTracks}
+        canMarkForDeletion={getCanMarkForDeletion()}
         canImportFromFile={getCanImportFromFile()}
         hasAnyReplacementAudio={getHasAnyReplacementAudio()}
         importFromFileLabel={getImportFromFileLabel()}
@@ -2222,6 +2285,32 @@ export function TaggerGrid({
           })}
         </div>
       </div>
+
+      {/* Mark for Deletion confirmation dialog */}
+      <AlertDialog
+        open={confirmDeletionOpen}
+        onOpenChange={setConfirmDeletionOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark for Deletion?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletionTargetIds.length === 1
+                ? "This track will be moved to the recycle bin and permanently deleted after 30 days. This action can be undone from the Administration page."
+                : `${deletionTargetIds.length} tracks will be moved to the recycle bin and permanently deleted after 30 days. This action can be undone from the Administration page.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDeletion}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Mark for Deletion
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

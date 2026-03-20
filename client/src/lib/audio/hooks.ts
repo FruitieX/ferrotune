@@ -804,27 +804,28 @@ export function useAudioEngineInit() {
             settersRef.current.setPlaybackState("playing");
           }
 
-          // Handle scrobbling
+          // Handle scrobbling based on actual listened time (not just position)
           const state = stateRef.current;
-          if (
-            !state.hasScrobbled &&
-            duration > 0 &&
-            currentTime / duration >= state.scrobbleThreshold
-          ) {
-            settersRef.current.setHasScrobbled(true);
-            if (state.currentSong) {
-              getClient()
-                ?.scrobble(
-                  state.currentSong.id,
-                  undefined,
-                  true,
-                  state.queueState?.source?.type,
-                  state.queueState?.source?.id ?? undefined,
-                )
-                .then(() => {
-                  settersRef.current.invalidatePlayCountQueries();
-                })
-                .catch(console.error);
+          if (!state.hasScrobbled && duration > 0) {
+            const totalListenedSeconds = calculateTotalListeningSeconds();
+            const thresholdSeconds = duration * state.scrobbleThreshold;
+
+            if (totalListenedSeconds >= thresholdSeconds) {
+              settersRef.current.setHasScrobbled(true);
+              if (state.currentSong) {
+                getClient()
+                  ?.scrobble(
+                    state.currentSong.id,
+                    undefined,
+                    true,
+                    state.queueState?.source?.type,
+                    state.queueState?.source?.id ?? undefined,
+                  )
+                  .then(() => {
+                    settersRef.current.invalidatePlayCountQueries();
+                  })
+                  .catch(console.error);
+              }
             }
           }
         },

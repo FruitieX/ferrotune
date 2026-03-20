@@ -100,6 +100,12 @@ function AlbumDetailContent() {
   // Songs come directly from server response - already sorted and filtered
   const displaySongs = albumData?.song ?? [];
 
+  // Detect multi-disc albums for disc header display
+  const isMultiDisc = displaySongs.some(
+    (s) =>
+      s.discNumber !== undefined && s.discNumber !== null && s.discNumber > 1,
+  );
+
   // Find highlighted song index from songId query param
   const highlightedSongIndex = songId
     ? displaySongs.findIndex((s) => s.id === songId)
@@ -377,6 +383,15 @@ function AlbumDetailContent() {
                   <SongRow
                     song={song}
                     index={columnVisibility.trackNumber ? index : undefined}
+                    trackNumber={song.track}
+                    discHeader={
+                      isMultiDisc &&
+                      song.discNumber != null &&
+                      (index === 0 ||
+                        displaySongs[index - 1]?.discNumber !== song.discNumber)
+                        ? song.discNumber
+                        : undefined
+                    }
                     showCover
                     showArtist={columnVisibility.artist}
                     showAlbum={columnVisibility.album}

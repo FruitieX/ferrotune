@@ -394,13 +394,14 @@ export function FullscreenPlayer() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         // Check if there are any overlays that should handle Escape first
-        // (sheets, dialogs, menus, popovers, dropdown menus)
+        // (sheets, dialogs, menus, popovers, dropdown menus, queue panel)
         const higherPriorityOverlay = document.querySelector(
           '[data-state="open"][data-slot="sheet-content"], ' +
             '[data-state="open"][data-slot="dialog-content"], ' +
             '[data-state="open"][data-slot="context-menu-content"], ' +
             '[data-state="open"][data-slot="dropdown-menu-content"], ' +
-            '[data-state="open"][data-slot="popover-content"]',
+            '[data-state="open"][data-slot="popover-content"], ' +
+            '[data-queue-panel="open"]',
         );
 
         // If there's a higher priority overlay, let it handle Escape
@@ -440,7 +441,8 @@ export function FullscreenPlayer() {
           '[data-state="open"][data-slot="dialog-content"], ' +
           '[data-state="open"][data-slot="context-menu-content"], ' +
           '[data-state="open"][data-slot="dropdown-menu-content"], ' +
-          '[data-state="open"][data-slot="popover-content"]',
+          '[data-state="open"][data-slot="popover-content"], ' +
+          '[data-queue-panel="open"]',
       );
 
       // If there's a higher priority overlay, let it handle the back button

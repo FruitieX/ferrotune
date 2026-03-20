@@ -86,6 +86,55 @@ pub async fn get_album_list2(
     Ok(FormatResponse::new(user.format, response))
 }
 
+// getAlbumList (non-ID3 variant) — same logic, different response wrapper
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct AlbumListResponse {
+    pub album_list: AlbumListContent,
+}
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct AlbumListContent {
+    pub album: Vec<AlbumResponse>,
+}
+
+pub async fn get_album_list(
+    user: AuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<AlbumListParams>,
+) -> Result<FormatResponse<AlbumListResponse>> {
+    let size = params.size.unwrap_or(10) as i64;
+    let offset = params.offset.unwrap_or(0) as i64;
+    let inline_size = params.inline_images.get_size();
+
+    let result = get_album_list_logic(
+        &state.pool,
+        user.user_id,
+        params.list_type,
+        size,
+        offset,
+        params.from_year,
+        params.to_year,
+        params.genre,
+        inline_size,
+        None,
+        None,
+    )
+    .await?;
+
+    let response = AlbumListResponse {
+        album_list: AlbumListContent {
+            album: result.albums,
+        },
+    };
+
+    Ok(FormatResponse::new(user.format, response))
+}
+
 #[derive(Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
@@ -228,6 +277,31 @@ pub async fn scrobble(
     .bind(submission)
     .execute(&state.pool)
     .await?;
+
+    // Forward to Last.fm in background
+    {
+        let pool = state.pool.clone();
+        let uid = user.user_id;
+        let song_id = params.id.clone();
+        if submission {
+            let ts = played_at.timestamp();
+            tokio::spawn(async move {
+                if let Err(e) =
+                    crate::api::ferrotune::lastfm::forward_scrobble(&pool, uid, &song_id, ts).await
+                {
+                    tracing::warn!("Last.fm scrobble failed: {}", e);
+                }
+            });
+        } else {
+            tokio::spawn(async move {
+                if let Err(e) =
+                    crate::api::ferrotune::lastfm::update_now_playing(&pool, uid, &song_id).await
+                {
+                    tracing::warn!("Last.fm now playing update failed: {}", e);
+                }
+            });
+        }
+    }
 
     Ok(format_ok_empty(user.format))
 }
