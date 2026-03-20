@@ -273,6 +273,7 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
     });
 
     // Spawn background task to clean up stale playback sessions (every 30s, 2min timeout)
+    // Preserves the most recent session per user to prevent queue loss on server restarts.
     {
         let pool = pool.clone();
         let sm = session_manager.clone();
@@ -280,9 +281,17 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
             loop {
                 interval.tick().await;
-                // Find sessions with heartbeat older than 2 minutes
+                // Find sessions with heartbeat older than 2 minutes,
+                // EXCLUDING the most recent session per user (to preserve queue)
                 let stale: Vec<(String,)> = match sqlx::query_as(
-                    "SELECT id FROM playback_sessions WHERE last_heartbeat < datetime('now', '-2 minutes')",
+                    "SELECT id FROM playback_sessions \
+                     WHERE last_heartbeat < datetime('now', '-2 minutes') \
+                     AND id NOT IN ( \
+                         SELECT id FROM playback_sessions ps2 \
+                         WHERE ps2.user_id = playback_sessions.user_id \
+                         ORDER BY ps2.last_heartbeat DESC \
+                         LIMIT 1 \
+                     )",
                 )
                 .fetch_all(&pool)
                 .await
@@ -306,13 +315,30 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
                     tracing::debug!("Cleaning up {} stale sessions: {:?}", ids.len(), ids);
 
                     if let Err(e) = sqlx::query(
-                        "DELETE FROM playback_sessions WHERE last_heartbeat < datetime('now', '-2 minutes')",
+                        "DELETE FROM playback_sessions \
+                         WHERE last_heartbeat < datetime('now', '-2 minutes') \
+                         AND id NOT IN ( \
+                             SELECT id FROM playback_sessions ps2 \
+                             WHERE ps2.user_id = playback_sessions.user_id \
+                             ORDER BY ps2.last_heartbeat DESC \
+                             LIMIT 1 \
+                         )",
                     )
                     .execute(&pool)
                     .await
                     {
                         tracing::warn!("Failed to clean stale sessions: {}", e);
                     }
+                }
+
+                // Hard expiry: delete any session older than 30 days (even preserved ones)
+                if let Err(e) = sqlx::query(
+                    "DELETE FROM playback_sessions WHERE last_heartbeat < datetime('now', '-30 days')",
+                )
+                .execute(&pool)
+                .await
+                {
+                    tracing::warn!("Failed to clean expired sessions: {}", e);
                 }
             }
         });
@@ -411,7 +437,24 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
     tracing::info!("  OpenSubsonic API: /rest/*");
     tracing::info!("  Ferrotune API: /ferrotune/*");
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            let ctrl_c = tokio::signal::ctrl_c();
+            #[cfg(unix)]
+            {
+                let mut sigterm =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                        .expect("failed to install SIGTERM handler");
+                tokio::select! {
+                    _ = ctrl_c => {},
+                    _ = sigterm.recv() => {},
+                }
+            }
+            #[cfg(not(unix))]
+            ctrl_c.await.ok();
+            tracing::info!("Shutdown signal received, finishing in-flight requests…");
+        })
+        .await?;
 
     Ok(())
 }

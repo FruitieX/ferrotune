@@ -1,14 +1,12 @@
 "use client";
 
-import { useCallback } from "react";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import {
   useSessionEvents,
   type SessionEvent,
 } from "@/lib/hooks/use-session-events";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { isAudioOwnerAtom } from "@/lib/store/session";
-import { useSetAtom } from "jotai";
 import { fetchQueueAtom } from "@/lib/store/server-queue";
 
 /**
@@ -23,45 +21,42 @@ export function SessionEventHandler() {
   const { play, pause, next, previous, seek } = useAudioEngine();
   const fetchQueue = useSetAtom(fetchQueueAtom);
 
-  const handleEvent = useCallback(
-    (event: SessionEvent) => {
-      switch (event.type) {
-        case "playbackCommand":
-          if (!isAudioOwner) return;
-          switch (event.action) {
-            case "play":
-              play();
-              break;
-            case "pause":
-              pause();
-              break;
-            case "next":
-              next();
-              break;
-            case "previous":
-              previous();
-              break;
-            case "seek":
-              if (event.positionMs !== undefined) {
-                seek(event.positionMs / 1000);
-              }
-              break;
-            case "stop":
-              pause();
-              break;
-          }
-          break;
-        case "queueChanged":
-          // Refetch queue state when it changes externally
-          fetchQueue();
-          break;
-        case "sessionEnded":
-          // Session was terminated (e.g. by cleanup or another client)
-          break;
-      }
-    },
-    [isAudioOwner, play, pause, next, previous, seek, fetchQueue],
-  );
+  const handleEvent = (event: SessionEvent) => {
+    switch (event.type) {
+      case "playbackCommand":
+        if (!isAudioOwner) return;
+        switch (event.action) {
+          case "play":
+            play();
+            break;
+          case "pause":
+            pause();
+            break;
+          case "next":
+            next();
+            break;
+          case "previous":
+            previous();
+            break;
+          case "seek":
+            if (event.positionMs !== undefined) {
+              seek(event.positionMs / 1000);
+            }
+            break;
+          case "stop":
+            pause();
+            break;
+        }
+        break;
+      case "queueChanged":
+        // Refetch queue state when it changes externally
+        fetchQueue();
+        break;
+      case "sessionEnded":
+        // Session was terminated (e.g. by cleanup or another client)
+        break;
+    }
+  };
 
   useSessionEvents(handleEvent);
 

@@ -1,17 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useEffect, useRef } from "react";
+import { useAtomValue } from "jotai";
 import { getClient } from "@/lib/api/client";
 import { currentSessionIdAtom } from "@/lib/store/session";
 import { isClientInitializedAtom } from "@/lib/store/auth";
 
 export interface SessionEvent {
-  type:
-    | "queueChanged"
-    | "playbackCommand"
-    | "positionUpdate"
-    | "sessionEnded";
+  type: "queueChanged" | "playbackCommand" | "positionUpdate" | "sessionEnded";
   action?: string;
   positionMs?: number;
   currentIndex?: number;
@@ -26,14 +22,14 @@ export interface SessionEvent {
  * Receives queue changes, playback commands, and position updates
  * from the server for the current session.
  */
-export function useSessionEvents(
-  onEvent?: (event: SessionEvent) => void,
-) {
+export function useSessionEvents(onEvent?: (event: SessionEvent) => void) {
   const isClientInitialized = useAtomValue(isClientInitializedAtom);
   const sessionId = useAtomValue(currentSessionIdAtom);
   const eventSourceRef = useRef<EventSource | null>(null);
   const onEventRef = useRef(onEvent);
-  onEventRef.current = onEvent;
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  });
 
   useEffect(() => {
     if (!isClientInitialized || !sessionId) return;

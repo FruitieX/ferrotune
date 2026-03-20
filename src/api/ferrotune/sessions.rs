@@ -100,13 +100,9 @@ pub async fn create_session(
     let count = queries::count_active_sessions(&state.pool, user.user_id).await?;
     let name = format!("Web {}", count + 1);
 
-    let id = queries::create_playback_session(
-        &state.pool,
-        user.user_id,
-        &name,
-        &request.client_name,
-    )
-    .await?;
+    let id =
+        queries::create_playback_session(&state.pool, user.user_id, &name, &request.client_name)
+            .await?;
 
     Ok(Json(CreateSessionResponse { id, name }))
 }

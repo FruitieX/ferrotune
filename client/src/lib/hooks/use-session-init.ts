@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { getClient } from "@/lib/api/client";
 import {
@@ -45,15 +45,17 @@ export function useSessionInit() {
 
   // Use refs for heartbeat data to avoid restarting the interval
   const currentSongRef = useRef(currentSong);
-  currentSongRef.current = currentSong;
   const queueStateRef = useRef(queueState);
-  queueStateRef.current = queueState;
   const playbackStateRef = useRef(playbackState);
-  playbackStateRef.current = playbackState;
   const sessionIdRef = useRef(sessionId);
-  sessionIdRef.current = sessionId;
+  useEffect(() => {
+    currentSongRef.current = currentSong;
+    queueStateRef.current = queueState;
+    playbackStateRef.current = playbackState;
+    sessionIdRef.current = sessionId;
+  });
 
-  const refreshSessions = useCallback(async () => {
+  const refreshSessions = async () => {
     const client = getClient();
     if (!client) return;
     try {
@@ -62,9 +64,9 @@ export function useSessionInit() {
     } catch {
       // Silently ignore
     }
-  }, [setActiveSessions]);
+  };
 
-  const sendHeartbeat = useCallback(async () => {
+  const sendHeartbeat = async () => {
     const sid = sessionIdRef.current;
     if (!sid) return;
 
@@ -87,7 +89,15 @@ export function useSessionInit() {
     } catch {
       // Silently ignore heartbeat failures
     }
-  }, []);
+  };
+
+  // Stable refs for effect callbacks to avoid re-triggering intervals
+  const refreshSessionsRef = useRef(refreshSessions);
+  const sendHeartbeatRef = useRef(sendHeartbeat);
+  useEffect(() => {
+    refreshSessionsRef.current = refreshSessions;
+    sendHeartbeatRef.current = sendHeartbeat;
+  });
 
   // Initialize session when client becomes ready
   useEffect(() => {
@@ -137,7 +147,7 @@ export function useSessionInit() {
           setSessionId(created.id);
           setIsAudioOwner(true);
           // Refresh list
-          await refreshSessions();
+          await refreshSessionsRef.current();
         }
       } catch (error) {
         console.error("Failed to initialize playback session:", error);
@@ -152,7 +162,6 @@ export function useSessionInit() {
     setSessionId,
     setActiveSessions,
     setIsAudioOwner,
-    refreshSessions,
   ]);
 
   // Start heartbeat interval when sessionId is set
@@ -166,10 +175,10 @@ export function useSessionInit() {
     }
 
     // Send initial heartbeat
-    sendHeartbeat();
+    sendHeartbeatRef.current();
 
     heartbeatIntervalRef.current = setInterval(() => {
-      sendHeartbeat();
+      sendHeartbeatRef.current();
     }, HEARTBEAT_INTERVAL_MS);
 
     return () => {
@@ -178,15 +187,15 @@ export function useSessionInit() {
         heartbeatIntervalRef.current = null;
       }
     };
-  }, [sessionId, isClientInitialized, sendHeartbeat]);
+  }, [sessionId, isClientInitialized]);
 
   // Periodically refresh active sessions list (every 60s)
   useEffect(() => {
     if (!isClientInitialized) return;
 
-    const interval = setInterval(refreshSessions, 60_000);
+    const interval = setInterval(() => refreshSessionsRef.current(), 60_000);
     return () => clearInterval(interval);
-  }, [isClientInitialized, refreshSessions]);
+  }, [isClientInitialized]);
 
   return { refreshSessions };
 }

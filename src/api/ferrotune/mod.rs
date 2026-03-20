@@ -419,10 +419,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/ferrotune/sessions",
             get(sessions::list_sessions).post(sessions::create_session),
         )
-        .route(
-            "/ferrotune/sessions/{id}",
-            delete(sessions::delete_session),
-        )
+        .route("/ferrotune/sessions/{id}", delete(sessions::delete_session))
         .route(
             "/ferrotune/sessions/{id}/heartbeat",
             post(sessions::session_heartbeat),

@@ -1427,6 +1427,7 @@ export function useAudioEngineInit() {
       }
 
       console.log("[Audio] canplay event on active element");
+      clearStallTimer();
       const state = stateRef.current;
 
       if (
@@ -1460,18 +1461,71 @@ export function useAudioEngineInit() {
       });
     };
 
+    // --- Stall/waiting recovery timer ---
+    // If waiting or stalled persists for STALL_TIMEOUT_MS without a
+    // playing/progress/canplay event, transition to "error" state.
+    const STALL_TIMEOUT_MS = 12_000;
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    // Network error auto-retry: up to 3 retries with backoff
+    const NETWORK_RETRY_DELAYS = [2000, 5000, 10000];
+    let networkRetryCount = 0;
+
+    const startStallTimer = () => {
+      if (stallTimer !== null) return; // already running
+      stallTimer = setTimeout(() => {
+        stallTimer = null;
+        console.warn(
+          "[Audio] Stall timeout: no progress after",
+          STALL_TIMEOUT_MS,
+          "ms",
+        );
+        settersRef.current.setPlaybackState("error");
+        settersRef.current.setPlaybackError({
+          message: "Stream stalled — server may be unavailable",
+          trackId: stateRef.current.currentSong?.id,
+          trackTitle: stateRef.current.currentSong?.title,
+          timestamp: Date.now(),
+        });
+        const trackName =
+          stateRef.current.currentSong?.title || "Unknown track";
+        toast.error(`Playback stalled: ${trackName}`, {
+          description: "Stream stalled — server may be unavailable",
+          duration: 5000,
+        });
+      }, STALL_TIMEOUT_MS);
+    };
+
+    const clearStallTimer = () => {
+      if (stallTimer !== null) {
+        clearTimeout(stallTimer);
+        stallTimer = null;
+      }
+    };
+
     const handleWaiting = (e: Event) => {
       if (!isFromActive(e)) return;
       console.log("[Audio] waiting event (buffering)");
       const state = stateRef.current;
       if (state.playbackState !== "ended" && state.playbackState !== "idle") {
         settersRef.current.setPlaybackState("loading");
+        startStallTimer();
+      }
+    };
+
+    const handleStalled = (e: Event) => {
+      if (!isFromActive(e)) return;
+      console.log("[Audio] stalled event (no data arriving)");
+      const state = stateRef.current;
+      if (state.playbackState !== "ended" && state.playbackState !== "idle") {
+        startStallTimer();
       }
     };
 
     const handlePlaying = (e: Event) => {
       if (!isFromActive(e)) return;
       console.log("[Audio] playing event on active element");
+      clearStallTimer();
+      networkRetryCount = 0; // reset retry count on successful playback
       settersRef.current.setPlaybackError(null);
       settersRef.current.setPlaybackState("playing");
     };
@@ -1485,6 +1539,8 @@ export function useAudioEngineInit() {
         invalidatePreBuffer();
         return;
       }
+
+      clearStallTimer();
 
       if (isIntentionalStop) {
         console.log("[Audio] Ignoring error during intentional stop");
@@ -1524,6 +1580,45 @@ export function useAudioEngineInit() {
 
       console.error("[Audio] Playback error:", errorMessage, mediaError);
 
+      // Auto-retry on network errors (server restart, dropped connection)
+      if (
+        mediaError?.code === MediaError.MEDIA_ERR_NETWORK &&
+        networkRetryCount < NETWORK_RETRY_DELAYS.length
+      ) {
+        const delay = NETWORK_RETRY_DELAYS[networkRetryCount]!;
+        networkRetryCount++;
+        console.log(
+          `[Audio] Network error, auto-retrying in ${delay}ms (attempt ${networkRetryCount}/${NETWORK_RETRY_DELAYS.length})`,
+        );
+        settersRef.current.setPlaybackState("loading");
+        settersRef.current.setPlaybackError({
+          message: `Network error — retrying (${networkRetryCount}/${NETWORK_RETRY_DELAYS.length})…`,
+          trackId: state.currentSong?.id,
+          trackTitle: state.currentSong?.title,
+          timestamp: Date.now(),
+        });
+        setTimeout(() => {
+          // Only retry if we're still in loading/error state (user may have
+          // navigated away or paused)
+          const currentState = stateRef.current.playbackState;
+          if (currentState === "loading" || currentState === "error") {
+            // Retry by reloading the current audio source
+            const activeAudio = audioElements[activeIndex];
+            if (activeAudio?.src) {
+              const currentSrc = activeAudio.src;
+              activeAudio.src = "";
+              activeAudio.src = currentSrc;
+              currentStreamTimeOffset = 0;
+              isLoadingNewTrack = true;
+              resumeAudioContext().then(() => {
+                activeAudio.play().catch(console.error);
+              });
+            }
+          }
+        }, delay);
+        return;
+      }
+
       settersRef.current.setPlaybackError({
         message: errorMessage,
         trackId: state.currentSong?.id,
@@ -1550,6 +1645,7 @@ export function useAudioEngineInit() {
       ["loadstart", handleLoadStart],
       ["canplay", handleCanPlay],
       ["waiting", handleWaiting],
+      ["stalled", handleStalled],
       ["playing", handlePlaying],
       ["error", handleError],
     ];
@@ -1562,6 +1658,7 @@ export function useAudioEngineInit() {
 
     // Cleanup
     return () => {
+      clearStallTimer();
       for (const element of [audioElements[0], audioElements[1]]) {
         if (!element) continue;
         for (const [event, handler] of events) {

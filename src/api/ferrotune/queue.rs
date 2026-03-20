@@ -1213,7 +1213,8 @@ pub async fn add_to_queue(
         }));
     }
 
-    let new_len = resolve_add_to_queue(&state.pool, user.user_id, session_id, &song_ids, position).await?;
+    let new_len =
+        resolve_add_to_queue(&state.pool, user.user_id, session_id, &song_ids, position).await?;
 
     // If shuffle is enabled, we need to update shuffle indices
     if queue.is_shuffled {
@@ -1295,8 +1296,13 @@ pub async fn remove_from_queue(
         position
     };
 
-    let removed =
-        resolve_remove_from_queue(&state.pool, user.user_id, session_id, original_position as i64).await?;
+    let removed = resolve_remove_from_queue(
+        &state.pool,
+        user.user_id,
+        session_id,
+        original_position as i64,
+    )
+    .await?;
 
     if !removed {
         return Err(FerrotuneApiError(Error::NotFound(
@@ -2547,7 +2553,8 @@ async fn build_queue_window_efficient(
             position_mapping.iter().map(|&(_, orig)| orig).collect();
 
         let entries =
-            resolve_queue_entries_at_positions(pool, user_id, session_id, &original_positions).await?;
+            resolve_queue_entries_at_positions(pool, user_id, session_id, &original_positions)
+                .await?;
 
         // Build a lookup from queue_position to entry
         let entry_map: std::collections::HashMap<i64, &crate::db::models::QueueEntryWithSong> =
@@ -2564,7 +2571,8 @@ async fn build_queue_window_efficient(
         build_window_from_entries(pool, user_id, &window_entries, offset, inline_size).await
     } else {
         // Non-shuffled: fetch a contiguous range
-        let entries = resolve_queue_entries_range(pool, user_id, session_id, offset, end - offset).await?;
+        let entries =
+            resolve_queue_entries_range(pool, user_id, session_id, offset, end - offset).await?;
 
         let window_entries: Vec<(&crate::db::models::QueueEntryWithSong, usize)> = entries
             .iter()

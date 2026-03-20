@@ -113,7 +113,6 @@ import type { TaggerSessionResponse } from "./generated/TaggerSessionResponse";
 import type { TaggerPendingEditsResponse } from "./generated/TaggerPendingEditsResponse";
 // TaggerPendingEditData import removed - now using individual track sync
 import type { TaggerScriptsResponse } from "./generated/TaggerScriptsResponse";
-import type { SessionResponse } from "./generated/SessionResponse";
 import type { SessionListResponse } from "./generated/SessionListResponse";
 import type { CreateSessionResponse } from "./generated/CreateSessionResponse";
 import type { SessionSuccessResponse } from "./generated/SessionSuccessResponse";
@@ -1445,7 +1444,8 @@ export class FerrotuneClient {
     if (params.limit !== undefined) query.set("limit", String(params.limit));
     if (params.inlineImages !== undefined)
       query.set("inlineImages", params.inlineImages);
-    if (params.sessionId !== undefined) query.set("sessionId", params.sessionId);
+    if (params.sessionId !== undefined)
+      query.set("sessionId", params.sessionId);
     const queryStr = query.toString();
     return this.request(`/ferrotune/queue${queryStr ? `?${queryStr}` : ""}`, {
       signal: params.signal,
@@ -1492,8 +1492,13 @@ export class FerrotuneClient {
   /**
    * Remove a song from the queue at a position
    */
-  async removeFromServerQueue(position: number, sessionId?: string): Promise<QueueSuccessResponse> {
-    const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+  async removeFromServerQueue(
+    position: number,
+    sessionId?: string,
+  ): Promise<QueueSuccessResponse> {
+    const query = sessionId
+      ? `?sessionId=${encodeURIComponent(sessionId)}`
+      : "";
     return this.request(`/ferrotune/queue/${position}${query}`, {
       method: "DELETE",
     });
@@ -1520,7 +1525,10 @@ export class FerrotuneClient {
   /**
    * Toggle shuffle mode
    */
-  async toggleServerShuffle(enabled: boolean, sessionId?: string): Promise<QueueSuccessResponse> {
+  async toggleServerShuffle(
+    enabled: boolean,
+    sessionId?: string,
+  ): Promise<QueueSuccessResponse> {
     return this.request("/ferrotune/queue/shuffle", {
       method: "POST",
       body: JSON.stringify({ enabled, sessionId }),
@@ -1564,7 +1572,9 @@ export class FerrotuneClient {
    * Clear the entire queue
    */
   async clearServerQueue(sessionId?: string): Promise<QueueSuccessResponse> {
-    const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+    const query = sessionId
+      ? `?sessionId=${encodeURIComponent(sessionId)}`
+      : "";
     return this.request(`/ferrotune/queue${query}`, {
       method: "DELETE",
     });
@@ -1823,7 +1833,9 @@ export class FerrotuneClient {
   /**
    * Create a new playback session
    */
-  async createSession(clientName: string = "ferrotune-web"): Promise<CreateSessionResponse> {
+  async createSession(
+    clientName: string = "ferrotune-web",
+  ): Promise<CreateSessionResponse> {
     return this.request("/ferrotune/sessions", {
       method: "POST",
       body: JSON.stringify({ clientName }),
@@ -1841,9 +1853,12 @@ export class FerrotuneClient {
    * Delete (end) a session
    */
   async deleteSession(sessionId: string): Promise<SessionSuccessResponse> {
-    return this.request(`/ferrotune/sessions/${encodeURIComponent(sessionId)}`, {
-      method: "DELETE",
-    });
+    return this.request(
+      `/ferrotune/sessions/${encodeURIComponent(sessionId)}`,
+      {
+        method: "DELETE",
+      },
+    );
   }
 
   /**
