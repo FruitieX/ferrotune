@@ -54,6 +54,7 @@
             pkgs.ffmpeg
             pkgs.moon  # moon task runner
             pkgs.proto
+            pkgs.cargo-watch  # for hot-reloading backend dev server
             pkgs.sqlite  # for database inspection
             pkgs.cmake # needed for libopus
             pkgs.libopus # for transcoding to Opus

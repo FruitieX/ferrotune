@@ -21,7 +21,7 @@
 
 *.db
 
-/scripts/.venv
+/scripts/
 /.cache
 /*.log
 /*.csv
