@@ -121,6 +121,15 @@ export function UploadDialog({ open, onOpenChange }: UploadDialogProps) {
         ],
       });
 
+      // Explicitly add tracks to server session
+      try {
+        await client.addTaggerTracks(
+          newTrackIds.map((id) => ({ id, trackType: "staged" as const })),
+        );
+      } catch (error) {
+        console.warn("Failed to sync uploaded tracks to session:", error);
+      }
+
       // Mark as done
       setFiles((prev) =>
         prev.map((f) =>

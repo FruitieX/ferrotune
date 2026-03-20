@@ -27,6 +27,7 @@ import {
   taggerStateLoadingAtom,
   taggerStateLoadedAtom,
   loadTaggerState,
+  flushSessionSync,
 } from "@/lib/store/tagger";
 import { TaggerGrid } from "@/components/tagger/tagger-grid";
 import { TrackDetailsPanel } from "@/components/tagger/track-details-panel";
@@ -279,12 +280,18 @@ export default function TaggerPage() {
               "Staged files not found on server, removing from session:",
               notFoundTracks.map((t) => t.id),
             );
+            const notFoundIds = notFoundTracks.map((t) => t.id);
             setSession((prev) => ({
               ...prev,
               tracks: prev.tracks.filter(
                 (t) => !notFoundTracks.find((nt) => nt.id === t.id),
               ),
             }));
+            try {
+              await client.removeTaggerTracks(notFoundIds);
+            } catch {
+              // Ignore - tracks may already be missing from server session
+            }
           }
 
           // Add found tracks to the tracks state
@@ -341,12 +348,18 @@ export default function TaggerPage() {
         } catch (error) {
           console.error("Failed to load staged files:", error);
           // Remove all missing staged tracks from session on error
+          const missingStagedIds = missingStagedTracks.map((t) => t.id);
           setSession((prev) => ({
             ...prev,
             tracks: prev.tracks.filter(
               (t) => !missingStagedTracks.find((mt) => mt.id === t.id),
             ),
           }));
+          try {
+            await client.removeTaggerTracks(missingStagedIds);
+          } catch {
+            // Ignore
+          }
         } finally {
           for (const track of missingStagedTracks) {
             loadingIdsRef.current.delete(track.id);
@@ -437,6 +450,11 @@ export default function TaggerPage() {
             ...prev,
             tracks: prev.tracks.filter((t) => !notReturnedIds.includes(t.id)),
           }));
+          try {
+            await client.removeTaggerTracks(notReturnedIds);
+          } catch {
+            // Ignore
+          }
         }
 
         // Run the active rename script on newly added tracks (if any script is active)
@@ -450,6 +468,11 @@ export default function TaggerPage() {
           ...prev,
           tracks: prev.tracks.filter((t) => !missingIds.includes(t.id)),
         }));
+        try {
+          await client.removeTaggerTracks(missingIds);
+        } catch {
+          // Ignore
+        }
         toast.error("Failed to load some tracks");
       } finally {
         // Clear loading state
@@ -563,6 +586,19 @@ export default function TaggerPage() {
           ...newTrackIds.map((id) => ({ id, trackType: "staged" as const })),
         ],
       });
+
+      // Explicitly add uploaded tracks to the server session via POST (append)
+      // This is resilient to race conditions with loadTaggerState's async completion
+      try {
+        await client.addTaggerTracks(
+          newTrackIds.map((id) => ({
+            id,
+            trackType: "staged" as const,
+          })),
+        );
+      } catch (error) {
+        console.warn("Failed to sync uploaded tracks to session:", error);
+      }
 
       // Run the active rename script on newly uploaded tracks
       runOnTracks(newTrackIds);
@@ -720,6 +756,10 @@ export default function TaggerPage() {
     setIsSaving(true);
     setSaveProgress({ current: 0, total: tracksToSave.length });
 
+    // Flush any pending debounced session sync to ensure the server
+    // has the latest session state (including newly uploaded tracks)
+    await flushSessionSync();
+
     // Convert path overrides to object for API call
     const pathOverridesObj: Record<string, string> = {};
     for (const [id, path] of pathOverrides) {
@@ -839,6 +879,17 @@ export default function TaggerPage() {
         ...session,
         tracks: session.tracks.filter((t) => !savedStagedIds.includes(t.id)),
       });
+      // Explicitly remove saved staged tracks from server session
+      if (savedStagedIds.length > 0) {
+        try {
+          await client.removeTaggerTracks(savedStagedIds);
+        } catch (error) {
+          console.warn(
+            "Failed to remove saved tracks from server session:",
+            error,
+          );
+        }
+      }
 
       setTracks(newTracks);
 
@@ -921,6 +972,14 @@ export default function TaggerPage() {
       ...session,
       tracks: session.tracks.filter((t) => !trackIds.includes(t.id)),
     });
+    // Explicitly remove tracks from server session
+    if (client) {
+      try {
+        await client.removeTaggerTracks(trackIds);
+      } catch (error) {
+        console.warn("Failed to remove tracks from server session:", error);
+      }
+    }
     // Clear selection if any removed tracks were selected
     const newSelectedIds = new Set(selectedIds);
     for (const id of trackIds) {

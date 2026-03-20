@@ -163,6 +163,15 @@ export function AddFromLibraryDialog({
         ],
       });
 
+      // Explicitly add tracks to server session
+      try {
+        await client.addTaggerTracks(
+          newTrackIds.map((id) => ({ id, trackType: "library" as const })),
+        );
+      } catch (error) {
+        console.warn("Failed to sync library tracks to session:", error);
+      }
+
       toast.success(`Added ${newTrackIds.length} track(s) to tagger`);
 
       // Close dialog but keep query and filters for next time

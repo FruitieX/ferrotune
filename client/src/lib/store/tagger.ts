@@ -346,6 +346,8 @@ export const taggerAvailableColumnsAtom = atom((get) => {
 
 let sessionSaveTimeout: ReturnType<typeof setTimeout> | null = null;
 let scriptsSaveTimeout: ReturnType<typeof setTimeout> | null = null;
+let pendingSessionValue: TaggerSession | null = null;
+let inFlightSessionSave: Promise<void> | null = null;
 
 const DEBOUNCE_DELAY = 500;
 
@@ -354,38 +356,105 @@ function debouncedSaveSession(session: TaggerSession) {
     clearTimeout(sessionSaveTimeout);
   }
 
-  sessionSaveTimeout = setTimeout(async () => {
-    const client = getClient();
-    if (!client) return;
+  pendingSessionValue = session;
 
-    try {
-      // Convert columnWidths from Record<string, number> to the expected format
-      const columnWidthsForApi: Record<string, number> = {};
-      for (const [key, value] of Object.entries(session.columnWidths)) {
-        columnWidthsForApi[key] = value;
+  sessionSaveTimeout = setTimeout(() => {
+    const sessionToSave = pendingSessionValue;
+    pendingSessionValue = null;
+    if (!sessionToSave) return;
+
+    inFlightSessionSave = (async () => {
+      const client = getClient();
+      if (!client) return;
+
+      try {
+        // Convert columnWidths from Record<string, number> to the expected format
+        const columnWidthsForApi: Record<string, number> = {};
+        for (const [key, value] of Object.entries(sessionToSave.columnWidths)) {
+          columnWidthsForApi[key] = value;
+        }
+
+        // Save session settings only (tracks are synced via explicit API calls)
+        // Use empty string to explicitly clear script IDs (undefined means don't update)
+        await client.updateTaggerSession({
+          visibleColumns: sessionToSave.visibleColumns,
+          activeRenameScriptId: sessionToSave.activeRenameScriptId ?? "",
+          activeTagScriptId: sessionToSave.activeTagScriptId ?? "",
+          targetLibraryId: sessionToSave.targetLibraryId ?? undefined,
+          showLibraryPrefix: sessionToSave.showLibraryPrefix,
+          showComputedPath: sessionToSave.showComputedPath,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generated types use bigint for i64 but runtime uses number
+          columnWidths: columnWidthsForApi as any,
+          fileColumnWidth: sessionToSave.fileColumnWidth,
+          detailsPanelOpen: sessionToSave.detailsPanelOpen,
+        });
+      } catch (error) {
+        console.warn("Failed to save tagger session:", error);
+      } finally {
+        inFlightSessionSave = null;
       }
-
-      // Save session settings
-      // Use empty string to explicitly clear script IDs (undefined means don't update)
-      await client.updateTaggerSession({
-        visibleColumns: session.visibleColumns,
-        activeRenameScriptId: session.activeRenameScriptId ?? "",
-        activeTagScriptId: session.activeTagScriptId ?? "",
-        targetLibraryId: session.targetLibraryId ?? undefined,
-        showLibraryPrefix: session.showLibraryPrefix,
-        showComputedPath: session.showComputedPath,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generated types use bigint for i64 but runtime uses number
-        columnWidths: columnWidthsForApi as any,
-        fileColumnWidth: session.fileColumnWidth,
-        detailsPanelOpen: session.detailsPanelOpen,
-      });
-
-      // Save tracks with types separately
-      await client.setTaggerSessionTracks(session.tracks);
-    } catch (error) {
-      console.warn("Failed to save tagger session:", error);
-    }
+    })();
   }, DEBOUNCE_DELAY);
+}
+
+/**
+ * Flush any pending debounced session sync immediately.
+ * Call this before operations that depend on the server having the latest session state.
+ */
+export async function flushSessionSync(): Promise<void> {
+  // Wait for any in-flight session save to complete first
+  if (inFlightSessionSave) {
+    await inFlightSessionSave;
+  }
+
+  // Flush pending debounced session save
+  if (sessionSaveTimeout) {
+    clearTimeout(sessionSaveTimeout);
+    sessionSaveTimeout = null;
+  }
+
+  if (pendingSessionValue) {
+    const session = pendingSessionValue;
+    pendingSessionValue = null;
+    const client = getClient();
+    if (client) {
+      try {
+        const columnWidthsForApi: Record<string, number> = {};
+        for (const [key, value] of Object.entries(session.columnWidths)) {
+          columnWidthsForApi[key] = value;
+        }
+
+        await client.updateTaggerSession({
+          visibleColumns: session.visibleColumns,
+          activeRenameScriptId: session.activeRenameScriptId ?? "",
+          activeTagScriptId: session.activeTagScriptId ?? "",
+          targetLibraryId: session.targetLibraryId ?? undefined,
+          showLibraryPrefix: session.showLibraryPrefix,
+          showComputedPath: session.showComputedPath,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generated types use bigint for i64 but runtime uses number
+          columnWidths: columnWidthsForApi as any,
+          fileColumnWidth: session.fileColumnWidth,
+          detailsPanelOpen: session.detailsPanelOpen,
+        });
+      } catch (error) {
+        console.warn("Failed to flush tagger session:", error);
+      }
+    }
+  }
+
+  // Flush pending per-track edit syncs
+  const syncPromises: Promise<void>[] = [];
+  for (const [trackId, timeout] of pendingSyncs.entries()) {
+    clearTimeout(timeout);
+    const edit = pendingEditValues.get(trackId);
+    syncPromises.push(syncTrackEdit(trackId, edit ?? null));
+  }
+  pendingSyncs.clear();
+  pendingEditValues.clear();
+
+  if (syncPromises.length > 0) {
+    await Promise.all(syncPromises);
+  }
 }
 
 function debouncedSaveScripts(scripts: TaggerScript[]) {
@@ -416,6 +485,8 @@ let lastSyncedEdits: Record<string, PendingEdit> = {};
 
 // Pending sync operations (track ID -> timeout)
 const pendingSyncs = new Map<string, ReturnType<typeof setTimeout>>();
+// Pending edit values for flush support
+const pendingEditValues = new Map<string, PendingEdit | null>();
 
 // Sync a single track's edit to the server
 async function syncTrackEdit(trackId: string, edit: PendingEdit | null) {
@@ -447,9 +518,13 @@ function debouncedSyncTrackEdit(trackId: string, edit: PendingEdit | null) {
     clearTimeout(existingTimeout);
   }
 
+  // Store the pending value for flush support
+  pendingEditValues.set(trackId, edit);
+
   // Schedule new sync
   const timeout = setTimeout(() => {
     pendingSyncs.delete(trackId);
+    pendingEditValues.delete(trackId);
     syncTrackEdit(trackId, edit);
   }, DEBOUNCE_DELAY);
 

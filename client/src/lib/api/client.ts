@@ -2593,10 +2593,12 @@ export class FerrotuneClient {
   /**
    * Add tracks to the session (append)
    */
-  async addTaggerTracks(trackIds: string[]): Promise<void> {
+  async addTaggerTracks(
+    tracks: Array<{ id: string; trackType: string }>,
+  ): Promise<void> {
     await this.request("/ferrotune/tagger/session/tracks", {
       method: "POST",
-      body: JSON.stringify({ trackIds }),
+      body: JSON.stringify({ tracks }),
     });
   }
 
