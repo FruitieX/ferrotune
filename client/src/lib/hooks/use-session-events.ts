@@ -3,11 +3,17 @@
 import { useEffect, useRef } from "react";
 import { useAtomValue } from "jotai";
 import { getClient } from "@/lib/api/client";
-import { currentSessionIdAtom } from "@/lib/store/session";
+import { effectiveSessionIdAtom } from "@/lib/store/session";
 import { isClientInitializedAtom } from "@/lib/store/auth";
 
 export interface SessionEvent {
-  type: "queueChanged" | "playbackCommand" | "positionUpdate" | "sessionEnded";
+  type:
+    | "queueChanged"
+    | "queueUpdated"
+    | "playbackCommand"
+    | "positionUpdate"
+    | "sessionEnded"
+    | "volumeChange";
   action?: string;
   positionMs?: number;
   currentIndex?: number;
@@ -15,6 +21,8 @@ export interface SessionEvent {
   currentSongId?: string;
   currentSongTitle?: string;
   currentSongArtist?: string;
+  volume?: number;
+  isMuted?: boolean;
 }
 
 /**
@@ -24,7 +32,7 @@ export interface SessionEvent {
  */
 export function useSessionEvents(onEvent?: (event: SessionEvent) => void) {
   const isClientInitialized = useAtomValue(isClientInitializedAtom);
-  const sessionId = useAtomValue(currentSessionIdAtom);
+  const sessionId = useAtomValue(effectiveSessionIdAtom);
   const eventSourceRef = useRef<EventSource | null>(null);
   const onEventRef = useRef(onEvent);
   useEffect(() => {

@@ -48,6 +48,7 @@ import { useCast } from "@/lib/hooks/use-cast";
 import {
   currentTimeAtom,
   durationAtom,
+  effectivePlaybackStateAtom,
   playbackStateAtom,
 } from "@/lib/store/player";
 import {
@@ -873,7 +874,7 @@ function MobileMoreMenu() {
   const { repeatMode, cycleRepeatMode } = useRepeatMode();
   const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
   const { togglePlayPause, next, previous } = useAudioEngine();
-  const playbackState = useAtomValue(playbackStateAtom);
+  const playbackState = useAtomValue(effectivePlaybackStateAtom);
 
   const isPlaying = playbackState === "playing";
   const RepeatIcon = repeatMode === "one" ? Repeat1 : Repeat;
@@ -1054,7 +1055,7 @@ function FullscreenButton() {
 export function PlayerBar() {
   const pathname = usePathname();
   const currentTrack = useAtomValue(currentSongAtom);
-  const playbackState = useAtomValue(playbackStateAtom);
+  const playbackState = useAtomValue(effectivePlaybackStateAtom);
   const connection = useAtomValue(serverConnectionAtom);
   const progressBarStyle = useAtomValue(progressBarStyleAtom);
 

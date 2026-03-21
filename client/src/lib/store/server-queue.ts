@@ -25,7 +25,7 @@ import {
   nativeInvalidateQueue,
   nativeSoftInvalidateQueue,
 } from "@/lib/audio/native-engine";
-import { effectiveSessionIdAtom } from "./session";
+import { effectiveSessionIdAtom, isRemoteControllingAtom } from "./session";
 
 // Module-level flag: true when Kotlin is managing playback autonomously
 let _nativeAutonomousMode = false;
@@ -213,10 +213,14 @@ export const startQueueAtom = atom(
     const client = getClient();
     if (!client) return;
 
+    const isRemote = get(isRemoteControllingAtom);
+
     set(isQueueOperationPendingAtom, true);
     set(isRestoringQueueAtom, false); // User explicitly starting playback
-    pendingUserPlayback.value = true;
-    if (hasNativeAudio()) nativeRequestPlayback();
+    if (!isRemote) {
+      pendingUserPlayback.value = true;
+      if (hasNativeAudio()) nativeRequestPlayback();
+    }
 
     try {
       // Preserve current shuffle state when not explicitly specified.
@@ -252,6 +256,13 @@ export const startQueueAtom = atom(
 
       set(queueWindowAtom, response.window);
       set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
+
+      // Notify the session owner via SSE when remote controlling
+      if (get(isRemoteControllingAtom) && sessionId) {
+        client
+          .sendSessionCommand(sessionId, "queueChanged")
+          .catch(console.error);
+      }
     } catch (error) {
       console.error("Failed to start queue:", error);
     } finally {
@@ -297,6 +308,76 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
     set(queueWindowAtom, null);
   } finally {
     set(isQueueLoadingAtom, false);
+  }
+});
+
+/**
+ * Silently refresh queue state without affecting playback.
+ * Used when the queue metadata changes (shuffle/repeat/add/remove/move)
+ * but the currently playing track should continue uninterrupted.
+ */
+export const fetchQueueSilentAtom = atom(null, async (get, set) => {
+  const client = getClient();
+  if (!client) return;
+
+  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
+  try {
+    const response = await client.getQueueCurrentWindow(20, "small", sessionId);
+
+    if (response.totalCount === 0) {
+      set(serverQueueStateAtom, null);
+      set(queueWindowAtom, null);
+    } else {
+      set(serverQueueStateAtom, {
+        totalCount: response.totalCount,
+        currentIndex: response.currentIndex,
+        positionMs: Number(response.positionMs),
+        isShuffled: response.isShuffled,
+        repeatMode: response.repeatMode as RepeatMode,
+        source: response.source,
+      });
+      set(queueWindowAtom, response.window);
+    }
+  } catch (error) {
+    console.error("Failed to silently fetch queue:", error);
+  }
+});
+
+/**
+ * Fetch queue and trigger playback (for external queue changes via SSE).
+ * Unlike fetchQueueAtom, this marks the queue as ready to play rather than
+ * restoring, so the audio engine will auto-play the current track.
+ */
+export const fetchQueueAndPlayAtom = atom(null, async (get, set) => {
+  const client = getClient();
+  if (!client) return;
+
+  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+
+  try {
+    const response = await client.getQueueCurrentWindow(20, "small", sessionId);
+
+    if (response.totalCount === 0) {
+      set(serverQueueStateAtom, null);
+      set(queueWindowAtom, null);
+    } else {
+      set(serverQueueStateAtom, {
+        totalCount: response.totalCount,
+        currentIndex: response.currentIndex,
+        positionMs: Number(response.positionMs),
+        isShuffled: response.isShuffled,
+        repeatMode: response.repeatMode as RepeatMode,
+        source: response.source,
+      });
+      set(queueWindowAtom, response.window);
+      // Signal the audio engine to load and play the new track
+      pendingUserPlayback.value = true;
+      set(isRestoringQueueAtom, false);
+      set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
+    }
+  } catch (error) {
+    console.error("Failed to fetch queue for playback:", error);
   }
 });
 
@@ -384,8 +465,10 @@ export const goToNextAtom = atom(null, async (get, set) => {
   }
 
   set(isQueueOperationPendingAtom, true);
-  pendingUserPlayback.value = true;
-  if (hasNativeAudio()) nativeRequestPlayback();
+  if (!get(isRemoteControllingAtom)) {
+    pendingUserPlayback.value = true;
+    if (hasNativeAudio()) nativeRequestPlayback();
+  }
 
   try {
     const sessionId = get(effectiveSessionIdAtom) ?? undefined;
@@ -459,8 +542,10 @@ export const goToPreviousAtom = atom(null, async (get, set) => {
   }
 
   set(isQueueOperationPendingAtom, true);
-  pendingUserPlayback.value = true;
-  if (hasNativeAudio()) nativeRequestPlayback();
+  if (!get(isRemoteControllingAtom)) {
+    pendingUserPlayback.value = true;
+    if (hasNativeAudio()) nativeRequestPlayback();
+  }
 
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
 
@@ -526,8 +611,10 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
 
   set(isQueueOperationPendingAtom, true);
   set(isRestoringQueueAtom, false); // User explicitly starting playback
-  pendingUserPlayback.value = true;
-  if (hasNativeAudio()) nativeRequestPlayback();
+  if (!get(isRemoteControllingAtom)) {
+    pendingUserPlayback.value = true;
+    if (hasNativeAudio()) nativeRequestPlayback();
+  }
 
   try {
     await client.updateServerQueuePosition(index, 0, false, sessionId);
@@ -538,6 +625,11 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
     // Fetch new window centered on the new position
     const response = await client.getQueueCurrentWindow(20, "small", sessionId);
     set(queueWindowAtom, response.window);
+
+    // Notify the session owner via SSE when remote controlling
+    if (get(isRemoteControllingAtom) && sessionId) {
+      client.sendSessionCommand(sessionId, "queueChanged").catch(console.error);
+    }
   } catch (error) {
     console.error("Failed to play at index:", error);
   } finally {
@@ -614,6 +706,11 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
       currentIndex: response.newIndex ?? state.currentIndex,
     });
     set(queueWindowAtom, queueResponse.window);
+
+    // Notify the session owner via SSE when remote controlling
+    if (get(isRemoteControllingAtom) && sessionId) {
+      client.sendSessionCommand(sessionId, "queueUpdated").catch(console.error);
+    }
   } catch (error) {
     console.error("Failed to toggle shuffle:", error);
   } finally {
@@ -647,6 +744,13 @@ export const setRepeatModeAtom = atom(
     try {
       await client.updateServerRepeatMode(mode, sessionId);
       set(serverQueueStateAtom, { ...state, repeatMode: mode });
+
+      // Notify the session owner via SSE when remote controlling
+      if (get(isRemoteControllingAtom) && sessionId) {
+        client
+          .sendSessionCommand(sessionId, "queueUpdated")
+          .catch(console.error);
+      }
     } catch (error) {
       console.error("Failed to set repeat mode:", error);
     }
@@ -736,6 +840,13 @@ export const addToQueueAtom = atom(
         await nativeSoftInvalidateQueue(response.totalCount);
       }
 
+      // Notify the session owner via SSE when remote controlling
+      if (get(isRemoteControllingAtom) && sessionId) {
+        client
+          .sendSessionCommand(sessionId, "queueUpdated")
+          .catch(console.error);
+      }
+
       return { success: true, addedCount: response.addedCount ?? 0 };
     } catch (error) {
       console.error("Failed to add to queue:", error);
@@ -781,6 +892,13 @@ export const removeFromQueueAtom = atom(
       // Tell Kotlin to refetch its ExoPlayer playlist
       if (_nativeAutonomousMode) {
         await nativeInvalidateQueue();
+      }
+
+      // Notify the session owner via SSE when remote controlling
+      if (get(isRemoteControllingAtom) && sessionId) {
+        client
+          .sendSessionCommand(sessionId, "queueUpdated")
+          .catch(console.error);
       }
     } catch (error) {
       console.error("Failed to remove from queue:", error);
@@ -894,6 +1012,13 @@ export const moveInQueueAtom = atom(
       // Tell Kotlin to refetch its ExoPlayer playlist
       if (_nativeAutonomousMode) {
         await nativeInvalidateQueue();
+      }
+
+      // Notify the session owner via SSE when remote controlling
+      if (get(isRemoteControllingAtom) && sessionId) {
+        client
+          .sendSessionCommand(sessionId, "queueUpdated")
+          .catch(console.error);
       }
     } catch (error) {
       console.error("Failed to move in queue:", error);

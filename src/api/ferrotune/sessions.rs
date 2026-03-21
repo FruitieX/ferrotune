@@ -78,6 +78,8 @@ pub struct HeartbeatRequest {
 pub struct SessionCommandRequest {
     pub action: String,
     pub position_ms: Option<i64>,
+    pub volume: Option<f64>,
+    pub is_muted: Option<bool>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -221,10 +223,19 @@ pub async fn session_events(
 
     let mut rx = state.session_manager.subscribe(&session.id).await;
 
+    // Read current queue position from the database for accurate initial state
+    let (current_index, position_ms) = if let Ok(Some(queue)) =
+        queries::get_play_queue_by_session(&state.pool, &session.id).await
+    {
+        (queue.current_index as usize, queue.position_ms)
+    } else {
+        (0, 0)
+    };
+
     // Build initial state to send immediately
     let initial_event = SessionEvent::PositionUpdate {
-        current_index: 0,
-        position_ms: 0,
+        current_index,
+        position_ms,
         is_playing: session.is_playing,
         current_song_id: session.current_song_id,
         current_song_title: session.current_song_title,
@@ -278,7 +289,18 @@ pub async fn session_command(
         .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
 
     // Validate command
-    let valid_actions = ["play", "pause", "next", "previous", "seek", "stop"];
+    let valid_actions = [
+        "play",
+        "pause",
+        "next",
+        "previous",
+        "seek",
+        "stop",
+        "queueChanged",
+        "queueUpdated",
+        "takeOver",
+        "volumeChange",
+    ];
     if !valid_actions.contains(&request.action.as_str()) {
         return Err(FerrotuneApiError(Error::InvalidRequest(format!(
             "Invalid action: {}. Valid actions: {:?}",
@@ -286,17 +308,21 @@ pub async fn session_command(
         ))));
     }
 
-    // Broadcast command to session owner's SSE stream
-    state
-        .session_manager
-        .broadcast(
-            &session_id,
-            SessionEvent::PlaybackCommand {
-                action: request.action,
-                position_ms: request.position_ms,
-            },
-        )
-        .await;
+    // Broadcast the appropriate event type
+    let event = match request.action.as_str() {
+        "queueChanged" => SessionEvent::QueueChanged,
+        "queueUpdated" => SessionEvent::QueueUpdated,
+        "volumeChange" => SessionEvent::VolumeChange {
+            volume: request.volume.unwrap_or(1.0),
+            is_muted: request.is_muted.unwrap_or(false),
+        },
+        _ => SessionEvent::PlaybackCommand {
+            action: request.action,
+            position_ms: request.position_ms,
+        },
+    };
+
+    state.session_manager.broadcast(&session_id, event).await;
 
     Ok(Json(SessionSuccessResponse { success: true }))
 }

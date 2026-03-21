@@ -81,6 +81,8 @@ import { nativeAutonomousMode } from "@/lib/store/server-queue";
 import {
   isRemoteControllingAtom,
   controllingSessionIdAtom,
+  remotePlaybackStateAtom,
+  currentSessionIdAtom,
 } from "@/lib/store/session";
 
 /** Build NativeStreamOptions from the current transcoding settings */
@@ -1818,6 +1820,26 @@ export function useAudioEngineInit() {
     }
   }, [playbackState]);
 
+  // Pause local audio when switching to remote control mode.
+  // This prevents the local audio from continuing to play while
+  // we're controlling another session, and ensures the progress bar
+  // uses atom-based values (driven by SSE) instead of audio element state.
+  useEffect(() => {
+    if (!isRemoteControlling) return;
+    if (usingNativeAudio) {
+      nativePause().catch(console.error);
+    } else {
+      const audio = getActiveAudio();
+      if (audio && !audio.paused) {
+        isIntentionalStop = true;
+        audio.pause();
+        setTimeout(() => {
+          isIntentionalStop = false;
+        }, 200);
+      }
+    }
+  }, [isRemoteControlling]);
+
   // Load new track when current song changes (triggered by trackChangeSignal or currentSong)
   // Also reload when transcoding settings change
   useEffect(() => {
@@ -1889,14 +1911,18 @@ export function useAudioEngineInit() {
       }
       nativeAutoAdvanced = false;
 
-      // Skip if same track is already loaded AND signal hasn't changed
-      // AND transcoding settings haven't changed
+      // Skip if same track is already loaded AND there's no forced reload.
+      // When shuffle/repeat/queue-metadata changes happen, the signal may
+      // have changed but the current song is the same — don't restart it.
+      // Only reload when the user explicitly requested playback (e.g.
+      // clicking the same track again) via pendingUserPlayback.
       if (
         currentSong.id === currentLoadedTrackId &&
-        !signalChanged &&
-        !transcodingChanged
+        !transcodingChanged &&
+        !pendingUserPlayback.value
       ) {
         console.log("[Audio] Skipping - same track already loaded");
+        lastProcessedSignalRef.current = trackChangeSignal;
         return;
       }
       lastProcessedSignalRef.current = trackChangeSignal;
@@ -2138,6 +2164,10 @@ export function useAudioEngineInit() {
 
     if (!audio || !currentSong || !client) {
       if (audio && audio.src && !currentSong) {
+        console.log(
+          "[Audio] Track-load effect: currentSong is null, clearing audio. currentLoadedTrackId=%s",
+          currentLoadedTrackId,
+        );
         // Set flag BEFORE any audio operation to prevent error toasts
         isIntentionalStop = true;
         isEndingQueue = false;
@@ -2186,6 +2216,17 @@ export function useAudioEngineInit() {
     const signalChanged = trackChangeSignal !== lastProcessedSignalRef.current;
     const urlChanged = streamUrl !== lastStreamUrlRef.current;
 
+    console.log(
+      "[Audio] Track-load effect: song=%s loaded=%s signal=%d lastSignal=%d signalChanged=%s urlChanged=%s isRestoringQueue=%s",
+      currentSong.id,
+      currentLoadedTrackId,
+      trackChangeSignal,
+      lastProcessedSignalRef.current,
+      signalChanged,
+      urlChanged,
+      isRestoringQueue,
+    );
+
     // During gapless handoff, queue advances after playback already switched.
     // If queue sync points to the same pre-buffered track, consume the signal
     // and skip reloading to prevent restarting the track from 0.
@@ -2223,11 +2264,18 @@ export function useAudioEngineInit() {
 
     if (
       currentSong.id === currentLoadedTrackId &&
-      !signalChanged &&
-      !urlChanged
+      !urlChanged &&
+      !pendingUserPlayback.value
     ) {
+      console.log(
+        "[Audio] Track-load effect: SKIPPING (same track, no forced reload)",
+      );
+      lastProcessedSignalRef.current = trackChangeSignal;
       return;
     }
+    // Consume the pending-playback flag so future metadata-only changes
+    // (shuffle/repeat toggle) don't re-trigger a full track load.
+    pendingUserPlayback.value = false;
     lastProcessedSignalRef.current = trackChangeSignal;
     lastStreamUrlRef.current = streamUrl;
 
@@ -2502,6 +2550,9 @@ export function useAudioEngine() {
   // Remote control awareness
   const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
   const controllingSessionId = useAtomValue(controllingSessionIdAtom);
+  const currentSessionId = useAtomValue(currentSessionIdAtom);
+  const remotePlaybackState = useAtomValue(remotePlaybackStateAtom);
+  const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
 
   // Transcoding settings (needed for time-offset seeking)
   const transcodingEnabled = useAtomValue(transcodingEnabledAtom);
@@ -2563,6 +2614,10 @@ export function useAudioEngine() {
 
   const play = async () => {
     if (isRemoteControlling) {
+      // Optimistically update the follower's remote state
+      setRemotePlaybackState((prev) =>
+        prev ? { ...prev, isPlaying: true } : prev,
+      );
       await sendRemoteCommand("play");
       return;
     }
@@ -2580,6 +2635,10 @@ export function useAudioEngine() {
 
   const pause = () => {
     if (isRemoteControlling) {
+      // Optimistically update the follower's remote state
+      setRemotePlaybackState((prev) =>
+        prev ? { ...prev, isPlaying: false } : prev,
+      );
       sendRemoteCommand("pause");
       return;
     }
@@ -2592,10 +2651,19 @@ export function useAudioEngine() {
 
   const togglePlayPause = () => {
     if (isRemoteControlling) {
-      // For remote control, toggle based on the remote session's state
-      // Since we don't have the remote state locally, send a toggle that the
-      // remote session can handle
-      sendRemoteCommand("play");
+      // Toggle based on the remote session's known playback state
+      if (remotePlaybackState?.isPlaying) {
+        // Optimistically update + send command
+        setRemotePlaybackState((prev) =>
+          prev ? { ...prev, isPlaying: false } : prev,
+        );
+        sendRemoteCommand("pause");
+      } else {
+        setRemotePlaybackState((prev) =>
+          prev ? { ...prev, isPlaying: true } : prev,
+        );
+        sendRemoteCommand("play");
+      }
       return;
     }
     if (!usingNativeAudio && !getActiveAudio()) return;
@@ -2668,12 +2736,32 @@ export function useAudioEngine() {
     }
   };
 
+  // Broadcast seek position to followers immediately via heartbeat
+  const broadcastSeekPosition = (time: number) => {
+    if (!currentSessionId) return;
+    const client = getClient();
+    if (!client) return;
+    client
+      .sessionHeartbeat(currentSessionId, {
+        positionMs: Math.round(time * 1000),
+        isPlaying: playbackState === "playing",
+        currentIndex: queueState?.currentIndex,
+        currentSongId: currentSong?.id,
+        currentSongTitle: currentSong?.title,
+        currentSongArtist: currentSong?.artist,
+      })
+      .catch(console.error);
+  };
+
   // General seek function that chooses the right strategy
   const seek = (time: number) => {
     if (isRemoteControlling) {
       sendRemoteCommand("seek", Math.round(time * 1000));
       return;
     }
+
+    // Broadcast new position to followers
+    broadcastSeekPosition(time);
     if (usingNativeAudio) {
       nativeSeek(time).catch(console.error);
       setCurrentTime(time);
@@ -2710,6 +2798,16 @@ export function useAudioEngine() {
   };
 
   const seekPercent = (percent: number) => {
+    // Route to remote session when remote controlling
+    if (isRemoteControlling) {
+      const songDuration = currentSong?.duration ?? duration;
+      if (songDuration > 0) {
+        const time = (percent / 100) * songDuration;
+        seek(time);
+      }
+      return;
+    }
+
     if (usingNativeAudio) {
       if (duration > 0) {
         const time = (percent / 100) * duration;
@@ -2889,16 +2987,43 @@ export function useAudioEngine() {
 export function useVolumeControl() {
   const [volume, setVolume] = useAtom(volumeAtom);
   const [isMuted, setIsMuted] = useAtom(isMutedAtom);
+  const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
+  const controllingSessionId = useAtomValue(controllingSessionIdAtom);
+  const currentSessionId = useAtomValue(currentSessionIdAtom);
+
+  const sendVolumeCommand = (newVolume: number, newMuted: boolean) => {
+    // Followers send to the session they control; owners broadcast to their own session
+    const sessionId = isRemoteControlling
+      ? controllingSessionId
+      : currentSessionId;
+    if (!sessionId) return;
+    const client = getClient();
+    if (!client) return;
+    client
+      .sendSessionCommand(
+        sessionId,
+        "volumeChange",
+        undefined,
+        newVolume,
+        newMuted,
+      )
+      .catch(console.error);
+  };
 
   const toggleMute = () => {
-    setIsMuted((prev) => !prev);
+    const newMuted = !isMuted;
+    setIsMuted(newMuted);
+    sendVolumeCommand(volume, newMuted);
   };
 
   const changeVolume = (newVolume: number) => {
-    setVolume(Math.max(0, Math.min(1, newVolume)));
-    if (newVolume > 0 && isMuted) {
+    const clamped = Math.max(0, Math.min(1, newVolume));
+    setVolume(clamped);
+    const newMuted = clamped > 0 ? false : isMuted;
+    if (clamped > 0 && isMuted) {
       setIsMuted(false);
     }
+    sendVolumeCommand(clamped, newMuted);
   };
 
   return { volume, isMuted, toggleMute, changeVolume };

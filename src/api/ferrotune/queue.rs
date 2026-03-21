@@ -480,6 +480,16 @@ async fn broadcast_queue_changed(state: &AppState, session_id: Option<&str>) {
     }
 }
 
+/// Broadcast a queue-updated event (metadata change only, no playback restart).
+async fn broadcast_queue_updated(state: &AppState, session_id: Option<&str>) {
+    if let Some(sid) = session_id {
+        state
+            .session_manager
+            .broadcast(sid, SessionEvent::QueueUpdated)
+            .await;
+    }
+}
+
 // ============================================================================
 // Endpoints
 // ============================================================================
@@ -1261,7 +1271,7 @@ pub async fn add_to_queue(
 
     let added_count = song_ids.len();
 
-    broadcast_queue_changed(&state, session_id).await;
+    broadcast_queue_updated(&state, session_id).await;
 
     Ok(Json(QueueSuccessResponse {
         success: true,
@@ -1369,7 +1379,7 @@ pub async fn remove_from_queue(
 
     let new_len = resolve_queue_length(&state.pool, user.user_id, session_id).await?;
 
-    broadcast_queue_changed(&state, session_id).await;
+    broadcast_queue_updated(&state, session_id).await;
 
     Ok(Json(QueueSuccessResponse {
         success: true,
@@ -1432,7 +1442,7 @@ pub async fn move_in_queue(
 
         invalidate_shuffle_cache(&state, user.user_id).await;
 
-        broadcast_queue_changed(&state, session_id).await;
+        broadcast_queue_updated(&state, session_id).await;
 
         Ok(Json(QueueSuccessResponse {
             success: true,
@@ -1481,7 +1491,7 @@ pub async fn move_in_queue(
         )
         .await?;
 
-        broadcast_queue_changed(&state, session_id).await;
+        broadcast_queue_updated(&state, session_id).await;
 
         Ok(Json(QueueSuccessResponse {
             success: true,
@@ -1546,7 +1556,7 @@ pub async fn toggle_shuffle(
         // Invalidate old cache and prime the new one
         invalidate_shuffle_cache(&state, user.user_id).await;
 
-        broadcast_queue_changed(&state, session_id).await;
+        broadcast_queue_updated(&state, session_id).await;
 
         Ok(Json(QueueSuccessResponse {
             success: true,
@@ -1581,7 +1591,7 @@ pub async fn toggle_shuffle(
         // Invalidate shuffle cache
         invalidate_shuffle_cache(&state, user.user_id).await;
 
-        broadcast_queue_changed(&state, session_id).await;
+        broadcast_queue_updated(&state, session_id).await;
 
         Ok(Json(QueueSuccessResponse {
             success: true,
@@ -1666,7 +1676,7 @@ pub async fn update_position(
         .await?;
     }
 
-    broadcast_queue_changed(&state, session_id).await;
+    broadcast_queue_updated(&state, session_id).await;
 
     Ok(Json(QueueSuccessResponse {
         success: true,
@@ -1688,7 +1698,7 @@ pub async fn update_repeat_mode(
 
     resolve_update_repeat_mode(&state.pool, user.user_id, session_id, mode.as_str()).await?;
 
-    broadcast_queue_changed(&state, session_id).await;
+    broadcast_queue_updated(&state, session_id).await;
 
     Ok(Json(QueueSuccessResponse {
         success: true,

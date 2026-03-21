@@ -22,6 +22,8 @@ const nextConfig: NextConfig = {
   output: process.env.NEXT_OUTPUT_STATIC === "1" ? "export" : undefined,
   // Allow dev server to be accessed from Tailscale and local network
   allowedDevOrigins: ["*.tailscale", "*.local", "*.lan"],
+  // Required for SSE
+  compress: false,
   // Proxy API requests to backend in development
   async rewrites() {
     // Only proxy in development mode

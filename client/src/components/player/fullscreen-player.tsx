@@ -43,7 +43,7 @@ import {
   queueWindowAtom,
 } from "@/lib/store/server-queue";
 import {
-  playbackStateAtom,
+  effectivePlaybackStateAtom,
   currentTimeAtom,
   durationAtom,
   volumeAtom,
@@ -171,7 +171,7 @@ function FullscreenVolumeControls({
 export function FullscreenPlayer() {
   const [isOpen, setIsOpen] = useAtom(fullscreenPlayerOpenAtom);
   const currentTrack = useAtomValue(currentSongAtom);
-  const playbackState = useAtomValue(playbackStateAtom);
+  const playbackState = useAtomValue(effectivePlaybackStateAtom);
   const currentTime = useAtomValue(currentTimeAtom);
   const [volume, setVolume] = useAtom(volumeAtom);
   const [repeatMode, setRepeatMode] = useAtom(repeatModeAtom);

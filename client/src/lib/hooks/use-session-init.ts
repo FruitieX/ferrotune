@@ -17,7 +17,7 @@ import {
   currentSongAtom,
   serverQueueStateAtom,
 } from "@/lib/store/server-queue";
-import { playbackStateAtom } from "@/lib/store/player";
+import { playbackStateAtom, currentTimeAtom } from "@/lib/store/player";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
@@ -32,10 +32,11 @@ export function useSessionInit() {
   const serverConnection = useAtomValue(serverConnectionAtom);
   const [sessionId, setSessionId] = useAtom(currentSessionIdAtom);
   const setActiveSessions = useSetAtom(activeSessionsAtom);
-  const setIsAudioOwner = useSetAtom(isAudioOwnerAtom);
+  const [isAudioOwner, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
   const currentSong = useAtomValue(currentSongAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const playbackState = useAtomValue(playbackStateAtom);
+  const currentTime = useAtomValue(currentTimeAtom);
 
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
     null,
@@ -47,12 +48,16 @@ export function useSessionInit() {
   const currentSongRef = useRef(currentSong);
   const queueStateRef = useRef(queueState);
   const playbackStateRef = useRef(playbackState);
+  const currentTimeRef = useRef(currentTime);
   const sessionIdRef = useRef(sessionId);
+  const isAudioOwnerRef = useRef(isAudioOwner);
   useEffect(() => {
     currentSongRef.current = currentSong;
     queueStateRef.current = queueState;
     playbackStateRef.current = playbackState;
+    currentTimeRef.current = currentTime;
     sessionIdRef.current = sessionId;
+    isAudioOwnerRef.current = isAudioOwner;
   });
 
   const refreshSessionsRef = useRef(async () => {
@@ -73,15 +78,27 @@ export function useSessionInit() {
     const client = getClient();
     if (!client) return;
 
+    // When remote-controlling another session, still send heartbeat to keep
+    // our own session alive, but don't report the controlled session's track data
+    if (!isAudioOwnerRef.current) {
+      try {
+        await client.sessionHeartbeat(sid, { isPlaying: false });
+      } catch {
+        // Silently ignore heartbeat failures
+      }
+      return;
+    }
+
     const song = currentSongRef.current;
     const state = queueStateRef.current;
     const pbState = playbackStateRef.current;
+    const currentTimeSec = currentTimeRef.current;
 
     try {
       await client.sessionHeartbeat(sid, {
         isPlaying: pbState === "playing",
         currentIndex: state?.currentIndex,
-        positionMs: state?.positionMs,
+        positionMs: Math.round(currentTimeSec * 1000),
         currentSongId: song?.id,
         currentSongTitle: song?.title,
         currentSongArtist: song?.artist,
@@ -113,7 +130,7 @@ export function useSessionInit() {
       try {
         // Check if we already have a session from sessionStorage (tab refresh)
         if (sessionId) {
-          // Validate it still exists
+          // Validate it still exists on the server
           const response = await client.listSessions();
           setActiveSessions(response.sessions);
           const exists = response.sessions.some((s) => s.id === sessionId);
@@ -121,26 +138,23 @@ export function useSessionInit() {
             setIsAudioOwner(true);
             return;
           }
-          // Session expired, fall through to create new
+          // Session expired (e.g. server restart) - try to resume the most
+          // recent session so we recover the previous queue state
+          if (response.sessions.length > 0) {
+            const mostRecent = response.sessions[0];
+            setSessionId(mostRecent.id);
+            setIsAudioOwner(true);
+            return;
+          }
+          // No sessions at all, fall through to create new
         }
 
-        // Check for existing sessions (e.g. resuming after server restart)
-        const response = await client.listSessions();
-        setActiveSessions(response.sessions);
-
-        if (response.sessions.length > 0) {
-          // Resume the most recent session
-          const mostRecent = response.sessions[0];
-          setSessionId(mostRecent.id);
-          setIsAudioOwner(true);
-        } else {
-          // Create a new session
-          const created = await client.createSession("ferrotune-web");
-          setSessionId(created.id);
-          setIsAudioOwner(true);
-          // Refresh list
-          await refreshSessionsRef.current();
-        }
+        // New tab with no previous session - always create a fresh one
+        const created = await client.createSession("ferrotune-web");
+        setSessionId(created.id);
+        setIsAudioOwner(true);
+        // Refresh list so other sessions are visible
+        await refreshSessionsRef.current();
       } catch (error) {
         console.error("Failed to initialize playback session:", error);
       }

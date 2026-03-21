@@ -1930,12 +1930,14 @@ export class FerrotuneClient {
     sessionId: string,
     action: string,
     positionMs?: number,
+    volume?: number,
+    isMuted?: boolean,
   ): Promise<SessionSuccessResponse> {
     return this.request(
       `/ferrotune/sessions/${encodeURIComponent(sessionId)}/command`,
       {
         method: "POST",
-        body: JSON.stringify({ action, positionMs }),
+        body: JSON.stringify({ action, positionMs, volume, isMuted }),
       },
     );
   }
@@ -1944,8 +1946,17 @@ export class FerrotuneClient {
    * Get the SSE stream URL for session events
    */
   getSessionEventsUrl(sessionId: string): string {
+    const params = new URLSearchParams();
+    if (this.username && this.password) {
+      params.set("u", this.username);
+      params.set("p", this.password);
+    } else if (this.apiKey) {
+      params.set("apiKey", this.apiKey);
+    }
+    params.set("v", API_VERSION);
+    params.set("c", CLIENT_NAME);
     return this.buildAdminUrl(
-      `/ferrotune/sessions/${encodeURIComponent(sessionId)}/events`,
+      `/ferrotune/sessions/${encodeURIComponent(sessionId)}/events?${params.toString()}`,
     );
   }
 

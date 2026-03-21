@@ -92,7 +92,7 @@ pub async fn save_play_queue(
         "INSERT INTO play_queues (user_id, source_type, current_index, position_ms, 
          is_shuffled, repeat_mode, created_at, updated_at, changed_by)
          VALUES (?, 'other', ?, ?, 0, 'off', datetime('now'), datetime('now'), ?)
-         ON CONFLICT(user_id) DO UPDATE SET
+         ON CONFLICT(user_id, session_id) DO UPDATE SET
             current_index = excluded.current_index,
             position_ms = excluded.position_ms,
             updated_at = datetime('now'),
@@ -120,7 +120,7 @@ pub async fn get_play_queue(
 ) -> Result<FormatResponse<PlayQueueResponse>> {
     // Get queue metadata from new schema
     let queue_meta: Option<(i64, i64, chrono::DateTime<Utc>, String)> = sqlx::query_as(
-        "SELECT current_index, position_ms, updated_at, changed_by FROM play_queues WHERE user_id = ?",
+        "SELECT current_index, position_ms, updated_at, changed_by FROM play_queues WHERE user_id = ? LIMIT 1",
     )
     .bind(user.user_id)
     .fetch_optional(&state.pool)

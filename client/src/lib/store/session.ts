@@ -59,3 +59,20 @@ export const isRemoteControllingAtom = atom<boolean>((get) => {
   const current = get(currentSessionIdAtom);
   return controlling !== null && controlling !== current;
 });
+
+/**
+ * Tracks the remote session's playback state (received via SSE positionUpdate events).
+ * Used to show correct play/pause state when remote controlling.
+ */
+export interface RemotePlaybackState {
+  isPlaying: boolean;
+  currentIndex: number;
+  positionMs: number;
+  /** Timestamp (Date.now()) when this state was received from the server */
+  positionTimestamp: number;
+  currentSongId?: string;
+  currentSongTitle?: string;
+  currentSongArtist?: string;
+}
+
+export const remotePlaybackStateAtom = atom<RemotePlaybackState | null>(null);

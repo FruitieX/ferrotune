@@ -1439,10 +1439,12 @@ pub async fn get_most_recent_session(
 
 /// Get the current play queue for a user (legacy — used by Subsonic compat)
 pub async fn get_play_queue(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Option<PlayQueue>> {
-    sqlx::query_as::<_, PlayQueue>("SELECT * FROM play_queues WHERE user_id = ?")
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await
+    sqlx::query_as::<_, PlayQueue>(
+        "SELECT * FROM play_queues WHERE user_id = ? AND session_id = ''",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
 }
 
 /// Get the play queue for a session
@@ -1458,11 +1460,12 @@ pub async fn get_play_queue_by_session(
 
 /// Get the total number of songs in a user's queue
 pub async fn get_queue_length(pool: &SqlitePool, user_id: i64) -> sqlx::Result<i64> {
-    let result: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM play_queue_entries WHERE user_id = ?")
-            .bind(user_id)
-            .fetch_one(pool)
-            .await?;
+    let result: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM play_queue_entries WHERE user_id = ? AND session_id = ''",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
     Ok(result.0)
 }
 
@@ -1479,7 +1482,7 @@ pub async fn get_queue_entries_paginated(
          INNER JOIN songs s ON pqe.song_id = s.id
          INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
-         WHERE pqe.user_id = ?
+         WHERE pqe.user_id = ? AND pqe.session_id = ''
          ORDER BY pqe.queue_position ASC
          LIMIT ? OFFSET ?",
     )
@@ -1501,7 +1504,7 @@ pub async fn get_queue_entries_with_songs(
          INNER JOIN songs s ON pqe.song_id = s.id
          INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
-         WHERE pqe.user_id = ?
+         WHERE pqe.user_id = ? AND pqe.session_id = ''
          ORDER BY pqe.queue_position ASC",
     )
     .bind(user_id)
@@ -1529,7 +1532,7 @@ pub async fn get_queue_entries_at_positions(
          INNER JOIN songs s ON pqe.song_id = s.id
          INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
-         WHERE pqe.user_id = ? AND pqe.queue_position IN ({placeholders})
+         WHERE pqe.user_id = ? AND pqe.session_id = '' AND pqe.queue_position IN ({placeholders})
          ORDER BY pqe.queue_position ASC"
     );
 
@@ -1553,7 +1556,7 @@ pub async fn get_queue_entries_range(
          INNER JOIN songs s ON pqe.song_id = s.id
          INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
-         WHERE pqe.user_id = ? AND pqe.queue_position >= ? AND pqe.queue_position < ?
+         WHERE pqe.user_id = ? AND pqe.session_id = '' AND pqe.queue_position >= ? AND pqe.queue_position < ?
          ORDER BY pqe.queue_position ASC",
     )
     .bind(user_id)
@@ -1566,7 +1569,7 @@ pub async fn get_queue_entries_range(
 /// Get all song IDs in queue order (for shuffle operations)
 pub async fn get_queue_song_ids(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<String>> {
     let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT song_id FROM play_queue_entries WHERE user_id = ? ORDER BY queue_position",
+        "SELECT song_id FROM play_queue_entries WHERE user_id = ? AND session_id = '' ORDER BY queue_position",
     )
     .bind(user_id)
     .fetch_all(pool)
@@ -1599,7 +1602,7 @@ pub async fn create_queue(
     let instance_id = Uuid::new_v4().to_string();
 
     // Delete existing queue entries
-    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ?")
+    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ? AND session_id = ''")
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
@@ -1644,7 +1647,7 @@ pub async fn create_queue(
          position_ms, is_shuffled, shuffle_seed, shuffle_indices_json, repeat_mode,
          filters_json, sort_json, created_at, updated_at, changed_by, total_count, is_lazy, song_ids_json, instance_id)
          VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, 0, NULL, ?)
-         ON CONFLICT(user_id) DO UPDATE SET
+         ON CONFLICT(user_id, session_id) DO UPDATE SET
            source_type = excluded.source_type,
            source_id = excluded.source_id,
            source_name = excluded.source_name,
@@ -1710,7 +1713,7 @@ pub async fn create_lazy_queue(
     let instance_id = Uuid::new_v4().to_string();
 
     // Delete existing queue entries (lazy queues don't use entries table)
-    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ?")
+    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ? AND session_id = ''")
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
@@ -1721,7 +1724,7 @@ pub async fn create_lazy_queue(
          position_ms, is_shuffled, shuffle_seed, shuffle_indices_json, repeat_mode,
          filters_json, sort_json, created_at, updated_at, changed_by, total_count, is_lazy, song_ids_json, instance_id)
          VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, 1, ?, ?)
-         ON CONFLICT(user_id) DO UPDATE SET
+         ON CONFLICT(user_id, session_id) DO UPDATE SET
            source_type = excluded.source_type,
            source_id = excluded.source_id,
            source_name = excluded.source_name,
@@ -1771,7 +1774,7 @@ pub async fn update_queue_position(
 ) -> sqlx::Result<bool> {
     let result = sqlx::query(
         "UPDATE play_queues SET current_index = ?, position_ms = ?, updated_at = datetime('now')
-         WHERE user_id = ?",
+         WHERE user_id = ? AND session_id = ''",
     )
     .bind(current_index)
     .bind(position_ms)
@@ -1794,7 +1797,7 @@ pub async fn update_queue_shuffle(
         "UPDATE play_queues SET 
          is_shuffled = ?, shuffle_seed = ?, shuffle_indices_json = ?, 
          current_index = ?, updated_at = datetime('now')
-         WHERE user_id = ?",
+         WHERE user_id = ? AND session_id = ''",
     )
     .bind(is_shuffled)
     .bind(shuffle_seed)
@@ -1813,7 +1816,7 @@ pub async fn update_queue_repeat_mode(
     repeat_mode: &str,
 ) -> sqlx::Result<bool> {
     let result = sqlx::query(
-        "UPDATE play_queues SET repeat_mode = ?, updated_at = datetime('now') WHERE user_id = ?",
+        "UPDATE play_queues SET repeat_mode = ?, updated_at = datetime('now') WHERE user_id = ? AND session_id = ''",
     )
     .bind(repeat_mode)
     .bind(user_id)
@@ -1837,11 +1840,12 @@ pub async fn add_to_queue(
     let mut tx = pool.begin().await?;
 
     // Get current queue length
-    let (queue_len,): (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM play_queue_entries WHERE user_id = ?")
-            .bind(user_id)
-            .fetch_one(&mut *tx)
-            .await?;
+    let (queue_len,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM play_queue_entries WHERE user_id = ? AND session_id = ''",
+    )
+    .bind(user_id)
+    .fetch_one(&mut *tx)
+    .await?;
 
     // Determine insert position
     let insert_pos = if position < 0 { queue_len } else { position };
@@ -1852,7 +1856,7 @@ pub async fn add_to_queue(
         // Get all positions that need to shift, ordered from highest to lowest
         let positions: Vec<(i64,)> = sqlx::query_as(
             "SELECT queue_position FROM play_queue_entries 
-             WHERE user_id = ? AND queue_position >= ?
+             WHERE user_id = ? AND session_id = '' AND queue_position >= ?
              ORDER BY queue_position DESC",
         )
         .bind(user_id)
@@ -1866,7 +1870,7 @@ pub async fn add_to_queue(
             sqlx::query(
                 "UPDATE play_queue_entries 
                  SET queue_position = queue_position + ? 
-                 WHERE user_id = ? AND queue_position = ?",
+                 WHERE user_id = ? AND session_id = '' AND queue_position = ?",
             )
             .bind(shift_amount)
             .bind(user_id)
@@ -1891,10 +1895,12 @@ pub async fn add_to_queue(
     }
 
     // Update queue timestamp
-    sqlx::query("UPDATE play_queues SET updated_at = datetime('now') WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE play_queues SET updated_at = datetime('now') WHERE user_id = ? AND session_id = ''",
+    )
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 
@@ -1912,7 +1918,7 @@ pub async fn remove_from_queue(
 
     // Delete the entry at the specified position
     let result =
-        sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ? AND queue_position = ?")
+        sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ? AND session_id = '' AND queue_position = ?")
             .bind(user_id)
             .bind(position)
             .execute(&mut *tx)
@@ -1926,7 +1932,7 @@ pub async fn remove_from_queue(
     sqlx::query(
         "UPDATE play_queue_entries 
          SET queue_position = queue_position - 1 
-         WHERE user_id = ? AND queue_position > ?",
+         WHERE user_id = ? AND session_id = '' AND queue_position > ?",
     )
     .bind(user_id)
     .bind(position)
@@ -1934,10 +1940,12 @@ pub async fn remove_from_queue(
     .await?;
 
     // Update queue timestamp
-    sqlx::query("UPDATE play_queues SET updated_at = datetime('now') WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE play_queues SET updated_at = datetime('now') WHERE user_id = ? AND session_id = ''",
+    )
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
     Ok(true)
@@ -1958,7 +1966,7 @@ pub async fn move_in_queue(
 
     // Check if from_position exists
     let exists: Option<(i64,)> =
-        sqlx::query_as("SELECT 1 FROM play_queue_entries WHERE user_id = ? AND queue_position = ?")
+        sqlx::query_as("SELECT 1 FROM play_queue_entries WHERE user_id = ? AND session_id = '' AND queue_position = ?")
             .bind(user_id)
             .bind(from_position)
             .fetch_optional(&mut *tx)
@@ -1974,7 +1982,7 @@ pub async fn move_in_queue(
 
     // Move the entry to temporary position
     sqlx::query(
-        "UPDATE play_queue_entries SET queue_position = ? WHERE user_id = ? AND queue_position = ?",
+        "UPDATE play_queue_entries SET queue_position = ? WHERE user_id = ? AND session_id = '' AND queue_position = ?",
     )
     .bind(temp_position)
     .bind(user_id)
@@ -1989,7 +1997,7 @@ pub async fn move_in_queue(
         sqlx::query(
             "UPDATE play_queue_entries 
              SET queue_position = queue_position - 1 
-             WHERE user_id = ? AND queue_position > ? AND queue_position <= ?",
+             WHERE user_id = ? AND session_id = '' AND queue_position > ? AND queue_position <= ?",
         )
         .bind(user_id)
         .bind(from_position)
@@ -2002,7 +2010,7 @@ pub async fn move_in_queue(
         // We need to iterate manually to ensure ordering
         let positions: Vec<(i64,)> = sqlx::query_as(
             "SELECT queue_position FROM play_queue_entries 
-             WHERE user_id = ? AND queue_position >= ? AND queue_position < ?
+             WHERE user_id = ? AND session_id = '' AND queue_position >= ? AND queue_position < ?
              ORDER BY queue_position DESC",
         )
         .bind(user_id)
@@ -2015,7 +2023,7 @@ pub async fn move_in_queue(
             sqlx::query(
                 "UPDATE play_queue_entries 
                  SET queue_position = queue_position + 1 
-                 WHERE user_id = ? AND queue_position = ?",
+                 WHERE user_id = ? AND session_id = '' AND queue_position = ?",
             )
             .bind(user_id)
             .bind(pos)
@@ -2026,7 +2034,7 @@ pub async fn move_in_queue(
 
     // Move the entry from temporary position to final position
     sqlx::query(
-        "UPDATE play_queue_entries SET queue_position = ? WHERE user_id = ? AND queue_position = ?",
+        "UPDATE play_queue_entries SET queue_position = ? WHERE user_id = ? AND session_id = '' AND queue_position = ?",
     )
     .bind(to_position)
     .bind(user_id)
@@ -2035,10 +2043,13 @@ pub async fn move_in_queue(
     .await?;
 
     // Update queue timestamp
-    sqlx::query("UPDATE play_queues SET updated_at = datetime('now') WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
+    // Update queue timestamp
+    sqlx::query(
+        "UPDATE play_queues SET updated_at = datetime('now') WHERE user_id = ? AND session_id = ''",
+    )
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
     Ok(true)
@@ -2048,12 +2059,12 @@ pub async fn move_in_queue(
 pub async fn clear_queue(pool: &SqlitePool, user_id: i64) -> sqlx::Result<()> {
     let mut tx = pool.begin().await?;
 
-    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ?")
+    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ? AND session_id = ''")
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
 
-    sqlx::query("DELETE FROM play_queues WHERE user_id = ?")
+    sqlx::query("DELETE FROM play_queues WHERE user_id = ? AND session_id = ''")
         .bind(user_id)
         .execute(&mut *tx)
         .await?;

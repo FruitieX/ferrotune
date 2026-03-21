@@ -12,6 +12,7 @@ import {
   Monitor,
   Plus,
   Music,
+  ArrowRightLeft,
 } from "lucide-react";
 import {
   DropdownMenuItem,
@@ -30,7 +31,10 @@ import {
   activeSessionsAtom,
   controllingSessionIdAtom,
   isAudioOwnerAtom,
+  remotePlaybackStateAtom,
 } from "@/lib/store/session";
+import { currentSongAtom } from "@/lib/store/server-queue";
+import { playbackStateAtom } from "@/lib/store/player";
 import { initializeClient, getClient } from "@/lib/api/client";
 
 export function AccountMenuItems() {
@@ -47,6 +51,11 @@ export function AccountMenuItems() {
   const setControllingSessionId = useSetAtom(controllingSessionIdAtom);
   const setIsAudioOwner = useSetAtom(isAudioOwnerAtom);
   const setActiveSessions = useSetAtom(activeSessionsAtom);
+  const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
+
+  // Local playback state for own session display
+  const localCurrentSong = useAtomValue(currentSongAtom);
+  const localPlaybackState = useAtomValue(playbackStateAtom);
 
   const switchToAccount = async (account: (typeof savedAccounts)[0]) => {
     const key = accountKey(account);
@@ -88,6 +97,7 @@ export function AccountMenuItems() {
       // Switch back to own session
       setControllingSessionId(null);
       setIsAudioOwner(true);
+      setRemotePlaybackState(null);
       return;
     }
     // Remote-control another session
@@ -110,6 +120,24 @@ export function AccountMenuItems() {
       toast.success("New session created");
     } catch {
       toast.error("Failed to create session");
+    }
+  };
+
+  const takeOverSession = async (sessionId: string) => {
+    const client = getClient();
+    if (!client) return;
+
+    try {
+      // Tell the current owner to stop playback
+      await client.sendSessionCommand(sessionId, "takeOver");
+      // Adopt the session
+      setCurrentSessionId(sessionId);
+      setControllingSessionId(null);
+      setIsAudioOwner(true);
+      setRemotePlaybackState(null);
+      toast.success("Session taken over");
+    } catch {
+      toast.error("Failed to take over session");
     }
   };
 
@@ -194,6 +222,16 @@ export function AccountMenuItems() {
           </DropdownMenuLabel>
           {activeSessions.map((session) => {
             const isOwn = session.id === currentSessionId;
+            // For own session, use local playback state for real-time display
+            const songTitle = isOwn
+              ? localCurrentSong?.title
+              : session.currentSongTitle;
+            const songArtist = isOwn
+              ? localCurrentSong?.artist
+              : session.currentSongArtist;
+            const playing = isOwn
+              ? localPlaybackState === "playing"
+              : session.isPlaying;
             return (
               <DropdownMenuItem
                 key={session.id}
@@ -206,30 +244,41 @@ export function AccountMenuItems() {
                     {session.clientName || session.name}
                     {isOwn && " (this tab)"}
                   </span>
-                  {session.currentSongTitle && (
+                  {songTitle && (
                     <span className="truncate block text-xs text-muted-foreground">
-                      {session.isPlaying && (
-                        <Music className="w-3 h-3 inline mr-1" />
-                      )}
-                      {session.currentSongTitle}
-                      {session.currentSongArtist &&
-                        ` — ${session.currentSongArtist}`}
+                      {playing && <Music className="w-3 h-3 inline mr-1" />}
+                      {songTitle}
+                      {songArtist && ` — ${songArtist}`}
                     </span>
                   )}
                 </div>
                 {isOwn ? (
                   <Check className="w-4 h-4 shrink-0 text-primary" />
                 ) : (
-                  <button
-                    type="button"
-                    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteSession(session.id);
-                    }}
-                  >
-                    <X className="w-3.5 h-3.5 text-muted-foreground" />
-                  </button>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button
+                      type="button"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
+                      title="Take over session"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        takeOverSession(session.id);
+                      }}
+                    >
+                      <ArrowRightLeft className="w-3.5 h-3.5 text-muted-foreground" />
+                    </button>
+                    <button
+                      type="button"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
+                      title="End session"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteSession(session.id);
+                      }}
+                    >
+                      <X className="w-3.5 h-3.5 text-muted-foreground" />
+                    </button>
+                  </div>
                 )}
               </DropdownMenuItem>
             );

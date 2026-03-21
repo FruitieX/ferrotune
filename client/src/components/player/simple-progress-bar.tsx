@@ -14,6 +14,7 @@ import { accentColorRgbAtom } from "@/lib/store/ui";
 import { useAudioEngine, getGlobalAudio } from "@/lib/audio/hooks";
 import { hasNativeAudio } from "@/lib/tauri";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
+import { isRemoteControllingAtom } from "@/lib/store/session";
 
 interface SimpleProgressBarProps {
   className?: string;
@@ -27,6 +28,7 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
   const buffered = useAtomValue(bufferedAtom);
   const primaryColor = useAtomValue(accentColorRgbAtom);
   const { seekPercent } = useAudioEngine();
+  const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
@@ -69,8 +71,8 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
 
     if (isPlaying) {
       const animateProgress = () => {
-        if (isNative) {
-          // Native audio: use atom-based progress (updated by native events)
+        if (isNative || isRemoteControlling) {
+          // Native audio and remote controlling: use atom-based progress
           smoothProgressRef.current = atomProgress;
         } else {
           const audio = getGlobalAudio();
@@ -105,7 +107,7 @@ export function SimpleProgressBar({ className }: SimpleProgressBarProps) {
         progressAnimationRef.current = null;
       }
     };
-  }, [playbackState, atomProgress]);
+  }, [playbackState, atomProgress, isRemoteControlling]);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();

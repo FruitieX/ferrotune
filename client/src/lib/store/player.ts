@@ -1,6 +1,7 @@
 import { atom } from "jotai";
 import { atomWithServerStorage } from "./server-storage";
 import { linearToLogVolume } from "@/lib/audio/volume";
+import { isRemoteControllingAtom, remotePlaybackStateAtom } from "./session";
 
 // Playback state
 export type PlaybackState =
@@ -11,6 +12,23 @@ export type PlaybackState =
   | "ended"
   | "error";
 export const playbackStateAtom = atom<PlaybackState>("idle");
+
+/**
+ * Effective playback state: when remote-controlling another session,
+ * derives the state from remotePlaybackStateAtom so the UI shows the
+ * correct play/pause icon for the controlled session.
+ */
+export const effectivePlaybackStateAtom = atom<PlaybackState>((get) => {
+  const isRemote = get(isRemoteControllingAtom);
+  if (isRemote) {
+    const remote = get(remotePlaybackStateAtom);
+    if (remote) {
+      return remote.isPlaying ? "playing" : "paused";
+    }
+    return "idle";
+  }
+  return get(playbackStateAtom);
+});
 
 // Playback error details
 export interface PlaybackError {
