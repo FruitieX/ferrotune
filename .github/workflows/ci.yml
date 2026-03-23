@@ -28,11 +28,14 @@ jobs:
       - uses: moonrepo/setup-toolchain@v0
         with:
           auto-install: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
-          cache: 'npm'
-          cache-dependency-path: client/package-lock.json
+          cache: 'pnpm'
+          cache-dependency-path: client/pnpm-lock.yaml
       - name: Install Hurl
         run: |
           curl -LO https://github.com/Orange-OpenSource/hurl/releases/download/6.0.0/hurl_6.0.0_amd64.deb
@@ -42,9 +45,8 @@ jobs:
       - name: Install libopus dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps
-        working-directory: client
-      - run: moon run ci-all
+        run: moon run client:playwright-install -- --with-deps
+      - run: moon run ferrotune:ci-all
 
   e2e-tests:
     if: false
@@ -58,11 +60,14 @@ jobs:
       - uses: moonrepo/setup-toolchain@v0
         with:
           auto-install: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
-          cache: 'npm'
-          cache-dependency-path: client/package-lock.json
+          cache: 'pnpm'
+          cache-dependency-path: client/pnpm-lock.yaml
       - name: Install Playwright browsers
         run: moon run client:playwright-install -- --with-deps
       - name: Install ffmpeg for test fixtures
@@ -102,17 +107,21 @@ jobs:
         with:
           auto-install: true
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
-          cache: 'npm'
-          cache-dependency-path: client/package-lock.json
+          cache: 'pnpm'
+          cache-dependency-path: client/pnpm-lock.yaml
 
       - name: Build Next.js client (static export)
         run: moon run client:build-export
 
       - name: Build binary (musl)
-        run: moon run build-release-musl
+        run: moon run ferrotune:build-release-musl
 
       - name: Login to GHCR
         uses: docker/login-action@v3
