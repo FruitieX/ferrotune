@@ -36,7 +36,7 @@ tasks:
   # ============================================================================
 
   install:
-    command: "npm install"
+    command: "pnpm install"
     inputs:
       - "package.json"
       - "package-lock.json"
@@ -44,7 +44,7 @@ tasks:
       - "node_modules"
 
   build-native-audio-api:
-    command: "npx tsc -p tauri-plugin-native-audio/guest-js/tsconfig.json"
+    command: "pnpm exec tsc -p tauri-plugin-native-audio/guest-js/tsconfig.json"
     inputs:
       - "@group(plugin-guest-js)"
     outputs:
@@ -57,7 +57,7 @@ tasks:
   # ============================================================================
 
   dev:
-    command: "npm run dev"
+    command: "pnpm run dev"
     inputs:
       - "@group(sources)"
     deps:
@@ -73,7 +73,7 @@ tasks:
   # ============================================================================
 
   build:
-    command: "npm run build"
+    command: "pnpm run build"
     inputs:
       - "@group(sources)"
       - "@group(styles)"
@@ -85,7 +85,7 @@ tasks:
       - "ferrotune:generate-bindings"
 
   build-export:
-    command: "npm run build"
+    command: "pnpm run build"
     inputs:
       - "@group(sources)"
       - "@group(styles)"
@@ -103,7 +103,7 @@ tasks:
   # ============================================================================
 
   lint:
-    command: "npx eslint . --max-warnings 0"
+    command: "pnpm exec eslint . --max-warnings 0"
     inputs:
       - "eslint.config.mjs"
       - "@group(sources)"
@@ -113,7 +113,7 @@ tasks:
       - "ferrotune:generate-bindings"
 
   typecheck:
-    command: "npx tsc --noEmit"
+    command: "pnpm exec tsc --noEmit"
     inputs:
       - "@group(sources)"
       # Include Next.js generated types - cache must invalidate when these change/are missing
@@ -125,7 +125,7 @@ tasks:
       - "ferrotune:generate-bindings"
 
   fmt:
-    command: "npx prettier --write ."
+    command: "pnpm exec prettier --write ."
     inputs:
       - "@group(sources)"
       - "@group(e2e)"
@@ -135,7 +135,7 @@ tasks:
       runInCI: false
 
   fmt-check:
-    command: "npx prettier --check ."
+    command: "pnpm exec prettier --check ."
     inputs:
       - "@group(sources)"
       - "@group(e2e)"
@@ -147,7 +147,7 @@ tasks:
   # ============================================================================
 
   test:
-    command: "npx playwright test"
+    command: "pnpm exec playwright test"
     inputs:
       - "@group(sources)"
       - "@group(e2e)"
@@ -163,7 +163,7 @@ tasks:
       timeout: 600
 
   test-e2e:
-    command: "npx playwright test"
+    command: "pnpm exec playwright test"
     inputs:
       - "@group(sources)"
       - "@group(e2e)"
@@ -177,7 +177,7 @@ tasks:
       timeout: 600
 
   test-e2e-ui:
-    command: "npx playwright test --ui"
+    command: "pnpm exec playwright test --ui"
     inputs:
       - "@group(sources)"
       - "@group(e2e)"
@@ -192,7 +192,7 @@ tasks:
       persistent: true
 
   test-e2e-headed:
-    command: "npx playwright test --headed"
+    command: "pnpm exec playwright test --headed"
     inputs:
       - "@group(sources)"
       - "@group(e2e)"
@@ -207,7 +207,7 @@ tasks:
       timeout: 600
 
   test-e2e-debug:
-    command: "npx playwright test --debug"
+    command: "pnpm exec playwright test --debug"
     inputs:
       - "@group(sources)"
       - "@group(e2e)"
@@ -223,7 +223,7 @@ tasks:
 
   # Individual test spec files
   test-auth:
-    command: "npx playwright test auth.spec.ts"
+    command: "pnpm exec playwright test auth.spec.ts"
     inputs:
       - "@group(sources)"
       - "e2e/auth.spec.ts"
@@ -236,7 +236,7 @@ tasks:
       - "ferrotune:generate-fixtures"
 
   test-browse:
-    command: "npx playwright test browse.spec.ts"
+    command: "pnpm exec playwright test browse.spec.ts"
     inputs:
       - "@group(sources)"
       - "e2e/browse.spec.ts"
@@ -249,7 +249,7 @@ tasks:
       - "ferrotune:generate-fixtures"
 
   test-search:
-    command: "npx playwright test search.spec.ts"
+    command: "pnpm exec playwright test search.spec.ts"
     inputs:
       - "@group(sources)"
       - "e2e/search.spec.ts"
@@ -262,7 +262,7 @@ tasks:
       - "ferrotune:generate-fixtures"
 
   test-playback:
-    command: "npx playwright test playback.spec.ts"
+    command: "pnpm exec playwright test playback.spec.ts"
     inputs:
       - "@group(sources)"
       - "e2e/playback.spec.ts"
@@ -275,7 +275,7 @@ tasks:
       - "ferrotune:generate-fixtures"
 
   test-queue:
-    command: "npx playwright test queue.spec.ts"
+    command: "pnpm exec playwright test queue.spec.ts"
     inputs:
       - "@group(sources)"
       - "e2e/queue.spec.ts"
@@ -288,7 +288,7 @@ tasks:
       - "ferrotune:generate-fixtures"
 
   test-starring:
-    command: "npx playwright test starring.spec.ts"
+    command: "pnpm exec playwright test starring.spec.ts"
     inputs:
       - "@group(sources)"
       - "e2e/starring.spec.ts"
@@ -301,7 +301,7 @@ tasks:
       - "ferrotune:generate-fixtures"
 
   test-playlists:
-    command: "npx playwright test playlists.spec.ts"
+    command: "pnpm exec playwright test playlists.spec.ts"
     inputs:
       - "@group(sources)"
       - "e2e/playlists.spec.ts"
@@ -318,14 +318,14 @@ tasks:
   # ============================================================================
 
   playwright-install:
-    command: "npx playwright install chromium"
+    command: "pnpm exec playwright install chromium"
     deps:
       - "install"
     options:
       runInCI: true
 
   playwright-report:
-    command: "npx playwright show-report"
+    command: "pnpm exec playwright show-report"
     options:
       runInCI: false
       persistent: true
@@ -341,7 +341,7 @@ tasks:
       runInCI: false
 
   start:
-    command: "npm run start"
+    command: "pnpm run start"
     inputs:
       - ".next"
     deps:
@@ -365,7 +365,7 @@ tasks:
       runInCI: false
 
   tauri-dev:
-    command: "npx tauri dev"
+    command: "pnpm exec tauri dev"
     deps:
       - "install"
       - "build-native-audio-api"
@@ -375,7 +375,7 @@ tasks:
       runInCI: false
 
   tauri-build:
-    command: "npx tauri build"
+    command: "pnpm exec tauri build"
     inputs:
       - "@group(sources)"
       - "src-tauri/**/*"
@@ -389,7 +389,7 @@ tasks:
       runInCI: false
 
   tauri-build-debug:
-    command: "npx tauri build -- --debug"
+    command: "pnpm exec tauri build -- --debug"
     inputs:
       - "@group(sources)"
       - "src-tauri/**/*"
@@ -403,7 +403,7 @@ tasks:
       runInCI: false
 
   tauri-build-release:
-    command: "npx tauri build"
+    command: "pnpm exec tauri build"
     inputs:
       - "@group(sources)"
       - "src-tauri/**/*"
@@ -432,7 +432,7 @@ tasks:
       runInCI: false
 
   tauri-android-init:
-    script: "npx tauri android init && bash scripts/sync-android-icons.sh"
+    script: "pnpm exec tauri android init && bash scripts/sync-android-icons.sh"
     deps:
       - "install"
     options:
@@ -440,7 +440,7 @@ tasks:
       runInCI: false
 
   tauri-android-dev:
-    command: "npx tauri android dev"
+    command: "pnpm exec tauri android dev"
     deps:
       - "install"
       - "tauri-android-sync-icons"
@@ -451,7 +451,7 @@ tasks:
       runInCI: false
 
   tauri-android-build:
-    command: "npx tauri android build"
+    command: "pnpm exec tauri android build"
     inputs:
       - "@group(sources)"
       - "src-tauri/**/*"
@@ -466,7 +466,7 @@ tasks:
       runInCI: false
 
   tauri-android-build-debug:
-    command: "npx tauri android build --debug"
+    command: "pnpm exec tauri android build --debug"
     inputs:
       - "@group(sources)"
       - "src-tauri/**/*"
@@ -481,7 +481,29 @@ tasks:
       runInCI: false
 
   tauri-android-deploy:
-    script: "npx tauri android build --debug --config tauri.android-deploy.conf.json && adb -H ${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1} install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk && adb -H ${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1} shell am start -S -n com.ferrotune.music/.MainActivity"
+    script: "pnpm exec tauri android build --target aarch64 --config tauri.android-deploy.conf.json && APKSIGNER=$(find $ANDROID_HOME/build-tools -name apksigner | sort -V | tail -1) && $APKSIGNER sign --ks $HOME/.android/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk && adb -H ${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1} install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk && adb -H ${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1} shell am start -S -n com.ferrotune.music/.MainActivity"
+    inputs:
+      - "@group(sources)"
+      - "src-tauri/**/*"
+      - "tauri-plugin-native-audio/**/*"
+    deps:
+      - "install"
+      - "tauri-android-sync-icons"
+      - "build-export"
+      - "build-native-audio-api"
+      - "ferrotune:generate-bindings"
+    env:
+      JAVA_HOME: "${JAVA_HOME}"
+      ANDROID_HOME: "${ANDROID_HOME}"
+      ANDROID_SDK_ROOT: "${ANDROID_SDK_ROOT}"
+      NDK_HOME: "${NDK_HOME}"
+      ANDROID_ADB_SERVER_ADDRESS: "${ANDROID_ADB_SERVER_ADDRESS}"
+    options:
+      runInCI: false
+      cache: false
+
+  tauri-android-deploy-debug:
+    script: "pnpm exec tauri android build --debug --target aarch64 --config tauri.android-deploy.conf.json && adb -H ${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1} install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk && adb -H ${ANDROID_ADB_SERVER_ADDRESS:-127.0.0.1} shell am start -S -n com.ferrotune.music/.MainActivity"
     inputs:
       - "@group(sources)"
       - "src-tauri/**/*"

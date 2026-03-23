@@ -100,11 +100,23 @@ pub async fn create_session(
     Json(request): Json<CreateSessionRequest>,
 ) -> FerrotuneApiResult<Json<CreateSessionResponse>> {
     let count = queries::count_active_sessions(&state.pool, user.user_id).await?;
-    let name = format!("Web {}", count + 1);
+    let prefix = match request.client_name.as_str() {
+        "ferrotune-mobile" => "Mobile",
+        _ => "Web",
+    };
+    let name = format!("{} {}", prefix, count + 1);
 
     let id =
         queries::create_playback_session(&state.pool, user.user_id, &name, &request.client_name)
             .await?;
+
+    // Notify all existing sessions that the session list changed
+    let sessions = queries::get_active_sessions(&state.pool, user.user_id).await?;
+    let session_ids: Vec<String> = sessions.into_iter().map(|s| s.id).collect();
+    state
+        .session_manager
+        .broadcast_to_sessions(&session_ids, SessionEvent::SessionListChanged)
+        .await;
 
     Ok(Json(CreateSessionResponse { id, name }))
 }
@@ -154,6 +166,14 @@ pub async fn delete_session(
     state.session_manager.remove(&session.id).await;
 
     queries::delete_session(&state.pool, &session_id).await?;
+
+    // Notify remaining sessions that the session list changed
+    let sessions = queries::get_active_sessions(&state.pool, user.user_id).await?;
+    let session_ids: Vec<String> = sessions.into_iter().map(|s| s.id).collect();
+    state
+        .session_manager
+        .broadcast_to_sessions(&session_ids, SessionEvent::SessionListChanged)
+        .await;
 
     Ok(Json(SessionSuccessResponse { success: true }))
 }
@@ -210,6 +230,43 @@ pub async fn session_heartbeat(
     Ok(Json(SessionSuccessResponse { success: true }))
 }
 
+/// Guard that auto-deletes a session when dropped if no SSE subscribers remain.
+struct SessionCleanupGuard {
+    session_id: String,
+    user_id: i64,
+    state: Arc<AppState>,
+}
+
+impl Drop for SessionCleanupGuard {
+    fn drop(&mut self) {
+        let session_id = self.session_id.clone();
+        let user_id = self.user_id;
+        let state = self.state.clone();
+        tokio::spawn(async move {
+            // Small delay so the receiver is fully released before checking count
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let remaining = state.session_manager.receiver_count(&session_id).await;
+            if remaining == 0 {
+                tracing::debug!(
+                    "Session {} has no remaining subscribers, auto-deleting",
+                    session_id
+                );
+                state.session_manager.remove(&session_id).await;
+                let _ = queries::delete_session(&state.pool, &session_id).await;
+
+                // Notify remaining sessions for this user
+                if let Ok(sessions) = queries::get_active_sessions(&state.pool, user_id).await {
+                    let session_ids: Vec<String> = sessions.into_iter().map(|s| s.id).collect();
+                    state
+                        .session_manager
+                        .broadcast_to_sessions(&session_ids, SessionEvent::SessionListChanged)
+                        .await;
+                }
+            }
+        });
+    }
+}
+
 /// GET /ferrotune/sessions/:id/events — SSE stream of session events
 pub async fn session_events(
     user: FerrotuneAuthenticatedUser,
@@ -242,7 +299,18 @@ pub async fn session_events(
         current_song_artist: session.current_song_artist,
     };
 
+    // This guard is held by the stream; when axum drops the stream on client
+    // disconnect, the guard's Drop impl checks if the session should be
+    // auto-deleted (no remaining SSE subscribers).
+    let _cleanup_guard = SessionCleanupGuard {
+        session_id: session.id.clone(),
+        user_id: user.user_id,
+        state: state.clone(),
+    };
+
     let stream = async_stream::stream! {
+        let _guard = _cleanup_guard;
+
         // Send initial state
         if let Ok(json) = serde_json::to_string(&initial_event) {
             yield Ok(Event::default().data(json));

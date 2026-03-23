@@ -28,6 +28,7 @@ import {
   volumeAtom,
   isMutedAtom,
 } from "@/lib/store/player";
+import { getClient } from "@/lib/api/client";
 
 /**
  * Receives SSE events for the current session and dispatches
@@ -206,6 +207,17 @@ export function SessionEventHandler() {
           }
         }
         break;
+      case "sessionListChanged": {
+        // Another session was created or deleted — refresh the list
+        const client = getClient();
+        if (client) {
+          client
+            .listSessions()
+            .then((response) => setActiveSessions(response.sessions))
+            .catch(() => {});
+        }
+        break;
+      }
     }
   };
 

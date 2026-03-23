@@ -66,18 +66,23 @@ pub async fn save_play_queue(
     // Use a transaction to ensure atomicity
     let mut tx = state.pool.begin().await?;
 
-    // Delete existing queue entries for this user
-    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ?")
+    // Use a deterministic session ID for playqueue save/restore
+    let session_id = format!("playqueue-{}", user.user_id);
+
+    // Delete existing queue entries for this user's playqueue session
+    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ? AND session_id = ?")
         .bind(user.user_id)
+        .bind(&session_id)
         .execute(&mut *tx)
         .await?;
 
     // Insert new queue entries
     for (position, song_id) in params.id.iter().enumerate() {
         sqlx::query(
-            "INSERT INTO play_queue_entries (user_id, song_id, queue_position) VALUES (?, ?, ?)",
+            "INSERT INTO play_queue_entries (user_id, session_id, song_id, queue_position) VALUES (?, ?, ?, ?)",
         )
         .bind(user.user_id)
+        .bind(&session_id)
         .bind(song_id)
         .bind(position as i64)
         .execute(&mut *tx)
@@ -89,9 +94,9 @@ pub async fn save_play_queue(
 
     // Upsert the queue metadata using new schema
     sqlx::query(
-        "INSERT INTO play_queues (user_id, source_type, current_index, position_ms, 
+        "INSERT INTO play_queues (user_id, session_id, source_type, current_index, position_ms, 
          is_shuffled, repeat_mode, created_at, updated_at, changed_by)
-         VALUES (?, 'other', ?, ?, 0, 'off', datetime('now'), datetime('now'), ?)
+         VALUES (?, ?, 'other', ?, ?, 0, 'off', datetime('now'), datetime('now'), ?)
          ON CONFLICT(user_id, session_id) DO UPDATE SET
             current_index = excluded.current_index,
             position_ms = excluded.position_ms,
@@ -99,6 +104,7 @@ pub async fn save_play_queue(
             changed_by = excluded.changed_by",
     )
     .bind(user.user_id)
+    .bind(&session_id)
     .bind(current_index)
     .bind(params.position.unwrap_or(0))
     .bind(&user.client)
@@ -118,11 +124,15 @@ pub async fn get_play_queue(
     user: AuthenticatedUser,
     State(state): State<Arc<AppState>>,
 ) -> Result<FormatResponse<PlayQueueResponse>> {
+    // Use a deterministic session ID for playqueue save/restore
+    let session_id = format!("playqueue-{}", user.user_id);
+
     // Get queue metadata from new schema
     let queue_meta: Option<(i64, i64, chrono::DateTime<Utc>, String)> = sqlx::query_as(
-        "SELECT current_index, position_ms, updated_at, changed_by FROM play_queues WHERE user_id = ? LIMIT 1",
+        "SELECT current_index, position_ms, updated_at, changed_by FROM play_queues WHERE user_id = ? AND session_id = ? LIMIT 1",
     )
     .bind(user.user_id)
+    .bind(&session_id)
     .fetch_optional(&state.pool)
     .await?;
 
@@ -133,10 +143,11 @@ pub async fn get_play_queue(
          INNER JOIN songs s ON pqe.song_id = s.id
          INNER JOIN artists ar ON s.artist_id = ar.id
          LEFT JOIN albums al ON s.album_id = al.id
-         WHERE pqe.user_id = ?
+         WHERE pqe.user_id = ? AND pqe.session_id = ?
          ORDER BY pqe.queue_position ASC",
     )
     .bind(user.user_id)
+    .bind(&session_id)
     .fetch_all(&state.pool)
     .await?;
 

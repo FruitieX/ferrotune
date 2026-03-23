@@ -14,11 +14,7 @@ import {
   Music,
   ArrowRightLeft,
 } from "lucide-react";
-import {
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
+import type { MenuComponents } from "@/components/shared/media-menu-items";
 import {
   serverConnectionAtom,
   savedAccountsAtom,
@@ -30,14 +26,23 @@ import {
   currentSessionIdAtom,
   activeSessionsAtom,
   controllingSessionIdAtom,
+  effectiveSessionIdAtom,
   isAudioOwnerAtom,
   remotePlaybackStateAtom,
 } from "@/lib/store/session";
 import { currentSongAtom } from "@/lib/store/server-queue";
 import { playbackStateAtom } from "@/lib/store/player";
-import { initializeClient, getClient } from "@/lib/api/client";
+import { initializeClient, getClient, getClientName } from "@/lib/api/client";
+import { useHasFinePointer } from "@/lib/hooks/use-media-query";
 
-export function AccountMenuItems() {
+interface AccountMenuItemsProps {
+  components: MenuComponents;
+}
+
+export function AccountMenuItems({
+  components: { Item, Separator },
+}: AccountMenuItemsProps) {
+  const hasFinePointer = useHasFinePointer();
   const router = useRouter();
   const [connection, setConnection] = useAtom(serverConnectionAtom);
   const [savedAccounts, setSavedAccounts] = useAtom(savedAccountsAtom);
@@ -48,8 +53,9 @@ export function AccountMenuItems() {
 
   const [currentSessionId, setCurrentSessionId] = useAtom(currentSessionIdAtom);
   const activeSessions = useAtomValue(activeSessionsAtom);
+  const effectiveSessionId = useAtomValue(effectiveSessionIdAtom);
   const setControllingSessionId = useSetAtom(controllingSessionIdAtom);
-  const setIsAudioOwner = useSetAtom(isAudioOwnerAtom);
+  const [isAudioOwner, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
   const setActiveSessions = useSetAtom(activeSessionsAtom);
   const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
 
@@ -93,8 +99,8 @@ export function AccountMenuItems() {
   };
 
   const switchToSession = (sessionId: string) => {
-    if (sessionId === currentSessionId) {
-      // Switch back to own session
+    if (sessionId === currentSessionId || sessionId === effectiveSessionId) {
+      // Switch back to own session (clicking own or currently-controlled session)
       setControllingSessionId(null);
       setIsAudioOwner(true);
       setRemotePlaybackState(null);
@@ -110,7 +116,7 @@ export function AccountMenuItems() {
     if (!client) return;
 
     try {
-      const created = await client.createSession("ferrotune-web");
+      const created = await client.createSession(getClientName());
       setCurrentSessionId(created.id);
       setControllingSessionId(null);
       setIsAudioOwner(true);
@@ -165,14 +171,14 @@ export function AccountMenuItems() {
     <>
       {hasMultipleAccounts && (
         <>
-          <DropdownMenuLabel className="text-xs text-muted-foreground">
+          <div className="px-2 py-1.5 text-xs text-muted-foreground font-semibold">
             Accounts
-          </DropdownMenuLabel>
+          </div>
           {savedAccounts.map((account) => {
             const key = accountKey(account);
             const isCurrent = key === currentKey;
             return (
-              <DropdownMenuItem
+              <Item
                 key={key}
                 className="flex items-center gap-2 group"
                 onClick={() => switchToAccount(account)}
@@ -186,7 +192,7 @@ export function AccountMenuItems() {
                 ) : (
                   <button
                     type="button"
-                    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
+                    className={`shrink-0 transition-opacity p-0.5 rounded hover:bg-muted ${hasFinePointer ? "opacity-0 group-hover:opacity-100" : "opacity-100"}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       removeAccount(account);
@@ -195,45 +201,46 @@ export function AccountMenuItems() {
                     <X className="w-3.5 h-3.5 text-muted-foreground" />
                   </button>
                 )}
-              </DropdownMenuItem>
+              </Item>
             );
           })}
-          <DropdownMenuSeparator />
+          <Separator />
         </>
       )}
-      <DropdownMenuItem onClick={() => router.push("/profile")}>
+      <Item onClick={() => router.push("/profile")}>
         <User className="w-4 h-4 mr-2" />
         Profile
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => router.push("/login")}>
+      </Item>
+      <Item onClick={() => router.push("/login")}>
         <UserPlus className="w-4 h-4 mr-2" />
         Add Account
-      </DropdownMenuItem>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem onClick={handleLogout}>
+      </Item>
+      <Separator />
+      <Item onClick={handleLogout}>
         <LogOut className="w-4 h-4 mr-2" />
         Sign Out
-      </DropdownMenuItem>
+      </Item>
       {activeSessions.length > 0 && (
         <>
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel className="text-xs text-muted-foreground">
+          <Separator />
+          <div className="px-2 py-1.5 text-xs text-muted-foreground font-semibold">
             Sessions
-          </DropdownMenuLabel>
+          </div>
           {activeSessions.map((session) => {
             const isOwn = session.id === currentSessionId;
-            // For own session, use local playback state for real-time display
-            const songTitle = isOwn
+            const isActive = session.id === effectiveSessionId;
+            // For the active session (own or controlled), use local playback state
+            const songTitle = isActive
               ? localCurrentSong?.title
               : session.currentSongTitle;
-            const songArtist = isOwn
+            const songArtist = isActive
               ? localCurrentSong?.artist
               : session.currentSongArtist;
-            const playing = isOwn
+            const playing = isActive
               ? localPlaybackState === "playing"
               : session.isPlaying;
             return (
-              <DropdownMenuItem
+              <Item
                 key={session.id}
                 className="flex items-center gap-2 group"
                 onClick={() => switchToSession(session.id)}
@@ -241,8 +248,8 @@ export function AccountMenuItems() {
                 <Monitor className="w-4 h-4 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <span className="truncate block text-sm">
-                    {session.clientName || session.name}
-                    {isOwn && " (this tab)"}
+                    {session.name}
+                    {isOwn && isAudioOwner && " (this tab)"}
                   </span>
                   {songTitle && (
                     <span className="truncate block text-xs text-muted-foreground">
@@ -252,13 +259,13 @@ export function AccountMenuItems() {
                     </span>
                   )}
                 </div>
-                {isOwn ? (
+                {isActive ? (
                   <Check className="w-4 h-4 shrink-0 text-primary" />
-                ) : (
+                ) : !isOwn ? (
                   <div className="flex items-center gap-0.5 shrink-0">
                     <button
                       type="button"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
+                      className={`transition-opacity p-0.5 rounded hover:bg-muted ${hasFinePointer ? "opacity-0 group-hover:opacity-100" : "opacity-100"}`}
                       title="Take over session"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -269,7 +276,7 @@ export function AccountMenuItems() {
                     </button>
                     <button
                       type="button"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
+                      className={`transition-opacity p-0.5 rounded hover:bg-muted ${hasFinePointer ? "opacity-0 group-hover:opacity-100" : "opacity-100"}`}
                       title="End session"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -279,14 +286,14 @@ export function AccountMenuItems() {
                       <X className="w-3.5 h-3.5 text-muted-foreground" />
                     </button>
                   </div>
-                )}
-              </DropdownMenuItem>
+                ) : null}
+              </Item>
             );
           })}
-          <DropdownMenuItem onClick={createNewSession}>
+          <Item onClick={createNewSession}>
             <Plus className="w-4 h-4 mr-2" />
             New Session
-          </DropdownMenuItem>
+          </Item>
         </>
       )}
     </>

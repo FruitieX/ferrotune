@@ -67,6 +67,8 @@ pub enum SessionEvent {
     /// Volume change command from a remote controller
     #[serde(rename_all = "camelCase")]
     VolumeChange { volume: f64, is_muted: bool },
+    /// The session list changed (a session was created or deleted)
+    SessionListChanged,
 }
 
 /// Manages per-session broadcast channels for real-time SSE updates.
@@ -124,6 +126,25 @@ impl SessionManager {
     pub async fn remove(&self, session_id: &str) {
         let mut channels = self.channels.write().await;
         channels.remove(session_id);
+    }
+
+    /// Broadcast an event to multiple sessions.
+    pub async fn broadcast_to_sessions(&self, session_ids: &[String], event: SessionEvent) {
+        let channels = self.channels.read().await;
+        for session_id in session_ids {
+            if let Some(tx) = channels.get(session_id) {
+                let _ = tx.send(event.clone());
+            }
+        }
+    }
+
+    /// Get the number of active SSE receivers for a session.
+    pub async fn receiver_count(&self, session_id: &str) -> usize {
+        let channels = self.channels.read().await;
+        channels
+            .get(session_id)
+            .map(|tx| tx.receiver_count())
+            .unwrap_or(0)
     }
 }
 

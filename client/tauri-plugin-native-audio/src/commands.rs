@@ -3,8 +3,8 @@ use tauri::{command, AppHandle, Runtime};
 use crate::{
     error::Result,
     models::{
-        PlaybackSettingsConfig, PlaybackState, QueueItem, SafeAreaInsets, SessionConfig,
-        StartAutonomousPlaybackParams, TrackInfo,
+        PlaybackSettingsConfig, PlaybackState, QueueItem, SafeAreaInsets,
+        SessionConfig, StartAutonomousPlaybackParams, TrackInfo,
     },
 };
 
@@ -302,13 +302,15 @@ pub async fn init_session<R: Runtime>(
     username: Option<String>,
     password: Option<String>,
     api_key: Option<String>,
+    session_id: Option<String>,
 ) -> Result<()> {
-    log::info!("init_session command reached");
+    log::info!("init_session command reached, session_id={:?}", session_id);
     let config = SessionConfig {
         server_url,
         username,
         password,
         api_key,
+        session_id,
     };
 
     #[cfg(mobile)]
@@ -371,12 +373,14 @@ pub async fn start_autonomous_playback<R: Runtime>(
     repeat_mode: String,
     play_when_ready: bool,
     start_position_ms: Option<u64>,
+    session_id: Option<String>,
 ) -> Result<()> {
     log::info!(
-        "start_autonomous_playback command reached: total={}, index={}, shuffled={}",
+        "start_autonomous_playback command reached: total={}, index={}, shuffled={}, session_id={:?}",
         total_count,
         current_index,
-        is_shuffled
+        is_shuffled,
+        session_id
     );
     let params = StartAutonomousPlaybackParams {
         total_count,
@@ -385,6 +389,7 @@ pub async fn start_autonomous_playback<R: Runtime>(
         repeat_mode,
         play_when_ready,
         start_position_ms: start_position_ms.unwrap_or(0),
+        session_id,
     };
 
     #[cfg(mobile)]
@@ -429,7 +434,9 @@ pub async fn soft_invalidate_queue<R: Runtime>(app: AppHandle<R>, total_count: i
     #[cfg(not(mobile))]
     {
         let _ = (app, total_count);
-        log::warn!("soft_invalidate_queue() called on desktop - native audio only available on mobile");
+        log::warn!(
+            "soft_invalidate_queue() called on desktop - native audio only available on mobile"
+        );
         Err(Error::ServiceNotAvailable)
     }
 }

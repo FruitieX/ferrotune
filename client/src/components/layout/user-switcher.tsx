@@ -5,11 +5,7 @@ import { useAtomValue } from "jotai";
 import { User, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { ResponsiveDropdownMenu } from "@/components/shared/responsive-context-menu";
 import {
   serverConnectionAtom,
   savedAccountsAtom,
@@ -57,8 +53,8 @@ export function UserSwitcher({ isCollapsed, isActive }: UserSwitcherProps) {
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <ResponsiveDropdownMenu
+      trigger={
         <Button
           variant="ghost"
           className={cn(
@@ -82,10 +78,14 @@ export function UserSwitcher({ isCollapsed, isActive }: UserSwitcherProps) {
             </>
           )}
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" side="top" className="w-64">
-        <AccountMenuItems />
-      </DropdownMenuContent>
-    </DropdownMenu>
+      }
+      renderMenuContent={(components) => (
+        <AccountMenuItems components={components} />
+      )}
+      contentClassName="w-64"
+      align="start"
+      side="top"
+      drawerTitle="Account"
+    />
   );
 }

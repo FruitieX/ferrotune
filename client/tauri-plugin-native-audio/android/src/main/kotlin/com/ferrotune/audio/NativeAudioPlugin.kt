@@ -102,6 +102,7 @@ internal class InitSessionArgs {
     lateinit var username: String
     var password: String? = null
     var apiKey: String? = null
+    var sessionId: String? = null
 }
 
 @InvokeArg
@@ -121,6 +122,7 @@ internal class StartAutonomousPlaybackArgs {
     var repeatMode: String = "off"
     var playWhenReady: Boolean = true
     var startPositionMs: Long = 0
+    var sessionId: String? = null
 }
 
 @InvokeArg
@@ -187,6 +189,11 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         super.load(webView)
         Log.d(TAG, "NativeAudioPlugin loaded")
         webViewRef = webView
+        // Allow mixed content: the WebView loads from https://tauri.localhost but
+        // API requests go to the user's server over plain HTTP. Without this,
+        // Android's default MIXED_CONTENT_NEVER_ALLOW silently blocks all fetch()
+        // calls from the JS frontend to the backend server.
+        webView.settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         // Disable overscroll glow/bounce effect on the WebView
         webView.overScrollMode = android.view.View.OVER_SCROLL_NEVER
         injectSafeAreaInsets(webView)
@@ -717,7 +724,8 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                     serverUrl = args.serverUrl,
                     username = args.username,
                     password = args.password,
-                    apiKey = args.apiKey
+                    apiKey = args.apiKey,
+                    sessionId = args.sessionId
                 ))
                 invoke.resolve()
             } catch (e: Exception) {
@@ -773,7 +781,8 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                     isShuffled = args.isShuffled,
                     repeatMode = args.repeatMode,
                     playWhenReady = args.playWhenReady,
-                    startPositionMs = args.startPositionMs
+                    startPositionMs = args.startPositionMs,
+                    sessionId = args.sessionId
                 )
                 invoke.resolve()
             } catch (e: Exception) {

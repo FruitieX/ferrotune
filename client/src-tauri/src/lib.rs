@@ -44,7 +44,7 @@ fn is_desktop() -> bool {
 pub fn run() {
     let server_state = Mutex::new(EmbeddedServerState::default());
 
-    let mut builder = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_native_audio::init())
         .manage(server_state)
         .invoke_handler(tauri::generate_handler![
@@ -55,9 +55,7 @@ pub fn run() {
 
     // Register custom protocol for embedded server on desktop
     #[cfg(not(target_os = "android"))]
-    {
-        builder = embedded_server::register_protocol(builder);
-    }
+    let builder = embedded_server::register_protocol(builder);
 
     builder
         .setup(|app| {

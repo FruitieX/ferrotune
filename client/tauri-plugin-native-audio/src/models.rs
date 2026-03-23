@@ -44,6 +44,8 @@ pub struct SessionConfig {
     pub password: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 /// Playback settings that affect how tracks are prepared
@@ -68,6 +70,7 @@ pub struct StartAutonomousPlaybackParams {
     pub play_when_ready: bool,
     #[serde(default)]
     pub start_position_ms: u64,
+    pub session_id: Option<String>,
 }
 
 /// Queue item for setting the playback queue

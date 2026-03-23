@@ -540,16 +540,10 @@ export async function nativeInitSession(config: {
   username: string;
   password?: string;
   apiKey?: string;
+  sessionId?: string;
 }): Promise<void> {
-  console.log("[NativeAudio] nativeInitSession() called");
-  try {
-    const api = await getNativeApi();
-    await api.initSession(config);
-    console.log("[NativeAudio] nativeInitSession() SUCCEEDED");
-  } catch (err) {
-    console.error("[NativeAudio] nativeInitSession() FAILED:", String(err));
-    throw err;
-  }
+  const api = await getNativeApi();
+  await api.initSession(config);
 }
 
 /**
@@ -587,6 +581,7 @@ export async function nativeStartAutonomousPlayback(params: {
   repeatMode: string;
   playWhenReady: boolean;
   startPositionMs: number;
+  sessionId?: string;
 }): Promise<void> {
   console.log("[NativeAudio] nativeStartAutonomousPlayback() called", params);
   try {

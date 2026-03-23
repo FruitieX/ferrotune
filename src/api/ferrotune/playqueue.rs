@@ -47,18 +47,23 @@ pub async fn save_play_queue(
     // Use a transaction to ensure atomicity
     let mut tx = state.pool.begin().await?;
 
-    // Delete existing queue entries for this user
-    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ?")
+    // Use a deterministic session ID for ferrotune playqueue API
+    let session_id = format!("playqueue-{}", user.user_id);
+
+    // Delete existing queue entries for this user's playqueue session
+    sqlx::query("DELETE FROM play_queue_entries WHERE user_id = ? AND session_id = ?")
         .bind(user.user_id)
+        .bind(&session_id)
         .execute(&mut *tx)
         .await?;
 
     // Insert new queue entries
     for (position, song_id) in request.song_ids.iter().enumerate() {
         sqlx::query(
-            "INSERT INTO play_queue_entries (user_id, song_id, queue_position) VALUES (?, ?, ?)",
+            "INSERT INTO play_queue_entries (user_id, session_id, song_id, queue_position) VALUES (?, ?, ?, ?)",
         )
         .bind(user.user_id)
+        .bind(&session_id)
         .bind(song_id)
         .bind(position as i64)
         .execute(&mut *tx)
@@ -70,9 +75,9 @@ pub async fn save_play_queue(
 
     // Upsert the queue metadata using new schema
     sqlx::query(
-        "INSERT INTO play_queues (user_id, source_type, current_index, position_ms, 
+        "INSERT INTO play_queues (user_id, session_id, source_type, current_index, position_ms, 
          is_shuffled, repeat_mode, created_at, updated_at, changed_by)
-         VALUES (?, 'other', ?, ?, 0, 'off', datetime('now'), datetime('now'), ?)
+         VALUES (?, ?, 'other', ?, ?, 0, 'off', datetime('now'), datetime('now'), ?)
          ON CONFLICT(user_id, session_id) DO UPDATE SET
             current_index = excluded.current_index,
             position_ms = excluded.position_ms,
@@ -80,6 +85,7 @@ pub async fn save_play_queue(
             changed_by = excluded.changed_by",
     )
     .bind(user.user_id)
+    .bind(&session_id)
     .bind(current_index)
     .bind(request.position.unwrap_or(0))
     .bind("ferrotune")

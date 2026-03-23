@@ -72,6 +72,8 @@ class PlaybackService : MediaSessionService() {
         // This should be long enough to cover ExoPlayer's gapless pre-decode buffer
         // but short enough that the volume difference on the current track's tail is inaudible.
         private const val REPLAYGAIN_PRE_APPLY_LEAD_MS = 500L
+        // Stop the foreground service after this many ms of inactivity (paused)
+        private const val INACTIVITY_TIMEOUT_MS = 5L * 60 * 1000
         // Cache size for transcoded audio streams (200 MB)
         private const val STREAM_CACHE_MAX_BYTES = 200L * 1024 * 1024
         // SimpleCache is a singleton — only one instance may exist per cache directory.
@@ -152,10 +154,23 @@ class PlaybackService : MediaSessionService() {
     private val MAX_NETWORK_RETRIES = 2
     private val NETWORK_RETRY_DELAY_MS = 1500L
 
+    // SSE remote control
+    private var sseConnected = false
+    private var sseReconnectRunnable: Runnable? = null
+    private val SSE_RECONNECT_DELAY_MS = 3000L
+
     // Timeout to stop service if JS side doesn't advance after track ends
     private val endedTimeoutRunnable = Runnable {
         Log.d(TAG, "Track ended timeout - stopping service")
         if (player.playbackState == Player.STATE_ENDED) {
+            stopSelf()
+        }
+    }
+
+    // Timeout to stop service after extended inactivity (paused)
+    private val inactivityTimeoutRunnable = Runnable {
+        Log.d(TAG, "Inactivity timeout - stopping service")
+        if (!player.isPlaying) {
             stopSelf()
         }
     }
@@ -478,8 +493,11 @@ class PlaybackService : MediaSessionService() {
         Log.d(TAG, "PlaybackService destroyed")
         handler.removeCallbacks(progressRunnable)
         handler.removeCallbacks(endedTimeoutRunnable)
+        handler.removeCallbacks(inactivityTimeoutRunnable)
         handler.removeCallbacks(positionSyncRunnable)
         handler.removeCallbacks(preApplyGainRunnable)
+        sseReconnectRunnable?.let { handler.removeCallbacks(it) }
+        apiClient.disconnectSSE()
         replayGainProcessor.setClippingCallback(null)
         apiExecutor.shutdownNow()
         mediaSession.release()
@@ -593,6 +611,101 @@ class PlaybackService : MediaSessionService() {
      */
     fun initSession(config: SessionConfig) {
         apiClient.setSessionConfig(config)
+        // Connect SSE for remote control if session ID is available
+        connectSessionSSE()
+    }
+
+    /**
+     * Connect to the SSE stream for remote control when the JS WebView is backgrounded.
+     * Handles PlaybackCommand (play/pause/skip/seek), QueueChanged/Updated (refetch),
+     * VolumeChange, and SessionEnded events.
+     */
+    private fun connectSessionSSE() {
+        apiClient.connectSSE(object : SessionEventListener {
+            override fun onConnected() {
+                sseConnected = true
+                Log.d(TAG, "SSE remote control connected")
+            }
+
+            override fun onEvent(event: SessionEvent) {
+                handler.post { handleSessionEvent(event) }
+            }
+
+            override fun onDisconnected() {
+                sseConnected = false
+                // Auto-reconnect after delay if in autonomous mode
+                if (autonomousMode) {
+                    sseReconnectRunnable = Runnable { connectSessionSSE() }
+                    handler.postDelayed(sseReconnectRunnable!!, SSE_RECONNECT_DELAY_MS)
+                }
+            }
+        })
+    }
+
+    private fun handleSessionEvent(event: SessionEvent) {
+        when (event) {
+            is SessionEvent.PlaybackCommand -> {
+                Log.d(TAG, "SSE PlaybackCommand: action=${event.action}, positionMs=${event.positionMs}")
+                when (event.action) {
+                    "play" -> { player.playWhenReady = true }
+                    "pause" -> { player.playWhenReady = false }
+                    "next" -> autonomousSkipNext()
+                    "previous" -> autonomousSkipPrevious()
+                    "seek" -> event.positionMs?.let { seek(it) }
+                }
+            }
+            is SessionEvent.QueueChanged -> {
+                Log.d(TAG, "SSE QueueChanged: refetching queue")
+                if (autonomousMode) {
+                    apiExecutor.execute {
+                        try {
+                            val response = apiClient.getQueueWindow(20)
+                            handler.post {
+                                handleQueueWindowResponse(response, response.currentIndex, response.positionMs, true)
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "SSE: failed to refetch queue after QueueChanged", e)
+                        }
+                    }
+                }
+            }
+            is SessionEvent.QueueUpdated -> {
+                Log.d(TAG, "SSE QueueUpdated: refetching queue metadata")
+                if (autonomousMode) {
+                    apiExecutor.execute {
+                        try {
+                            val response = apiClient.getQueueWindow(20)
+                            handler.post {
+                                // Update metadata without restarting playback
+                                serverTotalCount = response.totalCount
+                                isShuffled = response.isShuffled
+                                repeatMode = response.repeatMode
+                                emitQueueStateChanged()
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "SSE: failed to refetch queue after QueueUpdated", e)
+                        }
+                    }
+                }
+            }
+            is SessionEvent.VolumeChange -> {
+                Log.d(TAG, "SSE VolumeChange: volume=${event.volume}, muted=${event.isMuted}")
+                userVolume = event.volume
+                applyVolume()
+            }
+            is SessionEvent.PositionUpdate -> {
+                // Owner's position updates — ignore when we ARE the owner (autonomous mode)
+                // These are useful when this device becomes a follower in the future
+            }
+            is SessionEvent.SessionEnded -> {
+                Log.d(TAG, "SSE SessionEnded: stopping autonomous mode")
+                autonomousMode = false
+                apiClient.disconnectSSE()
+            }
+            is SessionEvent.SessionListChanged -> {
+                Log.d(TAG, "SSE SessionListChanged: ignoring on Android")
+            }
+        }
     }
 
     /**
@@ -619,9 +732,15 @@ class PlaybackService : MediaSessionService() {
         repeatMode: String,
         playWhenReady: Boolean,
         startPositionMs: Long = 0,
+        sessionId: String? = null,
     ) {
         Log.d(TAG, "startAutonomousPlayback(total=$totalCount, index=$currentIndex, " +
-            "shuffled=$isShuffled, repeat=$repeatMode, play=$playWhenReady)")
+            "shuffled=$isShuffled, repeat=$repeatMode, play=$playWhenReady, sessionId=$sessionId)")
+
+        // Update session ID on the API client if provided
+        if (sessionId != null) {
+            apiClient.updateSessionId(sessionId)
+        }
 
         autonomousMode = true
         serverTotalCount = totalCount
@@ -632,6 +751,7 @@ class PlaybackService : MediaSessionService() {
         resetScrobbleState()
 
         handler.removeCallbacks(endedTimeoutRunnable)
+        handler.removeCallbacks(inactivityTimeoutRunnable)
 
         // Fetch initial window and start playback
         apiExecutor.execute {
@@ -1127,6 +1247,7 @@ class PlaybackService : MediaSessionService() {
     fun setTrack(track: TrackInfo) {
         Log.d(TAG, "setTrack(${track.title}) - url: ${track.url}")
         handler.removeCallbacks(endedTimeoutRunnable)
+        handler.removeCallbacks(inactivityTimeoutRunnable)
 
         currentTrack = track
         seekTimeOffsetMs = 0
@@ -1191,6 +1312,7 @@ class PlaybackService : MediaSessionService() {
         pendingPlayOnNextQueue = false
         Log.d(TAG, "setQueue(${items.size} items, startIndex=$startIndex, offset=$offset, startPositionMs=$startPositionMs, playWhenReady=$playWhenReady, pendingPlay->shouldPlay=$shouldPlay)")
         handler.removeCallbacks(endedTimeoutRunnable)
+        handler.removeCallbacks(inactivityTimeoutRunnable)
         queue = items
         queueOffset = offset
         queueIndex = offset + startIndex.coerceIn(0, items.size - 1)
@@ -1554,10 +1676,11 @@ class PlaybackService : MediaSessionService() {
 
             emitStateChange()
 
-            // Start/stop progress updates
+            // Start/stop progress updates and inactivity timeout
             if (playbackState == Player.STATE_READY && player.playWhenReady) {
                 lastProgressTimestamp = System.currentTimeMillis()
                 handler.post(progressRunnable)
+                handler.removeCallbacks(inactivityTimeoutRunnable)
             } else {
                 if (!player.isPlaying) {
                     lastProgressTimestamp = 0
@@ -1570,6 +1693,7 @@ class PlaybackService : MediaSessionService() {
                 if (playbackState == Player.STATE_ENDED) {
                     // ExoPlayer ran out of loaded items, try to advance
                     autonomousSkipNext()
+                    handler.postDelayed(inactivityTimeoutRunnable, INACTIVITY_TIMEOUT_MS)
                 }
             } else {
                 // Legacy mode: give JS time to advance
@@ -1605,6 +1729,7 @@ class PlaybackService : MediaSessionService() {
             if (playWhenReady && player.playbackState == Player.STATE_READY) {
                 lastProgressTimestamp = System.currentTimeMillis()
                 handler.post(progressRunnable)
+                handler.removeCallbacks(inactivityTimeoutRunnable)
                 if (autonomousMode) {
                     handler.removeCallbacks(positionSyncRunnable)
                     handler.postDelayed(positionSyncRunnable, POSITION_SYNC_INTERVAL_MS)
@@ -1612,6 +1737,7 @@ class PlaybackService : MediaSessionService() {
             } else {
                 lastProgressTimestamp = 0
                 handler.removeCallbacks(progressRunnable)
+                handler.postDelayed(inactivityTimeoutRunnable, INACTIVITY_TIMEOUT_MS)
                 if (autonomousMode) {
                     handler.removeCallbacks(positionSyncRunnable)
                 }

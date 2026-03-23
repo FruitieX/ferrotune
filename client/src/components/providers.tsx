@@ -1,6 +1,6 @@
 "use client";
 
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { Provider as JotaiProvider, useAtomValue, useSetAtom } from "jotai";
 import { ThemeProvider } from "next-themes";
@@ -197,28 +197,35 @@ function AccountScopedQueryProvider({
   }, []);
 
   return (
-    <PersistQueryClientProvider
-      key={currentKey}
-      client={queryClient}
-      persistOptions={{
-        persister,
-        maxAge: PERSIST_MAX_AGE_MS,
-        dehydrateOptions: {
-          shouldDehydrateQuery: (query) =>
-            query.state.status === "success" &&
-            shouldPersistQuery(query.queryKey),
-        },
-      }}
-      onSuccess={() => {
-        // After restoring cached data from IndexedDB, trigger a
-        // background refetch of all active queries so the cache gets
-        // updated for the next visit. The home page uses structuralSharing
-        // to freeze displayed content and prevent visual swaps.
-        queryClient.invalidateQueries();
-      }}
-    >
-      {children}
-    </PersistQueryClientProvider>
+    // Outer QueryClientProvider ensures all app code resolves the same React
+    // context.  pnpm strict isolation can cause PersistQueryClientProvider's
+    // internal QueryClientProvider (resolved via react-query-persist-client's
+    // peer dep) to use a different context object than useQueryClient() in
+    // application code, breaking SSR prerendering.
+    <QueryClientProvider client={queryClient}>
+      <PersistQueryClientProvider
+        key={currentKey}
+        client={queryClient}
+        persistOptions={{
+          persister,
+          maxAge: PERSIST_MAX_AGE_MS,
+          dehydrateOptions: {
+            shouldDehydrateQuery: (query) =>
+              query.state.status === "success" &&
+              shouldPersistQuery(query.queryKey),
+          },
+        }}
+        onSuccess={() => {
+          // After restoring cached data from IndexedDB, trigger a
+          // background refetch of all active queries so the cache gets
+          // updated for the next visit. The home page uses structuralSharing
+          // to freeze displayed content and prevent visual swaps.
+          queryClient.invalidateQueries();
+        }}
+      >
+        {children}
+      </PersistQueryClientProvider>
+    </QueryClientProvider>
   );
 }
 

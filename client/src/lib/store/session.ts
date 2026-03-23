@@ -52,12 +52,14 @@ export const effectiveSessionIdAtom = atom<string | null>((get) => {
 });
 
 /**
- * Whether we're currently remote-controlling another session.
+ * Whether we're currently remote-controlling another session,
+ * or a follower of a session we don't own.
  */
 export const isRemoteControllingAtom = atom<boolean>((get) => {
   const controlling = get(controllingSessionIdAtom);
   const current = get(currentSessionIdAtom);
-  return controlling !== null && controlling !== current;
+  const isOwner = get(isAudioOwnerAtom);
+  return (controlling !== null && controlling !== current) || !isOwner;
 });
 
 /**

@@ -48,6 +48,7 @@
             pkgs.postgresql
             pkgs.openssl
             pkgs.nodejs_24
+            pkgs.pnpm
             pkgs.docker-compose
             # Testing tools
             pkgs.hurl

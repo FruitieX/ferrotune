@@ -221,7 +221,8 @@ tasks:
       runInCI: false
 
   dev:
-    command: 'cargo watch -x "run -- serve"'
+    #command: 'cargo watch -x "run -- serve"'
+    command: 'cargo run -- serve'
     inputs:
       - '@group(sources)'
     preset: 'server'

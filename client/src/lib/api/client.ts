@@ -154,6 +154,22 @@ const API_VERSION = "1.16.1";
 const CLIENT_NAME = "ferrotune-web";
 
 /**
+ * Returns the appropriate client name based on the current platform.
+ * "ferrotune-mobile" for Tauri mobile apps, "ferrotune-web" otherwise.
+ */
+export function getClientName(): string {
+  // Dynamic import would be async; use the same detection as isTauri()
+  if (
+    typeof window !== "undefined" &&
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__TAURI_INTERNALS__
+  ) {
+    return "ferrotune-mobile";
+  }
+  return CLIENT_NAME;
+}
+
+/**
  * Utility function to build query string from object params
  * Filters out undefined and null values
  */

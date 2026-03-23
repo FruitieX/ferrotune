@@ -6,6 +6,10 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import okhttp3.sse.EventSource
+import okhttp3.sse.EventSourceListener
+import okhttp3.sse.EventSources
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -19,6 +23,7 @@ data class SessionConfig(
     val username: String? = null,
     val password: String? = null,
     val apiKey: String? = null,
+    val sessionId: String? = null,
 )
 
 /**
@@ -103,12 +108,24 @@ class FerrotuneApiClient {
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    @Volatile
     private var sessionConfig: SessionConfig? = null
 
     fun setSessionConfig(config: SessionConfig) {
         Log.d(TAG, "Session configured: serverUrl=${config.serverUrl}, " +
-            "username=${config.username}, hasApiKey=${config.apiKey != null}")
+            "username=${config.username}, hasApiKey=${config.apiKey != null}, " +
+            "sessionId=${config.sessionId}")
         sessionConfig = config
+    }
+
+    fun updateSessionId(sessionId: String) {
+        val config = sessionConfig
+        if (config != null) {
+            Log.d(TAG, "Updating sessionId: ${config.sessionId} -> $sessionId")
+            sessionConfig = config.copy(sessionId = sessionId)
+        } else {
+            Log.w(TAG, "updateSessionId called but no session config set yet")
+        }
     }
 
     private fun getConfig(): SessionConfig {
@@ -195,7 +212,10 @@ class FerrotuneApiClient {
      * GET /ferrotune/queue/current-window?radius=N
      */
     fun getQueueWindow(radius: Int = 20): GetQueueResponse {
-        val url = buildApiUrl("/ferrotune/queue/current-window", mapOf("radius" to radius.toString()))
+        val config = getConfig()
+        val params = mutableMapOf("radius" to radius.toString())
+        config.sessionId?.let { params["sessionId"] = it }
+        val url = buildApiUrl("/ferrotune/queue/current-window", params)
         val request = Request.Builder().url(url).get().also { addAuthHeaders(it) }.build()
         return executeRequest(request) { body -> parseGetQueueResponse(JSONObject(body)) }
     }
@@ -208,6 +228,7 @@ class FerrotuneApiClient {
             put("currentIndex", currentIndex)
             put("positionMs", positionMs)
             put("reshuffle", reshuffle)
+            getConfig().sessionId?.let { put("sessionId", it) }
         }
         val url = buildApiUrl("/ferrotune/queue/position")
         val request = Request.Builder()
@@ -231,6 +252,7 @@ class FerrotuneApiClient {
     fun toggleShuffle(enabled: Boolean): QueueSuccessResponse {
         val json = JSONObject().apply {
             put("enabled", enabled)
+            getConfig().sessionId?.let { put("sessionId", it) }
         }
         val url = buildApiUrl("/ferrotune/queue/shuffle")
         val request = Request.Builder()
@@ -254,6 +276,7 @@ class FerrotuneApiClient {
     fun setRepeatMode(mode: String): QueueSuccessResponse {
         val json = JSONObject().apply {
             put("mode", mode)
+            getConfig().sessionId?.let { put("sessionId", it) }
         }
         val url = buildApiUrl("/ferrotune/queue/repeat")
         val request = Request.Builder()
@@ -379,4 +402,124 @@ class FerrotuneApiClient {
         }
         return trackGain + settings.replayGainOffset
     }
+
+    // =========================================================================
+    // SSE — real-time session events
+    // =========================================================================
+
+    private val sseClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.SECONDS) // no read timeout for SSE
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .build()
+
+    private var currentEventSource: EventSource? = null
+
+    /**
+     * Connect to the SSE stream for the configured session.
+     * Delivers parsed [SessionEvent]s to [listener].
+     * Call [disconnectSSE] to close.
+     */
+    fun connectSSE(listener: SessionEventListener) {
+        val config = getConfig()
+        val sessionId = config.sessionId ?: run {
+            Log.w(TAG, "connectSSE: no sessionId configured, skipping")
+            return
+        }
+
+        disconnectSSE()
+
+        val url = buildApiUrl("/ferrotune/sessions/$sessionId/events")
+        val request = Request.Builder().url(url).get().also { addAuthHeaders(it) }.build()
+
+        val factory = EventSources.createFactory(sseClient)
+        currentEventSource = factory.newEventSource(request, object : EventSourceListener() {
+            override fun onOpen(eventSource: EventSource, response: Response) {
+                Log.d(TAG, "SSE connected for session $sessionId")
+                listener.onConnected()
+            }
+
+            override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
+                if (data == "keep-alive" || data.isBlank()) return
+                try {
+                    val event = parseSessionEvent(JSONObject(data))
+                    if (event != null) {
+                        listener.onEvent(event)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "SSE: failed to parse event: $data", e)
+                }
+            }
+
+            override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+                Log.w(TAG, "SSE disconnected (code=${response?.code})", t)
+                listener.onDisconnected()
+            }
+
+            override fun onClosed(eventSource: EventSource) {
+                Log.d(TAG, "SSE closed for session $sessionId")
+                listener.onDisconnected()
+            }
+        })
+    }
+
+    fun disconnectSSE() {
+        currentEventSource?.cancel()
+        currentEventSource = null
+    }
+
+    private fun parseSessionEvent(json: JSONObject): SessionEvent? {
+        return when (json.optString("type")) {
+            "queueChanged" -> SessionEvent.QueueChanged
+            "queueUpdated" -> SessionEvent.QueueUpdated
+            "playbackCommand" -> SessionEvent.PlaybackCommand(
+                action = json.getString("action"),
+                positionMs = if (json.has("positionMs") && !json.isNull("positionMs"))
+                    json.getLong("positionMs") else null,
+            )
+            "positionUpdate" -> SessionEvent.PositionUpdate(
+                currentIndex = json.getInt("currentIndex"),
+                positionMs = json.getLong("positionMs"),
+                isPlaying = json.getBoolean("isPlaying"),
+                currentSongId = json.optString("currentSongId", null),
+            )
+            "sessionEnded" -> SessionEvent.SessionEnded
+            "sessionListChanged" -> SessionEvent.SessionListChanged
+            "volumeChange" -> SessionEvent.VolumeChange(
+                volume = json.getDouble("volume").toFloat(),
+                isMuted = json.getBoolean("isMuted"),
+            )
+            else -> {
+                Log.w(TAG, "SSE: unknown event type: ${json.optString("type")}")
+                null
+            }
+        }
+    }
+}
+
+/**
+ * Parsed session events from the SSE stream.
+ */
+sealed class SessionEvent {
+    object QueueChanged : SessionEvent()
+    object QueueUpdated : SessionEvent()
+    data class PlaybackCommand(val action: String, val positionMs: Long?) : SessionEvent()
+    data class PositionUpdate(
+        val currentIndex: Int,
+        val positionMs: Long,
+        val isPlaying: Boolean,
+        val currentSongId: String?,
+    ) : SessionEvent()
+    object SessionEnded : SessionEvent()
+    data class VolumeChange(val volume: Float, val isMuted: Boolean) : SessionEvent()
+    object SessionListChanged : SessionEvent()
+}
+
+/**
+ * Listener for SSE session events.
+ */
+interface SessionEventListener {
+    fun onConnected()
+    fun onEvent(event: SessionEvent)
+    fun onDisconnected()
 }

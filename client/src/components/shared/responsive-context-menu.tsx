@@ -153,6 +153,8 @@ interface ResponsiveDropdownMenuProps {
   contentClassName?: string;
   /** Alignment for desktop dropdown */
   align?: "start" | "center" | "end";
+  /** Side for desktop dropdown */
+  side?: "top" | "right" | "bottom" | "left";
   /** Callback when open state changes (for desktop behavior like dismissing context menus) */
   onOpenChange?: (open: boolean) => void;
   /** Drawer header info */
@@ -168,6 +170,7 @@ export function ResponsiveDropdownMenu({
   renderMenuContent,
   contentClassName = "w-56",
   align = "end",
+  side,
   onOpenChange,
   drawerTitle,
   drawerSubtitle,
@@ -184,6 +187,7 @@ export function ResponsiveDropdownMenu({
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
         <DropdownMenuContent
           align={align}
+          side={side}
           className={contentClassName}
           onDoubleClick={(e) => e.stopPropagation()}
         >

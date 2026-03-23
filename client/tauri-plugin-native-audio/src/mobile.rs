@@ -7,8 +7,8 @@ use tauri::{
 use crate::{
     error::Result,
     models::{
-        PlaybackSettingsConfig, PlaybackState, QueueItem, SafeAreaInsets, SessionConfig,
-        StartAutonomousPlaybackParams, TrackInfo,
+        PlaybackSettingsConfig, PlaybackState, QueueItem, SafeAreaInsets,
+        SessionConfig, StartAutonomousPlaybackParams, TrackInfo,
     },
 };
 
@@ -152,6 +152,7 @@ impl<R: Runtime> NativeAudio<R> {
                     "username": config.username,
                     "password": config.password,
                     "apiKey": config.api_key,
+                    "sessionId": config.session_id,
                 }),
             )
             .map_err(Into::into)
@@ -185,6 +186,7 @@ impl<R: Runtime> NativeAudio<R> {
                     "repeatMode": params.repeat_mode,
                     "playWhenReady": params.play_when_ready,
                     "startPositionMs": params.start_position_ms,
+                    "sessionId": params.session_id,
                 }),
             )
             .map_err(Into::into)

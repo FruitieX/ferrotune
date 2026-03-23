@@ -58,77 +58,6 @@ async function createSecondTab(
 }
 
 /**
- * Open the account dropdown menu on a page.
- * The sidebar must have ferrotune-saved-accounts set for the dropdown to render.
- */
-async function openAccountMenu(page: Page) {
-  // The UserSwitcher renders as a DropdownMenu trigger labeled "Profile"
-  // (when there's 1 saved account) in the sidebar.
-  const profileButtons = page.locator('button:has-text("Profile")');
-  // The dropdown trigger is the button that has ChevronsUpDown icon
-  // It's the sidebar button, not the dropdown menu item
-  const trigger = profileButtons.first();
-  await trigger.click();
-  // Wait for the dropdown content to appear
-  await expect(page.locator('[role="menu"]')).toBeVisible({ timeout: 5000 });
-}
-
-/**
- * On the follower page, switch to controlling the owner's session.
- * Opens the account menu, waits for sessions to be populated, then clicks
- * the session that is NOT "(this tab)".
- */
-async function switchToOwnerSession(
-  followerPage: Page,
-  server: ServerInfo,
-): Promise<void> {
-  // Ensure saved accounts are set so the dropdown renders
-  await followerPage.evaluate(
-    ({ serverUrl, username, password }) => {
-      const existing = localStorage.getItem("ferrotune-saved-accounts");
-      if (!existing || existing === "[]") {
-        localStorage.setItem(
-          "ferrotune-saved-accounts",
-          JSON.stringify([{ serverUrl, username, password }]),
-        );
-      }
-    },
-    {
-      serverUrl: server.url,
-      username: server.username,
-      password: server.password,
-    },
-  );
-
-  // The "Sessions" label only appears when activeSessionsAtom is populated.
-  // The follower's useSessionInit creates its own session on load, then
-  // refreshes the session list (which should include the owner's session).
-  // Retry opening the menu until we see the other session.
-  await expect(async () => {
-    // Dismiss any open menu first by pressing Escape
-    await followerPage.keyboard.press("Escape");
-
-    // Open the account menu dropdown
-    await openAccountMenu(followerPage);
-
-    // Look for the "Sessions" label — sessions are rendered below it
-    const sessionsLabel = followerPage.getByText("Sessions", { exact: true });
-    await expect(sessionsLabel).toBeVisible({ timeout: 2000 });
-
-    // Find a session menu item that does NOT contain "(this tab)"
-    // Session items are DropdownMenuItems that appear after the "Sessions" label
-    // and contain the Monitor icon. They show the session client name.
-    const otherSession = followerPage
-      .locator('[role="menuitem"]')
-      .filter({ hasNotText: "(this tab)" })
-      .filter({ hasText: "ferrotune-web" });
-
-    await expect(otherSession.first()).toBeVisible({ timeout: 2000 });
-    await otherSession.first().click();
-  }).toPass({ timeout: 15000, intervals: [1000, 2000, 3000] });
-}
-
-/**
  * Get the playback progress (current time in seconds) shown in the player bar.
  * Returns 0 if not found.
  */
@@ -247,10 +176,7 @@ test.describe.serial("Multi-Session Playback", () => {
     );
 
     try {
-      // Switch follower to control the owner's session
-      await switchToOwnerSession(followerPage, server);
-
-      // Follower should see the currently playing track (paused)
+      // Follower auto-joins the owner's session — wait for queue to load
       const followerBar = followerPage.getByTestId("player-bar");
       await expect(followerBar).toContainText(/Song/, { timeout: 15000 });
 
@@ -312,8 +238,7 @@ test.describe.serial("Multi-Session Playback", () => {
     );
 
     try {
-      // Switch follower to owner's session
-      await switchToOwnerSession(followerPage, server);
+      // Follower auto-joins the owner's session — wait for queue to load
       const followerBar = followerPage.getByTestId("player-bar");
       await expect(followerBar).toContainText(/Song/, { timeout: 15000 });
 
@@ -369,8 +294,7 @@ test.describe.serial("Multi-Session Playback", () => {
     );
 
     try {
-      // Switch follower to owner's session
-      await switchToOwnerSession(followerPage, server);
+      // Follower auto-joins the owner's session — wait for queue to load
       const followerBar = followerPage.getByTestId("player-bar");
       await expect(followerBar).toContainText(/Song/, { timeout: 15000 });
 

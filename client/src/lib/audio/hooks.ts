@@ -80,9 +80,9 @@ import {
 import { nativeAutonomousMode } from "@/lib/store/server-queue";
 import {
   isRemoteControllingAtom,
-  controllingSessionIdAtom,
   remotePlaybackStateAtom,
   currentSessionIdAtom,
+  effectiveSessionIdAtom,
 } from "@/lib/store/session";
 
 /** Build NativeStreamOptions from the current transcoding settings */
@@ -512,6 +512,9 @@ export function useAudioEngineInit() {
   // Remote control awareness
   const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
 
+  // Session ID for native audio bridge
+  const currentSessionId = useAtomValue(currentSessionIdAtom);
+
   // Track connection state for initial queue fetch
   const serverConnection = useAtomValue(serverConnectionAtom);
   const isHydrated = useAtomValue(isHydratedAtom);
@@ -585,6 +588,7 @@ export function useAudioEngineInit() {
     clippingDetectionEnabled,
     starredItems,
     serverConnection,
+    currentSessionId,
   });
 
   // Keep refs in sync
@@ -605,6 +609,7 @@ export function useAudioEngineInit() {
       clippingDetectionEnabled,
       starredItems,
       serverConnection,
+      currentSessionId,
     };
   });
 
@@ -614,6 +619,8 @@ export function useAudioEngineInit() {
     if (!isHydrated) return;
     // Wait for connection to be available
     if (!serverConnection) return;
+    // Wait for session to be initialized (required for all queue operations)
+    if (!currentSessionId) return;
     // Only fetch once
     if (hasInitialFetchRef.current) return;
 
@@ -623,7 +630,7 @@ export function useAudioEngineInit() {
 
     hasInitialFetchRef.current = true;
     fetchQueue();
-  }, [isHydrated, serverConnection, fetchQueue]);
+  }, [isHydrated, serverConnection, currentSessionId, fetchQueue]);
 
   // Reset playback and queue when user account changes (user switch)
   const previousAccountKeyRef = useRef<string | null | undefined>(undefined);
@@ -735,8 +742,19 @@ export function useAudioEngineInit() {
                 const client = getClient();
                 if (client) {
                   client
-                    .updateServerQueuePosition(0, 0, qs.isShuffled)
-                    .then(() => client.getQueueCurrentWindow(20, "small"))
+                    .updateServerQueuePosition(
+                      0,
+                      0,
+                      qs.isShuffled,
+                      stateRef.current.currentSessionId ?? undefined,
+                    )
+                    .then(() =>
+                      client.getQueueCurrentWindow(
+                        20,
+                        "small",
+                        stateRef.current.currentSessionId ?? undefined,
+                      ),
+                    )
                     .then(async (response) => {
                       settersRef.current.setServerQueueState((prev) =>
                         prev
@@ -909,11 +927,20 @@ export function useAudioEngineInit() {
           const client = getClient();
           if (client) {
             client
-              .updateServerQueuePosition(queueIndex, 0)
+              .updateServerQueuePosition(
+                queueIndex,
+                0,
+                false,
+                stateRef.current.currentSessionId ?? undefined,
+              )
               .then(() => {
                 // After server sync, re-fetch window centered on new position
                 // so the queue UI and WearOS always show ~20 items around current
-                return client.getQueueCurrentWindow(20, "small");
+                return client.getQueueCurrentWindow(
+                  20,
+                  "small",
+                  stateRef.current.currentSessionId ?? undefined,
+                );
               })
               .then(async (response) => {
                 // Update the queue window atom for UI.
@@ -1674,67 +1701,52 @@ export function useAudioEngineInit() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally run once on mount; setAudioElement is stable
   }, []);
 
-  // Initialize native session for autonomous mode once serverConnection becomes available.
-  // This is separate from the main init effect because serverConnection may not be
-  // hydrated yet when the native audio engine finishes initializing.
+  // Initialize native session for autonomous mode. Configures server
+  // credentials so Kotlin can make direct API calls.
+  // Waits for currentSessionId since JS session creation must complete first.
   useEffect(() => {
-    if (!usingNativeAudio || !serverConnection || nativeAutonomousMode.value) {
-      console.log(
-        `[NativeAudio] autonomous init: skipped (native=${usingNativeAudio}, conn=${!!serverConnection}, autonomousAlready=${nativeAutonomousMode.value})`,
-      );
+    if (!usingNativeAudio || !serverConnection || !currentSessionId) {
       return;
     }
 
     let cancelled = false;
 
-    const initSession = async () => {
+    const init = async () => {
       // Wait for native audio engine to be fully ready
       if (nativeAudioReady) {
-        console.log(
-          "[NativeAudio] autonomous init: awaiting nativeAudioReady...",
-        );
         await nativeAudioReady;
       }
       if (cancelled) return;
 
-      try {
-        console.log(
-          `[NativeAudio] autonomous init: calling nativeInitSession(url=${serverConnection.serverUrl})`,
-        );
-        await nativeInitSession({
-          serverUrl: serverConnection.serverUrl,
-          username: serverConnection.username ?? "",
-          password: serverConnection.password,
-          apiKey: serverConnection.apiKey,
-        });
-        if (cancelled) return;
-        console.log(
-          "[NativeAudio] autonomous init: calling nativeUpdateSettings...",
-        );
-        await nativeUpdateSettings({
-          replayGainMode: stateRef.current.replayGainMode,
-          replayGainOffset: stateRef.current.replayGainOffset,
-          scrobbleThreshold: stateRef.current.scrobbleThreshold,
-          transcodingEnabled: stateRef.current.transcodingEnabled,
-          transcodingBitrate: stateRef.current.transcodingBitrate,
-        });
-        if (cancelled) return;
-        nativeAutonomousMode.value = true;
-        console.log(
-          "[NativeAudio] autonomous init: SUCCESS - autonomous mode enabled",
-        );
-      } catch (err) {
-        console.error(`[NativeAudio] autonomous init: FAILED: ${String(err)}`);
-        nativeAutonomousMode.value = false;
-      }
+      await nativeInitSession({
+        serverUrl: serverConnection.serverUrl,
+        username: serverConnection.username ?? "",
+        password: serverConnection.password,
+        apiKey: serverConnection.apiKey,
+        sessionId: currentSessionId,
+      });
+      if (cancelled) return;
+
+      await nativeUpdateSettings({
+        replayGainMode: stateRef.current.replayGainMode,
+        replayGainOffset: stateRef.current.replayGainOffset,
+        scrobbleThreshold: stateRef.current.scrobbleThreshold,
+        transcodingEnabled: stateRef.current.transcodingEnabled,
+        transcodingBitrate: stateRef.current.transcodingBitrate,
+      });
+      if (cancelled) return;
+      nativeAutonomousMode.value = true;
     };
 
-    initSession();
+    init().catch((err) => {
+      console.error(`[NativeAudio] autonomous init: FAILED: ${String(err)}`);
+      nativeAutonomousMode.value = false;
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [serverConnection]);
+  }, [serverConnection, currentSessionId]);
 
   // Update volume on both elements
   useEffect(() => {
@@ -2045,6 +2057,7 @@ export function useAudioEngineInit() {
             repeatMode: qs.repeatMode,
             playWhenReady: shouldPlay,
             startPositionMs: qs.positionMs,
+            sessionId: stateRef.current.currentSessionId ?? undefined,
           });
 
           if (!shouldPlay) {
@@ -2549,8 +2562,8 @@ export function useAudioEngine() {
 
   // Remote control awareness
   const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
-  const controllingSessionId = useAtomValue(controllingSessionIdAtom);
   const currentSessionId = useAtomValue(currentSessionIdAtom);
+  const effectiveSessionId = useAtomValue(effectiveSessionIdAtom);
   const remotePlaybackState = useAtomValue(remotePlaybackStateAtom);
   const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
 
@@ -2600,13 +2613,14 @@ export function useAudioEngine() {
     }
   };
 
-  // Helper: send a remote command to the controlling session
+  // Helper: send a remote command to the controlled/followed session
   const sendRemoteCommand = async (action: string, positionMs?: number) => {
-    if (!controllingSessionId) return;
+    const targetSessionId = effectiveSessionId;
+    if (!targetSessionId) return;
     const client = getClient();
     if (!client) return;
     try {
-      await client.sendSessionCommand(controllingSessionId, action, positionMs);
+      await client.sendSessionCommand(targetSessionId, action, positionMs);
     } catch (error) {
       console.error(`Failed to send remote command '${action}':`, error);
     }
@@ -2987,15 +3001,10 @@ export function useAudioEngine() {
 export function useVolumeControl() {
   const [volume, setVolume] = useAtom(volumeAtom);
   const [isMuted, setIsMuted] = useAtom(isMutedAtom);
-  const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
-  const controllingSessionId = useAtomValue(controllingSessionIdAtom);
-  const currentSessionId = useAtomValue(currentSessionIdAtom);
+  const effectiveSessionId = useAtomValue(effectiveSessionIdAtom);
 
   const sendVolumeCommand = (newVolume: number, newMuted: boolean) => {
-    // Followers send to the session they control; owners broadcast to their own session
-    const sessionId = isRemoteControlling
-      ? controllingSessionId
-      : currentSessionId;
+    const sessionId = effectiveSessionId;
     if (!sessionId) return;
     const client = getClient();
     if (!client) return;

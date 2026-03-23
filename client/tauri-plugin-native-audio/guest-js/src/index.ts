@@ -143,19 +143,20 @@ export async function getSafeAreaInsets(): Promise<{ top: number; bottom: number
 
 /**
  * Initialize session configuration for direct server API calls from native side.
- * Must be called before startAutonomousPlayback().
  */
 export async function initSession(config: {
   serverUrl: string;
   username: string;
   password?: string;
   apiKey?: string;
+  sessionId?: string;
 }): Promise<void> {
   await invoke("plugin:native-audio|init_session", {
     serverUrl: config.serverUrl,
     username: config.username,
     password: config.password,
     apiKey: config.apiKey,
+    sessionId: config.sessionId,
   });
 }
 
@@ -188,6 +189,7 @@ export async function startAutonomousPlayback(params: {
   repeatMode: string;
   playWhenReady: boolean;
   startPositionMs: number;
+  sessionId?: string;
 }): Promise<void> {
   await invoke("plugin:native-audio|start_autonomous_playback", {
     totalCount: params.totalCount,
@@ -196,6 +198,7 @@ export async function startAutonomousPlayback(params: {
     repeatMode: params.repeatMode,
     playWhenReady: params.playWhenReady,
     startPositionMs: params.startPositionMs,
+    sessionId: params.sessionId,
   });
 }
 

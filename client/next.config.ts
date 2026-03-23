@@ -21,7 +21,13 @@ const nextConfig: NextConfig = {
   // Enable static export for embedding into release binaries
   output: process.env.NEXT_OUTPUT_STATIC === "1" ? "export" : undefined,
   // Allow dev server to be accessed from Tailscale and local network
-  allowedDevOrigins: ["*.tailscale", "*.local", "*.lan"],
+  allowedDevOrigins: [
+    "*.tailscale",
+    "*.local",
+    "*.lan",
+    "10.0.2.2",
+    "192.168.*.*",
+  ],
   // Required for SSE
   compress: false,
   // Proxy API requests to backend in development

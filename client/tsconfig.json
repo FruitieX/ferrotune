@@ -20,7 +20,8 @@
     ],
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "types": ["node", "react", "react-dom", "chromecast-caf-sender"]
   },
   "include": [
     "next-env.d.ts",

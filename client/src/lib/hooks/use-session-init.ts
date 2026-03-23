@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { getClient } from "@/lib/api/client";
+import { getClient, getClientName } from "@/lib/api/client";
 import {
   currentSessionIdAtom,
   activeSessionsAtom,
@@ -128,32 +128,31 @@ export function useSessionInit() {
       if (!client) return;
 
       try {
-        // Check if we already have a session from sessionStorage (tab refresh)
+        // Always check existing sessions first
+        const response = await client.listSessions();
+        setActiveSessions(response.sessions);
+
+        // If we have a stored session ID from sessionStorage (tab refresh),
+        // check if it still exists on the server
         if (sessionId) {
-          // Validate it still exists on the server
-          const response = await client.listSessions();
-          setActiveSessions(response.sessions);
           const exists = response.sessions.some((s) => s.id === sessionId);
           if (exists) {
-            setIsAudioOwner(true);
             return;
           }
-          // Session expired (e.g. server restart) - try to resume the most
-          // recent session so we recover the previous queue state
-          if (response.sessions.length > 0) {
-            const mostRecent = response.sessions[0];
-            setSessionId(mostRecent.id);
-            setIsAudioOwner(true);
-            return;
-          }
-          // No sessions at all, fall through to create new
         }
 
-        // New tab with no previous session - always create a fresh one
-        const created = await client.createSession("ferrotune-web");
+        // Join the most recent existing session as a follower
+        if (response.sessions.length > 0) {
+          const mostRecent = response.sessions[0];
+          setSessionId(mostRecent.id);
+          setIsAudioOwner(false);
+          return;
+        }
+
+        // No sessions exist — create a new one as owner
+        const created = await client.createSession(getClientName());
         setSessionId(created.id);
         setIsAudioOwner(true);
-        // Refresh list so other sessions are visible
         await refreshSessionsRef.current();
       } catch (error) {
         console.error("Failed to initialize playback session:", error);

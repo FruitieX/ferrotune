@@ -13,7 +13,8 @@ export interface SessionEvent {
     | "playbackCommand"
     | "positionUpdate"
     | "sessionEnded"
-    | "volumeChange";
+    | "volumeChange"
+    | "sessionListChanged";
   action?: string;
   positionMs?: number;
   currentIndex?: number;
