@@ -319,6 +319,45 @@ class FerrotuneApiClient {
         }
     }
 
+    /**
+     * POST /ferrotune/sessions/:id/heartbeat
+     * Sends playback state to the server so followers see correct is_playing.
+     */
+    fun sendHeartbeat(
+        isPlaying: Boolean,
+        currentIndex: Int? = null,
+        positionMs: Long? = null,
+        currentSongId: String? = null,
+        currentSongTitle: String? = null,
+        currentSongArtist: String? = null,
+    ) {
+        val config = getConfig()
+        val sessionId = config.sessionId ?: return
+        val json = JSONObject().apply {
+            put("isPlaying", isPlaying)
+            if (currentIndex != null) put("currentIndex", currentIndex)
+            if (positionMs != null) put("positionMs", positionMs)
+            if (currentSongId != null) put("currentSongId", currentSongId)
+            if (currentSongTitle != null) put("currentSongTitle", currentSongTitle)
+            if (currentSongArtist != null) put("currentSongArtist", currentSongArtist)
+        }
+        val url = buildApiUrl("/ferrotune/sessions/$sessionId/heartbeat")
+        val request = Request.Builder()
+            .url(url)
+            .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .also { addAuthHeaders(it) }
+            .build()
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Heartbeat failed: ${response.code}")
+                }
+            }
+        } catch (e: IOException) {
+            Log.w(TAG, "Heartbeat network error", e)
+        }
+    }
+
     private fun <T> executeRequest(request: Request, parser: (String) -> T): T {
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {

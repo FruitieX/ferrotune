@@ -608,9 +608,7 @@ export default function LibraryLayout({
                 {/* Advanced filters - shown only on relevant tabs */}
                 {showAdvancedFilters && (
                   <>
-                    <DrawerMenuItem
-                      onClick={() => setAdvancedFilterOpen(true)}
-                    >
+                    <DrawerMenuItem onClick={() => setAdvancedFilterOpen(true)}>
                       <Filter className="w-4 h-4" />
                       Advanced Filters
                       {hasActiveFilters && (

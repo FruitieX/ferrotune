@@ -670,17 +670,45 @@ class PlaybackService : MediaSessionService() {
                 }
             }
             is SessionEvent.QueueUpdated -> {
-                Log.d(TAG, "SSE QueueUpdated: refetching queue metadata")
+                Log.d(TAG, "SSE QueueUpdated: surgically updating queue")
                 if (autonomousMode) {
                     apiExecutor.execute {
                         try {
                             val response = apiClient.getQueueWindow(20)
                             handler.post {
-                                // Update metadata without restarting playback
-                                serverTotalCount = response.totalCount
-                                isShuffled = response.isShuffled
-                                repeatMode = response.repeatMode
-                                emitQueueStateChanged()
+                                // Update serverQueueIndex before surgical update
+                                serverQueueIndex = response.currentIndex
+
+                                // Check if the currently playing track is still the track
+                                // at the target position. If not (e.g., current track was
+                                // removed), do a full reload to start the new current track.
+                                val targetSongId = response.window.songs
+                                    .find { it.position == response.currentIndex }?.song?.id
+                                val currentMediaId = if (player.mediaItemCount > 0) {
+                                    player.currentMediaItem?.mediaId
+                                } else null
+
+                                if (currentMediaId != null && targetSongId != null &&
+                                    currentMediaId != targetSongId) {
+                                    Log.d(TAG, "SSE QueueUpdated: current track removed, doing full reload")
+                                    handleQueueWindowResponse(
+                                        response, response.currentIndex,
+                                        response.positionMs, player.playWhenReady)
+                                } else {
+                                    // Surgically update ExoPlayer's queue without restarting
+                                    // the currently playing track. This handles follower-initiated
+                                    // changes (shuffle, repeat, add/remove/move) gracefully.
+                                    handleShuffleQueueUpdate(response, response.currentIndex)
+                                    // Update repeat mode on ExoPlayer (handleShuffleQueueUpdate
+                                    // updates the field but doesn't set player.repeatMode)
+                                    player.repeatMode = if (response.repeatMode == "one")
+                                        Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                                }
+                                // Don't emit queue-state-changed here: the JS SSE handler
+                                // also receives QueueUpdated and calls fetchQueueSilent which
+                                // updates both serverQueueStateAtom and queueWindowAtom
+                                // atomically. Emitting here would cause a transient mismatch
+                                // where currentIndex points to a different song in the old window.
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "SSE: failed to refetch queue after QueueUpdated", e)
@@ -1244,6 +1272,30 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * Send an immediate heartbeat to the server so followers see the correct
+     * is_playing state without waiting for the JS heartbeat interval (30s).
+     */
+    private fun sendPlaybackStateHeartbeat(isPlaying: Boolean) {
+        if (!isNetworkAvailable()) return
+        val track = currentTrack
+        val posMs = (player.currentPosition + seekTimeOffsetMs).coerceAtLeast(0)
+        apiExecutor.execute {
+            try {
+                apiClient.sendHeartbeat(
+                    isPlaying = isPlaying,
+                    currentIndex = serverQueueIndex,
+                    positionMs = posMs,
+                    currentSongId = track?.id,
+                    currentSongTitle = track?.title,
+                    currentSongArtist = track?.artist,
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Playback state heartbeat failed", e)
+            }
+        }
+    }
+
     fun setTrack(track: TrackInfo) {
         Log.d(TAG, "setTrack(${track.title}) - url: ${track.url}")
         handler.removeCallbacks(endedTimeoutRunnable)
@@ -1681,6 +1733,10 @@ class PlaybackService : MediaSessionService() {
                 lastProgressTimestamp = System.currentTimeMillis()
                 handler.post(progressRunnable)
                 handler.removeCallbacks(inactivityTimeoutRunnable)
+                // Send heartbeat when playback becomes ready (e.g., after buffering)
+                if (autonomousMode) {
+                    sendPlaybackStateHeartbeat(true)
+                }
             } else {
                 if (!player.isPlaying) {
                     lastProgressTimestamp = 0
@@ -1733,6 +1789,8 @@ class PlaybackService : MediaSessionService() {
                 if (autonomousMode) {
                     handler.removeCallbacks(positionSyncRunnable)
                     handler.postDelayed(positionSyncRunnable, POSITION_SYNC_INTERVAL_MS)
+                    // Send immediate heartbeat so followers see is_playing=true
+                    sendPlaybackStateHeartbeat(true)
                 }
             } else {
                 lastProgressTimestamp = 0
@@ -1740,6 +1798,8 @@ class PlaybackService : MediaSessionService() {
                 handler.postDelayed(inactivityTimeoutRunnable, INACTIVITY_TIMEOUT_MS)
                 if (autonomousMode) {
                     handler.removeCallbacks(positionSyncRunnable)
+                    // Send immediate heartbeat so followers see is_playing=false
+                    sendPlaybackStateHeartbeat(false)
                 }
             }
         }
@@ -1772,8 +1832,9 @@ class PlaybackService : MediaSessionService() {
                 emitTrackChange()
                 emitStateChange()
 
-                // Sync position to server and prefetch
+                // Sync position to server, send heartbeat for followers, and prefetch
                 syncPositionToServer()
+                sendPlaybackStateHeartbeat(player.playWhenReady)
                 maybePrefetchMore()
             } else {
                 queueIndex = queueOffset + exoIndex

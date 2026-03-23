@@ -2537,6 +2537,11 @@ export function useAudioEngineInit() {
   // Sync repeat mode to native player when it changes
   useEffect(() => {
     if (!usingNativeAudio || !queueState?.repeatMode) return;
+    // In autonomous mode, Kotlin handles repeat mode changes via its own SSE handler.
+    // Calling nativeSetRepeatMode here would cause a feedback loop:
+    // SSE → fetchQueueSilent → atom update → this effect → autonomousSetRepeatMode →
+    // server API call → server broadcasts QueueUpdated → SSE again...
+    if (nativeAutonomousMode.value) return;
     nativeSetRepeatMode(queueState.repeatMode).catch(console.error);
   }, [queueState?.repeatMode]);
 }
