@@ -115,17 +115,19 @@ export function ResponsiveContextMenu({
     );
   }
 
-  // Mobile: intercept context menu open → show drawer
+  // Mobile: intercept context menu open → show drawer.
+  // Use modal={false} so Radix doesn't create a focus trap / pointer-blocking
+  // overlay that would prevent interacting with the rest of the UI after the
+  // drawer is dismissed.
   return (
     <>
       <ContextMenu
+        modal={false}
         onOpenChange={(open) => {
           if (open) setDrawerOpen(true);
         }}
       >
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        {/* Render empty content so Radix doesn't error, but it won't be visible
-            since we immediately close via onOpenChange intercepting */}
         <ContextMenuContent className="hidden" />
       </ContextMenu>
       <DrawerMenu

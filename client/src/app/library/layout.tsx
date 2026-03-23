@@ -60,15 +60,21 @@ import {
   DropdownMenuTrigger,
   DropdownMenuCheckboxItem,
   DropdownMenuLabel,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
-  DropdownMenuPortal,
 } from "@/components/ui/dropdown-menu";
 import {
   AdvancedFilterDialog,
   ActiveFilterBadges,
 } from "@/components/shared/advanced-filter-dialog";
+import {
+  DrawerMenu,
+  DrawerMenuItem,
+  DrawerMenuSeparator,
+  DrawerMenuCollapsible,
+  DrawerMenuCollapsibleTrigger,
+  DrawerMenuCollapsibleContent,
+  DrawerMenuCheckboxItem,
+  DrawerMenuLabel,
+} from "@/components/shared/drawer-menu";
 import { cn } from "@/lib/utils";
 
 const tabs = [
@@ -267,6 +273,7 @@ export default function LibraryLayout({
 
   // For mobile advanced filter dialog
   const [advancedFilterOpen, setAdvancedFilterOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const showAdvancedFilters = isSongsTab || isAlbumsTab || isArtistsTab;
   const filterViewType = isAlbumsTab
     ? ("albums" as const)
@@ -581,201 +588,192 @@ export default function LibraryLayout({
 
             {/* Mobile overflow menu */}
             <div className="md:hidden shrink-0">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 relative"
-                    aria-label="View options"
-                  >
-                    <MoreHorizontal className="w-4 h-4" />
-                    {hasActiveFilters && (
-                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-primary rounded-full" />
-                    )}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-40">
-                  {/* Advanced filters - shown only on relevant tabs */}
-                  {showAdvancedFilters && (
-                    <>
-                      <DropdownMenuItem
-                        onClick={() => setAdvancedFilterOpen(true)}
-                      >
-                        <Filter className="w-4 h-4 mr-2" />
-                        Advanced Filters
-                        {hasActiveFilters && (
-                          <span className="ml-auto text-xs text-primary">
-                            Active
-                          </span>
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                    </>
-                  )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 relative"
+                aria-label="View options"
+                onClick={() => setMobileMenuOpen(true)}
+              >
+                <MoreHorizontal className="w-4 h-4" />
+                {hasActiveFilters && (
+                  <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-primary rounded-full" />
+                )}
+              </Button>
+              <DrawerMenu
+                open={mobileMenuOpen}
+                onOpenChange={setMobileMenuOpen}
+                title="View Options"
+              >
+                {/* Advanced filters - shown only on relevant tabs */}
+                {showAdvancedFilters && (
+                  <>
+                    <DrawerMenuItem
+                      onClick={() => setAdvancedFilterOpen(true)}
+                    >
+                      <Filter className="w-4 h-4" />
+                      Advanced Filters
+                      {hasActiveFilters && (
+                        <span className="ml-auto text-xs text-primary">
+                          Active
+                        </span>
+                      )}
+                    </DrawerMenuItem>
+                    <DrawerMenuSeparator />
+                  </>
+                )}
 
-                  {/* Sort submenu */}
-                  {isFilesBrowsing ? (
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger>
-                        <ArrowUpDown className="w-4 h-4 mr-2" />
-                        Sort
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuPortal>
-                        <DropdownMenuSubContent className="w-48">
-                          {filesSortOptions.map((option) => (
-                            <DropdownMenuItem
-                              key={option.value}
-                              onClick={() => handleFilesSort(option.value)}
-                              className="flex items-center justify-between"
-                            >
-                              <span>{option.label}</span>
-                              {filesSortConfig.field === option.value && (
-                                <FilesSortIcon className="w-4 h-4 text-primary" />
-                              )}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuPortal>
-                    </DropdownMenuSub>
-                  ) : !isFilesTab ? (
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger>
-                        <ArrowUpDown className="w-4 h-4 mr-2" />
-                        Sort
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuPortal>
-                        <DropdownMenuSubContent className="w-48">
-                          {sortOptions.map((option) => (
-                            <DropdownMenuItem
-                              key={option.value}
-                              onClick={() => handleSort(option.value)}
-                              className="flex items-center justify-between"
-                            >
-                              <span>{option.label}</span>
-                              {sortConfig.field === option.value && (
-                                <SortIcon className="w-4 h-4 text-primary" />
-                              )}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuPortal>
-                    </DropdownMenuSub>
-                  ) : null}
+                {/* Sort submenu */}
+                {isFilesBrowsing ? (
+                  <DrawerMenuCollapsible>
+                    <DrawerMenuCollapsibleTrigger>
+                      <ArrowUpDown className="w-4 h-4" />
+                      Sort
+                    </DrawerMenuCollapsibleTrigger>
+                    <DrawerMenuCollapsibleContent>
+                      {filesSortOptions.map((option) => (
+                        <DrawerMenuItem
+                          key={option.value}
+                          onClick={() => handleFilesSort(option.value)}
+                          className="flex items-center justify-between"
+                        >
+                          <span>{option.label}</span>
+                          {filesSortConfig.field === option.value && (
+                            <FilesSortIcon className="w-4 h-4 text-primary" />
+                          )}
+                        </DrawerMenuItem>
+                      ))}
+                    </DrawerMenuCollapsibleContent>
+                  </DrawerMenuCollapsible>
+                ) : !isFilesTab ? (
+                  <DrawerMenuCollapsible>
+                    <DrawerMenuCollapsibleTrigger>
+                      <ArrowUpDown className="w-4 h-4" />
+                      Sort
+                    </DrawerMenuCollapsibleTrigger>
+                    <DrawerMenuCollapsibleContent>
+                      {sortOptions.map((option) => (
+                        <DrawerMenuItem
+                          key={option.value}
+                          onClick={() => handleSort(option.value)}
+                          className="flex items-center justify-between"
+                        >
+                          <span>{option.label}</span>
+                          {sortConfig.field === option.value && (
+                            <SortIcon className="w-4 h-4 text-primary" />
+                          )}
+                        </DrawerMenuItem>
+                      ))}
+                    </DrawerMenuCollapsibleContent>
+                  </DrawerMenuCollapsible>
+                ) : null}
 
-                  {/* Column visibility submenu */}
-                  {isFilesBrowsing ? (
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger>
-                        <Columns className="w-4 h-4 mr-2" />
-                        Columns
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuPortal>
-                        <DropdownMenuSubContent className="w-48">
-                          {filesColumnOptions.map((option) => (
-                            <DropdownMenuCheckboxItem
-                              key={option.key}
-                              checked={
-                                filesColumnVisibility[
-                                  option.key as keyof typeof filesColumnVisibility
-                                ]
-                              }
-                              onCheckedChange={() =>
-                                toggleFilesColumn(
-                                  option.key as keyof typeof filesColumnVisibility,
-                                )
-                              }
-                            >
-                              {option.label}
-                            </DropdownMenuCheckboxItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuPortal>
-                    </DropdownMenuSub>
-                  ) : viewMode === "list" && !isFilesTab ? (
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger>
-                        <Columns className="w-4 h-4 mr-2" />
-                        Columns
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuPortal>
-                        <DropdownMenuSubContent className="w-48">
-                          {isSongsTab &&
-                            songColumnOptions.map((option) => (
-                              <DropdownMenuCheckboxItem
-                                key={option.key}
-                                checked={columnVisibility[option.key]}
-                                onCheckedChange={() => toggleColumn(option.key)}
-                              >
-                                {option.label}
-                              </DropdownMenuCheckboxItem>
-                            ))}
-                          {isAlbumsTab &&
-                            albumColumnOptions.map((option) => (
-                              <DropdownMenuCheckboxItem
-                                key={option.key}
-                                checked={albumColumnVisibility[option.key]}
-                                onCheckedChange={() =>
-                                  toggleAlbumColumn(option.key)
-                                }
-                              >
-                                {option.label}
-                              </DropdownMenuCheckboxItem>
-                            ))}
-                          {isArtistsTab &&
-                            artistColumnOptions.map((option) => (
-                              <DropdownMenuCheckboxItem
-                                key={option.key}
-                                checked={artistColumnVisibility[option.key]}
-                                onCheckedChange={() =>
-                                  toggleArtistColumn(option.key)
-                                }
-                              >
-                                {option.label}
-                              </DropdownMenuCheckboxItem>
-                            ))}
-                          {isGenresTab &&
-                            genreColumnOptions.map((option) => (
-                              <DropdownMenuCheckboxItem
-                                key={option.key}
-                                checked={genreColumnVisibility[option.key]}
-                                onCheckedChange={() =>
-                                  toggleGenreColumn(option.key)
-                                }
-                              >
-                                {option.label}
-                              </DropdownMenuCheckboxItem>
-                            ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuPortal>
-                    </DropdownMenuSub>
-                  ) : null}
+                {/* Column visibility submenu */}
+                {isFilesBrowsing ? (
+                  <DrawerMenuCollapsible>
+                    <DrawerMenuCollapsibleTrigger>
+                      <Columns className="w-4 h-4" />
+                      Columns
+                    </DrawerMenuCollapsibleTrigger>
+                    <DrawerMenuCollapsibleContent>
+                      {filesColumnOptions.map((option) => (
+                        <DrawerMenuCheckboxItem
+                          key={option.key}
+                          checked={
+                            filesColumnVisibility[
+                              option.key as keyof typeof filesColumnVisibility
+                            ]
+                          }
+                          onCheckedChange={() =>
+                            toggleFilesColumn(
+                              option.key as keyof typeof filesColumnVisibility,
+                            )
+                          }
+                        >
+                          {option.label}
+                        </DrawerMenuCheckboxItem>
+                      ))}
+                    </DrawerMenuCollapsibleContent>
+                  </DrawerMenuCollapsible>
+                ) : viewMode === "list" && !isFilesTab ? (
+                  <DrawerMenuCollapsible>
+                    <DrawerMenuCollapsibleTrigger>
+                      <Columns className="w-4 h-4" />
+                      Columns
+                    </DrawerMenuCollapsibleTrigger>
+                    <DrawerMenuCollapsibleContent>
+                      {isSongsTab &&
+                        songColumnOptions.map((option) => (
+                          <DrawerMenuCheckboxItem
+                            key={option.key}
+                            checked={columnVisibility[option.key]}
+                            onCheckedChange={() => toggleColumn(option.key)}
+                          >
+                            {option.label}
+                          </DrawerMenuCheckboxItem>
+                        ))}
+                      {isAlbumsTab &&
+                        albumColumnOptions.map((option) => (
+                          <DrawerMenuCheckboxItem
+                            key={option.key}
+                            checked={albumColumnVisibility[option.key]}
+                            onCheckedChange={() =>
+                              toggleAlbumColumn(option.key)
+                            }
+                          >
+                            {option.label}
+                          </DrawerMenuCheckboxItem>
+                        ))}
+                      {isArtistsTab &&
+                        artistColumnOptions.map((option) => (
+                          <DrawerMenuCheckboxItem
+                            key={option.key}
+                            checked={artistColumnVisibility[option.key]}
+                            onCheckedChange={() =>
+                              toggleArtistColumn(option.key)
+                            }
+                          >
+                            {option.label}
+                          </DrawerMenuCheckboxItem>
+                        ))}
+                      {isGenresTab &&
+                        genreColumnOptions.map((option) => (
+                          <DrawerMenuCheckboxItem
+                            key={option.key}
+                            checked={genreColumnVisibility[option.key]}
+                            onCheckedChange={() =>
+                              toggleGenreColumn(option.key)
+                            }
+                          >
+                            {option.label}
+                          </DrawerMenuCheckboxItem>
+                        ))}
+                    </DrawerMenuCollapsibleContent>
+                  </DrawerMenuCollapsible>
+                ) : null}
 
-                  {/* View mode - hidden on Files tab */}
-                  {!isFilesTab && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuLabel className="text-xs text-muted-foreground">
-                        View
-                      </DropdownMenuLabel>
-                      <DropdownMenuItem onClick={() => setViewMode("grid")}>
-                        <Grid className="w-4 h-4 mr-2" />
-                        Grid
-                        {viewMode === "grid" && (
-                          <Check className="w-4 h-4 ml-auto text-primary" />
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setViewMode("list")}>
-                        <List className="w-4 h-4 mr-2" />
-                        List
-                        {viewMode === "list" && (
-                          <Check className="w-4 h-4 ml-auto text-primary" />
-                        )}
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                {/* View mode - hidden on Files tab */}
+                {!isFilesTab && (
+                  <>
+                    <DrawerMenuSeparator />
+                    <DrawerMenuLabel>View</DrawerMenuLabel>
+                    <DrawerMenuItem onClick={() => setViewMode("grid")}>
+                      <Grid className="w-4 h-4" />
+                      Grid
+                      {viewMode === "grid" && (
+                        <Check className="w-4 h-4 ml-auto text-primary" />
+                      )}
+                    </DrawerMenuItem>
+                    <DrawerMenuItem onClick={() => setViewMode("list")}>
+                      <List className="w-4 h-4" />
+                      List
+                      {viewMode === "list" && (
+                        <Check className="w-4 h-4 ml-auto text-primary" />
+                      )}
+                    </DrawerMenuItem>
+                  </>
+                )}
+              </DrawerMenu>
 
               {/* Mobile advanced filter dialog (controlled) */}
               {showAdvancedFilters && (
