@@ -303,6 +303,25 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
                     }
                 };
 
+                // Collect affected user IDs before deleting stale sessions
+                let affected_user_ids: Vec<(i64,)> = if !stale.is_empty() {
+                    sqlx::query_as(
+                        "SELECT DISTINCT user_id FROM playback_sessions \
+                         WHERE last_heartbeat < datetime('now', '-2 minutes') \
+                         AND id NOT IN ( \
+                             SELECT id FROM playback_sessions ps2 \
+                             WHERE ps2.user_id = playback_sessions.user_id \
+                             ORDER BY ps2.last_heartbeat DESC \
+                             LIMIT 1 \
+                         )",
+                    )
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+
                 for (session_id,) in &stale {
                     // Broadcast SessionEnded to any listeners
                     sm.broadcast(session_id, api::SessionEvent::SessionEnded)
@@ -328,6 +347,11 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
                     .await
                     {
                         tracing::warn!("Failed to clean stale sessions: {}", e);
+                    }
+
+                    // Recompute session names for affected users
+                    for (user_id,) in &affected_user_ids {
+                        let _ = db::queries::recompute_session_names(&pool, *user_id).await;
                     }
                 }
 

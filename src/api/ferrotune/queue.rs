@@ -1054,6 +1054,7 @@ pub async fn add_to_queue(
             queue.shuffle_seed,
             Some(&indices_json),
             queue.current_index,
+            queue.position_ms,
         )
         .await?;
 
@@ -1148,6 +1149,7 @@ pub async fn remove_from_queue(
             queue.shuffle_seed,
             Some(&indices_json),
             shuffled_current,
+            queue.position_ms,
         )
         .await?;
 
@@ -1221,6 +1223,7 @@ pub async fn move_in_queue(
             queue.shuffle_seed,
             Some(&indices_json),
             new_current,
+            queue.position_ms,
         )
         .await?;
 
@@ -1331,6 +1334,7 @@ pub async fn toggle_shuffle(
             Some(seed),
             Some(&indices_json),
             0, // Current song is at position 0 in shuffled order
+            queue.position_ms,
         )
         .await?;
 
@@ -1365,6 +1369,7 @@ pub async fn toggle_shuffle(
             None,
             None,
             original_index as i64,
+            queue.position_ms,
         )
         .await?;
 
@@ -1417,6 +1422,7 @@ pub async fn update_position(
             Some(seed),
             Some(&indices_json),
             0, // Start at position 0 in the new shuffled order
+            0, // Reshuffle resets position to start
         )
         .await?;
 
@@ -1441,6 +1447,7 @@ pub async fn update_position(
             queue.shuffle_seed,
             queue.shuffle_indices_json.as_deref(),
             request.current_index as i64,
+            request.position_ms,
         )
         .await?;
     } else {

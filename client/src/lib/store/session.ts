@@ -141,3 +141,18 @@ export const followerSessionNameAtom = atom<string | null>((get) => {
   const session = sessions.find((s) => s.id === effectiveId);
   return session?.name ?? null;
 });
+
+/**
+ * Derived: follower session client name.
+ * Returns the client name (e.g. "ferrotune-mobile") when following,
+ * null when we're the owner.
+ */
+export const followerSessionClientNameAtom = atom<string | null>((get) => {
+  const isRemote = get(isRemoteControllingAtom);
+  if (!isRemote) return null;
+  const effectiveId = get(effectiveSessionIdAtom);
+  const sessions = get(activeSessionsAtom);
+  if (!effectiveId) return null;
+  const session = sessions.find((s) => s.id === effectiveId);
+  return session?.clientName ?? null;
+});

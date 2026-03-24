@@ -1949,12 +1949,19 @@ export class FerrotuneClient {
     positionMs?: number,
     volume?: number,
     isMuted?: boolean,
+    clientName?: string,
   ): Promise<SessionSuccessResponse> {
     return this.request(
       `/ferrotune/sessions/${encodeURIComponent(sessionId)}/command`,
       {
         method: "POST",
-        body: JSON.stringify({ action, positionMs, volume, isMuted }),
+        body: JSON.stringify({
+          action,
+          positionMs,
+          volume,
+          isMuted,
+          clientName,
+        }),
       },
       true, // Silent — session errors are recovered automatically
     );

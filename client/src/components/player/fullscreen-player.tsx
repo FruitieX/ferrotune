@@ -24,6 +24,7 @@ import {
   Heart,
   MoreHorizontal,
   Monitor,
+  Smartphone,
 } from "lucide-react";
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -58,6 +59,7 @@ import { appResumeRepaintEvent } from "@/lib/utils/app-resume-repaint";
 import {
   shouldShowVolumeAtom,
   followerSessionNameAtom,
+  followerSessionClientNameAtom,
 } from "@/lib/store/session";
 import { getClient } from "@/lib/api/client";
 import { SongDropdownMenu } from "@/components/browse/song-context-menu";
@@ -187,6 +189,7 @@ export function FullscreenPlayer() {
   const audioDuration = useAtomValue(durationAtom);
   const shouldShowVolume = useAtomValue(shouldShowVolumeAtom);
   const followerSessionName = useAtomValue(followerSessionNameAtom);
+  const followerClientName = useAtomValue(followerSessionClientNameAtom);
   const volumeContainerRef = useRef<HTMLDivElement>(null);
   const isSmallScreen = useIsSmallScreen();
 
@@ -711,7 +714,11 @@ export function FullscreenPlayer() {
                     {followerSessionName ? (
                       <>
                         <p className="text-xs text-primary uppercase tracking-wider flex items-center justify-center gap-1">
-                          <Monitor className="w-3 h-3" />
+                          {followerClientName === "ferrotune-mobile" ? (
+                            <Smartphone className="w-3 h-3" />
+                          ) : (
+                            <Monitor className="w-3 h-3" />
+                          )}
                           Listening on
                         </p>
                         <p className="text-sm font-medium truncate">

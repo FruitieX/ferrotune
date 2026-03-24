@@ -80,6 +80,7 @@ pub struct SessionCommandRequest {
     pub position_ms: Option<i64>,
     pub volume: Option<f64>,
     pub is_muted: Option<bool>,
+    pub client_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -99,16 +100,24 @@ pub async fn create_session(
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreateSessionRequest>,
 ) -> FerrotuneApiResult<Json<CreateSessionResponse>> {
-    let count = queries::count_active_sessions(&state.pool, user.user_id).await?;
+    // Use a temporary name; recompute_session_names will fix it below
     let prefix = match request.client_name.as_str() {
         "ferrotune-mobile" => "Mobile",
         _ => "Web",
     };
-    let name = format!("{} {}", prefix, count + 1);
 
     let id =
-        queries::create_playback_session(&state.pool, user.user_id, &name, &request.client_name)
+        queries::create_playback_session(&state.pool, user.user_id, prefix, &request.client_name)
             .await?;
+
+    // Recompute all session names to avoid unnecessary numbers
+    queries::recompute_session_names(&state.pool, user.user_id).await?;
+
+    // Fetch the final name after recomputation
+    let session = queries::get_session(&state.pool, &id, user.user_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Session not found after creation".to_string()))?;
+    let name = session.name.clone();
 
     // Notify all existing sessions that the session list changed
     let sessions = queries::get_active_sessions(&state.pool, user.user_id).await?;
@@ -166,6 +175,9 @@ pub async fn delete_session(
     state.session_manager.remove(&session.id).await;
 
     queries::delete_session(&state.pool, &session_id).await?;
+
+    // Recompute session names to avoid orphaned numbers (e.g. "Web 2" with no "Web 1")
+    queries::recompute_session_names(&state.pool, user.user_id).await?;
 
     // Notify remaining sessions that the session list changed
     let sessions = queries::get_active_sessions(&state.pool, user.user_id).await?;
@@ -266,7 +278,8 @@ impl Drop for SessionCleanupGuard {
                 state.session_manager.remove(&session_id).await;
                 let _ = queries::delete_session(&state.pool, &session_id).await;
 
-                // Notify remaining sessions for this user
+                // Recompute session names and notify remaining sessions for this user
+                let _ = queries::recompute_session_names(&state.pool, user_id).await;
                 if let Ok(sessions) = queries::get_active_sessions(&state.pool, user_id).await {
                     let session_ids: Vec<String> = sessions.into_iter().map(|s| s.id).collect();
                     state
@@ -387,6 +400,23 @@ pub async fn session_command(
             "Invalid action: {}. Valid actions: {:?}",
             request.action, valid_actions
         ))));
+    }
+
+    // On takeOver, update the session's client_name to reflect the new owner
+    // and recompute all session names
+    if request.action == "takeOver" {
+        if let Some(ref new_client_name) = request.client_name {
+            queries::update_session_client_name(&state.pool, &session_id, new_client_name).await?;
+            queries::recompute_session_names(&state.pool, user.user_id).await?;
+
+            // Notify all sessions that the list changed (names may have been updated)
+            let sessions = queries::get_active_sessions(&state.pool, user.user_id).await?;
+            let session_ids: Vec<String> = sessions.into_iter().map(|s| s.id).collect();
+            state
+                .session_manager
+                .broadcast_to_sessions(&session_ids, SessionEvent::SessionListChanged)
+                .await;
+        }
     }
 
     // Broadcast the appropriate event type

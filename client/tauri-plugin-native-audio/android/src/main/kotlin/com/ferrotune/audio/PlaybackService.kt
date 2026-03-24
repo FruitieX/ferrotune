@@ -845,20 +845,57 @@ class PlaybackService : MediaSessionService() {
         queueOffset = loadedRangeStart
         queueIndex = targetIndex
         currentTrack = tracks.getOrNull(exoStartIndex)
-        seekTimeOffsetMs = 0
 
         applyTrackReplayGain(currentTrack)
 
-        val mediaItems = tracks.map { createMediaItem(it) }
-        player.playWhenReady = playWhenReady
-        player.setMediaItems(mediaItems, exoStartIndex, startPositionMs)
-        player.prepare()
+        val mediaItems = tracks.map { createMediaItem(it) }.toMutableList()
+
+        // For transcoded streams, ExoPlayer can't seek via Range headers.
+        // Use seek-by-reload: rebuild the current track's URL with a timeOffset
+        // parameter so the server sends audio starting from the right position.
+        if (startPositionMs > 0 && playbackSettings.transcodingEnabled && currentTrack != null) {
+            val track = currentTrack!!
+            val timeOffsetSeconds = startPositionMs / 1000
+            val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
+            seekTimeOffsetMs = startPositionMs
+
+            val metadataBuilder = MediaMetadata.Builder()
+                .setTitle(track.title)
+                .setArtist(track.artist)
+                .setAlbumTitle(track.album)
+                .setDurationMs(track.durationMs)
+            if (track.coverArtUrl != null) {
+                metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
+            }
+
+            val newMediaItem = MediaItem.Builder()
+                .setMediaId(track.id)
+                .setUri(Uri.parse(newUrl))
+                .setMediaMetadata(metadataBuilder.build())
+                .build()
+
+            mediaItems[exoStartIndex] = newMediaItem
+
+            player.playWhenReady = playWhenReady
+            player.setMediaItems(mediaItems, exoStartIndex, 0)
+            player.prepare()
+
+            Log.d(TAG, "Loaded ${tracks.size} tracks with seek-by-reload: offset=${timeOffsetSeconds}s, " +
+                "positions $loadedRangeStart..${loadedRangeEnd - 1}, " +
+                "exoStartIndex=$exoStartIndex, serverIndex=$targetIndex")
+        } else {
+            seekTimeOffsetMs = 0
+
+            player.playWhenReady = playWhenReady
+            player.setMediaItems(mediaItems, exoStartIndex, startPositionMs)
+            player.prepare()
+
+            Log.d(TAG, "Loaded ${tracks.size} tracks, positions $loadedRangeStart..${loadedRangeEnd - 1}, " +
+                "exoStartIndex=$exoStartIndex, serverIndex=$targetIndex")
+        }
 
         emitTrackChange()
         emitQueueStateChanged()
-
-        Log.d(TAG, "Loaded ${tracks.size} tracks, positions $loadedRangeStart..${loadedRangeEnd - 1}, " +
-            "exoStartIndex=$exoStartIndex, serverIndex=$targetIndex")
     }
 
     /**

@@ -1418,16 +1418,69 @@ pub async fn delete_session(pool: &SqlitePool, session_id: &str) -> sqlx::Result
     Ok(result.rows_affected() > 0)
 }
 
-/// Count active sessions for a user (for auto-naming: "Web N")
-pub async fn count_active_sessions(pool: &SqlitePool, user_id: i64) -> sqlx::Result<i64> {
-    let (count,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM playback_sessions
-         WHERE user_id = ? AND last_heartbeat >= datetime('now', '-2 minutes')",
-    )
-    .bind(user_id)
-    .fetch_one(pool)
-    .await?;
-    Ok(count)
+/// Update the name of a playback session
+pub async fn update_session_name(
+    pool: &SqlitePool,
+    session_id: &str,
+    name: &str,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query("UPDATE playback_sessions SET name = ? WHERE id = ?")
+        .bind(name)
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Update the client_name of a playback session (e.g. on takeover)
+pub async fn update_session_client_name(
+    pool: &SqlitePool,
+    session_id: &str,
+    client_name: &str,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query("UPDATE playback_sessions SET client_name = ? WHERE id = ?")
+        .bind(client_name)
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Recompute session names for all active sessions of a user.
+/// Uses "Web" / "Mobile" prefix based on client_name, and only appends
+/// a number when multiple sessions share the same prefix.
+pub async fn recompute_session_names(pool: &SqlitePool, user_id: i64) -> sqlx::Result<()> {
+    let sessions = get_active_sessions(pool, user_id).await?;
+
+    // Group sessions by prefix (preserving order from get_active_sessions)
+    let mut web_sessions: Vec<&PlaybackSession> = Vec::new();
+    let mut mobile_sessions: Vec<&PlaybackSession> = Vec::new();
+
+    for session in &sessions {
+        match session.client_name.as_str() {
+            "ferrotune-mobile" => mobile_sessions.push(session),
+            _ => web_sessions.push(session),
+        }
+    }
+
+    // For each group: if only one session, use bare prefix; otherwise number them
+    for (prefix, group) in [("Web", web_sessions), ("Mobile", mobile_sessions)] {
+        if group.len() == 1 {
+            let desired = prefix.to_string();
+            if group[0].name != desired {
+                update_session_name(pool, &group[0].id, &desired).await?;
+            }
+        } else {
+            for (i, session) in group.iter().enumerate() {
+                let desired = format!("{} {}", prefix, i + 1);
+                if session.name != desired {
+                    update_session_name(pool, &session.id, &desired).await?;
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Get the most recently active session for a user (for Subsonic backward compat)
@@ -1744,17 +1797,19 @@ pub async fn update_queue_shuffle_by_session(
     shuffle_seed: Option<i64>,
     shuffle_indices_json: Option<&str>,
     current_index: i64,
+    position_ms: i64,
 ) -> sqlx::Result<bool> {
     let result = sqlx::query(
         "UPDATE play_queues SET
          is_shuffled = ?, shuffle_seed = ?, shuffle_indices_json = ?,
-         current_index = ?, updated_at = datetime('now')
+         current_index = ?, position_ms = ?, updated_at = datetime('now')
          WHERE session_id = ?",
     )
     .bind(is_shuffled)
     .bind(shuffle_seed)
     .bind(shuffle_indices_json)
     .bind(current_index)
+    .bind(position_ms)
     .bind(session_id)
     .execute(pool)
     .await?;

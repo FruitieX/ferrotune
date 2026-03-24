@@ -52,6 +52,19 @@ export const pendingUserPlayback = {
   },
 };
 
+// Module-level signal: position in milliseconds to seek to when starting
+// playback (e.g. after session takeover). Read and consumed by the audio
+// engine so playback resumes where the previous owner left off.
+let _pendingPlaybackPositionMs = 0;
+export const pendingPlaybackPositionMs = {
+  get value() {
+    return _pendingPlaybackPositionMs;
+  },
+  set value(v: number) {
+    _pendingPlaybackPositionMs = v;
+  },
+};
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -371,7 +384,9 @@ export const fetchQueueAndPlayAtom = atom(null, async (get, set) => {
         source: response.source,
       });
       set(queueWindowAtom, response.window);
-      // Signal the audio engine to load and play the new track
+      // Signal the audio engine to load and play the new track,
+      // resuming from the server-reported position (e.g. session takeover)
+      pendingPlaybackPositionMs.value = Number(response.positionMs);
       pendingUserPlayback.value = true;
       set(isRestoringQueueAtom, false);
       set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);

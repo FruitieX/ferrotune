@@ -44,6 +44,7 @@ import {
   playAtIndexAtom,
   queueWindowAtom,
   pendingUserPlayback,
+  pendingPlaybackPositionMs,
   type RepeatMode,
 } from "@/lib/store/server-queue";
 import {
@@ -1979,7 +1980,9 @@ export function useAudioEngineInit() {
         pendingUserPlayback.value ||
         (signalChanged && !isRestoringQueue) ||
         (transcodingChanged && stateRef.current.playbackState === "playing");
+      const nativeResumePositionMs = pendingPlaybackPositionMs.value;
       pendingUserPlayback.value = false;
+      pendingPlaybackPositionMs.value = 0;
 
       console.log(
         "[Audio] shouldPlay:",
@@ -2114,7 +2117,7 @@ export function useAudioEngineInit() {
           );
 
           setHasScrobbled(false);
-          setCurrentTime(0);
+          setCurrentTime(nativeResumePositionMs / 1000);
           setDuration(currentSong.duration || 0);
 
           await nativeSetQueue(
@@ -2122,7 +2125,7 @@ export function useAudioEngineInit() {
             startIdx,
             client,
             nativeQueueOffset,
-            0,
+            nativeResumePositionMs,
             getNativeStreamOptions(stateRef.current),
             shouldPlay,
           );
@@ -2266,6 +2269,7 @@ export function useAudioEngineInit() {
       // Consume pending playback flag to prevent a later effect re-run
       // (e.g. from fetchQueueSilent SSE echo) from reloading the same track.
       pendingUserPlayback.value = false;
+      pendingPlaybackPositionMs.value = 0;
       lastProcessedSignalRef.current = trackChangeSignal;
       lastStreamUrlRef.current = streamUrl;
       isGaplessHandoff = false;
@@ -2319,7 +2323,9 @@ export function useAudioEngineInit() {
     }
     // Consume the pending-playback flag so future metadata-only changes
     // (shuffle/repeat toggle) don't re-trigger a full track load.
+    const resumePositionSec = pendingPlaybackPositionMs.value / 1000;
     pendingUserPlayback.value = false;
+    pendingPlaybackPositionMs.value = 0;
     lastProcessedSignalRef.current = trackChangeSignal;
     lastStreamUrlRef.current = streamUrl;
 
@@ -2425,8 +2431,8 @@ export function useAudioEngineInit() {
       isLoadingNewTrack = true;
       setPlaybackState("loading");
       setHasScrobbled(false);
-      setCurrentTime(0);
-      setBuffered(0);
+      setCurrentTime(resumePositionSec);
+      setBuffered(resumePositionSec);
       setDuration(currentSong.duration || 0);
 
       // Broadcast new track position to followers immediately
@@ -2435,7 +2441,7 @@ export function useAudioEngineInit() {
       if (sessionId && queueState) {
         getClient()
           ?.sessionHeartbeat(sessionId, {
-            positionMs: 0,
+            positionMs: Math.round(resumePositionSec * 1000),
             isPlaying: true,
             currentIndex: queueState.currentIndex,
             currentSongId: currentSong.id,
@@ -2447,17 +2453,47 @@ export function useAudioEngineInit() {
           );
       }
 
+      // If resuming mid-track with transcoding, use timeOffset to get the
+      // server to send audio starting from the right position
+      if (resumePositionSec > 0 && transcodingEnabled) {
+        currentStreamTimeOffset = resumePositionSec;
+        const offsetUrl = getClient()?.getStreamUrl(currentSong.id, {
+          maxBitRate: transcodingBitrate,
+          format: "opus",
+          timeOffset: resumePositionSec,
+        });
+        if (offsetUrl) {
+          audio.src = offsetUrl;
+        }
+      }
+
       resumeAudioContext().then((contextRunning) => {
         if (!contextRunning) {
           console.error(
             "[Audio] Cannot play: AudioContext not running after resume",
           );
         }
-        audio.play().catch((err) => {
-          console.error("Failed to play:", err);
-          isLoadingNewTrack = false;
-          setPlaybackState("paused");
-        });
+
+        // For non-transcoded streams, seek within the loaded file
+        if (resumePositionSec > 0 && !transcodingEnabled) {
+          const handleCanPlayForResume = () => {
+            audio.removeEventListener("canplay", handleCanPlayForResume);
+            audio.currentTime = resumePositionSec;
+            audio.play().catch((err) => {
+              console.error("Failed to play:", err);
+              isLoadingNewTrack = false;
+              setPlaybackState("paused");
+            });
+          };
+          audio.addEventListener("canplay", handleCanPlayForResume);
+          audio.load();
+        } else {
+          audio.play().catch((err) => {
+            console.error("Failed to play:", err);
+            isLoadingNewTrack = false;
+            setPlaybackState("paused");
+          });
+        }
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- replayGainMode and replayGainOffset are handled by separate effect

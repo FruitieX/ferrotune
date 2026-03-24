@@ -28,6 +28,7 @@ import {
   MoreHorizontal,
   Cast,
   Monitor,
+  Smartphone,
 } from "lucide-react";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { cn } from "@/lib/utils";
@@ -71,6 +72,7 @@ import type { Song } from "@/lib/api/types";
 import {
   shouldShowVolumeAtom,
   followerSessionNameAtom,
+  followerSessionClientNameAtom,
 } from "@/lib/store/session";
 
 import {
@@ -1043,11 +1045,14 @@ function CastButton() {
 /** Follower session indicator - shows when listening on another device */
 function FollowerIndicator() {
   const sessionName = useAtomValue(followerSessionNameAtom);
+  const clientName = useAtomValue(followerSessionClientNameAtom);
   if (!sessionName) return null;
 
+  const Icon = clientName === "ferrotune-mobile" ? Smartphone : Monitor;
+
   return (
-    <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-1.5 py-0.5 bg-primary/10 text-primary text-xs z-10">
-      <Monitor className="w-3 h-3" />
+    <div className="flex items-center justify-center gap-1.5 pt-2 pb-0.5 bg-primary/10 text-primary text-xs">
+      <Icon className="w-3 h-3" />
       <span>Listening on {sessionName}</span>
     </div>
   );
@@ -1100,7 +1105,7 @@ export function PlayerBar() {
       data-testid="player-bar"
       className={cn(
         "relative z-50",
-        "h-[88px] bg-background/95 backdrop-blur-lg",
+        "bg-background/95 backdrop-blur-lg",
         "transition-all duration-200",
       )}
     >
@@ -1111,7 +1116,10 @@ export function PlayerBar() {
         <SimpleProgressBar />
       )}
 
-      <div className="flex items-center h-full px-4 gap-2 md:gap-4">
+      {/* Follower session indicator */}
+      <FollowerIndicator />
+
+      <div className="flex items-center h-[88px] px-4 gap-2 md:gap-4">
         {/* Now Playing Info - takes available space on mobile, fixed width on desktop */}
         <div className="flex items-center gap-3 flex-1 md:flex-none md:w-[30%] min-w-0">
           <NowPlayingInfo track={currentTrack} isEnded={isEnded} />
@@ -1143,9 +1151,6 @@ export function PlayerBar() {
           <FullscreenButton />
         </div>
       </div>
-
-      {/* Follower session indicator */}
-      <FollowerIndicator />
     </footer>
   );
 }

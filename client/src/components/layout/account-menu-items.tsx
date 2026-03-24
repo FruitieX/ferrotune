@@ -10,6 +10,7 @@ import {
   Check,
   X,
   Monitor,
+  Smartphone,
   Plus,
   Music,
   ArrowRightLeft,
@@ -106,8 +107,12 @@ export function AccountMenuItems({
   };
 
   const switchToSession = (sessionId: string) => {
-    if (sessionId === currentSessionId || sessionId === effectiveSessionId) {
-      // Switch back to own session (clicking own or currently-controlled session)
+    if (sessionId === effectiveSessionId) {
+      // Already on this session (own or followed), do nothing
+      return;
+    }
+    if (sessionId === currentSessionId) {
+      // Switch back to own session
       setControllingSessionId(null);
       setIsAudioOwner(true);
       setRemotePlaybackState(null);
@@ -145,8 +150,15 @@ export function AccountMenuItems({
     const wasPlaying = session?.isPlaying ?? false;
 
     try {
-      // Tell the current owner to stop playback
-      await client.sendSessionCommand(sessionId, "takeOver");
+      // Tell the current owner to stop playback and update session client type
+      await client.sendSessionCommand(
+        sessionId,
+        "takeOver",
+        undefined,
+        undefined,
+        undefined,
+        getClientName(),
+      );
 
       // Signal auto-play for the queue fetch triggered by session change
       if (wasPlaying && !wasFollowing) {
@@ -195,7 +207,8 @@ export function AccountMenuItems({
     <>
       {hasMultipleAccounts && (
         <>
-          <div className="px-2 py-1.5 text-xs text-muted-foreground font-semibold">
+          <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground font-semibold">
+            <div className="w-4 shrink-0" />
             Accounts
           </div>
           {savedAccounts.map((account) => {
@@ -207,15 +220,16 @@ export function AccountMenuItems({
                 className="flex items-center gap-2 group"
                 onClick={() => switchToAccount(account)}
               >
-                <User className="w-4 h-4 shrink-0" />
+                <User className="w-4 h-4 shrink-0 mr-2" />
                 <span className="truncate flex-1">
                   {account.label || accountLabel(account)}
                 </span>
                 {isCurrent ? (
                   <Check className="w-4 h-4 shrink-0 text-primary" />
                 ) : (
-                  <button
-                    type="button"
+                  <div
+                    role="button"
+                    tabIndex={0}
                     className={`shrink-0 transition-opacity p-0.5 rounded hover:bg-muted ${hasFinePointer ? "opacity-0 group-hover:opacity-100" : "opacity-100"}`}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -223,7 +237,7 @@ export function AccountMenuItems({
                     }}
                   >
                     <X className="w-3.5 h-3.5 text-muted-foreground" />
-                  </button>
+                  </div>
                 )}
               </Item>
             );
@@ -247,7 +261,8 @@ export function AccountMenuItems({
       {activeSessions.length > 0 && (
         <>
           <Separator />
-          <div className="px-2 py-1.5 text-xs text-muted-foreground font-semibold">
+          <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground font-semibold">
+            <div className="w-4 shrink-0" />
             Sessions
           </div>
           {activeSessions.map((session) => {
@@ -269,7 +284,11 @@ export function AccountMenuItems({
                 className="flex items-center gap-2 group"
                 onClick={() => switchToSession(session.id)}
               >
-                <Monitor className="w-4 h-4 shrink-0" />
+                {session.clientName === "ferrotune-mobile" ? (
+                  <Smartphone className="w-4 h-4 shrink-0 mr-2" />
+                ) : (
+                  <Monitor className="w-4 h-4 shrink-0 mr-2" />
+                )}
                 <div className="flex-1 min-w-0">
                   <span className="truncate block text-sm">
                     {session.name}
@@ -287,9 +306,10 @@ export function AccountMenuItems({
                 </div>
                 <div className="flex items-center gap-0.5 shrink-0">
                   {isActive && <Check className="w-4 h-4 text-primary" />}
-                  {!isOwn && (
-                    <button
-                      type="button"
+                  {(!isOwn || (isActive && !isAudioOwner)) && (
+                    <div
+                      role="button"
+                      tabIndex={0}
                       className={`transition-opacity p-0.5 rounded hover:bg-muted ${!isActive && hasFinePointer ? "opacity-0 group-hover:opacity-100" : "opacity-100"}`}
                       title="Take over session"
                       onClick={(e) => {
@@ -298,11 +318,12 @@ export function AccountMenuItems({
                       }}
                     >
                       <ArrowRightLeft className="w-3.5 h-3.5 text-muted-foreground" />
-                    </button>
+                    </div>
                   )}
                   {!isOwn && !isActive && (
-                    <button
-                      type="button"
+                    <div
+                      role="button"
+                      tabIndex={0}
                       className={`transition-opacity p-0.5 rounded hover:bg-muted ${hasFinePointer ? "opacity-0 group-hover:opacity-100" : "opacity-100"}`}
                       title="End session"
                       onClick={(e) => {
@@ -311,7 +332,7 @@ export function AccountMenuItems({
                       }}
                     >
                       <X className="w-3.5 h-3.5 text-muted-foreground" />
-                    </button>
+                    </div>
                   )}
                 </div>
               </Item>
