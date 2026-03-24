@@ -23,6 +23,7 @@ import {
   ListMusic,
   Heart,
   MoreHorizontal,
+  Monitor,
 } from "lucide-react";
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -54,7 +55,10 @@ import { useStarred } from "@/lib/store/starred";
 import { useAudioEngine } from "@/lib/audio/hooks";
 import { formatDuration } from "@/lib/utils/format";
 import { appResumeRepaintEvent } from "@/lib/utils/app-resume-repaint";
-import { hasNativeAudio } from "@/lib/tauri";
+import {
+  shouldShowVolumeAtom,
+  followerSessionNameAtom,
+} from "@/lib/store/session";
 import { getClient } from "@/lib/api/client";
 import { SongDropdownMenu } from "@/components/browse/song-context-menu";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
@@ -181,6 +185,8 @@ export function FullscreenPlayer() {
   const setQueuePanelOpen = useSetAtom(queuePanelOpenAtom);
   const progressBarStyle = useAtomValue(progressBarStyleAtom);
   const audioDuration = useAtomValue(durationAtom);
+  const shouldShowVolume = useAtomValue(shouldShowVolumeAtom);
+  const followerSessionName = useAtomValue(followerSessionNameAtom);
   const volumeContainerRef = useRef<HTMLDivElement>(null);
   const isSmallScreen = useIsSmallScreen();
 
@@ -702,15 +708,29 @@ export function FullscreenPlayer() {
                     <ChevronDown className="w-6 h-6" />
                   </Button>
                   <div className="text-center min-w-0 flex-1 mx-2">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                      {isEnded ? "Queue Ended" : "Playing from"}
-                    </p>
-                    <p className="text-sm font-medium truncate">
-                      {queueState?.source?.name ||
-                        (queueState?.source?.type === "library"
-                          ? "Library"
-                          : "Queue")}
-                    </p>
+                    {followerSessionName ? (
+                      <>
+                        <p className="text-xs text-primary uppercase tracking-wider flex items-center justify-center gap-1">
+                          <Monitor className="w-3 h-3" />
+                          Listening on
+                        </p>
+                        <p className="text-sm font-medium truncate">
+                          {followerSessionName}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                          {isEnded ? "Queue Ended" : "Playing from"}
+                        </p>
+                        <p className="text-sm font-medium truncate">
+                          {queueState?.source?.name ||
+                            (queueState?.source?.type === "library"
+                              ? "Library"
+                              : "Queue")}
+                        </p>
+                      </>
+                    )}
                   </div>
                   <SongDropdownMenu
                     song={currentTrack}
@@ -947,8 +967,8 @@ export function FullscreenPlayer() {
                   transition={{ delay: 0.5 }}
                   className="flex items-center justify-between pb-4"
                 >
-                  {/* Volume - hidden on native audio (Android) where system volume is used */}
-                  {!hasNativeAudio() && (
+                  {/* Volume - hidden when session owner uses native/system volume */}
+                  {shouldShowVolume && (
                     <FullscreenVolumeControls
                       volumeContainerRef={volumeContainerRef}
                       volume={volume}

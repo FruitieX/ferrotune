@@ -27,6 +27,7 @@ import {
   Heart,
   MoreHorizontal,
   Cast,
+  Monitor,
 } from "lucide-react";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { cn } from "@/lib/utils";
@@ -67,7 +68,10 @@ import { useStarred } from "@/lib/store/starred";
 import { formatDuration } from "@/lib/utils/format";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
-import { hasNativeAudio } from "@/lib/tauri";
+import {
+  shouldShowVolumeAtom,
+  followerSessionNameAtom,
+} from "@/lib/store/session";
 
 import {
   SongContextMenu,
@@ -775,6 +779,7 @@ function VolumeControls() {
   const volumeContainerRef = useRef<HTMLDivElement>(null);
   const { isClipping, peakOverDbAt100, peakDbAtCurrent, volumePercent } =
     useClippingIndicator();
+  const shouldShowVolume = useAtomValue(shouldShowVolumeAtom);
 
   const VolumeIcon =
     isMuted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
@@ -796,6 +801,9 @@ function VolumeControls() {
     container.addEventListener("wheel", handleWheel, { passive: false });
     return () => container.removeEventListener("wheel", handleWheel);
   }, [volume, changeVolume]);
+
+  // Hide volume controls when the session owner is a native/mobile client
+  if (!shouldShowVolume) return null;
 
   const volumeButton = (
     <Button
@@ -875,6 +883,7 @@ function MobileMoreMenu() {
   const { volume, isMuted, toggleMute, changeVolume } = useVolumeControl();
   const { togglePlayPause, next, previous } = useAudioEngine();
   const playbackState = useAtomValue(effectivePlaybackStateAtom);
+  const shouldShowVolume = useAtomValue(shouldShowVolumeAtom);
 
   const isPlaying = playbackState === "playing";
   const RepeatIcon = repeatMode === "one" ? Repeat1 : Repeat;
@@ -934,8 +943,8 @@ function MobileMoreMenu() {
               <SkipForward className="w-4 h-4" />
             </Button>
           </div>
-          {/* Volume - hidden on native audio (Android) where system volume is used */}
-          {!hasNativeAudio() && (
+          {/* Volume - hidden when session owner uses native/system volume */}
+          {shouldShowVolume && (
             <div className="flex items-center gap-2 px-3 py-1.5">
               <Button
                 variant="ghost"
@@ -1031,6 +1040,19 @@ function CastButton() {
   );
 }
 
+/** Follower session indicator - shows when listening on another device */
+function FollowerIndicator() {
+  const sessionName = useAtomValue(followerSessionNameAtom);
+  if (!sessionName) return null;
+
+  return (
+    <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-1.5 py-0.5 bg-primary/10 text-primary text-xs z-10">
+      <Monitor className="w-3 h-3" />
+      <span>Listening on {sessionName}</span>
+    </div>
+  );
+}
+
 /** Fullscreen button - separated to avoid re-renders */
 function FullscreenButton() {
   const setFullscreenOpen = useSetAtom(fullscreenPlayerOpenAtom);
@@ -1121,6 +1143,9 @@ export function PlayerBar() {
           <FullscreenButton />
         </div>
       </div>
+
+      {/* Follower session indicator */}
+      <FollowerIndicator />
     </footer>
   );
 }

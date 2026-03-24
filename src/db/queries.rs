@@ -1396,6 +1396,19 @@ pub async fn update_session_heartbeat(
     Ok(result.rows_affected() > 0)
 }
 
+/// Update only the heartbeat timestamp (for follower keepalive)
+pub async fn update_session_heartbeat_timestamp(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> sqlx::Result<bool> {
+    let result =
+        sqlx::query("UPDATE playback_sessions SET last_heartbeat = datetime('now') WHERE id = ?")
+            .bind(session_id)
+            .execute(pool)
+            .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 /// Delete a playback session (cascade deletes its queue via FK)
 pub async fn delete_session(pool: &SqlitePool, session_id: &str) -> sqlx::Result<bool> {
     let result = sqlx::query("DELETE FROM playback_sessions WHERE id = ?")

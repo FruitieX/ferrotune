@@ -190,42 +190,54 @@ pub async fn session_heartbeat(
         .await?
         .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
 
-    queries::update_session_heartbeat(
-        &state.pool,
-        &session_id,
-        request.is_playing,
-        request.current_song_id.as_deref(),
-        request.current_song_title.as_deref(),
-        request.current_song_artist.as_deref(),
-    )
-    .await?;
+    // Distinguish owner heartbeats (include song info or position) from
+    // follower keepalive heartbeats (only { isPlaying: false }).
+    // Only owner heartbeats should update playback state and broadcast.
+    let is_owner_heartbeat = request.current_index.is_some() || request.current_song_id.is_some();
 
-    // Also update queue position if provided
-    if let (Some(current_index), Some(position_ms)) = (request.current_index, request.position_ms) {
-        let _ = queries::update_queue_position_by_session(
+    if is_owner_heartbeat {
+        queries::update_session_heartbeat(
             &state.pool,
             &session_id,
-            current_index as i64,
-            position_ms,
+            request.is_playing,
+            request.current_song_id.as_deref(),
+            request.current_song_title.as_deref(),
+            request.current_song_artist.as_deref(),
         )
-        .await;
-    }
+        .await?;
 
-    // Broadcast position update to SSE subscribers
-    state
-        .session_manager
-        .broadcast(
-            &session_id,
-            SessionEvent::PositionUpdate {
-                current_index: request.current_index.unwrap_or(0),
-                position_ms: request.position_ms.unwrap_or(0),
-                is_playing: request.is_playing,
-                current_song_id: request.current_song_id.clone(),
-                current_song_title: request.current_song_title.clone(),
-                current_song_artist: request.current_song_artist.clone(),
-            },
-        )
-        .await;
+        // Also update queue position if provided
+        if let (Some(current_index), Some(position_ms)) =
+            (request.current_index, request.position_ms)
+        {
+            let _ = queries::update_queue_position_by_session(
+                &state.pool,
+                &session_id,
+                current_index as i64,
+                position_ms,
+            )
+            .await;
+        }
+
+        // Broadcast position update to SSE subscribers
+        state
+            .session_manager
+            .broadcast(
+                &session_id,
+                SessionEvent::PositionUpdate {
+                    current_index: request.current_index.unwrap_or(0),
+                    position_ms: request.position_ms.unwrap_or(0),
+                    is_playing: request.is_playing,
+                    current_song_id: request.current_song_id.clone(),
+                    current_song_title: request.current_song_title.clone(),
+                    current_song_artist: request.current_song_artist.clone(),
+                },
+            )
+            .await;
+    } else {
+        // Follower keepalive: only update the heartbeat timestamp
+        queries::update_session_heartbeat_timestamp(&state.pool, &session_id).await?;
+    }
 
     Ok(Json(SessionSuccessResponse { success: true }))
 }
@@ -368,6 +380,7 @@ pub async fn session_command(
         "queueUpdated",
         "takeOver",
         "volumeChange",
+        "setVolume",
     ];
     if !valid_actions.contains(&request.action.as_str()) {
         return Err(FerrotuneApiError(Error::InvalidRequest(format!(
@@ -387,6 +400,8 @@ pub async fn session_command(
         _ => SessionEvent::PlaybackCommand {
             action: request.action,
             position_ms: request.position_ms,
+            volume: request.volume,
+            is_muted: request.is_muted,
         },
     };
 

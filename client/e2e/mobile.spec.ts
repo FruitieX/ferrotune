@@ -148,7 +148,7 @@ test.describe("Mobile Tests", () => {
       name: /view options/i,
     });
     await moreOptionsButton.click();
-    const gridMenuItem = page.getByRole("menuitem", { name: /^grid$/i });
+    const gridMenuItem = page.getByRole("button", { name: /^grid$/i });
     await gridMenuItem.click();
 
     // Click album from either grid card view or list/link view
@@ -183,8 +183,8 @@ test.describe("Mobile Tests", () => {
     });
     await moreOptionsButton.click();
 
-    // Click on List view option in the dropdown
-    const listMenuItem = page.getByRole("menuitem", { name: /^list$/i });
+    // Click on List view option in the drawer
+    const listMenuItem = page.getByRole("button", { name: /^list$/i });
     await listMenuItem.click();
 
     const songRow = page

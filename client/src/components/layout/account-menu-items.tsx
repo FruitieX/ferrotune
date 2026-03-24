@@ -29,11 +29,16 @@ import {
   effectiveSessionIdAtom,
   isAudioOwnerAtom,
   remotePlaybackStateAtom,
+  pendingTakeoverPlayAtom,
 } from "@/lib/store/session";
-import { currentSongAtom } from "@/lib/store/server-queue";
+import {
+  currentSongAtom,
+  fetchQueueAndPlayAtom,
+} from "@/lib/store/server-queue";
 import { playbackStateAtom } from "@/lib/store/player";
 import { initializeClient, getClient, getClientName } from "@/lib/api/client";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
+import { hasNativeAudio } from "@/lib/tauri";
 
 interface AccountMenuItemsProps {
   components: MenuComponents;
@@ -58,6 +63,8 @@ export function AccountMenuItems({
   const [isAudioOwner, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
   const setActiveSessions = useSetAtom(activeSessionsAtom);
   const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
+  const setPendingTakeoverPlay = useSetAtom(pendingTakeoverPlayAtom);
+  const fetchQueueAndPlay = useSetAtom(fetchQueueAndPlayAtom);
 
   // Local playback state for own session display
   const localCurrentSong = useAtomValue(currentSongAtom);
@@ -133,14 +140,31 @@ export function AccountMenuItems({
     const client = getClient();
     if (!client) return;
 
+    const session = activeSessions.find((s) => s.id === sessionId);
+    const wasFollowing = effectiveSessionId === sessionId;
+    const wasPlaying = session?.isPlaying ?? false;
+
     try {
       // Tell the current owner to stop playback
       await client.sendSessionCommand(sessionId, "takeOver");
+
+      // Signal auto-play for the queue fetch triggered by session change
+      if (wasPlaying && !wasFollowing) {
+        setPendingTakeoverPlay(true);
+      }
+
       // Adopt the session
       setCurrentSessionId(sessionId);
       setControllingSessionId(null);
       setIsAudioOwner(true);
       setRemotePlaybackState(null);
+
+      // If already following, effectiveSessionId doesn't change so the
+      // automatic queue refetch won't fire — trigger playback directly
+      if (wasPlaying && wasFollowing) {
+        fetchQueueAndPlay();
+      }
+
       toast.success("Session taken over");
     } catch {
       toast.error("Failed to take over session");
@@ -249,7 +273,9 @@ export function AccountMenuItems({
                 <div className="flex-1 min-w-0">
                   <span className="truncate block text-sm">
                     {session.name}
-                    {isOwn && isAudioOwner && " (this tab)"}
+                    {isOwn &&
+                      isAudioOwner &&
+                      (hasNativeAudio() ? " (this app)" : " (this tab)")}
                   </span>
                   {songTitle && (
                     <span className="truncate block text-xs text-muted-foreground">
@@ -259,13 +285,12 @@ export function AccountMenuItems({
                     </span>
                   )}
                 </div>
-                {isActive ? (
-                  <Check className="w-4 h-4 shrink-0 text-primary" />
-                ) : !isOwn ? (
-                  <div className="flex items-center gap-0.5 shrink-0">
+                <div className="flex items-center gap-0.5 shrink-0">
+                  {isActive && <Check className="w-4 h-4 text-primary" />}
+                  {!isOwn && (
                     <button
                       type="button"
-                      className={`transition-opacity p-0.5 rounded hover:bg-muted ${hasFinePointer ? "opacity-0 group-hover:opacity-100" : "opacity-100"}`}
+                      className={`transition-opacity p-0.5 rounded hover:bg-muted ${!isActive && hasFinePointer ? "opacity-0 group-hover:opacity-100" : "opacity-100"}`}
                       title="Take over session"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -274,6 +299,8 @@ export function AccountMenuItems({
                     >
                       <ArrowRightLeft className="w-3.5 h-3.5 text-muted-foreground" />
                     </button>
+                  )}
+                  {!isOwn && !isActive && (
                     <button
                       type="button"
                       className={`transition-opacity p-0.5 rounded hover:bg-muted ${hasFinePointer ? "opacity-0 group-hover:opacity-100" : "opacity-100"}`}
@@ -285,8 +312,8 @@ export function AccountMenuItems({
                     >
                       <X className="w-3.5 h-3.5 text-muted-foreground" />
                     </button>
-                  </div>
-                ) : null}
+                  )}
+                </div>
               </Item>
             );
           })}

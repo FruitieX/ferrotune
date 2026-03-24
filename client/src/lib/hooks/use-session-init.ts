@@ -141,10 +141,12 @@ export function useSessionInit() {
           }
         }
 
-        // Join the most recent existing session as a follower
+        // Join an existing session as a follower, preferring one that's
+        // actively playing, then falling back to most recently active
         if (response.sessions.length > 0) {
-          const mostRecent = response.sessions[0];
-          setSessionId(mostRecent.id);
+          const playing = response.sessions.find((s) => s.isPlaying);
+          const target = playing ?? response.sessions[0];
+          setSessionId(target.id);
           setIsAudioOwner(false);
           return;
         }

@@ -14,12 +14,15 @@ import {
   remotePlaybackStateAtom,
   isRemoteControllingAtom,
   controllingSessionIdAtom,
+  currentSessionIdAtom,
+  pendingTakeoverPlayAtom,
 } from "@/lib/store/session";
 import {
   fetchQueueAtom,
   fetchQueueAndPlayAtom,
   fetchQueueSilentAtom,
   currentSongAtom,
+  nativeAutonomousMode,
 } from "@/lib/store/server-queue";
 import {
   playbackStateAtom,
@@ -28,7 +31,7 @@ import {
   volumeAtom,
   isMutedAtom,
 } from "@/lib/store/player";
-import { getClient } from "@/lib/api/client";
+import { getClient, getClientName } from "@/lib/api/client";
 
 /**
  * Receives SSE events for the current session and dispatches
@@ -55,15 +58,30 @@ export function SessionEventHandler() {
   const setIsMuted = useSetAtom(isMutedAtom);
   const [, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
   const setControllingSessionId = useSetAtom(controllingSessionIdAtom);
+  const setCurrentSessionId = useSetAtom(currentSessionIdAtom);
+  const [pendingTakeoverPlay, setPendingTakeoverPlay] = useAtom(
+    pendingTakeoverPlayAtom,
+  );
 
   // Refetch queue when effective session changes (e.g. switching sessions)
   const prevSessionIdRef = useRef(effectiveSessionId);
   useEffect(() => {
     if (effectiveSessionId && prevSessionIdRef.current !== effectiveSessionId) {
-      fetchQueue();
+      if (pendingTakeoverPlay) {
+        setPendingTakeoverPlay(false);
+        fetchQueueAndPlay();
+      } else {
+        fetchQueue();
+      }
     }
     prevSessionIdRef.current = effectiveSessionId;
-  }, [effectiveSessionId, fetchQueue]);
+  }, [
+    effectiveSessionId,
+    fetchQueue,
+    fetchQueueAndPlay,
+    pendingTakeoverPlay,
+    setPendingTakeoverPlay,
+  ]);
 
   // Update duration from current song when remote controlling
   useEffect(() => {
@@ -108,6 +126,11 @@ export function SessionEventHandler() {
           return;
         }
 
+        // In native autonomous mode, Kotlin's PlaybackService has its own
+        // SSE connection and handles playback commands directly. Skip here
+        // to avoid double-processing (e.g. skipping two songs instead of one).
+        if (nativeAutonomousMode.value) return;
+
         switch (event.action) {
           case "play":
             play();
@@ -129,10 +152,19 @@ export function SessionEventHandler() {
           case "stop":
             pause();
             break;
+          case "setVolume":
+            // Remote controller is setting the owner's volume
+            if (event.volume !== undefined) {
+              setVolume(event.volume);
+            }
+            if (event.isMuted !== undefined) {
+              setIsMuted(event.isMuted);
+            }
+            break;
         }
         break;
       case "queueChanged":
-        if (isAudioOwner) {
+        if (isAudioOwner && !isRemoteControlling) {
           // Owner: refetch queue and play the new track
           fetchQueueAndPlay();
         } else {
@@ -161,8 +193,9 @@ export function SessionEventHandler() {
           currentSongArtist: event.currentSongArtist,
         });
 
-        // When remote controlling, drive the player bar atoms from SSE
-        if (isRemoteControlling) {
+        // When remote controlling (or not the audio owner), drive the
+        // player bar atoms from SSE so follower UI stays in sync
+        if (isRemoteControlling || !isAudioOwner) {
           setPlaybackState(playing ? "playing" : "paused");
           setCurrentTime(posMs / 1000);
         }
@@ -187,18 +220,48 @@ export function SessionEventHandler() {
         }
         break;
       }
-      case "sessionEnded":
-        // If we were remote-controlling this session, switch back to our own
-        if (isRemoteControlling) {
-          setControllingSessionId(null);
-          setIsAudioOwner(true);
-          setRemotePlaybackState(null);
-        }
+      case "sessionEnded": {
+        // The session we were using was cleaned up or deleted.
+        // Recover by finding another session to join or creating a new one.
+        setControllingSessionId(null);
+        setRemotePlaybackState(null);
+
+        const recoverSession = async () => {
+          const client = getClient();
+          if (!client) return;
+          try {
+            const response = await client.listSessions();
+            setActiveSessions(response.sessions);
+            // Filter out the ended session
+            const otherSessions = response.sessions.filter(
+              (s) => s.id !== effectiveSessionId,
+            );
+            if (otherSessions.length > 0) {
+              // Join another active session as a follower
+              const playing = otherSessions.find((s) => s.isPlaying);
+              const target = playing ?? otherSessions[0];
+              setCurrentSessionId(target.id);
+              setIsAudioOwner(false);
+            } else {
+              // No other sessions — create a new one as owner
+              const created = await client.createSession(getClientName());
+              setCurrentSessionId(created.id);
+              setIsAudioOwner(true);
+              const refreshed = await client.listSessions();
+              setActiveSessions(refreshed.sessions);
+            }
+          } catch {
+            // Failed to recover — will retry on next heartbeat or SSE reconnect
+          }
+        };
+        recoverSession();
         break;
+      }
       case "volumeChange":
-        // Owner applies volume changes from remote controllers;
-        // followers apply volume changes from the owner
-        if (isAudioOwner || isRemoteControlling) {
+        // Only non-owners apply volumeChange events (followers sync from this).
+        // The audio owner ignores these to prevent echo of its own changes.
+        // Remote controllers reach the owner via playbackCommand("setVolume").
+        if (!isAudioOwner) {
           if (event.volume !== undefined) {
             setVolume(event.volume);
           }

@@ -198,6 +198,9 @@ class PlaybackService : MediaSessionService() {
         override fun run() {
             if (autonomousMode && player.isPlaying) {
                 syncPositionToServer()
+                // Also send heartbeat to keep the session alive (JS timer may
+                // be suspended when the WebView is backgrounded)
+                sendPlaybackStateHeartbeat(true)
                 handler.postDelayed(this, POSITION_SYNC_INTERVAL_MS)
             }
         }
@@ -602,6 +605,9 @@ class PlaybackService : MediaSessionService() {
         hasPreAppliedNextGain = false
         replayGainProcessor.clearPendingGain()
         scheduleReplayGainPreApply()
+
+        // Broadcast new position to followers immediately
+        sendPlaybackStateHeartbeat(player.playWhenReady)
     }
 
     // === Autonomous queue management ===
@@ -980,6 +986,13 @@ class PlaybackService : MediaSessionService() {
         if (exoIndex >= 0) {
             player.playWhenReady = true
             player.seekTo(exoIndex, 0)
+            // If player is in STATE_ENDED (all loaded items exhausted, e.g.
+            // very short tracks played faster than prefetch), re-prepare so
+            // ExoPlayer transitions out of the ended state.
+            if (player.playbackState == Player.STATE_ENDED) {
+                Log.d(TAG, "autonomousSkipNext: re-preparing player from STATE_ENDED")
+                player.prepare()
+            }
             maybePrefetchMore()
         } else {
             // Not loaded, fetch a new window
@@ -1747,6 +1760,16 @@ class PlaybackService : MediaSessionService() {
             if (autonomousMode) {
                 // In autonomous mode, handle end-of-loaded-queue
                 if (playbackState == Player.STATE_ENDED) {
+                    // Verify serverQueueIndex matches ExoPlayer's current position.
+                    // onMediaItemTransition updates serverQueueIndex as ExoPlayer auto-advances,
+                    // so by the time STATE_ENDED fires, serverQueueIndex should reflect the
+                    // last track played — if it doesn't, sync it.
+                    val lastExoIndex = player.currentMediaItemIndex
+                    val lastServerPos = exoIndexToServerPosition.getOrNull(lastExoIndex)
+                    if (lastServerPos != null && lastServerPos != serverQueueIndex) {
+                        Log.d(TAG, "STATE_ENDED: syncing serverQueueIndex from $serverQueueIndex to $lastServerPos")
+                        serverQueueIndex = lastServerPos
+                    }
                     // ExoPlayer ran out of loaded items, try to advance
                     autonomousSkipNext()
                     handler.postDelayed(inactivityTimeoutRunnable, INACTIVITY_TIMEOUT_MS)

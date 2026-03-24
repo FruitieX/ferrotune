@@ -531,12 +531,12 @@ export function VirtualizedList<T>({
             <div
               key={virtualItem.key}
               data-index={virtualItem.index}
+              ref={virtualizer.measureElement}
               style={{
                 position: "absolute",
                 top: 0,
                 left: 0,
                 width: "100%",
-                height: estimateItemHeight,
                 // Subtract scrollMargin when using autoScrollMargin per TanStack Virtual docs
                 transform: `translateY(${virtualItem.start - (autoScrollMargin ? scrollMargin : 0)}px)`,
               }}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, useRef, type ReactNode } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -98,6 +98,8 @@ export function ResponsiveContextMenu({
 }: ResponsiveContextMenuProps) {
   const hasFinePointer = useHasFinePointer();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchMoved = useRef(false);
 
   // Desktop: standard context menu
   if (hasFinePointer) {
@@ -115,21 +117,40 @@ export function ResponsiveContextMenu({
     );
   }
 
-  // Mobile: intercept context menu open → show drawer.
-  // Use modal={false} so Radix doesn't create a focus trap / pointer-blocking
-  // overlay that would prevent interacting with the rest of the UI after the
-  // drawer is dismissed.
+  // Mobile: use native long-press detection to open a drawer.
+  // Avoids Radix ContextMenu entirely — its portal / overlay can leak and
+  // block interactions after the drawer is dismissed.
+  const clearTimer = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
   return (
     <>
-      <ContextMenu
-        modal={false}
-        onOpenChange={(open) => {
-          if (open) setDrawerOpen(true);
+      <div
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setDrawerOpen(true);
         }}
+        onTouchStart={() => {
+          touchMoved.current = false;
+          longPressTimer.current = setTimeout(() => {
+            if (!touchMoved.current) {
+              setDrawerOpen(true);
+            }
+          }, 500);
+        }}
+        onTouchMove={() => {
+          touchMoved.current = true;
+          clearTimer();
+        }}
+        onTouchEnd={clearTimer}
+        onTouchCancel={clearTimer}
       >
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent className="hidden" />
-      </ContextMenu>
+        {children}
+      </div>
       <DrawerMenu
         open={drawerOpen}
         onOpenChange={setDrawerOpen}

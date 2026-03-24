@@ -1936,6 +1936,7 @@ export class FerrotuneClient {
         method: "POST",
         body: JSON.stringify(params),
       },
+      true, // Silent — session cleanup is handled by recovery, not error toasts
     );
   }
 
@@ -1955,6 +1956,7 @@ export class FerrotuneClient {
         method: "POST",
         body: JSON.stringify({ action, positionMs, volume, isMuted }),
       },
+      true, // Silent — session errors are recovered automatically
     );
   }
 

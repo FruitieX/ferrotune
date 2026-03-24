@@ -33,9 +33,24 @@ export const activeSessionsAtom = atom<SessionResponse[]>([]);
 
 /**
  * Whether this tab owns audio playback (true) or is a remote controller (false).
- * Defaults to true for the session that was created in this tab.
+ * Stored in sessionStorage so it survives page refresh.
  */
-export const isAudioOwnerAtom = atom(true);
+export const isAudioOwnerAtom = atomWithStorage<boolean>(
+  "ferrotune-is-audio-owner",
+  true,
+  typeof window !== "undefined"
+    ? {
+        getItem: (key) => {
+          const v = sessionStorage.getItem(key);
+          return v ? JSON.parse(v) : true;
+        },
+        setItem: (key, value) =>
+          sessionStorage.setItem(key, JSON.stringify(value)),
+        removeItem: (key) => sessionStorage.removeItem(key),
+      }
+    : undefined,
+  { getOnInit: true },
+);
 
 /**
  * The session ID being remote-controlled (if different from currentSessionId).
@@ -78,3 +93,51 @@ export interface RemotePlaybackState {
 }
 
 export const remotePlaybackStateAtom = atom<RemotePlaybackState | null>(null);
+
+/**
+ * Derived: the client name of the effective (controlled/followed) session.
+ * Used to determine capabilities — e.g. whether in-app volume control is available.
+ * Returns null if session not found in the active sessions list.
+ */
+export const effectiveSessionClientNameAtom = atom<string | null>((get) => {
+  const effectiveId = get(effectiveSessionIdAtom);
+  const sessions = get(activeSessionsAtom);
+  if (!effectiveId) return null;
+  const session = sessions.find((s) => s.id === effectiveId);
+  return session?.clientName ?? null;
+});
+
+/**
+ * Derived: whether in-app volume controls should be shown.
+ * Volume controls are shown when the session owner is a web client
+ * (adjustable in-app volume) and hidden when the owner is a native/mobile
+ * client (uses system volume at 100%).
+ */
+export const shouldShowVolumeAtom = atom<boolean>((get) => {
+  const clientName = get(effectiveSessionClientNameAtom);
+  // If we have session info, decide based on owner's client type
+  if (clientName) return clientName !== "ferrotune-mobile";
+  // Fallback: hide on native audio (Android Tauri as owner)
+  return true;
+});
+
+/**
+ * Signal that the next session-change queue fetch should auto-play.
+ * Set when taking over a playing session where effectiveSessionId changes.
+ */
+export const pendingTakeoverPlayAtom = atom(false);
+
+/**
+ * Derived: follower session indicator info.
+ * Returns the session name when we're a follower (remote controlling),
+ * null when we're the owner (no indicator needed).
+ */
+export const followerSessionNameAtom = atom<string | null>((get) => {
+  const isRemote = get(isRemoteControllingAtom);
+  if (!isRemote) return null;
+  const effectiveId = get(effectiveSessionIdAtom);
+  const sessions = get(activeSessionsAtom);
+  if (!effectiveId) return null;
+  const session = sessions.find((s) => s.id === effectiveId);
+  return session?.name ?? null;
+});

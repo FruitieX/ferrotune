@@ -923,16 +923,21 @@ export function useAudioEngineInit() {
             settersRef.current.setDuration(entry.song.duration || 0);
           }
 
-          // Sync position with server asynchronously (fire-and-forget)
+          // Sync position with server asynchronously (fire-and-forget).
+          // In autonomous mode, Kotlin's syncPositionToServer() already updates
+          // the server position, so skip the duplicate JS call to avoid
+          // broadcasting queueUpdated twice. Still fetch the window for UI.
           const client = getClient();
           if (client) {
-            client
-              .updateServerQueuePosition(
-                queueIndex,
-                0,
-                false,
-                stateRef.current.currentSessionId ?? undefined,
-              )
+            const positionSynced = nativeAutonomousMode.value
+              ? Promise.resolve()
+              : client.updateServerQueuePosition(
+                  queueIndex,
+                  0,
+                  false,
+                  stateRef.current.currentSessionId ?? undefined,
+                );
+            positionSynced
               .then(() => {
                 // After server sync, re-fetch window centered on new position
                 // so the queue UI and WearOS always show ~20 items around current
@@ -1475,6 +1480,11 @@ export function useAudioEngineInit() {
         );
         isLoadingNewTrack = false;
         settersRef.current.setPlaybackState("paused");
+        return;
+      }
+
+      if (state.playbackState === "paused" && !isLoadingNewTrack) {
+        console.log("[Audio] Skipping auto-play because playback is paused");
         return;
       }
 
@@ -2253,10 +2263,31 @@ export function useAudioEngineInit() {
       console.log(
         "[Audio] Gapless handoff synchronized with queue; skipping redundant reload",
       );
+      // Consume pending playback flag to prevent a later effect re-run
+      // (e.g. from fetchQueueSilent SSE echo) from reloading the same track.
+      pendingUserPlayback.value = false;
       lastProcessedSignalRef.current = trackChangeSignal;
       lastStreamUrlRef.current = streamUrl;
       isGaplessHandoff = false;
       gaplessHandoffExpectedTrackId = null;
+
+      // Broadcast new track position to followers immediately
+      // (currentSong and queueState are already up-to-date at this point)
+      const sessionId = stateRef.current.currentSessionId;
+      if (sessionId && queueState) {
+        getClient()
+          ?.sessionHeartbeat(sessionId, {
+            positionMs: 0,
+            isPlaying: true,
+            currentIndex: queueState.currentIndex,
+            currentSongId: currentSong.id,
+            currentSongTitle: currentSong.title,
+            currentSongArtist: currentSong.artist,
+          })
+          .catch((err) =>
+            console.warn("[Session] Failed to broadcast gapless handoff:", err),
+          );
+      }
       return;
     }
 
@@ -2397,6 +2428,24 @@ export function useAudioEngineInit() {
       setCurrentTime(0);
       setBuffered(0);
       setDuration(currentSong.duration || 0);
+
+      // Broadcast new track position to followers immediately
+      // (don't wait for play() to resolve — update follower UI instantly)
+      const sessionId = stateRef.current.currentSessionId;
+      if (sessionId && queueState) {
+        getClient()
+          ?.sessionHeartbeat(sessionId, {
+            positionMs: 0,
+            isPlaying: true,
+            currentIndex: queueState.currentIndex,
+            currentSongId: currentSong.id,
+            currentSongTitle: currentSong.title,
+            currentSongArtist: currentSong.artist,
+          })
+          .catch((err) =>
+            console.warn("[Session] Failed to broadcast track change:", err),
+          );
+      }
 
       resumeAudioContext().then((contextRunning) => {
         if (!contextRunning) {
@@ -2650,6 +2699,7 @@ export function useAudioEngine() {
       }
       getActiveAudio()?.play().catch(console.error);
     }
+    broadcastPlaybackState({ isPlaying: true });
   };
 
   const pause = () => {
@@ -2666,6 +2716,15 @@ export function useAudioEngine() {
     } else {
       getActiveAudio()?.pause();
     }
+    broadcastPlaybackState({ isPlaying: false });
+  };
+
+  // Restart queue playback from the beginning (used when queue has ended)
+  const restartQueue = () => {
+    if (!queueState || queueState.totalCount === 0) return;
+    currentLoadedTrackId = null;
+    setIsRestoring(false);
+    playAtIndex(0);
   };
 
   const togglePlayPause = () => {
@@ -2692,11 +2751,7 @@ export function useAudioEngine() {
     } else if (playbackState === "loading") {
       pause();
     } else if (playbackState === "ended") {
-      if (queueState && queueState.totalCount > 0) {
-        currentLoadedTrackId = null;
-        setIsRestoring(false);
-        playAtIndex(0);
-      }
+      restartQueue();
     } else if (playbackState === "error") {
       retryPlayback();
     } else {
@@ -2708,6 +2763,12 @@ export function useAudioEngine() {
   const lastUnbufferedSeekRef = useRef<number>(0);
   const pendingSeekRef = useRef<number | null>(null);
   const pendingSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  // Throttle state for seek position broadcasts to followers
+  const lastSeekBroadcastRef = useRef<number>(0);
+  const pendingSeekBroadcastRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
 
@@ -2755,21 +2816,37 @@ export function useAudioEngine() {
     }
   };
 
-  // Broadcast seek position to followers immediately via heartbeat
-  const broadcastSeekPosition = (time: number) => {
+  // Broadcast playback state to followers immediately via heartbeat
+  const broadcastPlaybackState = (overrides?: {
+    positionMs?: number;
+    isPlaying?: boolean;
+  }) => {
     if (!currentSessionId) return;
+    // Don't broadcast if we don't have valid playback state
+    // (server would classify as non-owner keepalive and skip broadcast)
+    if (!queueState || !currentSong) return;
     const client = getClient();
     if (!client) return;
+    // Derive current position from the audio element to avoid subscribing
+    // to currentTimeAtom (which would cause excessive re-renders)
+    const audio = getActiveAudio();
+    const posMs =
+      overrides?.positionMs ??
+      (audio
+        ? Math.round((audio.currentTime + currentStreamTimeOffset) * 1000)
+        : 0);
     client
       .sessionHeartbeat(currentSessionId, {
-        positionMs: Math.round(time * 1000),
-        isPlaying: playbackState === "playing",
-        currentIndex: queueState?.currentIndex,
-        currentSongId: currentSong?.id,
-        currentSongTitle: currentSong?.title,
-        currentSongArtist: currentSong?.artist,
+        positionMs: posMs,
+        isPlaying: overrides?.isPlaying ?? playbackState === "playing",
+        currentIndex: queueState.currentIndex,
+        currentSongId: currentSong.id,
+        currentSongTitle: currentSong.title,
+        currentSongArtist: currentSong.artist,
       })
-      .catch(console.error);
+      .catch((err) =>
+        console.warn("[Session] Failed to broadcast playback state:", err),
+      );
   };
 
   // General seek function that chooses the right strategy
@@ -2780,7 +2857,7 @@ export function useAudioEngine() {
     }
 
     // Broadcast new position to followers
-    broadcastSeekPosition(time);
+    broadcastPlaybackState({ positionMs: Math.round(time * 1000) });
     if (usingNativeAudio) {
       nativeSeek(time).catch(console.error);
       setCurrentTime(time);
@@ -2847,6 +2924,29 @@ export function useAudioEngine() {
     if (!audioDuration || audioDuration <= 0) return;
 
     const targetTime = (percent / 100) * audioDuration;
+
+    // Broadcast new position to followers (throttled to avoid spamming during drag)
+    const seekBroadcastThrottleMs = 250;
+    const nowMs = Date.now();
+    const posMs = Math.round(targetTime * 1000);
+    if (nowMs - lastSeekBroadcastRef.current >= seekBroadcastThrottleMs) {
+      lastSeekBroadcastRef.current = nowMs;
+      if (pendingSeekBroadcastRef.current) {
+        clearTimeout(pendingSeekBroadcastRef.current);
+        pendingSeekBroadcastRef.current = null;
+      }
+      broadcastPlaybackState({ positionMs: posMs });
+    } else if (!pendingSeekBroadcastRef.current) {
+      // Schedule trailing broadcast so the final position is always sent
+      const remaining =
+        seekBroadcastThrottleMs - (nowMs - lastSeekBroadcastRef.current);
+      pendingSeekBroadcastRef.current = setTimeout(() => {
+        lastSeekBroadcastRef.current = Date.now();
+        pendingSeekBroadcastRef.current = null;
+        broadcastPlaybackState({ positionMs: posMs });
+      }, remaining);
+    }
+
     const streamRelativeTime = targetTime - currentStreamTimeOffset;
 
     const isBuffered = (() => {
@@ -3007,12 +3107,14 @@ export function useVolumeControl() {
   const [volume, setVolume] = useAtom(volumeAtom);
   const [isMuted, setIsMuted] = useAtom(isMutedAtom);
   const effectiveSessionId = useAtomValue(effectiveSessionIdAtom);
+  const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
 
   const sendVolumeCommand = (newVolume: number, newMuted: boolean) => {
     const sessionId = effectiveSessionId;
     if (!sessionId) return;
     const client = getClient();
     if (!client) return;
+    // Always send volumeChange for follower sync
     client
       .sendSessionCommand(
         sessionId,
@@ -3022,6 +3124,19 @@ export function useVolumeControl() {
         newMuted,
       )
       .catch(console.error);
+    // When remote-controlling, also send as a playbackCommand so the
+    // audio owner applies it (owner ignores volumeChange to prevent echoes)
+    if (isRemoteControlling) {
+      client
+        .sendSessionCommand(
+          sessionId,
+          "setVolume",
+          undefined,
+          newVolume,
+          newMuted,
+        )
+        .catch(console.error);
+    }
   };
 
   const toggleMute = () => {

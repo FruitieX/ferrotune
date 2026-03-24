@@ -48,6 +48,10 @@ pub enum SessionEvent {
         action: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         position_ms: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        volume: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_muted: Option<bool>,
     },
     /// Position/playback state update from the session owner
     #[serde(rename_all = "camelCase")]

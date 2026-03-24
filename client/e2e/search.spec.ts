@@ -21,9 +21,11 @@ test.describe("Search", () => {
     const searchInput = page.getByPlaceholder(/search/i);
     await expect(searchInput).toBeVisible({ timeout: 5000 });
 
-    // Click to focus and type the search query
-    await searchInput.click();
-    await searchInput.pressSequentially(searchQuery, { delay: 50 });
+    // Wait for React hydration to settle (input re-mounts during Suspense resolution)
+    await page.waitForTimeout(1000);
+
+    // Fill the search query (more resilient to DOM re-attachment than click+type)
+    await searchInput.fill(searchQuery);
 
     // Wait for search results to appear
     const result = page.getByText(searchQuery).first();

@@ -357,9 +357,9 @@ test.describe.serial("Multi-Session Playback", () => {
     // Wait for the queue to update
     await page.waitForTimeout(1500);
 
-    // Should still be paused and at the same time
+    // Should still be paused and at approximately the same time (allow 1s drift from pause delay)
     const timeAfterAdd = await getDisplayedCurrentTime(page);
-    expect(timeAfterAdd).toBe(timeBeforeAdd);
+    expect(Math.abs(timeAfterAdd - timeBeforeAdd)).toBeLessThanOrEqual(1);
     await expect(playBtn).toBeVisible({ timeout: 5000 });
 
     // Now open the queue panel and remove a non-current song
@@ -391,9 +391,11 @@ test.describe.serial("Multi-Session Playback", () => {
         await removeOption.click();
         await page.waitForTimeout(1500);
 
-        // Should still be paused and at the same time
+        // Should still be paused and at approximately the same time
         const timeAfterRemove = await getDisplayedCurrentTime(page);
-        expect(timeAfterRemove).toBe(timeBeforeAdd);
+        expect(Math.abs(timeAfterRemove - timeBeforeAdd)).toBeLessThanOrEqual(
+          1,
+        );
         await expect(playBtn).toBeVisible({ timeout: 5000 });
       }
     }
