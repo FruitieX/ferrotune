@@ -2,11 +2,16 @@
 
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import type { SessionResponse } from "@/lib/api/generated/SessionResponse";
+import type { ClientResponse } from "@/lib/api/generated/ClientResponse";
+
+// ============================================================================
+// Persistent atoms (sessionStorage — per tab)
+// ============================================================================
 
 /**
- * The current active session ID for this tab.
- * Stored in sessionStorage so each tab gets its own session.
+ * The current session ID for this tab.
+ * Stored in sessionStorage so it survives page refresh.
+ * With single-session-per-user, all tabs share the same session ID.
  */
 export const currentSessionIdAtom = atomWithStorage<string | null>(
   "ferrotune-session-id",
@@ -26,13 +31,7 @@ export const currentSessionIdAtom = atomWithStorage<string | null>(
 );
 
 /**
- * List of all active sessions for the current user.
- * Refreshed periodically and on session list change.
- */
-export const activeSessionsAtom = atom<SessionResponse[]>([]);
-
-/**
- * Whether this tab owns audio playback (true) or is a remote controller (false).
+ * Whether this tab owns audio playback (true) or is a follower (false).
  * Stored in sessionStorage so it survives page refresh.
  */
 export const isAudioOwnerAtom = atomWithStorage<boolean>(
@@ -53,33 +52,71 @@ export const isAudioOwnerAtom = atomWithStorage<boolean>(
 );
 
 /**
- * The session ID being remote-controlled (if different from currentSessionId).
- * null means we're controlling our own session.
+ * Unique client ID for this tab. Generated once and stored in sessionStorage.
  */
-export const controllingSessionIdAtom = atom<string | null>(null);
+export const clientIdAtom = atomWithStorage<string>(
+  "ferrotune-client-id",
+  "",
+  typeof window !== "undefined"
+    ? {
+        getItem: (key) => {
+          let v = sessionStorage.getItem(key);
+          if (!v || v === '""' || v === "null") {
+            v = JSON.stringify(crypto.randomUUID());
+            sessionStorage.setItem(key, v);
+          }
+          return JSON.parse(v);
+        },
+        setItem: (key, value) =>
+          sessionStorage.setItem(key, JSON.stringify(value)),
+        removeItem: (key) => sessionStorage.removeItem(key),
+      }
+    : undefined,
+  { getOnInit: true },
+);
+
+// ============================================================================
+// In-memory atoms
+// ============================================================================
 
 /**
- * Derived: the effective session ID for queue operations.
- * Uses the controlling session ID if set, otherwise the current session.
+ * List of connected clients for the current session.
+ * Updated via SSE clientListChanged events and periodic refreshes.
+ */
+export const connectedClientsAtom = atom<ClientResponse[]>([]);
+
+/**
+ * The client ID of the current session owner.
+ * Updated from server responses and owner change events.
+ */
+export const ownerClientIdAtom = atom<string | null>(null);
+
+/**
+ * The client name (e.g., "ferrotune-web", "ferrotune-mobile") of the current owner.
+ */
+export const ownerClientNameAtom = atom<string | null>(null);
+
+// ============================================================================
+// Derived atoms
+// ============================================================================
+
+/**
+ * Effective session ID — always the user's single session.
  */
 export const effectiveSessionIdAtom = atom<string | null>((get) => {
-  return get(controllingSessionIdAtom) ?? get(currentSessionIdAtom);
+  return get(currentSessionIdAtom);
 });
 
 /**
- * Whether we're currently remote-controlling another session,
- * or a follower of a session we don't own.
+ * Whether this tab is a follower (not the audio owner).
  */
 export const isRemoteControllingAtom = atom<boolean>((get) => {
-  const controlling = get(controllingSessionIdAtom);
-  const current = get(currentSessionIdAtom);
-  const isOwner = get(isAudioOwnerAtom);
-  return (controlling !== null && controlling !== current) || !isOwner;
+  return !get(isAudioOwnerAtom);
 });
 
 /**
  * Tracks the remote session's playback state (received via SSE positionUpdate events).
- * Used to show correct play/pause state when remote controlling.
+ * Used to show correct play/pause state when following.
  */
 export interface RemotePlaybackState {
   isPlaying: boolean;
@@ -95,16 +132,11 @@ export interface RemotePlaybackState {
 export const remotePlaybackStateAtom = atom<RemotePlaybackState | null>(null);
 
 /**
- * Derived: the client name of the effective (controlled/followed) session.
+ * Derived: the client name of the session owner.
  * Used to determine capabilities — e.g. whether in-app volume control is available.
- * Returns null if session not found in the active sessions list.
  */
 export const effectiveSessionClientNameAtom = atom<string | null>((get) => {
-  const effectiveId = get(effectiveSessionIdAtom);
-  const sessions = get(activeSessionsAtom);
-  if (!effectiveId) return null;
-  const session = sessions.find((s) => s.id === effectiveId);
-  return session?.clientName ?? null;
+  return get(ownerClientNameAtom);
 });
 
 /**
@@ -115,44 +147,31 @@ export const effectiveSessionClientNameAtom = atom<string | null>((get) => {
  */
 export const shouldShowVolumeAtom = atom<boolean>((get) => {
   const clientName = get(effectiveSessionClientNameAtom);
-  // If we have session info, decide based on owner's client type
   if (clientName) return clientName !== "ferrotune-mobile";
-  // Fallback: hide on native audio (Android Tauri as owner)
   return true;
 });
 
 /**
- * Signal that the next session-change queue fetch should auto-play.
- * Set when taking over a playing session where effectiveSessionId changes.
- */
-export const pendingTakeoverPlayAtom = atom(false);
-
-/**
- * Derived: follower session indicator info.
- * Returns the session name when we're a follower (remote controlling),
- * null when we're the owner (no indicator needed).
+ * Derived: follower indicator info.
+ * Returns the owner's display name when we're a follower, null when we're the owner.
  */
 export const followerSessionNameAtom = atom<string | null>((get) => {
   const isRemote = get(isRemoteControllingAtom);
   if (!isRemote) return null;
-  const effectiveId = get(effectiveSessionIdAtom);
-  const sessions = get(activeSessionsAtom);
-  if (!effectiveId) return null;
-  const session = sessions.find((s) => s.id === effectiveId);
-  return session?.name ?? null;
+  const ownerClientId = get(ownerClientIdAtom);
+  const clients = get(connectedClientsAtom);
+  if (!ownerClientId) return null;
+  const owner = clients.find((c) => c.clientId === ownerClientId);
+  return owner?.displayName ?? null;
 });
 
 /**
- * Derived: follower session client name.
+ * Derived: follower session owner client name.
  * Returns the client name (e.g. "ferrotune-mobile") when following,
  * null when we're the owner.
  */
 export const followerSessionClientNameAtom = atom<string | null>((get) => {
   const isRemote = get(isRemoteControllingAtom);
   if (!isRemote) return null;
-  const effectiveId = get(effectiveSessionIdAtom);
-  const sessions = get(activeSessionsAtom);
-  if (!effectiveId) return null;
-  const session = sessions.find((s) => s.id === effectiveId);
-  return session?.clientName ?? null;
+  return get(ownerClientNameAtom);
 });

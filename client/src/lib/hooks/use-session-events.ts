@@ -2,8 +2,8 @@
 
 import { useEffect, useRef } from "react";
 import { useAtomValue } from "jotai";
-import { getClient } from "@/lib/api/client";
-import { effectiveSessionIdAtom } from "@/lib/store/session";
+import { getClient, getClientName } from "@/lib/api/client";
+import { effectiveSessionIdAtom, clientIdAtom } from "@/lib/store/session";
 import { isClientInitializedAtom } from "@/lib/store/auth";
 
 export interface SessionEvent {
@@ -12,9 +12,9 @@ export interface SessionEvent {
     | "queueUpdated"
     | "playbackCommand"
     | "positionUpdate"
-    | "sessionEnded"
     | "volumeChange"
-    | "sessionListChanged";
+    | "clientListChanged"
+    | "ownerChanged";
   action?: string;
   positionMs?: number;
   currentIndex?: number;
@@ -24,6 +24,8 @@ export interface SessionEvent {
   currentSongArtist?: string;
   volume?: number;
   isMuted?: boolean;
+  ownerClientId?: string;
+  ownerClientName?: string;
 }
 
 /**
@@ -34,6 +36,7 @@ export interface SessionEvent {
 export function useSessionEvents(onEvent?: (event: SessionEvent) => void) {
   const isClientInitialized = useAtomValue(isClientInitializedAtom);
   const sessionId = useAtomValue(effectiveSessionIdAtom);
+  const clientId = useAtomValue(clientIdAtom);
   const eventSourceRef = useRef<EventSource | null>(null);
   const onEventRef = useRef(onEvent);
   useEffect(() => {
@@ -46,7 +49,11 @@ export function useSessionEvents(onEvent?: (event: SessionEvent) => void) {
     const client = getClient();
     if (!client) return;
 
-    const url = client.getSessionEventsUrl(sessionId);
+    const url = client.getSessionEventsUrl(
+      sessionId,
+      clientId,
+      getClientName(),
+    );
     const eventSource = new EventSource(url);
     eventSourceRef.current = eventSource;
 
@@ -67,5 +74,5 @@ export function useSessionEvents(onEvent?: (event: SessionEvent) => void) {
       eventSource.close();
       eventSourceRef.current = null;
     };
-  }, [isClientInitialized, sessionId]);
+  }, [isClientInitialized, sessionId, clientId]);
 }

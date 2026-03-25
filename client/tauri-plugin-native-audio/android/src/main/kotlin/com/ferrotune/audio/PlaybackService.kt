@@ -624,7 +624,7 @@ class PlaybackService : MediaSessionService() {
     /**
      * Connect to the SSE stream for remote control when the JS WebView is backgrounded.
      * Handles PlaybackCommand (play/pause/skip/seek), QueueChanged/Updated (refetch),
-     * VolumeChange, and SessionEnded events.
+     * VolumeChange, ClientListChanged, and OwnerChanged events.
      */
     private fun connectSessionSSE() {
         apiClient.connectSSE(object : SessionEventListener {
@@ -731,13 +731,11 @@ class PlaybackService : MediaSessionService() {
                 // Owner's position updates — ignore when we ARE the owner (autonomous mode)
                 // These are useful when this device becomes a follower in the future
             }
-            is SessionEvent.SessionEnded -> {
-                Log.d(TAG, "SSE SessionEnded: stopping autonomous mode")
-                autonomousMode = false
-                apiClient.disconnectSSE()
+            is SessionEvent.ClientListChanged -> {
+                Log.d(TAG, "SSE ClientListChanged: ignoring on Android")
             }
-            is SessionEvent.SessionListChanged -> {
-                Log.d(TAG, "SSE SessionListChanged: ignoring on Android")
+            is SessionEvent.OwnerChanged -> {
+                Log.d(TAG, "SSE OwnerChanged: owner=${event.ownerClientId}")
             }
         }
     }

@@ -541,6 +541,7 @@ export async function nativeInitSession(config: {
   password?: string;
   apiKey?: string;
   sessionId?: string;
+  clientId?: string;
 }): Promise<void> {
   const api = await getNativeApi();
   await api.initSession(config);

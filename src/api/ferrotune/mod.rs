@@ -427,9 +427,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Playback session endpoints
         .route(
             "/ferrotune/sessions",
-            get(sessions::list_sessions).post(sessions::create_session),
+            get(sessions::get_session_info).post(sessions::connect_session),
         )
-        .route("/ferrotune/sessions/{id}", delete(sessions::delete_session))
+        .route("/ferrotune/sessions/clients", get(sessions::list_clients))
         .route(
             "/ferrotune/sessions/{id}/heartbeat",
             post(sessions::session_heartbeat),

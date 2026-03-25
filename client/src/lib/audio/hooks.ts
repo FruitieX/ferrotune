@@ -84,6 +84,7 @@ import {
   remotePlaybackStateAtom,
   currentSessionIdAtom,
   effectiveSessionIdAtom,
+  clientIdAtom,
 } from "@/lib/store/session";
 
 /** Build NativeStreamOptions from the current transcoding settings */
@@ -517,6 +518,7 @@ export function useAudioEngineInit() {
 
   // Session ID for native audio bridge
   const currentSessionId = useAtomValue(currentSessionIdAtom);
+  const clientId = useAtomValue(clientIdAtom);
 
   // Track connection state for initial queue fetch
   const serverConnection = useAtomValue(serverConnectionAtom);
@@ -1742,6 +1744,7 @@ export function useAudioEngineInit() {
         password: serverConnection.password,
         apiKey: serverConnection.apiKey,
         sessionId: currentSessionId,
+        clientId: clientId || undefined,
       });
       if (cancelled) return;
 
@@ -1764,7 +1767,7 @@ export function useAudioEngineInit() {
     return () => {
       cancelled = true;
     };
-  }, [serverConnection, currentSessionId]);
+  }, [serverConnection, currentSessionId, clientId]);
 
   // Update volume on both elements
   useEffect(() => {
@@ -2510,9 +2513,24 @@ export function useAudioEngineInit() {
 
       resumeAudioContext().then((contextRunning) => {
         if (!contextRunning) {
-          console.error(
-            "[Audio] Cannot play: AudioContext not running after resume",
+          // Browser autoplay policy blocked AudioContext resume (no user
+          // gesture on this tab). Load and seek but don't play — the user
+          // can press the play button to start.
+          console.warn(
+            "[Audio] Autoplay blocked — user gesture required to start playback",
           );
+          if (resumePositionSec > 0 && !transcodingEnabled) {
+            const handleCanPlayForPosition = () => {
+              audio.removeEventListener("canplay", handleCanPlayForPosition);
+              audio.currentTime = resumePositionSec;
+            };
+            audio.addEventListener("canplay", handleCanPlayForPosition);
+            audio.load();
+          }
+          isLoadingNewTrack = false;
+          setPlaybackState("paused");
+          toast.info("Press play to start playback");
+          return;
         }
 
         // For non-transcoded streams, seek within the loaded file

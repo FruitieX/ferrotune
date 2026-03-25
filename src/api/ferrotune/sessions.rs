@@ -1,14 +1,15 @@
 //! Playback session management endpoints.
 //!
-//! Provides CRUD for playback sessions, heartbeat, SSE event streaming,
-//! and remote playback command dispatch.
+//! Single-session-per-user model: each user has one persistent session.
+//! Multiple clients (browser tabs, app instances) connect to the same session.
+//! One client is the audio owner; others are followers.
 
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
-use crate::api::{AppState, SessionEvent};
+use crate::api::{AppState, ConnectedClient, SessionEvent};
 use crate::db::queries;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::sse::{Event, Sse},
     Json,
 };
@@ -23,9 +24,10 @@ use ts_rs::TS;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CreateSessionRequest {
+pub struct ConnectSessionRequest {
     #[serde(default = "default_client_name")]
     pub client_name: String,
+    pub client_id: Option<String>,
 }
 
 fn default_client_name() -> String {
@@ -35,30 +37,41 @@ fn default_client_name() -> String {
 #[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ConnectSessionResponse {
+    pub id: String,
+    pub is_new_session: bool,
+    pub owner_client_id: Option<String>,
+    pub owner_client_name: String,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct SessionResponse {
     pub id: String,
-    pub name: String,
-    pub client_name: String,
     pub is_playing: bool,
     pub current_song_id: Option<String>,
     pub current_song_title: Option<String>,
     pub current_song_artist: Option<String>,
-    pub created_at: String,
+    pub owner_client_id: Option<String>,
+    pub owner_client_name: String,
 }
 
 #[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct SessionListResponse {
-    pub sessions: Vec<SessionResponse>,
+pub struct ClientResponse {
+    pub client_id: String,
+    pub client_name: String,
+    pub display_name: String,
+    pub is_owner: bool,
 }
 
 #[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
-pub struct CreateSessionResponse {
-    pub id: String,
-    pub name: String,
+pub struct ClientListResponse {
+    pub clients: Vec<ClientResponse>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,6 +94,7 @@ pub struct SessionCommandRequest {
     pub volume: Option<f64>,
     pub is_muted: Option<bool>,
     pub client_name: Option<String>,
+    pub client_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -90,104 +104,151 @@ pub struct SessionSuccessResponse {
     pub success: bool,
 }
 
+/// Query params for SSE events endpoint
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionEventsQuery {
+    pub client_id: Option<String>,
+    pub client_name: Option<String>,
+}
+
+// ============================================================================
+// Helper: compute display names for connected clients
+// ============================================================================
+
+fn compute_display_names(
+    clients: &[ConnectedClient],
+    owner_client_id: Option<&str>,
+) -> Vec<ClientResponse> {
+    let mut web_count = 0usize;
+    let mut mobile_count = 0usize;
+
+    // First pass: count by type
+    for c in clients {
+        match c.client_name.as_str() {
+            "ferrotune-mobile" => mobile_count += 1,
+            _ => web_count += 1,
+        }
+    }
+
+    // Second pass: assign display names
+    let mut web_index = 0usize;
+    let mut mobile_index = 0usize;
+    let mut result = Vec::with_capacity(clients.len());
+
+    for c in clients {
+        let (prefix, count, index) = match c.client_name.as_str() {
+            "ferrotune-mobile" => {
+                mobile_index += 1;
+                ("Mobile", mobile_count, mobile_index)
+            }
+            _ => {
+                web_index += 1;
+                ("Web", web_count, web_index)
+            }
+        };
+        let display_name = if count == 1 {
+            prefix.to_string()
+        } else {
+            format!("{} {}", prefix, index)
+        };
+        result.push(ClientResponse {
+            client_id: c.client_id.clone(),
+            client_name: c.client_name.clone(),
+            display_name,
+            is_owner: owner_client_id == Some(c.client_id.as_str()),
+        });
+    }
+    result
+}
+
 // ============================================================================
 // Endpoints
 // ============================================================================
 
-/// POST /ferrotune/sessions — Create a new playback session
-pub async fn create_session(
+/// POST /ferrotune/sessions — Connect to (or create) the user's session
+pub async fn connect_session(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-    Json(request): Json<CreateSessionRequest>,
-) -> FerrotuneApiResult<Json<CreateSessionResponse>> {
-    // Use a temporary name; recompute_session_names will fix it below
-    let prefix = match request.client_name.as_str() {
-        "ferrotune-mobile" => "Mobile",
-        _ => "Web",
+    Json(request): Json<ConnectSessionRequest>,
+) -> FerrotuneApiResult<Json<ConnectSessionResponse>> {
+    // Check if session already exists
+    let existing = queries::get_user_session(&state.pool, user.user_id).await?;
+    let is_new = existing.is_none();
+
+    let session = queries::get_or_create_session(&state.pool, user.user_id).await?;
+
+    // Determine if the connecting client should become the owner:
+    // 1. Session has no owner yet
+    // 2. Current owner is stale (no longer connected via SSE)
+    let should_take_ownership = if request.client_id.is_some() {
+        if session.owner_client_id.is_none() {
+            true
+        } else if let Some(ref owner_id) = session.owner_client_id {
+            // Check if the current owner still has an active SSE connection
+            !state
+                .session_manager
+                .is_client_connected(&session.id, owner_id)
+                .await
+        } else {
+            false
+        }
+    } else {
+        false
     };
 
-    let id =
-        queries::create_playback_session(&state.pool, user.user_id, prefix, &request.client_name)
-            .await?;
+    let (owner_client_id, owner_client_name) = if should_take_ownership {
+        let client_id = request.client_id.as_ref().unwrap();
+        queries::update_session_owner(
+            &state.pool,
+            &session.id,
+            Some(client_id),
+            &request.client_name,
+        )
+        .await?;
+        (Some(client_id.clone()), request.client_name.clone())
+    } else {
+        (session.owner_client_id, session.owner_client_name)
+    };
 
-    // Recompute all session names to avoid unnecessary numbers
-    queries::recompute_session_names(&state.pool, user.user_id).await?;
-
-    // Fetch the final name after recomputation
-    let session = queries::get_session(&state.pool, &id, user.user_id)
-        .await?
-        .ok_or_else(|| Error::NotFound("Session not found after creation".to_string()))?;
-    let name = session.name.clone();
-
-    // Notify all existing sessions that the session list changed
-    let sessions = queries::get_active_sessions(&state.pool, user.user_id).await?;
-    let session_ids: Vec<String> = sessions.into_iter().map(|s| s.id).collect();
-    state
-        .session_manager
-        .broadcast_to_sessions(&session_ids, SessionEvent::SessionListChanged)
-        .await;
-
-    Ok(Json(CreateSessionResponse { id, name }))
-}
-
-/// GET /ferrotune/sessions — List active sessions for current user
-pub async fn list_sessions(
-    user: FerrotuneAuthenticatedUser,
-    State(state): State<Arc<AppState>>,
-) -> FerrotuneApiResult<Json<SessionListResponse>> {
-    let sessions = queries::get_active_sessions(&state.pool, user.user_id).await?;
-
-    let responses: Vec<SessionResponse> = sessions
-        .into_iter()
-        .map(|s| SessionResponse {
-            id: s.id,
-            name: s.name,
-            client_name: s.client_name,
-            is_playing: s.is_playing,
-            current_song_id: s.current_song_id,
-            current_song_title: s.current_song_title,
-            current_song_artist: s.current_song_artist,
-            created_at: s.created_at.to_rfc3339(),
-        })
-        .collect();
-
-    Ok(Json(SessionListResponse {
-        sessions: responses,
+    Ok(Json(ConnectSessionResponse {
+        id: session.id,
+        is_new_session: is_new,
+        owner_client_id,
+        owner_client_name,
     }))
 }
 
-/// DELETE /ferrotune/sessions/:id — End a session
-pub async fn delete_session(
+/// GET /ferrotune/sessions — Get the user's session info
+pub async fn get_session_info(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
-    Path(session_id): Path<String>,
-) -> FerrotuneApiResult<Json<SessionSuccessResponse>> {
-    // Verify session belongs to user
-    let session = queries::get_session(&state.pool, &session_id, user.user_id)
-        .await?
-        .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
+) -> FerrotuneApiResult<Json<SessionResponse>> {
+    let session = queries::get_or_create_session(&state.pool, user.user_id).await?;
 
-    // Broadcast SessionEnded to listeners
-    state
-        .session_manager
-        .broadcast(&session.id, SessionEvent::SessionEnded)
-        .await;
-    state.session_manager.remove(&session.id).await;
+    Ok(Json(SessionResponse {
+        id: session.id,
+        is_playing: session.is_playing,
+        current_song_id: session.current_song_id,
+        current_song_title: session.current_song_title,
+        current_song_artist: session.current_song_artist,
+        owner_client_id: session.owner_client_id,
+        owner_client_name: session.owner_client_name,
+    }))
+}
 
-    queries::delete_session(&state.pool, &session_id).await?;
+/// GET /ferrotune/sessions/clients — List connected clients
+pub async fn list_clients(
+    user: FerrotuneAuthenticatedUser,
+    State(state): State<Arc<AppState>>,
+) -> FerrotuneApiResult<Json<ClientListResponse>> {
+    let session = queries::get_or_create_session(&state.pool, user.user_id).await?;
+    let clients = state.session_manager.get_clients(&session.id).await;
+    let client_responses = compute_display_names(&clients, session.owner_client_id.as_deref());
 
-    // Recompute session names to avoid orphaned numbers (e.g. "Web 2" with no "Web 1")
-    queries::recompute_session_names(&state.pool, user.user_id).await?;
-
-    // Notify remaining sessions that the session list changed
-    let sessions = queries::get_active_sessions(&state.pool, user.user_id).await?;
-    let session_ids: Vec<String> = sessions.into_iter().map(|s| s.id).collect();
-    state
-        .session_manager
-        .broadcast_to_sessions(&session_ids, SessionEvent::SessionListChanged)
-        .await;
-
-    Ok(Json(SessionSuccessResponse { success: true }))
+    Ok(Json(ClientListResponse {
+        clients: client_responses,
+    }))
 }
 
 /// POST /ferrotune/sessions/:id/heartbeat — Update heartbeat + playback state
@@ -254,39 +315,29 @@ pub async fn session_heartbeat(
     Ok(Json(SessionSuccessResponse { success: true }))
 }
 
-/// Guard that auto-deletes a session when dropped if no SSE subscribers remain.
-struct SessionCleanupGuard {
+/// Guard that unregisters a client when the SSE stream is dropped.
+struct ClientCleanupGuard {
     session_id: String,
-    user_id: i64,
+    client_id: Option<String>,
     state: Arc<AppState>,
 }
 
-impl Drop for SessionCleanupGuard {
+impl Drop for ClientCleanupGuard {
     fn drop(&mut self) {
         let session_id = self.session_id.clone();
-        let user_id = self.user_id;
+        let client_id = self.client_id.clone();
         let state = self.state.clone();
         tokio::spawn(async move {
-            // Small delay so the receiver is fully released before checking count
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            let remaining = state.session_manager.receiver_count(&session_id).await;
-            if remaining == 0 {
-                tracing::debug!(
-                    "Session {} has no remaining subscribers, auto-deleting",
-                    session_id
-                );
-                state.session_manager.remove(&session_id).await;
-                let _ = queries::delete_session(&state.pool, &session_id).await;
-
-                // Recompute session names and notify remaining sessions for this user
-                let _ = queries::recompute_session_names(&state.pool, user_id).await;
-                if let Ok(sessions) = queries::get_active_sessions(&state.pool, user_id).await {
-                    let session_ids: Vec<String> = sessions.into_iter().map(|s| s.id).collect();
-                    state
-                        .session_manager
-                        .broadcast_to_sessions(&session_ids, SessionEvent::SessionListChanged)
-                        .await;
-                }
+            if let Some(ref cid) = client_id {
+                state
+                    .session_manager
+                    .unregister_client(&session_id, cid)
+                    .await;
+                // Notify other clients that the client list changed
+                state
+                    .session_manager
+                    .broadcast(&session_id, SessionEvent::ClientListChanged)
+                    .await;
             }
         });
     }
@@ -297,11 +348,27 @@ pub async fn session_events(
     user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<String>,
+    Query(query): Query<SessionEventsQuery>,
 ) -> FerrotuneApiResult<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
     // Verify session belongs to user
     let session = queries::get_session(&state.pool, &session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
+
+    // Register client if client_id provided
+    if let Some(ref client_id) = query.client_id {
+        let client_name = query.client_name.as_deref().unwrap_or("ferrotune-web");
+        state
+            .session_manager
+            .register_client(&session.id, client_id, client_name)
+            .await;
+
+        // Notify other clients that a new client connected
+        state
+            .session_manager
+            .broadcast(&session.id, SessionEvent::ClientListChanged)
+            .await;
+    }
 
     let mut rx = state.session_manager.subscribe(&session.id).await;
 
@@ -325,11 +392,10 @@ pub async fn session_events(
     };
 
     // This guard is held by the stream; when axum drops the stream on client
-    // disconnect, the guard's Drop impl checks if the session should be
-    // auto-deleted (no remaining SSE subscribers).
-    let _cleanup_guard = SessionCleanupGuard {
+    // disconnect, the guard's Drop impl unregisters the client.
+    let _cleanup_guard = ClientCleanupGuard {
         session_id: session.id.clone(),
-        user_id: user.user_id,
+        client_id: query.client_id.clone(),
         state: state.clone(),
     };
 
@@ -344,12 +410,8 @@ pub async fn session_events(
         loop {
             match rx.recv().await {
                 Ok(event) => {
-                    let is_ended = matches!(event, SessionEvent::SessionEnded);
                     if let Ok(json) = serde_json::to_string(&event) {
                         yield Ok(Event::default().data(json));
-                    }
-                    if is_ended {
-                        break;
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
@@ -402,19 +464,32 @@ pub async fn session_command(
         ))));
     }
 
-    // On takeOver, update the session's client_name to reflect the new owner
-    // and recompute all session names
+    // On takeOver, update the session's owner to the requesting client
     if request.action == "takeOver" {
-        if let Some(ref new_client_name) = request.client_name {
-            queries::update_session_client_name(&state.pool, &session_id, new_client_name).await?;
-            queries::recompute_session_names(&state.pool, user.user_id).await?;
+        let new_client_name = request.client_name.as_deref().unwrap_or("ferrotune-web");
+        let new_client_id = request.client_id.as_deref();
 
-            // Notify all sessions that the list changed (names may have been updated)
-            let sessions = queries::get_active_sessions(&state.pool, user.user_id).await?;
-            let session_ids: Vec<String> = sessions.into_iter().map(|s| s.id).collect();
+        queries::update_session_owner(&state.pool, &session_id, new_client_id, new_client_name)
+            .await?;
+
+        // Update queue position if provided (avoids stale position from heartbeat lag)
+        if let Some(position_ms) = request.position_ms {
+            let _ =
+                queries::update_queue_position_ms_by_session(&state.pool, &session_id, position_ms)
+                    .await;
+        }
+
+        // Broadcast owner changed event
+        if let Some(ref cid) = request.client_id {
             state
                 .session_manager
-                .broadcast_to_sessions(&session_ids, SessionEvent::SessionListChanged)
+                .broadcast(
+                    &session_id,
+                    SessionEvent::OwnerChanged {
+                        owner_client_id: cid.clone(),
+                        owner_client_name: new_client_name.to_string(),
+                    },
+                )
                 .await;
         }
     }
@@ -427,6 +502,15 @@ pub async fn session_command(
             volume: request.volume.unwrap_or(1.0),
             is_muted: request.is_muted.unwrap_or(false),
         },
+        "takeOver" => {
+            // Already handled above — also send playback command to pause old owner
+            SessionEvent::PlaybackCommand {
+                action: "takeOver".to_string(),
+                position_ms: request.position_ms,
+                volume: request.volume,
+                is_muted: request.is_muted,
+            }
+        }
         _ => SessionEvent::PlaybackCommand {
             action: request.action,
             position_ms: request.position_ms,

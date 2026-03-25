@@ -5,8 +5,11 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { getClient, getClientName } from "@/lib/api/client";
 import {
   currentSessionIdAtom,
-  activeSessionsAtom,
   isAudioOwnerAtom,
+  clientIdAtom,
+  connectedClientsAtom,
+  ownerClientIdAtom,
+  ownerClientNameAtom,
 } from "@/lib/store/session";
 import {
   isClientInitializedAtom,
@@ -22,8 +25,8 @@ import { playbackStateAtom, currentTimeAtom } from "@/lib/store/player";
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
 /**
- * Initializes a playback session on mount, sends periodic heartbeats,
- * and refreshes the list of active sessions.
+ * Initializes the single playback session on mount, sends periodic heartbeats,
+ * and refreshes the list of connected clients.
  *
  * Should be called once at the app level (e.g. in AudioEngineProvider).
  */
@@ -31,8 +34,11 @@ export function useSessionInit() {
   const isClientInitialized = useAtomValue(isClientInitializedAtom);
   const serverConnection = useAtomValue(serverConnectionAtom);
   const [sessionId, setSessionId] = useAtom(currentSessionIdAtom);
-  const setActiveSessions = useSetAtom(activeSessionsAtom);
   const [isAudioOwner, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
+  const clientId = useAtomValue(clientIdAtom);
+  const setConnectedClients = useSetAtom(connectedClientsAtom);
+  const setOwnerClientId = useSetAtom(ownerClientIdAtom);
+  const setOwnerClientName = useSetAtom(ownerClientNameAtom);
   const currentSong = useAtomValue(currentSongAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const playbackState = useAtomValue(playbackStateAtom);
@@ -51,6 +57,7 @@ export function useSessionInit() {
   const currentTimeRef = useRef(currentTime);
   const sessionIdRef = useRef(sessionId);
   const isAudioOwnerRef = useRef(isAudioOwner);
+  const clientIdRef = useRef(clientId);
   useEffect(() => {
     currentSongRef.current = currentSong;
     queueStateRef.current = queueState;
@@ -58,14 +65,15 @@ export function useSessionInit() {
     currentTimeRef.current = currentTime;
     sessionIdRef.current = sessionId;
     isAudioOwnerRef.current = isAudioOwner;
+    clientIdRef.current = clientId;
   });
 
-  const refreshSessionsRef = useRef(async () => {
+  const refreshClientsRef = useRef(async () => {
     const client = getClient();
     if (!client) return;
     try {
-      const response = await client.listSessions();
-      setActiveSessions(response.sessions);
+      const response = await client.listClients();
+      setConnectedClients(response.clients);
     } catch {
       // Silently ignore
     }
@@ -78,8 +86,8 @@ export function useSessionInit() {
     const client = getClient();
     if (!client) return;
 
-    // When remote-controlling another session, still send heartbeat to keep
-    // our own session alive, but don't report the controlled session's track data
+    // When not the audio owner, still send heartbeat to keep
+    // the session alive, but don't report track data
     if (!isAudioOwnerRef.current) {
       try {
         await client.sessionHeartbeat(sid, { isPlaying: false });
@@ -128,34 +136,22 @@ export function useSessionInit() {
       if (!client) return;
 
       try {
-        // Always check existing sessions first
-        const response = await client.listSessions();
-        setActiveSessions(response.sessions);
+        // Connect to (or create) the user's single session
+        const response = await client.connectSession(getClientName(), clientId);
+        setSessionId(response.id);
+        setOwnerClientId(response.ownerClientId);
+        setOwnerClientName(response.ownerClientName);
 
-        // If we have a stored session ID from sessionStorage (tab refresh),
-        // check if it still exists on the server
-        if (sessionId) {
-          const exists = response.sessions.some((s) => s.id === sessionId);
-          if (exists) {
-            return;
-          }
-        }
-
-        // Join an existing session as a follower, preferring one that's
-        // actively playing, then falling back to most recently active
-        if (response.sessions.length > 0) {
-          const playing = response.sessions.find((s) => s.isPlaying);
-          const target = playing ?? response.sessions[0];
-          setSessionId(target.id);
+        // Determine ownership: if this client is the owner, or new session
+        if (response.isNewSession || response.ownerClientId === clientId) {
+          setIsAudioOwner(true);
+        } else {
+          // Existing session owned by another client — join as follower
           setIsAudioOwner(false);
-          return;
         }
 
-        // No sessions exist — create a new one as owner
-        const created = await client.createSession(getClientName());
-        setSessionId(created.id);
-        setIsAudioOwner(true);
-        await refreshSessionsRef.current();
+        // Fetch initial client list
+        await refreshClientsRef.current();
       } catch (error) {
         console.error("Failed to initialize playback session:", error);
       }
@@ -165,10 +161,11 @@ export function useSessionInit() {
   }, [
     isClientInitialized,
     serverConnection,
-    sessionId,
+    clientId,
     setSessionId,
-    setActiveSessions,
     setIsAudioOwner,
+    setOwnerClientId,
+    setOwnerClientName,
   ]);
 
   // Start heartbeat interval when sessionId is set
@@ -196,25 +193,14 @@ export function useSessionInit() {
     };
   }, [sessionId, isClientInitialized]);
 
-  // Periodically refresh active sessions list (every 60s)
+  // Periodically refresh connected clients list (every 60s)
   useEffect(() => {
     if (!isClientInitialized) return;
 
-    const interval = setInterval(() => refreshSessionsRef.current(), 60_000);
+    const interval = setInterval(() => refreshClientsRef.current(), 60_000);
     return () => clearInterval(interval);
   }, [isClientInitialized]);
 
-  // Notify server when tab is closing so the session is cleaned up immediately
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      const sid = sessionIdRef.current;
-      if (!sid || !isAudioOwnerRef.current) return;
-      const client = getClient();
-      if (!client) return;
-      client.leaveSession(sid);
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, []);
+  // Client deregistration on tab close is handled automatically by the SSE
+  // connection's CleanupGuard on the server side (fires when EventSource closes).
 }

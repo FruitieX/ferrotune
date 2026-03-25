@@ -24,6 +24,7 @@ data class SessionConfig(
     val password: String? = null,
     val apiKey: String? = null,
     val sessionId: String? = null,
+    val clientId: String? = null,
 )
 
 /**
@@ -468,8 +469,15 @@ class FerrotuneApiClient {
 
         disconnectSSE()
 
-        val url = buildApiUrl("/ferrotune/sessions/$sessionId/events")
-        val request = Request.Builder().url(url).get().also { addAuthHeaders(it) }.build()
+        var sseUrl = buildApiUrl("/ferrotune/sessions/$sessionId/events")
+        // Append clientId and clientName as query params for client registration
+        val separator = if (sseUrl.contains("?")) "&" else "?"
+        val params = mutableListOf<String>()
+        config.clientId?.let { params.add("clientId=${java.net.URLEncoder.encode(it, "UTF-8")}") }
+        params.add("clientName=ferrotune-mobile")
+        sseUrl += separator + params.joinToString("&")
+
+        val request = Request.Builder().url(sseUrl).get().also { addAuthHeaders(it) }.build()
 
         val factory = EventSources.createFactory(sseClient)
         currentEventSource = factory.newEventSource(request, object : EventSourceListener() {
@@ -522,8 +530,13 @@ class FerrotuneApiClient {
                 isPlaying = json.getBoolean("isPlaying"),
                 currentSongId = json.optString("currentSongId", null),
             )
-            "sessionEnded" -> SessionEvent.SessionEnded
-            "sessionListChanged" -> SessionEvent.SessionListChanged
+            "sessionEnded" -> null // No longer emitted; sessions are permanent
+            "sessionListChanged" -> null // Replaced by clientListChanged
+            "clientListChanged" -> SessionEvent.ClientListChanged
+            "ownerChanged" -> SessionEvent.OwnerChanged(
+                ownerClientId = json.optString("ownerClientId", null),
+                ownerClientName = json.optString("ownerClientName", null),
+            )
             "volumeChange" -> SessionEvent.VolumeChange(
                 volume = json.getDouble("volume").toFloat(),
                 isMuted = json.getBoolean("isMuted"),
@@ -549,9 +562,9 @@ sealed class SessionEvent {
         val isPlaying: Boolean,
         val currentSongId: String?,
     ) : SessionEvent()
-    object SessionEnded : SessionEvent()
+    object ClientListChanged : SessionEvent()
+    data class OwnerChanged(val ownerClientId: String?, val ownerClientName: String?) : SessionEvent()
     data class VolumeChange(val volume: Float, val isMuted: Boolean) : SessionEvent()
-    object SessionListChanged : SessionEvent()
 }
 
 /**

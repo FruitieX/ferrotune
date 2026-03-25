@@ -1317,40 +1317,37 @@ pub async fn update_song_path_and_format(
 // Playback Session queries
 // ============================================================================
 
-/// Create a new playback session for a user
-pub async fn create_playback_session(
+/// Get or create the single session for a user.
+/// Returns the existing session if one exists, otherwise creates a new one.
+pub async fn get_or_create_session(
     pool: &SqlitePool,
     user_id: i64,
-    name: &str,
-    client_name: &str,
-) -> sqlx::Result<String> {
+) -> sqlx::Result<PlaybackSession> {
+    // Try to get existing session first
+    if let Some(session) =
+        sqlx::query_as::<_, PlaybackSession>("SELECT * FROM playback_sessions WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await?
+    {
+        return Ok(session);
+    }
+
+    // Create new session
     let id = Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO playback_sessions (id, user_id, name, client_name, is_playing, last_heartbeat, created_at)
-         VALUES (?, ?, ?, ?, 0, datetime('now'), datetime('now'))",
+        "INSERT INTO playback_sessions (id, user_id, name, client_name, is_playing, last_heartbeat, created_at, owner_client_name)
+         VALUES (?, ?, '', 'ferrotune-web', 0, datetime('now'), datetime('now'), 'ferrotune-web')",
     )
     .bind(&id)
     .bind(user_id)
-    .bind(name)
-    .bind(client_name)
     .execute(pool)
     .await?;
-    Ok(id)
-}
 
-/// List active sessions for a user (heartbeat within the last 2 minutes)
-pub async fn get_active_sessions(
-    pool: &SqlitePool,
-    user_id: i64,
-) -> sqlx::Result<Vec<PlaybackSession>> {
-    sqlx::query_as::<_, PlaybackSession>(
-        "SELECT * FROM playback_sessions
-         WHERE user_id = ? AND last_heartbeat >= datetime('now', '-2 minutes')
-         ORDER BY last_heartbeat DESC",
-    )
-    .bind(user_id)
-    .fetch_all(pool)
-    .await
+    sqlx::query_as::<_, PlaybackSession>("SELECT * FROM playback_sessions WHERE id = ?")
+        .bind(&id)
+        .fetch_one(pool)
+        .await
 }
 
 /// Get a specific session by id (only if it belongs to the given user)
@@ -1368,7 +1365,7 @@ pub async fn get_session(
     .await
 }
 
-/// Update session heartbeat and playback state
+/// Update session heartbeat and playback state (called by owner)
 pub async fn update_session_heartbeat(
     pool: &SqlitePool,
     session_id: &str,
@@ -1409,94 +1406,34 @@ pub async fn update_session_heartbeat_timestamp(
     Ok(result.rows_affected() > 0)
 }
 
-/// Delete a playback session (cascade deletes its queue via FK)
-pub async fn delete_session(pool: &SqlitePool, session_id: &str) -> sqlx::Result<bool> {
-    let result = sqlx::query("DELETE FROM playback_sessions WHERE id = ?")
-        .bind(session_id)
-        .execute(pool)
-        .await?;
-    Ok(result.rows_affected() > 0)
-}
-
-/// Update the name of a playback session
-pub async fn update_session_name(
+/// Update the owner of a session (on takeover)
+pub async fn update_session_owner(
     pool: &SqlitePool,
     session_id: &str,
-    name: &str,
+    owner_client_id: Option<&str>,
+    owner_client_name: &str,
 ) -> sqlx::Result<bool> {
-    let result = sqlx::query("UPDATE playback_sessions SET name = ? WHERE id = ?")
-        .bind(name)
-        .bind(session_id)
-        .execute(pool)
-        .await?;
+    let result = sqlx::query(
+        "UPDATE playback_sessions SET owner_client_id = ?, owner_client_name = ?, client_name = ? WHERE id = ?",
+    )
+    .bind(owner_client_id)
+    .bind(owner_client_name)
+    .bind(owner_client_name)
+    .bind(session_id)
+    .execute(pool)
+    .await?;
     Ok(result.rows_affected() > 0)
 }
 
-/// Update the client_name of a playback session (e.g. on takeover)
-pub async fn update_session_client_name(
-    pool: &SqlitePool,
-    session_id: &str,
-    client_name: &str,
-) -> sqlx::Result<bool> {
-    let result = sqlx::query("UPDATE playback_sessions SET client_name = ? WHERE id = ?")
-        .bind(client_name)
-        .bind(session_id)
-        .execute(pool)
-        .await?;
-    Ok(result.rows_affected() > 0)
-}
-
-/// Recompute session names for all active sessions of a user.
-/// Uses "Web" / "Mobile" prefix based on client_name, and only appends
-/// a number when multiple sessions share the same prefix.
-pub async fn recompute_session_names(pool: &SqlitePool, user_id: i64) -> sqlx::Result<()> {
-    let sessions = get_active_sessions(pool, user_id).await?;
-
-    // Group sessions by prefix (preserving order from get_active_sessions)
-    let mut web_sessions: Vec<&PlaybackSession> = Vec::new();
-    let mut mobile_sessions: Vec<&PlaybackSession> = Vec::new();
-
-    for session in &sessions {
-        match session.client_name.as_str() {
-            "ferrotune-mobile" => mobile_sessions.push(session),
-            _ => web_sessions.push(session),
-        }
-    }
-
-    // For each group: if only one session, use bare prefix; otherwise number them
-    for (prefix, group) in [("Web", web_sessions), ("Mobile", mobile_sessions)] {
-        if group.len() == 1 {
-            let desired = prefix.to_string();
-            if group[0].name != desired {
-                update_session_name(pool, &group[0].id, &desired).await?;
-            }
-        } else {
-            for (i, session) in group.iter().enumerate() {
-                let desired = format!("{} {}", prefix, i + 1);
-                if session.name != desired {
-                    update_session_name(pool, &session.id, &desired).await?;
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Get the most recently active session for a user (for Subsonic backward compat)
-pub async fn get_most_recent_session(
+/// Get the user's session (single session per user)
+pub async fn get_user_session(
     pool: &SqlitePool,
     user_id: i64,
 ) -> sqlx::Result<Option<PlaybackSession>> {
-    sqlx::query_as::<_, PlaybackSession>(
-        "SELECT * FROM playback_sessions
-         WHERE user_id = ?
-         ORDER BY last_heartbeat DESC
-         LIMIT 1",
-    )
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await
+    sqlx::query_as::<_, PlaybackSession>("SELECT * FROM playback_sessions WHERE user_id = ?")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
 }
 
 // ============================================================================
@@ -1782,6 +1719,23 @@ pub async fn update_queue_position_by_session(
          WHERE session_id = ?",
     )
     .bind(current_index)
+    .bind(position_ms)
+    .bind(session_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Update only position_ms by session (without changing current_index)
+pub async fn update_queue_position_ms_by_session(
+    pool: &SqlitePool,
+    session_id: &str,
+    position_ms: i64,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query(
+        "UPDATE play_queues SET position_ms = ?, updated_at = datetime('now')
+         WHERE session_id = ?",
+    )
     .bind(position_ms)
     .bind(session_id)
     .execute(pool)

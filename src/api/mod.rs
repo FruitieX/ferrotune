@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::{broadcast, RwLock};
 
 pub use ferrotune::scan_state::{create_scan_state, ScanState};
@@ -66,25 +67,45 @@ pub enum SessionEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         current_song_artist: Option<String>,
     },
-    /// Session ended (owner disconnected or timed out)
-    SessionEnded,
     /// Volume change command from a remote controller
     #[serde(rename_all = "camelCase")]
     VolumeChange { volume: f64, is_muted: bool },
-    /// The session list changed (a session was created or deleted)
-    SessionListChanged,
+    /// The connected client list changed (a client connected or disconnected)
+    ClientListChanged,
+    /// Session ownership changed to a different client
+    #[serde(rename_all = "camelCase")]
+    OwnerChanged {
+        owner_client_id: String,
+        owner_client_name: String,
+    },
 }
 
-/// Manages per-session broadcast channels for real-time SSE updates.
+/// A connected client (browser tab, app instance) in a session.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectedClient {
+    pub client_id: String,
+    pub client_name: String,
+    #[serde(skip)]
+    pub connected_at: Instant,
+}
+
+/// Per-session state: broadcast channel + connected clients.
+struct SessionState {
+    sender: broadcast::Sender<SessionEvent>,
+    clients: HashMap<String, ConnectedClient>,
+}
+
+/// Manages per-session broadcast channels and connected clients for real-time SSE updates.
 pub struct SessionManager {
-    /// Map of session_id -> broadcast sender
-    channels: RwLock<HashMap<String, broadcast::Sender<SessionEvent>>>,
+    /// Map of session_id -> session state
+    sessions: RwLock<HashMap<String, SessionState>>,
 }
 
 impl Default for SessionManager {
     fn default() -> Self {
         Self {
-            channels: RwLock::new(HashMap::new()),
+            sessions: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -97,18 +118,24 @@ impl SessionManager {
     /// Get or create a broadcast channel for a session.
     pub async fn get_or_create_sender(&self, session_id: &str) -> broadcast::Sender<SessionEvent> {
         {
-            let channels = self.channels.read().await;
-            if let Some(tx) = channels.get(session_id) {
-                return tx.clone();
+            let sessions = self.sessions.read().await;
+            if let Some(state) = sessions.get(session_id) {
+                return state.sender.clone();
             }
         }
-        let mut channels = self.channels.write().await;
+        let mut sessions = self.sessions.write().await;
         // Double-check after acquiring write lock
-        if let Some(tx) = channels.get(session_id) {
-            return tx.clone();
+        if let Some(state) = sessions.get(session_id) {
+            return state.sender.clone();
         }
         let (tx, _) = broadcast::channel(64);
-        channels.insert(session_id.to_string(), tx.clone());
+        sessions.insert(
+            session_id.to_string(),
+            SessionState {
+                sender: tx.clone(),
+                clients: HashMap::new(),
+            },
+        );
         tx
     }
 
@@ -120,35 +147,72 @@ impl SessionManager {
 
     /// Broadcast an event to all subscribers of a session.
     pub async fn broadcast(&self, session_id: &str, event: SessionEvent) {
-        let channels = self.channels.read().await;
-        if let Some(tx) = channels.get(session_id) {
-            let _ = tx.send(event);
+        let sessions = self.sessions.read().await;
+        if let Some(state) = sessions.get(session_id) {
+            let _ = state.sender.send(event);
         }
-    }
-
-    /// Remove a session's channel (on session end/cleanup).
-    pub async fn remove(&self, session_id: &str) {
-        let mut channels = self.channels.write().await;
-        channels.remove(session_id);
     }
 
     /// Broadcast an event to multiple sessions.
     pub async fn broadcast_to_sessions(&self, session_ids: &[String], event: SessionEvent) {
-        let channels = self.channels.read().await;
+        let sessions = self.sessions.read().await;
         for session_id in session_ids {
-            if let Some(tx) = channels.get(session_id) {
-                let _ = tx.send(event.clone());
+            if let Some(state) = sessions.get(session_id) {
+                let _ = state.sender.send(event.clone());
             }
         }
     }
 
     /// Get the number of active SSE receivers for a session.
     pub async fn receiver_count(&self, session_id: &str) -> usize {
-        let channels = self.channels.read().await;
-        channels
+        let sessions = self.sessions.read().await;
+        sessions
             .get(session_id)
-            .map(|tx| tx.receiver_count())
+            .map(|state| state.sender.receiver_count())
             .unwrap_or(0)
+    }
+
+    /// Register a client as connected to a session.
+    pub async fn register_client(&self, session_id: &str, client_id: &str, client_name: &str) {
+        // Ensure session state exists
+        let _ = self.get_or_create_sender(session_id).await;
+        let mut sessions = self.sessions.write().await;
+        if let Some(state) = sessions.get_mut(session_id) {
+            state.clients.insert(
+                client_id.to_string(),
+                ConnectedClient {
+                    client_id: client_id.to_string(),
+                    client_name: client_name.to_string(),
+                    connected_at: Instant::now(),
+                },
+            );
+        }
+    }
+
+    /// Unregister a client from a session.
+    pub async fn unregister_client(&self, session_id: &str, client_id: &str) {
+        let mut sessions = self.sessions.write().await;
+        if let Some(state) = sessions.get_mut(session_id) {
+            state.clients.remove(client_id);
+        }
+    }
+
+    /// Get all connected clients for a session.
+    pub async fn get_clients(&self, session_id: &str) -> Vec<ConnectedClient> {
+        let sessions = self.sessions.read().await;
+        sessions
+            .get(session_id)
+            .map(|state| state.clients.values().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Check if a specific client is currently connected to a session.
+    pub async fn is_client_connected(&self, session_id: &str, client_id: &str) -> bool {
+        let sessions = self.sessions.read().await;
+        sessions
+            .get(session_id)
+            .map(|state| state.clients.contains_key(client_id))
+            .unwrap_or(false)
     }
 }
 

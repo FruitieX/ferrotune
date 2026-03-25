@@ -3,8 +3,8 @@ use tauri::{command, AppHandle, Runtime};
 use crate::{
     error::Result,
     models::{
-        PlaybackSettingsConfig, PlaybackState, QueueItem, SafeAreaInsets,
-        SessionConfig, StartAutonomousPlaybackParams, TrackInfo,
+        PlaybackSettingsConfig, PlaybackState, QueueItem, SafeAreaInsets, SessionConfig,
+        StartAutonomousPlaybackParams, TrackInfo,
     },
 };
 
@@ -303,6 +303,7 @@ pub async fn init_session<R: Runtime>(
     password: Option<String>,
     api_key: Option<String>,
     session_id: Option<String>,
+    client_id: Option<String>,
 ) -> Result<()> {
     log::info!("init_session command reached, session_id={:?}", session_id);
     let config = SessionConfig {
@@ -311,6 +312,7 @@ pub async fn init_session<R: Runtime>(
         password,
         api_key,
         session_id,
+        client_id,
     };
 
     #[cfg(mobile)]

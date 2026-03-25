@@ -197,6 +197,12 @@ async fn reset_user_state(pool: &sqlx::SqlitePool, user_id: i64) -> Result<(), s
         .execute(&mut *tx)
         .await?;
 
+    // Clear playback sessions (resets session ownership so next connect gets a fresh session)
+    sqlx::query("DELETE FROM playback_sessions WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
     // Commit transaction
     tx.commit().await?;
 

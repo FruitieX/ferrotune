@@ -531,7 +531,8 @@ impl std::str::FromStr for RepeatMode {
     }
 }
 
-/// A playback session — represents one active client (browser tab, app instance)
+/// A playback session — one per user, acts as a persistent queue container.
+/// Multiple clients connect to the same session; ownership tracked via owner_client_id.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PlaybackSession {
     pub id: String,
@@ -544,6 +545,8 @@ pub struct PlaybackSession {
     pub current_song_artist: Option<String>,
     pub last_heartbeat: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
+    pub owner_client_id: Option<String>,
+    pub owner_client_name: String,
 }
 
 /// Server-side play queue state

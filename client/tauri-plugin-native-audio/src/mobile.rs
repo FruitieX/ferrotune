@@ -7,8 +7,8 @@ use tauri::{
 use crate::{
     error::Result,
     models::{
-        PlaybackSettingsConfig, PlaybackState, QueueItem, SafeAreaInsets,
-        SessionConfig, StartAutonomousPlaybackParams, TrackInfo,
+        PlaybackSettingsConfig, PlaybackState, QueueItem, SafeAreaInsets, SessionConfig,
+        StartAutonomousPlaybackParams, TrackInfo,
     },
 };
 
@@ -153,6 +153,7 @@ impl<R: Runtime> NativeAudio<R> {
                     "password": config.password,
                     "apiKey": config.api_key,
                     "sessionId": config.session_id,
+                    "clientId": config.client_id,
                 }),
             )
             .map_err(Into::into)
@@ -202,7 +203,10 @@ impl<R: Runtime> NativeAudio<R> {
     /// Soft invalidate: update total count and prefetch without rebuilding
     pub fn soft_invalidate_queue(&self, total_count: i32) -> Result<()> {
         self.0
-            .run_mobile_plugin("softInvalidateQueue", serde_json::json!({ "totalCount": total_count }))
+            .run_mobile_plugin(
+                "softInvalidateQueue",
+                serde_json::json!({ "totalCount": total_count }),
+            )
             .map_err(Into::into)
     }
 

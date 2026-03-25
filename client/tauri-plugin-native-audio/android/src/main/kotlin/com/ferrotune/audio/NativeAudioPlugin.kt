@@ -103,6 +103,7 @@ internal class InitSessionArgs {
     var password: String? = null
     var apiKey: String? = null
     var sessionId: String? = null
+    var clientId: String? = null
 }
 
 @InvokeArg
@@ -725,7 +726,8 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                     username = args.username,
                     password = args.password,
                     apiKey = args.apiKey,
-                    sessionId = args.sessionId
+                    sessionId = args.sessionId,
+                    clientId = args.clientId
                 ))
                 invoke.resolve()
             } catch (e: Exception) {

@@ -117,8 +117,9 @@ import type { TaggerSessionResponse } from "./generated/TaggerSessionResponse";
 import type { TaggerPendingEditsResponse } from "./generated/TaggerPendingEditsResponse";
 // TaggerPendingEditData import removed - now using individual track sync
 import type { TaggerScriptsResponse } from "./generated/TaggerScriptsResponse";
-import type { SessionListResponse } from "./generated/SessionListResponse";
-import type { CreateSessionResponse } from "./generated/CreateSessionResponse";
+import type { ConnectSessionResponse } from "./generated/ConnectSessionResponse";
+import type { SessionResponse } from "./generated/SessionResponse";
+import type { ClientListResponse } from "./generated/ClientListResponse";
 import type { SessionSuccessResponse } from "./generated/SessionSuccessResponse";
 import type { TaggerScriptData } from "./generated/TaggerScriptData";
 import type { SongPlaylistsResponse } from "./generated/SongPlaylistsResponse";
@@ -1898,59 +1899,30 @@ export class FerrotuneClient {
   // ============================================================================
 
   /**
-   * Create a new playback session
+   * Connect to (or create) the user's session
    */
-  async createSession(
+  async connectSession(
     clientName: string = "ferrotune-web",
-  ): Promise<CreateSessionResponse> {
+    clientId?: string,
+  ): Promise<ConnectSessionResponse> {
     return this.request("/ferrotune/sessions", {
       method: "POST",
-      body: JSON.stringify({ clientName }),
+      body: JSON.stringify({ clientName, clientId }),
     });
   }
 
   /**
-   * List active sessions for the current user
+   * Get the user's session info
    */
-  async listSessions(): Promise<SessionListResponse> {
+  async getSessionInfo(): Promise<SessionResponse> {
     return this.request("/ferrotune/sessions");
   }
 
   /**
-   * Delete (end) a session
+   * List connected clients for the user's session
    */
-  async deleteSession(sessionId: string): Promise<SessionSuccessResponse> {
-    return this.request(
-      `/ferrotune/sessions/${encodeURIComponent(sessionId)}`,
-      {
-        method: "DELETE",
-      },
-    );
-  }
-
-  /**
-   * Fire-and-forget session delete using keepalive fetch.
-   * Designed for use during page unload (beforeunload) where normal
-   * async requests would be cancelled.
-   */
-  leaveSession(sessionId: string): void {
-    const url = this.buildAdminUrl(
-      `/ferrotune/sessions/${encodeURIComponent(sessionId)}`,
-    );
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    const authorization = this.getAuthorizationHeader();
-    if (authorization) {
-      headers["Authorization"] = authorization;
-    }
-    fetch(url, {
-      method: "DELETE",
-      headers,
-      keepalive: true,
-    }).catch(() => {
-      // Best-effort — nothing to do if it fails during unload
-    });
+  async listClients(): Promise<ClientListResponse> {
+    return this.request("/ferrotune/sessions/clients");
   }
 
   /**
@@ -1987,6 +1959,7 @@ export class FerrotuneClient {
     volume?: number,
     isMuted?: boolean,
     clientName?: string,
+    clientId?: string,
   ): Promise<SessionSuccessResponse> {
     return this.request(
       `/ferrotune/sessions/${encodeURIComponent(sessionId)}/command`,
@@ -1998,6 +1971,7 @@ export class FerrotuneClient {
           volume,
           isMuted,
           clientName,
+          clientId,
         }),
       },
       true, // Silent — session errors are recovered automatically
@@ -2007,7 +1981,11 @@ export class FerrotuneClient {
   /**
    * Get the SSE stream URL for session events
    */
-  getSessionEventsUrl(sessionId: string): string {
+  getSessionEventsUrl(
+    sessionId: string,
+    clientId?: string,
+    clientName?: string,
+  ): string {
     const params = new URLSearchParams();
     if (this.username && this.password) {
       params.set("u", this.username);
@@ -2017,6 +1995,8 @@ export class FerrotuneClient {
     }
     params.set("v", API_VERSION);
     params.set("c", CLIENT_NAME);
+    if (clientId) params.set("clientId", clientId);
+    if (clientName) params.set("clientName", clientName);
     return this.buildAdminUrl(
       `/ferrotune/sessions/${encodeURIComponent(sessionId)}/events?${params.toString()}`,
     );
