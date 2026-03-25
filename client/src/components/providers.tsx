@@ -13,6 +13,7 @@ import { usePreferencesSync } from "@/lib/hooks/use-preferences-sync";
 import { useClearSelectionOnNavigate } from "@/lib/hooks/use-clear-selection-on-navigate";
 import { useBackButtonClose } from "@/lib/hooks/use-back-button-close";
 import { useAppResumeRepaint } from "@/lib/hooks/use-app-resume-repaint";
+import { useAppResumeRefresh } from "@/lib/hooks/use-app-resume-refresh";
 import { useScanProgressStream } from "@/lib/hooks/use-scan-progress-stream";
 import { useSessionInit } from "@/lib/hooks/use-session-init";
 import { useCastInit } from "@/lib/hooks/use-cast";
@@ -59,6 +60,7 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   useSessionInit(); // Initialize playback session + heartbeat
   useBackButtonClose(); // Handle Android back button to close menus
   useAppResumeRepaint(); // Force Android WebView redraws after resume
+  useAppResumeRefresh(); // Invalidate queries after Android resume
   useCastInit(); // Initialize Chromecast SDK
   return (
     <>
@@ -218,8 +220,7 @@ function AccountScopedQueryProvider({
         onSuccess={() => {
           // After restoring cached data from IndexedDB, trigger a
           // background refetch of all active queries so the cache gets
-          // updated for the next visit. The home page uses structuralSharing
-          // to freeze displayed content and prevent visual swaps.
+          // updated for the next visit.
           queryClient.invalidateQueries();
         }}
       >

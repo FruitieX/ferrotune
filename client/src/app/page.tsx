@@ -390,10 +390,6 @@ export default function HomePage() {
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
     enabled: isReady,
-    // Fetch once per session — seeded sections should not refetch in the background
-    staleTime: Infinity,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
   });
 
   const {
@@ -495,10 +491,6 @@ export default function HomePage() {
       return lastPage.nextOffset < cap ? lastPage.nextOffset : undefined;
     },
     enabled: isReady,
-    // Fetch once per session — seeded sections should not refetch in the background
-    staleTime: Infinity,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
   });
 
   // --- Continue Listening: unified endpoint with albums + playlists ---

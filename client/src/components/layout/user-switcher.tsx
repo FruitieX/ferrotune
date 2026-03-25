@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useAtomValue } from "jotai";
 import { User, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -19,7 +18,6 @@ interface UserSwitcherProps {
 }
 
 export function UserSwitcher({ isCollapsed, isActive }: UserSwitcherProps) {
-  const router = useRouter();
   const connection = useAtomValue(serverConnectionAtom);
   const savedAccounts = useAtomValue(savedAccountsAtom);
 
@@ -29,28 +27,6 @@ export function UserSwitcher({ isCollapsed, isActive }: UserSwitcherProps) {
       ? accountLabel(connection)
       : "Not connected"
     : "Profile";
-
-  // No saved accounts - show a simple button that goes to profile
-  if (savedAccounts.length === 0) {
-    return (
-      <Button
-        variant="ghost"
-        className={cn(
-          "w-full justify-start gap-4 h-10 px-3 hover:bg-sidebar-accent overflow-hidden",
-          isActive && "bg-sidebar-accent text-sidebar-primary font-semibold",
-          isCollapsed && "justify-center px-0",
-        )}
-        onClick={() => router.push("/profile")}
-      >
-        <User
-          className={cn("w-5 h-5 shrink-0", isActive && "text-sidebar-primary")}
-        />
-        {!isCollapsed && (
-          <span className="truncate whitespace-nowrap">{displayLabel}</span>
-        )}
-      </Button>
-    );
-  }
 
   return (
     <ResponsiveDropdownMenu

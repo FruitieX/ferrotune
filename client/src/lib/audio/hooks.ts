@@ -142,6 +142,7 @@ let analyserNode: AnalyserNode | null = null;
 
 // Pre-buffering state
 let preBufferedTrackId: string | null = null;
+let preBufferedStreamUrl: string | null = null;
 let preBufferReady = false;
 // Time in seconds before track end to start pre-buffering
 const PRE_BUFFER_LEAD_TIME = 15;
@@ -363,6 +364,7 @@ function invalidatePreBuffer(): void {
     inactiveAudio.load();
   }
   preBufferedTrackId = null;
+  preBufferedStreamUrl = null;
   preBufferReady = false;
 }
 
@@ -1282,7 +1284,11 @@ export function useAudioEngineInit() {
         // Reset tracking for the new active element
         currentLoadedTrackId = handoffTrackId;
         currentStreamTimeOffset = 0;
+        // Update lastStreamUrlRef so the track-load effect's SKIP check
+        // catches the subsequent SSE-triggered re-run and avoids reloading
+        lastStreamUrlRef.current = preBufferedStreamUrl;
         preBufferedTrackId = null;
+        preBufferedStreamUrl = null;
         preBufferReady = false;
 
         // Reset scrobble tracking for new track
@@ -1401,6 +1407,7 @@ export function useAudioEngineInit() {
           : undefined,
         format: state.transcodingEnabled ? "opus" : undefined,
       });
+      preBufferedStreamUrl = streamUrl;
 
       // Keep inactive element gain at 0 until handoff
       if (gainNodes[inactiveIdx]) {
@@ -2335,6 +2342,12 @@ export function useAudioEngineInit() {
       resetClippingPeak();
     }
 
+    // Save previous track ID before overwriting — needed for the
+    // isTranscodingSettingsChange check below (otherwise it always
+    // compares currentSong.id against itself and incorrectly evaluates
+    // to true when an SSE race delivers the next song before
+    // trackChangeSignal increments).
+    const previousLoadedTrackId = currentLoadedTrackId;
     currentLoadedTrackId = currentSong.id;
 
     // Invalidate any pre-buffer since we're loading a new track explicitly
@@ -2362,9 +2375,11 @@ export function useAudioEngineInit() {
       gainNodes[inactiveIdx]!.gain.value = 0;
     }
 
-    // Check if this is just a transcoding settings change (same track, different URL)
+    // Check if this is just a transcoding settings change (same track, different URL).
+    // Compare against previousLoadedTrackId (not currentLoadedTrackId which is
+    // already overwritten to currentSong.id above).
     const isTranscodingSettingsChange =
-      currentSong.id === currentLoadedTrackId && urlChanged && !signalChanged;
+      currentSong.id === previousLoadedTrackId && urlChanged && !signalChanged;
 
     // Save current playback position if this is a settings change
     const savedPosition = isTranscodingSettingsChange
@@ -2383,10 +2398,33 @@ export function useAudioEngineInit() {
       // During restore: load the track but don't play, set to paused state
       setPlaybackState("paused");
       setHasScrobbled(false);
-      setCurrentTime(0);
+      setCurrentTime(resumePositionSec);
       setBuffered(0);
       setDuration(currentSong.duration || 0);
-      audio.load();
+
+      if (resumePositionSec > 0 && transcodingEnabled) {
+        // For transcoded streams, use timeOffset to request from the right position
+        currentStreamTimeOffset = resumePositionSec;
+        const offsetUrl = getClient()?.getStreamUrl(currentSong.id, {
+          maxBitRate: transcodingBitrate,
+          format: "opus",
+          timeOffset: resumePositionSec,
+        });
+        if (offsetUrl) {
+          audio.src = offsetUrl;
+        }
+        audio.load();
+      } else if (resumePositionSec > 0) {
+        // For non-transcoded streams, seek within the loaded file
+        const handleCanPlayForRestore = () => {
+          audio.removeEventListener("canplay", handleCanPlayForRestore);
+          audio.currentTime = resumePositionSec;
+        };
+        audio.addEventListener("canplay", handleCanPlayForRestore);
+        audio.load();
+      } else {
+        audio.load();
+      }
     } else if (isTranscodingSettingsChange && savedPosition > 0) {
       console.log(
         `[Audio] Transcoding settings changed, resuming from ${savedPosition.toFixed(1)}s`,

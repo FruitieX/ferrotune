@@ -313,6 +313,9 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
       });
 
       set(queueWindowAtom, response.window);
+      // Store position so the audio engine can restore it (e.g. page
+      // reload or taking over a paused session)
+      pendingPlaybackPositionMs.value = Number(response.positionMs);
     }
   } catch (error) {
     // Network error or other failure

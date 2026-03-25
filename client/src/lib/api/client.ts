@@ -218,10 +218,22 @@ export class FerrotuneApiError extends Error {
 // Rate-limit network error toasts to avoid spam when offline
 const NETWORK_ERROR_TOAST_INTERVAL_MS = 10_000;
 let lastNetworkErrorToastTime = 0;
+let networkErrorToastsSuppressedUntil = 0;
+
+/**
+ * Temporarily suppress network error toasts for `durationMs` milliseconds.
+ * Useful when resuming from background where the first requests may fail
+ * before the network stack is ready.
+ */
+export function suppressNetworkErrorToasts(durationMs: number) {
+  networkErrorToastsSuppressedUntil = Date.now() + durationMs;
+}
 
 function showNetworkErrorToast(message: string) {
   // Suppress when the browser reports offline — we know the network is down
   if (typeof navigator !== "undefined" && !navigator.onLine) return;
+  // Suppress during post-resume grace period
+  if (Date.now() < networkErrorToastsSuppressedUntil) return;
   const now = Date.now();
   if (now - lastNetworkErrorToastTime < NETWORK_ERROR_TOAST_INTERVAL_MS) return;
   lastNetworkErrorToastTime = now;
