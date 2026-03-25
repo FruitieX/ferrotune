@@ -1929,6 +1929,31 @@ export class FerrotuneClient {
   }
 
   /**
+   * Fire-and-forget session delete using keepalive fetch.
+   * Designed for use during page unload (beforeunload) where normal
+   * async requests would be cancelled.
+   */
+  leaveSession(sessionId: string): void {
+    const url = this.buildAdminUrl(
+      `/ferrotune/sessions/${encodeURIComponent(sessionId)}`,
+    );
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    const authorization = this.getAuthorizationHeader();
+    if (authorization) {
+      headers["Authorization"] = authorization;
+    }
+    fetch(url, {
+      method: "DELETE",
+      headers,
+      keepalive: true,
+    }).catch(() => {
+      // Best-effort — nothing to do if it fails during unload
+    });
+  }
+
+  /**
    * Send heartbeat for a session (keeps it alive, updates playback state)
    */
   async sessionHeartbeat(

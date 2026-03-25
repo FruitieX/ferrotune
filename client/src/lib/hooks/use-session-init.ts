@@ -203,4 +203,18 @@ export function useSessionInit() {
     const interval = setInterval(() => refreshSessionsRef.current(), 60_000);
     return () => clearInterval(interval);
   }, [isClientInitialized]);
+
+  // Notify server when tab is closing so the session is cleaned up immediately
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const sid = sessionIdRef.current;
+      if (!sid || !isAudioOwnerRef.current) return;
+      const client = getClient();
+      if (!client) return;
+      client.leaveSession(sid);
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
 }
