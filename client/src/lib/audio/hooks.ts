@@ -3152,10 +3152,12 @@ export function useAudioEngine() {
       return;
     }
 
-    // Check current position to decide whether to restart or go to previous
+    // Check current position to decide whether to restart or go to previous.
+    // Use currentStreamTimeOffset to get real song position (not stream-relative).
     const audio = getActiveAudio();
-    if (audio && audio.currentTime > 3) {
-      audio.currentTime = 0;
+    const realTime = audio ? audio.currentTime + currentStreamTimeOffset : 0;
+    if (audio && realTime > 3) {
+      seek(0);
       return;
     }
 
@@ -3165,7 +3167,7 @@ export function useAudioEngine() {
       queueState.currentIndex === 0 &&
       queueState.repeatMode !== "all"
     ) {
-      if (audio) audio.currentTime = 0;
+      if (audio) seek(0);
       return;
     }
 

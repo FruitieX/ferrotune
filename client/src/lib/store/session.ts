@@ -76,6 +76,34 @@ export const clientIdAtom = atomWithStorage<string>(
 );
 
 // ============================================================================
+// Module-level flags (bypass React closure/timing issues)
+// ============================================================================
+
+/**
+ * Set when this client initiates a self-takeover (transferToClient targeting
+ * itself). Prevents the SSE PlaybackCommand(takeOver) echo and the
+ * ownerChanged handler from triggering a redundant fetchQueueAndPlay.
+ * Read synchronously by the SSE event handler.
+ */
+let _selfTakeoverPending = false;
+export const selfTakeoverPending = {
+  get value() {
+    return _selfTakeoverPending;
+  },
+  set value(v: boolean) {
+    _selfTakeoverPending = v;
+  },
+};
+
+/**
+ * Write-only atom that sets the selfTakeoverPending module-level flag.
+ * Use this from React components to avoid React Compiler immutability errors.
+ */
+export const markSelfTakeoverAtom = atom(null, () => {
+  _selfTakeoverPending = true;
+});
+
+// ============================================================================
 // In-memory atoms
 // ============================================================================
 

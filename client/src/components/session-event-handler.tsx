@@ -15,6 +15,7 @@ import {
   ownerClientIdAtom,
   ownerClientNameAtom,
   clientIdAtom,
+  selfTakeoverPending,
 } from "@/lib/store/session";
 import {
   fetchQueueAtom,
@@ -95,8 +96,11 @@ export function SessionEventHandler() {
         // Only the audio owner processes playback commands
         if (!isAudioOwner) return;
 
-        // Handle "takeOver" — another client is taking over this session
+        // Handle "takeOver" — another client is taking over this session.
+        // Skip if we just initiated the takeover ourselves (the broadcast
+        // echoes back to us and would incorrectly pause our own playback).
         if (event.action === "takeOver") {
+          if (selfTakeoverPending.value) return;
           pause();
           setIsAudioOwner(false);
           return;
@@ -193,18 +197,29 @@ export function SessionEventHandler() {
           setOwnerClientId(event.ownerClientId);
           setOwnerClientName(event.ownerClientName ?? null);
 
-          // If we became the owner (e.g. via takeOver from another client's perspective)
           if (event.ownerClientId === clientId) {
+            // We became the owner. For self-initiated takeovers
+            // (selfTakeoverPending), this is the single place that
+            // triggers fetchQueueAndPlay — transferToClient defers to
+            // here to avoid a double-load race condition.
+            const wasSelfTakeover = selfTakeoverPending.value;
+            selfTakeoverPending.value = false;
+
+            // Read remotePlaybackState to know if we should auto-play.
+            // For self-takeovers the state hasn't been cleared yet so
+            // the value is fresh; for external transfers it was set by
+            // the SSE positionUpdate handler.
             const wasPlaying = remotePlaybackState?.isPlaying ?? false;
             setIsAudioOwner(true);
             setRemotePlaybackState(null);
 
             // Start playback seamlessly if the previous owner was playing
-            if (wasPlaying) {
+            if (wasPlaying || wasSelfTakeover) {
               fetchQueueAndPlay();
             }
           } else if (isAudioOwner) {
             // We were the owner but someone else took over
+            pause();
             setIsAudioOwner(false);
           }
         }

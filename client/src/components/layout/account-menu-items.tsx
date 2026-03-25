@@ -28,12 +28,9 @@ import {
   isAudioOwnerAtom,
   ownerClientIdAtom,
   ownerClientNameAtom,
-  remotePlaybackStateAtom,
+  markSelfTakeoverAtom,
 } from "@/lib/store/session";
-import {
-  currentSongAtom,
-  fetchQueueAndPlayAtom,
-} from "@/lib/store/server-queue";
+import { currentSongAtom } from "@/lib/store/server-queue";
 import { playbackStateAtom, currentTimeAtom } from "@/lib/store/player";
 import { initializeClient, getClient, getClientName } from "@/lib/api/client";
 import { useHasFinePointer } from "@/lib/hooks/use-media-query";
@@ -62,8 +59,7 @@ export function AccountMenuItems({
   const setIsAudioOwner = useSetAtom(isAudioOwnerAtom);
   const setOwnerClientId = useSetAtom(ownerClientIdAtom);
   const setOwnerClientName = useSetAtom(ownerClientNameAtom);
-  const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
-  const fetchQueueAndPlay = useSetAtom(fetchQueueAndPlayAtom);
+  const markSelfTakeover = useSetAtom(markSelfTakeoverAtom);
 
   // Local playback state for own session display
   const localCurrentSong = useAtomValue(currentSongAtom);
@@ -113,10 +109,6 @@ export function AccountMenuItems({
     if (!client || !currentSessionId) return;
 
     const transferringToSelf = targetClientId === myClientId;
-    const remoteState = remotePlaybackState;
-    const wasPlaying = transferringToSelf
-      ? (remoteState?.isPlaying ?? false)
-      : localPlaybackState === "playing";
 
     // Calculate current position to send with takeover so the new owner
     // picks up from the right spot (avoids stale DB position from heartbeat lag).
@@ -137,15 +129,13 @@ export function AccountMenuItems({
       );
 
       if (transferringToSelf) {
-        // We're taking over — become the owner
+        // We're taking over — become the owner.
+        // Don't call fetchQueueAndPlay or clear remotePlaybackState here;
+        // the ownerChanged SSE handler will do both exactly once.
+        markSelfTakeover();
         setIsAudioOwner(true);
         setOwnerClientId(myClientId);
         setOwnerClientName(getClientName());
-        setRemotePlaybackState(null);
-
-        if (wasPlaying) {
-          fetchQueueAndPlay();
-        }
       } else {
         // Transferring to another client — become a follower
         setIsAudioOwner(false);
@@ -158,8 +148,6 @@ export function AccountMenuItems({
       toast.error("Failed to transfer playback");
     }
   };
-
-  const remotePlaybackState = useAtomValue(remotePlaybackStateAtom);
 
   return (
     <>
