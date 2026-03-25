@@ -1327,6 +1327,8 @@ export function useAudioEngineInit() {
     const handleTimeUpdate = (e: Event) => {
       if (!isFromActive(e)) return;
       const activeAudio = audioElements[activeIndex]!;
+      // timeupdate proves playback is progressing — clear any stall timer
+      clearStallTimer();
       // Add the stream time offset to get the real position in the song
       const realTime = activeAudio.currentTime + currentStreamTimeOffset;
       settersRef.current.setCurrentTime(realTime);
@@ -1436,6 +1438,8 @@ export function useAudioEngineInit() {
 
     const handleProgress = (e: Event) => {
       if (!isFromActive(e)) return;
+      // progress proves buffering is advancing — clear any stall timer
+      clearStallTimer();
       const activeAudio = audioElements[activeIndex]!;
       if (activeAudio.buffered.length > 0) {
         settersRef.current.setBuffered(
@@ -1566,7 +1570,15 @@ export function useAudioEngineInit() {
       if (!isFromActive(e)) return;
       console.log("[Audio] stalled event (no data arriving)");
       const state = stateRef.current;
-      if (state.playbackState !== "ended" && state.playbackState !== "idle") {
+      // Only start the stall timer if we're actually in a loading/waiting state.
+      // The browser fires "stalled" when the network fetch stops receiving data,
+      // which is normal when the file is fully buffered. If we're already playing,
+      // timeupdate events prove playback is fine.
+      if (
+        state.playbackState !== "ended" &&
+        state.playbackState !== "idle" &&
+        state.playbackState !== "playing"
+      ) {
         startStallTimer();
       }
     };
