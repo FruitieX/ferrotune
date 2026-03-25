@@ -57,6 +57,10 @@ import { invalidatePlayCountQueries as invalidatePlayCounts } from "@/lib/api/ca
 import { starredItemsAtom } from "@/lib/store/starred";
 import { hasNativeAudio } from "@/lib/tauri";
 import {
+  appResumeRepaintEvent,
+  isAndroidTauriWebView,
+} from "@/lib/utils/app-resume-repaint";
+import {
   initNativeAudioEngine,
   cleanupNativeAudioEngine,
   nativePlay,
@@ -636,6 +640,43 @@ export function useAudioEngineInit() {
     hasInitialFetchRef.current = true;
     fetchQueue();
   }, [isHydrated, serverConnection, currentSessionId, fetchQueue]);
+
+  // Re-fetch queue state when the app resumes from background on Android.
+  // The native service may have advanced tracks while the WebView was frozen,
+  // so the Jotai queue atoms can be stale. Also sync the native service's
+  // current queue index immediately for a faster UI update before the server
+  // roundtrip completes.
+  useEffect(() => {
+    if (!isAndroidTauriWebView()) return;
+
+    const handleResume = async () => {
+      // Sync queue index from native service immediately (fast, local)
+      if (usingNativeAudio) {
+        try {
+          const nativeState = await nativeGetState();
+          settersRef.current.setServerQueueState((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  currentIndex: nativeState.queueIndex,
+                  positionMs: nativeState.positionSeconds * 1000,
+                }
+              : prev,
+          );
+        } catch (e) {
+          console.warn("[Audio] Failed to sync native state on resume:", e);
+        }
+      }
+
+      // Re-fetch full queue state from server (authoritative source)
+      fetchQueue();
+    };
+
+    window.addEventListener(appResumeRepaintEvent, handleResume);
+    return () => {
+      window.removeEventListener(appResumeRepaintEvent, handleResume);
+    };
+  }, [fetchQueue]);
 
   // Reset playback and queue when user account changes (user switch)
   const previousAccountKeyRef = useRef<string | null | undefined>(undefined);

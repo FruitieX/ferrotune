@@ -147,7 +147,6 @@ moon run client:playwright-report   # View Playwright test report
 2. **Write tests** - Hurl for backend, Playwright for frontend
 3. **Run tests** - Verify they pass
 4. **Fix failures** - Iterate until green
-5. **Commit** - Only when tests pass
 
 For detailed testing guidance, see [docs/TESTING.md](docs/TESTING.md).
 

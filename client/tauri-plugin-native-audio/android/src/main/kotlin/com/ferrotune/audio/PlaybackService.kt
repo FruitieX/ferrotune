@@ -1007,6 +1007,8 @@ class PlaybackService : MediaSessionService() {
             } else {
                 // End of queue, no repeat
                 Log.d(TAG, "End of queue, stopping")
+                // Sync final position to server so it knows we reached the end
+                syncPositionToServer()
                 player.pause()
                 emitStateChange()
             }
@@ -1856,6 +1858,8 @@ class PlaybackService : MediaSessionService() {
                 handler.postDelayed(inactivityTimeoutRunnable, INACTIVITY_TIMEOUT_MS)
                 if (autonomousMode) {
                     handler.removeCallbacks(positionSyncRunnable)
+                    // Sync final position to server so it stays up-to-date on pause
+                    syncPositionToServer()
                     // Send immediate heartbeat so followers see is_playing=false
                     sendPlaybackStateHeartbeat(false)
                 }
