@@ -701,6 +701,8 @@ interface SongContextMenuProps {
     | number
     | { top?: number; right?: number; bottom?: number; left?: number };
   onNavigate?: () => void;
+  /** Optional className for the mobile context menu wrapper */
+  className?: string;
 }
 
 export function SongContextMenu({
@@ -723,6 +725,7 @@ export function SongContextMenu({
   onUnmatch,
   collisionPadding,
   onNavigate,
+  className,
 }: SongContextMenuProps) {
   // Single song actions
   const {
@@ -869,6 +872,7 @@ export function SongContextMenu({
       <ResponsiveContextMenu
         renderMenuContent={renderMenuContent}
         collisionPadding={collisionPadding}
+        className={className}
         drawerTitle={
           showBulkMenu
             ? `${bulkActions.selectedCount} songs selected`

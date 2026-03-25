@@ -454,13 +454,21 @@ function SwipeableNowPlaying({
 
     const { velocity } = info;
 
+    // Only trigger track skip if the gesture was primarily horizontal.
+    // This prevents vertical swipes (to open/dismiss fullscreen) from
+    // accidentally skipping tracks due to incidental horizontal velocity.
+    const wasPrimarilyHorizontal =
+      maxHorizontalDistance.current > maxVerticalDistance.current;
+
     // Only consider it a horizontal swipe if the movement is significant
     // Use the actual dragX value (which may be dampened) for threshold check
     const currentDragX = dragX.get();
     const shouldGoNext =
-      currentDragX < -SWIPE_THRESHOLD || velocity.x < -VELOCITY_THRESHOLD;
+      wasPrimarilyHorizontal &&
+      (currentDragX < -SWIPE_THRESHOLD || velocity.x < -VELOCITY_THRESHOLD);
     const shouldGoPrev =
-      currentDragX > SWIPE_THRESHOLD || velocity.x > VELOCITY_THRESHOLD;
+      wasPrimarilyHorizontal &&
+      (currentDragX > SWIPE_THRESHOLD || velocity.x > VELOCITY_THRESHOLD);
 
     if (shouldGoNext && nextTrack) {
       // Animate current track off to the left, then change track
@@ -496,7 +504,11 @@ function SwipeableNowPlaying({
   };
 
   return (
-    <SongContextMenu song={track} collisionPadding={{ bottom: 200 }}>
+    <SongContextMenu
+      song={track}
+      collisionPadding={{ bottom: 200 }}
+      className="flex-1 min-w-0"
+    >
       <div
         ref={containerRef}
         className="relative flex items-center w-full overflow-visible"

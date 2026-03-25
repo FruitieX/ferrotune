@@ -85,6 +85,8 @@ interface ResponsiveContextMenuProps {
   drawerTitle?: string;
   drawerSubtitle?: string;
   drawerThumbnail?: string;
+  /** Optional className for the mobile wrapper div */
+  className?: string;
 }
 
 export function ResponsiveContextMenu({
@@ -95,6 +97,7 @@ export function ResponsiveContextMenu({
   drawerTitle,
   drawerSubtitle,
   drawerThumbnail,
+  className,
 }: ResponsiveContextMenuProps) {
   const hasFinePointer = useHasFinePointer();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -130,6 +133,7 @@ export function ResponsiveContextMenu({
   return (
     <>
       <div
+        className={className}
         onContextMenu={(e) => {
           e.preventDefault();
           setDrawerOpen(true);
