@@ -2389,7 +2389,6 @@ export function useAudioEngineInit() {
 
     // Stop current playback
     audio.pause();
-    audio.src = streamUrl;
 
     // Reset stream time offset (no seeking when loading fresh track)
     currentStreamTimeOffset = 0;
@@ -2403,19 +2402,20 @@ export function useAudioEngineInit() {
       setDuration(currentSong.duration || 0);
 
       if (resumePositionSec > 0 && transcodingEnabled) {
-        // For transcoded streams, use timeOffset to request from the right position
+        // For transcoded streams, use timeOffset to request from the right position.
+        // Set the offset URL directly — do NOT set streamUrl first, as that would
+        // start a competing request from position 0 with preload="auto".
         currentStreamTimeOffset = resumePositionSec;
         const offsetUrl = getClient()?.getStreamUrl(currentSong.id, {
           maxBitRate: transcodingBitrate,
           format: "opus",
           timeOffset: resumePositionSec,
         });
-        if (offsetUrl) {
-          audio.src = offsetUrl;
-        }
+        audio.src = offsetUrl ?? streamUrl;
         audio.load();
       } else if (resumePositionSec > 0) {
         // For non-transcoded streams, seek within the loaded file
+        audio.src = streamUrl;
         const handleCanPlayForRestore = () => {
           audio.removeEventListener("canplay", handleCanPlayForRestore);
           audio.currentTime = resumePositionSec;
@@ -2423,6 +2423,7 @@ export function useAudioEngineInit() {
         audio.addEventListener("canplay", handleCanPlayForRestore);
         audio.load();
       } else {
+        audio.src = streamUrl;
         audio.load();
       }
     } else if (isTranscodingSettingsChange && savedPosition > 0) {
@@ -2462,10 +2463,12 @@ export function useAudioEngineInit() {
         }
         isLoadingNewTrack = false;
       };
+      audio.src = streamUrl;
       audio.addEventListener("canplay", handleCanPlayForSeek);
       audio.load();
     } else {
       // Normal playback: load and play
+      audio.src = streamUrl;
       isLoadingNewTrack = true;
       setPlaybackState("loading");
       setHasScrobbled(false);

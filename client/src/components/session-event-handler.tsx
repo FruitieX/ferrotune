@@ -63,11 +63,15 @@ export function SessionEventHandler() {
     pendingTakeoverPlayAtom,
   );
 
-  // Refetch queue when effective session changes (e.g. switching sessions)
+  // Refetch queue when effective session changes (e.g. switching sessions).
+  // Skip the initial mount — useAudioEngineInit already handles the first fetch.
   const prevSessionIdRef = useRef(effectiveSessionId);
+  const isInitialMountRef = useRef(true);
   useEffect(() => {
     if (effectiveSessionId && prevSessionIdRef.current !== effectiveSessionId) {
-      if (pendingTakeoverPlay) {
+      if (isInitialMountRef.current) {
+        isInitialMountRef.current = false;
+      } else if (pendingTakeoverPlay) {
         setPendingTakeoverPlay(false);
         fetchQueueAndPlay();
       } else {
