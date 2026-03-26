@@ -28,6 +28,10 @@ import {
 } from "lucide-react";
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { cn } from "@/lib/utils";
+import {
+  cleanUpHistoryState,
+  isHistoryCleanup,
+} from "@/lib/hooks/use-back-button-close";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { CoverImage } from "@/components/shared/cover-image";
@@ -427,8 +431,15 @@ export function FullscreenPlayer() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, setIsOpen]);
 
+  // Track whether fullscreen was closed via the back button (popstate)
+  const fsClosedViaPopstateRef = useRef(false);
+  // Track whether we've pushed a history entry that needs cleanup
+  const fsPushedHistoryRef = useRef(false);
+
   // Manage browser history state for back button navigation (Android)
-  // Push a history entry when fullscreen opens, handle popstate to close
+  // Push a history entry when fullscreen opens, handle popstate to close.
+  // When fullscreen closes via non-back-button means (swipe, chevron),
+  // call history.back() to remove the stale entry.
   useEffect(() => {
     // Only on mobile devices with back button
     const isMobileOrTablet =
@@ -437,13 +448,15 @@ export function FullscreenPlayer() {
         navigator.userAgent,
       );
 
-    if (!isMobileOrTablet) return;
-    if (!isOpen) return;
+    if (!isMobileOrTablet || !isOpen) return;
 
-    // Push a history state so back button doesn't navigate away
+    fsClosedViaPopstateRef.current = false;
     window.history.pushState({ fullscreenPlayer: true }, "");
+    fsPushedHistoryRef.current = true;
 
     const handlePopState = (_event: PopStateEvent) => {
+      if (isHistoryCleanup()) return;
+
       // Check if there are any higher priority overlays open
       const higherPriorityOverlay = document.querySelector(
         '[data-state="open"][data-slot="sheet-content"], ' +
@@ -463,6 +476,7 @@ export function FullscreenPlayer() {
       }
 
       // Close the fullscreen player
+      fsClosedViaPopstateRef.current = true;
       setIsOpen(false);
     };
 
@@ -470,8 +484,12 @@ export function FullscreenPlayer() {
 
     return () => {
       window.removeEventListener("popstate", handlePopState);
-      // When component unmounts or isOpen becomes false, we don't need to do anything
-      // The history state will naturally be left behind (back button will just navigate)
+      // Clean up the pushed history entry if fullscreen was closed by
+      // something other than the back button (swipe, chevron, programmatic)
+      if (fsPushedHistoryRef.current && !fsClosedViaPopstateRef.current) {
+        cleanUpHistoryState();
+      }
+      fsPushedHistoryRef.current = false;
     };
   }, [isOpen, setIsOpen]);
 

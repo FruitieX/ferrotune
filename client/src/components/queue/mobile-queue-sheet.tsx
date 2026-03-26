@@ -27,6 +27,10 @@ import {
   ListStart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  cleanUpHistoryState,
+  isHistoryCleanup,
+} from "@/lib/hooks/use-back-button-close";
 import { queuePanelOpenAtom, fullscreenPlayerOpenAtom } from "@/lib/store/ui";
 import {
   serverQueueStateAtom,
@@ -212,7 +216,14 @@ export function MobileQueueSheet() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, setIsOpen]);
 
-  // Push history state when queue opens on mobile for proper back navigation
+  // Track whether queue was closed via the back button (popstate)
+  const closedViaPopstateRef = useRef(false);
+  // Track whether we've pushed a history entry that needs cleanup
+  const pushedHistoryRef = useRef(false);
+
+  // Push history state when queue opens on mobile for proper back navigation.
+  // When queue closes via non-back-button means (X, swipe, backdrop tap),
+  // call history.back() to remove the stale entry so back navigation works.
   useEffect(() => {
     const isMobile =
       typeof window !== "undefined" &&
@@ -222,15 +233,26 @@ export function MobileQueueSheet() {
 
     if (!isMobile || !isOpen) return;
 
-    // Push a history state so back button closes queue first (before fullscreen)
+    closedViaPopstateRef.current = false;
     window.history.pushState({ queuePanel: true }, "");
+    pushedHistoryRef.current = true;
 
     const handlePopState = () => {
+      if (isHistoryCleanup()) return;
+      closedViaPopstateRef.current = true;
       setIsOpen(false);
     };
 
     window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      // Clean up the pushed history entry if queue was closed by
+      // something other than the back button (X, swipe, backdrop tap)
+      if (pushedHistoryRef.current && !closedViaPopstateRef.current) {
+        cleanUpHistoryState();
+      }
+      pushedHistoryRef.current = false;
+    };
   }, [isOpen, setIsOpen]);
 
   const handleClearQueue = () => {

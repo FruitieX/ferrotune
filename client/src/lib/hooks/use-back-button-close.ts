@@ -2,6 +2,34 @@
 
 import { useEffect } from "react";
 
+// Counter for programmatic history.back() calls used to clean up stale
+// pushState entries.  Other popstate handlers check this to avoid reacting
+// to the synthetic popstate event.
+let pendingHistoryCleanups = 0;
+
+/**
+ * Call history.back() to remove a previously pushed dummy history state,
+ * marking it as a cleanup so other popstate handlers can ignore the
+ * resulting popstate event.
+ */
+export function cleanUpHistoryState() {
+  pendingHistoryCleanups++;
+  window.history.back();
+}
+
+/**
+ * Check if the current popstate event was triggered by a cleanup
+ * history.back() call.  Returns true (and decrements the counter) if so —
+ * the caller should ignore the event.
+ */
+export function isHistoryCleanup(): boolean {
+  if (pendingHistoryCleanups > 0) {
+    pendingHistoryCleanups--;
+    return true;
+  }
+  return false;
+}
+
 /**
  * Hook that handles Android back button behavior for closing menus/dialogs.
  *
@@ -12,10 +40,12 @@ import { useEffect } from "react";
  * It also pushes a dummy history entry so the back button doesn't
  * navigate away from the page when used to close menus.
  *
+ * Note: Queue panel and fullscreen player are NOT handled here — they
+ * manage their own history entries and popstate handlers.
+ *
  * Priority order (highest first):
  * 1. Context menus, dropdown menus, popovers (temporary overlays)
  * 2. Dialogs and sheets (modal overlays)
- * 3. Fullscreen player
  */
 export function useBackButtonClose() {
   useEffect(() => {
@@ -40,6 +70,8 @@ export function useBackButtonClose() {
     };
 
     // Overlay selectors in priority order (check highest priority first)
+    // Note: queue panel and fullscreen player are excluded — they manage
+    // their own history entries via dedicated effects.
     const overlaySelectors = [
       // Priority 1: Temporary overlays (menus, popovers)
       '[data-state="open"][data-slot="context-menu-content"]',
@@ -48,10 +80,6 @@ export function useBackButtonClose() {
       // Priority 2: Modal overlays (dialogs, sheets)
       '[data-state="open"][data-slot="dialog-content"]',
       '[data-state="open"][data-slot="sheet-content"]',
-      // Priority 2.5: Queue panel (above fullscreen player)
-      '[data-queue-panel="open"]',
-      // Priority 3: Fullscreen player
-      '[data-fullscreen-player="true"]',
     ];
 
     // Combined selector for checking if any overlay is open
@@ -70,6 +98,9 @@ export function useBackButtonClose() {
     observer.observe(document.body, { childList: true, subtree: true });
 
     const handlePopState = (event: PopStateEvent) => {
+      // Ignore synthetic popstate from history cleanup in other overlays
+      if (isHistoryCleanup()) return;
+
       // Find the highest priority overlay that's open
       let targetElement: Element | null = null;
 

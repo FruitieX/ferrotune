@@ -2001,11 +2001,14 @@ export function useAudioEngineInit() {
       // When shuffle/repeat/queue-metadata changes happen, the signal may
       // have changed but the current song is the same — don't restart it.
       // Only reload when the user explicitly requested playback (e.g.
-      // clicking the same track again) via pendingUserPlayback.
+      // clicking the same track again) via pendingUserPlayback, or when the
+      // queue was explicitly changed (signalChanged) which may need a fresh
+      // autonomous playback start even for the same song.
       if (
         currentSong.id === currentLoadedTrackId &&
         !transcodingChanged &&
-        !pendingUserPlayback.value
+        !pendingUserPlayback.value &&
+        !signalChanged
       ) {
         console.log("[Audio] Skipping - same track already loaded");
         lastProcessedSignalRef.current = trackChangeSignal;
