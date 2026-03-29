@@ -313,9 +313,10 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
       });
 
       set(queueWindowAtom, response.window);
-      // Store position so the audio engine can restore it (e.g. page
-      // reload or taking over a paused session)
-      pendingPlaybackPositionMs.value = Number(response.positionMs);
+      // TODO: position restoring on first load is currently disabled
+      // due to race conditions with settings hydration causing the
+      // position to reset to 0. Re-enable once the root cause is fixed.
+      // pendingPlaybackPositionMs.value = Number(response.positionMs);
     }
   } catch (error) {
     // Network error or other failure

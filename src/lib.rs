@@ -350,7 +350,11 @@ pub async fn start_embedded_server(
 }
 
 /// Create the admin user
-async fn create_admin_user(pool: &sqlx::SqlitePool, username: &str, password: &str) -> Result<()> {
+pub async fn create_admin_user(
+    pool: &sqlx::SqlitePool,
+    username: &str,
+    password: &str,
+) -> Result<()> {
     let password_hash = password::hash_password(password)
         .map_err(|e| error::Error::Internal(format!("Failed to hash password: {}", e)))?;
     let subsonic_token = password::create_subsonic_token(password);

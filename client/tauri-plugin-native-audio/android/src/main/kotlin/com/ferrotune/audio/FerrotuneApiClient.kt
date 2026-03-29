@@ -134,18 +134,32 @@ class FerrotuneApiClient {
     }
 
     /**
-     * Build auth query parameters for URLs (streaming, cover art).
+     * Build non-auth query parameters for URLs (streaming, cover art).
+     * Auth is sent via HTTP headers instead of query params to avoid
+     * credentials leaking into logs, proxies, and cache keys.
      */
-    private fun appendAuthParams(uriBuilder: Uri.Builder) {
-        val config = getConfig()
-        if (config.username != null && config.password != null) {
-            uriBuilder.appendQueryParameter("u", config.username)
-            uriBuilder.appendQueryParameter("p", config.password)
-        } else if (config.apiKey != null) {
-            uriBuilder.appendQueryParameter("apiKey", config.apiKey)
-        }
+    private fun appendCommonParams(uriBuilder: Uri.Builder) {
         uriBuilder.appendQueryParameter("v", API_VERSION)
         uriBuilder.appendQueryParameter("c", CLIENT_NAME)
+    }
+
+    /**
+     * Return auth headers for HTTP requests (Basic auth or API key).
+     * Used by ExoPlayer's data source factory for streaming/cover art.
+     */
+    fun getAuthHeaders(): Map<String, String> {
+        val config = getConfig()
+        return if (config.username != null && config.password != null) {
+            val credentials = android.util.Base64.encodeToString(
+                "${config.username}:${config.password}".toByteArray(),
+                android.util.Base64.NO_WRAP
+            )
+            mapOf("Authorization" to "Basic $credentials")
+        } else if (config.apiKey != null) {
+            mapOf("X-Api-Key" to config.apiKey)
+        } else {
+            emptyMap()
+        }
     }
 
     /**
@@ -154,7 +168,7 @@ class FerrotuneApiClient {
     fun buildStreamUrl(songId: String, settings: PlaybackSettings, timeOffsetSeconds: Long = 0): String {
         val config = getConfig()
         val uriBuilder = Uri.parse("${config.serverUrl}/ferrotune/stream").buildUpon()
-        appendAuthParams(uriBuilder)
+        appendCommonParams(uriBuilder)
         uriBuilder.appendQueryParameter("id", songId)
         if (settings.transcodingEnabled) {
             uriBuilder.appendQueryParameter("maxBitRate", settings.transcodingBitrate.toString())
@@ -172,7 +186,7 @@ class FerrotuneApiClient {
     fun buildCoverArtUrl(coverArtId: String, size: Int = 512): String {
         val config = getConfig()
         val uriBuilder = Uri.parse("${config.serverUrl}/ferrotune/cover-art").buildUpon()
-        appendAuthParams(uriBuilder)
+        appendCommonParams(uriBuilder)
         uriBuilder.appendQueryParameter("id", coverArtId)
         uriBuilder.appendQueryParameter("size", size.toString())
         return uriBuilder.build().toString()

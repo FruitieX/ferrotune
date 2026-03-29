@@ -250,7 +250,7 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
 
     if user_count == 0 {
         tracing::info!("No users found. Creating admin user...");
-        create_admin_user(
+        ferrotune::create_admin_user(
             &pool,
             &config.server.admin_user,
             &config.server.admin_password,
@@ -260,6 +260,13 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
 
     // Initialize music folders
     init_music_folders(&pool, &config).await?;
+
+    // Clean up orphaned queues (queues with no active session, older than 7 days)
+    match db::queries::cleanup_orphaned_queues(&pool, 7).await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!("Cleaned up {} orphaned queue rows", n),
+        Err(e) => tracing::warn!("Failed to clean up orphaned queues: {}", e),
+    }
 
     // Create shared app state
     let scan_state = api::create_scan_state();
@@ -470,36 +477,6 @@ fn build_cors_layer(config: &config::Config) -> CorsLayer {
     }
 
     cors
-}
-
-async fn create_admin_user(pool: &sqlx::SqlitePool, username: &str, password: &str) -> Result<()> {
-    // Hash the password using argon2
-    let password_hash = password::hash_password(password)
-        .map_err(|e| error::Error::Internal(format!("Failed to hash password: {}", e)))?;
-    // Create subsonic token for legacy token+salt authentication
-    let subsonic_token = password::create_subsonic_token(password);
-
-    let user_id =
-        db::queries::create_user(pool, username, &password_hash, &subsonic_token, None, true)
-            .await?;
-    tracing::info!("Admin user '{}' created successfully", username);
-
-    // Grant access to all existing music folders
-    let folders: Vec<(i64,)> = sqlx::query_as("SELECT id FROM music_folders")
-        .fetch_all(pool)
-        .await?;
-
-    for (folder_id,) in folders {
-        sqlx::query(
-            "INSERT OR IGNORE INTO user_library_access (user_id, music_folder_id) VALUES (?, ?)",
-        )
-        .bind(user_id)
-        .bind(folder_id)
-        .execute(pool)
-        .await?;
-    }
-
-    Ok(())
 }
 
 /// Initialize music folders from config into the database

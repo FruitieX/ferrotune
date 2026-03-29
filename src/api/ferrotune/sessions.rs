@@ -269,28 +269,17 @@ pub async fn session_heartbeat(
     let is_owner_heartbeat = request.current_index.is_some() || request.current_song_id.is_some();
 
     if is_owner_heartbeat {
-        queries::update_session_heartbeat(
+        queries::update_session_heartbeat_with_position(
             &state.pool,
             &session_id,
             request.is_playing,
             request.current_song_id.as_deref(),
             request.current_song_title.as_deref(),
             request.current_song_artist.as_deref(),
+            request.current_index.map(|i| i as i64),
+            request.position_ms,
         )
         .await?;
-
-        // Also update queue position if provided
-        if let (Some(current_index), Some(position_ms)) =
-            (request.current_index, request.position_ms)
-        {
-            let _ = queries::update_queue_position_by_session(
-                &state.pool,
-                &session_id,
-                current_index as i64,
-                position_ms,
-            )
-            .await;
-        }
 
         // Broadcast position update to SSE subscribers
         state
@@ -374,7 +363,7 @@ pub async fn session_events(
 
     // Read current queue position from the database for accurate initial state
     let (current_index, position_ms) = if let Ok(Some(queue)) =
-        queries::get_play_queue_by_session(&state.pool, &session.id).await
+        queries::get_play_queue_by_session(&state.pool, &session.id, user.user_id).await
     {
         (queue.current_index as usize, queue.position_ms)
     } else {

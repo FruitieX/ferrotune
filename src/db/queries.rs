@@ -1208,11 +1208,14 @@ pub async fn delete_song(pool: &SqlitePool, id: &str) -> sqlx::Result<bool> {
     parts.push(title.as_str());
     let search_text = parts.join(" - ");
 
-    // Get all playlist IDs that will be affected
-    let affected_playlists: Vec<(String,)> =
+    // Run all mutations in a single transaction for consistency
+    let mut tx = pool.begin().await?;
+
+    // Get affected playlist IDs before mutating (for batch update below)
+    let affected_playlist_ids: Vec<(String,)> =
         sqlx::query_as("SELECT DISTINCT playlist_id FROM playlist_songs WHERE song_id = ?")
             .bind(id)
-            .fetch_all(pool)
+            .fetch_all(&mut *tx)
             .await?;
 
     // Convert playlist entries to "missing" entries (song_id becomes NULL, metadata preserved)
@@ -1222,22 +1225,23 @@ pub async fn delete_song(pool: &SqlitePool, id: &str) -> sqlx::Result<bool> {
     .bind(&missing_json)
     .bind(&search_text)
     .bind(id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
 
     // Delete starred entries for this song
     sqlx::query("DELETE FROM starred WHERE item_type = 'song' AND item_id = ?")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
 
     // Delete the song (scrobbles cascade, FTS trigger cleans up)
     let result = sqlx::query("DELETE FROM songs WHERE id = ?")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
 
     if result.rows_affected() == 0 {
+        tx.rollback().await?;
         return Ok(false);
     }
 
@@ -1252,27 +1256,35 @@ pub async fn delete_song(pool: &SqlitePool, id: &str) -> sqlx::Result<bool> {
         .bind(&album_id)
         .bind(&album_id)
         .bind(&album_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     }
 
-    // Update totals for all affected playlists
-    for (playlist_id,) in &affected_playlists {
-        sqlx::query(
-            "UPDATE playlists SET 
-                song_count = (SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = ? AND song_id IS NOT NULL),
-                duration = (SELECT COALESCE(SUM(s.duration), 0) FROM songs s 
-                            INNER JOIN playlist_songs ps ON s.id = ps.song_id 
-                            WHERE ps.playlist_id = ?),
+    // Batch-update totals for all affected playlists in a single query
+    if !affected_playlist_ids.is_empty() {
+        let placeholders = affected_playlist_ids
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "UPDATE playlists SET
+                song_count = (SELECT COUNT(*) FROM playlist_songs WHERE playlist_id = playlists.id AND song_id IS NOT NULL),
+                duration = (SELECT COALESCE(SUM(s.duration), 0) FROM songs s
+                            INNER JOIN playlist_songs ps ON s.id = ps.song_id
+                            WHERE ps.playlist_id = playlists.id),
                 updated_at = datetime('now')
-             WHERE id = ?",
-        )
-        .bind(playlist_id)
-        .bind(playlist_id)
-        .bind(playlist_id)
-        .execute(pool)
-        .await?;
+             WHERE id IN ({})",
+            placeholders
+        );
+        let mut query = sqlx::query(&sql);
+        for (pid,) in &affected_playlist_ids {
+            query = query.bind(pid);
+        }
+        query.execute(&mut *tx).await?;
     }
+
+    tx.commit().await?;
 
     Ok(true)
 }
@@ -1365,15 +1377,25 @@ pub async fn get_session(
     .await
 }
 
-/// Update session heartbeat and playback state (called by owner)
-pub async fn update_session_heartbeat(
+/// Atomically update session heartbeat and queue position in a single transaction.
+/// Ensures followers always see consistent session state + queue position.
+///
+/// Note: The queue's `current_index` + `position_ms` are the canonical position
+/// source. The session table stores display metadata (song info) and liveness;
+/// position data there is ephemeral.
+#[allow(clippy::too_many_arguments)]
+pub async fn update_session_heartbeat_with_position(
     pool: &SqlitePool,
     session_id: &str,
     is_playing: bool,
     current_song_id: Option<&str>,
     current_song_title: Option<&str>,
     current_song_artist: Option<&str>,
+    current_index: Option<i64>,
+    position_ms: Option<i64>,
 ) -> sqlx::Result<bool> {
+    let mut tx = pool.begin().await?;
+
     let result = sqlx::query(
         "UPDATE playback_sessions
          SET last_heartbeat = datetime('now'),
@@ -1388,8 +1410,22 @@ pub async fn update_session_heartbeat(
     .bind(current_song_title)
     .bind(current_song_artist)
     .bind(session_id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+
+    if let (Some(idx), Some(pos)) = (current_index, position_ms) {
+        sqlx::query(
+            "UPDATE play_queues SET current_index = ?, position_ms = ?, updated_at = datetime('now')
+             WHERE session_id = ?",
+        )
+        .bind(idx)
+        .bind(pos)
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
     Ok(result.rows_affected() > 0)
 }
 
@@ -1440,13 +1476,15 @@ pub async fn get_user_session(
 // Play Queue queries (server-side queue management)
 // ============================================================================
 
-/// Get the play queue for a session
+/// Get the play queue for a session, verifying it belongs to the given user
 pub async fn get_play_queue_by_session(
     pool: &SqlitePool,
     session_id: &str,
+    user_id: i64,
 ) -> sqlx::Result<Option<PlayQueue>> {
-    sqlx::query_as::<_, PlayQueue>("SELECT * FROM play_queues WHERE session_id = ?")
+    sqlx::query_as::<_, PlayQueue>("SELECT * FROM play_queues WHERE session_id = ? AND user_id = ?")
         .bind(session_id)
+        .bind(user_id)
         .fetch_optional(pool)
         .await
 }
@@ -1744,6 +1782,7 @@ pub async fn update_queue_position_ms_by_session(
 }
 
 /// Update queue shuffle state by session
+#[allow(clippy::too_many_arguments)]
 pub async fn update_queue_shuffle_by_session(
     pool: &SqlitePool,
     session_id: &str,
@@ -1752,18 +1791,56 @@ pub async fn update_queue_shuffle_by_session(
     shuffle_indices_json: Option<&str>,
     current_index: i64,
     position_ms: i64,
+    expected_version: Option<i64>,
+) -> sqlx::Result<bool> {
+    let result = if let Some(ver) = expected_version {
+        // Optimistic locking: only update if version matches
+        sqlx::query(
+            "UPDATE play_queues SET
+             is_shuffled = ?, shuffle_seed = ?, shuffle_indices_json = ?,
+             current_index = ?, position_ms = ?, updated_at = datetime('now'),
+             version = version + 1
+             WHERE session_id = ? AND version = ?",
+        )
+        .bind(is_shuffled)
+        .bind(shuffle_seed)
+        .bind(shuffle_indices_json)
+        .bind(current_index)
+        .bind(position_ms)
+        .bind(session_id)
+        .bind(ver)
+        .execute(pool)
+        .await?
+    } else {
+        sqlx::query(
+            "UPDATE play_queues SET
+             is_shuffled = ?, shuffle_seed = ?, shuffle_indices_json = ?,
+             current_index = ?, position_ms = ?, updated_at = datetime('now'),
+             version = version + 1
+             WHERE session_id = ?",
+        )
+        .bind(is_shuffled)
+        .bind(shuffle_seed)
+        .bind(shuffle_indices_json)
+        .bind(current_index)
+        .bind(position_ms)
+        .bind(session_id)
+        .execute(pool)
+        .await?
+    };
+    Ok(result.rows_affected() > 0)
+}
+
+/// Update song_ids_json on a queue (used to eagerly materialize lazy queues)
+pub async fn update_queue_song_ids_by_session(
+    pool: &SqlitePool,
+    session_id: &str,
+    song_ids_json: Option<&str>,
 ) -> sqlx::Result<bool> {
     let result = sqlx::query(
-        "UPDATE play_queues SET
-         is_shuffled = ?, shuffle_seed = ?, shuffle_indices_json = ?,
-         current_index = ?, position_ms = ?, updated_at = datetime('now')
-         WHERE session_id = ?",
+        "UPDATE play_queues SET song_ids_json = ?, updated_at = datetime('now') WHERE session_id = ?",
     )
-    .bind(is_shuffled)
-    .bind(shuffle_seed)
-    .bind(shuffle_indices_json)
-    .bind(current_index)
-    .bind(position_ms)
+    .bind(song_ids_json)
     .bind(session_id)
     .execute(pool)
     .await?;
@@ -2382,4 +2459,37 @@ pub async fn get_playlist_full_name(
         Some(path) => Ok(format!("{}/{}", path, name)),
         None => Ok(name.to_string()),
     }
+}
+
+/// Delete orphaned queues — queues whose session has no matching playback_sessions
+/// row and that haven't been updated in `older_than_days` days.
+/// Skips subsonic save/restore queues (playqueue-*) as those are stateless.
+pub async fn cleanup_orphaned_queues(pool: &SqlitePool, older_than_days: i64) -> sqlx::Result<u64> {
+    // Delete queue entries first (FK-like cleanup)
+    let entries_deleted = sqlx::query(
+        "DELETE FROM play_queue_entries WHERE session_id IN (
+            SELECT pq.session_id FROM play_queues pq
+            WHERE pq.session_id IS NOT NULL
+              AND pq.session_id NOT LIKE 'playqueue-%'
+              AND pq.session_id NOT IN (SELECT id FROM playback_sessions)
+              AND pq.updated_at < datetime('now', '-' || ? || ' days')
+        )",
+    )
+    .bind(older_than_days)
+    .execute(pool)
+    .await?;
+
+    // Delete the orphaned queue metadata
+    let queues_deleted = sqlx::query(
+        "DELETE FROM play_queues
+         WHERE session_id IS NOT NULL
+           AND session_id NOT LIKE 'playqueue-%'
+           AND session_id NOT IN (SELECT id FROM playback_sessions)
+           AND updated_at < datetime('now', '-' || ? || ' days')",
+    )
+    .bind(older_than_days)
+    .execute(pool)
+    .await?;
+
+    Ok(entries_deleted.rows_affected() + queues_deleted.rows_affected())
 }

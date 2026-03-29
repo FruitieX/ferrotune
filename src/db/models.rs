@@ -475,27 +475,28 @@ impl QueueSourceType {
 }
 
 impl std::str::FromStr for QueueSourceType {
-    type Err = std::convert::Infallible;
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s {
-            "library" => QueueSourceType::Library,
-            "album" => QueueSourceType::Album,
-            "artist" => QueueSourceType::Artist,
-            "playlist" => QueueSourceType::Playlist,
-            "smartPlaylist" => QueueSourceType::SmartPlaylist,
-            "genre" => QueueSourceType::Genre,
-            "search" => QueueSourceType::Search,
-            "favorites" => QueueSourceType::Favorites,
-            "history" => QueueSourceType::History,
-            "directory" => QueueSourceType::Directory,
-            "directoryFlat" => QueueSourceType::DirectoryFlat,
-            "songRadio" => QueueSourceType::SongRadio,
-            "albumList" => QueueSourceType::AlbumList,
-            "continueListening" => QueueSourceType::ContinueListening,
-            "forgottenFavorites" => QueueSourceType::ForgottenFavorites,
-            _ => QueueSourceType::Other,
-        })
+        match s {
+            "library" => Ok(QueueSourceType::Library),
+            "album" => Ok(QueueSourceType::Album),
+            "artist" => Ok(QueueSourceType::Artist),
+            "playlist" => Ok(QueueSourceType::Playlist),
+            "smartPlaylist" => Ok(QueueSourceType::SmartPlaylist),
+            "genre" => Ok(QueueSourceType::Genre),
+            "search" => Ok(QueueSourceType::Search),
+            "favorites" => Ok(QueueSourceType::Favorites),
+            "history" => Ok(QueueSourceType::History),
+            "directory" => Ok(QueueSourceType::Directory),
+            "directoryFlat" => Ok(QueueSourceType::DirectoryFlat),
+            "songRadio" => Ok(QueueSourceType::SongRadio),
+            "albumList" => Ok(QueueSourceType::AlbumList),
+            "continueListening" => Ok(QueueSourceType::ContinueListening),
+            "forgottenFavorites" => Ok(QueueSourceType::ForgottenFavorites),
+            "other" => Ok(QueueSourceType::Other),
+            _ => Err(format!("Unknown queue source type: {s}")),
+        }
     }
 }
 
@@ -520,14 +521,15 @@ impl RepeatMode {
 }
 
 impl std::str::FromStr for RepeatMode {
-    type Err = std::convert::Infallible;
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s {
-            "all" => RepeatMode::All,
-            "one" => RepeatMode::One,
-            _ => RepeatMode::Off,
-        })
+        match s {
+            "off" => Ok(RepeatMode::Off),
+            "all" => Ok(RepeatMode::All),
+            "one" => Ok(RepeatMode::One),
+            _ => Err(format!("Unknown repeat mode: {s}")),
+        }
     }
 }
 
@@ -550,13 +552,22 @@ pub struct PlaybackSession {
 }
 
 /// Server-side play queue state
+/// Server-side play queue state.
+///
+/// **Canonical position source:** `current_index` + `position_ms` are the single
+/// source of truth for playback position. The `playback_sessions` table stores
+/// display metadata (song title/artist) and heartbeat timestamps, but position
+/// data there is derived/ephemeral. SSE events broadcast position changes but
+/// are not authoritative. Clients should always reconcile against the queue.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PlayQueue {
     pub user_id: i64,
     pub source_type: String,
     pub source_id: Option<String>,
     pub source_name: Option<String>,
+    /// Canonical: current track index (in shuffled space if is_shuffled)
     pub current_index: i64,
+    /// Canonical: playback position within the current track, in milliseconds
     pub position_ms: i64,
     pub is_shuffled: bool,
     pub shuffle_seed: Option<i64>,
@@ -577,6 +588,10 @@ pub struct PlayQueue {
     pub instance_id: Option<String>,
     /// Playback session this queue belongs to
     pub session_id: Option<String>,
+    /// Optimistic concurrency version counter, incremented on each mutation
+    pub version: i64,
+    /// Which API created this queue: 'ferrotune' (live session) or 'subsonic' (save/restore)
+    pub source_api: String,
 }
 
 impl PlayQueue {

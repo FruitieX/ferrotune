@@ -20,7 +20,7 @@ use crate::api::ferrotune::smart_playlists::get_smart_playlist_songs_by_id;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::subsonic::inline_thumbnails::{get_song_thumbnails_base64, InlineImagesParam};
 use crate::api::{AppState, SessionEvent};
-use crate::db::models::{ItemType, QueueSourceType, RepeatMode};
+use crate::db::models::{ItemType, PlayQueue, QueueSourceType, RepeatMode};
 use crate::db::queries;
 use crate::error::{Error, FerrotuneApiError, FerrotuneApiResult};
 use axum::{
@@ -166,6 +166,36 @@ pub struct QueueSourceInfo {
     pub instance_id: String,
 }
 
+impl QueueSourceInfo {
+    fn from_queue(queue: &PlayQueue) -> Self {
+        Self {
+            source_type: queue.source_type.clone(),
+            id: queue.source_id.clone(),
+            name: queue.source_name.clone(),
+            filters: queue
+                .filters_json
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok()),
+            sort: queue
+                .sort_json
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok()),
+            instance_id: queue.instance_id.clone().unwrap_or_default(),
+        }
+    }
+
+    fn empty() -> Self {
+        Self {
+            source_type: "other".to_string(),
+            id: None,
+            name: None,
+            filters: None,
+            sort: None,
+            instance_id: String::new(),
+        }
+    }
+}
+
 /// Query parameters for paginated queue fetch
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -296,6 +326,9 @@ pub struct SessionParams {
 // Session-ID requirement helper
 // ============================================================================
 
+/// Maximum number of songs allowed in a single queue.
+const MAX_QUEUE_SIZE: usize = 50_000;
+
 /// All queue endpoints require a session_id.
 /// Returns 400 Bad Request if missing.
 fn require_session_id(session_id: Option<&str>) -> FerrotuneApiResult<&str> {
@@ -339,7 +372,9 @@ pub async fn start_queue(
     State(state): State<Arc<AppState>>,
     Json(request): Json<StartQueueRequest>,
 ) -> FerrotuneApiResult<Json<StartQueueResponse>> {
-    let source_type: QueueSourceType = request.source_type.parse().unwrap_or_default();
+    let source_type: QueueSourceType = request.source_type.parse().map_err(|_| {
+        Error::InvalidRequest(format!("Invalid source type: {}", request.source_type))
+    })?;
 
     // For playlists with missing entries, we need to track position mappings
     // to correctly translate the client's start_index (based on full playlist positions)
@@ -524,6 +559,14 @@ pub async fn start_queue(
     }
 
     let total_count = songs.len();
+
+    if total_count > MAX_QUEUE_SIZE {
+        return Err(FerrotuneApiError(Error::InvalidRequest(format!(
+            "Queue size {} exceeds maximum of {}",
+            total_count, MAX_QUEUE_SIZE
+        ))));
+    }
+
     let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
 
     // Translate start_index for playlists with missing entries
@@ -581,7 +624,8 @@ pub async fn start_queue(
             };
 
         let indices = generate_shuffle_indices(total_count, effective_start, seed as u64);
-        let indices_json = serde_json::to_string(&indices).unwrap_or_default();
+        let indices_json = serde_json::to_string(&indices)
+            .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
         // The current song is at position 0 in the shuffled indices
         (true, Some(seed), Some(indices_json), 0i64)
     } else {
@@ -681,7 +725,7 @@ pub async fn start_queue(
         invalidate_shuffle_cache(&state, user.user_id).await;
 
         // Build initial window using the efficient path (fetches only needed entries)
-        let queue = queries::get_play_queue_by_session(&state.pool, session_id)
+        let queue = queries::get_play_queue_by_session(&state.pool, session_id, user.user_id)
             .await?
             .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
@@ -724,7 +768,7 @@ pub async fn start_queue(
     }
 
     // Fetch the queue to get the created_at timestamp
-    let queue = queries::get_play_queue_by_session(&state.pool, session_id)
+    let queue = queries::get_play_queue_by_session(&state.pool, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("Queue not found after creation".to_string()))?;
 
@@ -736,20 +780,7 @@ pub async fn start_queue(
         current_index: current_index as usize,
         is_shuffled,
         repeat_mode: repeat_mode.to_string(),
-        source: QueueSourceInfo {
-            source_type: queue.source_type.clone(),
-            id: queue.source_id.clone(),
-            name: queue.source_name.clone(),
-            filters: queue
-                .filters_json
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok()),
-            sort: queue
-                .sort_json
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok()),
-            instance_id: queue.instance_id.clone().unwrap_or_default(),
-        },
+        source: QueueSourceInfo::from_queue(&queue),
         window,
     }))
 }
@@ -761,31 +792,25 @@ pub async fn get_queue(
     Query(params): Query<QueuePaginationParams>,
 ) -> FerrotuneApiResult<Json<GetQueueResponse>> {
     let session_id = require_session_id(params.session_id.as_deref())?;
-    let queue = match queries::get_play_queue_by_session(&state.pool, session_id).await? {
-        Some(q) => q,
-        None => {
-            // Return empty queue response instead of 404
-            return Ok(Json(GetQueueResponse {
-                total_count: 0,
-                current_index: 0,
-                position_ms: 0,
-                is_shuffled: false,
-                repeat_mode: "off".to_string(),
-                source: QueueSourceInfo {
-                    source_type: "other".to_string(),
-                    id: None,
-                    name: None,
-                    filters: None,
-                    sort: None,
-                    instance_id: String::new(),
-                },
-                window: QueueWindow {
-                    offset: 0,
-                    songs: vec![],
-                },
-            }));
-        }
-    };
+    let queue =
+        match queries::get_play_queue_by_session(&state.pool, session_id, user.user_id).await? {
+            Some(q) => q,
+            None => {
+                // Return empty queue response instead of 404
+                return Ok(Json(GetQueueResponse {
+                    total_count: 0,
+                    current_index: 0,
+                    position_ms: 0,
+                    is_shuffled: false,
+                    repeat_mode: "off".to_string(),
+                    source: QueueSourceInfo::empty(),
+                    window: QueueWindow {
+                        offset: 0,
+                        songs: vec![],
+                    },
+                }));
+            }
+        };
 
     let offset = params.offset.unwrap_or(0);
     let limit = params.limit.unwrap_or(50).min(200);
@@ -832,20 +857,7 @@ pub async fn get_queue(
         position_ms: queue.position_ms,
         is_shuffled: queue.is_shuffled,
         repeat_mode: queue.repeat_mode.clone(),
-        source: QueueSourceInfo {
-            source_type: queue.source_type.clone(),
-            id: queue.source_id.clone(),
-            name: queue.source_name.clone(),
-            filters: queue
-                .filters_json
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok()),
-            sort: queue
-                .sort_json
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok()),
-            instance_id: queue.instance_id.clone().unwrap_or_default(),
-        },
+        source: QueueSourceInfo::from_queue(&queue),
         window,
     }))
 }
@@ -857,31 +869,25 @@ pub async fn get_current_window(
     Query(params): Query<CurrentWindowParams>,
 ) -> FerrotuneApiResult<Json<GetQueueResponse>> {
     let session_id = require_session_id(params.session_id.as_deref())?;
-    let queue = match queries::get_play_queue_by_session(&state.pool, session_id).await? {
-        Some(q) => q,
-        None => {
-            // Return empty queue response instead of 404
-            return Ok(Json(GetQueueResponse {
-                total_count: 0,
-                current_index: 0,
-                position_ms: 0,
-                is_shuffled: false,
-                repeat_mode: "off".to_string(),
-                source: QueueSourceInfo {
-                    source_type: "other".to_string(),
-                    id: None,
-                    name: None,
-                    filters: None,
-                    sort: None,
-                    instance_id: String::new(),
-                },
-                window: QueueWindow {
-                    offset: 0,
-                    songs: vec![],
-                },
-            }));
-        }
-    };
+    let queue =
+        match queries::get_play_queue_by_session(&state.pool, session_id, user.user_id).await? {
+            Some(q) => q,
+            None => {
+                // Return empty queue response instead of 404
+                return Ok(Json(GetQueueResponse {
+                    total_count: 0,
+                    current_index: 0,
+                    position_ms: 0,
+                    is_shuffled: false,
+                    repeat_mode: "off".to_string(),
+                    source: QueueSourceInfo::empty(),
+                    window: QueueWindow {
+                        offset: 0,
+                        songs: vec![],
+                    },
+                }));
+            }
+        };
 
     let radius = params.radius.unwrap_or(20);
     let inline_size = params.inline_images.get_size();
@@ -937,20 +943,7 @@ pub async fn get_current_window(
         position_ms: queue.position_ms,
         is_shuffled: queue.is_shuffled,
         repeat_mode: queue.repeat_mode.clone(),
-        source: QueueSourceInfo {
-            source_type: queue.source_type.clone(),
-            id: queue.source_id.clone(),
-            name: queue.source_name.clone(),
-            filters: queue
-                .filters_json
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok()),
-            sort: queue
-                .sort_json
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok()),
-            instance_id: queue.instance_id.clone().unwrap_or_default(),
-        },
+        source: QueueSourceInfo::from_queue(&queue),
         window,
     }))
 }
@@ -962,7 +955,7 @@ pub async fn add_to_queue(
     Json(request): Json<AddToQueueRequest>,
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(request.session_id.as_deref())?;
-    let queue = queries::get_play_queue_by_session(&state.pool, session_id)
+    let queue = queries::get_play_queue_by_session(&state.pool, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
@@ -983,7 +976,9 @@ pub async fn add_to_queue(
         (&request.source_type, &request.source_id)
     {
         // Materialize songs from source
-        let source_type: QueueSourceType = source_type_str.parse().unwrap_or_default();
+        let source_type: QueueSourceType = source_type_str.parse().map_err(|_| {
+            Error::InvalidRequest(format!("Invalid source type: {}", source_type_str))
+        })?;
         let songs = materialize_queue_songs(
             &state.pool,
             user.user_id,
@@ -1007,6 +1002,14 @@ pub async fn add_to_queue(
             total_count: Some(current_len as usize),
             added_count: Some(0),
         }));
+    }
+
+    if (current_len as usize + song_ids.len()) > MAX_QUEUE_SIZE {
+        return Err(FerrotuneApiError(Error::InvalidRequest(format!(
+            "Adding {} songs would exceed maximum queue size of {}",
+            song_ids.len(),
+            MAX_QUEUE_SIZE
+        ))));
     }
 
     let new_len = queries::add_to_queue_by_session(
@@ -1046,8 +1049,9 @@ pub async fn add_to_queue(
             }
         }
 
-        let indices_json = serde_json::to_string(&new_indices).unwrap_or_default();
-        queries::update_queue_shuffle_by_session(
+        let indices_json = serde_json::to_string(&new_indices)
+            .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
+        let updated = queries::update_queue_shuffle_by_session(
             &state.pool,
             session_id,
             true,
@@ -1055,8 +1059,15 @@ pub async fn add_to_queue(
             Some(&indices_json),
             queue.current_index,
             queue.position_ms,
+            Some(queue.version),
         )
         .await?;
+
+        if !updated {
+            return Err(FerrotuneApiError(Error::InvalidRequest(
+                "Queue was modified concurrently, please retry".to_string(),
+            )));
+        }
 
         invalidate_shuffle_cache(&state, user.user_id).await;
     }
@@ -1081,7 +1092,7 @@ pub async fn remove_from_queue(
     Query(params): Query<SessionParams>,
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(params.session_id.as_deref())?;
-    let queue = queries::get_play_queue_by_session(&state.pool, session_id)
+    let queue = queries::get_play_queue_by_session(&state.pool, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
@@ -1141,8 +1152,9 @@ pub async fn remove_from_queue(
             (indices.len().saturating_sub(1)) as i64
         };
 
-        let indices_json = serde_json::to_string(&indices).unwrap_or_default();
-        queries::update_queue_shuffle_by_session(
+        let indices_json = serde_json::to_string(&indices)
+            .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
+        let updated = queries::update_queue_shuffle_by_session(
             &state.pool,
             session_id,
             true,
@@ -1150,8 +1162,15 @@ pub async fn remove_from_queue(
             Some(&indices_json),
             shuffled_current,
             queue.position_ms,
+            Some(queue.version),
         )
         .await?;
+
+        if !updated {
+            return Err(FerrotuneApiError(Error::InvalidRequest(
+                "Queue was modified concurrently, please retry".to_string(),
+            )));
+        }
 
         invalidate_shuffle_cache(&state, user.user_id).await;
     } else {
@@ -1183,7 +1202,7 @@ pub async fn move_in_queue(
     Json(request): Json<MoveInQueueRequest>,
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(request.session_id.as_deref())?;
-    let queue = queries::get_play_queue_by_session(&state.pool, session_id)
+    let queue = queries::get_play_queue_by_session(&state.pool, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
@@ -1215,8 +1234,9 @@ pub async fn move_in_queue(
             queue.current_index
         };
 
-        let indices_json = serde_json::to_string(&indices).unwrap_or_default();
-        queries::update_queue_shuffle_by_session(
+        let indices_json = serde_json::to_string(&indices)
+            .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
+        let updated = queries::update_queue_shuffle_by_session(
             &state.pool,
             session_id,
             true,
@@ -1224,8 +1244,15 @@ pub async fn move_in_queue(
             Some(&indices_json),
             new_current,
             queue.position_ms,
+            Some(queue.version),
         )
         .await?;
+
+        if !updated {
+            return Err(FerrotuneApiError(Error::InvalidRequest(
+                "Queue was modified concurrently, please retry".to_string(),
+            )));
+        }
 
         invalidate_shuffle_cache(&state, user.user_id).await;
 
@@ -1294,7 +1321,7 @@ pub async fn toggle_shuffle(
     Json(request): Json<ShuffleRequest>,
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(request.session_id.as_deref())?;
-    let queue = queries::get_play_queue_by_session(&state.pool, session_id)
+    let queue = queries::get_play_queue_by_session(&state.pool, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
@@ -1324,10 +1351,11 @@ pub async fn toggle_shuffle(
         };
 
         let indices = generate_shuffle_indices(total_count, original_index, seed as u64);
-        let indices_json = serde_json::to_string(&indices).unwrap_or_default();
+        let indices_json = serde_json::to_string(&indices)
+            .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
 
         // Current song is now at shuffled position 0
-        queries::update_queue_shuffle_by_session(
+        let updated = queries::update_queue_shuffle_by_session(
             &state.pool,
             session_id,
             true,
@@ -1335,8 +1363,51 @@ pub async fn toggle_shuffle(
             Some(&indices_json),
             0, // Current song is at position 0 in shuffled order
             queue.position_ms,
+            Some(queue.version),
         )
         .await?;
+
+        if !updated {
+            return Err(FerrotuneApiError(Error::InvalidRequest(
+                "Queue was modified concurrently, please retry".to_string(),
+            )));
+        }
+
+        // For lazy queues, eagerly materialize song IDs so that subsequent page
+        // requests use the fast parse_song_ids() path instead of re-materializing
+        // all songs from the source on every page fetch.
+        if queue.is_lazy && queue.song_ids_json.is_none() {
+            let source_type: QueueSourceType = queue.source_type.parse().unwrap_or_default();
+            let filters: Option<serde_json::Value> = queue
+                .filters_json
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok());
+            let sort: Option<serde_json::Value> = queue
+                .sort_json
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok());
+
+            let all_songs = materialize_queue_songs(
+                &state.pool,
+                user.user_id,
+                source_type,
+                queue.source_id.as_deref(),
+                filters.as_ref(),
+                sort.as_ref(),
+            )
+            .await?;
+
+            let song_ids: Vec<&str> = all_songs.iter().map(|s| s.id.as_str()).collect();
+            let song_ids_json = serde_json::to_string(&song_ids)
+                .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
+            queries::update_queue_song_ids_by_session(
+                &state.pool,
+                session_id,
+                Some(&song_ids_json),
+            )
+            .await
+            .ok();
+        }
 
         // Invalidate old cache and prime the new one
         invalidate_shuffle_cache(&state, user.user_id).await;
@@ -1362,7 +1433,7 @@ pub async fn toggle_shuffle(
         .await;
         let original_index = indices.get(current_index).copied().unwrap_or(current_index);
 
-        queries::update_queue_shuffle_by_session(
+        let updated = queries::update_queue_shuffle_by_session(
             &state.pool,
             session_id,
             false,
@@ -1370,8 +1441,15 @@ pub async fn toggle_shuffle(
             None,
             original_index as i64,
             queue.position_ms,
+            Some(queue.version),
         )
         .await?;
+
+        if !updated {
+            return Err(FerrotuneApiError(Error::InvalidRequest(
+                "Queue was modified concurrently, please retry".to_string(),
+            )));
+        }
 
         // Invalidate shuffle cache
         invalidate_shuffle_cache(&state, user.user_id).await;
@@ -1394,7 +1472,7 @@ pub async fn update_position(
     Json(request): Json<UpdatePositionRequest>,
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(request.session_id.as_deref())?;
-    let queue = queries::get_play_queue_by_session(&state.pool, session_id)
+    let queue = queries::get_play_queue_by_session(&state.pool, session_id, user.user_id)
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
@@ -1413,7 +1491,8 @@ pub async fn update_position(
         use rand::Rng;
         let start = rand::thread_rng().gen_range(0..total_count);
         let indices = generate_shuffle_indices(total_count, start, seed as u64);
-        let indices_json = serde_json::to_string(&indices).unwrap_or_default();
+        let indices_json = serde_json::to_string(&indices)
+            .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
 
         queries::update_queue_shuffle_by_session(
             &state.pool,
@@ -1423,6 +1502,7 @@ pub async fn update_position(
             Some(&indices_json),
             0, // Start at position 0 in the new shuffled order
             0, // Reshuffle resets position to start
+            None,
         )
         .await?;
 
@@ -1448,6 +1528,7 @@ pub async fn update_position(
             queue.shuffle_indices_json.as_deref(),
             request.current_index as i64,
             request.position_ms,
+            None,
         )
         .await?;
     } else {
@@ -1472,13 +1553,20 @@ pub async fn update_position(
 
 /// POST /ferrotune/queue/repeat - Update repeat mode
 pub async fn update_repeat_mode(
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Json(request): Json<RepeatModeRequest>,
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(request.session_id.as_deref())?;
+    // Verify session belongs to user
+    queries::get_session(&state.pool, session_id, user.user_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
     // Validate repeat mode
-    let mode: RepeatMode = request.mode.parse().unwrap_or_default();
+    let mode: RepeatMode = request
+        .mode
+        .parse()
+        .map_err(|_| Error::InvalidRequest(format!("Invalid repeat mode: {}", request.mode)))?;
 
     queries::update_queue_repeat_mode_by_session(&state.pool, session_id, mode.as_str()).await?;
 
@@ -1494,11 +1582,15 @@ pub async fn update_repeat_mode(
 
 /// DELETE /ferrotune/queue - Clear the entire queue
 pub async fn clear_queue(
-    _user: FerrotuneAuthenticatedUser,
+    user: FerrotuneAuthenticatedUser,
     State(state): State<Arc<AppState>>,
     Query(params): Query<SessionParams>,
 ) -> FerrotuneApiResult<Json<QueueSuccessResponse>> {
     let session_id = require_session_id(params.session_id.as_deref())?;
+    // Verify session belongs to user
+    queries::get_session(&state.pool, session_id, user.user_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
     queries::clear_queue_by_session(&state.pool, session_id).await?;
 
     broadcast_queue_changed(&state, session_id).await;
@@ -2089,12 +2181,26 @@ pub async fn materialize_lazy_queue_page(
 ) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
     // If we have explicit song IDs, use those
     if let Some(ref song_ids) = queue.parse_song_ids() {
+        // Apply shuffle indices if the queue is shuffled
+        let ordered_ids: Vec<&str> = if queue.is_shuffled {
+            if let Some(indices) = queue.shuffle_indices() {
+                indices
+                    .iter()
+                    .filter_map(|&idx| song_ids.get(idx).map(|s| s.as_str()))
+                    .collect()
+            } else {
+                song_ids.iter().map(|s| s.as_str()).collect()
+            }
+        } else {
+            song_ids.iter().map(|s| s.as_str()).collect()
+        };
+
         // Get the slice we need
-        let page_ids: Vec<&str> = song_ids
+        let page_ids: Vec<&str> = ordered_ids
             .iter()
             .skip(offset)
             .take(limit)
-            .map(|s| s.as_str())
+            .copied()
             .collect();
 
         if page_ids.is_empty() {

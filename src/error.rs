@@ -172,6 +172,7 @@ impl Error {
     /// and the error details in the response body.
     fn to_subsonic_error(&self) -> (u32, String) {
         match self {
+            // Client-facing errors: safe to expose messages to API consumers
             Error::Auth(msg) => (40, msg.clone()),
             Error::TokenAuthNotSupported => (
                 41,
@@ -189,14 +190,36 @@ impl Error {
             Error::NotFound(msg) => (70, msg.clone()),
             Error::Forbidden(msg) => (50, msg.clone()),
             Error::InvalidRequest(msg) => (10, msg.clone()),
-            Error::Database(ref e) => (0, format!("Database error: {}", e)),
-            Error::Io(ref e) => (0, format!("IO error: {}", e)),
-            Error::Image(ref e) => (0, format!("Image error: {}", e)),
-            Error::Lofty(ref e) => (0, format!("Metadata error: {}", e)),
-            Error::Config(ref e) => (0, format!("Configuration error: {}", e)),
-            Error::Internal(msg) => (0, msg.clone()),
-            Error::Migration(ref msg) => (0, format!("Migration error: {}", msg)),
             Error::Conflict(msg) => (0, msg.clone()),
+            // Internal errors: log details server-side, return generic message to client
+            Error::Database(ref e) => {
+                tracing::error!(error = %e, "Database error");
+                (0, "Internal server error".to_string())
+            }
+            Error::Io(ref e) => {
+                tracing::error!(error = %e, "IO error");
+                (0, "Internal server error".to_string())
+            }
+            Error::Image(ref e) => {
+                tracing::error!(error = %e, "Image processing error");
+                (0, "Internal server error".to_string())
+            }
+            Error::Lofty(ref e) => {
+                tracing::error!(error = %e, "Audio metadata error");
+                (0, "Internal server error".to_string())
+            }
+            Error::Config(ref e) => {
+                tracing::error!(error = %e, "Configuration error");
+                (0, "Internal server error".to_string())
+            }
+            Error::Internal(ref msg) => {
+                tracing::error!(error = %msg, "Internal error");
+                (0, "Internal server error".to_string())
+            }
+            Error::Migration(ref msg) => {
+                tracing::error!(error = %msg, "Migration error");
+                (0, "Internal server error".to_string())
+            }
         }
     }
 
@@ -230,10 +253,16 @@ struct FerrotuneErrorResponse {
 
 impl IntoResponse for FerrotuneApiError {
     fn into_response(self) -> Response {
-        tracing::warn!(error = %self.0, "Ferrotune API error response");
-
         let status = self.0.to_http_status();
-        let message = self.0.to_string();
+
+        // For internal errors, log details server-side and return generic message
+        let message = if status == StatusCode::INTERNAL_SERVER_ERROR {
+            tracing::error!(error = %self.0, "Ferrotune API internal error");
+            "Internal server error".to_string()
+        } else {
+            tracing::warn!(error = %self.0, "Ferrotune API error response");
+            self.0.to_string()
+        };
 
         (status, Json(FerrotuneErrorResponse { error: message })).into_response()
     }

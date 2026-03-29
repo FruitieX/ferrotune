@@ -122,6 +122,9 @@ class PlaybackService : MediaSessionService() {
     private var autonomousMode = false
     val apiClient = FerrotuneApiClient()
     private var playbackSettings = PlaybackSettings()
+    // Stored reference to update auth headers when session config changes
+    @OptIn(UnstableApi::class)
+    private var httpDataSourceFactory: DefaultHttpDataSource.Factory? = null
     // Server queue state
     private var serverQueueIndex: Int = 0
     private var serverTotalCount: Int = 0
@@ -258,9 +261,12 @@ class PlaybackService : MediaSessionService() {
         // This means ExoPlayer can resume from the cache after a network blip
         // without re-requesting already-received data from the server.
         @OptIn(UnstableApi::class)
+        httpDataSourceFactory = DefaultHttpDataSource.Factory()
+
+        @OptIn(UnstableApi::class)
         val cacheDataSourceFactory = CacheDataSource.Factory()
             .setCache(streamCache!!)
-            .setUpstreamDataSourceFactory(DefaultHttpDataSource.Factory())
+            .setUpstreamDataSourceFactory(httpDataSourceFactory!!)
             // Allow reading from the cache even while the upstream connection
             // is still open (progressive caching).
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
@@ -615,8 +621,12 @@ class PlaybackService : MediaSessionService() {
     /**
      * Initialize session config for direct API calls.
      */
+    @OptIn(UnstableApi::class)
     fun initSession(config: SessionConfig) {
         apiClient.setSessionConfig(config)
+        // Set auth headers on ExoPlayer's HTTP data source so streaming
+        // and cover art requests use headers instead of URL query params.
+        httpDataSourceFactory?.setDefaultRequestProperties(apiClient.getAuthHeaders())
         // Connect SSE for remote control if session ID is available
         connectSessionSSE()
     }

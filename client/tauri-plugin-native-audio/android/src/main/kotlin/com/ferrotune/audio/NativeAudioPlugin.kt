@@ -161,6 +161,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     private var webViewRef: WebView? = null
     private var safeAreaTop: Float = 0f
     private var safeAreaBottom: Float = 0f
+    @Volatile private var webViewInForeground: Boolean = true
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -280,7 +281,14 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     override fun onResume() {
         super.onResume()
         Log.d(TAG, "NativeAudioPlugin onResume")
+        webViewInForeground = true
         refreshWebView(dispatchResumeEvent = true)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        Log.d(TAG, "NativeAudioPlugin onPause")
+        webViewInForeground = false
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -339,8 +347,15 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
      * This bypasses Tauri's plugin event system (trigger/addPluginListener)
      * which doesn't reliably deliver events from Android plugins to JS.
      * Instead, we call a global callback function registered by the JS engine.
+     *
+     * When the WebView is backgrounded, high-frequency events (progress, clipping)
+     * are skipped since they'd queue up uselessly. The JS resume handler syncs
+     * full state from the native service via nativeGetState() on foregrounding.
      */
     private fun triggerEvent(event: String, data: JSObject) {
+        if (!webViewInForeground && (event == AudioEvents.PROGRESS || event == AudioEvents.CLIPPING)) {
+            return
+        }
         val jsonData = data.toString()
         webViewRef?.post {
             webViewRef?.evaluateJavascript(

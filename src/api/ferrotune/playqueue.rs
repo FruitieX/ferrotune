@@ -76,8 +76,8 @@ pub async fn save_play_queue(
     // Upsert the queue metadata using new schema
     sqlx::query(
         "INSERT INTO play_queues (user_id, session_id, source_type, current_index, position_ms, 
-         is_shuffled, repeat_mode, created_at, updated_at, changed_by)
-         VALUES (?, ?, 'other', ?, ?, 0, 'off', datetime('now'), datetime('now'), ?)
+         is_shuffled, repeat_mode, created_at, updated_at, changed_by, source_api)
+         VALUES (?, ?, 'other', ?, ?, 0, 'off', datetime('now'), datetime('now'), ?, 'subsonic')
          ON CONFLICT(user_id, session_id) DO UPDATE SET
             current_index = excluded.current_index,
             position_ms = excluded.position_ms,

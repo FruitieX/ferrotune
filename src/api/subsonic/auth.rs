@@ -74,6 +74,11 @@ impl FromRequestParts<Arc<crate::api::AppState>> for AuthenticatedUser {
             return Ok(user);
         }
 
+        // Try API key via X-Api-Key header (used by native mobile client)
+        if let Some(user) = try_api_key_header(parts, &state.pool).await? {
+            return Ok(user);
+        }
+
         // Fall back to Subsonic query parameter authentication
         let query_string = parts.uri.query().unwrap_or("");
 
@@ -170,6 +175,38 @@ async fn try_basic_auth(parts: &Parts, pool: &SqlitePool) -> Result<Option<Authe
         .unwrap_or_else(|| "http-basic".to_string());
 
     authenticate_with_password(pool, username, password, format, client)
+        .await
+        .map(Some)
+}
+
+async fn try_api_key_header(parts: &Parts, pool: &SqlitePool) -> Result<Option<AuthenticatedUser>> {
+    let header_value = match parts.headers.get("X-Api-Key") {
+        Some(h) => h,
+        None => return Ok(None),
+    };
+
+    let api_key = header_value
+        .to_str()
+        .map_err(|_| Error::Auth("Invalid X-Api-Key header".to_string()))?;
+
+    let format = parts
+        .uri
+        .query()
+        .and_then(|q| q.split('&').find(|p| p.starts_with("f=")).map(|p| &p[2..]))
+        .map(ResponseFormat::from_param)
+        .unwrap_or(ResponseFormat::Json);
+
+    let client = parts
+        .uri
+        .query()
+        .and_then(|q| {
+            q.split('&')
+                .find(|p| p.starts_with("c="))
+                .map(|p| p[2..].to_string())
+        })
+        .unwrap_or_else(|| "api-key-header".to_string());
+
+    authenticate_with_api_key(pool, api_key, format, client)
         .await
         .map(Some)
 }

@@ -472,7 +472,7 @@ Content-Type: application/json
 }
 HTTP 400
 
-# Test: Invalid repeat mode falls back to off
+# Test: Invalid repeat mode returns error
 POST {{base_url}}/ferrotune/queue/repeat
 Authorization: Basic {{auth_basic}}
 Content-Type: application/json
@@ -480,16 +480,9 @@ Content-Type: application/json
   "sessionId": "{{test_session_id}}",
   "mode": "invalid"
 }
-HTTP 200
+HTTP 400
 [Asserts]
-jsonpath "$.success" == true
-
-# Verify it fell back to off
-GET {{base_url}}/ferrotune/queue?sessionId={{test_session_id}}
-Authorization: Basic {{auth_basic}}
-HTTP 200
-[Asserts]
-jsonpath "$.repeatMode" == "off"
+jsonpath "$.error" exists
 
 # Clean up - clear queue
 DELETE {{base_url}}/ferrotune/queue?sessionId={{test_session_id}}
