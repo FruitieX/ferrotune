@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useLayoutEffect, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import Link from "next/link";
 import {
@@ -158,6 +158,16 @@ export function MobileQueueSheet() {
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
   const queueDisplayRef = useRef<VirtualizedQueueDisplayHandle>(null);
+
+  // On mobile, always start with queue closed to avoid it obscuring the UI.
+  // useLayoutEffect runs before paint so no flash occurs.
+  const isMountRef = useRef(true);
+  useLayoutEffect(() => {
+    if (isMountRef.current) {
+      isMountRef.current = false;
+      if (isOpen && window.innerWidth < 1280) setIsOpen(false);
+    }
+  }, [isOpen, setIsOpen]);
 
   // Track if we're in the middle of a gesture-based close animation
   const [isClosingViaGesture, setIsClosingViaGesture] = useState(false);

@@ -48,8 +48,11 @@ export const addSearchHistoryAtom = atom(null, (get, set, query: string) => {
   const trimmed = query.trim();
   if (trimmed.length < 2) return;
   const history = get(searchHistoryAtom);
-  // Remove duplicate if exists, then prepend
-  const filtered = history.filter((q) => q !== trimmed);
+  // Remove duplicates and entries that are prefixes of the new query
+  // (e.g. adding "radiohead" removes "radio", "rad" etc. from history)
+  const filtered = history.filter(
+    (q) => q !== trimmed && !trimmed.startsWith(q),
+  );
   set(searchHistoryAtom, [trimmed, ...filtered].slice(0, MAX_SEARCH_HISTORY));
 });
 export const clearSearchHistoryAtom = atom(null, (_get, set) => {

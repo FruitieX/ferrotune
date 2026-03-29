@@ -140,6 +140,10 @@ class PlaybackService : MediaSessionService() {
     private var exoIndexToQueueSong: MutableList<QueueSong?> = mutableListOf()
     // Whether a fetch is already in progress (prevent concurrent fetches)
     private var isFetching = false
+    // Monotonically increasing counter bumped by invalidateQueue().
+    // SSE QueueUpdated skips full-reload when an invalidation is pending
+    // (the invalidateQueue path preserves player.currentPosition correctly).
+    private var invalidateVersion = 0
     // Scrobble state
     private var accumulatedListenMs: Long = 0
     private var hasScrobbled = false
@@ -688,6 +692,7 @@ class PlaybackService : MediaSessionService() {
             is SessionEvent.QueueUpdated -> {
                 Log.d(TAG, "SSE QueueUpdated: surgically updating queue")
                 if (autonomousMode) {
+                    val versionAtStart = invalidateVersion
                     apiExecutor.execute {
                         try {
                             val response = apiClient.getQueueWindow(20)
@@ -706,10 +711,21 @@ class PlaybackService : MediaSessionService() {
 
                                 if (currentMediaId != null && targetSongId != null &&
                                     currentMediaId != targetSongId) {
-                                    Log.d(TAG, "SSE QueueUpdated: current track removed, doing full reload")
-                                    handleQueueWindowResponse(
-                                        response, response.currentIndex,
-                                        response.positionMs, player.playWhenReady)
+                                    // If invalidateQueue() was called since we started this
+                                    // fetch, skip the full reload — invalidateQueue already
+                                    // handles it with the correct player.currentPosition.
+                                    if (invalidateVersion != versionAtStart) {
+                                        Log.d(TAG, "SSE QueueUpdated: skipping full reload, invalidateQueue pending")
+                                        handleShuffleQueueUpdate(response, response.currentIndex)
+                                    } else {
+                                        Log.d(TAG, "SSE QueueUpdated: current track removed, doing full reload")
+                                        // Use player.currentPosition instead of response.positionMs
+                                        // because the DB value may be stale (not updated during
+                                        // queue manipulations like add/remove/move)
+                                        handleQueueWindowResponse(
+                                            response, response.currentIndex,
+                                            player.currentPosition, player.playWhenReady)
+                                    }
                                 } else {
                                     // Surgically update ExoPlayer's queue without restarting
                                     // the currently playing track. This handles follower-initiated
@@ -800,7 +816,10 @@ class PlaybackService : MediaSessionService() {
             try {
                 val response = apiClient.getQueueWindow(20)
                 handler.post {
-                    handleQueueWindowResponse(response, currentIndex, startPositionMs, playWhenReady || pendingPlayOnNextQueue)
+                    // Preserve playWhenReady if already true (e.g. invalidateQueue
+                    // started playback before this handler.post ran)
+                    val effectivePlay = playWhenReady || pendingPlayOnNextQueue || player.playWhenReady
+                    handleQueueWindowResponse(response, currentIndex, startPositionMs, effectivePlay)
                     pendingPlayOnNextQueue = false
                     // Start position sync
                     handler.removeCallbacks(positionSyncRunnable)
@@ -1257,15 +1276,40 @@ class PlaybackService : MediaSessionService() {
      */
     fun invalidateQueue() {
         if (!autonomousMode) return
-        Log.d(TAG, "invalidateQueue: refetching at position $serverQueueIndex")
+        invalidateVersion++
+        Log.d(TAG, "invalidateQueue: refetching at position $serverQueueIndex (version=$invalidateVersion)")
         apiExecutor.execute {
             try {
                 val response = apiClient.getQueueWindow(20)
                 handler.post {
                     val shouldPlay = player.playWhenReady || pendingPlayOnNextQueue
                     pendingPlayOnNextQueue = false
-                    handleQueueWindowResponse(response, response.currentIndex,
-                        player.currentPosition, shouldPlay)
+
+                    // Check if the currently playing track is still the track
+                    // at the target position. If so, surgically update the
+                    // surrounding items to avoid restarting playback.
+                    val targetSongId = response.window.songs
+                        .find { it.position == response.currentIndex }?.song?.id
+                    val currentMediaId = if (player.mediaItemCount > 0) {
+                        player.currentMediaItem?.mediaId
+                    } else null
+
+                    if (currentMediaId != null && targetSongId != null &&
+                        currentMediaId == targetSongId) {
+                        Log.d(TAG, "invalidateQueue: current track unchanged, surgical update")
+                        serverQueueIndex = response.currentIndex
+                        handleShuffleQueueUpdate(response, response.currentIndex)
+                        player.repeatMode = if (response.repeatMode == "one")
+                            Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                        if (shouldPlay && !player.playWhenReady) {
+                            player.playWhenReady = true
+                        }
+                        emitQueueStateChanged()
+                    } else {
+                        Log.d(TAG, "invalidateQueue: current track changed, full reload")
+                        handleQueueWindowResponse(response, response.currentIndex,
+                            player.currentPosition, shouldPlay)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to invalidate queue", e)

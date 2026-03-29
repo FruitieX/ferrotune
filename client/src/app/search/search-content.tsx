@@ -87,6 +87,8 @@ export function SearchPageContent() {
   const clearSearchHistory = useSetAtom(clearSearchHistoryAtom);
   const inputRef = useRef<HTMLInputElement>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const searchSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSearchRef = useRef<string | null>(null);
 
   // Restore scroll position when navigating back to this page
   useScrollRestoration();
@@ -110,12 +112,33 @@ export function SearchPageContent() {
       router.replace(`/search?q=${encodeURIComponent(debouncedQuery)}`, {
         scroll: false,
       });
-      // Save to search history when we have a real query
-      addSearchHistory(debouncedQuery);
+      // Delay saving to search history so intermediate typing doesn't
+      // pollute recent searches. Each new debounced query resets the timer.
+      if (searchSaveTimerRef.current) {
+        clearTimeout(searchSaveTimerRef.current);
+      }
+      pendingSearchRef.current = debouncedQuery;
+      searchSaveTimerRef.current = setTimeout(() => {
+        addSearchHistory(debouncedQuery);
+        pendingSearchRef.current = null;
+        searchSaveTimerRef.current = null;
+      }, 5000);
     } else {
       router.replace("/search", { scroll: false });
     }
   }, [debouncedQuery, router, addSearchHistory]);
+
+  // Flush pending search history save on unmount
+  useEffect(() => {
+    return () => {
+      if (searchSaveTimerRef.current) {
+        clearTimeout(searchSaveTimerRef.current);
+      }
+      if (pendingSearchRef.current) {
+        addSearchHistory(pendingSearchRef.current);
+      }
+    };
+  }, [addSearchHistory]);
 
   // Search is active when we have a query long enough OR when advanced filters are set
   const isSearchActive = debouncedQuery.length >= 2 || hasActiveFilters;
