@@ -63,7 +63,9 @@ import {
   type PlaylistFolder,
 } from "@/lib/utils/playlist-folders";
 import { startQueueAtom } from "@/lib/store/server-queue";
-import type { Playlist } from "@/lib/api/types";
+import { PlaylistContextMenu } from "@/components/playlists/playlist-context-menu";
+import { SmartPlaylistContextMenu } from "@/components/playlists/smart-playlist-context-menu";
+import type { Playlist, SmartPlaylist } from "@/lib/api/types";
 
 // Height classes for sidebar list items
 const SIDEBAR_ITEM_HEIGHTS: Record<SidebarItemSize, string> = {
@@ -965,64 +967,69 @@ function PlaylistFolderTree({
             const coverArtUrl = getClient()?.getCoverArtUrl(artId, "small");
 
             return (
-              <div
+              <PlaylistContextMenu
                 key={playlist.id}
-                className={cn(
-                  "group/item flex items-center gap-2 px-2 rounded-sm hover:bg-sidebar-accent transition-colors",
-                  itemHeight,
-                  isActive && "bg-sidebar-accent text-sidebar-primary",
-                )}
-                style={{ paddingLeft: `${depth * 12 + 8}px` }}
+                playlist={playlist}
+                currentFolderId={folder.id ?? null}
               >
-                {/* Playlist icon */}
                 <div
                   className={cn(
-                    iconContainerSize,
-                    "shrink-0 flex items-center justify-center",
+                    "group/item flex items-center gap-2 px-2 rounded-sm hover:bg-sidebar-accent transition-colors",
+                    itemHeight,
+                    isActive && "bg-sidebar-accent text-sidebar-primary",
                   )}
+                  style={{ paddingLeft: `${depth * 12 + 8}px` }}
                 >
-                  <ListMusic
-                    className={cn(iconSize, "text-muted-foreground")}
-                  />
-                </div>
-                {/* Playable cover art */}
-                <button
-                  type="button"
-                  className="relative shrink-0 group/cover"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onPlayPlaylist(playlist);
-                  }}
-                >
-                  <CoverImage
-                    src={coverArtUrl}
-                    alt={item.name}
-                    type="playlist"
-                    size="sm"
-                    colorSeed={playlist.id}
-                    className={cn(coverSize, "rounded-[3px]")}
-                  />
-                  {/* Play overlay on hover */}
+                  {/* Playlist icon */}
                   <div
                     className={cn(
-                      "absolute inset-0 flex items-center justify-center",
-                      "bg-black/60 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded-[3px]",
+                      iconContainerSize,
+                      "shrink-0 flex items-center justify-center",
                     )}
                   >
-                    <Play className="w-3 h-3 text-white fill-white" />
+                    <ListMusic
+                      className={cn(iconSize, "text-muted-foreground")}
+                    />
                   </div>
-                </button>
-                {/* Playlist name links to details */}
-                <Link
-                  href={`/playlists/details?id=${playlist.id}`}
-                  className="flex-1 min-w-0"
-                >
-                  <span className="truncate text-sm block hover:underline">
-                    {item.name}
-                  </span>
-                </Link>
-              </div>
+                  {/* Playable cover art */}
+                  <button
+                    type="button"
+                    className="relative shrink-0 group/cover"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onPlayPlaylist(playlist);
+                    }}
+                  >
+                    <CoverImage
+                      src={coverArtUrl}
+                      alt={item.name}
+                      type="playlist"
+                      size="sm"
+                      colorSeed={playlist.id}
+                      className={cn(coverSize, "rounded-[3px]")}
+                    />
+                    {/* Play overlay on hover */}
+                    <div
+                      className={cn(
+                        "absolute inset-0 flex items-center justify-center",
+                        "bg-black/60 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded-[3px]",
+                      )}
+                    >
+                      <Play className="w-3 h-3 text-white fill-white" />
+                    </div>
+                  </button>
+                  {/* Playlist name links to details */}
+                  <Link
+                    href={`/playlists/details?id=${playlist.id}`}
+                    className="flex-1 min-w-0"
+                  >
+                    <span className="truncate text-sm block hover:underline">
+                      {item.name}
+                    </span>
+                  </Link>
+                </div>
+              </PlaylistContextMenu>
             );
           } else {
             // Smart Playlist
@@ -1037,63 +1044,71 @@ function PlaylistFolderTree({
               "small",
             );
 
+            const smartPlaylist = item.data as SmartPlaylist;
+
             return (
-              <div
+              <SmartPlaylistContextMenu
                 key={sp.id}
-                className={cn(
-                  "group/item flex items-center gap-2 px-2 rounded-sm hover:bg-sidebar-accent transition-colors",
-                  itemHeight,
-                  isActive && "bg-sidebar-accent text-sidebar-primary",
-                )}
-                style={{ paddingLeft: `${depth * 12 + 8}px` }}
+                smartPlaylist={smartPlaylist}
               >
-                {/* Sparkle icon to indicate smart playlist */}
                 <div
                   className={cn(
-                    iconContainerSize,
-                    "shrink-0 flex items-center justify-center",
+                    "group/item flex items-center gap-2 px-2 rounded-sm hover:bg-sidebar-accent transition-colors",
+                    itemHeight,
+                    isActive && "bg-sidebar-accent text-sidebar-primary",
                   )}
+                  style={{ paddingLeft: `${depth * 12 + 8}px` }}
                 >
-                  <Sparkles className={cn(iconSize, "text-muted-foreground")} />
-                </div>
-                {/* Playable cover art */}
-                <button
-                  type="button"
-                  className="relative shrink-0 group/cover"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onPlaySmartPlaylist(sp.id, item.name);
-                  }}
-                >
-                  <CoverImage
-                    src={coverArtUrl}
-                    alt={item.name}
-                    type="smartPlaylist"
-                    size="sm"
-                    colorSeed={`smart-${sp.id}`}
-                    className={cn(coverSize, "rounded-[3px]")}
-                  />
-                  {/* Play overlay on hover */}
+                  {/* Sparkle icon to indicate smart playlist */}
                   <div
                     className={cn(
-                      "absolute inset-0 flex items-center justify-center",
-                      "bg-black/60 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded-[3px]",
+                      iconContainerSize,
+                      "shrink-0 flex items-center justify-center",
                     )}
                   >
-                    <Play className="w-3 h-3 text-white fill-white" />
+                    <Sparkles
+                      className={cn(iconSize, "text-muted-foreground")}
+                    />
                   </div>
-                </button>
-                {/* Playlist name links to details */}
-                <Link
-                  href={`/playlists/smart?id=${sp.id}`}
-                  className="flex-1 min-w-0"
-                >
-                  <span className="truncate text-sm block hover:underline">
-                    {item.name}
-                  </span>
-                </Link>
-              </div>
+                  {/* Playable cover art */}
+                  <button
+                    type="button"
+                    className="relative shrink-0 group/cover"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onPlaySmartPlaylist(sp.id, item.name);
+                    }}
+                  >
+                    <CoverImage
+                      src={coverArtUrl}
+                      alt={item.name}
+                      type="smartPlaylist"
+                      size="sm"
+                      colorSeed={`smart-${sp.id}`}
+                      className={cn(coverSize, "rounded-[3px]")}
+                    />
+                    {/* Play overlay on hover */}
+                    <div
+                      className={cn(
+                        "absolute inset-0 flex items-center justify-center",
+                        "bg-black/60 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded-[3px]",
+                      )}
+                    >
+                      <Play className="w-3 h-3 text-white fill-white" />
+                    </div>
+                  </button>
+                  {/* Playlist name links to details */}
+                  <Link
+                    href={`/playlists/smart?id=${sp.id}`}
+                    className="flex-1 min-w-0"
+                  >
+                    <span className="truncate text-sm block hover:underline">
+                      {item.name}
+                    </span>
+                  </Link>
+                </div>
+              </SmartPlaylistContextMenu>
             );
           }
         })}

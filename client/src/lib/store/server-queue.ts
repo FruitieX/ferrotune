@@ -828,6 +828,8 @@ export const addToQueueAtom = atom(
       const response = await client.addToServerQueue({
         songIds: params.songIds ?? [],
         position: params.position,
+        currentIndex:
+          params.position === "next" ? state?.currentIndex : undefined,
         sourceType: params.sourceType,
         sourceId: params.sourceId,
         sessionId,
@@ -890,7 +892,19 @@ export const removeFromQueueAtom = atom(
     try {
       const response = await client.removeFromServerQueue(position, sessionId);
 
-      // Update state
+      // Optimistically update BOTH window and state synchronously to prevent
+      // a transient mismatch where currentSongAtom resolves against a stale
+      // window, triggering track-loader to clear/reload audio.
+      const currentWindow = get(queueWindowAtom);
+      if (currentWindow) {
+        const updatedSongs = currentWindow.songs
+          .filter((s) => s.position !== position)
+          .map((s) => ({
+            ...s,
+            position: s.position > position ? s.position - 1 : s.position,
+          }));
+        set(queueWindowAtom, { ...currentWindow, songs: updatedSongs });
+      }
       const state = get(serverQueueStateAtom);
       if (state) {
         set(serverQueueStateAtom, {
@@ -900,7 +914,7 @@ export const removeFromQueueAtom = atom(
         });
       }
 
-      // Refresh window
+      // Refresh window from server for authoritative data
       const queueResponse = await client.getQueueCurrentWindow(
         20,
         "small",

@@ -1541,6 +1541,7 @@ export class FerrotuneClient {
   async addToServerQueue(params: {
     songIds: string[];
     position: "next" | "end" | number;
+    currentIndex?: number;
     sourceType?: string;
     sourceId?: string;
     sessionId?: string;
@@ -1550,6 +1551,7 @@ export class FerrotuneClient {
       body: JSON.stringify({
         songIds: params.songIds,
         position: params.position,
+        currentIndex: params.currentIndex,
         sourceType: params.sourceType,
         sourceId: params.sourceId,
         sessionId: params.sessionId,

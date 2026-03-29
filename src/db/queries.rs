@@ -1953,15 +1953,30 @@ pub async fn remove_from_queue_by_session(
         return Ok(false);
     }
 
-    sqlx::query(
-        "UPDATE play_queue_entries
-         SET queue_position = queue_position - 1
-         WHERE session_id = ? AND queue_position > ?",
+    // Shift positions down one-by-one in ASC order to avoid UNIQUE constraint
+    // violations. A bulk UPDATE can fail because SQLite may process rows in
+    // rowid order which doesn't necessarily match queue_position order.
+    let positions: Vec<(i64,)> = sqlx::query_as(
+        "SELECT queue_position FROM play_queue_entries
+         WHERE session_id = ? AND queue_position > ?
+         ORDER BY queue_position ASC",
     )
     .bind(session_id)
     .bind(position)
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
+
+    for (pos,) in positions {
+        sqlx::query(
+            "UPDATE play_queue_entries
+             SET queue_position = queue_position - 1
+             WHERE session_id = ? AND queue_position = ?",
+        )
+        .bind(session_id)
+        .bind(pos)
+        .execute(&mut *tx)
+        .await?;
+    }
 
     sqlx::query("UPDATE play_queues SET updated_at = datetime('now') WHERE session_id = ?")
         .bind(session_id)
@@ -2009,16 +2024,30 @@ pub async fn move_in_queue_by_session(
     .await?;
 
     if from_position < to_position {
-        sqlx::query(
-            "UPDATE play_queue_entries
-             SET queue_position = queue_position - 1
-             WHERE session_id = ? AND queue_position > ? AND queue_position <= ?",
+        // Shift positions down one-by-one in ASC order to avoid UNIQUE constraint
+        // violations (same rationale as remove_from_queue_by_session).
+        let positions: Vec<(i64,)> = sqlx::query_as(
+            "SELECT queue_position FROM play_queue_entries
+             WHERE session_id = ? AND queue_position > ? AND queue_position <= ?
+             ORDER BY queue_position ASC",
         )
         .bind(session_id)
         .bind(from_position)
         .bind(to_position)
-        .execute(&mut *tx)
+        .fetch_all(&mut *tx)
         .await?;
+
+        for (pos,) in positions {
+            sqlx::query(
+                "UPDATE play_queue_entries
+                 SET queue_position = queue_position - 1
+                 WHERE session_id = ? AND queue_position = ?",
+            )
+            .bind(session_id)
+            .bind(pos)
+            .execute(&mut *tx)
+            .await?;
+        }
     } else {
         let positions: Vec<(i64,)> = sqlx::query_as(
             "SELECT queue_position FROM play_queue_entries

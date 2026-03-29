@@ -840,6 +840,9 @@ export function SongContextMenu({
             handleToggleShuffleExclude,
             handleToggleDisabled,
             handleRate,
+            handleMarkForEditing,
+            handleRescan,
+            setConfirmDeletionOpen,
           }}
           state={{
             isStarred,
@@ -852,10 +855,7 @@ export function SongContextMenu({
           components={components}
           handlers={{
             handleDownload,
-            handleMarkForEditing,
-            handleRescan,
             setDetailsOpen,
-            setConfirmDeletionOpen,
             onNavigate,
           }}
           song={{
@@ -1084,6 +1084,9 @@ export function SongDropdownMenu({
           handleToggleShuffleExclude,
           handleToggleDisabled,
           handleRate,
+          handleMarkForEditing,
+          handleRescan,
+          setConfirmDeletionOpen,
         }}
         state={{
           isStarred,
@@ -1096,10 +1099,7 @@ export function SongDropdownMenu({
         components={components}
         handlers={{
           handleDownload,
-          handleMarkForEditing,
-          handleRescan,
           setDetailsOpen,
-          setConfirmDeletionOpen,
           onNavigate,
         }}
         song={{

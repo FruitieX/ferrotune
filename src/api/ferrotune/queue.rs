@@ -238,6 +238,8 @@ pub struct AddToQueueRequest {
     pub song_ids: Vec<String>,
     /// Position: "next" (after current), "end", or a number
     pub position: AddPosition,
+    /// Client-provided current index (avoids stale DB value from delayed heartbeats)
+    pub current_index: Option<usize>,
     /// Source type for server-side materialization (e.g., "directory")
     pub source_type: Option<String>,
     /// Source ID for materialization (e.g., directory ID)
@@ -962,8 +964,14 @@ pub async fn add_to_queue(
     let current_len = queries::get_queue_length_by_session(&state.pool, session_id).await?;
 
     // Determine insert position
+    // Prefer client-provided current_index over DB value (which may be stale
+    // due to heartbeat delay, especially on Android with backgrounded WebView).
+    let effective_index = request
+        .current_index
+        .map(|i| i as i64)
+        .unwrap_or(queue.current_index);
     let position = match request.position {
-        AddPosition::Named(ref s) if s == "next" => queue.current_index + 1,
+        AddPosition::Named(ref s) if s == "next" => effective_index + 1,
         AddPosition::Named(ref s) if s == "end" => current_len,
         AddPosition::Named(_) => current_len, // Default to end for unknown strings
         AddPosition::Index(i) => i as i64,
@@ -1028,8 +1036,16 @@ pub async fn add_to_queue(
 
         // Insert new indices for the added songs
         let insert_pos = match request.position {
-            AddPosition::Named(ref s) if s == "next" => 1, // After current (position 0 in shuffle)
-            _ => new_indices.len(),                        // At end
+            AddPosition::Named(ref s) if s == "next" => {
+                // Find the current track's position in the shuffle array and insert after it
+                let current_shuffle_pos = new_indices
+                    .iter()
+                    .position(|&idx| idx == effective_index as usize)
+                    .map(|p| p + 1)
+                    .unwrap_or(1);
+                current_shuffle_pos
+            }
+            _ => new_indices.len(), // At end
         };
 
         // Add indices for new songs (their original queue positions)

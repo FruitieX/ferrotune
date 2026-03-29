@@ -419,6 +419,9 @@ export interface SongMenuItemsStarringProps {
     handleToggleShuffleExclude?: () => void;
     handleToggleDisabled?: () => void;
     handleRate?: (rating: number) => void;
+    handleMarkForEditing?: () => void;
+    handleRescan?: () => void;
+    setConfirmDeletionOpen?: (open: boolean) => void;
   };
   state: {
     isStarred: boolean;
@@ -436,7 +439,11 @@ export function SongMenuItemsStarring({
   const { Item, Separator, Sub, SubTrigger, SubContent } = components;
 
   const hasTrackOptions =
-    handlers.handleToggleShuffleExclude || handlers.handleToggleDisabled;
+    handlers.handleToggleShuffleExclude ||
+    handlers.handleToggleDisabled ||
+    handlers.handleMarkForEditing ||
+    handlers.handleRescan ||
+    handlers.setConfirmDeletionOpen;
 
   return (
     <>
@@ -448,7 +455,7 @@ export function SongMenuItemsStarring({
         {state.isStarred ? "Remove from Favorites" : "Add to Favorites"}
       </Item>
 
-      {/* Track Options submenu for shuffle exclude and disabled state */}
+      {/* Track Options submenu for shuffle exclude, disabled state, and editing actions */}
       {hasTrackOptions && Sub && SubTrigger && SubContent && (
         <Sub>
           <SubTrigger>
@@ -474,6 +481,39 @@ export function SongMenuItemsStarring({
                 {state.isDisabled ? "Enable Track" : "Disable Track"}
               </Item>
             )}
+            {(handlers.handleToggleShuffleExclude ||
+              handlers.handleToggleDisabled) &&
+              (handlers.handleMarkForEditing ||
+                handlers.handleRescan ||
+                handlers.setConfirmDeletionOpen) && <Separator />}
+            {handlers.handleMarkForEditing &&
+              renderMenuItem(
+                { Item },
+                {
+                  icon: Tag,
+                  label: "Mark for Editing",
+                  onClick: handlers.handleMarkForEditing,
+                },
+              )}
+            {handlers.handleRescan &&
+              renderMenuItem(
+                { Item },
+                {
+                  icon: RefreshCw,
+                  label: "Rescan",
+                  onClick: handlers.handleRescan,
+                },
+              )}
+            {handlers.setConfirmDeletionOpen &&
+              renderMenuItem(
+                { Item },
+                {
+                  icon: Trash2,
+                  label: "Mark for Deletion",
+                  onClick: () => handlers.setConfirmDeletionOpen?.(true),
+                  className: "text-destructive",
+                },
+              )}
           </SubContent>
         </Sub>
       )}
@@ -523,10 +563,7 @@ export interface SongMenuItemsNavigationProps {
   components: MenuComponents;
   handlers: {
     handleDownload?: () => void;
-    handleMarkForEditing?: () => void;
-    handleRescan?: () => void;
     setDetailsOpen: (open: boolean) => void;
-    setConfirmDeletionOpen?: (open: boolean) => void;
     onNavigate?: () => void;
   };
   song: {
@@ -542,11 +579,6 @@ export function SongMenuItemsNavigation({
   song,
 }: SongMenuItemsNavigationProps) {
   const { Item, Separator } = components;
-
-  const hasEditingActions =
-    handlers.handleMarkForEditing ||
-    handlers.handleRescan ||
-    handlers.setConfirmDeletionOpen;
 
   return (
     <>
@@ -570,40 +602,6 @@ export function SongMenuItemsNavigation({
             onClick: handlers.onNavigate,
           },
         )}
-      {/* Mark for Editing, Rescan, and Mark for Deletion grouped together */}
-      {hasEditingActions && (
-        <>
-          <Separator />
-          {handlers.handleMarkForEditing &&
-            renderMenuItem(
-              { Item },
-              {
-                icon: Tag,
-                label: "Mark for Editing",
-                onClick: handlers.handleMarkForEditing,
-              },
-            )}
-          {handlers.handleRescan &&
-            renderMenuItem(
-              { Item },
-              {
-                icon: RefreshCw,
-                label: "Rescan",
-                onClick: handlers.handleRescan,
-              },
-            )}
-          {handlers.setConfirmDeletionOpen &&
-            renderMenuItem(
-              { Item },
-              {
-                icon: Trash2,
-                label: "Mark for Deletion",
-                onClick: () => handlers.setConfirmDeletionOpen?.(true),
-                className: "text-destructive",
-              },
-            )}
-        </>
-      )}
       {/* Download and View Details at the bottom */}
       <Separator />
       {handlers.handleDownload &&

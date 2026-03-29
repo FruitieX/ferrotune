@@ -31,6 +31,8 @@ import {
 import { AlbumCard, AlbumCardSkeleton } from "@/components/browse/album-card";
 import { SongCard, SongCardSkeleton } from "@/components/browse/song-row";
 import { MediaCard } from "@/components/shared/media-card";
+import { PlaylistContextMenu } from "@/components/playlists/playlist-context-menu";
+import { SmartPlaylistContextMenu } from "@/components/playlists/smart-playlist-context-menu";
 import { VirtualizedHorizontalScroll } from "@/components/shared/virtualized-horizontal-scroll";
 import { MobileProfileMenu } from "@/components/layout/mobile-profile-menu";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
@@ -208,6 +210,46 @@ function HomePlaylistCard({
 
   const PlaylistIcon = isSmartPlaylist ? Sparkles : ListMusic;
 
+  const contextMenu = isSmartPlaylist
+    ? (children: React.ReactNode) => (
+        <SmartPlaylistContextMenu
+          smartPlaylist={{
+            id: playlist.id,
+            name: playlist.name,
+            comment: null,
+            isPublic: false,
+            rules: { conditions: [], logic: "and" },
+            sortField: null,
+            sortDirection: null,
+            maxSongs: null,
+            folderId: null,
+            songCount: playlist.songCount,
+            createdAt: "",
+            updatedAt: "",
+          }}
+        >
+          {children}
+        </SmartPlaylistContextMenu>
+      )
+    : (children: React.ReactNode) => (
+        <PlaylistContextMenu
+          playlist={{
+            id: playlist.id,
+            name: playlist.name,
+            comment: null,
+            owner: "",
+            public: false,
+            songCount: playlist.songCount,
+            duration: playlist.duration,
+            created: "",
+            changed: "",
+            coverArt: playlist.coverArt,
+          }}
+        >
+          {children}
+        </PlaylistContextMenu>
+      );
+
   return (
     <MediaCard
       coverArt={coverArtUrl}
@@ -225,6 +267,7 @@ function HomePlaylistCard({
       coverType={isSmartPlaylist ? "smartPlaylist" : "playlist"}
       colorSeed={playlist.name}
       onPlay={onPlay}
+      contextMenu={contextMenu}
     />
   );
 }

@@ -18,7 +18,6 @@ import {
   selfTakeoverPending,
 } from "@/lib/store/session";
 import {
-  fetchQueueAtom,
   fetchQueueAndPlayAtom,
   fetchQueueSilentAtom,
   currentSongAtom,
@@ -46,7 +45,6 @@ export function SessionEventHandler() {
   const currentSong = useAtomValue(currentSongAtom);
   const clientId = useAtomValue(clientIdAtom);
   const { play, pause, next, previous, seek } = useAudioEngine();
-  const fetchQueue = useSetAtom(fetchQueueAtom);
   const fetchQueueAndPlay = useSetAtom(fetchQueueAndPlayAtom);
   const fetchQueueSilent = useSetAtom(fetchQueueSilentAtom);
   const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
@@ -147,8 +145,8 @@ export function SessionEventHandler() {
           // Owner: refetch queue and play the new track
           fetchQueueAndPlay();
         } else {
-          // Follower: just refetch for UI
-          fetchQueue();
+          // Follower: silently refetch for UI without showing loading spinner
+          fetchQueueSilent();
         }
         break;
       case "queueUpdated":
