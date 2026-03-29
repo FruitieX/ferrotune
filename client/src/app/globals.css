@@ -219,12 +219,28 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* Prevent native long-press callout and drag on mobile WebViews (Android/iOS) */
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
   }
   html,
   body {
     overscroll-behavior: none;
     overflow: hidden;
     touch-action: pan-y pinch-zoom;
+    /* Prevent text selection globally — this is a music player app, not a document.
+       Input fields and textareas override this below. */
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  /* Allow text selection in inputs, textareas, and elements that explicitly opt in */
+  input,
+  textarea,
+  [contenteditable="true"],
+  .select-text {
+    user-select: text;
+    -webkit-user-select: text;
+    -webkit-touch-callout: default;
   }
   body {
     @apply bg-background text-foreground;
