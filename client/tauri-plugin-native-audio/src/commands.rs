@@ -376,6 +376,8 @@ pub async fn start_autonomous_playback<R: Runtime>(
     play_when_ready: bool,
     start_position_ms: Option<u64>,
     session_id: Option<String>,
+    source_type: Option<String>,
+    source_id: Option<String>,
 ) -> Result<()> {
     log::info!(
         "start_autonomous_playback command reached: total={}, index={}, shuffled={}, session_id={:?}",
@@ -392,6 +394,8 @@ pub async fn start_autonomous_playback<R: Runtime>(
         play_when_ready,
         start_position_ms: start_position_ms.unwrap_or(0),
         session_id,
+        source_type,
+        source_id,
     };
 
     #[cfg(mobile)]

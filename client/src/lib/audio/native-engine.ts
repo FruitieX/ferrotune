@@ -583,6 +583,8 @@ export async function nativeStartAutonomousPlayback(params: {
   playWhenReady: boolean;
   startPositionMs: number;
   sessionId?: string;
+  sourceType?: string;
+  sourceId?: string;
 }): Promise<void> {
   console.log("[NativeAudio] nativeStartAutonomousPlayback() called", params);
   try {

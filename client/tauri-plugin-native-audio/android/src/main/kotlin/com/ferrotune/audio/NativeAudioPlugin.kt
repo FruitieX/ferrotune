@@ -124,6 +124,8 @@ internal class StartAutonomousPlaybackArgs {
     var playWhenReady: Boolean = true
     var startPositionMs: Long = 0
     var sessionId: String? = null
+    var sourceType: String? = null
+    var sourceId: String? = null
 }
 
 @InvokeArg
@@ -799,7 +801,9 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                     repeatMode = args.repeatMode,
                     playWhenReady = args.playWhenReady,
                     startPositionMs = args.startPositionMs,
-                    sessionId = args.sessionId
+                    sessionId = args.sessionId,
+                    sourceType = args.sourceType,
+                    sourceId = args.sourceId
                 )
                 invoke.resolve()
             } catch (e: Exception) {

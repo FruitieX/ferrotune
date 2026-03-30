@@ -2,7 +2,13 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
-import { Provider as JotaiProvider, useAtomValue, useSetAtom } from "jotai";
+import {
+  atom,
+  Provider as JotaiProvider,
+  useAtomValue,
+  useSetAtom,
+  useStore,
+} from "jotai";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { useEffect, useRef, Suspense } from "react";
@@ -41,6 +47,10 @@ import {
   refreshServerPreferences,
 } from "@/lib/store/server-storage";
 import { needsDarkForeground } from "@/lib/utils/color";
+import { useQueueCacheSync } from "@/lib/hooks/use-queue-cache-sync";
+
+// Signals that the IndexedDB cache restore is done for the current account
+export const isCacheRestoredAtom = atom<boolean>(false);
 
 // Component that handles clearing selection on navigation
 // Wrapped in Suspense because useSearchParams triggers Suspense on initial render
@@ -51,6 +61,7 @@ function SelectionClearer() {
 
 // Component that initializes the audio engine and media session
 function AudioEngineProvider({ children }: { children: React.ReactNode }) {
+  const isCacheRestored = useAtomValue(isCacheRestoredAtom);
   useAudioEngineInit();
   useMediaSession();
   useKeyboardShortcuts();
@@ -62,6 +73,7 @@ function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   useAppResumeRepaint(); // Force Android WebView redraws after resume
   useAppResumeRefresh(); // Invalidate queries after Android resume
   useCastInit(); // Initialize Chromecast SDK
+  useQueueCacheSync(isCacheRestored); // Sync queue state ↔ React Query cache
   return (
     <>
       <SessionEventHandler />
@@ -126,6 +138,7 @@ function AccountSwitchStateResetter() {
   const previousAccountKeyRef = useRef<string | null | undefined>(undefined);
   const setStarredItems = useSetAtom(starredItemsAtom);
   const setWaveformCache = useSetAtom(waveformCacheAtom);
+  const setIsCacheRestored = useSetAtom(isCacheRestoredAtom);
 
   useEffect(() => {
     if (previousAccountKeyRef.current === undefined) {
@@ -142,11 +155,17 @@ function AccountSwitchStateResetter() {
     // Reset user-specific Jotai atoms
     setStarredItems(new Map());
     setWaveformCache(new Map());
+    setIsCacheRestored(false);
 
     // Reset and reload server-stored preferences for the new account
     resetServerPreferences();
     void refreshServerPreferences();
-  }, [currentAccountKey, setStarredItems, setWaveformCache]);
+  }, [
+    currentAccountKey,
+    setStarredItems,
+    setWaveformCache,
+    setIsCacheRestored,
+  ]);
 
   return null;
 }
@@ -189,6 +208,7 @@ function AccountScopedQueryProvider({
 }) {
   const connection = useAtomValue(serverConnectionAtom);
   const currentKey = connection ? accountKey(connection) : "__no_account__";
+  const jotaiStore = useStore();
 
   const queryClient = getOrCreateQueryClient(currentKey);
   const persister = getAccountPersister(currentKey);
@@ -218,6 +238,10 @@ function AccountScopedQueryProvider({
           },
         }}
         onSuccess={() => {
+          // Signal that the IndexedDB cache has been restored so
+          // useQueueCacheSync can hydrate Jotai atoms from cached data.
+          jotaiStore.set(isCacheRestoredAtom, true);
+
           // After restoring cached data from IndexedDB, trigger a
           // background refetch of all active queries so the cache gets
           // updated for the next visit.

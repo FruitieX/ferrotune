@@ -15,7 +15,10 @@ const PERSISTED_QUERY_PREFIXES = new Set([
   "songs",
   "playlists",
   "artists",
-  "sidebar",
+  "playlistFolders",
+  "smartPlaylists",
+  "queue",
+  "continue-listening",
 ]);
 
 /** How long persisted cache entries stay valid (24 hours). */

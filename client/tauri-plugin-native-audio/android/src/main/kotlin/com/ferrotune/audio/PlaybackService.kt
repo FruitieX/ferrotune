@@ -130,6 +130,9 @@ class PlaybackService : MediaSessionService() {
     private var serverTotalCount: Int = 0
     private var isShuffled: Boolean = false
     private var repeatMode: String = "off"
+    // Queue source info for scrobbling (so "Continue Listening" can show playlists)
+    private var queueSourceType: String? = null
+    private var queueSourceId: String? = null
     // Range of server positions currently loaded in ExoPlayer
     // e.g. if positions 10-30 are loaded: loadedRangeStart=10, loadedRangeEnd=30
     private var loadedRangeStart: Int = 0
@@ -568,6 +571,8 @@ class PlaybackService : MediaSessionService() {
         queue = emptyList()
         queueIndex = -1
         autonomousMode = false
+        queueSourceType = null
+        queueSourceId = null
         handler.removeCallbacks(positionSyncRunnable)
         handler.removeCallbacks(preApplyGainRunnable)
         replayGainProcessor.clearPendingGain()
@@ -791,9 +796,12 @@ class PlaybackService : MediaSessionService() {
         playWhenReady: Boolean,
         startPositionMs: Long = 0,
         sessionId: String? = null,
+        sourceType: String? = null,
+        sourceId: String? = null,
     ) {
         Log.d(TAG, "startAutonomousPlayback(total=$totalCount, index=$currentIndex, " +
-            "shuffled=$isShuffled, repeat=$repeatMode, play=$playWhenReady, sessionId=$sessionId)")
+            "shuffled=$isShuffled, repeat=$repeatMode, play=$playWhenReady, sessionId=$sessionId, " +
+            "sourceType=$sourceType, sourceId=$sourceId)")
 
         // Update session ID on the API client if provided
         if (sessionId != null) {
@@ -801,6 +809,8 @@ class PlaybackService : MediaSessionService() {
         }
 
         autonomousMode = true
+        queueSourceType = sourceType
+        queueSourceId = sourceId
         serverTotalCount = totalCount
         serverQueueIndex = currentIndex
         this.isShuffled = isShuffled
@@ -1351,7 +1361,7 @@ class PlaybackService : MediaSessionService() {
             val songId = track.id
             apiExecutor.execute {
                 try {
-                    apiClient.scrobble(songId, System.currentTimeMillis())
+                    apiClient.scrobble(songId, System.currentTimeMillis(), queueSourceType = queueSourceType, queueSourceId = queueSourceId)
                 } catch (e: Exception) {
                     Log.e(TAG, "Scrobble failed for $songId", e)
                 }

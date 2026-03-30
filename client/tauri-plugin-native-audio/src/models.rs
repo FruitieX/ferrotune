@@ -73,6 +73,8 @@ pub struct StartAutonomousPlaybackParams {
     #[serde(default)]
     pub start_position_ms: u64,
     pub session_id: Option<String>,
+    pub source_type: Option<String>,
+    pub source_id: Option<String>,
 }
 
 /// Queue item for setting the playback queue

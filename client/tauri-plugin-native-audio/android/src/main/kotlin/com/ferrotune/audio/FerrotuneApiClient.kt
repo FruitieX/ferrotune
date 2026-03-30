@@ -310,11 +310,19 @@ class FerrotuneApiClient {
     /**
      * POST /ferrotune/scrobbles
      */
-    fun scrobble(songId: String, timeMs: Long? = null, submission: Boolean = true) {
+    fun scrobble(
+        songId: String,
+        timeMs: Long? = null,
+        submission: Boolean = true,
+        queueSourceType: String? = null,
+        queueSourceId: String? = null,
+    ) {
         val json = JSONObject().apply {
             put("id", songId)
             if (timeMs != null) put("time", timeMs)
             put("submission", submission)
+            if (queueSourceType != null) put("queue_source_type", queueSourceType)
+            if (queueSourceId != null) put("queue_source_id", queueSourceId)
         }
         val url = buildApiUrl("/ferrotune/scrobbles")
         val request = Request.Builder()

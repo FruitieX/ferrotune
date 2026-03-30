@@ -293,6 +293,8 @@ export function loadTrackNative(
         playWhenReady: shouldPlay,
         startPositionMs: qs.positionMs,
         sessionId: refs.stateRef.current.currentSessionId ?? undefined,
+        sourceType: qs.source?.type,
+        sourceId: qs.source?.id ?? undefined,
       });
 
       if (!shouldPlay) {
