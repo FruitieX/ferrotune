@@ -210,6 +210,22 @@ pub async fn next_track<R: Runtime>(app: AppHandle<R>) -> Result<()> {
     }
 }
 
+/// Jump to a specific queue index and start playback
+#[command]
+pub async fn play_at_index<R: Runtime>(app: AppHandle<R>, index: i32) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        app.native_audio().play_at_index(index)
+    }
+
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, index);
+        log::warn!("play_at_index() called on desktop - native audio only available on mobile");
+        Err(Error::ServiceNotAvailable)
+    }
+}
+
 /// Skip to previous track in queue
 #[command]
 pub async fn previous_track<R: Runtime>(app: AppHandle<R>) -> Result<()> {

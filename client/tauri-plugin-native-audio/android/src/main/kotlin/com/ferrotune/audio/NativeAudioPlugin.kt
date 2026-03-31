@@ -34,6 +34,11 @@ import org.json.JSONObject
 
 // Argument classes for command parameter parsing
 @InvokeArg
+internal class PlayAtIndexArgs {
+    var index: Int = 0
+}
+
+@InvokeArg
 internal class SeekArgs {
     var positionMs: Long = 0
 }
@@ -622,6 +627,26 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                 invoke.resolve()
             } catch (e: Exception) {
                 Log.e(TAG, "Error in nextTrack()", e)
+                invoke.reject(e.message)
+            }
+        }
+    }
+
+    @Command
+    fun playAtIndex(invoke: Invoke) {
+        val args = invoke.parseArgs(PlayAtIndexArgs::class.java)
+        scope.launch {
+            try {
+                val service = awaitService()
+                if (service == null) {
+                    Log.e(TAG, "playAtIndex() failed: Service not available after timeout")
+                    invoke.reject("Service not available - try again")
+                    return@launch
+                }
+                service.playAtIndex(args.index)
+                invoke.resolve()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in playAtIndex()", e)
                 invoke.reject(e.message)
             }
         }

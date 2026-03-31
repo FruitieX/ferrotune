@@ -24,8 +24,8 @@ import {
   nativeSetRepeatMode,
   nativeInvalidateQueue,
   nativeSoftInvalidateQueue,
+  nativePlayAtIndex,
 } from "@/lib/audio/native-engine";
-import { setCurrentLoadedTrackId } from "@/lib/audio/engine-state";
 import {
   effectiveSessionIdAtom,
   isAudioOwnerAtom,
@@ -300,8 +300,22 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
 
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
 
+  // Snapshot state before the async fetch so we can detect if a user-initiated
+  // operation (e.g. playAtIndex) changed it while we were waiting.
+  const stateBefore = get(serverQueueStateAtom);
+
   try {
     const response = await client.getQueueCurrentWindow(20, "small", sessionId);
+
+    // If a user operation changed the queue state while we were fetching,
+    // discard this stale response to avoid overwriting the user's intent.
+    const stateAfter = get(serverQueueStateAtom);
+    if (stateAfter !== stateBefore) {
+      console.log(
+        "fetchQueueAtom: discarding stale response (state changed during fetch)",
+      );
+      return;
+    }
 
     // Empty queue (totalCount 0) means no queue exists yet
     if (response.totalCount === 0) {
@@ -318,10 +332,6 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
       });
 
       set(queueWindowAtom, response.window);
-      // TODO: position restoring on first load is currently disabled
-      // due to race conditions with settings hydration causing the
-      // position to reset to 0. Re-enable once the root cause is fixed.
-      // pendingPlaybackPositionMs.value = Number(response.positionMs);
     }
   } catch (error) {
     // Network error or other failure
@@ -343,9 +353,19 @@ export const fetchQueueSilentAtom = atom(null, async (get, set) => {
   if (!client) return;
 
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+  const stateBefore = get(serverQueueStateAtom);
 
   try {
     const response = await client.getQueueCurrentWindow(20, "small", sessionId);
+
+    // Discard stale response if a user operation changed state during fetch
+    const stateAfter = get(serverQueueStateAtom);
+    if (stateAfter !== stateBefore) {
+      console.log(
+        "fetchQueueSilentAtom: discarding stale response (state changed during fetch)",
+      );
+      return;
+    }
 
     if (response.totalCount === 0) {
       set(serverQueueStateAtom, null);
@@ -614,28 +634,19 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
 
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
 
-  // In autonomous mode, update server position then tell Kotlin to reload
+  // In autonomous mode, delegate entirely to Kotlin which handles
+  // server position update + queue refetch + ExoPlayer rebuild atomically.
   // Only use native path when this client owns audio playback
   if (nativeAutonomousMode.value && get(isAudioOwnerAtom)) {
     set(isQueueOperationPendingAtom, true);
     try {
-      await client.updateServerQueuePosition(index, 0, false, sessionId);
+      // Optimistic UI update so currentSong reflects immediately
       set(serverQueueStateAtom, {
         ...state,
         currentIndex: index,
         positionMs: 0,
       });
-      // Mark the new track as loaded so the track-loader effect doesn't
-      // redundantly call startAutonomousPlayback (which would race with
-      // invalidateQueue and override playWhenReady)
-      const window = get(queueWindowAtom);
-      const newSong = window?.songs.find((s) => s.position === index);
-      if (newSong) {
-        setCurrentLoadedTrackId(newSong.song.id);
-      }
-      // Request playback before invalidating so Kotlin starts playing
-      if (hasNativeAudio()) nativeRequestPlayback();
-      await nativeInvalidateQueue();
+      await nativePlayAtIndex(index);
     } catch (error) {
       console.error("Failed to play at index (native):", error);
     } finally {

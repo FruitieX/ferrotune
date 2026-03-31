@@ -449,6 +449,14 @@ export async function nativeNextTrack(): Promise<void> {
 }
 
 /**
+ * Jump to a specific queue index and start playback (autonomous mode)
+ */
+export async function nativePlayAtIndex(index: number): Promise<void> {
+  const api = await getNativeApi();
+  await api.playAtIndex(index);
+}
+
+/**
  * Skip to previous track
  */
 export async function nativePreviousTrack(): Promise<void> {

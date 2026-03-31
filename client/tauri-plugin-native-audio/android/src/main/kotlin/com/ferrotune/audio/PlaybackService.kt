@@ -829,7 +829,9 @@ class PlaybackService : MediaSessionService() {
                     // Preserve playWhenReady if already true (e.g. invalidateQueue
                     // started playback before this handler.post ran)
                     val effectivePlay = playWhenReady || pendingPlayOnNextQueue || player.playWhenReady
-                    handleQueueWindowResponse(response, currentIndex, startPositionMs, effectivePlay)
+                    // Use response.currentIndex (server truth) instead of JS-passed
+                    // currentIndex to avoid stale data from race conditions
+                    handleQueueWindowResponse(response, response.currentIndex, startPositionMs, effectivePlay)
                     pendingPlayOnNextQueue = false
                     // Start position sync
                     handler.removeCallbacks(positionSyncRunnable)
@@ -1318,7 +1320,7 @@ class PlaybackService : MediaSessionService() {
                     } else {
                         Log.d(TAG, "invalidateQueue: current track changed, full reload")
                         handleQueueWindowResponse(response, response.currentIndex,
-                            player.currentPosition, shouldPlay)
+                            response.positionMs, shouldPlay)
                     }
                 }
             } catch (e: Exception) {
@@ -1574,6 +1576,57 @@ class PlaybackService : MediaSessionService() {
         seekTimeOffsetMs = 0
         if (player.hasNextMediaItem()) {
             player.seekToNextMediaItem()
+        }
+    }
+
+    /**
+     * Jump to a specific queue index in autonomous mode.
+     * Handles server position update + queue refetch + playback atomically.
+     */
+    fun playAtIndex(index: Int) {
+        if (!autonomousMode) return
+        Log.d(TAG, "playAtIndex($index): serverTotal=$serverTotalCount")
+        if (index < 0 || index >= serverTotalCount) {
+            Log.w(TAG, "playAtIndex: index $index out of range [0, $serverTotalCount)")
+            return
+        }
+
+        seekTimeOffsetMs = 0
+        serverQueueIndex = index
+        resetScrobbleState()
+
+        // Check if the target track is already loaded in ExoPlayer
+        val exoIndex = exoIndexToServerPosition.indexOf(index)
+        if (exoIndex >= 0) {
+            player.playWhenReady = true
+            player.seekTo(exoIndex, 0)
+            if (player.playbackState == Player.STATE_ENDED) {
+                Log.d(TAG, "playAtIndex: re-preparing player from STATE_ENDED")
+                player.prepare()
+            }
+            // Sync position to server in the background
+            apiExecutor.execute {
+                try {
+                    apiClient.updatePosition(index, 0)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to sync position for playAtIndex", e)
+                }
+            }
+            maybePrefetchMore()
+        } else {
+            // Not loaded, update server position and fetch a new window
+            Log.d(TAG, "playAtIndex: track not loaded, fetching window for position $index")
+            apiExecutor.execute {
+                try {
+                    apiClient.updatePosition(index, 0)
+                    val response = apiClient.getQueueWindow(20)
+                    handler.post {
+                        handleQueueWindowResponse(response, response.currentIndex, 0, true)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to fetch window for playAtIndex", e)
+                }
+            }
         }
     }
 

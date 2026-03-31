@@ -54,6 +54,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::set_replay_gain,
             commands::set_queue,
             commands::next_track,
+            commands::play_at_index,
             commands::previous_track,
             commands::set_repeat_mode,
             commands::append_to_queue,

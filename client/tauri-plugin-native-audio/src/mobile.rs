@@ -104,6 +104,18 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(Into::into)
     }
 
+    /// Jump to a specific queue index and start playback
+    pub fn play_at_index(&self, index: i32) -> Result<()> {
+        self.0
+            .run_mobile_plugin(
+                "playAtIndex",
+                serde_json::json!({
+                    "index": index
+                }),
+            )
+            .map_err(Into::into)
+    }
+
     /// Skip to previous track in queue
     pub fn previous_track(&self) -> Result<()> {
         self.0
