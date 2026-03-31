@@ -275,12 +275,10 @@ export const startQueueAtom = atom(
       set(queueWindowAtom, response.window);
       set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
 
-      // Notify the session owner via SSE when remote controlling
-      if (get(isRemoteControllingAtom) && sessionId) {
-        client
-          .sendSessionCommand(sessionId, "queueChanged")
-          .catch(console.error);
-      }
+      // No explicit sendSessionCommand("queueChanged") needed here:
+      // the server's start_queue endpoint already broadcasts QueueChanged
+      // to all SSE subscribers. Sending it again would cause the owner
+      // to receive two QueueChanged events and restart the track.
     } catch (error) {
       console.error("Failed to start queue:", error);
     } finally {

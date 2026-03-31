@@ -104,6 +104,14 @@ export async function nextTrack(): Promise<void> {
 }
 
 /**
+ * Jump to a specific queue index and start playback
+ * @param index Queue index to play
+ */
+export async function playAtIndex(index: number): Promise<void> {
+  await invoke("plugin:native-audio|play_at_index", { index });
+}
+
+/**
  * Skip to the previous track in the queue
  */
 export async function previousTrack(): Promise<void> {

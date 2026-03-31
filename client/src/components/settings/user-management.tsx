@@ -218,7 +218,7 @@ export function UserManagement() {
 
   // Fetch music folders for library access
   const { data: foldersData } = useQuery({
-    queryKey: ["admin", "musicFolders"],
+    queryKey: ["adminMusicFolders"],
     queryFn: async () => {
       const client = getClient();
       if (!client) throw new Error("Not connected");

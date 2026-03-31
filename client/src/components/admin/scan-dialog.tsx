@@ -294,9 +294,9 @@ export function ScanDialog() {
   // Local state for scan options
   const [fullScan, setFullScan] = useState(false);
   const [dryRun, setDryRun] = useState(false);
-  const [analyzeReplaygain, setAnalyzeReplaygain] = useState(false);
-  const [analyzeBliss, setAnalyzeBliss] = useState(false);
-  const [analyzeWaveform, setAnalyzeWaveform] = useState(false);
+  const [analyzeReplaygain, setAnalyzeReplaygain] = useState(true);
+  const [analyzeBliss, setAnalyzeBliss] = useState(true);
+  const [analyzeWaveform, setAnalyzeWaveform] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
   const [blissAvailable, setBlissAvailable] = useState(true);
 
