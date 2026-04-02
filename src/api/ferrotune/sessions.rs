@@ -179,10 +179,13 @@ pub async fn connect_session(
     let session = queries::get_or_create_session(&state.pool, user.user_id).await?;
 
     // Determine if the connecting client should become the owner:
-    // 1. Session has no owner yet
+    // 1. Session is brand new (just created)
     // 2. Current owner is stale (no longer connected via SSE)
+    // Note: if owner_client_id is None on an existing session, it was cleared
+    // intentionally (inactivity timeout) — don't auto-assign ownership, wait
+    // for the client to explicitly start playback.
     let should_take_ownership = if request.client_id.is_some() {
-        if session.owner_client_id.is_none() {
+        if is_new {
             true
         } else if let Some(ref owner_id) = session.owner_client_id {
             // Check if the current owner still has an active SSE connection
@@ -380,6 +383,14 @@ pub async fn session_events(
         current_song_artist: session.current_song_artist,
     };
 
+    // Send current ownership info so reconnecting clients can correct stale
+    // isAudioOwner state (e.g. after the background inactivity timeout cleared
+    // ownership while the client's SSE was disconnected).
+    let owner_event = SessionEvent::OwnerChanged {
+        owner_client_id: session.owner_client_id,
+        owner_client_name: Some(session.owner_client_name),
+    };
+
     // This guard is held by the stream; when axum drops the stream on client
     // disconnect, the guard's Drop impl unregisters the client.
     let _cleanup_guard = ClientCleanupGuard {
@@ -393,6 +404,10 @@ pub async fn session_events(
 
         // Send initial state
         if let Ok(json) = serde_json::to_string(&initial_event) {
+            yield Ok(Event::default().data(json));
+        }
+        // Send current ownership info
+        if let Ok(json) = serde_json::to_string(&owner_event) {
             yield Ok(Event::default().data(json));
         }
 
@@ -475,8 +490,8 @@ pub async fn session_command(
                 .broadcast(
                     &session_id,
                     SessionEvent::OwnerChanged {
-                        owner_client_id: cid.clone(),
-                        owner_client_name: new_client_name.to_string(),
+                        owner_client_id: Some(cid.clone()),
+                        owner_client_name: Some(new_client_name.to_string()),
                     },
                 )
                 .await;

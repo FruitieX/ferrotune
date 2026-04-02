@@ -273,6 +273,39 @@ export function loadTrackNative(
             await nativeUpdateStarredState(isStarred);
             return;
           }
+
+          // Safety net: if native is actively playing a *different* track than
+          // what the frontend thinks is current (e.g. server returned a stale
+          // currentIndex after app resume), trust the native player instead of
+          // restarting autonomous playback at the wrong position.
+          if (
+            nativeState.trackId &&
+            nativeState.trackId !== currentSong.id &&
+            (nativeState.state === "playing" ||
+              nativeState.state === "paused" ||
+              nativeState.state === "loading")
+          ) {
+            console.log(
+              "[NativeAudio] Native player has different track than frontend expects " +
+                `(native: ${nativeState.trackId}, frontend: ${currentSong.id}). ` +
+                "Trusting native player — updating frontend state to match.",
+            );
+            // Update the frontend queue state to match native's actual position.
+            // This corrects the stale currentIndex without disrupting playback.
+            refs.settersRef.current.setServerQueueState((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    currentIndex: nativeState.queueIndex,
+                    positionMs: nativeState.positionSeconds * 1000,
+                  }
+                : prev,
+            );
+            refs.settersRef.current.setPlaybackState(nativeState.state);
+            refs.settersRef.current.setCurrentTime(nativeState.positionSeconds);
+            refs.settersRef.current.setDuration(nativeState.durationSeconds);
+            return;
+          }
         } catch (err) {
           console.warn(
             "[NativeAudio] Failed to check native state, proceeding with queue send:",

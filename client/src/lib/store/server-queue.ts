@@ -27,9 +27,16 @@ import {
   nativePlayAtIndex,
 } from "@/lib/audio/native-engine";
 import {
+  setNativeAutoAdvanced,
+  setCurrentLoadedTrackId,
+} from "@/lib/audio/engine-state";
+import {
   effectiveSessionIdAtom,
   isAudioOwnerAtom,
   isRemoteControllingAtom,
+  clientIdAtom,
+  ownerClientIdAtom,
+  selfTakeoverPending,
 } from "./session";
 
 // Module-level flag: true when Kotlin is managing playback autonomously
@@ -233,11 +240,35 @@ export const startQueueAtom = atom(
 
     const isRemote = get(isRemoteControllingAtom);
 
+    // If there's no current owner (cleared by inactivity), optimistically
+    // claim ownership so we set pendingUserPlayback and the track loader
+    // doesn't need to wait for the SSE OwnerChanged roundtrip.
+    const noOwner = !get(ownerClientIdAtom);
+    const shouldPlay = !isRemote || noOwner;
+
+    // Check if this is a "seamless swap" scenario: the new queue's first
+    // song is the same as the currently playing song (e.g. starting song
+    // radio for the song that's already playing). In that case we swap
+    // the queue without interrupting playback.
+    const currentSong = get(currentSongAtom);
+    const currentQueueState = get(serverQueueStateAtom);
+    const isSeamlessSwap =
+      currentSong &&
+      currentQueueState &&
+      params.sourceType === "songRadio" &&
+      params.sourceId === currentSong.id &&
+      (params.startIndex ?? 0) === 0;
+
     set(isQueueOperationPendingAtom, true);
-    set(isRestoringQueueAtom, false); // User explicitly starting playback
-    if (!isRemote) {
-      pendingUserPlayback.value = true;
-      if (hasNativeAudio()) nativeRequestPlayback();
+    if (!isSeamlessSwap) {
+      set(isRestoringQueueAtom, false); // User explicitly starting playback
+      if (shouldPlay) {
+        if (noOwner) {
+          set(isAudioOwnerAtom, true);
+        }
+        pendingUserPlayback.value = true;
+        if (hasNativeAudio()) nativeRequestPlayback();
+      }
     }
 
     try {
@@ -248,6 +279,7 @@ export const startQueueAtom = atom(
         params.shuffle ?? get(serverQueueStateAtom)?.isShuffled ?? false;
 
       const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+      const clientId = get(clientIdAtom) || undefined;
 
       const response = await client.startQueue({
         sourceType: params.sourceType,
@@ -261,19 +293,37 @@ export const startQueueAtom = atom(
         songIds: params.songIds,
         inlineImages: "small", // Always request small thumbnails for queue
         sessionId,
+        clientId,
       });
 
-      set(serverQueueStateAtom, {
-        totalCount: response.totalCount,
-        currentIndex: response.currentIndex,
-        positionMs: 0,
-        isShuffled: response.isShuffled,
-        repeatMode: response.repeatMode as RepeatMode,
-        source: response.source,
-      });
+      if (isSeamlessSwap) {
+        // Seamless swap: update queue state but preserve the current
+        // playback position and don't trigger a track reload.
+        set(serverQueueStateAtom, {
+          totalCount: response.totalCount,
+          currentIndex: response.currentIndex,
+          positionMs: currentQueueState.positionMs,
+          isShuffled: response.isShuffled,
+          repeatMode: response.repeatMode as RepeatMode,
+          source: response.source,
+        });
+        set(queueWindowAtom, response.window);
+        // Don't increment trackChangeSignalAtom — keeps audio playing.
+        // On Android, the SSE QueueChanged handler will surgically update
+        // the native queue without restarting the current track.
+      } else {
+        set(serverQueueStateAtom, {
+          totalCount: response.totalCount,
+          currentIndex: response.currentIndex,
+          positionMs: 0,
+          isShuffled: response.isShuffled,
+          repeatMode: response.repeatMode as RepeatMode,
+          source: response.source,
+        });
 
-      set(queueWindowAtom, response.window);
-      set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
+        set(queueWindowAtom, response.window);
+        set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
+      }
 
       // No explicit sendSessionCommand("queueChanged") needed here:
       // the server's start_queue endpoint already broadcasts QueueChanged
@@ -292,11 +342,12 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
   const client = getClient();
   if (!client) return;
 
+  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+  if (!sessionId) return; // Session not initialized yet
+
   set(isQueueLoadingAtom, true);
   // Mark as restoring so audio doesn't auto-play (browser blocks autoplay without interaction)
   set(isRestoringQueueAtom, true);
-
-  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
 
   // Snapshot state before the async fetch so we can detect if a user-initiated
   // operation (e.g. playAtIndex) changed it while we were waiting.
@@ -351,6 +402,7 @@ export const fetchQueueSilentAtom = atom(null, async (get, set) => {
   if (!client) return;
 
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+  if (!sessionId) return; // Session not initialized yet
   const stateBefore = get(serverQueueStateAtom);
 
   try {
@@ -394,6 +446,7 @@ export const fetchQueueAndPlayAtom = atom(null, async (get, set) => {
   if (!client) return;
 
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+  if (!sessionId) return; // Session not initialized yet
 
   try {
     const response = await client.getQueueCurrentWindow(20, "small", sessionId);
@@ -634,33 +687,99 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
 
   // In autonomous mode, delegate entirely to Kotlin which handles
   // server position update + queue refetch + ExoPlayer rebuild atomically.
-  // Only use native path when this client owns audio playback
-  if (nativeAutonomousMode.value && get(isAudioOwnerAtom)) {
-    set(isQueueOperationPendingAtom, true);
-    try {
-      // Optimistic UI update so currentSong reflects immediately
-      set(serverQueueStateAtom, {
-        ...state,
-        currentIndex: index,
-        positionMs: 0,
-      });
-      await nativePlayAtIndex(index);
-    } catch (error) {
-      console.error("Failed to play at index (native):", error);
-    } finally {
-      set(isQueueOperationPendingAtom, false);
+  // Also handle the case where ownership was cleared (e.g. inactivity
+  // timeout while backgrounded) — claim ownership and use native path.
+  if (nativeAutonomousMode.value) {
+    const isOwner = get(isAudioOwnerAtom);
+    const noOwner = !get(ownerClientIdAtom);
+
+    // Only use native path if we're the owner or there's no owner (we can claim)
+    if (isOwner || noOwner) {
+      if (noOwner) {
+        // Claim ownership before starting native playback
+        set(isAudioOwnerAtom, true);
+        if (sessionId) {
+          selfTakeoverPending.value = true;
+          const clientId = get(clientIdAtom) || undefined;
+          await client
+            .sendSessionCommand(
+              sessionId,
+              "takeOver",
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              clientId,
+            )
+            .catch(() => {
+              selfTakeoverPending.value = false;
+            });
+        }
+      }
+
+      set(isQueueOperationPendingAtom, true);
+      try {
+        // Look up the target song in the queue window so we can tell the
+        // track-loader it's already handled (prevents it from re-sending the
+        // entire queue and racing with the native playAtIndex call).
+        const window = get(queueWindowAtom);
+        const targetSong = window?.songs.find((s) => s.position === index);
+        if (targetSong) {
+          setCurrentLoadedTrackId(targetSong.song.id);
+        }
+        setNativeAutoAdvanced(true);
+
+        // Optimistic UI update so currentSong reflects immediately
+        set(serverQueueStateAtom, {
+          ...state,
+          currentIndex: index,
+          positionMs: 0,
+        });
+        await nativePlayAtIndex(index);
+      } catch (error) {
+        console.error("Failed to play at index (native):", error);
+      } finally {
+        set(isQueueOperationPendingAtom, false);
+      }
+      return;
     }
-    return;
   }
 
   set(isQueueOperationPendingAtom, true);
   set(isRestoringQueueAtom, false); // User explicitly starting playback
-  if (!get(isRemoteControllingAtom)) {
+
+  const isRemote = get(isRemoteControllingAtom);
+  const noOwner = !get(ownerClientIdAtom);
+  const shouldPlay = !isRemote || noOwner;
+
+  if (shouldPlay) {
+    if (noOwner) {
+      set(isAudioOwnerAtom, true);
+    }
     pendingUserPlayback.value = true;
     if (hasNativeAudio()) nativeRequestPlayback();
   }
 
   try {
+    // If claiming ownership from no-owner state, tell the server first
+    if (noOwner && sessionId) {
+      selfTakeoverPending.value = true;
+      const clientId = get(clientIdAtom) || undefined;
+      await client
+        .sendSessionCommand(
+          sessionId,
+          "takeOver",
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          clientId,
+        )
+        .catch(() => {
+          selfTakeoverPending.value = false;
+        });
+    }
+
     await client.updateServerQueuePosition(index, 0, false, sessionId);
 
     set(serverQueueStateAtom, { ...state, currentIndex: index, positionMs: 0 });

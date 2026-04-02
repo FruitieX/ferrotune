@@ -11,7 +11,7 @@ import {
 } from "jotai";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
-import { useEffect, useRef, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import { useAudioEngineInit, useMediaSession } from "@/lib/audio/hooks";
 import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
 import { useDocumentTitle } from "@/lib/hooks/use-document-title";
@@ -32,6 +32,7 @@ import {
   PERSIST_GC_TIME_MS,
   shouldPersistQuery,
 } from "@/lib/query-persister";
+import { cacheInit } from "@/lib/cache-store";
 import {
   accentColorAtom,
   customAccentHueAtom,
@@ -209,9 +210,20 @@ function AccountScopedQueryProvider({
   const connection = useAtomValue(serverConnectionAtom);
   const currentKey = connection ? accountKey(connection) : "__no_account__";
   const jotaiStore = useStore();
+  const [cacheReadyKey, setCacheReadyKey] = useState<string | null>(null);
+  const initKeyRef = useRef<string | null>(null);
 
   const queryClient = getOrCreateQueryClient(currentKey);
   const persister = getAccountPersister(currentKey);
+
+  // Initialize the unified cache store for this account before restoring
+  useEffect(() => {
+    if (initKeyRef.current === currentKey) return;
+    initKeyRef.current = currentKey;
+    cacheInit(currentKey).then(() => setCacheReadyKey(currentKey));
+  }, [currentKey]);
+
+  const cacheReady = cacheReadyKey === currentKey;
 
   // One-time cleanup of the legacy unified cache key
   useEffect(() => {
@@ -225,31 +237,35 @@ function AccountScopedQueryProvider({
     // peer dep) to use a different context object than useQueryClient() in
     // application code, breaking SSR prerendering.
     <QueryClientProvider client={queryClient}>
-      <PersistQueryClientProvider
-        key={currentKey}
-        client={queryClient}
-        persistOptions={{
-          persister,
-          maxAge: PERSIST_MAX_AGE_MS,
-          dehydrateOptions: {
-            shouldDehydrateQuery: (query) =>
-              query.state.status === "success" &&
-              shouldPersistQuery(query.queryKey),
-          },
-        }}
-        onSuccess={() => {
-          // Signal that the IndexedDB cache has been restored so
-          // useQueueCacheSync can hydrate Jotai atoms from cached data.
-          jotaiStore.set(isCacheRestoredAtom, true);
+      {cacheReady ? (
+        <PersistQueryClientProvider
+          key={currentKey}
+          client={queryClient}
+          persistOptions={{
+            persister,
+            maxAge: PERSIST_MAX_AGE_MS,
+            dehydrateOptions: {
+              shouldDehydrateQuery: (query) =>
+                query.state.status === "success" &&
+                shouldPersistQuery(query.queryKey),
+            },
+          }}
+          onSuccess={() => {
+            // Signal that the IndexedDB cache has been restored so
+            // useQueueCacheSync can hydrate Jotai atoms from cached data.
+            jotaiStore.set(isCacheRestoredAtom, true);
 
-          // After restoring cached data from IndexedDB, trigger a
-          // background refetch of all active queries so the cache gets
-          // updated for the next visit.
-          queryClient.invalidateQueries();
-        }}
-      >
-        {children}
-      </PersistQueryClientProvider>
+            // After restoring cached data from IndexedDB, trigger a
+            // background refetch of all active queries so the cache gets
+            // updated for the next visit.
+            queryClient.invalidateQueries();
+          }}
+        >
+          {children}
+        </PersistQueryClientProvider>
+      ) : (
+        children
+      )}
     </QueryClientProvider>
   );
 }

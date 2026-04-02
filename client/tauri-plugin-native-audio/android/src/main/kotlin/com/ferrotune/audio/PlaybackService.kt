@@ -686,7 +686,31 @@ class PlaybackService : MediaSessionService() {
                         try {
                             val response = apiClient.getQueueWindow(20)
                             handler.post {
-                                handleQueueWindowResponse(response, response.currentIndex, response.positionMs, true)
+                                // Update source info from the new queue
+                                response.sourceType?.let { queueSourceType = it }
+                                response.sourceId?.let { queueSourceId = it }
+
+                                // Check if the currently playing track is the same as
+                                // the track at the new queue's current position. If so,
+                                // do a surgical update to avoid restarting playback
+                                // (e.g. song radio started for the currently playing song).
+                                val targetSongId = response.window.songs
+                                    .find { it.position == response.currentIndex }?.song?.id
+                                val currentMediaId = if (player.mediaItemCount > 0) {
+                                    player.currentMediaItem?.mediaId
+                                } else null
+
+                                if (currentMediaId != null && targetSongId != null &&
+                                    currentMediaId == targetSongId) {
+                                    Log.d(TAG, "SSE QueueChanged: current track unchanged, surgical update")
+                                    serverQueueIndex = response.currentIndex
+                                    handleShuffleQueueUpdate(response, response.currentIndex)
+                                    player.repeatMode = if (response.repeatMode == "one")
+                                        Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                                    emitQueueStateChanged()
+                                } else {
+                                    handleQueueWindowResponse(response, response.currentIndex, response.positionMs, true)
+                                }
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "SSE: failed to refetch queue after QueueChanged", e)
@@ -1784,7 +1808,7 @@ class PlaybackService : MediaSessionService() {
             volume = userVolume,
             muted = userVolume == 0f,
             track = currentTrack,
-            queueIndex = queueOffset + player.currentMediaItemIndex,
+            queueIndex = queueIndex,
             queueLength = queue.size
         )
     }

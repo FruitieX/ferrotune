@@ -73,6 +73,8 @@ data class QueueWindow(
  * Response from GET /ferrotune/queue/current-window.
  */
 data class GetQueueResponse(
+    val sourceType: String? = null,
+    val sourceId: String? = null,
     val totalCount: Int,
     val currentIndex: Int,
     val positionMs: Long,
@@ -321,8 +323,8 @@ class FerrotuneApiClient {
             put("id", songId)
             if (timeMs != null) put("time", timeMs)
             put("submission", submission)
-            if (queueSourceType != null) put("queue_source_type", queueSourceType)
-            if (queueSourceId != null) put("queue_source_id", queueSourceId)
+            if (queueSourceType != null) put("queueSourceType", queueSourceType)
+            if (queueSourceId != null) put("queueSourceId", queueSourceId)
         }
         val url = buildApiUrl("/ferrotune/scrobbles")
         val request = Request.Builder()
@@ -404,7 +406,10 @@ class FerrotuneApiClient {
                 song = parseSong(songJson),
             ))
         }
+        val sourceJson = json.optJSONObject("source")
         return GetQueueResponse(
+            sourceType = sourceJson?.optString("type", null),
+            sourceId = sourceJson?.optString("id", null),
             totalCount = json.getInt("totalCount"),
             currentIndex = json.getInt("currentIndex"),
             positionMs = json.optLong("positionMs", 0),

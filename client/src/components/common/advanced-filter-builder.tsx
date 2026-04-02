@@ -145,6 +145,27 @@ export function buildFieldsWithLibraries(
   ];
 }
 
+/**
+ * Build the complete fields list including dynamic playlist options.
+ * Use this when playlist data is available to add an "In Playlist" rule.
+ */
+export function buildFieldsWithPlaylists(
+  baseFields: FieldDefinition[],
+  playlists: { id: string; name: string }[],
+): FieldDefinition[] {
+  if (playlists.length === 0) return baseFields;
+  const playlistField: FieldDefinition = {
+    value: "inPlaylist",
+    label: "In Playlist",
+    type: "enum",
+    enumOptions: playlists.map((p) => ({
+      value: p.id,
+      label: p.name,
+    })),
+  };
+  return [...baseFields, playlistField];
+}
+
 // ============================================================================
 // Operators
 // ============================================================================

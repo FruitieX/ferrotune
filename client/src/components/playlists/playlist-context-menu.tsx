@@ -218,8 +218,8 @@ export function PlaylistContextMenu({
           <ListEnd className="w-4 h-4 mr-2" />
           Add to Queue
         </Item>
-        {(canModify || isOwner) && <Separator />}
-        {isOwner && Sub && SubTrigger && SubContent && (
+        {(Sub || canModify || isOwner) && <Separator />}
+        {Sub && SubTrigger && SubContent && (
           <Sub>
             <SubTrigger>
               <FolderInput className="w-4 h-4 mr-2" />

@@ -138,19 +138,20 @@ pub async fn get_playlist_folders(
         })
         .collect();
 
-    // Get playlists shared with this user
+    // Get playlists shared with this user (with per-user folder overrides)
     #[derive(sqlx::FromRow)]
-    struct SharedPlaylistRow {
+    struct NonOwnedPlaylistRow {
         id: String,
         name: String,
         song_count: i64,
         duration: i64,
         owner_name: String,
         can_edit: bool,
+        folder_id: Option<String>,
         updated_at: String,
     }
 
-    let shared_rows: Vec<SharedPlaylistRow> = sqlx::query_as(
+    let shared_rows: Vec<NonOwnedPlaylistRow> = sqlx::query_as(
         r#"
         SELECT p.id, p.name, p.song_count,
                COALESCE((
@@ -161,14 +162,18 @@ pub async fn get_playlist_folders(
                ), 0) as duration,
                u.username as owner_name,
                psh.can_edit,
+               upo.folder_id,
                strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
         FROM playlists p
         JOIN playlist_shares psh ON psh.playlist_id = p.id
         JOIN users u ON u.id = p.owner_id
+        LEFT JOIN user_playlist_overrides upo
+            ON upo.playlist_id = p.id AND upo.user_id = ?
         WHERE psh.shared_with_user_id = ?
         ORDER BY p.name COLLATE NOCASE
         "#,
     )
+    .bind(user.user_id)
     .bind(user.user_id)
     .fetch_all(&state.pool)
     .await?;
@@ -176,13 +181,58 @@ pub async fn get_playlist_folders(
     playlists.extend(shared_rows.into_iter().map(|r| PlaylistInFolder {
         id: r.id,
         name: r.name,
-        folder_id: None, // Shared playlists appear at root
+        folder_id: r.folder_id,
         position: 0,
         song_count: r.song_count,
         duration: r.duration,
         owner: Some(r.owner_name),
         shared_with_me: true,
         can_edit: r.can_edit,
+        updated_at: r.updated_at,
+    }));
+
+    // Get public playlists visible to this user (not owned, not shared)
+    let public_rows: Vec<NonOwnedPlaylistRow> = sqlx::query_as(
+        r#"
+        SELECT p.id, p.name, p.song_count,
+               COALESCE((
+                   SELECT SUM(s.duration)
+                   FROM playlist_songs ps2
+                   JOIN songs s ON s.id = ps2.song_id
+                   WHERE ps2.playlist_id = p.id
+               ), 0) as duration,
+               u.username as owner_name,
+               0 as can_edit,
+               upo.folder_id,
+               strftime('%Y-%m-%dT%H:%M:%SZ', p.updated_at) as updated_at
+        FROM playlists p
+        JOIN users u ON u.id = p.owner_id
+        LEFT JOIN user_playlist_overrides upo
+            ON upo.playlist_id = p.id AND upo.user_id = ?
+        WHERE p.is_public = 1
+          AND p.owner_id != ?
+          AND p.id NOT IN (
+              SELECT playlist_id FROM playlist_shares WHERE shared_with_user_id = ?
+          )
+        ORDER BY p.name COLLATE NOCASE
+        "#,
+    )
+    .bind(user.user_id)
+    .bind(user.user_id)
+    .bind(user.user_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    playlists.extend(public_rows.into_iter().map(|r| PlaylistInFolder {
+        id: r.id,
+        name: r.name,
+        folder_id: r.folder_id,
+        position: 0,
+        song_count: r.song_count,
+        duration: r.duration,
+        owner: Some(r.owner_name),
+        shared_with_me: false,
+        can_edit: false,
         updated_at: r.updated_at,
     }));
 
@@ -444,25 +494,36 @@ pub struct MovePlaylistRequest {
 }
 
 /// Move a playlist to a folder.
+///
+/// For owned playlists, updates the playlist's folder_id directly.
+/// For non-owned playlists (shared/public), stores a per-user override
+/// in user_playlist_overrides without affecting the owner's view.
 pub async fn move_playlist(
     State(state): State<Arc<AppState>>,
     user: FerrotuneAuthenticatedUser,
     Path(playlist_id): Path<String>,
     Json(request): Json<MovePlaylistRequest>,
 ) -> FerrotuneApiResult<StatusCode> {
-    // Check playlist exists and belongs to user
-    let playlist: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM playlists WHERE id = ? AND owner_id = ?")
-            .bind(&playlist_id)
-            .bind(user.user_id)
-            .fetch_optional(&state.pool)
-            .await?;
+    use crate::api::common::playlist_access::get_playlist_access;
 
-    if playlist.is_none() {
+    let playlist = crate::db::queries::get_playlist_by_id(&state.pool, &playlist_id)
+        .await?
+        .ok_or_else(|| Error::NotFound("Playlist not found".to_string()))?;
+
+    let access = get_playlist_access(
+        &state.pool,
+        user.user_id,
+        playlist.owner_id,
+        &playlist_id,
+        playlist.is_public,
+    )
+    .await?;
+
+    if !access.can_read {
         return Err(Error::NotFound("Playlist not found".to_string()).into());
     }
 
-    // Validate folder if provided
+    // Validate folder if provided (must belong to the current user)
     if let Some(ref folder_id) = request.folder_id {
         let folder_exists: Option<(i32,)> =
             sqlx::query_as("SELECT 1 FROM playlist_folders WHERE id = ? AND owner_id = ?")
@@ -476,11 +537,40 @@ pub async fn move_playlist(
         }
     }
 
-    sqlx::query("UPDATE playlists SET folder_id = ? WHERE id = ?")
-        .bind(&request.folder_id)
-        .bind(&playlist_id)
-        .execute(&state.pool)
-        .await?;
+    if access.is_owner {
+        // Owner: update the playlist's folder_id directly
+        sqlx::query("UPDATE playlists SET folder_id = ? WHERE id = ?")
+            .bind(&request.folder_id)
+            .bind(&playlist_id)
+            .execute(&state.pool)
+            .await?;
+    } else {
+        // Non-owner: store a per-user override
+        if request.folder_id.is_some() {
+            sqlx::query(
+                r#"
+                INSERT INTO user_playlist_overrides (user_id, playlist_id, folder_id)
+                VALUES (?, ?, ?)
+                ON CONFLICT (user_id, playlist_id)
+                DO UPDATE SET folder_id = excluded.folder_id
+                "#,
+            )
+            .bind(user.user_id)
+            .bind(&playlist_id)
+            .bind(&request.folder_id)
+            .execute(&state.pool)
+            .await?;
+        } else {
+            // Moving to root: remove the override
+            sqlx::query(
+                "DELETE FROM user_playlist_overrides WHERE user_id = ? AND playlist_id = ?",
+            )
+            .bind(user.user_id)
+            .bind(&playlist_id)
+            .execute(&state.pool)
+            .await?;
+        }
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

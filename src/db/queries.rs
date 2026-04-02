@@ -1402,13 +1402,15 @@ pub async fn update_session_heartbeat_with_position(
              is_playing = ?,
              current_song_id = ?,
              current_song_title = ?,
-             current_song_artist = ?
+             current_song_artist = ?,
+             last_playing_at = CASE WHEN ? THEN datetime('now') ELSE last_playing_at END
          WHERE id = ?",
     )
     .bind(is_playing)
     .bind(current_song_id)
     .bind(current_song_title)
     .bind(current_song_artist)
+    .bind(is_playing)
     .bind(session_id)
     .execute(&mut *tx)
     .await?;
@@ -1470,6 +1472,32 @@ pub async fn get_user_session(
         .bind(user_id)
         .fetch_optional(pool)
         .await
+}
+
+/// Find sessions whose owner has been inactive (not playing) for at least the
+/// given number of seconds. Returns the session IDs that should be disowned.
+pub async fn get_sessions_with_inactive_owners(
+    pool: &SqlitePool,
+    inactivity_seconds: i64,
+) -> sqlx::Result<Vec<PlaybackSession>> {
+    sqlx::query_as::<_, PlaybackSession>(
+        "SELECT * FROM playback_sessions
+         WHERE owner_client_id IS NOT NULL
+           AND is_playing = 0
+           AND (last_playing_at IS NULL OR last_playing_at < datetime('now', '-' || ? || ' seconds'))",
+    )
+    .bind(inactivity_seconds)
+    .fetch_all(pool)
+    .await
+}
+
+/// Clear ownership from a session (set owner_client_id to NULL).
+pub async fn clear_session_owner(pool: &SqlitePool, session_id: &str) -> sqlx::Result<bool> {
+    let result = sqlx::query("UPDATE playback_sessions SET owner_client_id = NULL WHERE id = ?")
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 // ============================================================================

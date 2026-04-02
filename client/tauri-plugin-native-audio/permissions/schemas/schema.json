@@ -403,6 +403,18 @@
           "markdownDescription": "Denies the play command without any pre-configured scope."
         },
         {
+          "description": "Enables the play_at_index command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-play-at-index",
+          "markdownDescription": "Enables the play_at_index command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the play_at_index command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-play-at-index",
+          "markdownDescription": "Denies the play_at_index command without any pre-configured scope."
+        },
+        {
           "description": "Enables the previous_track command without any pre-configured scope.",
           "type": "string",
           "const": "allow-previous-track",
@@ -499,6 +511,18 @@
           "markdownDescription": "Denies the set_volume command without any pre-configured scope."
         },
         {
+          "description": "Enables the soft_invalidate_queue command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-soft-invalidate-queue",
+          "markdownDescription": "Enables the soft_invalidate_queue command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the soft_invalidate_queue command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-soft-invalidate-queue",
+          "markdownDescription": "Denies the soft_invalidate_queue command without any pre-configured scope."
+        },
+        {
           "description": "Enables the start_autonomous_playback command without any pre-configured scope.",
           "type": "string",
           "const": "allow-start-autonomous-playback",
@@ -559,10 +583,10 @@
           "markdownDescription": "Denies the update_starred_state command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-track`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-set-queue`\n- `allow-next-track`\n- `allow-previous-track`\n- `allow-request-playback`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-append-to-queue`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-autonomous-playback`\n- `allow-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`",
+          "description": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-track`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-set-queue`\n- `allow-next-track`\n- `allow-play-at-index`\n- `allow-previous-track`\n- `allow-request-playback`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-append-to-queue`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-autonomous-playback`\n- `allow-invalidate-queue`\n- `allow-soft-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-track`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-set-queue`\n- `allow-next-track`\n- `allow-previous-track`\n- `allow-request-playback`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-append-to-queue`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-autonomous-playback`\n- `allow-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`"
+          "markdownDescription": "Default permissions for native audio playback\n#### This permission set includes:\n\n- `allow-play`\n- `allow-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-track`\n- `allow-get-state`\n- `allow-set-volume`\n- `allow-set-queue`\n- `allow-next-track`\n- `allow-play-at-index`\n- `allow-previous-track`\n- `allow-request-playback`\n- `allow-set-replay-gain`\n- `allow-set-repeat-mode`\n- `allow-append-to-queue`\n- `allow-update-starred-state`\n- `allow-get-safe-area-insets`\n- `allow-init-session`\n- `allow-update-settings`\n- `allow-start-autonomous-playback`\n- `allow-invalidate-queue`\n- `allow-soft-invalidate-queue`\n- `allow-toggle-shuffle`\n- `allow-debug-log`"
         },
         {
           "description": "Allows starting or resuming audio playback",
@@ -617,6 +641,12 @@
           "type": "string",
           "const": "allow-next-track",
           "markdownDescription": "Allows skipping to the next track"
+        },
+        {
+          "description": "Allows jumping to a specific queue index",
+          "type": "string",
+          "const": "allow-play-at-index",
+          "markdownDescription": "Allows jumping to a specific queue index"
         },
         {
           "description": "Allows skipping to the previous track",
@@ -683,6 +713,12 @@
           "type": "string",
           "const": "allow-invalidate-queue",
           "markdownDescription": "Allows invalidating the native queue window"
+        },
+        {
+          "description": "Allows soft invalidating the native queue",
+          "type": "string",
+          "const": "allow-soft-invalidate-queue",
+          "markdownDescription": "Allows soft invalidating the native queue"
         },
         {
           "description": "Allows toggling shuffle mode",

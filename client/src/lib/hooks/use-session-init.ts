@@ -145,6 +145,10 @@ export function useSessionInit() {
         // Determine ownership: if this client is the owner, or new session
         if (response.isNewSession || response.ownerClientId === clientId) {
           setIsAudioOwner(true);
+        } else if (!response.ownerClientId) {
+          // No owner (e.g., previous owner was disowned due to inactivity)
+          // — wait for explicit ownership claim via startQueue auto-claim
+          setIsAudioOwner(false);
         } else {
           // Existing session owned by another client — join as follower
           setIsAudioOwner(false);

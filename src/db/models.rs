@@ -549,6 +549,7 @@ pub struct PlaybackSession {
     pub created_at: DateTime<Utc>,
     pub owner_client_id: Option<String>,
     pub owner_client_name: String,
+    pub last_playing_at: Option<DateTime<Utc>>,
 }
 
 /// Server-side play queue state

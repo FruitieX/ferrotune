@@ -71,6 +71,14 @@ pub struct StartQueueRequest {
     pub song_ids: Option<Vec<String>>,
     /// Whether to include inline cover art thumbnails (small or medium)
     pub inline_images: Option<String>,
+    /// Client ID of the requesting client (used for auto-claiming ownership)
+    pub client_id: Option<String>,
+    /// When true, the server broadcasts QueueUpdated instead of QueueChanged,
+    /// so other clients update their queue UI without restarting playback.
+    /// Used when the queue is swapped but the current song should keep playing
+    /// (e.g., starting song radio for the currently playing song).
+    #[serde(default)]
+    pub keep_playing: bool,
 }
 
 /// Response after starting a queue
@@ -774,8 +782,45 @@ pub async fn start_queue(
         .await?
         .ok_or_else(|| Error::NotFound("Queue not found after creation".to_string()))?;
 
-    // Broadcast queue change to SSE subscribers
-    broadcast_queue_changed(&state, session_id).await;
+    // Auto-claim ownership if the session has no owner and a client_id was provided.
+    // This handles the case where an inactive owner was disowned by the background
+    // task, and a new client starts playback. The OwnerChanged event must be sent
+    // before QueueChanged so clients know who the owner is when processing the queue.
+    if let Some(ref client_id) = request.client_id {
+        let session = queries::get_session(&state.pool, session_id, user.user_id)
+            .await?
+            .ok_or_else(|| Error::NotFound("Session not found".to_string()))?;
+        if session.owner_client_id.is_none() {
+            let client_name = session.client_name.clone();
+            queries::update_session_owner(&state.pool, session_id, Some(client_id), &client_name)
+                .await?;
+            state
+                .session_manager
+                .broadcast(
+                    session_id,
+                    SessionEvent::OwnerChanged {
+                        owner_client_id: Some(client_id.clone()),
+                        owner_client_name: Some(client_name),
+                    },
+                )
+                .await;
+        }
+    }
+
+    // Update last_playing_at since playback is about to start — this resets the
+    // inactivity timer so the background task doesn't immediately disown us.
+    sqlx::query("UPDATE playback_sessions SET last_playing_at = datetime('now') WHERE id = ?")
+        .bind(session_id)
+        .execute(&state.pool)
+        .await?;
+
+    // Broadcast to SSE subscribers: QueueUpdated (no playback restart) when
+    // keep_playing is set, QueueChanged (full restart) otherwise.
+    if request.keep_playing {
+        broadcast_queue_updated(&state, session_id).await;
+    } else {
+        broadcast_queue_changed(&state, session_id).await;
+    }
 
     Ok(Json(StartQueueResponse {
         total_count,

@@ -290,6 +290,57 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
     // before the router rejects OPTIONS method
     let cors = build_cors_layer(&config);
 
+    // Background task: clear ownership from sessions whose owner has been
+    // inactive (not playing) for 5 minutes. This prevents idle tabs from
+    // starting playback when another tab initiates a queue.
+    {
+        let pool = state.pool.clone();
+        let session_manager = session_manager.clone();
+        tokio::spawn(async move {
+            const INACTIVITY_SECONDS: i64 = 300; // 5 minutes
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                match db::queries::get_sessions_with_inactive_owners(&pool, INACTIVITY_SECONDS)
+                    .await
+                {
+                    Ok(sessions) => {
+                        for session in sessions {
+                            if let Err(e) =
+                                db::queries::clear_session_owner(&pool, &session.id).await
+                            {
+                                tracing::warn!(
+                                    "Failed to clear inactive owner for session {}: {}",
+                                    session.id,
+                                    e
+                                );
+                                continue;
+                            }
+                            tracing::debug!(
+                                "Cleared inactive owner from session {} (user_id={})",
+                                session.id,
+                                session.user_id
+                            );
+                            // Notify all connected clients that ownership was cleared
+                            session_manager
+                                .broadcast(
+                                    &session.id,
+                                    api::SessionEvent::OwnerChanged {
+                                        owner_client_id: None,
+                                        owner_client_name: None,
+                                    },
+                                )
+                                .await;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to check for inactive session owners: {}", e);
+                    }
+                }
+            }
+        });
+    }
+
     // Build combined API router (OpenSubsonic + Ferrotune Admin)
     // Both APIs are served on the same port:
     // - /rest/* - OpenSubsonic API

@@ -1488,6 +1488,8 @@ export class FerrotuneClient {
     inlineImages?: "small" | "medium";
     /** Playback session ID for multi-session support */
     sessionId?: string;
+    /** Client ID for auto-claiming ownership when no owner exists */
+    clientId?: string;
   }): Promise<StartQueueResponse> {
     return this.request("/ferrotune/queue/start", {
       method: "POST",

@@ -1324,6 +1324,23 @@ fn build_condition(
                 _ => None,
             };
         }
+        "inPlaylist" => {
+            // Filter by membership in an existing playlist
+            let playlist_id = value.as_str()?;
+            return match op.as_str() {
+                "eq" => Some((
+                    "EXISTS (SELECT 1 FROM playlist_songs pls WHERE pls.song_id = s.id AND pls.playlist_id = ?)"
+                        .to_string(),
+                    vec![SqlArg::Text(playlist_id.to_string())],
+                )),
+                "neq" => Some((
+                    "NOT EXISTS (SELECT 1 FROM playlist_songs pls WHERE pls.song_id = s.id AND pls.playlist_id = ?)"
+                        .to_string(),
+                    vec![SqlArg::Text(playlist_id.to_string())],
+                )),
+                _ => None,
+            };
+        }
         "musicFolder" | "library" => {
             // Filter by music folder ID - the value should be the music folder ID
             let folder_id = value

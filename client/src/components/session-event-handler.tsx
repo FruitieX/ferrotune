@@ -98,7 +98,10 @@ export function SessionEventHandler() {
         // Skip if we just initiated the takeover ourselves (the broadcast
         // echoes back to us and would incorrectly pause our own playback).
         if (event.action === "takeOver") {
-          if (selfTakeoverPending.value) return;
+          if (selfTakeoverPending.value) {
+            selfTakeoverPending.value = false;
+            return;
+          }
           pause();
           setIsAudioOwner(false);
           return;
@@ -190,29 +193,29 @@ export function SessionEventHandler() {
         break;
       }
       case "ownerChanged": {
-        // Another client has taken ownership
-        if (event.ownerClientId) {
-          setOwnerClientId(event.ownerClientId);
-          setOwnerClientName(event.ownerClientName ?? null);
+        // Ownership changed — could be transferred to another client or cleared
+        setOwnerClientId(event.ownerClientId ?? null);
+        setOwnerClientName(event.ownerClientName ?? null);
 
+        if (event.ownerClientId) {
           if (event.ownerClientId === clientId) {
-            // We became the owner. For self-initiated takeovers
-            // (selfTakeoverPending), this is the single place that
-            // triggers fetchQueueAndPlay — transferToClient defers to
-            // here to avoid a double-load race condition.
-            const wasSelfTakeover = selfTakeoverPending.value;
-            selfTakeoverPending.value = false;
+            // We became the owner.
+            // Don't clear selfTakeoverPending here — the PlaybackCommand
+            // {takeOver} handler needs to read it to prevent the echo
+            // (OwnerChanged is broadcast BEFORE PlaybackCommand by the server).
 
             // Read remotePlaybackState to know if we should auto-play.
-            // For self-takeovers the state hasn't been cleared yet so
-            // the value is fresh; for external transfers it was set by
-            // the SSE positionUpdate handler.
+            // This handles transferToClient where the previous owner was
+            // playing — we seamlessly pick up playback. For playAtIndex
+            // self-takeovers (claiming ownership after inactivity),
+            // wasPlaying is false since nothing was playing, and playback
+            // is already initiated by the caller — no fetchQueueAndPlay needed.
             const wasPlaying = remotePlaybackState?.isPlaying ?? false;
             setIsAudioOwner(true);
             setRemotePlaybackState(null);
 
             // Start playback seamlessly if the previous owner was playing
-            if (wasPlaying || wasSelfTakeover) {
+            if (wasPlaying) {
               fetchQueueAndPlay();
             }
           } else if (isAudioOwner) {
@@ -220,6 +223,11 @@ export function SessionEventHandler() {
             pause();
             setIsAudioOwner(false);
           }
+        } else if (isAudioOwner) {
+          // Ownership cleared by the server (inactivity timeout) — we are
+          // no longer the owner. This prevents this tab from reacting to
+          // a subsequent QueueChanged event by starting playback.
+          setIsAudioOwner(false);
         }
         break;
       }

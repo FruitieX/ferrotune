@@ -10,6 +10,7 @@ const COMMANDS: &[&str] = &[
     "set_replay_gain",
     "set_queue",
     "next_track",
+    "play_at_index",
     "previous_track",
     "set_repeat_mode",
     "append_to_queue",
@@ -19,6 +20,7 @@ const COMMANDS: &[&str] = &[
     "update_settings",
     "start_autonomous_playback",
     "invalidate_queue",
+    "soft_invalidate_queue",
     "toggle_shuffle",
     "debug_log",
 ];

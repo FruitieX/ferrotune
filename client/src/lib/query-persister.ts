@@ -1,9 +1,11 @@
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
-import { get, set, del } from "idb-keyval";
+import { del } from "idb-keyval";
+import { cacheGet, cacheSet, cacheDel } from "@/lib/cache-store";
 
 /**
- * Persists React Query cache to IndexedDB so the home page and library
- * views can render immediately from cached data on subsequent visits.
+ * Persists React Query cache to IndexedDB via the unified cache store so the
+ * home page and library views can render immediately from cached data on
+ * subsequent visits.
  *
  * Only queries whose first key segment is in PERSISTED_QUERY_PREFIXES
  * are written to disk; everything else stays in-memory only.
@@ -19,10 +21,13 @@ const PERSISTED_QUERY_PREFIXES = new Set([
   "smartPlaylists",
   "queue",
   "continue-listening",
+  "album",
+  "artist",
+  "smartPlaylist",
 ]);
 
-/** How long persisted cache entries stay valid (24 hours). */
-export const PERSIST_MAX_AGE_MS = 1000 * 60 * 60 * 24;
+/** How long persisted cache entries stay valid (30 days). */
+export const PERSIST_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 
 /**
  * gcTime must be >= maxAge so React Query keeps the data in memory
@@ -35,13 +40,14 @@ export function shouldPersistQuery(queryKey: readonly unknown[]): boolean {
   return typeof prefix === "string" && PERSISTED_QUERY_PREFIXES.has(prefix);
 }
 
-const idbStorage = {
-  getItem: async (key: string) => (await get(key)) ?? null,
+/** Storage adapter backed by the unified cache store (pinned = never LRU-evicted). */
+const cacheBackedStorage = {
+  getItem: async (key: string) => (await cacheGet<string>(key)) ?? null,
   setItem: async (key: string, value: string) => {
-    await set(key, value);
+    await cacheSet(key, value, { pinned: true });
   },
   removeItem: async (key: string) => {
-    await del(key);
+    await cacheDel(key);
   },
 };
 
@@ -58,8 +64,8 @@ export function getAccountPersister(accountKeyStr: string) {
   let persister = persisterCache.get(accountKeyStr);
   if (!persister) {
     persister = createAsyncStoragePersister({
-      storage: idbStorage,
-      key: `REACT_QUERY_CACHE_${accountKeyStr}`,
+      storage: cacheBackedStorage,
+      key: `rq-blob`,
       throttleTime: 2000,
     });
     persisterCache.set(accountKeyStr, persister);

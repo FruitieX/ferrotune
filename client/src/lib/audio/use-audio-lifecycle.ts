@@ -57,6 +57,12 @@ export function useAudioLifecycle({
   const currentSessionId = useAtomValue(currentSessionIdAtom);
   const fetchQueue = useSetAtom(fetchQueueAtom);
 
+  // Ref to avoid stale closure in event listeners
+  const currentSessionIdRef = useRef(currentSessionId);
+  useEffect(() => {
+    currentSessionIdRef.current = currentSessionId;
+  });
+
   // Direct atom setters for account-change reset
   const setPlaybackState = useSetAtom(playbackStateAtom);
   const setCurrentTime = useSetAtom(currentTimeAtom);
@@ -101,6 +107,30 @@ export function useAudioLifecycle({
                 }
               : prev,
           );
+
+          // In autonomous mode the native player is the source of truth.
+          // Sync its position to the server *before* fetchQueue() so the
+          // server response won't contain a stale currentIndex that
+          // overwrites the correct native position and causes a track jump.
+          if (nativeAutonomousMode.value && nativeState.state !== "idle") {
+            const client = getClient();
+            const sessionId = currentSessionIdRef.current;
+            if (client && sessionId) {
+              try {
+                await client.updateServerQueuePosition(
+                  nativeState.queueIndex,
+                  Math.round(nativeState.positionSeconds * 1000),
+                  false,
+                  sessionId,
+                );
+              } catch (e) {
+                console.warn(
+                  "[Audio] Failed to sync native position to server on resume:",
+                  e,
+                );
+              }
+            }
+          }
         } catch (e) {
           console.warn("[Audio] Failed to sync native state on resume:", e);
         }

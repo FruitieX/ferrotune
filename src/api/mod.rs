@@ -72,11 +72,11 @@ pub enum SessionEvent {
     VolumeChange { volume: f64, is_muted: bool },
     /// The connected client list changed (a client connected or disconnected)
     ClientListChanged,
-    /// Session ownership changed to a different client
+    /// Session ownership changed to a different client (or cleared)
     #[serde(rename_all = "camelCase")]
     OwnerChanged {
-        owner_client_id: String,
-        owner_client_name: String,
+        owner_client_id: Option<String>,
+        owner_client_name: Option<String>,
     },
 }
 

@@ -30,6 +30,7 @@ import type { SmartPlaylistConditionApi } from "@/lib/api/generated/SmartPlaylis
 import {
   AdvancedFilterBuilder,
   buildFieldsWithLibraries,
+  buildFieldsWithPlaylists,
   DEFAULT_SONG_FIELDS,
   type AdvancedFilters,
   type FilterCondition,
@@ -92,8 +93,22 @@ export function SmartPlaylistDialog({
     },
   });
 
-  // Build dynamic fields list including library field if multiple folders exist
-  const fields = buildFieldsWithLibraries(DEFAULT_SONG_FIELDS, musicFolders);
+  // Fetch playlists for the "In Playlist" field
+  const { data: playlistFoldersData } = useQuery({
+    queryKey: ["playlistFolders"],
+    queryFn: async () => {
+      const client = getClient();
+      if (!client) return null;
+      return client.getPlaylistFoldersWithStructure();
+    },
+  });
+
+  // Build dynamic fields list including library and playlist fields
+  const fields = buildFieldsWithPlaylists(
+    buildFieldsWithLibraries(DEFAULT_SONG_FIELDS, musicFolders),
+    playlistFoldersData?.playlists.map((p) => ({ id: p.id, name: p.name })) ??
+      [],
+  );
 
   // Form state
   const [name, setName] = useState("");

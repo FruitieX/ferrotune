@@ -244,6 +244,32 @@ Denies the play command without any pre-configured scope.
 <tr>
 <td>
 
+`native-audio:allow-play-at-index`
+
+</td>
+<td>
+
+Enables the play_at_index command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-play-at-index`
+
+</td>
+<td>
+
+Denies the play_at_index command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-audio:allow-previous-track`
 
 </td>
@@ -445,6 +471,32 @@ Enables the set_volume command without any pre-configured scope.
 <td>
 
 Denies the set_volume command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-soft-invalidate-queue`
+
+</td>
+<td>
+
+Enables the soft_invalidate_queue command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-soft-invalidate-queue`
+
+</td>
+<td>
+
+Denies the soft_invalidate_queue command without any pre-configured scope.
 
 </td>
 </tr>
@@ -712,6 +764,19 @@ Allows skipping to the next track
 <tr>
 <td>
 
+`native-audio:allow-play-at-index`
+
+</td>
+<td>
+
+Allows jumping to a specific queue index
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-audio:allow-previous-track`
 
 </td>
@@ -848,6 +913,19 @@ Allows starting autonomous playback mode
 <td>
 
 Allows invalidating the native queue window
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:allow-soft-invalidate-queue`
+
+</td>
+<td>
+
+Allows soft invalidating the native queue
 
 </td>
 </tr>
