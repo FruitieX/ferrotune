@@ -20,7 +20,6 @@ import {
   serverQueueStateAtom,
   fetchQueueAtom,
   queueWindowAtom,
-  pendingUserPlayback,
 } from "@/lib/store/server-queue";
 import {
   serverConnectionAtom,
@@ -29,7 +28,6 @@ import {
 } from "@/lib/store/auth";
 import { currentSessionIdAtom } from "@/lib/store/session";
 import { getClient } from "@/lib/api/client";
-import { nativeAutonomousMode } from "@/lib/store/server-queue";
 import { nativeStop, nativeGetState } from "@/lib/audio/native-engine";
 import {
   appResumeRepaintEvent,
@@ -108,11 +106,11 @@ export function useAudioLifecycle({
               : prev,
           );
 
-          // In autonomous mode the native player is the source of truth.
+          // The native player is the source of truth.
           // Sync its position to the server *before* fetchQueue() so the
           // server response won't contain a stale currentIndex that
           // overwrites the correct native position and causes a track jump.
-          if (nativeAutonomousMode.value && nativeState.state !== "idle") {
+          if (nativeState.state !== "idle") {
             const client = getClient();
             const sessionId = currentSessionIdRef.current;
             if (client && sessionId) {
@@ -165,7 +163,6 @@ export function useAudioLifecycle({
     // Stop playback and reset all audio state
     if (usingNativeAudio) {
       nativeStop().catch(console.error);
-      nativeAutonomousMode.value = false;
     } else {
       const audio = getActiveAudio();
       if (audio) {
@@ -178,7 +175,6 @@ export function useAudioLifecycle({
 
     // Reset module-level state
     resetEngineState();
-    pendingUserPlayback.value = false;
     lastProcessedSignalRef.current = -1;
 
     // Reset atoms

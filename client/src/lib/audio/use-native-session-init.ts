@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Native session initialization for autonomous mode.
+ * Native session initialization.
  * Configures server credentials so Kotlin can make direct API calls.
  *
  * Extracted from useAudioEngineInit — Effect 7.
@@ -11,12 +11,13 @@ import { useEffect } from "react";
 import { useAtomValue } from "jotai";
 import { serverConnectionAtom } from "@/lib/store/auth";
 import { currentSessionIdAtom, clientIdAtom } from "@/lib/store/session";
-import { nativeAutonomousMode } from "@/lib/store/server-queue";
 import {
   nativeInitSession,
   nativeUpdateSettings,
 } from "@/lib/audio/native-engine";
 import { usingNativeAudio, nativeAudioReady } from "@/lib/audio/engine-state";
+import { resolveNativeSessionReadyPromise } from "@/lib/audio/engine-state";
+import { hasNativeAudio } from "@/lib/tauri";
 import type { EngineStateSnapshot } from "./engine-types";
 
 interface NativeSessionInitDeps {
@@ -27,9 +28,10 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
   const serverConnection = useAtomValue(serverConnectionAtom);
   const currentSessionId = useAtomValue(currentSessionIdAtom);
   const clientId = useAtomValue(clientIdAtom);
+  const isNativePlatform = hasNativeAudio() || usingNativeAudio;
 
   useEffect(() => {
-    if (!usingNativeAudio || !serverConnection || !currentSessionId) {
+    if (!isNativePlatform || !serverConnection || !currentSessionId) {
       return;
     }
 
@@ -59,16 +61,24 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
         transcodingBitrate: stateRef.current.transcodingBitrate,
       });
       if (cancelled) return;
-      nativeAutonomousMode.value = true;
+
+      // Signal readiness only after both session config and playback settings
+      // have reached Kotlin, so startup preloading uses the correct URLs/gain.
+      resolveNativeSessionReadyPromise();
     };
 
     init().catch((err) => {
-      console.error(`[NativeAudio] autonomous init: FAILED: ${String(err)}`);
-      nativeAutonomousMode.value = false;
+      console.error(`[NativeAudio] session init: FAILED: ${String(err)}`);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [serverConnection, currentSessionId, clientId, stateRef]);
+  }, [
+    serverConnection,
+    currentSessionId,
+    clientId,
+    stateRef,
+    isNativePlatform,
+  ]);
 }

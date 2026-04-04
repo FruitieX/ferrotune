@@ -96,9 +96,9 @@ description = "Allows updating playback settings"
 commands.allow = ["update_settings"]
 
 [[permission]]
-identifier = "allow-start-autonomous-playback"
-description = "Allows starting autonomous playback mode"
-commands.allow = ["start_autonomous_playback"]
+identifier = "allow-start-playback"
+description = "Allows starting playback mode"
+commands.allow = ["start_playback"]
 
 [[permission]]
 identifier = "allow-invalidate-queue"
@@ -143,7 +143,7 @@ permissions = [
   "allow-get-safe-area-insets",
   "allow-init-session",
   "allow-update-settings",
-  "allow-start-autonomous-playback",
+  "allow-start-playback",
   "allow-invalidate-queue",
   "allow-soft-invalidate-queue",
   "allow-toggle-shuffle",

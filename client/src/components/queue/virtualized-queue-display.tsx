@@ -123,6 +123,8 @@ function VirtualQueueItem({
       onNavigate={onNavigate}
     >
       <div
+        data-testid="queue-item"
+        data-queue-position={entry.position}
         className={cn(
           "flex items-center gap-2 p-2 rounded-lg group",
           isCurrent

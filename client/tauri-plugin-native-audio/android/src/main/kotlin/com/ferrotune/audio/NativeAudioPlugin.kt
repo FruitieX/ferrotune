@@ -54,39 +54,6 @@ internal class ReplayGainArgs {
 }
 
 @InvokeArg
-internal class SetTrackArgs {
-    lateinit var id: String
-    lateinit var url: String
-    lateinit var title: String
-    var artist: String = ""
-    var album: String = ""
-    var coverArtUrl: String? = null
-    var durationMs: Long = 0
-    var replayGainDb: Float? = null
-}
-
-@InvokeArg
-internal class QueueItem {
-    lateinit var id: String
-    lateinit var url: String
-    lateinit var title: String
-    var artist: String = ""
-    var album: String = ""
-    var coverArtUrl: String? = null
-    var durationMs: Long = 0
-    var replayGainDb: Float? = null
-}
-
-@InvokeArg
-internal class SetQueueArgs {
-    var items: Array<QueueItem> = emptyArray()
-    var startIndex: Int = 0
-    var queueOffset: Int = 0
-    var startPositionMs: Long = 0
-    var playWhenReady: Boolean = false
-}
-
-@InvokeArg
 internal class UpdateStarredStateArgs {
     var starred: Boolean = false
 }
@@ -94,11 +61,6 @@ internal class UpdateStarredStateArgs {
 @InvokeArg
 internal class SetRepeatModeArgs {
     var mode: String = "off"
-}
-
-@InvokeArg
-internal class AppendToQueueArgs {
-    var items: Array<QueueItem> = emptyArray()
 }
 
 @InvokeArg
@@ -121,7 +83,7 @@ internal class UpdateSettingsArgs {
 }
 
 @InvokeArg
-internal class StartAutonomousPlaybackArgs {
+internal class StartPlaybackArgs {
     var totalCount: Int = 0
     var currentIndex: Int = 0
     var isShuffled: Boolean = false
@@ -177,15 +139,6 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
             playbackService?.setEventEmitter { event, data ->
                 triggerEvent(event, data)
             }
-            // Wire up skip callbacks so notification prev/next dispatch events to the web side
-            playbackService?.setSkipCallbacks(
-                onPrevious = {
-                    triggerEvent(AudioEvents.SKIP_PREVIOUS, JSObject())
-                },
-                onNext = {
-                    triggerEvent(AudioEvents.SKIP_NEXT, JSObject())
-                }
-            )
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -390,25 +343,6 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     }
 
     @Command
-    fun requestPlayback(invoke: Invoke) {
-        scope.launch {
-            try {
-                val service = awaitService()
-                if (service == null) {
-                    Log.e(TAG, "requestPlayback() failed: Service not available after timeout")
-                    invoke.reject("Service not available - try again")
-                    return@launch
-                }
-                service.requestPlayback()
-                invoke.resolve()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in requestPlayback()", e)
-                invoke.reject(e.message)
-            }
-        }
-    }
-
-    @Command
     fun play(invoke: Invoke) {
         scope.launch {
             try {
@@ -488,38 +422,6 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     }
 
     @Command
-    fun setTrack(invoke: Invoke) {
-        scope.launch {
-            try {
-                val args = invoke.parseArgs(SetTrackArgs::class.java)
-                Log.d(TAG, "setTrack() called with: id=${args.id}, title=${args.title}, url=${args.url}")
-                val track = TrackInfo(
-                    id = args.id,
-                    url = args.url,
-                    title = args.title,
-                    artist = args.artist,
-                    album = args.album,
-                    coverArtUrl = args.coverArtUrl,
-                    durationMs = args.durationMs,
-                    replayGainDb = args.replayGainDb
-                )
-                val service = awaitService()
-                if (service == null) {
-                    Log.e(TAG, "setTrack() failed: Service not available after timeout")
-                    invoke.reject("Service not available - try again")
-                    return@launch
-                }
-                Log.d(TAG, "setTrack() - calling service.setTrack()")
-                service.setTrack(track)
-                invoke.resolve()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in setTrack()", e)
-                invoke.reject(e.message)
-            }
-        }
-    }
-
-    @Command
     fun getState(invoke: Invoke) {
         scope.launch {
             try {
@@ -579,41 +481,6 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     }
 
     @Command
-    fun setQueue(invoke: Invoke) {
-        scope.launch {
-            try {
-                val args = invoke.parseArgs(SetQueueArgs::class.java)
-                Log.d(TAG, "setQueue() called with ${args.items.size} items, startIndex=${args.startIndex}")
-
-                val items = args.items.map { item ->
-                    TrackInfo(
-                        id = item.id,
-                        url = item.url,
-                        title = item.title,
-                        artist = item.artist,
-                        album = item.album,
-                        coverArtUrl = item.coverArtUrl,
-                        durationMs = item.durationMs,
-                        replayGainDb = item.replayGainDb
-                    )
-                }
-
-                val service = awaitService()
-                if (service == null) {
-                    Log.e(TAG, "setQueue() failed: Service not available after timeout")
-                    invoke.reject("Service not available - try again")
-                    return@launch
-                }
-                service.setQueue(items, args.startIndex, args.queueOffset, args.startPositionMs, args.playWhenReady)
-                invoke.resolve()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in setQueue()", e)
-                invoke.reject(e.message)
-            }
-        }
-    }
-
-    @Command
     fun nextTrack(invoke: Invoke) {
         scope.launch {
             try {
@@ -637,12 +504,14 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
         val args = invoke.parseArgs(PlayAtIndexArgs::class.java)
         scope.launch {
             try {
+                Log.d(TAG, "playAtIndex() command received: index=${args.index}")
                 val service = awaitService()
                 if (service == null) {
                     Log.e(TAG, "playAtIndex() failed: Service not available after timeout")
                     invoke.reject("Service not available - try again")
                     return@launch
                 }
+                Log.d(TAG, "playAtIndex() - calling service.playAtIndex(${args.index})")
                 service.playAtIndex(args.index)
                 invoke.resolve()
             } catch (e: Exception) {
@@ -694,39 +563,6 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                 invoke.resolve()
             } catch (e: Exception) {
                 Log.e(TAG, "Error in setRepeatMode()", e)
-                invoke.reject(e.message)
-            }
-        }
-    }
-
-    @Command
-    fun appendToQueue(invoke: Invoke) {
-        scope.launch {
-            try {
-                val args = invoke.parseArgs(AppendToQueueArgs::class.java)
-                Log.d(TAG, "appendToQueue() called with ${args.items.size} items")
-                val items = args.items.map { item ->
-                    TrackInfo(
-                        id = item.id,
-                        url = item.url,
-                        title = item.title,
-                        artist = item.artist,
-                        album = item.album,
-                        coverArtUrl = item.coverArtUrl,
-                        durationMs = item.durationMs,
-                        replayGainDb = item.replayGainDb
-                    )
-                }
-                val service = awaitService()
-                if (service == null) {
-                    Log.e(TAG, "appendToQueue() failed: Service not available after timeout")
-                    invoke.reject("Service not available - try again")
-                    return@launch
-                }
-                service.appendToQueue(items)
-                invoke.resolve()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in appendToQueue()", e)
                 invoke.reject(e.message)
             }
         }
@@ -809,17 +645,21 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
     }
 
     @Command
-    fun startAutonomousPlayback(invoke: Invoke) {
+    fun startPlayback(invoke: Invoke) {
         scope.launch {
             try {
-                val args = invoke.parseArgs(StartAutonomousPlaybackArgs::class.java)
+                val args = invoke.parseArgs(StartPlaybackArgs::class.java)
+                Log.d(
+                    TAG,
+                    "startPlayback() command received: total=${args.totalCount}, index=${args.currentIndex}, play=${args.playWhenReady}"
+                )
                 val service = awaitService()
                 if (service == null) {
-                    Log.e(TAG, "startAutonomousPlayback() failed: Service not available after timeout")
+                    Log.e(TAG, "startPlayback() failed: Service not available after timeout")
                     invoke.reject("Service not available - try again")
                     return@launch
                 }
-                service.startAutonomousPlayback(
+                service.startPlayback(
                     totalCount = args.totalCount,
                     currentIndex = args.currentIndex,
                     isShuffled = args.isShuffled,
@@ -832,7 +672,7 @@ class NativeAudioPlugin(private val activity: android.app.Activity) : Plugin(act
                 )
                 invoke.resolve()
             } catch (e: Exception) {
-                Log.e(TAG, "Error in startAutonomousPlayback()", e)
+                Log.e(TAG, "Error in startPlayback()", e)
                 invoke.reject(e.message)
             }
         }

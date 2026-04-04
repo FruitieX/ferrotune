@@ -17,7 +17,6 @@ import type { Song, QueueSourceInfo, QueueWindow } from "@/lib/api/types";
 import { getClient } from "@/lib/api/client";
 import { hasNativeAudio } from "@/lib/tauri";
 import {
-  nativeRequestPlayback,
   nativeNextTrack,
   nativePreviousTrack,
   nativeToggleShuffle,
@@ -26,10 +25,7 @@ import {
   nativeSoftInvalidateQueue,
   nativePlayAtIndex,
 } from "@/lib/audio/native-engine";
-import {
-  setNativeAutoAdvanced,
-  setCurrentLoadedTrackId,
-} from "@/lib/audio/engine-state";
+
 import {
   effectiveSessionIdAtom,
   isAudioOwnerAtom,
@@ -38,31 +34,6 @@ import {
   ownerClientIdAtom,
   selfTakeoverPending,
 } from "./session";
-
-// Module-level flag: true when Kotlin is managing playback autonomously
-let _nativeAutonomousMode = false;
-export const nativeAutonomousMode = {
-  get value() {
-    return _nativeAutonomousMode;
-  },
-  set value(v: boolean) {
-    _nativeAutonomousMode = v;
-  },
-};
-
-// Module-level flag: set to true when user explicitly starts playback
-// (startQueue, playAtIndex). Read by the audio engine to decide whether
-// to auto-play after loading the queue. This avoids stale-closure and
-// async timing issues with React atom values.
-let _pendingUserPlayback = false;
-export const pendingUserPlayback = {
-  get value() {
-    return _pendingUserPlayback;
-  },
-  set value(v: boolean) {
-    _pendingUserPlayback = v;
-  },
-};
 
 // Module-level signal: position in milliseconds to seek to when starting
 // playback (e.g. after session takeover). Read and consumed by the audio
@@ -241,8 +212,8 @@ export const startQueueAtom = atom(
     const isRemote = get(isRemoteControllingAtom);
 
     // If there's no current owner (cleared by inactivity), optimistically
-    // claim ownership so we set pendingUserPlayback and the track loader
-    // doesn't need to wait for the SSE OwnerChanged roundtrip.
+    // claim ownership so the track loader doesn't need to wait for the
+    // SSE OwnerChanged roundtrip.
     const noOwner = !get(ownerClientIdAtom);
     const shouldPlay = !isRemote || noOwner;
 
@@ -262,12 +233,8 @@ export const startQueueAtom = atom(
     set(isQueueOperationPendingAtom, true);
     if (!isSeamlessSwap) {
       set(isRestoringQueueAtom, false); // User explicitly starting playback
-      if (shouldPlay) {
-        if (noOwner) {
-          set(isAudioOwnerAtom, true);
-        }
-        pendingUserPlayback.value = true;
-        if (hasNativeAudio()) nativeRequestPlayback();
+      if (shouldPlay && noOwner) {
+        set(isAudioOwnerAtom, true);
       }
     }
 
@@ -467,7 +434,6 @@ export const fetchQueueAndPlayAtom = atom(null, async (get, set) => {
       // Signal the audio engine to load and play the new track,
       // resuming from the server-reported position (e.g. session takeover)
       pendingPlaybackPositionMs.value = Number(response.positionMs);
-      pendingUserPlayback.value = true;
       set(isRestoringQueueAtom, false);
       set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
     }
@@ -528,9 +494,8 @@ export const fetchQueueRangeAtom = atom(
 
 // Go to next track
 export const goToNextAtom = atom(null, async (get, set) => {
-  // In autonomous mode, Kotlin handles skip + server sync + scrobble
-  // Only use native path when this client owns audio playback
-  if (nativeAutonomousMode.value && get(isAudioOwnerAtom)) {
+  // When native audio owns playback, Kotlin handles skip + server sync + scrobble
+  if (hasNativeAudio() && get(isAudioOwnerAtom)) {
     try {
       await nativeNextTrack();
     } catch (error) {
@@ -561,10 +526,6 @@ export const goToNextAtom = atom(null, async (get, set) => {
   }
 
   set(isQueueOperationPendingAtom, true);
-  if (!get(isRemoteControllingAtom)) {
-    pendingUserPlayback.value = true;
-    if (hasNativeAudio()) nativeRequestPlayback();
-  }
 
   try {
     const sessionId = get(effectiveSessionIdAtom) ?? undefined;
@@ -611,9 +572,8 @@ export const goToNextAtom = atom(null, async (get, set) => {
 
 // Go to previous track
 export const goToPreviousAtom = atom(null, async (get, set) => {
-  // In autonomous mode, Kotlin handles skip + server sync
-  // Only use native path when this client owns audio playback
-  if (nativeAutonomousMode.value && get(isAudioOwnerAtom)) {
+  // When native audio owns playback, Kotlin handles skip + server sync
+  if (hasNativeAudio() && get(isAudioOwnerAtom)) {
     try {
       await nativePreviousTrack();
     } catch (error) {
@@ -639,10 +599,6 @@ export const goToPreviousAtom = atom(null, async (get, set) => {
   }
 
   set(isQueueOperationPendingAtom, true);
-  if (!get(isRemoteControllingAtom)) {
-    pendingUserPlayback.value = true;
-    if (hasNativeAudio()) nativeRequestPlayback();
-  }
 
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
 
@@ -685,11 +641,11 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
 
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
 
-  // In autonomous mode, delegate entirely to Kotlin which handles
+  // When native audio owns playback, delegate entirely to Kotlin which handles
   // server position update + queue refetch + ExoPlayer rebuild atomically.
   // Also handle the case where ownership was cleared (e.g. inactivity
   // timeout while backgrounded) — claim ownership and use native path.
-  if (nativeAutonomousMode.value) {
+  if (hasNativeAudio()) {
     const isOwner = get(isAudioOwnerAtom);
     const noOwner = !get(ownerClientIdAtom);
 
@@ -719,22 +675,6 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
 
       set(isQueueOperationPendingAtom, true);
       try {
-        // Look up the target song in the queue window so we can tell the
-        // track-loader it's already handled (prevents it from re-sending the
-        // entire queue and racing with the native playAtIndex call).
-        const window = get(queueWindowAtom);
-        const targetSong = window?.songs.find((s) => s.position === index);
-        if (targetSong) {
-          setCurrentLoadedTrackId(targetSong.song.id);
-        }
-        setNativeAutoAdvanced(true);
-
-        // Optimistic UI update so currentSong reflects immediately
-        set(serverQueueStateAtom, {
-          ...state,
-          currentIndex: index,
-          positionMs: 0,
-        });
         await nativePlayAtIndex(index);
       } catch (error) {
         console.error("Failed to play at index (native):", error);
@@ -748,16 +688,9 @@ export const playAtIndexAtom = atom(null, async (get, set, index: number) => {
   set(isQueueOperationPendingAtom, true);
   set(isRestoringQueueAtom, false); // User explicitly starting playback
 
-  const isRemote = get(isRemoteControllingAtom);
   const noOwner = !get(ownerClientIdAtom);
-  const shouldPlay = !isRemote || noOwner;
-
-  if (shouldPlay) {
-    if (noOwner) {
-      set(isAudioOwnerAtom, true);
-    }
-    pendingUserPlayback.value = true;
-    if (hasNativeAudio()) nativeRequestPlayback();
+  if (noOwner) {
+    set(isAudioOwnerAtom, true);
   }
 
   try {
@@ -808,11 +741,10 @@ export const toggleShuffleAtom = atom(null, async (get, set) => {
   const newShuffleState = !state.isShuffled;
   const sessionId = get(effectiveSessionIdAtom) ?? undefined;
 
-  // In autonomous mode, Kotlin handles server API + ExoPlayer queue update.
+  // Kotlin handles server API + ExoPlayer queue update.
   // nativeToggleShuffle only resolves after Kotlin finishes the server toggle
   // and ExoPlayer queue update, so the queue window fetch returns consistent data.
-  // Only use native path when this client owns audio playback
-  if (nativeAutonomousMode.value && get(isAudioOwnerAtom)) {
+  if (hasNativeAudio() && get(isAudioOwnerAtom)) {
     set(isQueueOperationPendingAtom, true);
     try {
       await nativeToggleShuffle(newShuffleState);
@@ -889,9 +821,8 @@ export const setRepeatModeAtom = atom(
     const state = get(serverQueueStateAtom);
     if (!state) return;
 
-    // In autonomous mode, Kotlin handles repeat mode + ExoPlayer update
-    // Only use native path when this client owns audio playback
-    if (nativeAutonomousMode.value && get(isAudioOwnerAtom)) {
+    // Kotlin handles repeat mode + ExoPlayer update
+    if (hasNativeAudio() && get(isAudioOwnerAtom)) {
       try {
         await nativeSetRepeatMode(mode);
         set(serverQueueStateAtom, { ...state, repeatMode: mode });
@@ -1003,7 +934,11 @@ export const addToQueueAtom = atom(
 
       // Tell Kotlin to update total count and prefetch without rebuilding
       // the ExoPlayer playlist (avoids briefly interrupting playback)
-      if (_nativeAutonomousMode && response.totalCount != null) {
+      if (
+        hasNativeAudio() &&
+        get(isAudioOwnerAtom) &&
+        response.totalCount != null
+      ) {
         await nativeSoftInvalidateQueue(response.totalCount);
       }
 
@@ -1069,7 +1004,7 @@ export const removeFromQueueAtom = atom(
       set(queueWindowAtom, queueResponse.window);
 
       // Tell Kotlin to refetch its ExoPlayer playlist
-      if (_nativeAutonomousMode) {
+      if (hasNativeAudio() && get(isAudioOwnerAtom)) {
         await nativeInvalidateQueue();
       }
 
@@ -1189,7 +1124,7 @@ export const moveInQueueAtom = atom(
       set(queueWindowAtom, queueResponse.window);
 
       // Tell Kotlin to refetch its ExoPlayer playlist
-      if (_nativeAutonomousMode) {
+      if (hasNativeAudio() && get(isAudioOwnerAtom)) {
         await nativeInvalidateQueue();
       }
 

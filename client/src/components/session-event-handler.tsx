@@ -21,8 +21,8 @@ import {
   fetchQueueAndPlayAtom,
   fetchQueueSilentAtom,
   currentSongAtom,
-  nativeAutonomousMode,
 } from "@/lib/store/server-queue";
+import { hasNativeAudio } from "@/lib/tauri";
 import {
   playbackStateAtom,
   currentTimeAtom,
@@ -107,10 +107,10 @@ export function SessionEventHandler() {
           return;
         }
 
-        // In native autonomous mode, Kotlin's PlaybackService has its own
+        // When native audio is active, Kotlin's PlaybackService has its own
         // SSE connection and handles playback commands directly. Skip here
         // to avoid double-processing (e.g. skipping two songs instead of one).
-        if (nativeAutonomousMode.value) return;
+        if (hasNativeAudio()) return;
 
         switch (event.action) {
           case "play":
@@ -225,8 +225,8 @@ export function SessionEventHandler() {
           }
         } else if (isAudioOwner) {
           // Ownership cleared by the server (inactivity timeout) — we are
-          // no longer the owner. This prevents this tab from reacting to
-          // a subsequent QueueChanged event by starting playback.
+          // no longer the owner, but there is also no remote owner to follow.
+          // Leave the tab in locally controllable mode instead of follower mode.
           setIsAudioOwner(false);
         }
         break;

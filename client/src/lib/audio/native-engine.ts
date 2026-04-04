@@ -13,9 +13,7 @@
  */
 
 import { isTauriMobile } from "@/lib/tauri";
-import type { getClient } from "@/lib/api/client";
 import type { PlaybackState as AppPlaybackState } from "@/lib/store/player";
-import type { Song } from "@/lib/api/types";
 
 // Types from the native plugin
 interface NativeTrackInfo {
@@ -95,11 +93,7 @@ export interface NativeAudioCallbacks {
     track: NativeTrackInfo | undefined,
     queueIndex: number,
   ) => void;
-  onSkipPrevious: () => void;
-  onSkipNext: () => void;
   onToggleStar: (trackId: string, isStarred: boolean) => void;
-  onShuffleModeChanged: (enabled: boolean) => void;
-  onRepeatModeChanged: (mode: string) => void;
   onQueueStateChanged?: (state: {
     currentIndex: number;
     totalCount: number;
@@ -186,14 +180,6 @@ export async function initNativeAudioEngine(
           console.log("[NativeAudio] Track change:", data?.track?.title);
           engineState.callbacks?.onTrackChange(data?.track, data?.queueIndex);
           break;
-        case "skip-previous":
-          console.log("[NativeAudio] Skip previous from notification");
-          engineState.callbacks?.onSkipPrevious();
-          break;
-        case "skip-next":
-          console.log("[NativeAudio] Skip next from notification");
-          engineState.callbacks?.onSkipNext();
-          break;
         case "toggle-star":
           console.log("[NativeAudio] Toggle star from external controller");
           if (data?.trackId) {
@@ -202,14 +188,6 @@ export async function initNativeAudioEngine(
               data.isStarred ?? false,
             );
           }
-          break;
-        case "shuffle-mode-changed":
-          console.log("[NativeAudio] Shuffle mode changed:", data?.enabled);
-          engineState.callbacks?.onShuffleModeChanged(data?.enabled ?? false);
-          break;
-        case "repeat-mode-changed":
-          console.log("[NativeAudio] Repeat mode changed:", data?.mode);
-          engineState.callbacks?.onRepeatModeChanged(data?.mode ?? "off");
           break;
         case "queue-state-changed":
           console.log("[NativeAudio] Queue state changed:", data);
@@ -310,68 +288,12 @@ export interface NativeStreamOptions {
 }
 
 /**
- * Convert a Song to native track info
- */
-function songToNativeTrack(
-  song: Song,
-  client: ReturnType<typeof getClient>,
-  options?: NativeStreamOptions,
-): NativeTrackInfo {
-  if (!client) {
-    throw new Error("Client not available");
-  }
-
-  // Compute per-track ReplayGain so native side can apply it during background playback
-  let replayGainDb: number | undefined;
-  if (options && options.replayGainMode !== "disabled") {
-    const trackGain =
-      options.replayGainMode === "original"
-        ? (song.originalReplayGainTrackGain ?? 0)
-        : (song.computedReplayGainTrackGain ??
-          song.originalReplayGainTrackGain ??
-          0);
-    replayGainDb = trackGain + options.replayGainOffset;
-  }
-
-  return {
-    id: song.id,
-    url: client.getStreamUrl(song.id, {
-      maxBitRate: options?.transcodingEnabled
-        ? options.transcodingBitrate
-        : undefined,
-      format: options?.transcodingEnabled ? "opus" : undefined,
-    }),
-    title: song.title,
-    artist: song.artist || "Unknown Artist",
-    album: song.album || "Unknown Album",
-    coverArtUrl: song.coverArt
-      ? client.getCoverArtUrl(song.coverArt, 512)
-      : undefined,
-    durationMs: (song.duration || 0) * 1000,
-    replayGainDb,
-  };
-}
-
-/**
  * Play the current track
  */
 export async function nativePlay(): Promise<void> {
   console.log("[NativeAudio] nativePlay() called");
   const api = await getNativeApi();
   await api.play();
-}
-
-/**
- * Request that the next setQueue() call auto-starts playback.
- * Fire-and-forget: call from atom writes before the queue is set.
- */
-export function nativeRequestPlayback(): void {
-  console.log("[NativeAudio] nativeRequestPlayback() called");
-  getNativeApi()
-    .then((api) => api.requestPlayback())
-    .catch((err) =>
-      console.error("[NativeAudio] requestPlayback failed:", err),
-    );
 }
 
 /**
@@ -402,45 +324,6 @@ export async function nativeSeek(positionSeconds: number): Promise<void> {
 }
 
 /**
- * Set a single track to play
- */
-export async function nativeSetTrack(
-  song: Song,
-  client: ReturnType<typeof getClient>,
-  options?: NativeStreamOptions,
-): Promise<void> {
-  console.log("[NativeAudio] nativeSetTrack() called:", song.title);
-  const api = await getNativeApi();
-  const track = songToNativeTrack(song, client, options);
-  console.log("[NativeAudio] nativeSetTrack() - track URL:", track.url);
-  await api.setTrack(track);
-  console.log("[NativeAudio] nativeSetTrack() completed");
-}
-
-/**
- * Set the playback queue
- */
-export async function nativeSetQueue(
-  songs: Song[],
-  startIndex: number,
-  client: ReturnType<typeof getClient>,
-  queueOffset: number = 0,
-  startPositionMs: number = 0,
-  options?: NativeStreamOptions,
-  playWhenReady: boolean = false,
-): Promise<void> {
-  const api = await getNativeApi();
-  const tracks = songs.map((song) => songToNativeTrack(song, client, options));
-  await api.setQueue(
-    tracks,
-    startIndex,
-    queueOffset,
-    startPositionMs,
-    playWhenReady,
-  );
-}
-
-/**
  * Skip to next track
  */
 export async function nativeNextTrack(): Promise<void> {
@@ -452,8 +335,15 @@ export async function nativeNextTrack(): Promise<void> {
  * Jump to a specific queue index and start playback (autonomous mode)
  */
 export async function nativePlayAtIndex(index: number): Promise<void> {
-  const api = await getNativeApi();
-  await api.playAtIndex(index);
+  console.log("[NativeAudio] nativePlayAtIndex() called:", index);
+  try {
+    const api = await getNativeApi();
+    await api.playAtIndex(index);
+    console.log("[NativeAudio] nativePlayAtIndex() SUCCEEDED");
+  } catch (err) {
+    console.error("[NativeAudio] nativePlayAtIndex() FAILED:", String(err));
+    throw err;
+  }
 }
 
 /**
@@ -470,19 +360,6 @@ export async function nativePreviousTrack(): Promise<void> {
 export async function nativeSetRepeatMode(mode: string): Promise<void> {
   const api = await getNativeApi();
   await api.setRepeatMode(mode);
-}
-
-/**
- * Append songs to the end of the native playback queue
- */
-export async function nativeAppendToQueue(
-  songs: Song[],
-  client: ReturnType<typeof getClient>,
-  options?: NativeStreamOptions,
-): Promise<void> {
-  const api = await getNativeApi();
-  const tracks = songs.map((song) => songToNativeTrack(song, client, options));
-  await api.appendToQueue(tracks);
 }
 
 /**
@@ -537,11 +414,11 @@ export async function nativeUpdateStarredState(
   await api.updateStarredState(starred);
 }
 
-// ── Autonomous playback mode ────────────────────────────────────────────
+// ── Playback management ─────────────────────────────────────────────
 
 /**
- * Initialize session configuration for autonomous playback.
- * Must be called once before startAutonomousPlayback().
+ * Initialize session configuration.
+ * Must be called once before startPlayback().
  */
 export async function nativeInitSession(config: {
   serverUrl: string;
@@ -580,10 +457,10 @@ export async function nativeUpdateSettings(settings: {
 }
 
 /**
- * Start autonomous playback: Kotlin takes over queue management.
+ * Start playback: Kotlin takes over queue management.
  * The server queue must already be set up before calling this.
  */
-export async function nativeStartAutonomousPlayback(params: {
+export async function nativeStartPlayback(params: {
   totalCount: number;
   currentIndex: number;
   isShuffled: boolean;
@@ -594,16 +471,13 @@ export async function nativeStartAutonomousPlayback(params: {
   sourceType?: string;
   sourceId?: string;
 }): Promise<void> {
-  console.log("[NativeAudio] nativeStartAutonomousPlayback() called", params);
+  console.log("[NativeAudio] nativeStartPlayback() called", params);
   try {
     const api = await getNativeApi();
-    await api.startAutonomousPlayback(params);
-    console.log("[NativeAudio] nativeStartAutonomousPlayback() SUCCEEDED");
+    await api.startPlayback(params);
+    console.log("[NativeAudio] nativeStartPlayback() SUCCEEDED");
   } catch (err) {
-    console.error(
-      "[NativeAudio] nativeStartAutonomousPlayback() FAILED:",
-      String(err),
-    );
+    console.error("[NativeAudio] nativeStartPlayback() FAILED:", String(err));
     throw err;
   }
 }

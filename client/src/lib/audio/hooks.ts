@@ -58,11 +58,16 @@ import {
   nativePreviousTrack,
 } from "@/lib/audio/native-engine";
 import {
+  isAudioOwnerAtom,
   isRemoteControllingAtom,
   remotePlaybackStateAtom,
   currentSessionIdAtom,
   effectiveSessionIdAtom,
+  ownerClientIdAtom,
+  clientIdAtom,
+  markSelfTakeoverAtom,
 } from "@/lib/store/session";
+import { hasNativeAudio } from "@/lib/tauri";
 import { logListeningTimeAndReset } from "@/lib/audio/listening";
 import {
   resumeAudioContext,
@@ -262,10 +267,15 @@ export function useAudioEngine() {
 
   // Remote control awareness
   const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
+  const ownerClientId = useAtomValue(ownerClientIdAtom);
+  const clientId = useAtomValue(clientIdAtom);
+  const [isAudioOwner, setIsAudioOwner] = useAtom(isAudioOwnerAtom);
+  const markSelfTakeover = useSetAtom(markSelfTakeoverAtom);
   const currentSessionId = useAtomValue(currentSessionIdAtom);
   const effectiveSessionId = useAtomValue(effectiveSessionIdAtom);
   const remotePlaybackState = useAtomValue(remotePlaybackStateAtom);
   const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
+  const isNativePlatform = hasNativeAudio() || usingNativeAudio;
 
   // Transcoding settings (needed for time-offset seeking)
   const transcodingEnabled = useAtomValue(transcodingEnabledAtom);
@@ -287,7 +297,7 @@ export function useAudioEngine() {
     setCurrentLoadedTrackId(null);
     invalidatePreBuffer();
 
-    if (usingNativeAudio) {
+    if (isNativePlatform) {
       setTrackChangeSignal((prev) => prev + 1);
     } else {
       const audio = getActiveAudio();
@@ -322,6 +332,32 @@ export function useAudioEngine() {
     }
   };
 
+  const claimOwnershipIfNeeded = async () => {
+    if (ownerClientId || isAudioOwner) return;
+
+    const targetSessionId = effectiveSessionId;
+    const client = getClient();
+    if (!targetSessionId || !client) return;
+
+    setIsAudioOwner(true);
+    markSelfTakeover();
+
+    try {
+      await client.sendSessionCommand(
+        targetSessionId,
+        "takeOver",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        clientId || undefined,
+      );
+    } catch (error) {
+      console.error("Failed to claim playback ownership:", error);
+      setIsAudioOwner(false);
+    }
+  };
+
   const play = async () => {
     if (isRemoteControlling) {
       setRemotePlaybackState((prev) =>
@@ -330,8 +366,11 @@ export function useAudioEngine() {
       await sendRemoteCommand("play");
       return;
     }
+
+    await claimOwnershipIfNeeded();
+
     setIsRestoring(false);
-    if (usingNativeAudio) {
+    if (isNativePlatform) {
       nativePlay().catch(console.error);
     } else {
       const contextRunning = await resumeAudioContext();
@@ -351,7 +390,7 @@ export function useAudioEngine() {
       sendRemoteCommand("pause");
       return;
     }
-    if (usingNativeAudio) {
+    if (isNativePlatform) {
       nativePause().catch(console.error);
     } else {
       getActiveAudio()?.pause();
@@ -381,7 +420,7 @@ export function useAudioEngine() {
       }
       return;
     }
-    if (!usingNativeAudio && !getActiveAudio()) return;
+    if (!isNativePlatform && !getActiveAudio()) return;
 
     if (playbackState === "playing" || playbackState === "loading") {
       pause();
@@ -404,7 +443,7 @@ export function useAudioEngine() {
     playbackState,
     currentSessionId,
     isRemoteControlling,
-    usingNativeAudio,
+    usingNativeAudio: isNativePlatform,
     setCurrentTime,
     setBuffered,
     sendRemoteCommand,
@@ -421,7 +460,7 @@ export function useAudioEngine() {
     invalidatePreBuffer();
     setIsGaplessHandoff(false);
     setGaplessHandoffExpectedTrackId(null);
-    if (usingNativeAudio) {
+    if (isNativePlatform) {
       nativeNextTrack().catch(console.error);
       return;
     }
@@ -435,7 +474,7 @@ export function useAudioEngine() {
     }
     setIsRestoring(false);
 
-    if (usingNativeAudio) {
+    if (isNativePlatform) {
       logListeningTimeAndReset(true);
       if (force) {
         nativeSeek(0)

@@ -9,9 +9,9 @@
 import { useEffect } from "react";
 import { useAtomValue } from "jotai";
 import { playbackStateAtom } from "@/lib/store/player";
-import { serverQueueStateAtom } from "@/lib/store/server-queue";
 import { isRemoteControllingAtom } from "@/lib/store/session";
-import { nativePause, nativeSetRepeatMode } from "@/lib/audio/native-engine";
+import { nativePause } from "@/lib/audio/native-engine";
+import { hasNativeAudio } from "@/lib/tauri";
 import {
   audioElements,
   activeIndex,
@@ -22,12 +22,11 @@ import {
   setIsEndingQueue,
   setIsIntentionalStop,
 } from "@/lib/audio/engine-state";
-import { nativeAutonomousMode } from "@/lib/store/server-queue";
 
 export function usePlaybackStateEffects() {
   const playbackState = useAtomValue(playbackStateAtom);
   const isRemoteControlling = useAtomValue(isRemoteControllingAtom);
-  const queueState = useAtomValue(serverQueueStateAtom);
+  const isNativePlatform = hasNativeAudio() || usingNativeAudio;
 
   // Pause audio when playback state becomes "ended" (e.g., when queue ends via goToNext)
   useEffect(() => {
@@ -48,7 +47,7 @@ export function usePlaybackStateEffects() {
   // uses atom-based values (driven by SSE) instead of audio element state.
   useEffect(() => {
     if (!isRemoteControlling) return;
-    if (usingNativeAudio) {
+    if (isNativePlatform) {
       nativePause().catch(console.error);
     } else {
       const audio = getActiveAudio();
@@ -60,13 +59,5 @@ export function usePlaybackStateEffects() {
         }, 200);
       }
     }
-  }, [isRemoteControlling]);
-
-  // Sync repeat mode to native player when it changes
-  useEffect(() => {
-    if (!usingNativeAudio || !queueState?.repeatMode) return;
-    // In autonomous mode, Kotlin handles repeat mode changes via its own SSE handler.
-    if (nativeAutonomousMode.value) return;
-    nativeSetRepeatMode(queueState.repeatMode).catch(console.error);
-  }, [queueState?.repeatMode]);
+  }, [isNativePlatform, isRemoteControlling]);
 }

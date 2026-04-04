@@ -146,8 +146,9 @@ export function useSessionInit() {
         if (response.isNewSession || response.ownerClientId === clientId) {
           setIsAudioOwner(true);
         } else if (!response.ownerClientId) {
-          // No owner (e.g., previous owner was disowned due to inactivity)
-          // — wait for explicit ownership claim via startQueue auto-claim
+          // No owner (e.g., previous owner was disowned due to inactivity).
+          // Treat this as locally controllable instead of follower mode so
+          // play/pause doesn't route through remote-control code paths.
           setIsAudioOwner(false);
         } else {
           // Existing session owned by another client — join as follower

@@ -25,28 +25,21 @@ export function setNativeAudioReady(v: Promise<void> | null) {
   nativeAudioReady = v;
 }
 
-/** Server queue index of the first item loaded in ExoPlayer */
-export let nativeQueueOffset = 0;
-export function setNativeQueueOffset(v: number) {
-  nativeQueueOffset = v;
+/** Resolves when native session (API credentials) are configured in Kotlin */
+export let nativeSessionReady: Promise<void> | null = null;
+let nativeSessionReadyResolve: (() => void) | null = null;
+
+export function createNativeSessionReadyPromise(): void {
+  nativeSessionReady = new Promise<void>((resolve) => {
+    nativeSessionReadyResolve = resolve;
+  });
 }
 
-/** Number of items currently loaded in ExoPlayer's playlist */
-export let nativeQueueLength = 0;
-export function setNativeQueueLength(v: number) {
-  nativeQueueLength = v;
-}
-
-/** Set in onItemTransition to skip redundant track-load effect */
-export let nativeAutoAdvanced = false;
-export function setNativeAutoAdvanced(v: boolean) {
-  nativeAutoAdvanced = v;
-}
-
-/** Prevents queue-window-sync effect on auto-advance updates */
-export let suppressQueueWindowSync = false;
-export function setSuppressQueueWindowSync(v: boolean) {
-  suppressQueueWindowSync = v;
+export function resolveNativeSessionReadyPromise(): void {
+  if (nativeSessionReadyResolve) {
+    nativeSessionReadyResolve();
+    nativeSessionReadyResolve = null;
+  }
 }
 
 // ============================================================================
@@ -117,10 +110,8 @@ export function setLastNativeTranscodingBitrate(v: number) {
 export function resetEngineState() {
   usingNativeAudio = false;
   nativeAudioReady = null;
-  nativeQueueOffset = 0;
-  nativeQueueLength = 0;
-  nativeAutoAdvanced = false;
-  suppressQueueWindowSync = false;
+  nativeSessionReady = null;
+  nativeSessionReadyResolve = null;
   currentLoadedTrackId = null;
   isEndingQueue = false;
   isLoadingNewTrack = false;

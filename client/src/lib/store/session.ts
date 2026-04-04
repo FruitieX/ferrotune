@@ -139,7 +139,8 @@ export const effectiveSessionIdAtom = atom<string | null>((get) => {
  * Whether this tab is a follower (not the audio owner).
  */
 export const isRemoteControllingAtom = atom<boolean>((get) => {
-  return !get(isAudioOwnerAtom);
+  const ownerClientId = get(ownerClientIdAtom);
+  return ownerClientId !== null && !get(isAudioOwnerAtom);
 });
 
 /**

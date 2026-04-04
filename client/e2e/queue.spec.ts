@@ -96,19 +96,15 @@ test.describe.serial("Queue Management", () => {
       .first();
     await queueButton.click();
 
-    // Wait for queue heading
     await expect(
       page.getByRole("heading", { name: "Queue", exact: true }),
     ).toBeVisible({ timeout: 10000 });
 
-    // Wait for virtualized list to stabilize
     await page.waitForTimeout(500);
 
-    // Find and click "Third Song" - using page-level locator to avoid scope issues
     const thirdSong = page.getByText("Third Song").first();
     await expect(thirdSong).toBeVisible({ timeout: 5000 });
 
-    // Double-click to play (single click may just select)
     await thirdSong.dblclick({ force: true });
     await page.waitForTimeout(500);
 

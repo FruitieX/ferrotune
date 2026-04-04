@@ -20,6 +20,10 @@
       }
     ],
     "security": {
+      "capabilities": [
+        "default",
+        "mobile"
+      ],
       "csp": null
     }
   },

@@ -137,6 +137,18 @@ moon run client:playwright-install  # Install Playwright browsers
 moon run client:playwright-report   # View Playwright test report
 ```
 
+### Android Environment
+
+Android Tauri build and deploy commands must be run inside the Android nix shell.
+If `moon run client:tauri-android-build*` or `moon run client:tauri-android-deploy` fails with missing `JAVA_HOME`, `ANDROID_HOME`, or Android SDK tooling, enter the nix shell first and run the Moon task from there.
+
+Example:
+
+```bash
+nix develop .#android
+moon run client:tauri-android-deploy
+```
+
 ---
 
 ## Testing Requirements

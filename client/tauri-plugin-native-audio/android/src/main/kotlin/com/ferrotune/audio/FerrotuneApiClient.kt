@@ -121,6 +121,8 @@ class FerrotuneApiClient {
         sessionConfig = config
     }
 
+    fun hasSessionConfig(): Boolean = sessionConfig != null
+
     fun updateSessionId(sessionId: String) {
         val config = sessionConfig
         if (config != null) {
@@ -408,8 +410,8 @@ class FerrotuneApiClient {
         }
         val sourceJson = json.optJSONObject("source")
         return GetQueueResponse(
-            sourceType = sourceJson?.optString("type", null),
-            sourceId = sourceJson?.optString("id", null),
+            sourceType = sourceJson?.optString("type")?.ifEmpty { null },
+            sourceId = sourceJson?.optString("id")?.ifEmpty { null },
             totalCount = json.getInt("totalCount"),
             currentIndex = json.getInt("currentIndex"),
             positionMs = json.optLong("positionMs", 0),
@@ -428,7 +430,7 @@ class FerrotuneApiClient {
             title = json.optString("title", "Unknown"),
             artist = json.optString("artist", "Unknown Artist"),
             album = json.optString("album", "Unknown Album"),
-            coverArt = json.optString("coverArt", null),
+            coverArt = json.optString("coverArt").ifEmpty { null },
             duration = json.optInt("duration", 0),
             computedReplayGainTrackGain = if (json.has("computedReplayGainTrackGain") && !json.isNull("computedReplayGainTrackGain"))
                 json.getDouble("computedReplayGainTrackGain").toFloat() else null,
@@ -555,14 +557,14 @@ class FerrotuneApiClient {
                 currentIndex = json.getInt("currentIndex"),
                 positionMs = json.getLong("positionMs"),
                 isPlaying = json.getBoolean("isPlaying"),
-                currentSongId = json.optString("currentSongId", null),
+                currentSongId = json.optString("currentSongId").ifEmpty { null },
             )
             "sessionEnded" -> null // No longer emitted; sessions are permanent
             "sessionListChanged" -> null // Replaced by clientListChanged
             "clientListChanged" -> SessionEvent.ClientListChanged
             "ownerChanged" -> SessionEvent.OwnerChanged(
-                ownerClientId = json.optString("ownerClientId", null),
-                ownerClientName = json.optString("ownerClientName", null),
+                ownerClientId = json.optString("ownerClientId").ifEmpty { null },
+                ownerClientName = json.optString("ownerClientName").ifEmpty { null },
             )
             "volumeChange" -> SessionEvent.VolumeChange(
                 volume = json.getDouble("volume").toFloat(),

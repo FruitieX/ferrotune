@@ -9,22 +9,14 @@
 import { toast } from "sonner";
 import { getClient } from "@/lib/api/client";
 import {
-  nativePlay,
   nativeStop,
-  nativeSetTrack,
-  nativeSetQueue,
-  nativeSetRepeatMode,
   nativeGetState,
   nativeUpdateSettings,
   nativeUpdateStarredState,
-  nativeStartAutonomousPlayback,
+  nativeStartPlayback,
   nativeInvalidateQueue,
 } from "@/lib/audio/native-engine";
-import {
-  nativeAutonomousMode,
-  pendingUserPlayback,
-  pendingPlaybackPositionMs,
-} from "@/lib/store/server-queue";
+import { pendingPlaybackPositionMs } from "@/lib/store/server-queue";
 import { logListeningTimeAndReset } from "@/lib/audio/listening";
 import { resetClippingPeak } from "@/lib/audio/clipping-detector";
 import {
@@ -45,15 +37,11 @@ import {
   currentLoadedTrackId,
   setCurrentLoadedTrackId,
   nativeAudioReady,
-  nativeAutoAdvanced,
-  setNativeAutoAdvanced,
-  setNativeQueueOffset,
-  setNativeQueueLength,
+  nativeSessionReady,
   setLastNativeTranscodingEnabled,
   setLastNativeTranscodingBitrate,
   lastNativeTranscodingEnabled,
   lastNativeTranscodingBitrate,
-  setSuppressQueueWindowSync,
   isGaplessHandoff,
   gaplessHandoffExpectedTrackId,
   setIsGaplessHandoff,
@@ -113,7 +101,7 @@ export function loadTrackNative(
   params: TrackLoadParams,
   refs: TrackLoadRefs,
   setters: DirectSetters,
-  client: FerrotuneClient,
+  _client: FerrotuneClient,
 ): boolean {
   const { currentSong, trackChangeSignal, isRestoringQueue } = params;
 
@@ -127,8 +115,6 @@ export function loadTrackNative(
     currentLoadedTrackId,
     "isRestoringQueue:",
     isRestoringQueue,
-    "pendingUserPlayback:",
-    pendingUserPlayback.value,
   );
 
   if (!currentSong) {
@@ -138,8 +124,6 @@ export function loadTrackNative(
       nativeStop().catch(console.error);
       setters.setPlaybackState("idle");
       setCurrentLoadedTrackId(null);
-      setNativeQueueOffset(0);
-      setNativeQueueLength(0);
     }
     return true;
   }
@@ -166,17 +150,6 @@ export function loadTrackNative(
     transcodingChanged,
   );
 
-  // If the onTrackChange handler already updated state for a native
-  // auto-advance, skip re-sending the queue.
-  if (nativeAutoAdvanced && !signalChanged && !transcodingChanged) {
-    console.log(
-      "[Audio] Skipping - native auto-advance already handled this track",
-    );
-    setNativeAutoAdvanced(false);
-    return true;
-  }
-  setNativeAutoAdvanced(false);
-
   // Skip if same track is already loaded AND there's no forced reload.
   if (
     currentSong.id === currentLoadedTrackId &&
@@ -194,28 +167,18 @@ export function loadTrackNative(
     logListeningTimeAndReset();
   }
 
-  setCurrentLoadedTrackId(currentSong.id);
   setLastNativeTranscodingEnabled(nativeOpts.transcodingEnabled);
   setLastNativeTranscodingBitrate(nativeOpts.transcodingBitrate);
-  console.log("[Audio] Setting currentLoadedTrackId to:", currentLoadedTrackId);
-
-  // Suppress the queue-window-sync effect
-  setSuppressQueueWindowSync(true);
 
   // Determine whether playback should start automatically.
   const shouldPlay =
-    pendingUserPlayback.value ||
     (signalChanged && !isRestoringQueue) ||
     (transcodingChanged && refs.stateRef.current.playbackState === "playing");
-  const nativeResumePositionMs = pendingPlaybackPositionMs.value;
-  pendingUserPlayback.value = false;
   pendingPlaybackPositionMs.value = 0;
 
   console.log(
     "[Audio] shouldPlay:",
     shouldPlay,
-    "pendingUserPlayback:",
-    pendingUserPlayback.value,
     "signalChanged:",
     signalChanged,
     "isRestoringQueue:",
@@ -228,200 +191,126 @@ export function loadTrackNative(
       await nativeAudioReady;
     }
 
-    // In autonomous mode, tell Kotlin to fetch & manage the queue itself
-    if (nativeAutonomousMode.value) {
-      const qs = refs.stateRef.current.queueState;
-      if (!qs) return;
+    // Wait for session init (API credentials) before making any API calls
+    if (nativeSessionReady) {
+      await nativeSessionReady;
+    }
 
-      // Send latest settings before starting/restarting playback
-      const s = refs.stateRef.current;
-      await nativeUpdateSettings({
-        replayGainMode: s.replayGainMode,
-        replayGainOffset: s.replayGainOffset,
-        scrobbleThreshold: s.scrobbleThreshold,
-        transcodingEnabled: s.transcodingEnabled,
-        transcodingBitrate: s.transcodingBitrate,
-      });
-
-      // If only transcoding settings changed (not a new queue), just
-      // invalidate so Kotlin refetches with new stream URLs
-      if (transcodingChanged && !signalChanged) {
-        await nativeInvalidateQueue();
-        return;
-      }
-
-      // Check if the native player already has this track loaded
-      if (isRestoringQueue) {
-        try {
-          const nativeState = await nativeGetState();
-          if (
-            nativeState.trackId === currentSong.id &&
-            (nativeState.state === "playing" ||
-              nativeState.state === "paused" ||
-              nativeState.state === "loading")
-          ) {
-            console.log(
-              "[NativeAudio] Native player already has track loaded, syncing state without reloading",
-            );
-            setCurrentLoadedTrackId(currentSong.id);
-            refs.settersRef.current.setPlaybackState(nativeState.state);
-            refs.settersRef.current.setCurrentTime(nativeState.positionSeconds);
-            refs.settersRef.current.setDuration(nativeState.durationSeconds);
-
-            const isStarred =
-              refs.stateRef.current.starredItems.get(currentSong.id) ?? false;
-            await nativeUpdateStarredState(isStarred);
-            return;
-          }
-
-          // Safety net: if native is actively playing a *different* track than
-          // what the frontend thinks is current (e.g. server returned a stale
-          // currentIndex after app resume), trust the native player instead of
-          // restarting autonomous playback at the wrong position.
-          if (
-            nativeState.trackId &&
-            nativeState.trackId !== currentSong.id &&
-            (nativeState.state === "playing" ||
-              nativeState.state === "paused" ||
-              nativeState.state === "loading")
-          ) {
-            console.log(
-              "[NativeAudio] Native player has different track than frontend expects " +
-                `(native: ${nativeState.trackId}, frontend: ${currentSong.id}). ` +
-                "Trusting native player — updating frontend state to match.",
-            );
-            // Update the frontend queue state to match native's actual position.
-            // This corrects the stale currentIndex without disrupting playback.
-            refs.settersRef.current.setServerQueueState((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    currentIndex: nativeState.queueIndex,
-                    positionMs: nativeState.positionSeconds * 1000,
-                  }
-                : prev,
-            );
-            refs.settersRef.current.setPlaybackState(nativeState.state);
-            refs.settersRef.current.setCurrentTime(nativeState.positionSeconds);
-            refs.settersRef.current.setDuration(nativeState.durationSeconds);
-            return;
-          }
-        } catch (err) {
-          console.warn(
-            "[NativeAudio] Failed to check native state, proceeding with queue send:",
-            err,
-          );
-        }
-      }
-
-      setters.setHasScrobbled(false);
-      setters.setCurrentTime(0);
-      setters.setDuration(currentSong.duration || 0);
-
-      await nativeStartAutonomousPlayback({
-        totalCount: qs.totalCount,
-        currentIndex: qs.currentIndex,
-        isShuffled: qs.isShuffled,
-        repeatMode: qs.repeatMode,
-        playWhenReady: shouldPlay,
-        startPositionMs: qs.positionMs,
-        sessionId: refs.stateRef.current.currentSessionId ?? undefined,
-        sourceType: qs.source?.type,
-        sourceId: qs.source?.id ?? undefined,
-      });
-
-      if (!shouldPlay) {
-        setters.setPlaybackState("paused");
-      } else {
-        setters.setPlaybackState("loading");
-      }
-
-      const isStarred =
-        refs.stateRef.current.starredItems.get(currentSong.id) ?? false;
-      await nativeUpdateStarredState(isStarred);
+    // Kotlin manages the queue itself — tell it to fetch & play
+    const qs = params.queueState ?? refs.stateRef.current.queueState;
+    if (!qs) {
+      console.warn(
+        "[NativeAudio] Skipping native load because queueState is missing",
+      );
       return;
     }
 
-    // Build the queue from the queue window
-    const currentWindow = refs.stateRef.current.queueWindow;
-    const currentQueueState = refs.stateRef.current.queueState;
-    const windowSongs = currentWindow?.songs
-      ? [...currentWindow.songs].sort((a, b) => a.position - b.position)
-      : [];
+    // Send latest settings before starting/restarting playback
+    const s = refs.stateRef.current;
+    await nativeUpdateSettings({
+      replayGainMode: s.replayGainMode,
+      replayGainOffset: s.replayGainOffset,
+      scrobbleThreshold: s.scrobbleThreshold,
+      transcodingEnabled: s.transcodingEnabled,
+      transcodingBitrate: s.transcodingBitrate,
+    });
 
-    const startIdx = windowSongs.findIndex(
-      (s) => s.position === currentQueueState?.currentIndex,
-    );
+    // If only transcoding settings changed (not a new queue), just
+    // invalidate so Kotlin refetches with new stream URLs
+    if (transcodingChanged && !signalChanged) {
+      await nativeInvalidateQueue();
+      return;
+    }
 
-    if (windowSongs.length > 0 && startIdx >= 0) {
-      const songs = windowSongs.map((s) => s.song);
-      setNativeQueueOffset(windowSongs[0].position);
-      setNativeQueueLength(windowSongs.length);
+    // Check if the native player already has this track loaded
+    if (isRestoringQueue) {
+      try {
+        const nativeState = await nativeGetState();
+        if (
+          nativeState.trackId === currentSong.id &&
+          (nativeState.state === "playing" ||
+            nativeState.state === "paused" ||
+            nativeState.state === "loading")
+        ) {
+          console.log(
+            "[NativeAudio] Native player already has track loaded, syncing state without reloading",
+          );
+          setCurrentLoadedTrackId(currentSong.id);
+          refs.settersRef.current.setPlaybackState(nativeState.state);
+          refs.settersRef.current.setCurrentTime(nativeState.positionSeconds);
+          refs.settersRef.current.setDuration(nativeState.durationSeconds);
 
-      console.log(
-        "[Audio] Sending queue window to native:",
-        songs.length,
-        "songs, startIdx:",
-        startIdx,
-        "offset:",
-        windowSongs[0].position,
-        "shouldPlay:",
-        shouldPlay,
-      );
+          const isStarred =
+            refs.stateRef.current.starredItems.get(currentSong.id) ?? false;
+          await nativeUpdateStarredState(isStarred);
+          return;
+        }
 
-      setters.setHasScrobbled(false);
-      setters.setCurrentTime(nativeResumePositionMs / 1000);
-      setters.setDuration(currentSong.duration || 0);
-
-      await nativeSetQueue(
-        songs,
-        startIdx,
-        client,
-        windowSongs[0].position,
-        nativeResumePositionMs,
-        getNativeStreamOptions(refs.stateRef.current),
-        shouldPlay,
-      );
-
-      if (currentQueueState?.repeatMode) {
-        await nativeSetRepeatMode(currentQueueState.repeatMode);
-      }
-
-      const isStarred =
-        refs.stateRef.current.starredItems.get(currentSong.id) ?? false;
-      await nativeUpdateStarredState(isStarred);
-
-      if (!shouldPlay) {
-        console.log("[Audio] Restoring queue - setting queue without playing");
-        setters.setPlaybackState("paused");
-      } else {
-        console.log("[Audio] Normal playback - queue set with playWhenReady");
-        setters.setPlaybackState("loading");
-        await nativePlay();
-      }
-    } else {
-      // Fallback: no queue window available, use single track
-      console.log("[Audio] No queue window, falling back to single track");
-      setNativeQueueOffset(0);
-      setNativeQueueLength(1);
-
-      setters.setHasScrobbled(false);
-      setters.setCurrentTime(0);
-      setters.setDuration(currentSong.duration || 0);
-
-      await nativeSetTrack(
-        currentSong,
-        client,
-        getNativeStreamOptions(refs.stateRef.current),
-      );
-
-      if (!shouldPlay) {
-        setters.setPlaybackState("paused");
-      } else {
-        setters.setPlaybackState("loading");
-        await nativePlay();
+        // Safety net: if native is actively playing a *different* track than
+        // what the frontend thinks is current (e.g. server returned a stale
+        // currentIndex after app resume), trust the native player instead of
+        // restarting playback at the wrong position.
+        if (
+          nativeState.trackId &&
+          nativeState.trackId !== currentSong.id &&
+          (nativeState.state === "playing" ||
+            nativeState.state === "paused" ||
+            nativeState.state === "loading")
+        ) {
+          console.log(
+            "[NativeAudio] Native player has different track than frontend expects " +
+              `(native: ${nativeState.trackId}, frontend: ${currentSong.id}). ` +
+              "Trusting native player — updating frontend state to match.",
+          );
+          refs.settersRef.current.setServerQueueState((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  currentIndex: nativeState.queueIndex,
+                  positionMs: nativeState.positionSeconds * 1000,
+                }
+              : prev,
+          );
+          refs.settersRef.current.setPlaybackState(nativeState.state);
+          refs.settersRef.current.setCurrentTime(nativeState.positionSeconds);
+          refs.settersRef.current.setDuration(nativeState.durationSeconds);
+          return;
+        }
+      } catch (err) {
+        console.warn(
+          "[NativeAudio] Failed to check native state, proceeding with queue send:",
+          err,
+        );
       }
     }
+
+    setters.setHasScrobbled(false);
+    setters.setCurrentTime(isRestoringQueue ? qs.positionMs / 1000 : 0);
+    setters.setDuration(currentSong.duration || 0);
+
+    await nativeStartPlayback({
+      totalCount: qs.totalCount,
+      currentIndex: qs.currentIndex,
+      isShuffled: qs.isShuffled,
+      repeatMode: qs.repeatMode,
+      playWhenReady: shouldPlay,
+      startPositionMs: qs.positionMs,
+      sessionId: refs.stateRef.current.currentSessionId ?? undefined,
+      sourceType: qs.source?.type,
+      sourceId: qs.source?.id ?? undefined,
+    });
+
+    setCurrentLoadedTrackId(currentSong.id);
+
+    if (!shouldPlay) {
+      setters.setPlaybackState("paused");
+    } else {
+      setters.setPlaybackState("loading");
+    }
+
+    const isStarred =
+      refs.stateRef.current.starredItems.get(currentSong.id) ?? false;
+    await nativeUpdateStarredState(isStarred);
   };
 
   doNativeLoad().catch((err) => {
@@ -533,7 +422,6 @@ export function loadTrackWeb(
     console.log(
       "[Audio] Gapless handoff synchronized with queue; skipping redundant reload",
     );
-    pendingUserPlayback.value = false;
     pendingPlaybackPositionMs.value = 0;
     refs.lastProcessedSignalRef.current = trackChangeSignal;
     refs.lastStreamUrlRef.current = streamUrl;
@@ -586,9 +474,8 @@ export function loadTrackWeb(
     return;
   }
 
-  // Consume the pending-playback flag
+  // Consume the pending position flag
   const resumePositionSec = pendingPlaybackPositionMs.value / 1000;
-  pendingUserPlayback.value = false;
   pendingPlaybackPositionMs.value = 0;
   refs.lastProcessedSignalRef.current = trackChangeSignal;
   refs.lastStreamUrlRef.current = streamUrl;

@@ -40,8 +40,12 @@ tasks:
     inputs:
       - "package.json"
       - "pnpm-lock.yaml"
-    outputs:
-      - "node_modules"
+    # NOTE: intentionally no outputs - moon's archive follows symlinks in
+    # node_modules (the pnpm link: to guest-js), which causes source files
+    # to be overwritten with stale cached versions on restore. pnpm's own
+    # caching makes re-installs fast when the lockfile hasn't changed.
+    options:
+      cache: false
 
   build-native-audio-api:
     command: "pnpm exec tsc -p tauri-plugin-native-audio/guest-js/tsconfig.json"

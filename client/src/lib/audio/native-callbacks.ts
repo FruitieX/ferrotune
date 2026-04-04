@@ -12,14 +12,10 @@ import type { PlaybackState } from "@/lib/store/player";
 import {
   nativePlay,
   nativeSeek,
-  nativeSetQueue,
-  nativeAppendToQueue,
   nativeUpdateStarredState,
   type NativeAudioCallbacks,
 } from "@/lib/audio/native-engine";
-import { nativeAutonomousMode } from "@/lib/store/server-queue";
 import {
-  checkAndScrobble,
   updateListeningSession,
   startListeningUpdateInterval,
   stopListeningUpdateInterval,
@@ -35,15 +31,8 @@ import {
 import {
   currentLoadedTrackId,
   setCurrentLoadedTrackId,
-  nativeQueueOffset,
-  setNativeQueueOffset,
-  nativeQueueLength,
-  setNativeQueueLength,
-  setSuppressQueueWindowSync,
-  setNativeAutoAdvanced,
 } from "@/lib/audio/engine-state";
 import type { EngineStateSnapshot, EngineSetters } from "./engine-types";
-import { getNativeStreamOptions } from "./engine-types";
 
 export interface NativeCallbackDeps {
   stateRef: React.RefObject<EngineStateSnapshot>;
@@ -68,9 +57,8 @@ export function createNativeCallbacks({
   settersRef,
 }: NativeCallbackDeps): NativeAudioCallbacks {
   const onStateChange = (state: PlaybackState) => {
-    // Handle "ended" state: with multi-item queue this only fires when
-    // ExoPlayer has exhausted all loaded media items (end of window or
-    // true end of queue).
+    // Handle "ended" state: Kotlin handles repeat-all wrap-around and
+    // auto-advance. This only fires when it's truly the end of queue.
     if (state === "ended") {
       logListeningTimeAndReset();
       const qs = stateRef.current.queueState;
@@ -82,67 +70,8 @@ export function createNativeCallbacks({
           .catch(console.error);
         return;
       }
-      if (qs) {
-        const isLastServerTrack = qs.currentIndex >= qs.totalCount - 1;
-        if (isLastServerTrack && qs.repeatMode !== "all") {
-          // True end of queue with no repeat
-          settersRef.current.setCurrentTime(0);
-          settersRef.current.setPlaybackState("ended");
-          return;
-        }
-        if (isLastServerTrack && qs.repeatMode === "all") {
-          // Repeat-all: wrap around to the beginning
-          // Update server position, fetch a fresh window, and re-send queue
-          const client = getClient();
-          if (client) {
-            client
-              .updateServerQueuePosition(
-                0,
-                0,
-                qs.isShuffled,
-                stateRef.current.currentSessionId ?? undefined,
-              )
-              .then(() =>
-                client.getQueueCurrentWindow(
-                  20,
-                  "small",
-                  stateRef.current.currentSessionId ?? undefined,
-                ),
-              )
-              .then(async (response) => {
-                settersRef.current.setServerQueueState((prev) =>
-                  prev ? { ...prev, currentIndex: 0, positionMs: 0 } : prev,
-                );
-                setSuppressQueueWindowSync(true);
-                settersRef.current.setQueueWindow(response.window);
-                if (response.window.songs.length > 0) {
-                  const sorted = [...response.window.songs].sort(
-                    (a, b) => a.position - b.position,
-                  );
-                  const songs = sorted.map((s) => s.song);
-                  setNativeQueueOffset(sorted[0].position);
-                  setNativeQueueLength(sorted.length);
-                  setCurrentLoadedTrackId(songs[0].id);
-                  await nativeSetQueue(
-                    songs,
-                    0,
-                    client,
-                    nativeQueueOffset,
-                    0,
-                    getNativeStreamOptions(stateRef.current),
-                    true,
-                  );
-                }
-              })
-              .catch(console.error);
-          }
-          return;
-        }
-        // End of loaded window but more tracks exist in server queue.
-        // This is a fallback — normally onTrackChange proactively appends.
-        // Re-fetch and re-send the queue.
-        settersRef.current.goToNext();
-      }
+      settersRef.current.setCurrentTime(0);
+      settersRef.current.setPlaybackState("ended");
       return;
     }
 
@@ -182,18 +111,6 @@ export function createNativeCallbacks({
     if (stateRef.current.playbackState === "loading") {
       settersRef.current.setPlaybackState("playing");
     }
-
-    // Handle scrobbling based on actual listened time (not just position).
-    // In native autonomous mode, Kotlin handles scrobbling via checkScrobble(),
-    // so skip the JS-side scrobble to avoid double-counting.
-    if (!nativeAutonomousMode.value) {
-      checkAndScrobble(
-        stateRef.current,
-        duration,
-        settersRef.current.setHasScrobbled,
-        settersRef.current.invalidatePlayCountQueries,
-      );
-    }
   };
 
   const onError = (message: string, trackId?: string) => {
@@ -224,21 +141,6 @@ export function createNativeCallbacks({
       track?.id,
     );
 
-    // Deduplicate: setQueue() and onMediaItemTransition both emit
-    // track change events for the same track. Skip if the track hasn't
-    // actually changed to prevent double scrobble resets.
-    if (track?.id && track.id === currentLoadedTrackId) {
-      console.log(
-        "[NativeAudio] Skipping duplicate track change for:",
-        track.id,
-      );
-      return;
-    }
-
-    // This fires when ExoPlayer auto-advances to the next track in its
-    // queue. We need to sync state back to JS without triggering the
-    // track-loading effect (which would send the queue again).
-
     // Log listening time for the track we're leaving
     if (
       currentLoadedTrackId &&
@@ -248,20 +150,17 @@ export function createNativeCallbacks({
       logListeningTimeAndReset();
     }
 
-    // Update loaded track ID so the track-loading effect skips
+    // Update loaded track ID
     if (track?.id) {
       setCurrentLoadedTrackId(track.id);
-      setNativeAutoAdvanced(true);
     }
 
     // Reset scrobble state for new track
     settersRef.current.setHasScrobbled(false);
     settersRef.current.setCurrentTime(0);
 
-    // Update server queue state (currentIndex) without incrementing
-    // trackChangeSignal — this prevents the track-loading effect from
-    // re-sending the queue. The currentSongAtom will re-derive from
-    // the new currentIndex.
+    // Update server queue state (currentIndex). Kotlin handles the
+    // actual server position update, so JS just updates local state.
     settersRef.current.setServerQueueState((prev) =>
       prev ? { ...prev, currentIndex: queueIndex, positionMs: 0 } : prev,
     );
@@ -273,76 +172,17 @@ export function createNativeCallbacks({
       settersRef.current.setDuration(entry.song.duration || 0);
     }
 
-    // Sync position with server asynchronously (fire-and-forget).
-    // In autonomous mode, Kotlin's syncPositionToServer() already updates
-    // the server position, so skip the duplicate JS call to avoid
-    // broadcasting queueUpdated twice. Still fetch the window for UI.
+    // Fetch updated queue window for UI (Kotlin handles server position sync)
     const client = getClient();
     if (client) {
-      const positionSynced = nativeAutonomousMode.value
-        ? Promise.resolve()
-        : client.updateServerQueuePosition(
-            queueIndex,
-            0,
-            false,
-            stateRef.current.currentSessionId ?? undefined,
-          );
-      positionSynced
-        .then(() => {
-          // After server sync, re-fetch window centered on new position
-          // so the queue UI and WearOS always show ~20 items around current
-          return client.getQueueCurrentWindow(
-            20,
-            "small",
-            stateRef.current.currentSessionId ?? undefined,
-          );
-        })
-        .then(async (response) => {
-          // Update the queue window atom for UI.
-          // Suppress the queue-window-sync effect — we handle appending
-          // directly here, no need for a full queue re-send.
-          setSuppressQueueWindowSync(true);
+      client
+        .getQueueCurrentWindow(
+          20,
+          "small",
+          stateRef.current.currentSessionId ?? undefined,
+        )
+        .then((response) => {
           settersRef.current.setQueueWindow(response.window);
-
-          const qs = stateRef.current.queueState;
-          if (!qs) return;
-
-          // In autonomous mode, Kotlin handles queue prefetching.
-          // JS-side appending would desync the exoIndexToQueueSong mapping
-          // and break ReplayGain computation on auto-advanced tracks.
-          if (nativeAutonomousMode.value) return;
-          const exoIndex = queueIndex - nativeQueueOffset;
-          const remainingInExo = nativeQueueLength - exoIndex - 1;
-
-          // Find songs in the new window that are beyond our current
-          // ExoPlayer queue and append them
-          const currentExoEnd = nativeQueueOffset + nativeQueueLength;
-          const newSongs = response.window.songs
-            .filter((s) => s.position >= currentExoEnd)
-            .sort((a, b) => a.position - b.position);
-
-          if (newSongs.length > 0 && client) {
-            console.log(
-              "[NativeAudio] Appending",
-              newSongs.length,
-              "tracks to native queue",
-            );
-            await nativeAppendToQueue(
-              newSongs.map((s) => s.song),
-              client,
-              getNativeStreamOptions(stateRef.current),
-            );
-            setNativeQueueLength(nativeQueueLength + newSongs.length);
-          }
-
-          console.log(
-            "[NativeAudio] Queue status: exoIndex=",
-            exoIndex,
-            "remaining=",
-            remainingInExo,
-            "nativeQueueLength=",
-            nativeQueueLength,
-          );
         })
         .catch(console.error);
     }
@@ -359,21 +199,6 @@ export function createNativeCallbacks({
       const isStarred = stateRef.current.starredItems.get(track.id) ?? false;
       nativeUpdateStarredState(isStarred).catch(console.error);
     }
-  };
-
-  const onSkipPrevious = () => {
-    // Only fires when ExoPlayer has no previous item (edge of loaded window).
-    // This requires user interaction (screen on), so JS round-trip is OK.
-    console.log(
-      "[NativeAudio] Skip previous from notification (at window edge)",
-    );
-    settersRef.current.goToPrevious();
-  };
-
-  const onSkipNext = () => {
-    // Only fires when ExoPlayer has no next item (edge of loaded window).
-    console.log("[NativeAudio] Skip next from notification (at window edge)");
-    settersRef.current.goToNext();
   };
 
   const onToggleStar = (trackId: string, isStarred: boolean) => {
@@ -404,23 +229,6 @@ export function createNativeCallbacks({
         });
         nativeUpdateStarredState(isStarred).catch(console.error);
       });
-  };
-
-  const onShuffleModeChanged = (enabled: boolean) => {
-    // Shuffle mode changed from WearOS — sync to app state
-    console.log("[NativeAudio] Shuffle mode changed from external:", enabled);
-    settersRef.current.setServerQueueState((prev) =>
-      prev ? { ...prev, isShuffled: enabled } : prev,
-    );
-  };
-
-  const onRepeatModeChanged = (mode: string) => {
-    // Repeat mode changed from WearOS — sync to app state
-    console.log("[NativeAudio] Repeat mode changed from external:", mode);
-    const repeatMode = mode as "off" | "one" | "all";
-    settersRef.current.setServerQueueState((prev) =>
-      prev ? { ...prev, repeatMode } : prev,
-    );
   };
 
   const onQueueStateChanged = (queueState: NativeQueueState) => {
@@ -457,11 +265,7 @@ export function createNativeCallbacks({
     onProgress,
     onError,
     onTrackChange,
-    onSkipPrevious,
-    onSkipNext,
     onToggleStar,
-    onShuffleModeChanged,
-    onRepeatModeChanged,
     onQueueStateChanged,
     onScrobble,
     onClipping,

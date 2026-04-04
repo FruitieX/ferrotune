@@ -61,10 +61,10 @@ pub struct PlaybackSettingsConfig {
     pub transcoding_bitrate: u32,
 }
 
-/// Parameters for starting autonomous playback
+/// Parameters for starting playback
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct StartAutonomousPlaybackParams {
+pub struct StartPlaybackParams {
     pub total_count: usize,
     pub current_index: usize,
     pub is_shuffled: bool,

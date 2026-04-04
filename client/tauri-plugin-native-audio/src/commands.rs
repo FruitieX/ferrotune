@@ -4,7 +4,7 @@ use crate::{
     error::Result,
     models::{
         PlaybackSettingsConfig, PlaybackState, QueueItem, SafeAreaInsets, SessionConfig,
-        StartAutonomousPlaybackParams, TrackInfo,
+        StartPlaybackParams, TrackInfo,
     },
 };
 
@@ -381,9 +381,9 @@ pub async fn update_settings<R: Runtime>(
     }
 }
 
-/// Start autonomous playback: Kotlin takes over queue management
+/// Start playback: Kotlin takes over queue management
 #[command]
-pub async fn start_autonomous_playback<R: Runtime>(
+pub async fn start_playback<R: Runtime>(
     app: AppHandle<R>,
     total_count: usize,
     current_index: usize,
@@ -396,13 +396,13 @@ pub async fn start_autonomous_playback<R: Runtime>(
     source_id: Option<String>,
 ) -> Result<()> {
     log::info!(
-        "start_autonomous_playback command reached: total={}, index={}, shuffled={}, session_id={:?}",
+        "start_playback command reached: total={}, index={}, shuffled={}, session_id={:?}",
         total_count,
         current_index,
         is_shuffled,
         session_id
     );
-    let params = StartAutonomousPlaybackParams {
+    let params = StartPlaybackParams {
         total_count,
         current_index,
         is_shuffled,
@@ -416,15 +416,13 @@ pub async fn start_autonomous_playback<R: Runtime>(
 
     #[cfg(mobile)]
     {
-        app.native_audio().start_autonomous_playback(&params)
+        app.native_audio().start_playback(&params)
     }
 
     #[cfg(not(mobile))]
     {
         let _ = (app, params);
-        log::warn!(
-            "start_autonomous_playback() called on desktop - native audio only available on mobile"
-        );
+        log::warn!("start_playback() called on desktop - native audio only available on mobile");
         Err(Error::ServiceNotAvailable)
     }
 }
@@ -463,7 +461,7 @@ pub async fn soft_invalidate_queue<R: Runtime>(app: AppHandle<R>, total_count: i
     }
 }
 
-/// Toggle shuffle in autonomous mode
+/// Toggle shuffle mode
 #[command]
 pub async fn toggle_shuffle<R: Runtime>(app: AppHandle<R>, enabled: bool) -> Result<()> {
     #[cfg(mobile)]

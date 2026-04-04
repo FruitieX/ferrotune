@@ -10,7 +10,6 @@
 import { useEffect, useRef } from "react";
 import { useSetAtom } from "jotai";
 import { audioElementAtom } from "@/lib/store/player";
-import { nativeAutonomousMode } from "@/lib/store/server-queue";
 import { hasNativeAudio } from "@/lib/tauri";
 import {
   initNativeAudioEngine,
@@ -25,6 +24,7 @@ import {
 import {
   setUsingNativeAudio,
   setNativeAudioReady,
+  createNativeSessionReadyPromise,
   resetEngineState,
 } from "@/lib/audio/engine-state";
 import { createNativeCallbacks } from "./native-callbacks";
@@ -79,12 +79,15 @@ export function useAudioInit({
           }),
       );
 
+      // Create the session-ready promise now so the track-loader can await it.
+      // Resolved later by useNativeSessionInit once API credentials are configured.
+      createNativeSessionReadyPromise();
+
       return () => {
         cleanupNativeAudioEngine();
         stopListeningUpdateInterval();
         initializedRef.current = false;
         resetEngineState();
-        nativeAutonomousMode.value = false;
       };
     }
 

@@ -99,12 +99,15 @@ export function useSeekControl(deps: SeekControlDeps) {
     }
   };
 
-  // Broadcast playback state to followers immediately via heartbeat
+  // Broadcast playback state to followers immediately via heartbeat.
+  // When native audio is active, Kotlin handles heartbeats directly,
+  // so JS skips broadcasting to avoid duplicate position updates.
   const broadcastPlaybackState = (overrides?: {
     positionMs?: number;
     isPlaying?: boolean;
   }) => {
     if (!deps.currentSessionId) return;
+    if (deps.usingNativeAudio) return;
     // Don't broadcast if we don't have valid playback state
     // (server would classify as non-owner keepalive and skip broadcast)
     if (!deps.queueState || !deps.currentSong) return;

@@ -530,6 +530,32 @@ Denies the start_autonomous_playback command without any pre-configured scope.
 <tr>
 <td>
 
+`native-audio:allow-start-playback`
+
+</td>
+<td>
+
+Enables the start_playback command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-audio:deny-start-playback`
+
+</td>
+<td>
+
+Denies the start_playback command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-audio:allow-stop`
 
 </td>
@@ -894,12 +920,12 @@ Allows updating playback settings
 <tr>
 <td>
 
-`native-audio:allow-start-autonomous-playback`
+`native-audio:allow-start-playback`
 
 </td>
 <td>
 
-Allows starting autonomous playback mode
+Allows starting playback mode
 
 </td>
 </tr>

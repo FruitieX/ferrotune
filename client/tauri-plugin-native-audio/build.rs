@@ -18,7 +18,7 @@ const COMMANDS: &[&str] = &[
     "get_safe_area_insets",
     "init_session",
     "update_settings",
-    "start_autonomous_playback",
+    "start_playback",
     "invalidate_queue",
     "soft_invalidate_queue",
     "toggle_shuffle",

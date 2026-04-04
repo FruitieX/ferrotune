@@ -111,7 +111,7 @@ export async function previousTrack(): Promise<void> {
 }
 
 /**
- * Play the track at the given queue index
+ * Jump to a specific queue index and start playback.
  */
 export async function playAtIndex(index: number): Promise<void> {
   await invoke("plugin:native-audio|play_at_index", { index });
@@ -187,9 +187,9 @@ export async function updateSettings(settings: {
 }
 
 /**
- * Start autonomous playback mode where Kotlin manages the queue.
+ * Start playback where Kotlin manages the queue.
  */
-export async function startAutonomousPlayback(params: {
+export async function startPlayback(params: {
   totalCount: number;
   currentIndex: number;
   isShuffled: boolean;
@@ -197,8 +197,10 @@ export async function startAutonomousPlayback(params: {
   playWhenReady: boolean;
   startPositionMs: number;
   sessionId?: string;
+  sourceType?: string;
+  sourceId?: string;
 }): Promise<void> {
-  await invoke("plugin:native-audio|start_autonomous_playback", {
+  await invoke("plugin:native-audio|start_playback", {
     totalCount: params.totalCount,
     currentIndex: params.currentIndex,
     isShuffled: params.isShuffled,
@@ -206,6 +208,8 @@ export async function startAutonomousPlayback(params: {
     playWhenReady: params.playWhenReady,
     startPositionMs: params.startPositionMs,
     sessionId: params.sessionId,
+    sourceType: params.sourceType,
+    sourceId: params.sourceId,
   });
 }
 

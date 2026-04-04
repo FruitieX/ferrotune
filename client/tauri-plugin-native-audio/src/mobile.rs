@@ -8,7 +8,7 @@ use crate::{
     error::Result,
     models::{
         PlaybackSettingsConfig, PlaybackState, QueueItem, SafeAreaInsets, SessionConfig,
-        StartAutonomousPlaybackParams, TrackInfo,
+        StartPlaybackParams, TrackInfo,
     },
 };
 
@@ -187,11 +187,11 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(Into::into)
     }
 
-    /// Start autonomous playback mode
-    pub fn start_autonomous_playback(&self, params: &StartAutonomousPlaybackParams) -> Result<()> {
+    /// Start playback mode
+    pub fn start_playback(&self, params: &StartPlaybackParams) -> Result<()> {
         self.0
             .run_mobile_plugin(
-                "startAutonomousPlayback",
+                "startPlayback",
                 serde_json::json!({
                     "totalCount": params.total_count,
                     "currentIndex": params.current_index,
@@ -200,6 +200,8 @@ impl<R: Runtime> NativeAudio<R> {
                     "playWhenReady": params.play_when_ready,
                     "startPositionMs": params.start_position_ms,
                     "sessionId": params.session_id,
+                    "sourceType": params.source_type,
+                    "sourceId": params.source_id,
                 }),
             )
             .map_err(Into::into)
@@ -222,7 +224,7 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(Into::into)
     }
 
-    /// Toggle shuffle in autonomous mode
+    /// Toggle shuffle mode
     pub fn toggle_shuffle(&self, enabled: bool) -> Result<()> {
         self.0
             .run_mobile_plugin("toggleShuffle", serde_json::json!({ "enabled": enabled }))

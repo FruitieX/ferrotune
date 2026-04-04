@@ -31,7 +31,11 @@ import {
   cleanUpHistoryState,
   isHistoryCleanup,
 } from "@/lib/hooks/use-back-button-close";
-import { queuePanelOpenAtom, fullscreenPlayerOpenAtom } from "@/lib/store/ui";
+import {
+  queuePanelOpenAtom,
+  fullscreenPlayerOpenAtom,
+  preferencesLoadedAtom,
+} from "@/lib/store/ui";
 import {
   serverQueueStateAtom,
   isQueueLoadingAtom,
@@ -158,16 +162,25 @@ export function MobileQueueSheet() {
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
   const queueDisplayRef = useRef<VirtualizedQueueDisplayHandle>(null);
+  const prefsLoaded = useAtomValue(preferencesLoadedAtom);
 
-  // On mobile, always start with queue closed to avoid it obscuring the UI.
-  // useLayoutEffect runs before paint so no flash occurs.
-  const isMountRef = useRef(true);
+  // On mobile, close the queue if it was persisted as open by server preferences.
+  // We detect the hydration event by watching preferencesLoadedAtom transition
+  // from false to true (which happens in the same React batch as the cacheVersion
+  // bump that exposes server-stored values). After hydration is handled, user
+  // actions are not interfered with.
+  const prevPrefsLoadedRef = useRef(prefsLoaded);
   useLayoutEffect(() => {
-    if (isMountRef.current) {
-      isMountRef.current = false;
-      if (isOpen && window.innerWidth < 1280) setIsOpen(false);
+    if (
+      !prevPrefsLoadedRef.current &&
+      prefsLoaded &&
+      isOpen &&
+      window.innerWidth < 1280
+    ) {
+      setIsOpen(false);
     }
-  }, [isOpen, setIsOpen]);
+    prevPrefsLoadedRef.current = prefsLoaded;
+  }, [prefsLoaded, isOpen, setIsOpen]);
 
   // Track if we're in the middle of a gesture-based close animation
   const [isClosingViaGesture, setIsClosingViaGesture] = useState(false);

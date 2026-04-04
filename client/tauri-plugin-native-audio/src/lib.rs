@@ -62,7 +62,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::get_safe_area_insets,
             commands::init_session,
             commands::update_settings,
-            commands::start_autonomous_playback,
+            commands::start_playback,
             commands::invalidate_queue,
             commands::soft_invalidate_queue,
             commands::toggle_shuffle,
