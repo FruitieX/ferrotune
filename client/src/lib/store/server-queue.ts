@@ -21,7 +21,6 @@ import {
   nativePreviousTrack,
   nativeToggleShuffle,
   nativeSetRepeatMode,
-  nativeInvalidateQueue,
   nativeSoftInvalidateQueue,
   nativePlayAtIndex,
 } from "@/lib/audio/native-engine";
@@ -276,7 +275,7 @@ export const startQueueAtom = atom(
         });
         set(queueWindowAtom, response.window);
         // Don't increment trackChangeSignalAtom — keeps audio playing.
-        // On Android, the SSE QueueChanged handler will surgically update
+        // On Android, the SSE QueueChanged handler will update
         // the native queue without restarting the current track.
       } else {
         set(serverQueueStateAtom, {
@@ -1003,10 +1002,10 @@ export const removeFromQueueAtom = atom(
       );
       set(queueWindowAtom, queueResponse.window);
 
-      // Tell Kotlin to refetch its ExoPlayer playlist
-      if (hasNativeAudio() && get(isAudioOwnerAtom)) {
-        await nativeInvalidateQueue();
-      }
+      // Native PlaybackService already receives the server-broadcast
+      // QueueUpdated event and applies the change from its own SSE stream.
+      // Triggering a second invalidate here can make Android apply the same
+      // queue mutation twice and advance playback unnecessarily.
 
       // Notify the session owner via SSE when remote controlling
       if (get(isRemoteControllingAtom) && sessionId) {
@@ -1123,10 +1122,10 @@ export const moveInQueueAtom = atom(
       );
       set(queueWindowAtom, queueResponse.window);
 
-      // Tell Kotlin to refetch its ExoPlayer playlist
-      if (hasNativeAudio() && get(isAudioOwnerAtom)) {
-        await nativeInvalidateQueue();
-      }
+      // Native PlaybackService already receives the server-broadcast
+      // QueueUpdated event and applies the change from its own SSE stream.
+      // Triggering a second invalidate here can make Android apply the same
+      // queue mutation twice and advance playback unnecessarily.
 
       // Notify the session owner via SSE when remote controlling
       if (get(isRemoteControllingAtom) && sessionId) {

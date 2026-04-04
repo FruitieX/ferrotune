@@ -10,32 +10,6 @@
 <tr>
 <td>
 
-`native-audio:allow-append-to-queue`
-
-</td>
-<td>
-
-Enables the append_to_queue command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`native-audio:deny-append-to-queue`
-
-</td>
-<td>
-
-Denies the append_to_queue command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `native-audio:allow-debug-log`
 
 </td>
@@ -296,32 +270,6 @@ Denies the previous_track command without any pre-configured scope.
 <tr>
 <td>
 
-`native-audio:allow-request-playback`
-
-</td>
-<td>
-
-Enables the request_playback command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`native-audio:deny-request-playback`
-
-</td>
-<td>
-
-Denies the request_playback command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `native-audio:allow-seek`
 
 </td>
@@ -341,32 +289,6 @@ Enables the seek command without any pre-configured scope.
 <td>
 
 Denies the seek command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`native-audio:allow-set-queue`
-
-</td>
-<td>
-
-Enables the set_queue command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`native-audio:deny-set-queue`
-
-</td>
-<td>
-
-Denies the set_queue command without any pre-configured scope.
 
 </td>
 </tr>
@@ -426,32 +348,6 @@ Denies the set_replay_gain command without any pre-configured scope.
 <tr>
 <td>
 
-`native-audio:allow-set-track`
-
-</td>
-<td>
-
-Enables the set_track command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`native-audio:deny-set-track`
-
-</td>
-<td>
-
-Denies the set_track command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `native-audio:allow-set-volume`
 
 </td>
@@ -497,32 +393,6 @@ Enables the soft_invalidate_queue command without any pre-configured scope.
 <td>
 
 Denies the soft_invalidate_queue command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`native-audio:allow-start-autonomous-playback`
-
-</td>
-<td>
-
-Enables the start_autonomous_playback command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`native-audio:deny-start-autonomous-playback`
-
-</td>
-<td>
-
-Denies the start_autonomous_playback command without any pre-configured scope.
 
 </td>
 </tr>
@@ -725,19 +595,6 @@ Allows seeking to a position in the audio
 <tr>
 <td>
 
-`native-audio:allow-set-track`
-
-</td>
-<td>
-
-Allows setting the current track
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `native-audio:allow-get-state`
 
 </td>
@@ -757,19 +614,6 @@ Allows getting the current playback state
 <td>
 
 Allows setting the playback volume
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`native-audio:allow-set-queue`
-
-</td>
-<td>
-
-Allows setting the playback queue
 
 </td>
 </tr>
@@ -816,19 +660,6 @@ Allows skipping to the previous track
 <tr>
 <td>
 
-`native-audio:allow-request-playback`
-
-</td>
-<td>
-
-Allows requesting playback on next queue set
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `native-audio:allow-set-replay-gain`
 
 </td>
@@ -848,19 +679,6 @@ Allows setting ReplayGain level
 <td>
 
 Allows setting the repeat mode
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`native-audio:allow-append-to-queue`
-
-</td>
-<td>
-
-Allows appending items to the playback queue
 
 </td>
 </tr>

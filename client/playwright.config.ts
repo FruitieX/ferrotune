@@ -1,6 +1,34 @@
 import { defineConfig, devices } from "@playwright/test";
 import os from "os";
 
+type PlaywrightConfig = Parameters<typeof defineConfig>[0];
+type PlaywrightProject = NonNullable<PlaywrightConfig["projects"]>[number];
+
+const projects: PlaywrightProject[] = [
+  {
+    name: "chromium",
+    use: {
+      ...devices["Desktop Chrome"],
+      viewport: { width: 1440, height: 900 },
+    },
+    testIgnore: [/mobile\.spec\.ts/, /android-emulator\.spec\.ts/],
+  },
+  {
+    name: "mobile-chrome",
+    use: {
+      ...devices["Pixel 5"],
+    },
+    testMatch: /mobile\.spec\.ts/,
+  },
+];
+
+if (process.env.FERROTUNE_ANDROID_E2E === "true") {
+  projects.push({
+    name: "android-emulator",
+    testMatch: /android-emulator\.spec\.ts/,
+  });
+}
+
 /**
  * Playwright configuration for Ferrotune client E2E tests.
  *
@@ -66,25 +94,6 @@ export default defineConfig({
     navigationTimeout: 15_000,
   },
 
-  /* Configure projects for major browsers */
-  projects: [
-    /* Desktop Chrome - full test suite */
-    {
-      name: "chromium",
-      use: {
-        ...devices["Desktop Chrome"],
-        viewport: { width: 1440, height: 900 },
-      },
-      testIgnore: /mobile\.spec\.ts/,
-    },
-
-    /* Mobile Chrome - curated subset only */
-    {
-      name: "mobile-chrome",
-      use: {
-        ...devices["Pixel 5"],
-      },
-      testMatch: /mobile\.spec\.ts/,
-    },
-  ],
+  /* Configure projects for major browsers and optional Android emulator */
+  projects,
 });

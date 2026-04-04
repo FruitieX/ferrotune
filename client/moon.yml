@@ -221,6 +221,26 @@ tasks:
       runInCI: false
       persistent: true
 
+  test-android-emulator:
+    command: "pnpm exec playwright test e2e/android-emulator.spec.ts --project android-emulator"
+    inputs:
+      - "e2e/android-emulator.spec.ts"
+      - "e2e/app-helpers.ts"
+      - "e2e/queue-helpers.ts"
+      - "e2e/fixtures.ts"
+      - "playwright.config.ts"
+    deps:
+      - "install"
+      - "playwright-install"
+      - "ferrotune:build"
+      - "ferrotune:generate-fixtures"
+    env:
+      FERROTUNE_ANDROID_E2E: "true"
+    options:
+      runInCI: false
+      timeout: 900
+      cache: false
+
   # Individual test spec files
   test-auth:
     command: "pnpm exec playwright test auth.spec.ts"

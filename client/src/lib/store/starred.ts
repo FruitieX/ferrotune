@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { atom, useAtom } from "jotai";
-import { atomFamily } from "jotai/utils";
+import { atomFamily } from "jotai-family";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";

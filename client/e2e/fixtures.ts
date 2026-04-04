@@ -1,11 +1,17 @@
 import { test as base, expect, Page } from "@playwright/test";
 import { execSync, spawn, ChildProcess } from "child_process";
 import * as fs from "fs";
+import * as net from "net";
 import * as path from "path";
 import * as os from "os";
+import {
+  gotoAppPath,
+  setStoredConnection,
+  waitForAuthenticatedHome,
+} from "./app-helpers";
 
 /**
- * Server info for a worker's dedicated Ferrotune instance.
+ * Server info for a dedicated Ferrotune test instance.
  */
 export interface ServerInfo {
   url: string;
@@ -114,6 +120,70 @@ function copyDirSync(src: string, dest: string): void {
   }
 }
 
+function sanitizeInstanceName(instanceName: string): string {
+  return instanceName.replace(/[^a-z0-9-]+/gi, "-").toLowerCase();
+}
+
+async function getAvailablePort(): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const server = net.createServer();
+
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("Failed to allocate an available port for E2E"));
+        return;
+      }
+
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve(address.port);
+      });
+    });
+  });
+}
+
+function getExternalServerInfo(): ServerInfo {
+  return {
+    url: process.env.FERROTUNE_TEST_URL || "http://localhost:4040",
+    username: process.env.FERROTUNE_TEST_USER || "admin",
+    password: process.env.FERROTUNE_TEST_PASS || "admin",
+    tempDir: "",
+    process: null as unknown as ChildProcess,
+  };
+}
+
+async function cleanupServer(serverInfo: ServerInfo): Promise<void> {
+  if (!serverInfo.tempDir) {
+    return;
+  }
+
+  serverInfo.process.kill("SIGTERM");
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  try {
+    serverInfo.process.kill("SIGKILL");
+  } catch {
+    // Already dead
+  }
+
+  fs.rmSync(serverInfo.tempDir, { recursive: true, force: true });
+}
+
+let isolatedServerCounter = 0;
+
+function nextIsolatedServerName(): string {
+  isolatedServerCounter += 1;
+  return `test-${process.pid}-${isolatedServerCounter}`;
+}
+
 /** Wait for server to be ready */
 async function waitForServer(
   url: string,
@@ -135,18 +205,17 @@ async function waitForServer(
 }
 
 /**
- * Spawn a dedicated Ferrotune server for a worker.
+ * Spawn a dedicated Ferrotune server for a test worker or isolated test.
  */
-async function spawnServer(workerIndex: number): Promise<ServerInfo> {
+async function spawnServer(instanceName: string): Promise<ServerInfo> {
   const binary = findBinary();
   const projectRoot = path.resolve(__dirname, "../..");
+  const port = await getAvailablePort();
+  const sanitizedInstanceName = sanitizeInstanceName(instanceName);
 
-  // Use unique port per worker (base 15000 + workerIndex * 10 to avoid collisions)
-  const port = 15000 + workerIndex * 10;
-
-  // Create temp directory for this worker
+  // Create a unique temp directory for this test instance.
   const tempDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), `ferrotune-e2e-worker-${workerIndex}-`),
+    path.join(os.tmpdir(), `ferrotune-e2e-${sanitizedInstanceName}-`),
   );
   const dbPath = path.join(tempDir, "ferrotune.db");
   const configPath = path.join(tempDir, "config.toml");
@@ -166,7 +235,7 @@ async function spawnServer(workerIndex: number): Promise<ServerInfo> {
 [server]
 host = "127.0.0.1"
 port = ${port}
-name = "Ferrotune E2E Test Worker ${workerIndex}"
+name = "Ferrotune E2E ${instanceName}"
 admin_user = "${username}"
 admin_password = "${password}"
 
@@ -208,18 +277,18 @@ max_cover_size = 512
   serverProcess.stderr?.on("data", (data) => {
     serverError += data.toString();
     if (process.env.DEBUG) {
-      console.error(`[ferrotune-${workerIndex}] ${data}`);
+      console.error(`[ferrotune-${instanceName}] ${data}`);
     }
   });
 
   serverProcess.stdout?.on("data", (data) => {
     if (process.env.DEBUG) {
-      console.log(`[ferrotune-${workerIndex}] ${data}`);
+      console.log(`[ferrotune-${instanceName}] ${data}`);
     }
   });
 
   serverProcess.on("error", (err) => {
-    console.error(`Worker ${workerIndex} failed to start server:`, err);
+    console.error(`Instance ${instanceName} failed to start server:`, err);
   });
 
   // Wait for server to be ready
@@ -228,12 +297,12 @@ max_cover_size = 512
 
   if (!ready) {
     console.error(
-      `Worker ${workerIndex} server failed to start. Errors:`,
+      `Instance ${instanceName} server failed to start. Errors:`,
       serverError,
     );
     serverProcess.kill();
     throw new Error(
-      `Ferrotune server for worker ${workerIndex} failed to start within timeout`,
+      `Ferrotune server for ${instanceName} failed to start within timeout`,
     );
   }
 
@@ -252,6 +321,23 @@ max_cover_size = 512
     tempDir,
     process: serverProcess,
   };
+}
+
+async function setupAuthenticatedPage(page: Page, server: ServerInfo) {
+  // Navigate to the app first so localStorage is available on the correct origin.
+  await page.goto("/");
+
+  await resetState(page, server);
+
+  await setStoredConnection(page, {
+    serverUrl: server.url,
+    username: server.username,
+    password: server.password,
+  });
+
+  // Navigate back into the app explicitly so we don't get stuck reloading /login.
+  await gotoAppPath(page, "/");
+  await waitForAuthenticatedHome(page);
 }
 
 /**
@@ -273,30 +359,15 @@ export const test = base.extend<
     async ({}, use, workerInfo) => {
       // Skip spawning if using external server
       if (process.env.FERROTUNE_EXTERNAL_SERVER === "true") {
-        const serverInfo: ServerInfo = {
-          url: process.env.FERROTUNE_TEST_URL || "http://localhost:4040",
-          username: process.env.FERROTUNE_TEST_USER || "admin",
-          password: process.env.FERROTUNE_TEST_PASS || "admin",
-          tempDir: "",
-          process: null as unknown as ChildProcess,
-        };
+        const serverInfo = getExternalServerInfo();
         await use(serverInfo);
         return;
       }
 
-      const serverInfo = await spawnServer(workerInfo.workerIndex);
+      const serverInfo = await spawnServer(`worker-${workerInfo.workerIndex}`);
 
       await use(serverInfo);
-
-      // Teardown: stop server and clean up
-      serverInfo.process.kill("SIGTERM");
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      try {
-        serverInfo.process.kill("SIGKILL");
-      } catch {
-        // Already dead
-      }
-      fs.rmSync(serverInfo.tempDir, { recursive: true, force: true });
+      await cleanupServer(serverInfo);
     },
     { scope: "worker" },
   ],
@@ -306,36 +377,32 @@ export const test = base.extend<
    * Authentication is done programmatically by setting localStorage.
    */
   authenticatedPage: async ({ page, server }, use) => {
-    // Navigate to the app first (to set localStorage on the correct origin)
-    await page.goto("/");
+    await setupAuthenticatedPage(page, server);
 
-    // Inject auth state directly into localStorage
-    await page.evaluate(
-      ({ serverUrl, username, password }) => {
-        const connection = {
-          serverUrl,
-          username,
-          password,
-        };
-        localStorage.setItem(
-          "ferrotune-connection",
-          JSON.stringify(connection),
-        );
-      },
-      {
-        serverUrl: server.url,
-        username: server.username,
-        password: server.password,
-      },
-    );
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- This is Playwright's fixture `use`, not React's hook
+    await use(page);
+  },
+});
 
-    // Reload to apply the auth state
-    await page.reload();
+export const isolatedTest = base.extend<{
+  authenticatedPage: Page;
+  server: ServerInfo;
+}>({
+  server: async ({}, runFixture) => {
+    if (process.env.FERROTUNE_EXTERNAL_SERVER === "true") {
+      const serverInfo = getExternalServerInfo();
+      await runFixture(serverInfo);
+      return;
+    }
 
-    // Wait for home page to load, confirming authentication worked
-    await expect(page.locator("h1:has-text('Home')").first()).toBeVisible({
-      timeout: 15000,
-    });
+    const serverInfo = await spawnServer(nextIsolatedServerName());
+
+    await runFixture(serverInfo);
+    await cleanupServer(serverInfo);
+  },
+
+  authenticatedPage: async ({ page, server }, use) => {
+    await setupAuthenticatedPage(page, server);
 
     // eslint-disable-next-line react-hooks/rules-of-hooks -- This is Playwright's fixture `use`, not React's hook
     await use(page);
@@ -407,7 +474,7 @@ export async function goToLibrary(
   section?: "albums" | "artists" | "songs" | "genres",
 ) {
   const path = section ? `/library/${section}` : "/library/albums";
-  await page.goto(path);
+  await gotoAppPath(page, path);
   await waitForPageReady(page);
 }
 
@@ -441,7 +508,7 @@ export async function waitForPlayerReady(page: Page, timeout = 5000) {
  * Helper to play the first song from the Test Album.
  */
 export async function playFirstSong(page: Page) {
-  await page.goto("/library");
+  await gotoAppPath(page, "/library");
   await page.waitForLoadState("domcontentloaded");
 
   const gridCard = page.locator('[data-testid="media-card"]').first();

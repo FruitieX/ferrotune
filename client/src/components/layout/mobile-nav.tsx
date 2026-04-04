@@ -23,6 +23,7 @@ export function MobileNav() {
 
   return (
     <nav
+      data-testid="mobile-nav"
       className={cn(
         "lg:hidden z-50",
         "bg-background/95 backdrop-blur-lg border-t border-border",

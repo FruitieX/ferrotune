@@ -2,17 +2,12 @@
  * Tagger tests - Tag editing functionality
  */
 
-import { test, expect, resetState } from "./fixtures";
+import { isolatedTest as test, expect } from "./fixtures";
 import * as path from "path";
 
 test.describe("Tagger", () => {
   // Run tagger tests sequentially to avoid interference
   test.describe.configure({ mode: "serial" });
-
-  // Reset all server state before each test for isolation
-  test.beforeEach(async ({ authenticatedPage: page, server }) => {
-    await resetState(page, server);
-  });
 
   test("tagger page loads with empty state", async ({
     authenticatedPage: page,
@@ -226,7 +221,6 @@ test.describe("Tagger", () => {
 
   test("can upload new file via tagger and save to library", async ({
     authenticatedPage: page,
-    server: _server,
   }) => {
     // Navigate to tagger
     await page.goto("/tagger");
@@ -241,14 +235,15 @@ test.describe("Tagger", () => {
       "tests/fixtures/music/Test Artist/Test Album/01 - First Song.mp3",
     );
 
-    // Get the file input
-    const fileInput = page.locator('input[type="file"]');
+    const fileChooserPromise = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: /^upload files$/i }).click();
+    const fileChooser = await fileChooserPromise;
 
-    // Upload the file
-    await fileInput.setInputFiles(testFilePath);
+    // Upload the file through the real file chooser flow.
+    await fileChooser.setFiles(testFilePath);
 
-    // Wait for upload to complete - a track should appear in the grid
-    await expect(page.locator("[data-row-id]").first()).toBeVisible({
+    // Wait for upload to complete - the uploaded file should appear in the grid.
+    await expect(page.getByText("01 - First Song.mp3").first()).toBeVisible({
       timeout: 10000,
     });
 

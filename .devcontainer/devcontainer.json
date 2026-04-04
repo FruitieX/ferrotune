@@ -1,42 +1,45 @@
 {
 	"name": "Ferrotune Dev",
 	"image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+
 	"features": {
 		"ghcr.io/devcontainers/features/nix:1": {
-			"packages": "direnv git",
-			"extraConfig": "experimental-features = nix-command flakes"
+			"multiUser": true,
+			"extraNixConfig": "experimental-features = nix-command flakes"
 		}
 	},
-	// Configure direnv hook manually since the feature is unstable
-	"postCreateCommand": "grep -q 'direnv hook bash' ~/.bashrc || echo 'eval \"$(direnv hook bash)\"' >> ~/.bashrc && direnv allow && sudo chown -R vscode:vscode /data",
-	// Port forwarding
-	"forwardPorts": [
-		4040,
-		3000
+
+	"runArgs": [
+		// Chromium/Playwright uses /dev/shm for shared memory; Docker's default 64MB causes tab crashes
+		"--shm-size=2g",
+		// Allow container to reach host services (ADB, etc.) via host.docker.internal
+		"--add-host=host.docker.internal:host-gateway"
 	],
-	"portsAttributes": {
-		"4040": {
-			"label": "Ferrotune API",
-			"onAutoForward": "notify"
-		},
-		"3000": {
-			"label": "Next.js Client",
-			"onAutoForward": "notify"
-		}
-	},
-	// Example: Mount your music library (uncomment and customize)
+
 	"mounts": [
-		// Named volume for database persistence across rebuilds
-		"source=ferrotune-devdata,target=/data,type=volume",
-		// Bind mount for local music library
-		"source=/mnt/m,target=/music,type=bind,readonly"
+		// Persist nix store across container rebuilds (avoids huge re-downloads)
+		"source=ferrotune-nixstore,target=/nix,type=volume",
+		// Persist database and app data across container rebuilds
+		"source=ferrotune-devdata,target=/data,type=volume"
+		// Bind mount for local music library (uncomment and customize path)
+		// "source=/path/to/music,target=/music,type=bind,readonly"
 	],
+
 	"containerEnv": {
-		"FERROTUNE_DATA_DIR": "/data"
+		"FERROTUNE_DATA_DIR": "/data",
+		// ADB: reach host's ADB server for Android device/emulator debugging
+		"ANDROID_ADB_SERVER_ADDRESS": "host.docker.internal"
 	},
-	// Ensure environment is loaded on attach
+
+	"forwardPorts": [4040, 3000],
+	"portsAttributes": {
+		"4040": { "label": "Ferrotune API", "onAutoForward": "notify" },
+		"3000": { "label": "Next.js Client", "onAutoForward": "notify" }
+	},
+
+	"postCreateCommand": "bash /workspace/.devcontainer/post-create.sh",
 	"postAttachCommand": "direnv reload",
-	// VS Code specific settings
+
 	"customizations": {
 		"vscode": {
 			"extensions": [
@@ -54,13 +57,13 @@
 			}
 		}
 	},
-	// GitHub Codespaces specific settings
+
 	"hostRequirements": {
 		"cpus": 4,
 		"memory": "8gb",
 		"storage": "32gb"
 	},
-	// Run as non-root user
+
 	"remoteUser": "vscode",
-	"workspaceFolder": "/workspaces/ferrotune"
+	"workspaceFolder": "/workspace"
 }

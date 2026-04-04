@@ -30,10 +30,15 @@ const PERSISTED_QUERY_PREFIXES = new Set([
 export const PERSIST_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 
 /**
- * gcTime must be >= maxAge so React Query keeps the data in memory
- * long enough for the persister to restore it on next load.
+ * React Query implements gcTime with timers, and JS runtimes clamp timer
+ * durations to a signed 32-bit integer. Keep persisted maxAge at 30 days, but
+ * clamp in-memory gcTime so Next.js builds do not emit TimeoutOverflowWarning.
  */
-export const PERSIST_GC_TIME_MS = PERSIST_MAX_AGE_MS;
+const MAX_TIMER_DURATION_MS = 2_147_483_647;
+export const PERSIST_GC_TIME_MS = Math.min(
+  PERSIST_MAX_AGE_MS,
+  MAX_TIMER_DURATION_MS,
+);
 
 export function shouldPersistQuery(queryKey: readonly unknown[]): boolean {
   const prefix = queryKey[0];

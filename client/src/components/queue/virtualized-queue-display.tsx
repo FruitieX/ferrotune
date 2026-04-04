@@ -109,6 +109,8 @@ function VirtualQueueItem({
   onNavigate,
 }: VirtualQueueItemProps) {
   const song = entry.song;
+  const coverButtonLabel =
+    isCurrent && isPlaying ? `Pause ${song.title}` : `Play ${song.title}`;
 
   return (
     <SongContextMenu
@@ -155,7 +157,18 @@ function VirtualQueueItem({
           />
           <button
             type="button"
+            aria-label={coverButtonLabel}
             className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/cover:opacity-100 transition-opacity rounded cursor-pointer"
+            onClick={(event) => {
+              event.stopPropagation();
+
+              if (isCurrent) {
+                onTogglePlayPause();
+                return;
+              }
+
+              onPlay();
+            }}
           >
             {isCurrent && isPlaying ? (
               <Pause className="w-4 h-4 text-white" />

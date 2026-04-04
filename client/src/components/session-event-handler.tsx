@@ -145,8 +145,15 @@ export function SessionEventHandler() {
         break;
       case "queueChanged":
         if (isAudioOwner && !isRemoteControlling) {
-          // Owner: refetch queue and play the new track
-          fetchQueueAndPlay();
+          if (hasNativeAudio()) {
+            // PlaybackService has its own SSE connection and will reload the
+            // queue natively. Only refresh the UI here to avoid restarting the
+            // same track a second time from JS.
+            fetchQueueSilent();
+          } else {
+            // Owner: refetch queue and play the new track
+            fetchQueueAndPlay();
+          }
         } else {
           // Follower: silently refetch for UI without showing loading spinner
           fetchQueueSilent();

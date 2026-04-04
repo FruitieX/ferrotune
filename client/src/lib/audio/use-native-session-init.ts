@@ -15,8 +15,13 @@ import {
   nativeInitSession,
   nativeUpdateSettings,
 } from "@/lib/audio/native-engine";
-import { usingNativeAudio, nativeAudioReady } from "@/lib/audio/engine-state";
-import { resolveNativeSessionReadyPromise } from "@/lib/audio/engine-state";
+import {
+  usingNativeAudio,
+  nativeAudioReady,
+  nativeSessionReady,
+  createNativeSessionReadyPromise,
+  resolveNativeSessionReadyPromise,
+} from "@/lib/audio/engine-state";
 import { hasNativeAudio } from "@/lib/tauri";
 import type { EngineStateSnapshot } from "./engine-types";
 
@@ -36,6 +41,13 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
     }
 
     let cancelled = false;
+
+    // resetEngineState() clears the readiness gate on account changes, but the
+    // one-time audio init effect does not rerun. Recreate the gate here so
+    // restored queue loads keep waiting for fresh native credentials.
+    if (!nativeSessionReady) {
+      createNativeSessionReadyPromise();
+    }
 
     const init = async () => {
       if (nativeAudioReady) {
@@ -69,6 +81,9 @@ export function useNativeSessionInit({ stateRef }: NativeSessionInitDeps) {
 
     init().catch((err) => {
       console.error(`[NativeAudio] session init: FAILED: ${String(err)}`);
+      // Unblock pending loads so the failure surfaces as a command error
+      // instead of hanging forever on an unresolved readiness promise.
+      resolveNativeSessionReadyPromise();
     });
 
     return () => {

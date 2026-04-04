@@ -67,9 +67,7 @@ test.describe("Mobile Tests", () => {
     await page.goto("/");
 
     // Mobile uses bottom nav bar
-    const bottomNav = page.locator("nav").filter({
-      has: page.getByRole("link", { name: /library/i }),
-    });
+    const bottomNav = page.getByTestId("mobile-nav");
     await expect(bottomNav).toBeVisible();
 
     // Dismiss any toasts that might be overlaying the nav
@@ -78,10 +76,11 @@ test.describe("Mobile Tests", () => {
       await toast.click({ force: true });
     }
 
-    // Use force click in case toast is still animating out
-    await bottomNav
-      .getByRole("link", { name: /library/i })
-      .click({ force: true });
+    const libraryNavLink = bottomNav.locator('a[href="/library"]').first();
+    await expect(libraryNavLink).toBeAttached();
+    await libraryNavLink.evaluate((element) => {
+      (element as HTMLAnchorElement).click();
+    });
     await expect(page).toHaveURL(/\/library/);
   });
 

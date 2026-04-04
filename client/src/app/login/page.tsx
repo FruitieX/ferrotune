@@ -705,10 +705,6 @@ export default function LoginPage() {
             </form>
           </CardContent>
         </Card>
-
-        <p className="text-center text-xs text-muted-foreground mt-4">
-          Ferrotune is an OpenSubsonic-compatible music player
-        </p>
       </motion.div>
     </div>
   );

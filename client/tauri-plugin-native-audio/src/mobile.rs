@@ -7,8 +7,7 @@ use tauri::{
 use crate::{
     error::Result,
     models::{
-        PlaybackSettingsConfig, PlaybackState, QueueItem, SafeAreaInsets, SessionConfig,
-        StartPlaybackParams, TrackInfo,
+        PlaybackSettingsConfig, PlaybackState, SafeAreaInsets, SessionConfig, StartPlaybackParams,
     },
 };
 
@@ -22,13 +21,6 @@ impl<R: Runtime> NativeAudio<R> {
     /// Start or resume playback
     pub fn play(&self) -> Result<()> {
         self.0.run_mobile_plugin("play", ()).map_err(Into::into)
-    }
-
-    /// Request that the next setQueue() call auto-starts playback
-    pub fn request_playback(&self) -> Result<()> {
-        self.0
-            .run_mobile_plugin("requestPlayback", ())
-            .map_err(Into::into)
     }
 
     /// Pause playback
@@ -48,13 +40,6 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(Into::into)
     }
 
-    /// Set the current track
-    pub fn set_track(&self, track: &TrackInfo) -> Result<()> {
-        self.0
-            .run_mobile_plugin("setTrack", track)
-            .map_err(Into::into)
-    }
-
     /// Get current playback state
     pub fn get_state(&self) -> Result<PlaybackState> {
         self.0.run_mobile_plugin("getState", ()).map_err(Into::into)
@@ -71,29 +56,6 @@ impl<R: Runtime> NativeAudio<R> {
     pub fn set_replay_gain(&self, gain_mb: i32) -> Result<()> {
         self.0
             .run_mobile_plugin("setReplayGain", serde_json::json!({ "gainMb": gain_mb }))
-            .map_err(Into::into)
-    }
-
-    /// Set the playback queue
-    pub fn set_queue(
-        &self,
-        items: &[QueueItem],
-        start_index: usize,
-        queue_offset: usize,
-        start_position_ms: u64,
-        play_when_ready: bool,
-    ) -> Result<()> {
-        self.0
-            .run_mobile_plugin(
-                "setQueue",
-                serde_json::json!({
-                    "items": items,
-                    "startIndex": start_index,
-                    "queueOffset": queue_offset,
-                    "startPositionMs": start_position_ms,
-                    "playWhenReady": play_when_ready
-                }),
-            )
             .map_err(Into::into)
     }
 
@@ -134,13 +96,6 @@ impl<R: Runtime> NativeAudio<R> {
     pub fn set_repeat_mode(&self, mode: &str) -> Result<()> {
         self.0
             .run_mobile_plugin("setRepeatMode", serde_json::json!({ "mode": mode }))
-            .map_err(Into::into)
-    }
-
-    /// Append items to the playback queue
-    pub fn append_to_queue(&self, items: &[QueueItem]) -> Result<()> {
-        self.0
-            .run_mobile_plugin("appendToQueue", serde_json::json!({ "items": items }))
             .map_err(Into::into)
     }
 

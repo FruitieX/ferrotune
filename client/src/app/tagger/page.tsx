@@ -1189,6 +1189,7 @@ export default function TaggerPage() {
       <input
         ref={fileInputRef}
         type="file"
+        data-testid="tagger-upload-input"
         className="hidden"
         accept="audio/*"
         multiple
