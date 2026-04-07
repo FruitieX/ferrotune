@@ -8,10 +8,25 @@
  * various operators per field type, and custom tag filtering.
  */
 
-import { Plus, Trash2, X } from "lucide-react";
+import { useState } from "react";
+import { Check, ChevronsUpDown, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -20,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
 
 // ============================================================================
 // Types
@@ -29,7 +45,7 @@ export interface FilterCondition {
   id: string;
   field: string;
   operator: string;
-  value: string | number | boolean;
+  value: string | number | boolean | string[];
 }
 
 export interface AdvancedFilters {
@@ -37,7 +53,13 @@ export interface AdvancedFilters {
   conditions: FilterCondition[];
 }
 
-export type FieldType = "text" | "number" | "date" | "boolean" | "enum";
+export type FieldType =
+  | "text"
+  | "number"
+  | "date"
+  | "boolean"
+  | "enum"
+  | "multiEnum";
 
 export interface FieldDefinition {
   value: string;
@@ -157,13 +179,34 @@ export function buildFieldsWithPlaylists(
   const playlistField: FieldDefinition = {
     value: "inPlaylist",
     label: "In Playlist",
-    type: "enum",
+    type: "multiEnum",
     enumOptions: playlists.map((p) => ({
       value: p.id,
       label: p.name,
     })),
   };
   return [...baseFields, playlistField];
+}
+
+/**
+ * Build the complete fields list including dynamic playlist folder options.
+ * Use this when playlist folder data is available to add an "In Playlist Folder" rule.
+ */
+export function buildFieldsWithPlaylistFolders(
+  baseFields: FieldDefinition[],
+  folders: { id: string; name: string; path: string }[],
+): FieldDefinition[] {
+  if (folders.length === 0) return baseFields;
+  const folderField: FieldDefinition = {
+    value: "inPlaylistFolder",
+    label: "In Playlist Folder",
+    type: "enum",
+    enumOptions: folders.map((f) => ({
+      value: f.id,
+      label: f.path || f.name,
+    })),
+  };
+  return [...baseFields, folderField];
 }
 
 // ============================================================================
@@ -205,6 +248,10 @@ export const OPERATORS: Record<FieldType, OperatorDefinition[]> = {
   enum: [
     { value: "eq", label: "is" },
     { value: "neq", label: "is not" },
+  ],
+  multiEnum: [
+    { value: "eq", label: "includes any of" },
+    { value: "neq", label: "excludes all of" },
   ],
 };
 
@@ -283,7 +330,12 @@ export function AdvancedFilterBuilder({
           const fieldType = getFieldType(updates.field, fields);
           const operators = OPERATORS[fieldType];
           updated.operator = operators[0].value;
-          updated.value = fieldType === "boolean" ? true : "";
+          updated.value =
+            fieldType === "boolean"
+              ? true
+              : fieldType === "multiEnum"
+                ? []
+                : "";
         }
 
         // Clear value when switching to a no-value operator
@@ -473,6 +525,18 @@ function ConditionRow({
                 ))}
               </SelectContent>
             </Select>
+          ) : fieldType === "multiEnum" && fieldDef?.enumOptions ? (
+            <MultiEnumSelect
+              options={fieldDef.enumOptions}
+              value={
+                Array.isArray(condition.value)
+                  ? condition.value
+                  : condition.value
+                    ? [String(condition.value)]
+                    : []
+              }
+              onChange={(selected) => onUpdate({ value: selected })}
+            />
           ) : fieldType === "date" && condition.operator === "within" ? (
             <Input
               className="w-28 h-8"
@@ -519,6 +583,99 @@ function ConditionRow({
         <Trash2 className="w-4 h-4" />
       </Button>
     </div>
+  );
+}
+
+// ============================================================================
+// Multi-Enum Select Component
+// ============================================================================
+
+interface MultiEnumSelectProps {
+  options: { value: string; label: string }[];
+  value: string[];
+  onChange: (value: string[]) => void;
+}
+
+function MultiEnumSelect({ options, value, onChange }: MultiEnumSelectProps) {
+  const [open, setOpen] = useState(false);
+
+  const toggleOption = (optionValue: string) => {
+    if (value.includes(optionValue)) {
+      onChange(value.filter((v) => v !== optionValue));
+    } else {
+      onChange([...value, optionValue]);
+    }
+  };
+
+  const selectedLabels = value
+    .map((v) => options.find((o) => o.value === v)?.label)
+    .filter(Boolean);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="h-8 w-48 justify-between font-normal"
+        >
+          <span className="truncate">
+            {selectedLabels.length === 0
+              ? "Select..."
+              : selectedLabels.length === 1
+                ? selectedLabels[0]
+                : `${selectedLabels.length} selected`}
+          </span>
+          <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search..." />
+          <CommandList>
+            <CommandEmpty>No options found.</CommandEmpty>
+            <CommandGroup>
+              {options.map((option) => (
+                <CommandItem
+                  key={option.value}
+                  value={option.label}
+                  onSelect={() => toggleOption(option.value)}
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      value.includes(option.value)
+                        ? "opacity-100"
+                        : "opacity-0",
+                    )}
+                  />
+                  {option.label}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+        {value.length > 0 && (
+          <div className="border-t p-2 flex flex-wrap gap-1">
+            {value.map((v) => {
+              const label = options.find((o) => o.value === v)?.label ?? v;
+              return (
+                <Badge
+                  key={v}
+                  variant="secondary"
+                  className="text-xs cursor-pointer"
+                  onClick={() => toggleOption(v)}
+                >
+                  {label}
+                  <X className="ml-1 h-3 w-3" />
+                </Badge>
+              );
+            })}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 

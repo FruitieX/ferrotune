@@ -21,6 +21,7 @@ import {
   nativePreviousTrack,
   nativeToggleShuffle,
   nativeSetRepeatMode,
+  nativeInvalidateQueue,
   nativeSoftInvalidateQueue,
   nativePlayAtIndex,
 } from "@/lib/audio/native-engine";
@@ -931,14 +932,19 @@ export const addToQueueAtom = atom(
       );
       set(queueWindowAtom, queueResponse.window);
 
-      // Tell Kotlin to update total count and prefetch without rebuilding
-      // the ExoPlayer playlist (avoids briefly interrupting playback)
+      // Appends can stay on the lightweight native prefetch path.
+      // Inserts near the current track need a full refetch so Android
+      // rebuilds the surrounding queue window correctly.
       if (
         hasNativeAudio() &&
         get(isAudioOwnerAtom) &&
         response.totalCount != null
       ) {
-        await nativeSoftInvalidateQueue(response.totalCount);
+        if (params.position === "end") {
+          await nativeSoftInvalidateQueue(response.totalCount);
+        } else {
+          await nativeInvalidateQueue();
+        }
       }
 
       // Notify the session owner via SSE when remote controlling

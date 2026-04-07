@@ -30,6 +30,8 @@ interface MediaCardProps {
   coverType?: "album" | "artist" | "song" | "playlist" | "smartPlaylist";
   /** Called when play button is clicked */
   onPlay?: () => void;
+  /** Whether this card represents the current active item */
+  isActive?: boolean;
   /** Called when star button is clicked */
   onStar?: (e: React.MouseEvent) => void;
   /** Whether the item is starred */
@@ -48,6 +50,8 @@ interface MediaCardProps {
   withGlow?: boolean;
   /** Additional class names */
   className?: string;
+  /** Optional stable state hook for tests and automation */
+  dataCurrentTrack?: string;
 }
 
 /**
@@ -66,6 +70,7 @@ export function MediaCard({
   colorSeed,
   coverType = "album",
   onPlay,
+  isActive = false,
   onStar: _onStar,
   isStarred: _isStarred,
   isSelected,
@@ -75,16 +80,20 @@ export function MediaCard({
   contextMenu,
   withGlow = false,
   className,
+  dataCurrentTrack,
 }: MediaCardProps) {
   const hasFinePointer = useHasFinePointer();
 
   const cardContent = (
     <article
       data-testid="media-card"
+      data-current-track={dataCurrentTrack}
+      aria-current={isActive ? "true" : undefined}
       className={cn(
         "group relative p-2 md:p-4 rounded-lg bg-card media-card",
         "hover:bg-accent/70 transition-all cursor-pointer",
         "hover:shadow-lg hover:shadow-black/20",
+        isActive && "bg-accent/30 ring-2 ring-primary/40",
         isSelected && "ring-2 ring-primary bg-primary/10",
         className,
       )}
@@ -179,6 +188,7 @@ export function MediaCard({
           <h3
             className={cn(
               "font-semibold text-foreground group-hover:text-primary transition-colors flex items-center gap-1.5 min-w-0",
+              isActive && "text-primary",
               coverShape === "circle" && "justify-center",
             )}
           >

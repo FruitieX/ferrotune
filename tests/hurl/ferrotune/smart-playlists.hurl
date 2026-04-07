@@ -149,3 +149,155 @@ Authorization: Basic {{auth_basic}}
 HTTP 404
 [Asserts]
 jsonpath "$.error" contains "not found"
+
+# ============================================================================
+# IN PLAYLIST (MULTI-SELECT) FILTER
+# ============================================================================
+
+# Get a song ID for testing
+GET {{base_url}}/ferrotune/songs/match-list
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Captures]
+test_song_id: jsonpath "$.songs[0].id"
+test_song_id2: jsonpath "$.songs[1].id"
+
+# Create two playlists and add different songs to each
+POST {{base_url}}/ferrotune/playlists
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "name": "Smart Test Playlist A",
+  "entries": [
+    { "songId": "{{test_song_id}}" }
+  ]
+}
+HTTP 200
+[Captures]
+test_playlist_a_id: jsonpath "$.playlistId"
+
+POST {{base_url}}/ferrotune/playlists
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "name": "Smart Test Playlist B",
+  "entries": [
+    { "songId": "{{test_song_id2}}" }
+  ]
+}
+HTTP 200
+[Captures]
+test_playlist_b_id: jsonpath "$.playlistId"
+
+# Create smart playlist with multi-select inPlaylist (array of IDs)
+POST {{base_url}}/ferrotune/smart-playlists
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "name": "Multi-Playlist Filter Test",
+  "rules": {
+    "logic": "and",
+    "conditions": [
+      {
+        "field": "inPlaylist",
+        "operator": "eq",
+        "value": ["{{test_playlist_a_id}}", "{{test_playlist_b_id}}"]
+      }
+    ]
+  },
+  "sortField": "title",
+  "sortDirection": "asc",
+  "maxSongs": null
+}
+HTTP 201
+[Captures]
+multi_playlist_sp_id: jsonpath "$.id"
+
+# Verify the smart playlist contains songs from both playlists
+GET {{base_url}}/ferrotune/smart-playlists/{{multi_playlist_sp_id}}/songs?offset=0&count=100
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" >= 2
+
+# Clean up
+DELETE {{base_url}}/ferrotune/smart-playlists/{{multi_playlist_sp_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 204
+
+# ============================================================================
+# IN PLAYLIST FOLDER FILTER
+# ============================================================================
+
+# Create a folder
+POST {{base_url}}/ferrotune/playlist-folders
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "name": "Smart Test Folder"
+}
+HTTP 200
+[Captures]
+test_folder_id: jsonpath "$.id"
+
+# Move playlist A into the folder
+PATCH {{base_url}}/ferrotune/playlists/{{test_playlist_a_id}}/move
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "folderId": "{{test_folder_id}}"
+}
+HTTP 204
+
+# Verify move worked by checking playlist info
+GET {{base_url}}/ferrotune/playlist-folders
+Authorization: Basic {{auth_basic}}
+HTTP 200
+
+# Create smart playlist with inPlaylistFolder filter
+POST {{base_url}}/ferrotune/smart-playlists
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "name": "Folder Filter Test",
+  "rules": {
+    "logic": "and",
+    "conditions": [
+      {
+        "field": "inPlaylistFolder",
+        "operator": "eq",
+        "value": "{{test_folder_id}}"
+      }
+    ]
+  },
+  "sortField": "title",
+  "sortDirection": "asc",
+  "maxSongs": null
+}
+HTTP 201
+[Captures]
+folder_sp_id: jsonpath "$.id"
+
+# Verify the smart playlist contains songs from the folder's playlists
+GET {{base_url}}/ferrotune/smart-playlists/{{folder_sp_id}}/songs?offset=0&count=100
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" >= 1
+
+# Clean up
+DELETE {{base_url}}/ferrotune/smart-playlists/{{folder_sp_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 204
+
+DELETE {{base_url}}/ferrotune/playlists/{{test_playlist_a_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 204
+
+DELETE {{base_url}}/ferrotune/playlists/{{test_playlist_b_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 204
+
+DELETE {{base_url}}/ferrotune/playlist-folders/{{test_folder_id}}
+Authorization: Basic {{auth_basic}}
+HTTP 204

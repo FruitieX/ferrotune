@@ -80,8 +80,8 @@ pub struct SmartPlaylistConditionApi {
     pub field: String,
     /// Comparison operator
     pub operator: String,
-    /// Value to compare against
-    #[ts(type = "string | number | boolean")]
+    /// Value to compare against (can be array of strings for multi-select fields like inPlaylist)
+    #[ts(type = "string | number | boolean | string[]")]
     pub value: serde_json::Value,
 }
 
@@ -1325,18 +1325,82 @@ fn build_condition(
             };
         }
         "inPlaylist" => {
-            // Filter by membership in an existing playlist
-            let playlist_id = value.as_str()?;
+            // Filter by membership in existing playlist(s)
+            // Supports both single string value and array of strings for multi-select
+            let playlist_ids: Vec<String> = if let Some(arr) = value.as_array() {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            } else if let Some(id) = value.as_str() {
+                vec![id.to_string()]
+            } else {
+                return None;
+            };
+
+            if playlist_ids.is_empty() {
+                return None;
+            }
+
+            let placeholders = playlist_ids
+                .iter()
+                .map(|_| "?")
+                .collect::<Vec<_>>()
+                .join(", ");
+            let args: Vec<SqlArg> = playlist_ids.into_iter().map(SqlArg::Text).collect();
+
             return match op.as_str() {
                 "eq" => Some((
-                    "EXISTS (SELECT 1 FROM playlist_songs pls WHERE pls.song_id = s.id AND pls.playlist_id = ?)"
-                        .to_string(),
-                    vec![SqlArg::Text(playlist_id.to_string())],
+                    format!(
+                        "EXISTS (SELECT 1 FROM playlist_songs pls WHERE pls.song_id = s.id AND pls.playlist_id IN ({placeholders}))"
+                    ),
+                    args,
                 )),
                 "neq" => Some((
-                    "NOT EXISTS (SELECT 1 FROM playlist_songs pls WHERE pls.song_id = s.id AND pls.playlist_id = ?)"
-                        .to_string(),
-                    vec![SqlArg::Text(playlist_id.to_string())],
+                    format!(
+                        "NOT EXISTS (SELECT 1 FROM playlist_songs pls WHERE pls.song_id = s.id AND pls.playlist_id IN ({placeholders}))"
+                    ),
+                    args,
+                )),
+                _ => None,
+            };
+        }
+        "inPlaylistFolder" => {
+            // Filter by membership in any playlist within a folder (recursively including sub-folders)
+            let folder_id = value.as_str()?;
+            let args = vec![SqlArg::Text(folder_id.to_string())];
+
+            return match op.as_str() {
+                "eq" => Some((
+                    concat!(
+                        "EXISTS (WITH RECURSIVE subfolder(id) AS (",
+                        "SELECT id FROM playlist_folders WHERE id = ? ",
+                        "UNION ALL ",
+                        "SELECT pf.id FROM playlist_folders pf ",
+                        "JOIN subfolder sf ON pf.parent_id = sf.id",
+                        ") SELECT 1 FROM playlist_songs pls ",
+                        "JOIN playlists p ON pls.playlist_id = p.id ",
+                        "JOIN subfolder ON p.folder_id = subfolder.id ",
+                        "WHERE pls.song_id = s.id",
+                        ")"
+                    )
+                    .to_string(),
+                    args,
+                )),
+                "neq" => Some((
+                    concat!(
+                        "NOT EXISTS (WITH RECURSIVE subfolder(id) AS (",
+                        "SELECT id FROM playlist_folders WHERE id = ? ",
+                        "UNION ALL ",
+                        "SELECT pf.id FROM playlist_folders pf ",
+                        "JOIN subfolder sf ON pf.parent_id = sf.id",
+                        ") SELECT 1 FROM playlist_songs pls ",
+                        "JOIN playlists p ON pls.playlist_id = p.id ",
+                        "JOIN subfolder ON p.folder_id = subfolder.id ",
+                        "WHERE pls.song_id = s.id",
+                        ")"
+                    )
+                    .to_string(),
+                    args,
                 )),
                 _ => None,
             };

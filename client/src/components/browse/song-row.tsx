@@ -131,6 +131,7 @@ export interface QueueSource {
 interface SongRowProps {
   song: Song;
   index?: number;
+  songIndex?: number;
   trackNumber?: number | null;
   showAlbum?: boolean;
   showArtist?: boolean;
@@ -187,6 +188,7 @@ interface SongRowProps {
 export function SongRow({
   song,
   index,
+  songIndex,
   trackNumber,
   showAlbum = true,
   showArtist = true,
@@ -228,6 +230,7 @@ export function SongRow({
   const startQueue = useSetAtom(startQueueAtom);
   const { togglePlayPause } = useAudioEngine();
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
+  const resolvedSongIndex = songIndex ?? index;
 
   // Don't show track as current when playback has ended
   // If isCurrentQueuePosition is explicitly set (for views with duplicate songs like playlists),
@@ -253,14 +256,15 @@ export function SongRow({
       togglePlayPause();
     } else if (queueSource?.type && queueSource.type !== "other") {
       // Use server-side queue materialization for known sources
-      // Use the index prop if available, otherwise try to find from queueSongs
-      const songIndex =
-        index ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
+      const queueSongIndex =
+        resolvedSongIndex ??
+        queueSongs?.findIndex((s) => s.id === song.id) ??
+        0;
       startQueue({
         sourceType: queueSource.type,
         sourceId: queueSource.id ?? undefined,
         sourceName: queueSource.name ?? undefined,
-        startIndex: songIndex >= 0 ? songIndex : 0,
+        startIndex: queueSongIndex >= 0 ? queueSongIndex : 0,
         startSongId: song.id,
         filters: queueSource.filters,
         sort: queueSource.sort,
@@ -338,7 +342,6 @@ export function SongRow({
         </div>
       )}
       <motion.div
-        data-testid="song-row"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         onClick={handleClick}
@@ -358,6 +361,8 @@ export function SongRow({
           />
         ) : null}
         <MediaRow
+          dataTestId="song-row"
+          dataCurrentTrack={isCurrentTrack ? "true" : undefined}
           coverArt={showCover ? coverArtUrl : undefined}
           coverArtData={showCover ? song.coverArtData : undefined}
           title={song.title}
@@ -390,7 +395,7 @@ export function SongRow({
                 <SongDropdownMenu
                   song={song}
                   queueSongs={queueSongs}
-                  songIndex={index}
+                  songIndex={resolvedSongIndex}
                   queueSource={queueSource}
                   showRemoveFromPlaylist={showRemoveFromPlaylist}
                   onRemoveFromPlaylist={onRemoveFromPlaylist}
@@ -495,7 +500,7 @@ export function SongRow({
             <SongContextMenu
               song={song}
               queueSongs={queueSongs}
-              songIndex={index}
+              songIndex={resolvedSongIndex}
               queueSource={queueSource}
               showRemoveFromPlaylist={showRemoveFromPlaylist}
               onRemoveFromPlaylist={onRemoveFromPlaylist}
@@ -550,6 +555,7 @@ export function SongRowSkeleton({
 interface SongCardProps {
   song: Song;
   index?: number;
+  songIndex?: number;
   queueSongs?: Song[];
   queueSource?: QueueSource;
   isSelected?: boolean;
@@ -583,6 +589,7 @@ const defaultSongIcon = (
 export function SongCard({
   song,
   index,
+  songIndex,
   queueSongs,
   queueSource,
   isSelected,
@@ -604,6 +611,7 @@ export function SongCard({
   const startQueue = useSetAtom(startQueueAtom);
   const { togglePlayPause } = useAudioEngine();
   const { isStarred, toggleStar } = useStarred(song.id, !!song.starred);
+  const resolvedSongIndex = songIndex ?? index;
 
   // If isCurrentQueuePosition is explicitly set (for views with duplicate songs like playlists),
   // use that to determine if this specific card is the current track.
@@ -625,14 +633,15 @@ export function SongCard({
       togglePlayPause();
     } else if (queueSource?.type && queueSource.type !== "other") {
       // Use server-side queue materialization for known sources
-      // Use the index prop if available, otherwise try to find from queueSongs
-      const songIndex =
-        index ?? queueSongs?.findIndex((s) => s.id === song.id) ?? 0;
+      const queueSongIndex =
+        resolvedSongIndex ??
+        queueSongs?.findIndex((s) => s.id === song.id) ??
+        0;
       startQueue({
         sourceType: queueSource.type,
         sourceId: queueSource.id ?? undefined,
         sourceName: queueSource.name ?? undefined,
-        startIndex: songIndex >= 0 ? songIndex : 0,
+        startIndex: queueSongIndex >= 0 ? queueSongIndex : 0,
         startSongId: song.id,
         filters: queueSource.filters,
         sort: queueSource.sort,
@@ -695,6 +704,7 @@ export function SongCard({
 
   return (
     <MediaCard
+      dataCurrentTrack={isCurrentTrack ? "true" : undefined}
       coverArt={coverArtUrl}
       coverArtData={song.coverArtData}
       title={song.title}
@@ -704,6 +714,7 @@ export function SongCard({
       colorSeed={song.album ?? undefined}
       coverType="song"
       onPlay={handlePlay}
+      isActive={isCurrentTrack}
       onStar={handleStar}
       isStarred={isStarred}
       isSelected={isSelected}
@@ -713,7 +724,7 @@ export function SongCard({
         <SongDropdownMenu
           song={song}
           queueSongs={queueSongs}
-          songIndex={index}
+          songIndex={resolvedSongIndex}
           queueSource={queueSource}
           showMoveToPosition={showMoveToPosition}
           onMoveToPosition={onMoveToPosition}
@@ -728,7 +739,7 @@ export function SongCard({
         <SongContextMenu
           song={song}
           queueSongs={queueSongs}
-          songIndex={index}
+          songIndex={resolvedSongIndex}
           queueSource={queueSource}
           showMoveToPosition={showMoveToPosition}
           onMoveToPosition={onMoveToPosition}

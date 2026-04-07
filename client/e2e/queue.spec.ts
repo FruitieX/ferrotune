@@ -73,6 +73,51 @@ test.describe.serial("Queue Management", () => {
     await expect(page.locator("footer")).toContainText("Third Song");
   });
 
+  test("library songs marks the played row and card as current", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/library/songs");
+
+    const listViewButton = page.getByRole("button", { name: /list view/i });
+    await expect(listViewButton).toBeVisible({ timeout: 10000 });
+    await listViewButton.click();
+    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
+
+    const flacRow = page
+      .locator('[data-testid="song-row"]')
+      .filter({ hasText: "FLAC Track One" })
+      .first();
+
+    await expect(flacRow).toBeVisible({ timeout: 10000 });
+    await flacRow.dblclick();
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toContainText("FLAC Track One", {
+      timeout: 10000,
+    });
+    await playerBar.getByRole("button", { name: /pause/i }).first().click();
+    await expect(flacRow).toHaveAttribute("data-current-track", "true", {
+      timeout: 10000,
+    });
+    await expect(
+      page.locator('[data-testid="song-row"][data-current-track="true"]'),
+    ).toHaveCount(1);
+
+    const gridViewButton = page.getByRole("button", { name: /grid view/i });
+    await expect(gridViewButton).toBeVisible({ timeout: 10000 });
+    await gridViewButton.click();
+
+    const flacCard = page
+      .locator('[data-testid="media-card"]')
+      .filter({ hasText: "FLAC Track One" })
+      .first();
+
+    await expect(flacCard).toHaveAttribute("data-current-track", "true", {
+      timeout: 10000,
+    });
+  });
+
   test("removing an earlier queue item keeps the same current track", async ({
     authenticatedPage: page,
   }) => {

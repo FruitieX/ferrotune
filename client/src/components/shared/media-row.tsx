@@ -54,6 +54,10 @@ interface MediaRowProps {
     | "genre";
   /** Whether this row is currently active/selected */
   isActive?: boolean;
+  /** Optional stable state hook for tests and automation */
+  dataCurrentTrack?: string;
+  /** Optional test hook for the rendered row element */
+  dataTestId?: string;
   /** Whether this row is currently playing (shows pause icon) */
   isPlaying?: boolean;
   /** Whether this row is selected in multi-select mode */
@@ -98,6 +102,8 @@ export function MediaRow({
   colorSeed,
   coverType = "album",
   isActive,
+  dataCurrentTrack,
+  dataTestId,
   isPlaying,
   isSelected,
   isSelectionMode,
@@ -256,6 +262,9 @@ export function MediaRow({
 
   const rowContent = (
     <div
+      data-testid={dataTestId}
+      data-current-track={dataCurrentTrack}
+      aria-current={isActive ? "true" : undefined}
       className={cn(
         rowContainerStyles,
         "media-row",

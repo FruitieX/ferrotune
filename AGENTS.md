@@ -296,6 +296,12 @@ if (options?.sort) params.set("sort", options.sort);
 | `use-song-actions.ts` | Song playback/queue/starring/rating actions |
 | `use-star.ts` | Generic starring state management |
 
+### Frontend Queue Helpers (`client/src/lib/queue/`)
+
+| Module | Purpose | Key Functions |
+|--------|---------|---------------|
+| `current-position.ts` | Source-aware now-playing matching for virtualized collection views | `queueSourceMatchesView()`, `getCurrentQueuePositionMatch()` |
+
 ---
 
 ## Common Tasks

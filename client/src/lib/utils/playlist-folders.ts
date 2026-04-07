@@ -141,6 +141,39 @@ export function buildFolderTreeFromApi(
 }
 
 /**
+ * Get a flat list of all folders with their computed paths.
+ * Useful for populating enum options in filter builders.
+ */
+export function getFlatFolderList(
+  folders: PlaylistFolderResponse[],
+): { id: string; name: string; path: string }[] {
+  // Build parent lookup map
+  const folderMap = new Map<string, PlaylistFolderResponse>();
+  for (const f of folders) {
+    folderMap.set(f.id, f);
+  }
+
+  // Compute path for a folder by walking up the parent chain
+  function computePath(folder: PlaylistFolderResponse): string {
+    const parts: string[] = [folder.name];
+    let current = folder;
+    while (current.parentId) {
+      const parent = folderMap.get(current.parentId);
+      if (!parent) break;
+      parts.unshift(parent.name);
+      current = parent;
+    }
+    return parts.join(" / ");
+  }
+
+  return folders.map((f) => ({
+    id: f.id,
+    name: f.name,
+    path: computePath(f),
+  }));
+}
+
+/**
  * Check if a playlist is a folder placeholder (ends with /)
  * e.g., "Rock/" or "Music/Rock/" are empty folder placeholders
  */

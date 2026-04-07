@@ -2,19 +2,33 @@
  * Context menu tests - Right-click menus for songs, albums, artists
  */
 
-import { test, expect, waitForPlayerReady } from "./fixtures";
+import {
+  test,
+  expect,
+  playFirstSong,
+  resetState,
+  waitForPlayerReady,
+} from "./fixtures";
+import { openQueuePanel } from "./queue-helpers";
 
 async function openContextMenu(
   page: import("@playwright/test").Page,
   element: import("@playwright/test").Locator,
 ) {
   await element.click({ button: "right" });
-  const contextMenu = page.locator('[data-slot="context-menu-content"]');
+  const contextMenu = page.locator(
+    '[data-slot="context-menu-content"][data-state="open"]',
+  );
   await expect(contextMenu).toBeVisible({ timeout: 5000 });
   return contextMenu;
 }
 
 test.describe("Context Menus", () => {
+  test.beforeEach(async ({ authenticatedPage: page, server }) => {
+    await resetState(page, server);
+    await page.reload();
+  });
+
   test("song context menu has all actions and can play", async ({
     authenticatedPage: page,
   }) => {
@@ -100,5 +114,51 @@ test.describe("Context Menus", () => {
     await expect(
       contextMenu.getByRole("menuitem", { name: /shuffle all/i }),
     ).toBeVisible();
+  });
+
+  test("play next inserts immediately after the current song", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+    await playerBar.getByRole("button", { name: /next/i }).click();
+    await expect(playerBar).toContainText("Second Song", { timeout: 10000 });
+
+    await page.goto("/library/songs");
+
+    const listViewButton = page.getByRole("button", { name: /list view/i });
+    await expect(listViewButton).toBeVisible({ timeout: 10000 });
+    await listViewButton.click();
+    await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
+
+    const flacTrackOne = page
+      .locator('[data-testid="song-row"]')
+      .filter({ hasText: "FLAC Track One" })
+      .first();
+    const flacTrackTwo = page
+      .locator('[data-testid="song-row"]')
+      .filter({ hasText: "FLAC Track Two" })
+      .first();
+
+    await (await openContextMenu(page, flacTrackOne))
+      .getByRole("menuitem", { name: /play next/i })
+      .click();
+    await (await openContextMenu(page, flacTrackTwo))
+      .getByRole("menuitem", { name: /play next/i })
+      .click();
+
+    await expect(playerBar).toContainText("Second Song", { timeout: 10000 });
+
+    const queuePanel = await openQueuePanel(page);
+    const queueItems = queuePanel.locator('[data-testid="queue-item"]');
+
+    await expect(queueItems.nth(0)).toContainText("First Song");
+    await expect(queueItems.nth(1)).toContainText("Second Song");
+    await expect(queueItems.nth(2)).toContainText("FLAC Track Two");
+    await expect(queueItems.nth(3)).toContainText("FLAC Track One");
+    await expect(queueItems.nth(4)).toContainText("Third Song");
   });
 });

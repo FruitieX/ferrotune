@@ -13,6 +13,6 @@ field: string,
  */
 operator: string, 
 /**
- * Value to compare against
+ * Value to compare against (can be array of strings for multi-select fields like inPlaylist)
  */
-value: string | number | boolean, };
+value: string | number | boolean | string[], };

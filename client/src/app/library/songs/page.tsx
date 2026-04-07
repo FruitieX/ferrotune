@@ -15,9 +15,14 @@ import {
   columnVisibilityAtom,
   advancedFiltersAtom,
 } from "@/lib/store/ui";
-import { startQueueAtom, type QueueSourceType } from "@/lib/store/server-queue";
+import {
+  startQueueAtom,
+  serverQueueStateAtom,
+  type QueueSourceType,
+} from "@/lib/store/server-queue";
 import { getClient } from "@/lib/api/client";
 import type { Song } from "@/lib/api/types";
+import { getCurrentQueuePositionMatch } from "@/lib/queue/current-position";
 import {
   SongRow,
   SongRowSkeleton,
@@ -46,6 +51,7 @@ export default function SongsPage() {
   const advancedFilters = useAtomValue(advancedFiltersAtom);
   const debouncedFilter = useDebounce(filter, 300);
   const startQueue = useSetAtom(startQueueAtom);
+  const queueState = useAtomValue(serverQueueStateAtom);
 
   // Virtualized scroll restoration - pass viewMode to store separate positions per view
   const {
@@ -110,6 +116,18 @@ export default function SongsPage() {
       field: sortConfig.field,
       direction: sortConfig.direction,
     },
+  };
+
+  const getIsCurrentQueuePosition = (index: number): boolean | undefined => {
+    return getCurrentQueuePositionMatch({
+      queueState,
+      expectedSource: {
+        type: queueSource.type,
+        filters: queueSource.filters,
+        sort: queueSource.sort,
+      },
+      displayIndex: index,
+    });
   };
 
   // Build search params for "select all" functionality
@@ -200,6 +218,7 @@ export default function SongsPage() {
               <SongCard
                 song={song}
                 index={index}
+                isCurrentQueuePosition={getIsCurrentQueuePosition(index)}
                 inlineImagesRequested
                 queueSource={queueSource}
                 isSelected={isSelected(song.id)}
@@ -231,6 +250,8 @@ export default function SongsPage() {
                 <SongRow
                   song={song}
                   index={columnVisibility.trackNumber ? index : undefined}
+                  songIndex={index}
+                  isCurrentQueuePosition={getIsCurrentQueuePosition(index)}
                   showCover
                   inlineImagesRequested
                   showArtist={columnVisibility.artist}

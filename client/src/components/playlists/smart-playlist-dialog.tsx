@@ -30,11 +30,13 @@ import type { SmartPlaylistConditionApi } from "@/lib/api/generated/SmartPlaylis
 import {
   AdvancedFilterBuilder,
   buildFieldsWithLibraries,
+  buildFieldsWithPlaylistFolders,
   buildFieldsWithPlaylists,
   DEFAULT_SONG_FIELDS,
   type AdvancedFilters,
   type FilterCondition,
 } from "@/components/common/advanced-filter-builder";
+import { getFlatFolderList } from "@/lib/utils/playlist-folders";
 
 // Sort field options
 const SORT_FIELDS = [
@@ -69,7 +71,11 @@ function parseConditions(
     id: generateId(),
     field: c.field,
     operator: c.operator,
-    value: typeof c.value === "object" ? String(c.value) : c.value,
+    value: Array.isArray(c.value)
+      ? (c.value as string[])
+      : typeof c.value === "object"
+        ? String(c.value)
+        : c.value,
   }));
 }
 
@@ -103,11 +109,16 @@ export function SmartPlaylistDialog({
     },
   });
 
-  // Build dynamic fields list including library and playlist fields
-  const fields = buildFieldsWithPlaylists(
-    buildFieldsWithLibraries(DEFAULT_SONG_FIELDS, musicFolders),
-    playlistFoldersData?.playlists.map((p) => ({ id: p.id, name: p.name })) ??
-      [],
+  // Build dynamic fields list including library, playlist, and playlist folder fields
+  const fields = buildFieldsWithPlaylistFolders(
+    buildFieldsWithPlaylists(
+      buildFieldsWithLibraries(DEFAULT_SONG_FIELDS, musicFolders),
+      playlistFoldersData?.playlists.map((p) => ({
+        id: p.id,
+        name: p.name,
+      })) ?? [],
+    ),
+    getFlatFolderList(playlistFoldersData?.folders ?? []),
   );
 
   // Form state
