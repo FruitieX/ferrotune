@@ -244,9 +244,10 @@ pub struct AddToQueueRequest {
     /// Song IDs to add (either this OR sourceType+sourceId)
     #[serde(default)]
     pub song_ids: Vec<String>,
-    /// Position: "next" (after current), "end", or a number
+    /// Position in display order: "next" (after current), "end", or a number
     pub position: AddPosition,
-    /// Client-provided current index (avoids stale DB value from delayed heartbeats)
+    /// Client-provided current index in display order (shuffled space if shuffled)
+    /// to avoid stale DB values from delayed heartbeats.
     pub current_index: Option<usize>,
     /// Source type for server-side materialization (e.g., "directory")
     pub source_type: Option<String>,
@@ -343,6 +344,84 @@ const MAX_QUEUE_SIZE: usize = 50_000;
 /// Returns 400 Bad Request if missing.
 fn require_session_id(session_id: Option<&str>) -> FerrotuneApiResult<&str> {
     Ok(session_id.ok_or_else(|| Error::InvalidRequest("session_id is required".to_string()))?)
+}
+
+fn resolve_original_queue_position(
+    queue: &PlayQueue,
+    display_position: usize,
+) -> FerrotuneApiResult<usize> {
+    if !queue.is_shuffled {
+        return Ok(display_position);
+    }
+
+    let indices = queue.shuffle_indices().unwrap_or_default();
+    indices.get(display_position).copied().ok_or_else(|| {
+        FerrotuneApiError(Error::InvalidRequest("Position out of range".to_string()))
+    })
+}
+
+fn resolve_display_insert_position(
+    position: &AddPosition,
+    current_display_index: usize,
+    current_len: usize,
+) -> usize {
+    match position {
+        AddPosition::Named(name) if name == "next" => (current_display_index + 1).min(current_len),
+        AddPosition::Named(name) if name == "end" => current_len,
+        AddPosition::Named(_) => current_len,
+        AddPosition::Index(index) => (*index).min(current_len),
+    }
+}
+
+fn resolve_original_insert_position(
+    queue: &PlayQueue,
+    display_insert_position: usize,
+    current_len: usize,
+) -> FerrotuneApiResult<usize> {
+    if display_insert_position >= current_len {
+        return Ok(current_len);
+    }
+
+    resolve_original_queue_position(queue, display_insert_position)
+}
+
+fn shifted_current_index_after_insert(
+    current_display_index: usize,
+    display_insert_position: usize,
+    added_count: usize,
+) -> usize {
+    if display_insert_position <= current_display_index {
+        current_display_index + added_count
+    } else {
+        current_display_index
+    }
+}
+
+fn insert_shuffle_indices(
+    existing_indices: &[usize],
+    display_insert_position: usize,
+    original_insert_position: usize,
+    added_count: usize,
+) -> Vec<usize> {
+    let mut updated_indices = existing_indices
+        .iter()
+        .map(|&index| {
+            if index >= original_insert_position {
+                index + added_count
+            } else {
+                index
+            }
+        })
+        .collect::<Vec<_>>();
+
+    for offset in 0..added_count {
+        updated_indices.insert(
+            display_insert_position + offset,
+            original_insert_position + offset,
+        );
+    }
+
+    updated_indices
 }
 
 /// Broadcast a QueueChanged event to all SSE subscribers of a session
@@ -1007,21 +1086,17 @@ pub async fn add_to_queue(
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
-    let current_len = queries::get_queue_length_by_session(&state.pool, session_id).await?;
+    let current_len = queries::get_queue_length_by_session(&state.pool, session_id).await? as usize;
 
-    // Determine insert position
     // Prefer client-provided current_index over DB value (which may be stale
     // due to heartbeat delay, especially on Android with backgrounded WebView).
-    let effective_index = request
+    let effective_current_index = request
         .current_index
-        .map(|i| i as i64)
-        .unwrap_or(queue.current_index);
-    let position = match request.position {
-        AddPosition::Named(ref s) if s == "next" => effective_index + 1,
-        AddPosition::Named(ref s) if s == "end" => current_len,
-        AddPosition::Named(_) => current_len, // Default to end for unknown strings
-        AddPosition::Index(i) => i as i64,
-    };
+        .unwrap_or(queue.current_index as usize);
+    let display_insert_position =
+        resolve_display_insert_position(&request.position, effective_current_index, current_len);
+    let original_insert_position =
+        resolve_original_insert_position(&queue, display_insert_position, current_len)?;
 
     // Get song IDs either from explicit list or from source materialization
     let song_ids: Vec<String> = if !request.song_ids.is_empty() {
@@ -1071,45 +1146,25 @@ pub async fn add_to_queue(
         user.user_id,
         session_id,
         &song_ids,
-        position,
+        original_insert_position as i64,
     )
     .await?;
+
+    let new_current_index = shifted_current_index_after_insert(
+        effective_current_index,
+        display_insert_position,
+        song_ids.len(),
+    );
 
     // If shuffle is enabled, we need to update shuffle indices
     if queue.is_shuffled {
         let shuffle_indices = queue.shuffle_indices().unwrap_or_default();
-        let mut new_indices = shuffle_indices.clone();
-
-        // Insert new indices for the added songs
-        let insert_pos = match request.position {
-            AddPosition::Named(ref s) if s == "next" => {
-                // Find the current track's position in the shuffle array and insert after it
-                let current_shuffle_pos = new_indices
-                    .iter()
-                    .position(|&idx| idx == effective_index as usize)
-                    .map(|p| p + 1)
-                    .unwrap_or(1);
-                current_shuffle_pos
-            }
-            _ => new_indices.len(), // At end
-        };
-
-        // Add indices for new songs (their original queue positions)
-        let start_original_pos = position as usize;
-        for (i, _) in song_ids.iter().enumerate() {
-            new_indices.insert(insert_pos + i, start_original_pos + i);
-        }
-
-        // Adjust existing indices that point to positions >= insert position
-        for idx in new_indices.iter_mut() {
-            if *idx >= start_original_pos && *idx < start_original_pos + song_ids.len() {
-                // This is one of the new songs, skip
-                continue;
-            }
-            if *idx >= start_original_pos {
-                *idx += song_ids.len();
-            }
-        }
+        let new_indices = insert_shuffle_indices(
+            &shuffle_indices,
+            display_insert_position,
+            original_insert_position,
+            song_ids.len(),
+        );
 
         let indices_json = serde_json::to_string(&new_indices)
             .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {e}")))?;
@@ -1119,7 +1174,7 @@ pub async fn add_to_queue(
             true,
             queue.shuffle_seed,
             Some(&indices_json),
-            queue.current_index,
+            new_current_index as i64,
             queue.position_ms,
             Some(queue.version),
         )
@@ -1132,6 +1187,14 @@ pub async fn add_to_queue(
         }
 
         invalidate_shuffle_cache(&state, user.user_id).await;
+    } else {
+        queries::update_queue_position_by_session(
+            &state.pool,
+            session_id,
+            new_current_index as i64,
+            queue.position_ms,
+        )
+        .await?;
     }
 
     let added_count = song_ids.len();
@@ -1140,7 +1203,7 @@ pub async fn add_to_queue(
 
     Ok(Json(QueueSuccessResponse {
         success: true,
-        new_index: None,
+        new_index: Some(new_current_index),
         total_count: Some(new_len as usize),
         added_count: Some(added_count),
     }))
@@ -1158,18 +1221,9 @@ pub async fn remove_from_queue(
         .await?
         .ok_or_else(|| Error::NotFound("No queue found".to_string()))?;
 
-    // In shuffled mode, position is the shuffled position - need to get original position
-    let original_position = if queue.is_shuffled {
-        let indices = queue.shuffle_indices().unwrap_or_default();
-        if position >= indices.len() {
-            return Err(FerrotuneApiError(Error::InvalidRequest(
-                "Position out of range".to_string(),
-            )));
-        }
-        indices[position]
-    } else {
-        position
-    };
+    // In shuffled mode, position is in display order and must be mapped back
+    // to the original queue position before mutating stored entries.
+    let original_position = resolve_original_queue_position(&queue, position)?;
 
     let removed =
         queries::remove_from_queue_by_session(&state.pool, session_id, original_position as i64)

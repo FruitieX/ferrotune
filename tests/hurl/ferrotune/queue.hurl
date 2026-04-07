@@ -379,6 +379,7 @@ Content-Type: application/json
   "sourceType": "library",
   "songIds": ["{{song_1}}", "{{song_2}}", "{{song_3}}"],
   "startIndex": 0,
+  "startSongId": "{{song_1}}",
   "shuffle": true
 }
 HTTP 200
@@ -405,6 +406,81 @@ Authorization: Basic {{auth_basic}}
 HTTP 200
 [Asserts]
 jsonpath "$.isShuffled" == true
+
+# ============================================================================
+# SHUFFLED PLAY NEXT - Insert immediately after current in display order
+# ============================================================================
+
+# Start shuffled queue with a fixed current song at display position 0
+POST {{base_url}}/ferrotune/queue/start
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "sourceType": "library",
+  "songIds": ["{{song_1}}", "{{song_2}}", "{{song_3}}"],
+  "startIndex": 0,
+  "shuffle": true
+}
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" == 3
+jsonpath "$.currentIndex" == 0
+jsonpath "$.isShuffled" == true
+jsonpath "$.window.songs[0].song.id" == "{{song_1}}"
+
+# First play-next insert should land at display position 1
+POST {{base_url}}/ferrotune/queue/add
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "songIds": ["{{song_4}}"],
+  "position": "next",
+  "currentIndex": 0
+}
+HTTP 200
+[Asserts]
+jsonpath "$.success" == true
+jsonpath "$.newIndex" == 0
+jsonpath "$.totalCount" == 4
+jsonpath "$.addedCount" == 1
+
+GET {{base_url}}/ferrotune/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" == 4
+jsonpath "$.currentIndex" == 0
+jsonpath "$.window.songs[0].song.id" == "{{song_1}}"
+jsonpath "$.window.songs[1].song.id" == "{{song_4}}"
+
+# Second play-next insert should stack ahead of the previous insert
+POST {{base_url}}/ferrotune/queue/add
+Authorization: Basic {{auth_basic}}
+Content-Type: application/json
+{
+  "sessionId": "{{test_session_id}}",
+  "songIds": ["{{song_5}}"],
+  "position": "next",
+  "currentIndex": 0
+}
+HTTP 200
+[Asserts]
+jsonpath "$.success" == true
+jsonpath "$.newIndex" == 0
+jsonpath "$.totalCount" == 5
+jsonpath "$.addedCount" == 1
+
+GET {{base_url}}/ferrotune/queue/current-window?sessionId={{test_session_id}}&radius=10
+Authorization: Basic {{auth_basic}}
+HTTP 200
+[Asserts]
+jsonpath "$.totalCount" == 5
+jsonpath "$.currentIndex" == 0
+jsonpath "$.window.songs[0].song.id" == "{{song_1}}"
+jsonpath "$.window.songs[1].song.id" == "{{song_5}}"
+jsonpath "$.window.songs[2].song.id" == "{{song_4}}"
 
 # ============================================================================
 # CLEAR QUEUE - Delete entire queue

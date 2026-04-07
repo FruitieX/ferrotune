@@ -21,8 +21,6 @@ import {
   nativePreviousTrack,
   nativeToggleShuffle,
   nativeSetRepeatMode,
-  nativeInvalidateQueue,
-  nativeSoftInvalidateQueue,
   nativePlayAtIndex,
 } from "@/lib/audio/native-engine";
 
@@ -967,22 +965,21 @@ export const addToQueueAtom = atom(
         "small",
         sessionId,
       );
+
+      // Pull the authoritative queue metadata from the same response so local
+      // state stays aligned with the server after queue mutations.
+      set(serverQueueStateAtom, {
+        totalCount: queueResponse.totalCount,
+        currentIndex: queueResponse.currentIndex,
+        positionMs: Number(queueResponse.positionMs ?? 0),
+        isShuffled: queueResponse.isShuffled,
+        repeatMode: queueResponse.repeatMode as RepeatMode,
+        source: queueResponse.source,
+      });
       set(queueWindowAtom, queueResponse.window);
 
-      // Appends can stay on the lightweight native prefetch path.
-      // Inserts near the current track need a full refetch so Android
-      // rebuilds the surrounding queue window correctly.
-      if (
-        hasNativeAudio() &&
-        get(isAudioOwnerAtom) &&
-        response.totalCount != null
-      ) {
-        if (params.position === "end") {
-          await nativeSoftInvalidateQueue(response.totalCount);
-        } else {
-          await nativeInvalidateQueue();
-        }
-      }
+      // PlaybackService already receives the server-broadcast QueueUpdated
+      // event over SSE, so avoid issuing a second local invalidate here.
 
       // Notify the session owner via SSE when remote controlling
       if (get(isRemoteControllingAtom) && sessionId) {
