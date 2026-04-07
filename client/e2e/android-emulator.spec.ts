@@ -26,6 +26,48 @@ function countOccurrences(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
 
+interface SessionExportSummary {
+  currentIndex: number;
+  durationMs: number;
+  playlistSize: number;
+  seekable: boolean;
+  placeholder: boolean;
+  transcoding: boolean;
+}
+
+function extractLatestSessionExport(logs: string): SessionExportSummary | null {
+  const pattern =
+    /session export: current=(\d+) durationMs=(\d+) playlistSize=(\d+) seekable=(true|false) placeholder=(true|false) transcoding=(true|false)/g;
+  let latestMatch: RegExpExecArray | null = null;
+
+  for (const match of logs.matchAll(pattern)) {
+    latestMatch = match;
+  }
+
+  if (!latestMatch) {
+    return null;
+  }
+
+  return {
+    currentIndex: Number.parseInt(latestMatch[1] ?? "0", 10),
+    durationMs: Number.parseInt(latestMatch[2] ?? "0", 10),
+    playlistSize: Number.parseInt(latestMatch[3] ?? "0", 10),
+    seekable: latestMatch[4] === "true",
+    placeholder: latestMatch[5] === "true",
+    transcoding: latestMatch[6] === "true",
+  };
+}
+
+async function readLatestSessionExport(
+  device: AndroidDevice,
+): Promise<SessionExportSummary | null> {
+  const logs = (await device.shell("logcat -d -s PlaybackService:V")).toString(
+    "utf-8",
+  );
+
+  return extractLatestSessionExport(logs);
+}
+
 function pickDevice(devices: AndroidDevice[]): AndroidDevice {
   const requestedSerial = process.env.ANDROID_SERIAL;
 
@@ -156,6 +198,11 @@ async function clickPlayNextAction(menu: Locator) {
   await menu.getByRole("menuitem", { name: /play next/i }).click();
 }
 
+async function playFirstSongFromSongsList(page: Page) {
+  await ensureSongsListView(page);
+  await page.locator('[data-testid="song-row"]').first().dblclick();
+}
+
 test.describe.serial("Android Emulator Smoke", () => {
   test("queue item play button advances playback on Android", async ({
     server,
@@ -261,6 +308,80 @@ test.describe.serial("Android Emulator Smoke", () => {
 
       await device
         .screenshot({ path: testInfo.outputPath("android-device-failure.png") })
+        .catch(() => undefined);
+
+      throw error;
+    } finally {
+      await device.close().catch(() => undefined);
+    }
+  });
+
+  test("transcoded session export stays determinate on Android", async ({
+    server,
+  }, testInfo) => {
+    test.setTimeout(180_000);
+
+    const connectedDevices = await android.devices();
+    test.skip(
+      connectedDevices.length === 0,
+      "No Android emulator or device connected to ADB.",
+    );
+
+    if (!fs.existsSync(DEBUG_APK_PATH)) {
+      throw new Error(
+        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:tauri-android-deploy-debug first.`,
+      );
+    }
+
+    const device = pickDevice(connectedDevices);
+    let page: import("@playwright/test").Page | undefined;
+
+    try {
+      page = await prepareAndroidApp(device, server);
+
+      await playFirstSongFromSongsList(page);
+      await waitForPlayerReady(page, 15000);
+      await expect(page.getByTestId("player-bar")).toBeVisible({
+        timeout: 15000,
+      });
+
+      await expect
+        .poll(async () => (await readLatestSessionExport(device)) !== null, {
+          timeout: 15000,
+          message:
+            "Expected PlaybackService to export session metadata for the current Android notification state",
+        })
+        .toBe(true);
+
+      const sessionExport = await readLatestSessionExport(device);
+      if (!sessionExport) {
+        throw new Error(
+          "PlaybackService did not emit a session export summary",
+        );
+      }
+
+      expect(sessionExport.durationMs).toBeGreaterThan(0);
+      expect(sessionExport.playlistSize).toBeGreaterThan(2);
+      expect(sessionExport.seekable).toBe(true);
+      expect(sessionExport.placeholder).toBe(false);
+      expect(sessionExport.transcoding).toBe(true);
+    } catch (error) {
+      if (page) {
+        await page
+          .screenshot({
+            path: testInfo.outputPath(
+              "android-transcoding-session-failure.png",
+            ),
+          })
+          .catch(() => undefined);
+      }
+
+      await device
+        .screenshot({
+          path: testInfo.outputPath(
+            "android-transcoding-session-device-failure.png",
+          ),
+        })
         .catch(() => undefined);
 
       throw error;

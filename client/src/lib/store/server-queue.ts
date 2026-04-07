@@ -360,6 +360,43 @@ export const fetchQueueAtom = atom(null, async (get, set) => {
 });
 
 /**
+ * Fetch queue and force the current track to materialize in a paused state.
+ * Used when a follower becomes locally controllable/owner without an explicit
+ * resume request, so local play can continue from the authoritative position.
+ */
+export const fetchQueueAndRestoreAtom = atom(null, async (get, set) => {
+  const client = getClient();
+  if (!client) return;
+
+  const sessionId = get(effectiveSessionIdAtom) ?? undefined;
+  if (!sessionId) return;
+
+  try {
+    const response = await client.getQueueCurrentWindow(20, "small", sessionId);
+
+    if (response.totalCount === 0) {
+      set(serverQueueStateAtom, null);
+      set(queueWindowAtom, null);
+    } else {
+      set(serverQueueStateAtom, {
+        totalCount: response.totalCount,
+        currentIndex: response.currentIndex,
+        positionMs: Number(response.positionMs),
+        isShuffled: response.isShuffled,
+        repeatMode: response.repeatMode as RepeatMode,
+        source: response.source,
+      });
+      set(queueWindowAtom, response.window);
+      pendingPlaybackPositionMs.value = Number(response.positionMs);
+      set(isRestoringQueueAtom, true);
+      set(trackChangeSignalAtom, get(trackChangeSignalAtom) + 1);
+    }
+  } catch (error) {
+    console.error("Failed to fetch queue for paused restore:", error);
+  }
+});
+
+/**
  * Silently refresh queue state without affecting playback.
  * Used when the queue metadata changes (shuffle/repeat/add/remove/move)
  * but the currently playing track should continue uninterrupted.

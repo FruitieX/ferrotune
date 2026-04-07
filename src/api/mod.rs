@@ -77,6 +77,8 @@ pub enum SessionEvent {
     OwnerChanged {
         owner_client_id: Option<String>,
         owner_client_name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        resume_playback: Option<bool>,
     },
 }
 

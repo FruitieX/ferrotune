@@ -109,6 +109,9 @@ export function AccountMenuItems({
     if (!client || !currentSessionId) return;
 
     const transferringToSelf = targetClientId === myClientId;
+    const shouldResumePlayback =
+      !!localCurrentSong &&
+      (localPlaybackState === "playing" || localPlaybackState === "loading");
 
     // Calculate current position to send with takeover so the new owner
     // picks up from the right spot (avoids stale DB position from heartbeat lag).
@@ -126,6 +129,7 @@ export function AccountMenuItems({
         undefined,
         targetClientName,
         targetClientId,
+        shouldResumePlayback,
       );
 
       if (transferringToSelf) {

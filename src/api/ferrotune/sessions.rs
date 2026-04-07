@@ -95,6 +95,7 @@ pub struct SessionCommandRequest {
     pub is_muted: Option<bool>,
     pub client_name: Option<String>,
     pub client_id: Option<String>,
+    pub resume_playback: Option<bool>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -389,6 +390,7 @@ pub async fn session_events(
     let owner_event = SessionEvent::OwnerChanged {
         owner_client_id: session.owner_client_id,
         owner_client_name: Some(session.owner_client_name),
+        resume_playback: None,
     };
 
     // This guard is held by the stream; when axum drops the stream on client
@@ -492,6 +494,7 @@ pub async fn session_command(
                     SessionEvent::OwnerChanged {
                         owner_client_id: Some(cid.clone()),
                         owner_client_name: Some(new_client_name.to_string()),
+                        resume_playback: request.resume_playback.filter(|resume| *resume),
                     },
                 )
                 .await;

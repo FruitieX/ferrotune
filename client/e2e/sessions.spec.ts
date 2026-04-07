@@ -76,6 +76,56 @@ async function getDisplayedCurrentTime(page: Page): Promise<number> {
   return 0;
 }
 
+async function sendTakeoverCommand(
+  page: Page,
+  options?: { resumePlayback?: boolean },
+): Promise<void> {
+  await page.evaluate(async ({ resumePlayback }) => {
+    const connection = JSON.parse(
+      localStorage.getItem("ferrotune-connection") || "null",
+    );
+    const sessionId = JSON.parse(
+      sessionStorage.getItem("ferrotune-session-id") || "null",
+    );
+    const clientId = JSON.parse(
+      sessionStorage.getItem("ferrotune-client-id") || "null",
+    );
+
+    if (
+      !connection?.serverUrl ||
+      !connection.username ||
+      !connection.password
+    ) {
+      throw new Error("Missing authenticated connection in localStorage");
+    }
+
+    if (!sessionId || !clientId) {
+      throw new Error("Missing session or client id in sessionStorage");
+    }
+
+    const response = await fetch(
+      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/sessions/${encodeURIComponent(sessionId)}/command`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+        },
+        body: JSON.stringify({
+          action: "takeOver",
+          clientId,
+          clientName: "ferrotune-web",
+          ...(resumePlayback !== undefined ? { resumePlayback } : {}),
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`Takeover command failed: ${response.status}`);
+    }
+  }, options ?? {});
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -205,6 +255,96 @@ test.describe.serial("Multi-Session Playback", () => {
       await expect(
         ownerBar.getByRole("button", { name: "Play" }).first(),
       ).toBeVisible({ timeout: 10000 });
+    } finally {
+      await followerCtx.close();
+    }
+  });
+
+  test("takeover without explicit resume signal stays paused", async ({
+    authenticatedPage: ownerPage,
+    server,
+    browser,
+  }) => {
+    await playFirstSong(ownerPage);
+    await waitForPlayerReady(ownerPage);
+
+    const ownerBar = ownerPage.getByTestId("player-bar");
+    const baseURL =
+      ownerPage.url().split("/")[0] + "//" + ownerPage.url().split("/")[2];
+    const { context: followerCtx, page: followerPage } = await createSecondTab(
+      browser,
+      server,
+      baseURL,
+    );
+
+    try {
+      const followerBar = followerPage.getByTestId("player-bar");
+      await expect(followerBar).toContainText(/Song/, { timeout: 15000 });
+
+      const followerPauseBtn = followerBar
+        .getByRole("button", { name: "Pause" })
+        .first();
+      await expect(followerPauseBtn).toBeVisible({ timeout: 10000 });
+
+      // Give the follower tab a user gesture so a later unexpected play()
+      // call is not hidden by autoplay policy.
+      await followerBar.click({ position: { x: 10, y: 10 } });
+
+      let blockedPauseHeartbeat = false;
+      await ownerPage.route(
+        "**/ferrotune/sessions/**/heartbeat*",
+        async (route) => {
+          const request = route.request();
+          let payload: unknown;
+
+          try {
+            payload = request.postDataJSON();
+          } catch {
+            payload = null;
+          }
+
+          if (
+            !blockedPauseHeartbeat &&
+            request.method() === "POST" &&
+            payload &&
+            typeof payload === "object" &&
+            "isPlaying" in payload &&
+            (payload as { isPlaying?: boolean }).isPlaying === false
+          ) {
+            blockedPauseHeartbeat = true;
+            await route.abort();
+            return;
+          }
+
+          await route.continue();
+        },
+      );
+
+      await ownerBar.getByRole("button", { name: "Pause" }).first().click();
+      await expect.poll(() => blockedPauseHeartbeat).toBe(true);
+      await expect(
+        ownerBar.getByRole("button", { name: "Play" }).first(),
+      ).toBeVisible({ timeout: 10000 });
+
+      // The follower never received the pause heartbeat, so it still thinks
+      // the remote owner is playing.
+      await expect(followerPauseBtn).toBeVisible({ timeout: 5000 });
+
+      // Simulate an ownership change with no explicit resume request.
+      await sendTakeoverCommand(followerPage);
+
+      await expect(
+        followerBar.getByRole("button", { name: "Play" }).first(),
+      ).toBeVisible({ timeout: 10000 });
+      await expect
+        .poll(async () => {
+          return await followerPage.evaluate(() =>
+            Array.from(document.querySelectorAll("audio")).every(
+              (audio) => audio.paused,
+            ),
+          );
+        })
+        .toBe(true);
     } finally {
       await followerCtx.close();
     }

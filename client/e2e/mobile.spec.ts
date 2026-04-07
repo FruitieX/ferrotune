@@ -17,6 +17,69 @@ import {
   waitForPlayerReady,
   playFirstSong,
 } from "./fixtures";
+import type { Page } from "@playwright/test";
+
+async function setQueuePanelPreference(page: Page, value: boolean) {
+  await page.evaluate(async (nextValue) => {
+    const connection = JSON.parse(
+      localStorage.getItem("ferrotune-connection") || "null",
+    );
+
+    if (
+      !connection?.serverUrl ||
+      !connection.username ||
+      !connection.password
+    ) {
+      throw new Error("Missing authenticated connection in localStorage");
+    }
+
+    const response = await fetch(
+      `${connection.serverUrl.replace(/\/$/, "")}/ferrotune/preferences/queue-panel-open`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}`,
+        },
+        body: JSON.stringify({ value: nextValue }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update queue panel preference: ${response.status}`,
+      );
+    }
+  }, value);
+}
+
+async function addSecondarySavedAccount(page: Page) {
+  await page.evaluate(() => {
+    const connection = JSON.parse(
+      localStorage.getItem("ferrotune-connection") || "null",
+    );
+
+    if (!connection) {
+      throw new Error("Missing active connection in localStorage");
+    }
+
+    localStorage.setItem(
+      "ferrotune-saved-accounts",
+      JSON.stringify([
+        connection,
+        {
+          ...connection,
+          serverUrl: `${connection.serverUrl}/`,
+          label: "Secondary account",
+        },
+      ]),
+    );
+  });
+}
+
+async function openMobileAccountMenu(page: Page) {
+  await page.locator("header").first().getByRole("button").first().click();
+}
 
 test.describe("Mobile Tests", () => {
   test("can login with valid credentials", async ({ page, server }) => {
@@ -124,6 +187,34 @@ test.describe("Mobile Tests", () => {
     // Close the queue to avoid polluting subsequent tests via server preferences
     await page.keyboard.press("Escape");
     await expect(queueSheet).not.toBeVisible();
+  });
+
+  test("account switch keeps queue sheet hidden on mobile mount", async ({
+    authenticatedPage: page,
+  }) => {
+    await addSecondarySavedAccount(page);
+    await setQueuePanelPreference(page, true);
+    await page.reload();
+
+    await openMobileAccountMenu(page);
+    await page.getByText("Secondary account", { exact: true }).click();
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const connection = JSON.parse(
+            localStorage.getItem("ferrotune-connection") || "null",
+          );
+          return connection?.serverUrl || "";
+        }),
+      )
+      .toMatch(/\/$/);
+
+    await expect(page.getByRole("dialog", { name: /queue/i })).not.toBeVisible({
+      timeout: 10000,
+    });
+
+    await setQueuePanelPreference(page, false);
   });
 
   test("search page is accessible", async ({ authenticatedPage: page }) => {

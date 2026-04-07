@@ -1964,6 +1964,7 @@ export class FerrotuneClient {
     isMuted?: boolean,
     clientName?: string,
     clientId?: string,
+    resumePlayback?: boolean,
   ): Promise<SessionSuccessResponse> {
     return this.request(
       `/ferrotune/sessions/${encodeURIComponent(sessionId)}/command`,
@@ -1976,6 +1977,7 @@ export class FerrotuneClient {
           isMuted,
           clientName,
           clientId,
+          resumePlayback,
         }),
       },
       true, // Silent — session errors are recovered automatically

@@ -36,6 +36,7 @@ import {
   fullscreenPlayerOpenAtom,
   preferencesLoadedAtom,
 } from "@/lib/store/ui";
+import { accountKey, serverConnectionAtom } from "@/lib/store/auth";
 import {
   serverQueueStateAtom,
   isQueueLoadingAtom,
@@ -158,17 +159,41 @@ function QueueSourceDisplay({ onNavigate }: { onNavigate?: () => void }) {
 export function MobileQueueSheet() {
   const [isOpen, setIsOpen] = useAtom(queuePanelOpenAtom);
   const [isFullscreen, setIsFullscreen] = useAtom(fullscreenPlayerOpenAtom);
+  const connection = useAtomValue(serverConnectionAtom);
   const queueState = useAtomValue(serverQueueStateAtom);
   const isQueueLoading = useAtomValue(isQueueLoadingAtom);
   const clearQueue = useSetAtom(clearQueueAtom);
   const queueDisplayRef = useRef<VirtualizedQueueDisplayHandle>(null);
   const prefsLoaded = useAtomValue(preferencesLoadedAtom);
+  const currentAccountKey = connection ? accountKey(connection) : null;
 
-  // On mobile, close the queue if it was persisted as open by server preferences.
-  // We detect the hydration event by watching preferencesLoadedAtom transition
-  // from false to true (which happens in the same React batch as the cacheVersion
-  // bump that exposes server-stored values). After hydration is handled, user
-  // actions are not interfered with.
+  // On mobile, the queue sheet should never auto-open from persisted state.
+  // Close it before paint on the first mount and whenever the active account changes.
+  const prevAccountKeyRef = useRef<string | null | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (typeof window === "undefined" || window.innerWidth >= 1280) {
+      prevAccountKeyRef.current = currentAccountKey;
+      return;
+    }
+
+    if (prevAccountKeyRef.current === undefined) {
+      prevAccountKeyRef.current = currentAccountKey;
+      if (isOpen) {
+        setIsOpen(false);
+      }
+      return;
+    }
+
+    if (prevAccountKeyRef.current !== currentAccountKey) {
+      prevAccountKeyRef.current = currentAccountKey;
+      if (isOpen) {
+        setIsOpen(false);
+      }
+    }
+  }, [currentAccountKey, isOpen, setIsOpen]);
+
+  // Also close after server preference hydration in case a stored open state
+  // slips through before the mobile mount guard above runs.
   const prevPrefsLoadedRef = useRef(prefsLoaded);
   useLayoutEffect(() => {
     if (

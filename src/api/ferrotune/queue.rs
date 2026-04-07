@@ -801,6 +801,7 @@ pub async fn start_queue(
                     SessionEvent::OwnerChanged {
                         owner_client_id: Some(client_id.clone()),
                         owner_client_name: Some(client_name),
+                        resume_playback: None,
                     },
                 )
                 .await;

@@ -328,6 +328,7 @@ async fn run_server(pool: sqlx::SqlitePool, config: config::Config) -> Result<()
                                     api::SessionEvent::OwnerChanged {
                                         owner_client_id: None,
                                         owner_client_name: None,
+                                        resume_playback: None,
                                     },
                                 )
                                 .await;

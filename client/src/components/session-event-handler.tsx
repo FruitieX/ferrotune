@@ -18,6 +18,7 @@ import {
   selfTakeoverPending,
 } from "@/lib/store/session";
 import {
+  fetchQueueAndRestoreAtom,
   fetchQueueAndPlayAtom,
   fetchQueueSilentAtom,
   currentSongAtom,
@@ -45,6 +46,7 @@ export function SessionEventHandler() {
   const currentSong = useAtomValue(currentSongAtom);
   const clientId = useAtomValue(clientIdAtom);
   const { play, pause, next, previous, seek } = useAudioEngine();
+  const fetchQueueAndRestore = useSetAtom(fetchQueueAndRestoreAtom);
   const fetchQueueAndPlay = useSetAtom(fetchQueueAndPlayAtom);
   const fetchQueueSilent = useSetAtom(fetchQueueSilentAtom);
   const setRemotePlaybackState = useSetAtom(remotePlaybackStateAtom);
@@ -210,31 +212,30 @@ export function SessionEventHandler() {
             // Don't clear selfTakeoverPending here — the PlaybackCommand
             // {takeOver} handler needs to read it to prevent the echo
             // (OwnerChanged is broadcast BEFORE PlaybackCommand by the server).
-
-            // Read remotePlaybackState to know if we should auto-play.
-            // This handles transferToClient where the previous owner was
-            // playing — we seamlessly pick up playback. For playAtIndex
-            // self-takeovers (claiming ownership after inactivity),
-            // wasPlaying is false since nothing was playing, and playback
-            // is already initiated by the caller — no fetchQueueAndPlay needed.
-            const wasPlaying = remotePlaybackState?.isPlaying ?? false;
             setIsAudioOwner(true);
             setRemotePlaybackState(null);
 
-            // Start playback seamlessly if the previous owner was playing
-            if (wasPlaying) {
+            // Only explicit takeover requests are allowed to auto-resume.
+            if (event.resumePlayback === true) {
               fetchQueueAndPlay();
+            } else {
+              fetchQueueAndRestore();
             }
           } else if (isAudioOwner) {
             // We were the owner but someone else took over
             pause();
             setIsAudioOwner(false);
           }
-        } else if (isAudioOwner) {
-          // Ownership cleared by the server (inactivity timeout) — we are
-          // no longer the owner, but there is also no remote owner to follow.
-          // Leave the tab in locally controllable mode instead of follower mode.
-          setIsAudioOwner(false);
+        } else {
+          // Ownership cleared by the server (inactivity timeout) — there is
+          // no remote owner to follow anymore, so restore the queue locally in
+          // a paused state without implicitly starting playback.
+          if (isAudioOwner) {
+            pause();
+            setIsAudioOwner(false);
+          }
+          setRemotePlaybackState(null);
+          fetchQueueAndRestore();
         }
         break;
       }

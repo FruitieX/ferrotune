@@ -17,11 +17,12 @@ import androidx.media3.common.AdPlaybackState
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingSimpleBasePlayer
-import androidx.media3.common.SimpleBasePlayer.PeriodData
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.SimpleBasePlayer.MediaItemData
+import androidx.media3.common.SimpleBasePlayer.PeriodData
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -64,6 +65,9 @@ class PlaybackService : MediaSessionService() {
         private const val TAG = "PlaybackService"
         private const val PROGRESS_UPDATE_INTERVAL_MS = 1000L
         private const val ACTION_TOGGLE_STAR = "com.ferrotune.TOGGLE_STAR"
+        // Keep a wider native window loaded so external controllers like Wear OS
+        // can show more than one upcoming item from the active queue.
+        private const val QUEUE_WINDOW_RADIUS = 50
         // Fetch more songs when this many or fewer remain ahead in ExoPlayer queue
         private const val PREFETCH_THRESHOLD = 5
         // Sync position to server every N milliseconds
@@ -86,6 +90,7 @@ class PlaybackService : MediaSessionService() {
     private lateinit var mediaSession: MediaSession
     private var sessionPlayer: ForwardingSimpleBasePlayer? = null
     private var invalidateSessionPlayerState: (() -> Unit)? = null
+    private var lastSessionExportLog: String? = null
     private val handler = Handler(Looper.getMainLooper())
     // Background executor for API calls (no main thread blocking)
     private val apiExecutor = Executors.newSingleThreadExecutor()
@@ -352,33 +357,26 @@ class PlaybackService : MediaSessionService() {
                 // which prevents the notification seekbar from being interactive.
                 if (track != null && track.durationMs > 0 && state.playlist.isNotEmpty()) {
                     val currentIdx = state.currentMediaItemIndex
-                    val durationUs = track.durationMs * 1000L
-                    val fixedPlaylist = state.playlist.mapIndexed { idx, item ->
-                        if (idx == currentIdx) {
-                            item.buildUpon()
-                                .setDurationUs(durationUs)
-                                // Mark as seekable so the notification shows a
-                                // determinate progress bar even for transcoded
-                                // streams (we handle seeking via stream reload).
-                                .setIsSeekable(true)
-                                // Mark as non-placeholder so the notification
-                                // doesn't show an indeterminate progress bar
-                                // (ExoPlayer can't determine duration from chunked
-                                // transcoded streams without Content-Length).
-                                .setIsPlaceholder(false)
-                                .setPeriods(listOf(
-                                    PeriodData.Builder(item.uid)
-                                        .setDurationUs(durationUs)
-                                        .setIsPlaceholder(false)
-                                        .setAdPlaybackState(AdPlaybackState.NONE)
-                                        .build()
-                                ))
-                                .build()
-                        } else {
-                            item
+                    if (currentIdx in state.playlist.indices) {
+                        val fixedCurrentItem = createSessionMediaItemData(
+                            state.playlist[currentIdx],
+                            track,
+                        )
+                        val fixedPlaylist = state.playlist.mapIndexed { idx, item ->
+                            if (idx == currentIdx) fixedCurrentItem else item
+                        }
+                        builder.setPlaylist(fixedPlaylist)
+
+                        val sessionExportLog =
+                            "session export: current=$currentIdx durationMs=${track.durationMs} " +
+                                "playlistSize=${fixedPlaylist.size} seekable=${fixedCurrentItem.isSeekable} " +
+                                "placeholder=${fixedCurrentItem.isPlaceholder} " +
+                                "transcoding=${this@PlaybackService.playbackSettings.transcodingEnabled}"
+                        if (sessionExportLog != this@PlaybackService.lastSessionExportLog) {
+                            Log.d(TAG, sessionExportLog)
+                            this@PlaybackService.lastSessionExportLog = sessionExportLog
                         }
                     }
-                    builder.setPlaylist(fixedPlaylist)
                 }
                 return builder.build()
             }
@@ -529,7 +527,7 @@ class PlaybackService : MediaSessionService() {
             handler.removeCallbacks(inactivityTimeoutRunnable)
             apiExecutor.execute {
                 try {
-                    val response = apiClient.getQueueWindow(20)
+                    val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                     handler.post {
                         if (response.totalCount == 0 || response.window.songs.isEmpty()) {
                             Log.w(TAG, "play(): server queue is empty, nothing to play")
@@ -597,20 +595,7 @@ class PlaybackService : MediaSessionService() {
             val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
             seekTimeOffsetMs = positionMs
 
-            val metadataBuilder = MediaMetadata.Builder()
-                .setTitle(track.title)
-                .setArtist(track.artist)
-                .setAlbumTitle(track.album)
-                .setDurationMs(track.durationMs)
-            if (track.coverArtUrl != null) {
-                metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
-            }
-
-            val newMediaItem = MediaItem.Builder()
-                .setMediaId(track.id)
-                .setUri(Uri.parse(newUrl))
-                .setMediaMetadata(metadataBuilder.build())
-                .build()
+            val newMediaItem = createMediaItem(track, newUrl)
 
             val currentIndex = player.currentMediaItemIndex
             val wasPlaying = player.playWhenReady
@@ -694,7 +679,7 @@ class PlaybackService : MediaSessionService() {
                 Log.d(TAG, "SSE QueueChanged: refetching queue")
                 apiExecutor.execute {
                     try {
-                        val response = apiClient.getQueueWindow(20)
+                        val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                         handler.post {
                             // Update source info from the new queue
                             response.sourceType?.let { queueSourceType = it }
@@ -721,7 +706,7 @@ class PlaybackService : MediaSessionService() {
                 val versionAtStart = invalidateVersion
                 apiExecutor.execute {
                     try {
-                        val response = apiClient.getQueueWindow(20)
+                        val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                         handler.post {
                             serverQueueIndex = response.currentIndex
 
@@ -830,7 +815,7 @@ class PlaybackService : MediaSessionService() {
         // Fetch initial window and start playback
         apiExecutor.execute {
             try {
-                val response = apiClient.getQueueWindow(20)
+                val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                 handler.post {
                     // Preserve playWhenReady if already true (e.g. invalidateQueue
                     // started playback before this handler.post ran)
@@ -922,20 +907,7 @@ class PlaybackService : MediaSessionService() {
             val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
             seekTimeOffsetMs = startPositionMs
 
-            val metadataBuilder = MediaMetadata.Builder()
-                .setTitle(track.title)
-                .setArtist(track.artist)
-                .setAlbumTitle(track.album)
-                .setDurationMs(track.durationMs)
-            if (track.coverArtUrl != null) {
-                metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
-            }
-
-            val newMediaItem = MediaItem.Builder()
-                .setMediaId(track.id)
-                .setUri(Uri.parse(newUrl))
-                .setMediaMetadata(metadataBuilder.build())
-                .build()
+            val newMediaItem = createMediaItem(track, newUrl)
 
             mediaItems[exoStartIndex] = newMediaItem
 
@@ -988,7 +960,7 @@ class PlaybackService : MediaSessionService() {
 
         apiExecutor.execute {
             try {
-                val response = apiClient.getQueueWindow(20)
+                val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                 handler.post { handlePrefetchResponse(response) }
             } catch (e: Exception) {
                 Log.e(TAG, "Prefetch failed", e)
@@ -1061,7 +1033,7 @@ class PlaybackService : MediaSessionService() {
                 apiExecutor.execute {
                     try {
                         apiClient.updatePosition(0, 0, reshuffle = isShuffled)
-                        val response = apiClient.getQueueWindow(20)
+                        val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                         handler.post {
                             handleQueueWindowResponse(response, 0, 0, true)
                         }
@@ -1102,7 +1074,7 @@ class PlaybackService : MediaSessionService() {
             apiExecutor.execute {
                 try {
                     apiClient.updatePosition(nextIndex, 0)
-                    val response = apiClient.getQueueWindow(20)
+                    val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                     handler.post {
                         handleQueueWindowResponse(response, nextIndex, 0, true)
                     }
@@ -1137,7 +1109,7 @@ class PlaybackService : MediaSessionService() {
                 apiExecutor.execute {
                     try {
                         apiClient.updatePosition(serverTotalCount - 1, 0)
-                        val response = apiClient.getQueueWindow(20)
+                        val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                         handler.post {
                             handleQueueWindowResponse(response, serverTotalCount - 1, 0, true)
                         }
@@ -1163,7 +1135,7 @@ class PlaybackService : MediaSessionService() {
             apiExecutor.execute {
                 try {
                     apiClient.updatePosition(prevIndex, 0)
-                    val response = apiClient.getQueueWindow(20)
+                    val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                     handler.post {
                         handleQueueWindowResponse(response, prevIndex, 0, true)
                     }
@@ -1188,7 +1160,7 @@ class PlaybackService : MediaSessionService() {
                 val newIndex = shuffleResponse.newIndex ?: serverQueueIndex
                 // Fetch the reordered queue window
                 apiClient.updatePosition(newIndex, currentPositionMs)
-                val queueResponse = apiClient.getQueueWindow(20)
+                val queueResponse = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                 handler.post {
                     isShuffled = enabled
                     serverQueueIndex = newIndex
@@ -1350,7 +1322,7 @@ class PlaybackService : MediaSessionService() {
         Log.d(TAG, "invalidateQueue: refetching at position $serverQueueIndex (version=$invalidateVersion)")
         apiExecutor.execute {
             try {
-                val response = apiClient.getQueueWindow(20)
+                val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                 handler.post {
                     val shouldPlay = player.playWhenReady
 
@@ -1538,7 +1510,7 @@ class PlaybackService : MediaSessionService() {
             apiExecutor.execute {
                 try {
                     apiClient.updatePosition(index, 0)
-                    val response = apiClient.getQueueWindow(20)
+                    val response = apiClient.getQueueWindow(QUEUE_WINDOW_RADIUS)
                     handler.post {
                         handleQueueWindowResponse(response, response.currentIndex, 0, true)
                     }
@@ -1694,8 +1666,12 @@ class PlaybackService : MediaSessionService() {
         )
     }
 
-    private fun createMediaItem(track: TrackInfo): MediaItem {
-        val metadataBuilder = MediaMetadata.Builder()
+    private fun createTrackMetadata(
+        track: TrackInfo,
+        baseMetadata: MediaMetadata? = null,
+    ): MediaMetadata {
+        val metadataBuilder = baseMetadata?.buildUpon() ?: MediaMetadata.Builder()
+        metadataBuilder
             .setTitle(track.title)
             .setArtist(track.artist)
             .setAlbumTitle(track.album)
@@ -1709,10 +1685,43 @@ class PlaybackService : MediaSessionService() {
             metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
         }
 
+        return metadataBuilder.build()
+    }
+
+    private fun createSessionMediaItemData(
+        item: MediaItemData,
+        track: TrackInfo,
+    ): MediaItemData {
+        val durationUs = track.durationMs * 1000L
+        val periodUid = item.periods.firstOrNull()?.uid ?: item.uid
+
+        return item.buildUpon()
+            .setMediaMetadata(
+                createTrackMetadata(
+                    track,
+                    item.mediaMetadata ?: item.mediaItem.mediaMetadata,
+                )
+            )
+            .setDurationUs(durationUs)
+            .setIsSeekable(true)
+            .setIsPlaceholder(false)
+            .setPeriods(
+                listOf(
+                    PeriodData.Builder(periodUid)
+                        .setDurationUs(durationUs)
+                        .setIsPlaceholder(false)
+                        .setAdPlaybackState(AdPlaybackState.NONE)
+                        .build()
+                )
+            )
+            .build()
+    }
+
+    private fun createMediaItem(track: TrackInfo, streamUrl: String = track.url): MediaItem {
         return MediaItem.Builder()
             .setMediaId(track.id)
-            .setUri(Uri.parse(track.url))
-            .setMediaMetadata(metadataBuilder.build())
+            .setUri(Uri.parse(streamUrl))
+            .setMediaMetadata(createTrackMetadata(track))
             .build()
     }
 

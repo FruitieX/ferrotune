@@ -26,6 +26,7 @@ export interface SessionEvent {
   isMuted?: boolean;
   ownerClientId?: string;
   ownerClientName?: string;
+  resumePlayback?: boolean;
 }
 
 /**
