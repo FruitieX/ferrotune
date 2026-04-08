@@ -2,6 +2,7 @@
 //!
 //! Provides endpoints for scrobbling and importing play counts.
 
+use crate::api::common::scrobbling::insert_submission_scrobble_if_not_recent_duplicate;
 use crate::api::subsonic::auth::FerrotuneAuthenticatedUser;
 use crate::api::AppState;
 use crate::db::retry::with_retry;
@@ -57,29 +58,17 @@ pub async fn scrobble(
 
     // If submission, record it
     if params.submission {
-        // Deduplicate: skip if same user+song was scrobbled within last 30 seconds
-        let duplicate: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM scrobbles WHERE user_id = ? AND song_id = ? AND played_at > ? AND submission = 1)",
+        if insert_submission_scrobble_if_not_recent_duplicate(
+            &state.pool,
+            user.user_id,
+            &params.id,
+            played_at,
+            params.queue_source_type.as_deref(),
+            params.queue_source_id.as_deref(),
         )
-        .bind(user.user_id)
-        .bind(&params.id)
-        .bind(played_at - chrono::Duration::seconds(30))
-        .fetch_one(&state.pool)
-        .await?;
-
-        if !duplicate {
+        .await?
+        {
             // Record scrobble
-            sqlx::query(
-                "INSERT INTO scrobbles (user_id, song_id, played_at, submission, queue_source_type, queue_source_id) VALUES (?, ?, ?, 1, ?, ?)",
-            )
-            .bind(user.user_id)
-            .bind(&params.id)
-            .bind(played_at)
-            .bind(&params.queue_source_type)
-            .bind(&params.queue_source_id)
-            .execute(&state.pool)
-            .await?;
-
             // Forward to Last.fm in background (non-blocking)
             {
                 let pool = state.pool.clone();

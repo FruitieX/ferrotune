@@ -2,14 +2,69 @@
  * Authentication tests - Core login/logout functionality
  */
 
+import type { Page } from "@playwright/test";
 import { test, expect, login } from "./fixtures";
+
+async function persistedQueryBlobIncludes(
+  page: Page,
+  expectedText: string,
+): Promise<boolean> {
+  return page.evaluate(async (text) => {
+    return await new Promise<boolean>((resolve) => {
+      const openRequest = indexedDB.open("ferrotune-cache");
+
+      openRequest.onerror = () => resolve(false);
+      openRequest.onsuccess = () => {
+        const db = openRequest.result;
+        const transaction = db.transaction("cache-store", "readonly");
+        const store = transaction.objectStore("cache-store");
+        const getRequest = store.getAll();
+
+        getRequest.onerror = () => {
+          db.close();
+          resolve(false);
+        };
+        getRequest.onsuccess = () => {
+          db.close();
+          resolve(
+            getRequest.result.some(
+              (value) => typeof value === "string" && value.includes(text),
+            ),
+          );
+        };
+      };
+    });
+  }, expectedText);
+}
 
 test.describe("Authentication", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/login");
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
       localStorage.clear();
       sessionStorage.clear();
+
+      if (!indexedDB.databases) {
+        return;
+      }
+
+      const databases = await indexedDB.databases();
+      await Promise.all(
+        databases.map(
+          ({ name }) =>
+            new Promise<void>((resolve) => {
+              if (!name) {
+                resolve();
+                return;
+              }
+
+              const deleteRequest = indexedDB.deleteDatabase(name);
+              deleteRequest.onerror = () => resolve();
+              deleteRequest.onsuccess = () => resolve();
+              deleteRequest.onblocked = () => resolve();
+            }),
+        ),
+      );
     });
     await page.reload();
   });
@@ -65,6 +120,73 @@ test.describe("Authentication", () => {
     await expect(
       page.getByText(/recently added|random|welcome/i),
     ).toBeVisible();
+  });
+
+  test("discover keeps the cached cards visible during background refresh", async ({
+    page,
+    server,
+  }) => {
+    const cachedDiscoverTitle = `Discover Cached ${Date.now()}`;
+    const freshDiscoverTitle = `Discover Fresh ${Date.now()}`;
+    let homeVariant: "cached" | "fresh" = "cached";
+
+    await page.route("**/ferrotune/home*", async (route) => {
+      const response = await route.fetch();
+      const homeResponse: {
+        discover: { album: Array<{ name: string }> };
+      } = await response.json();
+
+      if (homeResponse.discover.album[0]) {
+        homeResponse.discover.album[0].name =
+          homeVariant === "cached" ? cachedDiscoverTitle : freshDiscoverTitle;
+      }
+
+      await route.fulfill({ response, json: homeResponse });
+    });
+
+    await login(page, {
+      serverUrl: server.url,
+      username: server.username,
+      password: server.password,
+    });
+
+    await expect(page.getByText(cachedDiscoverTitle).first()).toBeVisible({
+      timeout: 15000,
+    });
+
+    await expect
+      .poll(async () => persistedQueryBlobIncludes(page, cachedDiscoverTitle), {
+        timeout: 30000,
+      })
+      .toBe(true);
+
+    homeVariant = "fresh";
+    const refreshedHomeResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.status() === 200 &&
+        response.url().includes("/ferrotune/home"),
+    );
+
+    await page.reload();
+    await refreshedHomeResponse;
+
+    await expect(page.getByText(cachedDiscoverTitle).first()).toBeVisible({
+      timeout: 15000,
+    });
+    await expect
+      .poll(async () => page.getByText(freshDiscoverTitle).count())
+      .toBe(0);
+
+    await page.getByRole("link", { name: /^library$/i }).click();
+    await expect(page).toHaveURL(/\/library/);
+
+    await page.getByRole("link", { name: /^home$/i }).click();
+    await expect(page).toHaveURL("/");
+
+    await expect(page.getByText(freshDiscoverTitle).first()).toBeVisible({
+      timeout: 15000,
+    });
   });
 
   test("switching accounts refetches sidebar data", async ({

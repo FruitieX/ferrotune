@@ -96,6 +96,7 @@ function SmartPlaylistPageContent() {
     totalCount,
     isLoading,
     ensureRange,
+    refresh: refreshSmartPlaylistData,
     metadata,
   } = useSparsePagination<Song, { totalDuration: number }>({
     // Include filter and sort in query key for proper refetching
@@ -534,6 +535,7 @@ function SmartPlaylistPageContent() {
               });
             }
           }}
+          onPlaylistUpdated={refreshSmartPlaylistData}
           editPlaylist={smartPlaylist}
         />
       )}

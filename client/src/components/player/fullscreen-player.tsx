@@ -454,8 +454,8 @@ export function FullscreenPlayer() {
     window.history.pushState({ fullscreenPlayer: true }, "");
     fsPushedHistoryRef.current = true;
 
-    const handlePopState = (_event: PopStateEvent) => {
-      if (isHistoryCleanup()) return;
+    const handlePopState = (event: PopStateEvent) => {
+      if (isHistoryCleanup(event)) return;
 
       // Check if there are any higher priority overlays open
       const higherPriorityOverlay = document.querySelector(

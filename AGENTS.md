@@ -215,6 +215,7 @@ pub async fn endpoint(user: AuthenticatedUser, ...) -> Result<FormatResponse<Res
 | `utils.rs` | Common formatting utilities | `format_datetime_iso()`, `format_datetime_iso_ms()`, `get_content_type_for_format()`, `parse_inline_images()` |
 | `starring.rs` | Star/favorite and rating operations | `star_items()`, `unstar_items()`, `set_item_rating()`, `fetch_starred_content()`, `get_starred_map()`, `get_ratings_map()` |
 | `history.rs` | Play history operations | `fetch_play_history()` |
+| `scrobbling.rs` | Shared scrobble dedupe/insert utilities | `insert_submission_scrobble_if_not_recent_duplicate()` |
 | `playqueue.rs` | Queue utilities | `find_current_index()` |
 | `browse.rs` | Browse operations | `get_artists_logic()`, `get_album_logic()`, `song_to_response()`, `song_to_response_with_stats()` |
 | `lists.rs` | List generation | `get_album_list_logic()`, `get_random_songs_logic()`, `get_songs_by_genre_logic()` |
@@ -286,6 +287,14 @@ const params = new URLSearchParams();
 if (options?.sort) params.set("sort", options.sort);
 // ... repeated code
 ```
+
+### Frontend Route Helpers (`client/src/lib/utils/source-links.ts`)
+
+| Helper | Purpose |
+|--------|---------|
+| `getPlaylistDetailsHref()` | Route shared playlist/smart-playlist links to the correct page variant |
+| `getSongRadioHref()` | Build the dedicated Song Radio page URL from a seed song ID |
+| `getQueueSourceHref()` | Reuse source-to-route mapping for queue banners and other source-linked UI |
 
 ### Frontend Hooks (`client/src/lib/hooks/`)
 

@@ -54,6 +54,7 @@ export type { ClientResponse } from './ClientResponse';
 export type { ConnectSessionResponse } from './ConnectSessionResponse';
 export type { ContinueListeningEntry } from './ContinueListeningEntry';
 export type { ContinueListeningPlaylist } from './ContinueListeningPlaylist';
+export type { ContinueListeningSource } from './ContinueListeningSource';
 export type { CoverArtUploadResponse } from './CoverArtUploadResponse';
 export type { CreateApiKeyRequest } from './CreateApiKeyRequest';
 export type { CreateApiKeyResponse } from './CreateApiKeyResponse';

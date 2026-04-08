@@ -6,6 +6,7 @@ import { useEffect } from "react";
 // pushState entries.  Other popstate handlers check this to avoid reacting
 // to the synthetic popstate event.
 let pendingHistoryCleanups = 0;
+let activeCleanupEventTimeStamp: number | null = null;
 
 /**
  * Call history.back() to remove a previously pushed dummy history state,
@@ -19,15 +20,31 @@ export function cleanUpHistoryState() {
 
 /**
  * Check if the current popstate event was triggered by a cleanup
- * history.back() call.  Returns true (and decrements the counter) if so —
- * the caller should ignore the event.
+ * history.back() call. Returns true for every listener observing the same
+ * cleanup event, then decrements the counter once after the event dispatch
+ * finishes so sibling popstate handlers cannot consume the marker early.
  */
-export function isHistoryCleanup(): boolean {
-  if (pendingHistoryCleanups > 0) {
-    pendingHistoryCleanups--;
+export function isHistoryCleanup(event: PopStateEvent): boolean {
+  if (pendingHistoryCleanups <= 0) {
+    return false;
+  }
+
+  if (activeCleanupEventTimeStamp === event.timeStamp) {
     return true;
   }
-  return false;
+
+  activeCleanupEventTimeStamp = event.timeStamp;
+
+  queueMicrotask(() => {
+    if (activeCleanupEventTimeStamp !== event.timeStamp) {
+      return;
+    }
+
+    activeCleanupEventTimeStamp = null;
+    pendingHistoryCleanups = Math.max(0, pendingHistoryCleanups - 1);
+  });
+
+  return true;
 }
 
 /**
@@ -99,7 +116,7 @@ export function useBackButtonClose() {
 
     const handlePopState = (event: PopStateEvent) => {
       // Ignore synthetic popstate from history cleanup in other overlays
-      if (isHistoryCleanup()) return;
+      if (isHistoryCleanup(event)) return;
 
       // Find the highest priority overlay that's open
       let targetElement: Element | null = null;

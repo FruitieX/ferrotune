@@ -190,7 +190,7 @@ function PlaylistDetailContent() {
     metadata: playlist,
     isLoading,
     ensureRange,
-    reset: resetPlaylistData,
+    refresh: refreshPlaylistData,
   } = usePlaylistSparsePagination({
     queryKey: [
       "playlistSongs",
@@ -215,6 +215,24 @@ function PlaylistDetailContent() {
     },
     enabled: isReady && !!playlistId,
   });
+
+  const syncPlaylistAfterMutation = async (includePlaylistLists = true) => {
+    refreshPlaylistData();
+
+    const invalidations = [
+      queryClient.invalidateQueries({
+        queryKey: ["playlistSongs", playlistId],
+      }),
+    ];
+
+    if (includePlaylistLists) {
+      invalidations.push(
+        queryClient.invalidateQueries({ queryKey: ["playlists"] }),
+      );
+    }
+
+    await Promise.all(invalidations);
+  };
 
   // Convert entries to display items, including the server-provided songIndex
   // Keep undefined slots for sparse pagination - VirtualizedGrid/List will render skeletons
@@ -304,12 +322,14 @@ function PlaylistDetailContent() {
     },
     onSuccess: () => {
       // Invalidate to ensure we have the correct order from server
+      refreshPlaylistData();
       queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
       });
       toast.success("Playlist order updated");
     },
     onError: () => {
+      refreshPlaylistData();
       queryClient.invalidateQueries({
         queryKey: ["playlistSongs", playlistId],
       });
@@ -328,11 +348,7 @@ function PlaylistDetailContent() {
       });
     },
     onSuccess: async () => {
-      resetPlaylistData();
-      await queryClient.invalidateQueries({
-        queryKey: ["playlistSongs", playlistId],
-      });
-      await queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      await syncPlaylistAfterMutation();
       toast.success("Songs restored to playlist");
     },
     onError: () => {
@@ -358,11 +374,7 @@ function PlaylistDetailContent() {
       return songIds; // Return for undo
     },
     onSuccess: async (songIds) => {
-      resetPlaylistData();
-      await queryClient.invalidateQueries({
-        queryKey: ["playlistSongs", playlistId],
-      });
-      await queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      await syncPlaylistAfterMutation();
       const count = songIds.length;
       toast.success(
         count === 1
@@ -426,10 +438,7 @@ function PlaylistDetailContent() {
         playlistId: playlistId!,
         songIndexToRemove: [item.position],
       });
-      resetPlaylistData();
-      await queryClient.invalidateQueries({
-        queryKey: ["playlistSongs", playlistId],
-      });
+      await syncPlaylistAfterMutation();
       toast.success("Entry removed from playlist");
     } catch {
       toast.error("Failed to remove entry from playlist");
@@ -509,11 +518,7 @@ function PlaylistDetailContent() {
 
     try {
       await client.unmatchEntry(playlistId, pendingUnmatch.entryId);
-      // Reset the sparse pagination cache to refetch data
-      resetPlaylistData();
-      await queryClient.invalidateQueries({
-        queryKey: ["playlistSongs", playlistId],
-      });
+      await syncPlaylistAfterMutation();
       toast.success("Song unmatched");
     } catch (error) {
       console.error("Failed to unmatch entry:", error);
@@ -535,10 +540,7 @@ function PlaylistDetailContent() {
 
     try {
       await client.movePlaylistEntry(playlistId!, entryId, newPosition);
-      resetPlaylistData();
-      await queryClient.invalidateQueries({
-        queryKey: ["playlistSongs", playlistId],
-      });
+      await syncPlaylistAfterMutation(false);
       toast.success("Entry moved");
     } catch (error) {
       toast.error("Failed to move entry");
@@ -1133,7 +1135,7 @@ function PlaylistDetailContent() {
                       onMoveToPosition={
                         canModify ? handleMissingMoveToPosition : undefined
                       }
-                      onMatched={canModify ? resetPlaylistData : undefined}
+                      onMatched={canModify ? refreshPlaylistData : undefined}
                     />
                   );
                 }
@@ -1224,7 +1226,7 @@ function PlaylistDetailContent() {
                         onMoveToPosition={
                           canModify ? handleMissingMoveToPosition : undefined
                         }
-                        onMatched={canModify ? resetPlaylistData : undefined}
+                        onMatched={canModify ? refreshPlaylistData : undefined}
                       />
                     );
                   }
@@ -1412,6 +1414,7 @@ function PlaylistDetailContent() {
         <EditPlaylistDialog
           open={editDialogOpen}
           onOpenChange={setEditDialogOpen}
+          onPlaylistUpdated={refreshPlaylistData}
           playlist={{
             id: playlist.id,
             name: playlist.name,
@@ -1428,7 +1431,7 @@ function PlaylistDetailContent() {
           onOpenChange={setAddSongDialogOpen}
           playlistId={playlist.id}
           playlistName={getPlaylistDisplayName(playlist.name)}
-          onAdded={resetPlaylistData}
+          onAdded={refreshPlaylistData}
         />
       )}
 
@@ -1438,7 +1441,7 @@ function PlaylistDetailContent() {
           open={massResolveDialogOpen}
           onOpenChange={setMassResolveDialogOpen}
           playlistId={playlistId!}
-          onResolved={resetPlaylistData}
+          onResolved={refreshPlaylistData}
         />
       )}
 
@@ -1463,7 +1466,7 @@ function PlaylistDetailContent() {
           entryId={refineMatchItem.entryId}
           position={refineMatchItem.position}
           missing={refineMatchItem.missing}
-          onMatched={resetPlaylistData}
+          onMatched={refreshPlaylistData}
         />
       )}
 

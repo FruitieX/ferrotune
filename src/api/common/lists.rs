@@ -2,6 +2,7 @@ use crate::api::common::browse::{get_song_play_stats, song_to_response_with_stat
 use crate::api::common::models::{AlbumResponse, SongResponse};
 use crate::api::common::starring::{get_ratings_map, get_starred_map};
 use crate::api::common::utils::format_datetime_iso_ms;
+use crate::api::ferrotune::smart_playlists::get_smart_playlist_songs_by_id;
 use crate::api::subsonic::inline_thumbnails::{
     get_album_thumbnails_base64, get_song_thumbnails_base64,
 };
@@ -727,12 +728,12 @@ pub async fn get_forgotten_favorites_logic(
 // ============================================================================
 
 /// A single entry in the "continue listening" section.
-/// Can be an album, playlist, or smart playlist.
+/// Can be an album, playlist, smart playlist, or source-specific item like song radio.
 #[derive(Debug, Serialize, Clone, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../client/src/lib/api/generated/")]
 pub struct ContinueListeningEntry {
-    /// "album" | "playlist" | "smartPlaylist"
+    /// "album" | "playlist" | "smartPlaylist" | "songRadio"
     #[serde(rename = "type")]
     pub entry_type: String,
     /// ISO 8601 timestamp of the last scrobble from this source
@@ -743,6 +744,9 @@ pub struct ContinueListeningEntry {
     /// Present when entry_type = "playlist" or "smartPlaylist"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub playlist: Option<ContinueListeningPlaylist>,
+    /// Present when entry_type = "songRadio"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<ContinueListeningSource>,
 }
 
 /// Minimal playlist info for continue listening entries.
@@ -761,17 +765,30 @@ pub struct ContinueListeningPlaylist {
     pub cover_art: Option<String>,
 }
 
+/// Minimal non-playlist source info for continue listening entries.
+#[derive(Debug, Serialize, Clone, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../client/src/lib/api/generated/")]
+pub struct ContinueListeningSource {
+    pub id: String,
+    pub name: String,
+    /// "songRadio"
+    pub source_type: String,
+    pub cover_art: Option<String>,
+}
+
 pub struct ContinueListeningResult {
     pub entries: Vec<ContinueListeningEntry>,
     pub total: i64,
 }
 
 /// Get the "continue listening" list: recent playback sources grouped by
-/// the actual source (album, playlist, smart playlist).
+/// the actual source (album, playlist, smart playlist, or supported virtual sources).
 ///
-/// Scrobbles with `queue_source_type` in ("playlist", "smartPlaylist") that
-/// have a valid `queue_source_id` are grouped by that playlist. Everything
-/// else is grouped by the song's album.
+/// Scrobbles with `queue_source_type` in ("playlist", "smartPlaylist", "songRadio")
+/// that have a valid `queue_source_id` are grouped by that source. Everything
+/// else is grouped by the song's album, except for explicitly excluded virtual
+/// sources like forgotten favorites and continue-listening self-echo.
 pub async fn get_continue_listening_logic(
     pool: &SqlitePool,
     user_id: i64,
@@ -782,19 +799,19 @@ pub async fn get_continue_listening_logic(
     let size = size.min(500);
 
     // Step 1: Get the most recent unique sources from scrobbles.
-    // Playlist/smartPlaylist sources with a source_id are grouped by playlist.
-    // Everything else is grouped by the song's album_id.
+    // Playlist, smartPlaylist, and songRadio sources with a source_id are
+    // grouped by that source. Most other sources fall back to album grouping.
     let sources: Vec<(String, String, String)> = sqlx::query_as(
         "SELECT source_type, source_id, last_played FROM (
              SELECT
                  CASE
-                     WHEN sc.queue_source_type IN ('playlist', 'smartPlaylist')
+                     WHEN sc.queue_source_type IN ('playlist', 'smartPlaylist', 'songRadio')
                           AND sc.queue_source_id IS NOT NULL
                          THEN sc.queue_source_type
                      ELSE 'album'
                  END as source_type,
                  CASE
-                     WHEN sc.queue_source_type IN ('playlist', 'smartPlaylist')
+                     WHEN sc.queue_source_type IN ('playlist', 'smartPlaylist', 'songRadio')
                           AND sc.queue_source_id IS NOT NULL
                          THEN sc.queue_source_id
                      ELSE s.album_id
@@ -804,7 +821,10 @@ pub async fn get_continue_listening_logic(
              INNER JOIN songs s ON sc.song_id = s.id
              INNER JOIN music_folders mf ON s.music_folder_id = mf.id
              INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-             WHERE sc.user_id = ? AND mf.enabled = 1 AND ula.user_id = ?
+                         WHERE sc.user_id = ?
+                             AND mf.enabled = 1
+                             AND ula.user_id = ?
+                             AND COALESCE(sc.queue_source_type, '') NOT IN ('forgottenFavorites', 'continueListening')
              GROUP BY source_type, source_id
              ORDER BY last_played DESC
          )
@@ -825,16 +845,19 @@ pub async fn get_continue_listening_logic(
              INNER JOIN songs s ON sc.song_id = s.id
              INNER JOIN music_folders mf ON s.music_folder_id = mf.id
              INNER JOIN user_library_access ula ON ula.music_folder_id = mf.id
-             WHERE sc.user_id = ? AND mf.enabled = 1 AND ula.user_id = ?
+             WHERE sc.user_id = ?
+               AND mf.enabled = 1
+               AND ula.user_id = ?
+               AND COALESCE(sc.queue_source_type, '') NOT IN ('forgottenFavorites', 'continueListening')
              GROUP BY
                  CASE
-                     WHEN sc.queue_source_type IN ('playlist', 'smartPlaylist')
+                     WHEN sc.queue_source_type IN ('playlist', 'smartPlaylist', 'songRadio')
                           AND sc.queue_source_id IS NOT NULL
                          THEN sc.queue_source_type
                      ELSE 'album'
                  END,
                  CASE
-                     WHEN sc.queue_source_type IN ('playlist', 'smartPlaylist')
+                     WHEN sc.queue_source_type IN ('playlist', 'smartPlaylist', 'songRadio')
                           AND sc.queue_source_id IS NOT NULL
                          THEN sc.queue_source_id
                      ELSE s.album_id
@@ -857,12 +880,14 @@ pub async fn get_continue_listening_logic(
     let mut album_ids: Vec<String> = Vec::new();
     let mut playlist_ids: Vec<String> = Vec::new();
     let mut smart_playlist_ids: Vec<String> = Vec::new();
+    let mut song_radio_ids: Vec<String> = Vec::new();
 
     for (source_type, source_id, _) in &sources {
         match source_type.as_str() {
             "album" => album_ids.push(source_id.clone()),
             "playlist" => playlist_ids.push(source_id.clone()),
             "smartPlaylist" => smart_playlist_ids.push(source_id.clone()),
+            "songRadio" => song_radio_ids.push(source_id.clone()),
             _ => {}
         }
     }
@@ -980,20 +1005,43 @@ pub async fn get_continue_listening_logic(
             for id in &smart_playlist_ids {
                 q = q.bind(id);
             }
-            q.fetch_all(pool)
+            let rows = q.fetch_all(pool).await?;
+            let mut map = std::collections::HashMap::with_capacity(rows.len());
+            for (id, name) in rows {
+                let songs = get_smart_playlist_songs_by_id(pool, &id, user_id, None, None).await?;
+                let duration = songs.iter().map(|song| song.duration).sum();
+                map.insert(
+                    id.clone(),
+                    ContinueListeningPlaylist {
+                        id: id.clone(),
+                        name,
+                        playlist_type: "smartPlaylist".to_string(),
+                        song_count: songs.len() as i64,
+                        duration,
+                        cover_art: Some(format!("sp-{}", id)),
+                    },
+                );
+            }
+            map
+        } else {
+            std::collections::HashMap::new()
+        };
+
+    // Step 7: Batch-fetch source-specific details for song radio entries.
+    let song_radio_map: std::collections::HashMap<String, ContinueListeningSource> =
+        if !song_radio_ids.is_empty() {
+            crate::db::queries::get_songs_by_ids_for_user(pool, &song_radio_ids, user_id)
                 .await?
                 .into_iter()
-                .map(|(id, name)| {
-                    let cover_art = Some(format!("sp-{}", id));
+                .map(|song| {
+                    let id = song.id.clone();
                     (
                         id.clone(),
-                        ContinueListeningPlaylist {
+                        ContinueListeningSource {
                             id,
-                            name,
-                            playlist_type: "smartPlaylist".to_string(),
-                            song_count: 0,
-                            duration: 0,
-                            cover_art,
+                            name: format!("{} Radio", song.title),
+                            source_type: "songRadio".to_string(),
+                            cover_art: song.album_id.clone().or_else(|| Some(song.id.clone())),
                         },
                     )
                 })
@@ -1002,7 +1050,7 @@ pub async fn get_continue_listening_logic(
             std::collections::HashMap::new()
         };
 
-    // Step 7: Assemble entries in source order (already sorted by last_played DESC)
+    // Step 8: Assemble entries in source order (already sorted by last_played DESC)
     let entries: Vec<ContinueListeningEntry> = sources
         .into_iter()
         .filter_map(
@@ -1015,6 +1063,7 @@ pub async fn get_continue_listening_logic(
                         last_played,
                         album: Some(album),
                         playlist: None,
+                        source: None,
                     })
                 }
                 "playlist" => {
@@ -1024,6 +1073,7 @@ pub async fn get_continue_listening_logic(
                         last_played,
                         album: None,
                         playlist: Some(playlist),
+                        source: None,
                     })
                 }
                 "smartPlaylist" => {
@@ -1033,6 +1083,17 @@ pub async fn get_continue_listening_logic(
                         last_played,
                         album: None,
                         playlist: Some(playlist),
+                        source: None,
+                    })
+                }
+                "songRadio" => {
+                    let source = song_radio_map.get(&source_id).cloned()?;
+                    Some(ContinueListeningEntry {
+                        entry_type: "songRadio".to_string(),
+                        last_played,
+                        album: None,
+                        playlist: None,
+                        source: Some(source),
                     })
                 }
                 _ => None,

@@ -55,6 +55,8 @@ export interface PlaylistSparsePaginationResult {
   isFetching: boolean;
   /** Request loading of items in a range (called by virtualizer) */
   ensureRange: (startIndex: number, endIndex: number) => void;
+  /** Refetch currently loaded pages while keeping rendered items visible */
+  refresh: () => void;
   /** Reset all cached data and refetch from the beginning */
   reset: () => void;
 }
@@ -78,6 +80,7 @@ export function usePlaylistSparsePagination({
     isLoading,
     isFetching,
     ensureRange,
+    refresh,
     metadata,
     reset,
   } = useSparsePagination<PlaylistSongEntry, PlaylistMetadata>({
@@ -117,6 +120,7 @@ export function usePlaylistSparsePagination({
     isLoading,
     isFetching,
     ensureRange,
+    refresh,
     reset,
   };
 }

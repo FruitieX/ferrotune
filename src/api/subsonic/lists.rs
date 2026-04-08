@@ -3,6 +3,7 @@ use crate::api::common::lists::{
     get_album_list_logic, get_random_songs_logic, get_songs_by_genre_logic,
 };
 use crate::api::common::models::{AlbumResponse, SongResponse};
+use crate::api::common::scrobbling::insert_submission_scrobble_if_not_recent_duplicate;
 use crate::api::subsonic::auth::AuthenticatedUser;
 use crate::api::subsonic::inline_thumbnails::InlineImagesParam;
 use crate::api::subsonic::response::{format_ok_empty, FormatResponse};
@@ -267,16 +268,17 @@ pub async fn scrobble(
         Utc::now()
     };
 
-    sqlx::query(
-        "INSERT INTO scrobbles (user_id, song_id, played_at, submission) 
-         VALUES (?, ?, ?, ?)",
-    )
-    .bind(user.user_id)
-    .bind(&params.id)
-    .bind(played_at)
-    .bind(submission)
-    .execute(&state.pool)
-    .await?;
+    if submission {
+        insert_submission_scrobble_if_not_recent_duplicate(
+            &state.pool,
+            user.user_id,
+            &params.id,
+            played_at,
+            None,
+            None,
+        )
+        .await?;
+    }
 
     // Forward to Last.fm in background
     {

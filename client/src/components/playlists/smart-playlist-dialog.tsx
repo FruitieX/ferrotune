@@ -54,6 +54,7 @@ const SORT_FIELDS = [
 interface SmartPlaylistDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onPlaylistUpdated?: () => void;
   /** If provided, edit this playlist instead of creating a new one */
   editPlaylist?: SmartPlaylistInfo;
   /** If provided, create the smart playlist in this folder (folder ID) */
@@ -82,6 +83,7 @@ function parseConditions(
 export function SmartPlaylistDialog({
   open,
   onOpenChange,
+  onPlaylistUpdated,
   editPlaylist,
   folderId,
 }: SmartPlaylistDialogProps) {
@@ -250,6 +252,7 @@ export function SmartPlaylistDialog({
         },
       });
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      onPlaylistUpdated?.();
       onOpenChange(false);
     },
     onError: (error) => {
@@ -273,7 +276,7 @@ export function SmartPlaylistDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-150 max-h-[90vh] overflow-y-auto">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

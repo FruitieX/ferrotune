@@ -17,7 +17,7 @@ import {
   waitForPlayerReady,
   playFirstSong,
 } from "./fixtures";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 async function setQueuePanelPreference(page: Page, value: boolean) {
   await page.evaluate(async (nextValue) => {
@@ -79,6 +79,22 @@ async function addSecondarySavedAccount(page: Page) {
 
 async function openMobileAccountMenu(page: Page) {
   await page.locator("header").first().getByRole("button").first().click();
+}
+
+async function swipeQueueSheetClosed(page: Page, queueSheet: Locator) {
+  const box = await queueSheet.boundingBox();
+  if (!box) {
+    throw new Error("Queue sheet bounding box was not available");
+  }
+
+  const startX = box.x + 32;
+  const endX = box.x + box.width + 120;
+  const y = box.y + 56;
+
+  await page.mouse.move(startX, y);
+  await page.mouse.down();
+  await page.mouse.move(endX, y, { steps: 6 });
+  await page.mouse.up();
 }
 
 test.describe("Mobile Tests", () => {
@@ -187,6 +203,56 @@ test.describe("Mobile Tests", () => {
     // Close the queue to avoid polluting subsequent tests via server preferences
     await page.keyboard.press("Escape");
     await expect(queueSheet).not.toBeVisible();
+  });
+
+  test("closing queue keeps fullscreen player open on mobile", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+
+    await playerBar.getByRole("button", { name: /first song/i }).click();
+
+    const fullscreenPlayer = page.locator('[data-fullscreen-player="true"]');
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+
+    await fullscreenPlayer.getByRole("button", { name: /^queue$/i }).click();
+
+    const queueSheet = page.getByRole("dialog", { name: /queue/i });
+    await expect(queueSheet).toBeVisible({ timeout: 10000 });
+
+    await queueSheet.getByRole("button", { name: /close queue/i }).click();
+
+    await expect(queueSheet).not.toBeVisible({ timeout: 10000 });
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+  });
+
+  test("swiping queue closed keeps fullscreen player open on mobile", async ({
+    authenticatedPage: page,
+  }) => {
+    await playFirstSong(page);
+    await waitForPlayerReady(page);
+
+    const playerBar = page.getByTestId("player-bar");
+    await expect(playerBar).toContainText("First Song", { timeout: 10000 });
+
+    await playerBar.getByRole("button", { name: /first song/i }).click();
+
+    const fullscreenPlayer = page.locator('[data-fullscreen-player="true"]');
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
+
+    await fullscreenPlayer.getByRole("button", { name: /^queue$/i }).click();
+
+    const queueSheet = page.getByRole("dialog", { name: /queue/i });
+    await expect(queueSheet).toBeVisible({ timeout: 10000 });
+
+    await swipeQueueSheetClosed(page, queueSheet);
+
+    await expect(queueSheet).not.toBeVisible({ timeout: 10000 });
+    await expect(fullscreenPlayer).toBeVisible({ timeout: 10000 });
   });
 
   test("account switch keeps queue sheet hidden on mobile mount", async ({

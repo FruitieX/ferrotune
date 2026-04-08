@@ -5,6 +5,7 @@ pub mod lists;
 pub mod models;
 pub mod playlist_access;
 pub mod playqueue;
+pub mod scrobbling;
 pub mod search;
 pub mod search_utils;
 pub mod sorting;

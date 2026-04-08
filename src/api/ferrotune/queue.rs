@@ -1737,6 +1737,25 @@ async fn get_disabled_song_ids(
     Ok(rows.into_iter().map(|(id,)| id).collect())
 }
 
+async fn materialize_song_radio_songs(
+    pool: &sqlx::SqlitePool,
+    user_id: i64,
+    song_id: &str,
+) -> FerrotuneApiResult<Vec<crate::db::models::Song>> {
+    #[cfg(feature = "bliss")]
+    {
+        let similar = crate::bliss::find_similar_songs(pool, song_id, user_id, 50).await?;
+        let mut song_ids: Vec<String> = Vec::with_capacity(similar.len() + 1);
+        song_ids.push(song_id.to_string());
+        song_ids.extend(similar.into_iter().map(|(id, _)| id));
+        Ok(queries::get_songs_by_ids_for_user(pool, &song_ids, user_id).await?)
+    }
+    #[cfg(not(feature = "bliss"))]
+    {
+        Err(Error::InvalidRequest("Song radio requires the 'bliss' feature".to_string()).into())
+    }
+}
+
 /// Materialize songs from a queue source
 async fn materialize_queue_songs(
     pool: &sqlx::SqlitePool,
@@ -1913,19 +1932,9 @@ async fn materialize_queue_songs(
             ))
         }
         QueueSourceType::SongRadio => {
-            #[cfg(feature = "bliss")]
-            {
-                let song_id = source_id.ok_or_else(|| {
-                    Error::InvalidRequest("Song ID required for radio".to_string())
-                })?;
-                let similar = crate::bliss::find_similar_songs(pool, song_id, user_id, 50).await?;
-                let mut song_ids: Vec<String> = Vec::with_capacity(similar.len() + 1);
-                song_ids.push(song_id.to_string());
-                song_ids.extend(similar.into_iter().map(|(id, _)| id));
-                Ok(queries::get_songs_by_ids_for_user(pool, &song_ids, user_id).await?)
-            }
-            #[cfg(not(feature = "bliss"))]
-            Err(Error::InvalidRequest("Song radio requires the 'bliss' feature".to_string()).into())
+            let song_id = source_id
+                .ok_or_else(|| Error::InvalidRequest("Song ID required for radio".to_string()))?;
+            materialize_song_radio_songs(pool, user_id, song_id).await
         }
         QueueSourceType::AlbumList => {
             // If albumIds are provided in filters, use those directly (backward compat)
@@ -1977,136 +1986,61 @@ async fn materialize_queue_songs(
             Ok(songs)
         }
         QueueSourceType::ContinueListening => {
-            // Materialize recently played albums and playlists merged by last played time.
-            // For each item, fetch songs in order (album track order / playlist order).
-
-            // Fetch recently played albums
-            let recent_result = crate::api::common::lists::get_album_list_logic(
-                pool,
-                user_id,
-                crate::api::common::lists::AlbumListType::Recent,
-                500,
-                0,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
+            let continue_listening = crate::api::common::lists::get_continue_listening_logic(
+                pool, user_id, 500, 0, None,
             )
             .await?;
 
-            // Fetch recently played regular playlists
-            let regular_playlists: Vec<(String, String)> = sqlx::query_as(
-                "SELECT p.id, strftime('%Y-%m-%dT%H:%M:%SZ', p.last_played_at) as last_played_at
-                 FROM playlists p
-                 WHERE (p.owner_id = ? OR EXISTS (
-                     SELECT 1 FROM playlist_shares ps_share
-                     WHERE ps_share.playlist_id = p.id AND ps_share.shared_with_user_id = ?
-                 )) AND p.last_played_at IS NOT NULL
-                 ORDER BY p.last_played_at DESC",
-            )
-            .bind(user_id)
-            .bind(user_id)
-            .fetch_all(pool)
-            .await?;
-
-            // Fetch recently played smart playlists
-            let smart_playlists: Vec<(String, String)> = sqlx::query_as(
-                "SELECT sp.id, strftime('%Y-%m-%dT%H:%M:%SZ', sp.last_played_at) as last_played_at
-                 FROM smart_playlists sp
-                 WHERE sp.owner_id = ? AND sp.last_played_at IS NOT NULL
-                 ORDER BY sp.last_played_at DESC",
-            )
-            .bind(user_id)
-            .fetch_all(pool)
-            .await?;
-
-            // Build a merged list of (last_played, source) sorted by last_played DESC
-            enum ContinueItem {
-                Album(String, String),         // (album_id, last_played)
-                Playlist(String, String),      // (playlist_id, last_played)
-                SmartPlaylist(String, String), // (smart_playlist_id, last_played)
-            }
-
-            let mut items: Vec<ContinueItem> = Vec::new();
-
-            // Add albums with their played timestamps
-            // We need album play timestamps - get them from scrobbles
-            if !recent_result.albums.is_empty() {
-                let album_ids: Vec<&str> =
-                    recent_result.albums.iter().map(|a| a.id.as_str()).collect();
-                let placeholders: Vec<&str> = album_ids.iter().map(|_| "?").collect();
-                let query = format!(
-                    "SELECT a.id, MAX(sc.played_at) as last_played
-                     FROM albums a
-                     INNER JOIN songs s ON s.album_id = a.id
-                     INNER JOIN scrobbles sc ON sc.song_id = s.id
-                     WHERE sc.user_id = ? AND a.id IN ({})
-                     GROUP BY a.id",
-                    placeholders.join(",")
-                );
-                let mut q = sqlx::query_as::<_, (String, String)>(&query);
-                q = q.bind(user_id);
-                for id in &album_ids {
-                    q = q.bind(id);
-                }
-                let played_map: std::collections::HashMap<String, String> =
-                    q.fetch_all(pool).await?.into_iter().collect();
-
-                for album in &recent_result.albums {
-                    if let Some(played) = played_map.get(&album.id) {
-                        items.push(ContinueItem::Album(album.id.clone(), played.clone()));
-                    }
-                }
-            }
-
-            for (id, last_played) in &regular_playlists {
-                items.push(ContinueItem::Playlist(id.clone(), last_played.clone()));
-            }
-
-            for (id, last_played) in &smart_playlists {
-                items.push(ContinueItem::SmartPlaylist(id.clone(), last_played.clone()));
-            }
-
-            // Sort by last_played descending
-            items.sort_by(|a, b| {
-                let ts_a = match a {
-                    ContinueItem::Album(_, ts)
-                    | ContinueItem::Playlist(_, ts)
-                    | ContinueItem::SmartPlaylist(_, ts) => ts,
-                };
-                let ts_b = match b {
-                    ContinueItem::Album(_, ts)
-                    | ContinueItem::Playlist(_, ts)
-                    | ContinueItem::SmartPlaylist(_, ts) => ts,
-                };
-                ts_b.cmp(ts_a)
-            });
-
-            // Fetch songs for each item in order, capping total at 1000
             let mut songs = Vec::new();
-            for item in &items {
+            for item in continue_listening.entries {
                 if songs.len() >= 1000 {
                     break;
                 }
-                match item {
-                    ContinueItem::Album(album_id, _) => {
-                        let album_songs =
-                            queries::get_songs_by_album_for_user(pool, album_id, user_id).await?;
-                        songs.extend(album_songs);
+                let crate::api::common::lists::ContinueListeningEntry {
+                    entry_type,
+                    album,
+                    playlist,
+                    source,
+                    ..
+                } = item;
+
+                match entry_type.as_str() {
+                    "album" => {
+                        if let Some(album) = album {
+                            let album_songs =
+                                queries::get_songs_by_album_for_user(pool, &album.id, user_id)
+                                    .await?;
+                            songs.extend(album_songs);
+                        }
                     }
-                    ContinueItem::Playlist(playlist_id, _) => {
-                        let playlist_songs =
-                            queries::get_playlist_songs(pool, playlist_id, user_id).await?;
-                        songs.extend(playlist_songs);
+                    "playlist" => {
+                        if let Some(playlist) = playlist {
+                            let playlist_songs =
+                                queries::get_playlist_songs(pool, &playlist.id, user_id).await?;
+                            songs.extend(playlist_songs);
+                        }
                     }
-                    ContinueItem::SmartPlaylist(sp_id, _) => {
-                        let sp_songs =
-                            get_smart_playlist_songs_by_id(pool, sp_id, user_id, None, None)
-                                .await?;
-                        songs.extend(sp_songs);
+                    "smartPlaylist" => {
+                        if let Some(playlist) = playlist {
+                            let smart_playlist_songs = get_smart_playlist_songs_by_id(
+                                pool,
+                                &playlist.id,
+                                user_id,
+                                None,
+                                None,
+                            )
+                            .await?;
+                            songs.extend(smart_playlist_songs);
+                        }
                     }
+                    "songRadio" => {
+                        if let Some(source) = source {
+                            let radio_songs =
+                                materialize_song_radio_songs(pool, user_id, &source.id).await?;
+                            songs.extend(radio_songs);
+                        }
+                    }
+                    _ => {}
                 }
             }
             songs.truncate(1000);

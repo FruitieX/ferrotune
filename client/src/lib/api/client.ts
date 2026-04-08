@@ -134,6 +134,7 @@ import type { FerrotuneSearchResponse } from "./generated/FerrotuneSearchRespons
 import type { FerrotunePlayHistoryResponse } from "./generated/FerrotunePlayHistoryResponse";
 import type { HomePageResponse } from "./generated/HomePageResponse";
 import type { HomeContinueListeningSection } from "./generated/HomeContinueListeningSection";
+import type { FerrotuneSimilarSongsResponse } from "./generated/FerrotuneSimilarSongsResponse";
 import { PlaylistInFolder } from "./generated";
 
 // Ping response is empty
@@ -343,6 +344,17 @@ export class FerrotuneClient {
     return this.request<SongDetailResponse>(
       `/ferrotune/songs/${encodeURIComponent(id)}`,
     );
+  }
+
+  async getSimilarSongs(
+    id: string,
+    params: { count?: number } = {},
+  ): Promise<FerrotuneSimilarSongsResponse> {
+    const endpoint = buildEndpoint(
+      `/ferrotune/songs/${encodeURIComponent(id)}/similar`,
+      params,
+    );
+    return this.request<FerrotuneSimilarSongsResponse>(endpoint);
   }
 
   async getGenres(): Promise<GenresResponse> {

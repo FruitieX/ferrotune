@@ -268,6 +268,10 @@ export function SongRow({
         startSongId: song.id,
         filters: queueSource.filters,
         sort: queueSource.sort,
+        songIds:
+          queueSource.type === "songRadio" && queueSongs
+            ? queueSongs.map((queueSong) => queueSong.id)
+            : undefined,
       });
     } else if (queueSongs) {
       // Fallback to explicit song IDs for custom lists (selections, etc.)

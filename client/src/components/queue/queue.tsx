@@ -10,6 +10,7 @@ import {
   Trash2,
   PanelRightClose,
   Disc3,
+  Radio,
   User,
   ListMusic as PlaylistIcon,
   Music2,
@@ -20,12 +21,12 @@ import {
   ListStart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getQueueSourceHref } from "@/lib/utils/source-links";
 import { queuePanelOpenAtom } from "@/lib/store/ui";
 import {
   serverQueueStateAtom,
   isQueueLoadingAtom,
   clearQueueAtom,
-  type QueueSourceType,
 } from "@/lib/store/server-queue";
 import { useHydrated } from "@/lib/hooks/use-hydrated";
 import { Button } from "@/components/ui/button";
@@ -40,13 +41,6 @@ import {
 } from "@/components/queue/virtualized-queue-display";
 
 const QUEUE_SIDEBAR_WIDTH = 360;
-
-// Queue source info type for display
-interface QueueSourceInfo {
-  type: QueueSourceType | string;
-  id?: string | null;
-  name?: string | null;
-}
 
 // Queue source icon component - renders the appropriate icon based on source type
 function QueueSourceIcon({
@@ -65,6 +59,8 @@ function QueueSourceIcon({
       return <User className={className} />;
     case "playlist":
       return <PlaylistIcon className={className} />;
+    case "songRadio":
+      return <Radio className={className} />;
     case "genre":
       return <Music2 className={className} />;
     case "search":
@@ -75,24 +71,6 @@ function QueueSourceIcon({
       return <History className={className} />;
     default:
       return <ListMusic className={className} />;
-  }
-}
-
-// Get link for queue source (if navigable)
-function getQueueSourceLink(source: QueueSourceInfo): string | null {
-  switch (source.type) {
-    case "album":
-      return source.id ? `/library/albums/details?id=${source.id}` : null;
-    case "artist":
-      return source.id ? `/library/artists/details?id=${source.id}` : null;
-    case "playlist":
-      return source.id ? `/playlists/details?id=${source.id}` : null;
-    case "genre":
-      return source.name
-        ? `/library/genres/details?name=${encodeURIComponent(source.name)}`
-        : null;
-    default:
-      return null;
   }
 }
 
@@ -111,7 +89,7 @@ function QueueSourceDisplay() {
   }
 
   const queueSource = queueState.source;
-  const link = getQueueSourceLink(queueSource);
+  const link = getQueueSourceHref(queueSource);
 
   const content = (
     <div

@@ -9,6 +9,7 @@ import {
   waitForPlayerReady,
 } from "./fixtures";
 import {
+  gotoAppPath,
   setStoredConnection,
   toAndroidEmulatorUrl,
   waitForAuthenticatedHome,
@@ -91,6 +92,33 @@ function pickDevice(devices: AndroidDevice[]): AndroidDevice {
   );
 }
 
+function buildAuthParams(server: ServerInfo): string {
+  return `u=${server.username}&p=${server.password}&v=1.16.1&c=e2e-test`;
+}
+
+async function setServerPreference(
+  server: ServerInfo,
+  key: string,
+  value: unknown,
+): Promise<void> {
+  const response = await fetch(
+    `${server.url}/ferrotune/preferences/${encodeURIComponent(key)}?${buildAuthParams(server)}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ value }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to set preference ${key}: ${response.status} ${await response.text()}`,
+    );
+  }
+}
+
 async function prepareAndroidApp(
   device: AndroidDevice,
   server: ServerInfo,
@@ -117,7 +145,7 @@ async function prepareAndroidApp(
   await page.reload();
   await waitForAuthenticatedHome(page, 30000);
 
-  const authParams = `u=${server.username}&p=${server.password}&v=1.16.1&c=e2e-test`;
+  const authParams = buildAuthParams(server);
   const resetResponse = await fetch(
     `${server.url}/ferrotune/testing/reset?${authParams}`,
     {
@@ -142,8 +170,21 @@ async function prepareAndroidApp(
   return page;
 }
 
+async function resumeAndroidApp(device: AndroidDevice): Promise<Page> {
+  await device.shell(`am start -W -n ${APP_ACTIVITY}`);
+
+  const webView = await device.webView(
+    { pkg: APP_PACKAGE },
+    { timeout: 60000 },
+  );
+
+  const page = await webView.page();
+  await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+  return page;
+}
+
 async function ensureSongsListView(page: Page) {
-  await page.goto("/library/songs");
+  await gotoAppPath(page, "/library/songs");
 
   const mobileViewOptionsButton = page.getByRole("button", {
     name: /view options/i,
@@ -163,7 +204,30 @@ async function ensureSongsListView(page: Page) {
     }
   }
 
-  await page.waitForSelector('[data-testid="song-row"]', { timeout: 10000 });
+  await expect(
+    page.locator('[data-testid="song-row"], [data-testid="media-row"]').first(),
+  ).toBeVisible({ timeout: 10000 });
+}
+
+async function ensureTranscodingEnabled(page: Page) {
+  await gotoAppPath(page, "/settings");
+
+  const transcodingRow = page
+    .locator("div.flex.items-center.justify-between")
+    .filter({ hasText: "Audio Transcoding" })
+    .first();
+
+  const transcodingSwitch = transcodingRow.getByRole("switch");
+  await expect(transcodingSwitch).toBeVisible({ timeout: 10000 });
+
+  if ((await transcodingSwitch.getAttribute("aria-checked")) !== "true") {
+    await transcodingSwitch.click();
+  }
+
+  await expect(transcodingSwitch).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByText("Transcode Bitrate")).toBeVisible({
+    timeout: 10000,
+  });
 }
 
 async function openSongActionMenu(
@@ -171,7 +235,7 @@ async function openSongActionMenu(
   songTitle: string,
 ): Promise<Locator> {
   const songRow = page
-    .locator('[data-testid="song-row"]')
+    .locator('[data-testid="song-row"], [data-testid="media-row"]')
     .filter({ hasText: songTitle })
     .first();
 
@@ -200,7 +264,10 @@ async function clickPlayNextAction(menu: Locator) {
 
 async function playFirstSongFromSongsList(page: Page) {
   await ensureSongsListView(page);
-  await page.locator('[data-testid="song-row"]').first().dblclick();
+  await page
+    .locator('[data-testid="song-row"], [data-testid="media-row"]')
+    .first()
+    .dblclick();
 }
 
 test.describe.serial("Android Emulator Smoke", () => {
@@ -338,8 +405,12 @@ test.describe.serial("Android Emulator Smoke", () => {
 
     try {
       page = await prepareAndroidApp(device, server);
+      await setServerPreference(server, "transcodingEnabled", true);
+      await page.reload();
+      await waitForAuthenticatedHome(page, 30000);
+      await ensureTranscodingEnabled(page);
 
-      await playFirstSongFromSongsList(page);
+      await playFirstSong(page);
       await waitForPlayerReady(page, 15000);
       await expect(page.getByTestId("player-bar")).toBeVisible({
         timeout: 15000,
@@ -380,6 +451,114 @@ test.describe.serial("Android Emulator Smoke", () => {
         .screenshot({
           path: testInfo.outputPath(
             "android-transcoding-session-device-failure.png",
+          ),
+        })
+        .catch(() => undefined);
+
+      throw error;
+    } finally {
+      await device.close().catch(() => undefined);
+    }
+  });
+
+  test("background transcoded playback advances on Android", async ({
+    server,
+  }, testInfo) => {
+    test.setTimeout(240_000);
+
+    const connectedDevices = await android.devices();
+    test.skip(
+      connectedDevices.length === 0,
+      "No Android emulator or device connected to ADB.",
+    );
+
+    if (!fs.existsSync(DEBUG_APK_PATH)) {
+      throw new Error(
+        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:tauri-android-deploy-debug first.`,
+      );
+    }
+
+    const device = pickDevice(connectedDevices);
+    let page: import("@playwright/test").Page | undefined;
+
+    try {
+      page = await prepareAndroidApp(device, server);
+      await setServerPreference(server, "transcodingEnabled", true);
+      await page.reload();
+      await waitForAuthenticatedHome(page, 30000);
+      await ensureTranscodingEnabled(page);
+
+      await playFirstSong(page);
+      await waitForPlayerReady(page, 15000);
+
+      const playerBar = page.getByTestId("player-bar");
+      await expect(playerBar).toContainText("First Song", {
+        timeout: 15000,
+      });
+
+      await expect
+        .poll(
+          async () =>
+            (await readLatestSessionExport(device))?.transcoding ?? false,
+          {
+            timeout: 15000,
+            message:
+              "Expected PlaybackService to export transcoded session state before backgrounding",
+          },
+        )
+        .toBe(true);
+
+      const initialExport = await readLatestSessionExport(device);
+      if (!initialExport) {
+        throw new Error(
+          "PlaybackService did not emit an initial session export before background playback",
+        );
+      }
+
+      await device.shell("input keyevent 3");
+
+      await expect
+        .poll(
+          async () =>
+            (await readLatestSessionExport(device))?.currentIndex ?? -1,
+          {
+            timeout: 120000,
+            message:
+              "Expected background transcoded playback to advance to a later queue item",
+          },
+        )
+        .toBeGreaterThan(initialExport.currentIndex);
+
+      page = await resumeAndroidApp(device);
+
+      const resumedPlayerBar = page.getByTestId("player-bar");
+      await expect(resumedPlayerBar).toBeVisible({ timeout: 30000 });
+      await expect(resumedPlayerBar).not.toContainText("First Song", {
+        timeout: 15000,
+      });
+
+      const logs = (
+        await device.shell("logcat -d -s PlaybackService:V NativeAudioPlugin:V")
+      ).toString("utf-8");
+
+      expect(logs).not.toContain(
+        "Network retry: reloaded transcoded stream at offset 0s",
+      );
+    } catch (error) {
+      if (page) {
+        await page
+          .screenshot({
+            path: testInfo.outputPath(
+              "android-background-transcoded-advance-failure.png",
+            ),
+          })
+          .catch(() => undefined);
+      }
+
+      await device
+        .screenshot({
+          path: testInfo.outputPath(
+            "android-background-transcoded-advance-device-failure.png",
           ),
         })
         .catch(() => undefined);
@@ -442,22 +621,6 @@ test.describe.serial("Android Emulator Smoke", () => {
       await expect(queueItems.nth(3)).toContainText("Second Song");
       await expect(queueItems.nth(4)).toContainText("Third Song");
 
-      await expect
-        .poll(
-          async () =>
-            (
-              await device.shell(
-                "logcat -d -s NativeAudioPlugin:V PlaybackService:V",
-              )
-            ).toString("utf-8"),
-          {
-            timeout: 15000,
-            message:
-              "Expected Android play-next to invalidate the native queue without restarting playback",
-          },
-        )
-        .toContain("invalidateQueue: refetching");
-
       const logs = (
         await device.shell("logcat -d -s NativeAudioPlugin:V PlaybackService:V")
       ).toString("utf-8");
@@ -465,7 +628,7 @@ test.describe.serial("Android Emulator Smoke", () => {
       expect(countOccurrences(logs, "startPlayback() command received")).toBe(
         1,
       );
-      expect(logs).not.toContain("softInvalidateQueue:");
+      expect(logs).not.toContain("current track removed, doing full reload");
     } catch (error) {
       if (page) {
         await page
@@ -478,6 +641,92 @@ test.describe.serial("Android Emulator Smoke", () => {
       await device
         .screenshot({
           path: testInfo.outputPath("android-play-next-device-failure.png"),
+        })
+        .catch(() => undefined);
+
+      throw error;
+    } finally {
+      await device.close().catch(() => undefined);
+    }
+  });
+
+  test("shuffled play next preserves playback and updates queue on Android", async ({
+    server,
+  }, testInfo) => {
+    test.setTimeout(180_000);
+
+    const connectedDevices = await android.devices();
+    test.skip(
+      connectedDevices.length === 0,
+      "No Android emulator or device connected to ADB.",
+    );
+
+    if (!fs.existsSync(DEBUG_APK_PATH)) {
+      throw new Error(
+        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:tauri-android-deploy-debug first.`,
+      );
+    }
+
+    const device = pickDevice(connectedDevices);
+    let page: import("@playwright/test").Page | undefined;
+
+    try {
+      page = await prepareAndroidApp(device, server);
+
+      await playFirstSong(page);
+      await waitForPlayerReady(page, 15000);
+
+      const playerBar = page.getByTestId("player-bar");
+      await expect(playerBar).toContainText("First Song", {
+        timeout: 15000,
+      });
+
+      await playerBar.getByRole("button", { name: /shuffle/i }).click();
+      await expect(playerBar).toContainText("First Song", {
+        timeout: 15000,
+      });
+
+      await ensureSongsListView(page);
+      await clickPlayNextAction(
+        await openSongActionMenu(page, "FLAC Track One"),
+      );
+      await clickPlayNextAction(
+        await openSongActionMenu(page, "FLAC Track Two"),
+      );
+
+      await expect(playerBar).toContainText("First Song", {
+        timeout: 15000,
+      });
+
+      const queuePanel = await openQueuePanel(page);
+      const queueItems = queuePanel.locator('[data-testid="queue-item"]');
+
+      await expect(queueItems.nth(0)).toContainText("First Song");
+      await expect(queueItems.nth(1)).toContainText("FLAC Track Two");
+      await expect(queueItems.nth(2)).toContainText("FLAC Track One");
+
+      const logs = (
+        await device.shell("logcat -d -s NativeAudioPlugin:V PlaybackService:V")
+      ).toString("utf-8");
+
+      expect(countOccurrences(logs, "startPlayback() command received")).toBe(
+        1,
+      );
+      expect(logs).not.toContain("current track removed, doing full reload");
+    } catch (error) {
+      if (page) {
+        await page
+          .screenshot({
+            path: testInfo.outputPath("android-shuffled-play-next-failure.png"),
+          })
+          .catch(() => undefined);
+      }
+
+      await device
+        .screenshot({
+          path: testInfo.outputPath(
+            "android-shuffled-play-next-device-failure.png",
+          ),
         })
         .catch(() => undefined);
 

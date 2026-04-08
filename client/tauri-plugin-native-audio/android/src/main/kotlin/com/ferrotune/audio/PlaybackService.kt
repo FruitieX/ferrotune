@@ -76,6 +76,10 @@ class PlaybackService : MediaSessionService() {
         // This should be long enough to cover ExoPlayer's gapless pre-decode buffer
         // but short enough that the volume difference on the current track's tail is inaudible.
         private const val REPLAYGAIN_PRE_APPLY_LEAD_MS = 500L
+        // Treat network errors this close to the end of a transcoded track as a
+        // transition failure and advance the queue instead of restarting the
+        // current stream from the beginning.
+        private const val NETWORK_ERROR_TRACK_END_GRACE_MS = 2_000L
         // Stop the foreground service after this many ms of inactivity (paused)
         private const val INACTIVITY_TIMEOUT_MS = 5L * 60 * 1000
         // Cache size for transcoded audio streams (200 MB)
@@ -1060,11 +1064,12 @@ class PlaybackService : MediaSessionService() {
         if (exoIndex >= 0) {
             player.playWhenReady = true
             player.seekTo(exoIndex, 0)
-            // If player is in STATE_ENDED (all loaded items exhausted, e.g.
-            // very short tracks played faster than prefetch), re-prepare so
-            // ExoPlayer transitions out of the ended state.
-            if (player.playbackState == Player.STATE_ENDED) {
-                Log.d(TAG, "autonomousSkipNext: re-preparing player from STATE_ENDED")
+            // Track-boundary errors can leave ExoPlayer idle before we advance.
+            // Re-prepare whenever the player isn't ready to continue after seek.
+            if (player.playbackState == Player.STATE_ENDED ||
+                player.playbackState == Player.STATE_IDLE
+            ) {
+                Log.d(TAG, "autonomousSkipNext: re-preparing player from state=${player.playbackState}")
                 player.prepare()
             }
             maybePrefetchMore()
@@ -1425,7 +1430,7 @@ class PlaybackService : MediaSessionService() {
     private fun syncPositionToServer() {
         if (!isActive) return
         if (!isNetworkAvailable()) return
-        val posMs = (player.currentPosition + seekTimeOffsetMs).coerceAtLeast(0)
+        val posMs = getAbsolutePlaybackPositionMs()
         apiExecutor.execute {
             try {
                 apiClient.updatePosition(serverQueueIndex, posMs)
@@ -1442,7 +1447,7 @@ class PlaybackService : MediaSessionService() {
     private fun sendPlaybackStateHeartbeat(isPlaying: Boolean) {
         if (!isNetworkAvailable()) return
         val track = currentTrack
-        val posMs = (player.currentPosition + seekTimeOffsetMs).coerceAtLeast(0)
+        val posMs = getAbsolutePlaybackPositionMs()
         apiExecutor.execute {
             try {
                 apiClient.sendHeartbeat(
@@ -1457,6 +1462,23 @@ class PlaybackService : MediaSessionService() {
                 Log.w(TAG, "Playback state heartbeat failed", e)
             }
         }
+    }
+    private fun getAbsolutePlaybackPositionMs(): Long {
+        return (player.currentPosition + seekTimeOffsetMs).coerceAtLeast(0)
+    }
+
+    private fun shouldAdvanceInsteadOfRetryOnNetworkError(
+        track: TrackInfo,
+        absolutePositionMs: Long,
+    ): Boolean {
+        if (!playbackSettings.transcodingEnabled) return false
+        if (repeatMode == "one") return false
+        if (track.durationMs <= 0) return false
+
+        val remainingMs = track.durationMs - absolutePositionMs
+        if (remainingMs > NETWORK_ERROR_TRACK_END_GRACE_MS) return false
+
+        return repeatMode == "all" || serverQueueIndex + 1 < serverTotalCount
     }
 
     fun nextTrack() {
@@ -1932,16 +1954,59 @@ class PlaybackService : MediaSessionService() {
                 error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
                 error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
 
-            if (isNetworkError && networkRetryCount < MAX_NETWORK_RETRIES && currentTrack != null) {
+            val trackAtError = currentTrack
+            val queueIndexAtError = serverQueueIndex
+            val mediaIdAtError = player.currentMediaItem?.mediaId ?: trackAtError?.id
+            val positionMsAtError = getAbsolutePlaybackPositionMs()
+
+            if (isNetworkError && networkRetryCount < MAX_NETWORK_RETRIES && trackAtError != null) {
+                if (shouldAdvanceInsteadOfRetryOnNetworkError(trackAtError, positionMsAtError)) {
+                    Log.d(
+                        TAG,
+                        "Network error near track end for ${trackAtError.id} at ${positionMsAtError}ms; advancing instead of retrying"
+                    )
+                    autonomousSkipNext()
+                    return
+                }
+
                 networkRetryCount++
-                Log.d(TAG, "Network error retry $networkRetryCount/$MAX_NETWORK_RETRIES for track: ${currentTrack?.title}")
+                Log.d(
+                    TAG,
+                    "Network error retry $networkRetryCount/$MAX_NETWORK_RETRIES for track ${trackAtError.id} " +
+                        "at ${positionMsAtError}ms (queueIndex=$queueIndexAtError, transcoding=${playbackSettings.transcodingEnabled})"
+                )
                 handler.postDelayed({
                     val track = currentTrack ?: return@postDelayed
+                    val currentMediaId = player.currentMediaItem?.mediaId
+
+                    if ((mediaIdAtError != null && currentMediaId != null && currentMediaId != mediaIdAtError) ||
+                        track.id != trackAtError.id ||
+                        serverQueueIndex != queueIndexAtError
+                    ) {
+                        Log.d(
+                            TAG,
+                            "Skipping stale network retry for ${trackAtError.id}; " +
+                                "currentMediaId=$currentMediaId currentTrack=${track.id} currentQueueIndex=$serverQueueIndex"
+                        )
+                        return@postDelayed
+                    }
+
                     if (playbackSettings.transcodingEnabled) {
-                        // For transcoded streams, rebuild URL with the current position
-                        val positionMs = player.currentPosition + seekTimeOffsetMs
-                        val timeOffsetSeconds = positionMs / 1000
-                        seekTimeOffsetMs = positionMs
+                        // For transcoded streams, rebuild URL with the furthest
+                        // known playback position so a transient player reset at
+                        // the track boundary does not reopen the current item from 0.
+                        val retryPositionMs = maxOf(getAbsolutePlaybackPositionMs(), positionMsAtError)
+                        if (shouldAdvanceInsteadOfRetryOnNetworkError(track, retryPositionMs)) {
+                            Log.d(
+                                TAG,
+                                "Network retry reached track end for ${track.id} at ${retryPositionMs}ms; advancing instead"
+                            )
+                            autonomousSkipNext()
+                            return@postDelayed
+                        }
+
+                        val timeOffsetSeconds = retryPositionMs / 1000
+                            seekTimeOffsetMs = retryPositionMs
                         val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
 
                         val metadataBuilder = MediaMetadata.Builder()
@@ -1964,7 +2029,11 @@ class PlaybackService : MediaSessionService() {
                         player.seekTo(currentIndex, 0)
                         player.playWhenReady = true
                         player.prepare()
-                        Log.d(TAG, "Network retry: reloaded transcoded stream at offset ${timeOffsetSeconds}s")
+                        Log.d(
+                            TAG,
+                            "Network retry: reloaded transcoded stream at offset ${timeOffsetSeconds}s " +
+                                "for ${track.id} (retryPositionMs=$retryPositionMs, errorPositionMs=$positionMsAtError)"
+                        )
                     } else {
                         // For non-transcoded streams, just re-prepare at the current position
                         player.playWhenReady = true

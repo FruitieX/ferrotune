@@ -1,14 +1,19 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { useIsMounted } from "@/lib/hooks/use-is-mounted";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQueryClient,
+  type InfiniteData,
+} from "@tanstack/react-query";
 import {
   Play,
   Clock,
+  Radio,
   Sparkles,
   TrendingUp,
   Shuffle,
@@ -19,6 +24,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { startQueueAtom } from "@/lib/store/server-queue";
+import { accountKey, serverConnectionAtom } from "@/lib/store/auth";
 import { getClient } from "@/lib/api/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -37,18 +43,93 @@ import { VirtualizedHorizontalScroll } from "@/components/shared/virtualized-hor
 import { MobileProfileMenu } from "@/components/layout/mobile-profile-menu";
 import { useIsSmallScreen } from "@/lib/hooks/use-media-query";
 import { formatDuration } from "@/lib/utils/format";
+import {
+  getPlaylistDetailsHref,
+  getSongRadioHref,
+} from "@/lib/utils/source-links";
 import type { Album, Song } from "@/lib/api/types";
 import type { ContinueListeningEntry } from "@/lib/api/generated/ContinueListeningEntry";
 import type { HomePageResponse } from "@/lib/api/generated/HomePageResponse";
 
 // Maximum items per home page section to avoid tiny scrollbars
 const MAX_SECTION_ITEMS = 100;
+const DISCOVER_QUERY_KEY = ["albums", "random", "home"] as const;
+const FORGOTTEN_FAVORITES_QUERY_KEY = [
+  "songs",
+  "forgotten-favorites",
+  "home",
+] as const;
 
 // Compute page size based on viewport width to avoid loading too many items on mobile
 function getPageSize(viewportWidth: number, itemWidth: number, gap: number) {
   const itemsPerScreen = Math.ceil(viewportWidth / (itemWidth + gap));
   // Load ~2 screenfuls per page for smooth scrolling
   return Math.max(6, itemsPerScreen * 2);
+}
+
+function useStickyHomeSection<TPage>(
+  queryKey: readonly unknown[],
+  data: InfiniteData<TPage, unknown> | undefined,
+  resetKey: string,
+): InfiniteData<TPage, unknown> | undefined {
+  const queryClient = useQueryClient();
+  const [snapshot, setSnapshot] = useState<{
+    resetKey: string;
+    data: InfiniteData<TPage, unknown> | undefined;
+  }>(() => ({
+    resetKey,
+    data:
+      queryClient.getQueryData<InfiniteData<TPage, unknown>>(queryKey) ?? data,
+  }));
+
+  let derivedSnapshot = snapshot;
+
+  if (snapshot.resetKey !== resetKey) {
+    derivedSnapshot = {
+      resetKey,
+      data:
+        queryClient.getQueryData<InfiniteData<TPage, unknown>>(queryKey) ??
+        data,
+    };
+  } else if (data) {
+    if (!snapshot.data) {
+      derivedSnapshot = {
+        resetKey,
+        data,
+      };
+    } else if (data.pages.length > snapshot.data.pages.length) {
+      derivedSnapshot = {
+        resetKey,
+        data: {
+          pages: [
+            ...snapshot.data.pages,
+            ...data.pages.slice(snapshot.data.pages.length),
+          ],
+          pageParams: data.pageParams,
+        },
+      };
+    }
+  }
+
+  useEffect(() => {
+    if (derivedSnapshot === snapshot) {
+      return;
+    }
+
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setSnapshot(derivedSnapshot);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [derivedSnapshot, snapshot]);
+
+  return derivedSnapshot.data ?? data;
 }
 
 // Section header component
@@ -204,9 +285,7 @@ function HomePlaylistCard({
     : undefined;
 
   const isSmartPlaylist = playlist.playlistType === "smartPlaylist";
-  const href = isSmartPlaylist
-    ? `/playlists/smart/details?id=${playlist.id}`
-    : `/playlists/details?id=${playlist.id}`;
+  const href = getPlaylistDetailsHref(playlist.playlistType, playlist.id);
 
   const PlaylistIcon = isSmartPlaylist ? Sparkles : ListMusic;
 
@@ -272,19 +351,57 @@ function HomePlaylistCard({
   );
 }
 
+function HomeSongRadioCard({
+  source,
+  onPlay,
+}: {
+  source: {
+    id: string;
+    name: string;
+    coverArt: string | null;
+  };
+  onPlay: () => void;
+}) {
+  const coverArtUrl = source.coverArt
+    ? getClient()?.getCoverArtUrl(source.coverArt, "medium")
+    : undefined;
+
+  return (
+    <MediaCard
+      coverArt={coverArtUrl}
+      title={source.name}
+      titleIcon={<Radio className="w-4 h-4 shrink-0 text-muted-foreground" />}
+      subtitle="Song Radio"
+      href={getSongRadioHref(source.id)}
+      coverType="song"
+      colorSeed={source.name}
+      onPlay={onPlay}
+    />
+  );
+}
+
 export default function HomePage() {
   const router = useRouter();
   const { isReady, isLoading: authLoading } = useAuth({
     redirectToLogin: true,
   });
+  const connection = useAtomValue(serverConnectionAtom);
   const startQueue = useSetAtom(startQueueAtom);
   const isMounted = useIsMounted();
   const [searchQuery, setSearchQuery] = useState("");
   const isSmallScreen = useIsSmallScreen();
+  const currentAccountKey = connection
+    ? accountKey(connection)
+    : "__no_account__";
   // Store the random seed from the first Discover page for consistent pagination
   const discoverSeedRef = useRef<number | undefined>(undefined);
   // Store the random seed for Forgotten Favorites for consistent pagination
   const forgottenFavSeedRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    discoverSeedRef.current = undefined;
+    forgottenFavSeedRef.current = undefined;
+  }, [currentAccountKey]);
 
   // Responsive item dimensions
   const itemWidth = isSmallScreen ? 130 : 180;
@@ -384,13 +501,14 @@ export default function HomePage() {
     isFetchingNextPage: fetchingNextRandom,
     fetchNextPage: fetchNextRandom,
   } = useInfiniteQuery({
-    queryKey: ["albums", "random", "home"],
+    queryKey: DISCOVER_QUERY_KEY,
     queryFn: async ({ pageParam }) => {
-      // Reset seed on initial page fetch (supports account switch / cache reset)
       if (pageParam === 0) {
-        discoverSeedRef.current = undefined;
         const batch = await fetchBatch();
-        if (batch.discover.seed != null) {
+        if (
+          discoverSeedRef.current === undefined &&
+          batch.discover.seed != null
+        ) {
           discoverSeedRef.current = batch.discover.seed;
         }
         return {
@@ -496,13 +614,13 @@ export default function HomePage() {
     isFetchingNextPage: fetchingNextForgottenFav,
     fetchNextPage: fetchNextForgottenFav,
   } = useInfiniteQuery({
-    queryKey: ["songs", "forgotten-favorites", "home"],
+    queryKey: FORGOTTEN_FAVORITES_QUERY_KEY,
     queryFn: async ({ pageParam }) => {
-      // Reset seed on initial page fetch (supports account switch / cache reset)
       if (pageParam === 0) {
-        forgottenFavSeedRef.current = undefined;
         const batch = await fetchBatch();
-        forgottenFavSeedRef.current = batch.forgottenFavorites.seed;
+        if (forgottenFavSeedRef.current === undefined) {
+          forgottenFavSeedRef.current = batch.forgottenFavorites.seed;
+        }
         return {
           songs: batch.forgottenFavorites.song,
           total: batch.forgottenFavorites.total,
@@ -578,28 +696,43 @@ export default function HomePage() {
     enabled: isReady,
   });
 
+  const stickyRandomData = useStickyHomeSection(
+    DISCOVER_QUERY_KEY,
+    randomData,
+    currentAccountKey,
+  );
+  const stickyForgottenFavData = useStickyHomeSection(
+    FORGOTTEN_FAVORITES_QUERY_KEY,
+    forgottenFavData,
+    currentAccountKey,
+  );
+
   // Flatten infinite query pages and cap totals at MAX_SECTION_ITEMS
   const newestAlbums = newestData?.pages.flatMap((p) => p.albums) ?? [];
   const newestTotal =
     newestData?.pages[0]?.total != null
       ? Math.min(newestData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
-  const randomAlbums = randomData?.pages.flatMap((p) => p.albums) ?? [];
+  const randomAlbums = stickyRandomData?.pages.flatMap((p) => p.albums) ?? [];
   const randomTotal =
-    randomData?.pages[0]?.total != null
-      ? Math.min(randomData.pages[0].total, MAX_SECTION_ITEMS)
+    stickyRandomData?.pages[0]?.total != null
+      ? Math.min(stickyRandomData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
+  const randomSeed =
+    stickyRandomData?.pages[0]?.seed ?? discoverSeedRef.current;
   const frequentAlbums = frequentData?.pages.flatMap((p) => p.albums) ?? [];
   const frequentTotal =
     frequentData?.pages[0]?.total != null
       ? Math.min(frequentData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
   const forgottenFavSongs =
-    forgottenFavData?.pages.flatMap((p) => p.songs) ?? [];
+    stickyForgottenFavData?.pages.flatMap((p) => p.songs) ?? [];
   const forgottenFavTotal =
-    forgottenFavData?.pages[0]?.total != null
-      ? Math.min(forgottenFavData.pages[0].total, MAX_SECTION_ITEMS)
+    stickyForgottenFavData?.pages[0]?.total != null
+      ? Math.min(stickyForgottenFavData.pages[0].total, MAX_SECTION_ITEMS)
       : undefined;
+  const forgottenFavSeed =
+    stickyForgottenFavData?.pages[0]?.seed ?? forgottenFavSeedRef.current;
   // Continue listening items come pre-merged and sorted from the server
   const continueListeningItems =
     continueListeningData?.pages.flatMap((p) => p.entries) ?? [];
@@ -627,6 +760,16 @@ export default function HomePage() {
   ) => {
     startQueue({
       sourceType: type,
+      sourceId: id,
+      sourceName: name,
+      startIndex: 0,
+      shuffle: false,
+    });
+  };
+
+  const handlePlaySongRadio = (id: string, name: string) => {
+    startQueue({
+      sourceType: "songRadio",
       sourceId: id,
       sourceName: name,
       startIndex: 0,
@@ -696,7 +839,7 @@ export default function HomePage() {
               </div>
               <div className="flex gap-4 px-4 lg:px-6 pb-4 overflow-hidden">
                 {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="w-[180px] shrink-0">
+                  <div key={i} className="w-45 shrink-0">
                     <AlbumCardSkeleton />
                   </div>
                 ))}
@@ -724,6 +867,14 @@ export default function HomePage() {
               item.playlist!.playlistType as "playlist" | "smartPlaylist",
             )
           }
+        />
+      );
+    }
+    if (item.type === "songRadio" && item.source) {
+      return (
+        <HomeSongRadioCard
+          source={item.source}
+          onPlay={() => handlePlaySongRadio(item.source!.id, item.source!.name)}
         />
       );
     }
@@ -819,11 +970,15 @@ export default function HomePage() {
             fetchNextPage={fetchNextContinueListening}
             renderItem={(item) => renderContinueListeningItem(item)}
             renderSkeleton={() => <AlbumCardSkeleton />}
-            getItemKey={(item) =>
-              item.type === "playlist" || item.type === "smartPlaylist"
-                ? `pl-${item.playlist?.id}`
-                : `al-${item.album?.id}`
-            }
+            getItemKey={(item) => {
+              if (item.type === "playlist" || item.type === "smartPlaylist") {
+                return `pl-${item.playlist?.id}`;
+              }
+              if (item.type === "songRadio") {
+                return `sr-${item.source?.id}`;
+              }
+              return `al-${item.album?.id}`;
+            }}
             emptyMessage="No recently played items"
           />
         </section>
@@ -893,7 +1048,7 @@ export default function HomePage() {
                   startIndex: 0,
                   shuffle: false,
                   filters: {
-                    seed: forgottenFavData?.pages[0]?.seed,
+                    seed: forgottenFavSeed,
                   },
                 })
               }
@@ -904,7 +1059,7 @@ export default function HomePage() {
                   startIndex: 0,
                   shuffle: true,
                   filters: {
-                    seed: forgottenFavData?.pages[0]?.seed,
+                    seed: forgottenFavSeed,
                   },
                 })
               }
@@ -927,7 +1082,7 @@ export default function HomePage() {
                     type: "forgottenFavorites",
                     name: "Forgotten Favorites",
                     filters: {
-                      seed: forgottenFavData?.pages[0]?.seed,
+                      seed: forgottenFavSeed,
                     },
                   }}
                   inlineImagesRequested
@@ -953,12 +1108,12 @@ export default function HomePage() {
           onPlayAlbum={handlePlayAlbum}
           onPlayAll={() =>
             handlePlayAllAlbums("random", "Discover", {
-              seed: randomData?.pages[0]?.seed,
+              seed: randomSeed,
             })
           }
           onShuffleAll={() =>
             handleShuffleAllAlbums("random", "Discover", {
-              seed: randomData?.pages[0]?.seed,
+              seed: randomSeed,
             })
           }
           itemWidth={itemWidth}

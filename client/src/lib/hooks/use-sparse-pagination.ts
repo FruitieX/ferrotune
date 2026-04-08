@@ -8,6 +8,16 @@ import {
   clearCachedPages,
 } from "@/lib/content-cache";
 
+interface PendingPageRequest {
+  id: number;
+  pageIndexes: number[];
+  forceRefresh: boolean;
+}
+
+function normalizePageIndexes(pageIndexes: number[]): number[] {
+  return [...new Set(pageIndexes)].filter((pageIndex) => pageIndex >= 0);
+}
+
 /**
  * Configuration for sparse pagination
  */
@@ -43,6 +53,8 @@ export interface SparsePaginationResult<T, TMeta = Record<string, never>> {
   isFetching: boolean;
   /** Request loading of items in a range (called by virtualizer) */
   ensureRange: (startIndex: number, endIndex: number) => void;
+  /** Refetch currently loaded pages while keeping rendered items visible */
+  refresh: () => void;
   /** Additional metadata from the fetch (e.g., totalDuration) */
   metadata: TMeta | null;
   /** Reset all cached data and refetch from the beginning */
@@ -87,6 +99,8 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
 }: SparsePaginationConfig<T, TMeta>): SparsePaginationResult<T, TMeta> {
   // Track loaded pages: Map<pageIndex, T[]>
   const [pages, setPages] = useState<Map<number, T[]>>(new Map());
+  const pagesRef = useRef(pages);
+  pagesRef.current = pages;
   const [totalCount, setTotalCount] = useState(initialTotalCount ?? 0);
   // Track metadata from the last fetch (e.g., totalDuration)
   const [metadata, setMetadata] = useState<TMeta | null>(null);
@@ -97,14 +111,10 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
   // Track which pages are currently being fetched
   const fetchingPages = useRef<Set<number>>(new Set());
 
-  // Counter incremented on reset() to force a new query key, preventing stale cache hits
-  const [resetCounter, setResetCounter] = useState(0);
-
-  // Track range that needs to be loaded
-  const [pendingRange, setPendingRange] = useState<{
-    start: number;
-    end: number;
-  } | null>(null);
+  // Track the next page request so cached pages can be shown first and then refreshed.
+  const requestIdRef = useRef(0);
+  const [pendingRequest, setPendingRequest] =
+    useState<PendingPageRequest | null>(null);
 
   // Stable serialized query key for comparisons and IndexedDB cache key
   const serializedQueryKey = JSON.stringify(queryKey);
@@ -120,6 +130,7 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     // Don't reset totalCount or metadata - keep previous values to prevent header flicker
     // They will be updated when new data arrives
     fetchingPages.current.clear();
+    setPendingRequest(null);
 
     // Try to restore first page from content cache for instant render
     getCachedPage<T>(queryKey, 0).then((cached) => {
@@ -135,8 +146,13 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
         }
         setHasLoadedOnce(true);
       }
-      // Always trigger a network fetch to get fresh data
-      setPendingRange({ start: 0, end: pageSize - 1 });
+      // Cached data should render first, then be replaced by fresh server data.
+      requestIdRef.current += 1;
+      setPendingRequest({
+        id: requestIdRef.current,
+        pageIndexes: [0],
+        forceRefresh: true,
+      });
     });
   }, [serializedQueryKey, queryKey, pageSize]);
 
@@ -147,12 +163,33 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     const required: number[] = [];
 
     for (let page = startPage; page <= endPage; page++) {
-      if (!pages.has(page) && !fetchingPages.current.has(page)) {
+      if (!pagesRef.current.has(page) && !fetchingPages.current.has(page)) {
         required.push(page);
       }
     }
 
     return required;
+  };
+
+  const queuePageRequest = (pageIndexes: number[], forceRefresh = false) => {
+    const normalizedPageIndexes = normalizePageIndexes(pageIndexes).filter(
+      (pageIndex) =>
+        forceRefresh
+          ? !fetchingPages.current.has(pageIndex)
+          : !pagesRef.current.has(pageIndex) &&
+            !fetchingPages.current.has(pageIndex),
+    );
+
+    if (normalizedPageIndexes.length === 0) {
+      return;
+    }
+
+    requestIdRef.current += 1;
+    setPendingRequest({
+      id: requestIdRef.current,
+      pageIndexes: normalizedPageIndexes,
+      forceRefresh,
+    });
   };
 
   // Primary query for fetching pending pages
@@ -164,26 +201,30 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     queryKey: [
       ...queryKey,
       "sparse",
-      pendingRange?.start,
-      pendingRange?.end,
-      resetCounter,
+      pendingRequest?.forceRefresh ? "refresh" : "load",
+      pendingRequest?.id ?? "idle",
     ],
     queryFn: async () => {
-      if (!pendingRange) return null;
+      if (!pendingRequest) return null;
 
-      const requiredPages = getRequiredPages(
-        pendingRange.start,
-        pendingRange.end,
+      const request = pendingRequest;
+      const requestedPages = request.pageIndexes.filter((pageIndex) =>
+        request.forceRefresh
+          ? !fetchingPages.current.has(pageIndex)
+          : !pagesRef.current.has(pageIndex) &&
+            !fetchingPages.current.has(pageIndex),
       );
-      if (requiredPages.length === 0) return null;
+      if (requestedPages.length === 0) return null;
 
       // Mark pages as fetching
-      requiredPages.forEach((p) => fetchingPages.current.add(p));
+      requestedPages.forEach((pageIndex) =>
+        fetchingPages.current.add(pageIndex),
+      );
 
       try {
         // Fetch all required pages in parallel
         const results = await Promise.all(
-          requiredPages.map(async (pageIndex) => {
+          requestedPages.map(async (pageIndex) => {
             const offset = pageIndex * pageSize;
             const {
               items,
@@ -200,6 +241,18 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
           results.forEach(({ pageIndex, items }) => {
             next.set(pageIndex, items);
           });
+
+          if (results.length > 0) {
+            const nextTotal = results[0].total;
+            const maxPageIndex =
+              nextTotal > 0 ? Math.ceil(nextTotal / pageSize) - 1 : -1;
+            for (const existingPageIndex of next.keys()) {
+              if (existingPageIndex > maxPageIndex) {
+                next.delete(existingPageIndex);
+              }
+            }
+          }
+
           return next;
         });
 
@@ -224,10 +277,15 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
         return results;
       } finally {
         // Clear fetching state
-        requiredPages.forEach((p) => fetchingPages.current.delete(p));
+        requestedPages.forEach((pageIndex) =>
+          fetchingPages.current.delete(pageIndex),
+        );
+        setPendingRequest((current) =>
+          current?.id === request.id ? null : current,
+        );
       }
     },
-    enabled: enabled && pendingRange !== null,
+    enabled: enabled && pendingRequest !== null,
     staleTime: 0, // Always refetch - our local `pages` Map is the real cache
     gcTime: 0, // Don't keep old results in memory
   });
@@ -289,8 +347,18 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
       }
 
       // Always trigger network fetch so data stays fresh
-      setPendingRange({ start: paddedStart, end: paddedEnd });
+      queuePageRequest(requiredPages, true);
     });
+  };
+
+  const refresh = () => {
+    const loadedPageIndexes = normalizePageIndexes(
+      Array.from(pagesRef.current.keys()),
+    );
+    queuePageRequest(
+      loadedPageIndexes.length > 0 ? loadedPageIndexes : [0],
+      true,
+    );
   };
 
   // Reset all cached data and refetch from the beginning
@@ -300,12 +368,16 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     setTotalCount(0);
     setHasLoadedOnce(false);
     fetchingPages.current.clear();
+    setPendingRequest(null);
     // Clear content cache for this query key
     void clearCachedPages(queryKey);
-    // Increment reset counter to change query key, ensuring a fresh fetch
-    setResetCounter((c) => c + 1);
     // Trigger a refetch of the first page
-    setPendingRange({ start: 0, end: pageSize - 1 });
+    requestIdRef.current += 1;
+    setPendingRequest({
+      id: requestIdRef.current,
+      pageIndexes: [0],
+      forceRefresh: true,
+    });
   };
 
   // Build flat items array from loaded pages
@@ -343,7 +415,12 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
           setHasLoadedOnce(true);
         }
         // Always trigger network fetch for fresh data
-        setPendingRange({ start: 0, end: pageSize - 1 });
+        requestIdRef.current += 1;
+        setPendingRequest({
+          id: requestIdRef.current,
+          pageIndexes: [0],
+          forceRefresh: true,
+        });
       });
     }
   }, [enabled, hasLoadedOnce, pages.size, pageSize, queryKey]);
@@ -354,6 +431,7 @@ export function useSparsePagination<T, TMeta = Record<string, never>>({
     isLoading: !hasLoadedOnce,
     isFetching,
     ensureRange,
+    refresh,
     metadata,
     reset,
   };

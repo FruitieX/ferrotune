@@ -60,6 +60,7 @@ interface ShareState {
 interface EditPlaylistDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onPlaylistUpdated?: () => void;
   playlist: {
     id: string;
     name: string;
@@ -71,6 +72,7 @@ interface EditPlaylistDialogProps {
 export function EditPlaylistDialog({
   open,
   onOpenChange,
+  onPlaylistUpdated,
   playlist,
   isOwner = true,
 }: EditPlaylistDialogProps) {
@@ -173,6 +175,7 @@ export function EditPlaylistDialog({
       queryClient.invalidateQueries({
         queryKey: ["playlistShares", playlist?.id],
       });
+      onPlaylistUpdated?.();
       onOpenChange(false);
     },
     onError: (error) => {
@@ -197,6 +200,7 @@ export function EditPlaylistDialog({
       queryClient.invalidateQueries({
         queryKey: ["playlistShares", playlist?.id],
       });
+      onPlaylistUpdated?.();
       setTransferDialogOpen(false);
       setTransferTargetUser(null);
       onOpenChange(false);
@@ -234,7 +238,7 @@ export function EditPlaylistDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-[480px]">
+        <DialogContent className="sm:max-w-120">
           <form onSubmit={handleSubmit}>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
@@ -332,7 +336,7 @@ export function EditPlaylistDialog({
                             Share with user
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="p-0 w-[200px]" align="start">
+                        <PopoverContent className="p-0 w-50" align="start">
                           <Command>
                             <CommandInput placeholder="Search users..." />
                             <CommandList>
@@ -393,7 +397,7 @@ export function EditPlaylistDialog({
                               : "Select user..."}
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="p-0 w-[200px]" align="start">
+                        <PopoverContent className="p-0 w-50" align="start">
                           <Command>
                             <CommandInput placeholder="Search users..." />
                             <CommandList>

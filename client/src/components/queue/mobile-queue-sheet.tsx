@@ -17,6 +17,7 @@ import {
   Trash2,
   X,
   Disc3,
+  Radio,
   User,
   ListMusic as PlaylistIcon,
   Music2,
@@ -27,6 +28,7 @@ import {
   ListStart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getQueueSourceHref } from "@/lib/utils/source-links";
 import {
   cleanUpHistoryState,
   isHistoryCleanup,
@@ -41,7 +43,6 @@ import {
   serverQueueStateAtom,
   isQueueLoadingAtom,
   clearQueueAtom,
-  type QueueSourceType,
 } from "@/lib/store/server-queue";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,13 +51,6 @@ import {
 } from "@/components/queue/virtualized-queue-display";
 
 const SHEET_WIDTH = 400; // px
-
-// Queue source info type for display
-interface QueueSourceInfo {
-  type: QueueSourceType | string;
-  id?: string | null;
-  name?: string | null;
-}
 
 // Queue source icon component - renders the appropriate icon based on source type
 function QueueSourceIcon({
@@ -75,6 +69,8 @@ function QueueSourceIcon({
       return <User className={className} />;
     case "playlist":
       return <PlaylistIcon className={className} />;
+    case "songRadio":
+      return <Radio className={className} />;
     case "genre":
       return <Music2 className={className} />;
     case "search":
@@ -85,24 +81,6 @@ function QueueSourceIcon({
       return <History className={className} />;
     default:
       return <ListMusic className={className} />;
-  }
-}
-
-// Get link for queue source (if navigable)
-function getQueueSourceLink(source: QueueSourceInfo): string | null {
-  switch (source.type) {
-    case "album":
-      return source.id ? `/library/albums/details?id=${source.id}` : null;
-    case "artist":
-      return source.id ? `/library/artists/details?id=${source.id}` : null;
-    case "playlist":
-      return source.id ? `/playlists/details?id=${source.id}` : null;
-    case "genre":
-      return source.name
-        ? `/library/genres/details?name=${encodeURIComponent(source.name)}`
-        : null;
-    default:
-      return null;
   }
 }
 
@@ -121,7 +99,7 @@ function QueueSourceDisplay({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   const queueSource = queueState.source;
-  const link = getQueueSourceLink(queueSource);
+  const link = getQueueSourceHref(queueSource);
 
   const content = (
     <div className="flex items-center gap-2 text-muted-foreground text-sm">
@@ -209,8 +187,6 @@ export function MobileQueueSheet() {
 
   // Track if we're in the middle of a gesture-based close animation
   const [isClosingViaGesture, setIsClosingViaGesture] = useState(false);
-  // Track if closing animation has completed (for pointer-events)
-  const [closeAnimationComplete, setCloseAnimationComplete] = useState(false);
   // Track if we're currently dragging (to control backdrop opacity source)
   const [isDragging, setIsDragging] = useState(false);
 
@@ -285,8 +261,8 @@ export function MobileQueueSheet() {
     window.history.pushState({ queuePanel: true }, "");
     pushedHistoryRef.current = true;
 
-    const handlePopState = () => {
-      if (isHistoryCleanup()) return;
+    const handlePopState = (event: PopStateEvent) => {
+      if (isHistoryCleanup(event)) return;
       closedViaPopstateRef.current = true;
       setIsOpen(false);
     };
@@ -326,8 +302,6 @@ export function MobileQueueSheet() {
     if (shouldClose) {
       // Mark that we're closing via gesture so exit animation is skipped
       setIsClosingViaGesture(true);
-      // Mark animation complete immediately to allow tap-through
-      setCloseAnimationComplete(true);
       // Animate off-screen then close - use window width to ensure fully offscreen
       const targetX =
         typeof window !== "undefined" ? window.innerWidth : SHEET_WIDTH;
@@ -342,7 +316,6 @@ export function MobileQueueSheet() {
       setTimeout(() => {
         setIsOpen(false);
         setIsClosingViaGesture(false);
-        setCloseAnimationComplete(false);
         dragX.set(0);
       }, animDuration + 50); // Add buffer to ensure gesture is fully complete
     } else {
@@ -385,9 +358,10 @@ export function MobileQueueSheet() {
               // Only use motion value during drag, otherwise let framer handle opacity
               opacity:
                 isDragging || isClosingViaGesture ? backdropOpacity : undefined,
-              // Disable pointer events during close animation and exit animation
-              pointerEvents:
-                closeAnimationComplete || !isOpen ? "none" : "auto",
+              // Only the post-close exit render should be click-through.
+              // While a swipe-close animation is still running, keep this layer
+              // interactive so the gesture cannot leak into the fullscreen view.
+              pointerEvents: isOpen ? "auto" : "none",
             }}
             className="fixed inset-0 z-[60] bg-black/50"
             onClick={() => setIsOpen(false)}
@@ -418,8 +392,7 @@ export function MobileQueueSheet() {
               // to avoid NaN from percentage-based initial values interacting with useTransform.
               opacity:
                 isDragging || isClosingViaGesture ? sheetOpacity : undefined,
-              pointerEvents:
-                closeAnimationComplete || !isOpen ? "none" : "auto",
+              pointerEvents: isOpen ? "auto" : "none",
             }}
             drag="x"
             dragConstraints={{ left: 0, right: 0 }}

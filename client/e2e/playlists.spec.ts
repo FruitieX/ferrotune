@@ -113,4 +113,52 @@ test.describe("Playlists", () => {
       ).toBeVisible({ timeout: 3000 });
     }
   });
+
+  test("playlist detail refreshes after editing metadata", async ({
+    authenticatedPage: page,
+  }) => {
+    const playlistName = `Playlist Refresh ${Date.now()}`;
+    const updatedPlaylistName = `${playlistName} Updated`;
+
+    await page.goto("/playlists");
+
+    const newButton = page.getByRole("button", { name: /new/i });
+    await expect(newButton).toBeVisible({ timeout: 10000 });
+    await newButton.click();
+    await page.getByRole("menuitem", { name: /^playlist$/i }).click();
+
+    const createDialog = page.getByRole("dialog");
+    await expect(createDialog).toBeVisible({ timeout: 5000 });
+    await createDialog.getByRole("textbox").fill(playlistName);
+    await createDialog.getByRole("button", { name: /create|save/i }).click();
+    await expect(createDialog).not.toBeVisible({ timeout: 5000 });
+
+    const playlistLink = page
+      .locator("a")
+      .filter({ hasText: playlistName })
+      .first();
+    await expect(playlistLink).toBeVisible({ timeout: 10000 });
+    await playlistLink.click();
+
+    await expect(page).toHaveURL(/\/playlists\/details\?id=/);
+    await expect(
+      page.getByRole("heading", { name: playlistName, exact: true }),
+    ).toBeVisible({ timeout: 10000 });
+
+    await page
+      .locator('main [data-slot="dropdown-menu-trigger"]')
+      .last()
+      .click();
+    await page.getByRole("menuitem", { name: /edit playlist/i }).click();
+
+    const editDialog = page.getByRole("dialog");
+    await expect(editDialog).toBeVisible({ timeout: 5000 });
+    await editDialog.getByLabel("Name").fill(updatedPlaylistName);
+    await editDialog.getByRole("button", { name: /^save$/i }).click();
+    await expect(editDialog).not.toBeVisible({ timeout: 10000 });
+
+    await expect(
+      page.getByRole("heading", { name: updatedPlaylistName, exact: true }),
+    ).toBeVisible({ timeout: 10000 });
+  });
 });
