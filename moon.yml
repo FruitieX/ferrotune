@@ -183,8 +183,6 @@ tasks:
       - 'scripts/generate-ts-bindings.sh'
     outputs:
       - 'client/src/lib/api/generated/**/*'
-    options:
-      runInCI: false
 
   # ============================================================================
   # CODE QUALITY

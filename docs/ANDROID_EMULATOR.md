@@ -33,22 +33,18 @@ bash scripts/android-emulator-smoke.sh
 That wrapper will:
 
 1. wait for an attached emulator/device
-2. build and deploy the debug Android app
+2. rebuild and reinstall the debug Android app
 3. run the Playwright Android smoke spec via Moon
 
 ## Direct Moon task
 
-If the debug app is already deployed, you can skip redeploying and run the Playwright smoke test directly:
-
-```bash
-FERROTUNE_ANDROID_SKIP_DEPLOY=1 bash scripts/android-emulator-smoke.sh
-```
-
-Or invoke the Moon task yourself:
+Invoke the Moon task directly:
 
 ```bash
 moon run client:test-android-emulator
 ```
+
+That task always rebuilds and reinstalls the debug Android app before running Playwright, so it does not rely on whatever APK is already present on the device.
 
 ## Device selection
 
