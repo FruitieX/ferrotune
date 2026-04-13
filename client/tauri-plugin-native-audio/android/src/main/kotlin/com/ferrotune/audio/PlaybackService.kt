@@ -188,6 +188,8 @@ class PlaybackService : MediaSessionService() {
     private var networkRetryCount = 0
     private val MAX_NETWORK_RETRIES = 2
     private val NETWORK_RETRY_DELAY_MS = 1500L
+    private var pendingNetworkRetryRunnable: Runnable? = null
+    private var pendingNetworkRetryTrackId: String? = null
 
     // SSE remote control
     private var sseConnected = false
@@ -590,6 +592,7 @@ class PlaybackService : MediaSessionService() {
         handler.removeCallbacks(inactivityTimeoutRunnable)
         handler.removeCallbacks(positionSyncRunnable)
         handler.removeCallbacks(preApplyGainRunnable)
+        clearPendingNetworkRetry("service destroy")
         sseReconnectRunnable?.let { handler.removeCallbacks(it) }
         apiClient.disconnectSSE()
         replayGainProcessor.setClippingCallback(null)
@@ -676,6 +679,7 @@ class PlaybackService : MediaSessionService() {
 
     fun stop() {
         Log.d(TAG, "stop()")
+        clearPendingNetworkRetry("stop")
         player.stop()
         player.clearMediaItems()
         currentTrack = null
@@ -693,6 +697,7 @@ class PlaybackService : MediaSessionService() {
 
     fun seek(positionMs: Long) {
         Log.d(TAG, "seek($positionMs) transcoding=${playbackSettings.transcodingEnabled}")
+        clearPendingNetworkRetry("seek")
 
         if (playbackSettings.transcodingEnabled && currentTrack != null) {
             // Transcoded streams don't support HTTP Range requests, so we reload
@@ -913,6 +918,7 @@ class PlaybackService : MediaSessionService() {
         Log.d(TAG, "startPlayback(total=$totalCount, index=$currentIndex, " +
             "shuffled=$isShuffled, repeat=$repeatMode, play=$playWhenReady, sessionId=$sessionId, " +
             "sourceType=$sourceType, sourceId=$sourceId)")
+        clearPendingNetworkRetry("startPlayback")
 
         if (playWhenReady) {
             clearAudioOutputLossPause("startPlayback(playWhenReady=true)")
@@ -989,11 +995,11 @@ class PlaybackService : MediaSessionService() {
         startPositionMs: Long,
         playWhenReady: Boolean,
     ) {
+        clearPendingNetworkRetry("queue window reload")
         val effectivePlayWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
             playWhenReady,
             "queue window load target=$targetIndex"
         )
-
         serverTotalCount = response.totalCount
         this.isShuffled = response.isShuffled
         this.repeatMode = response.repeatMode
@@ -1152,6 +1158,7 @@ class PlaybackService : MediaSessionService() {
     private fun autonomousSkipNext() {
         seekTimeOffsetMs = 0
         Log.d(TAG, "autonomousSkipNext: serverIndex=$serverQueueIndex, total=$serverTotalCount")
+        clearPendingNetworkRetry("autonomousSkipNext")
         if (pausedForAudioOutputLoss) {
             Log.i(TAG, "Suppressing automatic skip next after audio-output loss")
             return
@@ -1226,6 +1233,7 @@ class PlaybackService : MediaSessionService() {
      */
     private fun autonomousSkipPrevious() {
         Log.d(TAG, "autonomousSkipPrevious: serverIndex=$serverQueueIndex, pos=${player.currentPosition}")
+        clearPendingNetworkRetry("autonomousSkipPrevious")
         if (pausedForAudioOutputLoss) {
             Log.i(TAG, "Suppressing automatic skip previous after audio-output loss")
             return
@@ -1639,6 +1647,124 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private fun clearPendingNetworkRetry(reason: String) {
+        pendingNetworkRetryRunnable?.let {
+            handler.removeCallbacks(it)
+            Log.d(
+                TAG,
+                "Cleared pending network retry for ${pendingNetworkRetryTrackId ?: "unknown"}: $reason"
+            )
+        }
+        pendingNetworkRetryRunnable = null
+        pendingNetworkRetryTrackId = null
+    }
+
+    private fun scheduleNetworkRetry(
+        trackAtError: TrackInfo,
+        queueIndexAtError: Int,
+        mediaIdAtError: String?,
+        positionMsAtError: Long,
+    ) {
+        clearPendingNetworkRetry("reschedule for ${trackAtError.id}")
+
+        val retryRunnable = object : Runnable {
+            override fun run() {
+                if (pendingNetworkRetryRunnable !== this) {
+                    return
+                }
+
+                pendingNetworkRetryRunnable = null
+                pendingNetworkRetryTrackId = null
+
+                val track = currentTrack ?: return
+                val currentMediaId = player.currentMediaItem?.mediaId
+
+                if ((mediaIdAtError != null && currentMediaId != null && currentMediaId != mediaIdAtError) ||
+                    track.id != trackAtError.id ||
+                    serverQueueIndex != queueIndexAtError
+                ) {
+                    Log.d(
+                        TAG,
+                        "Skipping stale network retry for ${trackAtError.id}; " +
+                            "currentMediaId=$currentMediaId currentTrack=${track.id} currentQueueIndex=$serverQueueIndex"
+                    )
+                    return
+                }
+
+                val retryPlayWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
+                    true,
+                    "network retry for ${track.id}"
+                )
+
+                if (playbackSettings.transcodingEnabled) {
+                    // For transcoded streams, rebuild URL with the furthest
+                    // known playback position so a transient player reset at
+                    // the track boundary does not reopen the current item from 0.
+                    val livePositionMs = getAbsolutePlaybackPositionMs()
+                    val retryPositionMs = maxOf(
+                        livePositionMs,
+                        positionMsAtError,
+                        lastKnownGoodPositionMs,
+                    )
+                    if (lastKnownGoodPositionMs > maxOf(livePositionMs, positionMsAtError)) {
+                        Log.d(
+                            TAG,
+                            "Network retry: using lastKnownGoodPositionMs=$lastKnownGoodPositionMs " +
+                                "over livePositionMs=$livePositionMs and errorPositionMs=$positionMsAtError"
+                        )
+                    }
+                    if (shouldAdvanceInsteadOfRetryOnNetworkError(track, retryPositionMs)) {
+                        Log.d(
+                            TAG,
+                            "Network retry reached track end for ${track.id} at ${retryPositionMs}ms; advancing instead"
+                        )
+                        autonomousSkipNext()
+                        return
+                    }
+
+                    val timeOffsetSeconds = retryPositionMs / 1000
+                    seekTimeOffsetMs = retryPositionMs
+                    lastKnownGoodPositionMs = retryPositionMs
+                    val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
+
+                    val metadataBuilder = MediaMetadata.Builder()
+                        .setTitle(track.title)
+                        .setArtist(track.artist)
+                        .setAlbumTitle(track.album)
+                        .setDurationMs(track.durationMs)
+                    if (track.coverArtUrl != null) {
+                        metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
+                    }
+
+                    val newMediaItem = MediaItem.Builder()
+                        .setMediaId(track.id)
+                        .setUri(Uri.parse(newUrl))
+                        .setMediaMetadata(metadataBuilder.build())
+                        .build()
+
+                    val currentIndex = player.currentMediaItemIndex
+                    player.replaceMediaItem(currentIndex, newMediaItem)
+                    player.seekTo(currentIndex, 0)
+                    player.playWhenReady = retryPlayWhenReady
+                    player.prepare()
+                    Log.d(
+                        TAG,
+                        "Network retry: reloaded transcoded stream at offset ${timeOffsetSeconds}s " +
+                            "for ${track.id} (retryPositionMs=$retryPositionMs, errorPositionMs=$positionMsAtError)"
+                    )
+                } else {
+                    // For non-transcoded streams, just re-prepare at the current position
+                    player.playWhenReady = retryPlayWhenReady
+                    player.prepare()
+                    Log.d(TAG, "Network retry: re-prepared non-transcoded stream")
+                }
+            }
+        }
+
+        pendingNetworkRetryRunnable = retryRunnable
+        pendingNetworkRetryTrackId = trackAtError.id
+        handler.postDelayed(retryRunnable, NETWORK_RETRY_DELAY_MS)
+    }
     private fun shouldAdvanceInsteadOfRetryOnNetworkError(
         track: TrackInfo,
         absolutePositionMs: Long,
@@ -1666,6 +1792,7 @@ class PlaybackService : MediaSessionService() {
     fun playAtIndex(index: Int) {
         Log.d(TAG, "playAtIndex($index): serverTotal=$serverTotalCount")
         clearAudioOutputLossPause("explicit playAtIndex()")
+        clearPendingNetworkRetry("playAtIndex")
         if (index < 0) {
             Log.w(TAG, "playAtIndex: negative index $index")
             return
@@ -2270,6 +2397,7 @@ class PlaybackService : MediaSessionService() {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             Log.d(TAG, "onMediaItemTransition: ${mediaItem?.mediaId}, reason: $reason, exoIndex: ${player.currentMediaItemIndex}")
+            clearPendingNetworkRetry("media item transition")
 
             // Reset network retry counter on track change
             networkRetryCount = 0
@@ -2333,90 +2461,12 @@ class PlaybackService : MediaSessionService() {
                     "Network error retry $networkRetryCount/$MAX_NETWORK_RETRIES for track ${trackAtError.id} " +
                         "at ${positionMsAtError}ms (queueIndex=$queueIndexAtError, transcoding=${playbackSettings.transcodingEnabled})"
                 )
-                handler.postDelayed({
-                    val track = currentTrack ?: return@postDelayed
-                    val currentMediaId = player.currentMediaItem?.mediaId
-
-                    if ((mediaIdAtError != null && currentMediaId != null && currentMediaId != mediaIdAtError) ||
-                        track.id != trackAtError.id ||
-                        serverQueueIndex != queueIndexAtError
-                    ) {
-                        Log.d(
-                            TAG,
-                            "Skipping stale network retry for ${trackAtError.id}; " +
-                                "currentMediaId=$currentMediaId currentTrack=${track.id} currentQueueIndex=$serverQueueIndex"
-                        )
-                        return@postDelayed
-                    }
-
-                    val retryPlayWhenReady = shouldStartPlaybackAfterAudioOutputLoss(
-                        true,
-                        "network retry for ${track.id}"
-                    )
-
-                    if (playbackSettings.transcodingEnabled) {
-                        // For transcoded streams, rebuild URL with the furthest
-                        // known playback position so a transient player reset at
-                        // the track boundary does not reopen the current item from 0.
-                        val livePositionMs = getAbsolutePlaybackPositionMs()
-                        val retryPositionMs = maxOf(
-                            livePositionMs,
-                            positionMsAtError,
-                            lastKnownGoodPositionMs,
-                        )
-                        if (lastKnownGoodPositionMs > maxOf(livePositionMs, positionMsAtError)) {
-                            Log.d(
-                                TAG,
-                                "Network retry: using lastKnownGoodPositionMs=$lastKnownGoodPositionMs " +
-                                    "over livePositionMs=$livePositionMs and errorPositionMs=$positionMsAtError"
-                            )
-                        }
-                        if (shouldAdvanceInsteadOfRetryOnNetworkError(track, retryPositionMs)) {
-                            Log.d(
-                                TAG,
-                                "Network retry reached track end for ${track.id} at ${retryPositionMs}ms; advancing instead"
-                            )
-                            autonomousSkipNext()
-                            return@postDelayed
-                        }
-
-                        val timeOffsetSeconds = retryPositionMs / 1000
-                        seekTimeOffsetMs = retryPositionMs
-                        lastKnownGoodPositionMs = retryPositionMs
-                        val newUrl = apiClient.buildStreamUrl(track.id, playbackSettings, timeOffsetSeconds)
-
-                        val metadataBuilder = MediaMetadata.Builder()
-                            .setTitle(track.title)
-                            .setArtist(track.artist)
-                            .setAlbumTitle(track.album)
-                            .setDurationMs(track.durationMs)
-                        if (track.coverArtUrl != null) {
-                            metadataBuilder.setArtworkUri(Uri.parse(track.coverArtUrl))
-                        }
-
-                        val newMediaItem = MediaItem.Builder()
-                            .setMediaId(track.id)
-                            .setUri(Uri.parse(newUrl))
-                            .setMediaMetadata(metadataBuilder.build())
-                            .build()
-
-                        val currentIndex = player.currentMediaItemIndex
-                        player.replaceMediaItem(currentIndex, newMediaItem)
-                        player.seekTo(currentIndex, 0)
-                        player.playWhenReady = retryPlayWhenReady
-                        player.prepare()
-                        Log.d(
-                            TAG,
-                            "Network retry: reloaded transcoded stream at offset ${timeOffsetSeconds}s " +
-                                "for ${track.id} (retryPositionMs=$retryPositionMs, errorPositionMs=$positionMsAtError)"
-                        )
-                    } else {
-                        // For non-transcoded streams, just re-prepare at the current position
-                        player.playWhenReady = retryPlayWhenReady
-                        player.prepare()
-                        Log.d(TAG, "Network retry: re-prepared non-transcoded stream")
-                    }
-                }, NETWORK_RETRY_DELAY_MS)
+                scheduleNetworkRetry(
+                    trackAtError,
+                    queueIndexAtError,
+                    mediaIdAtError,
+                    positionMsAtError,
+                )
                 return
             }
 

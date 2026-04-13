@@ -86,6 +86,7 @@ tasks:
     deps:
       - "install"
       - "build-native-audio-api"
+      - "ferrotune:generate-bindings"
 
   build-export:
     command: "pnpm run build"
@@ -97,6 +98,7 @@ tasks:
     deps:
       - "install"
       - "build-native-audio-api"
+      - "ferrotune:generate-bindings"
     env:
       NEXT_OUTPUT_STATIC: "1"
 
@@ -123,6 +125,7 @@ tasks:
     deps:
       - "install"
       - "build-native-audio-api"
+      - "ferrotune:generate-bindings"
 
   fmt:
     command: "pnpm exec prettier --write ."
@@ -232,6 +235,7 @@ tasks:
     deps:
       - "install"
       - "playwright-install"
+      - "tauri-android-deploy-debug"
       - "ferrotune:build"
       - "ferrotune:generate-fixtures"
     env:

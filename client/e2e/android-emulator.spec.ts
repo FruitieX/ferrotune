@@ -283,7 +283,6 @@ async function getDisplayedCurrentTime(page: Page): Promise<number> {
     Number.parseInt(parts[1] ?? "0", 10)
   );
 }
-
 test.describe.serial("Android Emulator Smoke", () => {
   test("queue item play button advances playback on Android", async ({
     server,
@@ -298,7 +297,7 @@ test.describe.serial("Android Emulator Smoke", () => {
 
     if (!fs.existsSync(DEBUG_APK_PATH)) {
       throw new Error(
-        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:tauri-android-deploy-debug first.`,
+        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:test-android-emulator or moon run client:tauri-android-deploy-debug first.`,
       );
     }
 
@@ -523,7 +522,7 @@ test.describe.serial("Android Emulator Smoke", () => {
 
     if (!fs.existsSync(DEBUG_APK_PATH)) {
       throw new Error(
-        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:tauri-android-deploy-debug first.`,
+        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:test-android-emulator or moon run client:tauri-android-deploy-debug first.`,
       );
     }
 
@@ -601,7 +600,7 @@ test.describe.serial("Android Emulator Smoke", () => {
 
     if (!fs.existsSync(DEBUG_APK_PATH)) {
       throw new Error(
-        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:tauri-android-deploy-debug first.`,
+        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:test-android-emulator or moon run client:tauri-android-deploy-debug first.`,
       );
     }
 
@@ -625,36 +624,66 @@ test.describe.serial("Android Emulator Smoke", () => {
 
       await expect
         .poll(
-          async () =>
-            (await readLatestSessionExport(device))?.transcoding ?? false,
+          async () => {
+            const logs = (
+              await device.shell(
+                "logcat -d -s PlaybackService:V NativeAudioPlugin:V",
+              )
+            ).toString("utf-8");
+
+            return logs.includes("transcodingEnabled=true");
+          },
           {
             timeout: 15000,
             message:
-              "Expected PlaybackService to export transcoded session state before backgrounding",
+              "Expected PlaybackService to receive transcodingEnabled=true before backgrounding",
           },
         )
         .toBe(true);
 
-      const initialExport = await readLatestSessionExport(device);
-      if (!initialExport) {
-        throw new Error(
-          "PlaybackService did not emit an initial session export before background playback",
-        );
-      }
+      await expect
+        .poll(
+          async () => {
+            const logs = (
+              await device.shell("logcat -d -s PlaybackService:V")
+            ).toString("utf-8");
+
+            return countOccurrences(logs, "onMediaItemTransition:");
+          },
+          {
+            timeout: 15000,
+            message:
+              "Expected PlaybackService to emit an initial media-item transition after playback starts",
+          },
+        )
+        .toBeGreaterThan(0);
+
+      const initialTransitionLogs = (
+        await device.shell("logcat -d -s PlaybackService:V")
+      ).toString("utf-8");
+      const initialTransitionCount = countOccurrences(
+        initialTransitionLogs,
+        "onMediaItemTransition:",
+      );
 
       await device.shell("input keyevent 3");
 
       await expect
         .poll(
-          async () =>
-            (await readLatestSessionExport(device))?.currentIndex ?? -1,
+          async () => {
+            const logs = (
+              await device.shell("logcat -d -s PlaybackService:V")
+            ).toString("utf-8");
+
+            return countOccurrences(logs, "onMediaItemTransition:");
+          },
           {
             timeout: 120000,
             message:
-              "Expected background transcoded playback to advance to a later queue item",
+              "Expected background transcoded playback to emit another native media-item transition",
           },
         )
-        .toBeGreaterThan(initialExport.currentIndex);
+        .toBeGreaterThan(initialTransitionCount);
 
       page = await resumeAndroidApp(device);
 
@@ -709,7 +738,7 @@ test.describe.serial("Android Emulator Smoke", () => {
 
     if (!fs.existsSync(DEBUG_APK_PATH)) {
       throw new Error(
-        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:tauri-android-deploy-debug first.`,
+        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:test-android-emulator or moon run client:tauri-android-deploy-debug first.`,
       );
     }
 
@@ -790,7 +819,7 @@ test.describe.serial("Android Emulator Smoke", () => {
 
     if (!fs.existsSync(DEBUG_APK_PATH)) {
       throw new Error(
-        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:tauri-android-deploy-debug first.`,
+        `Debug APK not found at ${DEBUG_APK_PATH}. Run moon run client:test-android-emulator or moon run client:tauri-android-deploy-debug first.`,
       );
     }
 
